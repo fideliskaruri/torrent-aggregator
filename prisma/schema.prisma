@@ -1,0 +1,251 @@
+// Prisma schema for Torrent Aggregator
+// SQLite for portability; switch provider to postgresql for production scale
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── Auth.js / NextAuth models ───────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts       Account[]
+  sessions       Session[]
+  watchList      WatchListItem[]
+  clientSettings ClientSettings?
+  downloadHistory DownloadHistory[]
+  autoRules      AutoRule[]
+  grabJobs       GrabJob[]
+  engineTorrents EngineTorrent[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── App domain models ───────────────────────────────────────────────────────
+
+model WatchListItem {
+  id                  String    @id @default(cuid())
+  userId              String
+  mediaType           String // anime | movie | tv
+  externalId          String // AniList id or TMDB id
+  title               String
+  posterUrl           String?
+  synopsis            String?
+  rating              Float?
+  status              String    @default("watching") // watching | planned | completed | dropped
+  /// When true, automation hunts next episode / release for this item
+  monitored           Boolean   @default(true)
+  lastChecked         DateTime  @default(now())
+  lastEpisode         String? // e.g. "S01E05" — last successfully grabbed
+  /// Library aggregator: user starts monitoring from this season (TV/anime)
+  fromSeason          Int?
+  fromEpisode         Int?      @default(1)
+  /// Next episode automation / Download next should hunt (not rewound by off-cursor rewatch)
+  cursorSeason        Int?
+  cursorEpisode       Int?
+  /// ongoing | catchup | on_demand
+  monitorMode         String    @default("ongoing")
+  latestReleaseTitle  String?
+  latestReleaseAt     DateTime?
+  latestReleaseMagnet String?
+  nextEpisodeHint     String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, mediaType, externalId])
+  @@index([userId])
+}
+
+/// Automation grab attempt (rules / library hunt / manual)
+model GrabJob {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  query      String
+  status     String // queued | searching | sent | failed | skipped
+  message    String?
+  magnet     String?
+  infoHash   String?
+  source     String?
+  savePath   String?
+  category   String?
+  kind       String? // rule | library | manual
+  externalId String? // watchlist item id or rule id
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, status])
+}
+
+model CachedMetadata {
+  id          String   @id @default(cuid())
+  cacheKey    String   @unique
+  source      String // anilist | tmdb
+  mediaType   String // anime | movie | tv
+  externalId  String
+  title       String
+  posterUrl   String?
+  backdropUrl String?
+  synopsis    String?
+  rating      Float?
+  year        Int?
+  genres      String?
+  rawJson     String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([source, externalId])
+  @@index([expiresAt])
+}
+
+model ClientSettings {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  /// Active download client for Send + Client page. Default: builtin (one-app).
+  /// qbittorrent | transmission only if user deliberately makes external primary.
+  clientType String   @default("builtin")
+  /// Optional secondary client for "Send / move to my client" while primary stays builtin.
+  /// qbittorrent | transmission | null. host/username/password apply to this when set.
+  externalClientType String?
+  host       String   @default("http://127.0.0.1:8080")
+  username   String?
+  password   String? // AES-GCM encrypted when ENCRYPTION_KEY / AUTH_SECRET present
+  category   String? // default category / label applied on send
+  savePath   String? // default download directory
+  /// Base folder; when set, missing pathRules resolve to base/Category
+  baseDownloadPath String?
+  /// Cap on total size under baseDownloadPath (bytes). Null = default 100GB cap.
+  /// Enforced automatically on every send / automation / on-demand grab.
+  maxStorageBytes BigInt?
+  /// JSON string[] — quick-pick category chips in UI
+  categories String?
+  /// JSON Record<string,string> — category name → download folder
+  pathRules  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Durable state for the built-in BitTorrent engine (survives process restart).
+model EngineTorrent {
+  id        String   @id @default(cuid())
+  userId    String
+  hash      String
+  name      String
+  magnet    String?
+  savePath  String?
+  category  String?
+  status    String   @default("downloading") // downloading | seeding | paused | error | removed
+  progress  Float    @default(0)
+  sizeBytes BigInt   @default(0)
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hash])
+  @@index([userId, status])
+}
+
+model DownloadHistory {
+  id         String   @id @default(cuid())
+  userId     String
+  title      String
+  magnet     String?
+  torrentUrl String?
+  infoHash   String?
+  source     String?
+  status     String // sent | failed
+  message    String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model AutoRule {
+  id              String    @id @default(cuid())
+  userId          String
+  name            String
+  query           String
+  category        String    @default("all")
+  minSeeders      Int       @default(10)
+  maxSizeBytes    BigInt?
+  resolution      String? // 1080p | 720p | 2160p
+  sources         String? // comma-separated source ids
+  enabled         Boolean   @default(true)
+  lastRunAt       DateTime?
+  lastMatchTitle  String?
+  lastMatchMagnet String?
+  matchCount      Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, enabled])
+}
+
+model SearchCache {
+  id        String   @id @default(cuid())
+  cacheKey  String   @unique
+  payload   String // JSON SearchResponse
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}

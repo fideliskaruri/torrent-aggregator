@@ -1,0 +1,129 @@
+import type {
+  SearchOptions,
+  TorrentResult,
+  TorrentSourceAdapter,
+} from "../types";
+import { extractTags } from "../ranking";
+
+const BASE = process.env.YTS_BASE_URL ?? "https://yts.mx/api/v2";
+
+/**
+ * YTS public JSON API — movies only, no API key.
+ */
+export class YtsAdapter implements TorrentSourceAdapter {
+  readonly id = "yts" as const;
+  readonly name = "YTS";
+
+  async search(options: SearchOptions): Promise<TorrentResult[]> {
+    const category = options.category ?? "all";
+    if (category !== "all" && category !== "movies") {
+      return [];
+    }
+
+    const q = options.query.trim();
+    if (!q) return [];
+
+    const url = new URL(`${BASE}/list_movies.json`);
+    url.searchParams.set("query_term", q);
+    url.searchParams.set("limit", String(Math.min(options.limit ?? 20, 50)));
+    url.searchParams.set("sort_by", "seeds");
+
+    const res = await fetch(url, {
+      headers: { Accept: "application/json", "User-Agent": "TorrentFlow/1.0" },
+      signal: AbortSignal.timeout(12_000),
+      next: { revalidate: 0 },
+    });
+
+    if (!res.ok) {
+      throw new Error(`YTS HTTP ${res.status}`);
+    }
+
+    const json = (await res.json()) as {
+      data?: { movies?: YtsMovie[] };
+    };
+
+    const movies = json.data?.movies ?? [];
+    const results: TorrentResult[] = [];
+
+    for (const movie of movies) {
+      for (const t of movie.torrents ?? []) {
+        const infoHash = t.hash?.toLowerCase();
+        const title = `${movie.title_long || movie.title} [${t.quality}] [${t.type}] [YTS]`;
+        const magnet = infoHash
+          ? `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(title)}&tr=udp://tracker.opentrackr.org:1337/announce`
+          : undefined;
+
+        results.push({
+          id: `yts-${movie.id}-${t.hash ?? t.quality}`,
+          title,
+          magnet,
+          infoHash,
+          sizeBytes: parseYtsSize(t.size),
+          sizeLabel: t.size,
+          seeders: t.seeds ?? 0,
+          leechers: t.peers ?? 0,
+          category: "movies",
+          source: "yts",
+          sourceUrl: movie.url || `https://yts.mx/movies/${movie.slug}`,
+          publishedAt: t.date_uploaded
+            ? new Date(t.date_uploaded).toISOString()
+            : null,
+          tags: extractTags(title),
+          metadata: movie.medium_cover_image
+            ? {
+                source: "tmdb",
+                mediaType: "movie",
+                externalId: String(movie.imdb_code || movie.id),
+                title: movie.title,
+                posterUrl: movie.medium_cover_image,
+                synopsis: movie.summary || movie.description_full || null,
+                rating: movie.rating ?? null,
+                year: movie.year ?? null,
+                genres: movie.genres ?? [],
+              }
+            : undefined,
+        });
+      }
+    }
+
+    return results.slice(0, options.limit ?? 40);
+  }
+}
+
+interface YtsMovie {
+  id: number;
+  url?: string;
+  title: string;
+  title_long?: string;
+  slug?: string;
+  year?: number;
+  rating?: number;
+  summary?: string;
+  description_full?: string;
+  imdb_code?: string;
+  medium_cover_image?: string;
+  genres?: string[];
+  torrents?: {
+    hash?: string;
+    quality?: string;
+    type?: string;
+    size?: string;
+    seeds?: number;
+    peers?: number;
+    date_uploaded?: string;
+  }[];
+}
+
+function parseYtsSize(size?: string): number | null {
+  if (!size) return null;
+  const m = size.trim().match(/^([\d.]+)\s*(GB|MB|KB)$/i);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  const u = m[2].toUpperCase();
+  if (u === "GB") return Math.round(n * 1e9);
+  if (u === "MB") return Math.round(n * 1e6);
+  if (u === "KB") return Math.round(n * 1e3);
+  return null;
+}
+
+export const ytsAdapter = new YtsAdapter();

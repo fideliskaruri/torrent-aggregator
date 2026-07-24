@@ -1,0 +1,41 @@
+# One-app install: TorrentFlow only (built-in BitTorrent engine).
+# Optional external qBittorrent/Transmission can be configured in Settings later.
+
+services:
+  torrentflow:
+    build: .
+    ports:
+      - "3000:3000"
+      # Optional: better peer connectivity for built-in engine
+      # - "6881:6881"
+      # - "6881:6881/udp"
+    environment:
+      DATABASE_URL: file:./data/prod.db
+      AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
+      AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
+      AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      ENABLE_1337X: ${ENABLE_1337X:-0}
+      # One-app download root (mounted volume)
+      DOWNLOAD_DIR: /downloads
+    volumes:
+      - tf-data:/app/data
+      - tf-downloads:/downloads
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  tf-data:
+  tf-downloads:

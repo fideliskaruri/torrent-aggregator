@@ -1,0 +1,17 @@
+{
+  "name": "TorrentFlow",
+  "short_name": "TorrentFlow",
+  "description": "Aggregate · Enrich · Download",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0c0e",
+  "theme_color": "#e8a54b",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
