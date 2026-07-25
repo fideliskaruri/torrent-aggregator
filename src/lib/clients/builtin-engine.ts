@@ -88,8 +88,8 @@ function withPublicTrackers(uri: string): string {
   return out;
 }
 
-/** Select all files and resume so download actually starts. */
-function ensureDownloading(t: WtTorrent): void {
+/** Select all files so every piece is wanted. Does NOT change pause state. */
+function selectAllFiles(t: WtTorrent): void {
   try {
     if (Array.isArray(t.files)) {
       for (const f of t.files) {
@@ -100,11 +100,40 @@ function ensureDownloading(t: WtTorrent): void {
         }
       }
     }
-    if (t.paused) t.resume();
-    else t.resume(); // no-op if already running; ensures not left paused
   } catch {
     /* best-effort */
   }
+}
+
+/**
+ * Select all files and resume so the download actually starts.
+ *
+ * Only call this from paths where starting is the user's intent (add, explicit
+ * resume, rehydrate of a non-paused row). Never call it from a read path such
+ * as listTorrents: doing so silently un-pauses everything on every poll and
+ * makes pause a no-op.
+ */
+function ensureDownloading(t: WtTorrent): void {
+  selectAllFiles(t);
+  try {
+    t.resume();
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Apply the persisted status to a freshly re-added torrent. */
+function applyPersistedStatus(t: WtTorrent, status: string | null | undefined): void {
+  if (status === "paused") {
+    selectAllFiles(t);
+    try {
+      t.pause();
+    } catch {
+      /* best-effort */
+    }
+    return;
+  }
+  ensureDownloading(t);
 }
 
 type TorrentMeta = {
@@ -155,6 +184,16 @@ async function getWtClient(): Promise<WebTorrentLike> {
     const mod = await import("webtorrent");
     const WebTorrent = (mod as { default?: new () => WebTorrentLike }).default ??
       (mod as unknown as new () => WebTorrentLike);
+    // Must run before any wire connects: WebTorrent's request scheduler throws
+    // on pieces it has already nulled (see webtorrent-piece-race).
+    const { patchWebTorrentPieceRace } = await import(
+      "@/lib/clients/webtorrent-piece-race"
+    );
+    if (!(await patchWebTorrentPieceRace())) {
+      console.warn(
+        "[builtin-engine] could not patch WebTorrent piece race; expect noisy uncaughtException logs",
+      );
+    }
     const client = new WebTorrent();
     s.client = client;
     return client;
@@ -322,7 +361,7 @@ async function rehydrateFromDb(
           });
           t.on("ready", () => {
             const h = t.infoHash?.toLowerCase?.() || hash;
-            ensureDownloading(t);
+            applyPersistedStatus(t, row.status);
             s.meta.set(h, {
               savePath: dest,
               category: row.category ?? undefined,
@@ -359,31 +398,58 @@ async function ensureClientAndRehydrate(
   return client;
 }
 
-function mapTorrent(
+/**
+ * WebTorrent's getters are not total. `get downloaded()` walks `pieces[]` and
+ * dereferences each entry, but the library nulls entries out as pieces verify
+ * and during teardown — so `downloaded`, and `progress`/`timeRemaining` which
+ * call it, can throw `Cannot read properties of null` on a perfectly ordinary
+ * torrent. Reading them bare meant a single wobbly torrent took out the whole
+ * Client page with a 502, and threw from the background persist as an
+ * uncaughtException. Every read of a live torrent goes through here.
+ */
+export function readProp<T>(read: () => T, fallback: T): T {
+  try {
+    const v = read();
+    if (v == null) return fallback;
+    if (typeof v === "number" && !Number.isFinite(v)) return fallback;
+    return v;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Client-facing status for a live torrent, derived defensively. */
+export function torrentStatus(t: WtTorrent): string {
+  if (readProp(() => t.paused, false)) return "paused";
+  if (readProp(() => t.done, false)) return "seeding";
+  const peers = readProp(() => t.numPeers, 0);
+  const progress = readProp(() => t.progress, 0);
+  if (peers === 0 && progress < 1) return "stalledDL";
+  return "downloading";
+}
+
+export function mapTorrent(
   t: WtTorrent,
   extra?: TorrentMeta,
 ): ClientTorrent {
-  let st = "downloading";
-  if (t.paused) st = "paused";
-  else if (t.done) st = "seeding";
-  else if (t.numPeers === 0 && t.progress < 1) st = "stalledDL";
-
+  const st = torrentStatus(t);
+  const remainingMs = readProp(() => t.timeRemaining, 0);
   const eta =
-    t.timeRemaining && t.timeRemaining < 8640000 * 1000
-      ? Math.round(t.timeRemaining / 1000)
+    remainingMs > 0 && remainingMs < 8640000 * 1000
+      ? Math.round(remainingMs / 1000)
       : undefined;
 
   return {
     hash: t.infoHash,
-    name: t.name || extra?.name || t.infoHash,
-    progress: t.progress ?? 0,
-    sizeBytes: t.length ?? 0,
-    dlspeed: t.downloadSpeed ?? 0,
-    upspeed: t.uploadSpeed ?? 0,
+    name: readProp(() => t.name, "") || extra?.name || t.infoHash,
+    progress: readProp(() => t.progress, 0),
+    sizeBytes: readProp(() => t.length, 0),
+    dlspeed: readProp(() => t.downloadSpeed, 0),
+    upspeed: readProp(() => t.uploadSpeed, 0),
     state: st,
     eta,
     category: extra?.category,
-    savePath: extra?.savePath || t.path || null,
+    savePath: extra?.savePath || readProp(() => t.path, "") || null,
   };
 }
 
@@ -466,10 +532,12 @@ function scheduleProgressPersist(
     .updateMany({
       where: { userId: userId.trim(), hash },
       data: {
-        progress: t.progress ?? 0,
-        sizeBytes: BigInt(Math.max(0, Math.floor(t.length ?? 0))),
+        progress: readProp(() => t.progress, 0),
+        sizeBytes: BigInt(
+          Math.max(0, Math.floor(readProp(() => t.length, 0))),
+        ),
         status,
-        name: t.name || undefined,
+        name: readProp(() => t.name, "") || undefined,
       },
     })
     .catch(() => {
@@ -512,7 +580,7 @@ function scheduleReleaseRootFlatten(t: WtTorrent, dest: string): void {
   };
 
   // Prefer post-done so chunk store has released handles
-  if (t.done) {
+  if (readProp(() => t.done, false)) {
     // Defer so destroy/store settles after ready callback returns
     setTimeout(run, 250);
     return;
@@ -600,18 +668,18 @@ export class BuiltinClient implements TorrentClientAdapter {
               magnet: magnetForPersist(payload, addUri, existing),
               savePath: dest,
               category: payload.category,
-              status: existing.done
+              status: readProp(() => existing.done, false)
                 ? "seeding"
                 : "downloading",
-              progress: existing.progress ?? 0,
-              sizeBytes: existing.length ?? 0,
+              progress: readProp(() => existing.progress, 0),
+              sizeBytes: readProp(() => existing.length, 0),
             });
           }
-          const peers = existing.numPeers ?? 0;
-          const pct = Math.round((existing.progress ?? 0) * 100);
+          const peers = readProp(() => existing.numPeers, 0);
+          const pct = Math.round(readProp(() => existing.progress, 0) * 100);
           return {
             ok: true,
-            message: existing.done
+            message: readProp(() => existing.done, false)
               ? `Already complete in built-in engine (${pct}% · ${existing.name || hash.slice(0, 8)})`
               : `Downloading in built-in engine (${pct}% · ${peers} peers · ${dest})`,
           };
@@ -620,9 +688,21 @@ export class BuiltinClient implements TorrentClientAdapter {
 
       const torrent = await new Promise<WtTorrent>((resolve, reject) => {
         let settled = false;
+        // A magnet that never resolves metadata stays in client.torrents
+        // forever unless we destroy it, leaking handles/sockets and showing up
+        // as a permanent "Fetching metadata…" row.
+        const holder: { t?: WtTorrent } = {};
+        const reap = () => {
+          try {
+            holder.t?.destroy?.({ destroyStore: false });
+          } catch {
+            /* best-effort */
+          }
+        };
         const timer = setTimeout(() => {
           if (settled) return;
           settled = true;
+          reap();
           reject(
             new Error(
               "Timed out waiting for torrent metadata (no peers / blocked DHT?). Try another release or check network.",
@@ -635,10 +715,12 @@ export class BuiltinClient implements TorrentClientAdapter {
           clearTimeout(timer);
           resolve(ready);
         });
+        holder.t = t;
         t.on("error", (err: unknown) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          reap();
           reject(err instanceof Error ? err : new Error(String(err)));
         });
       });
@@ -672,9 +754,11 @@ export class BuiltinClient implements TorrentClientAdapter {
           magnet: magnetForPersist(payload, addUri, torrent),
           savePath: dest,
           category: payload.category,
-          status: torrent.done ? "seeding" : "downloading",
-          progress: torrent.progress ?? 0,
-          sizeBytes: torrent.length ?? 0,
+          status: readProp(() => torrent.done, false)
+            ? "seeding"
+            : "downloading",
+          progress: readProp(() => torrent.progress, 0),
+          sizeBytes: readProp(() => torrent.length, 0),
         });
       }
 
@@ -688,11 +772,11 @@ export class BuiltinClient implements TorrentClientAdapter {
         };
       }
 
-      const peers = live.numPeers ?? 0;
-      const pct = Math.round((live.progress ?? 0) * 100);
+      const peers = readProp(() => live.numPeers, 0);
+      const pct = Math.round(readProp(() => live.progress, 0) * 100);
       return {
         ok: true,
-        message: live.done
+        message: readProp(() => live.done, false)
           ? `Already complete (${pct}%) → ${dest}`
           : `Download started (${pct}% · ${peers} peers) → ${dest}`,
       };
@@ -722,42 +806,46 @@ export class BuiltinClient implements TorrentClientAdapter {
     const seen = new Set<string>();
 
     for (const t of client.torrents) {
-      // Still warming metadata — keep in list as metaDL so Client isn't empty
-      const h = (t.infoHash || "").toLowerCase();
-      if (!h) {
-        out.push({
-          hash: `pending-${out.length}`,
-          name: t.name || "Fetching metadata…",
-          progress: 0,
-          sizeBytes: 0,
-          dlspeed: 0,
-          upspeed: 0,
-          state: "metaDL",
-          category: config.category || undefined,
-          savePath: t.path || null,
-        });
-        continue;
+      // A torrent mid-teardown can throw from its own getters. Degrade that one
+      // row instead of failing the whole list — the Client page is how the user
+      // finds and removes a bad torrent in the first place.
+      try {
+        // Still warming metadata — keep in list as metaDL so Client isn't empty
+        const h = (readProp(() => t.infoHash, "") || "").toLowerCase();
+        if (!h) {
+          out.push({
+            hash: `pending-${out.length}`,
+            name: readProp(() => t.name, "") || "Fetching metadata…",
+            progress: 0,
+            sizeBytes: 0,
+            dlspeed: 0,
+            upspeed: 0,
+            state: "metaDL",
+            category: config.category || undefined,
+            savePath: readProp(() => t.path, "") || null,
+          });
+          continue;
+        }
+        if (allowed && !allowed.has(h)) continue;
+        seen.add(h);
+        const m = s.meta.get(h);
+        const status = torrentStatus(t);
+        scheduleProgressPersist(
+          uid,
+          t,
+          status === "stalledDL" ? "downloading" : status,
+        );
+        out.push(
+          mapTorrent(t, {
+            savePath: m?.savePath || readProp(() => t.path, "") || undefined,
+            category: m?.category || config.category || undefined,
+            name: m?.name,
+            userId: m?.userId,
+          }),
+        );
+      } catch {
+        /* skip an unreadable torrent rather than 502 the page */
       }
-      if (allowed && !allowed.has(h)) continue;
-      seen.add(h);
-      const m = s.meta.get(h);
-      ensureDownloading(t);
-      const status = t.paused
-        ? "paused"
-        : t.done
-          ? "seeding"
-          : t.numPeers === 0 && t.progress < 1
-            ? "stalledDL"
-            : "downloading";
-      scheduleProgressPersist(uid, t, status === "stalledDL" ? "downloading" : status);
-      out.push(
-        mapTorrent(t, {
-          savePath: m?.savePath || t.path,
-          category: m?.category || config.category || undefined,
-          name: m?.name,
-          userId: m?.userId,
-        }),
-      );
     }
 
     // DB rows not yet live (after restart / before rehydrate peers) — still show
@@ -778,7 +866,7 @@ export class BuiltinClient implements TorrentClientAdapter {
                 const t = client.add(withPublicTrackers(row.magnet), {
                   path: dest,
                 });
-                t.on("ready", () => ensureDownloading(t));
+                t.on("ready", () => applyPersistedStatus(t, row.status));
                 t.on("error", () => {
                   /* logged elsewhere */
                 });
@@ -869,7 +957,9 @@ export class BuiltinClient implements TorrentClientAdapter {
               userId: config.userId,
               hash: hash.toLowerCase(),
             },
-            data: { status: t.done ? "seeding" : "downloading" },
+            data: {
+              status: readProp(() => t.done, false) ? "seeding" : "downloading",
+            },
           });
         } catch {
           /* best-effort */

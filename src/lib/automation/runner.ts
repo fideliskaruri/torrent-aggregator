@@ -2,9 +2,11 @@ import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import {
+  advanceCursorAfterMiss,
   afterSuccessfulGrab,
   formatEpisodeLabel,
   resolveHuntCursor,
+  type ShowCursor,
 } from "@/lib/library/cursor";
 import { assertStorageBudget } from "@/lib/library/disk-space";
 import {
@@ -14,6 +16,7 @@ import {
 } from "@/lib/clients";
 import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
+import { acquireRunLock, releaseRunLock } from "@/lib/automation/run-lock";
 import { runAutoRules } from "@/lib/rules/runner";
 
 export type AutomationSummary = {
@@ -52,10 +55,71 @@ function looksOfflineMessage(message: string): boolean {
 }
 
 /**
+ * A hunt for the cursor episode found nothing.
+ *
+ * Counts the miss and, once the season looks finished, rolls the cursor to the
+ * next season so a monitored show cannot dead-end forever at the last episode
+ * of a season. Non-series items (no cursor) just get lastChecked bumped.
+ */
+async function recordHuntMiss(
+  itemId: string,
+  cursor: ShowCursor | null,
+  misses: number,
+): Promise<void> {
+  if (!cursor) {
+    await prisma.watchListItem.update({
+      where: { id: itemId },
+      data: { lastChecked: new Date() },
+    });
+    return;
+  }
+  const next = advanceCursorAfterMiss(cursor, misses);
+  await prisma.watchListItem.update({
+    where: { id: itemId },
+    data: {
+      lastChecked: new Date(),
+      cursorMisses: next.misses,
+      ...(next.rolledOver
+        ? {
+            cursorSeason: next.cursor.season,
+            cursorEpisode: next.cursor.episode,
+            nextEpisodeHint: formatEpisodeLabel(
+              next.cursor.season,
+              next.cursor.episode,
+            ),
+          }
+        : {}),
+    },
+  });
+}
+
+/**
  * Run automation for one user: auto-rules first, then monitored library items.
  * Rule GrabJobs are written inside runAutoRules; library GrabJobs here.
+ *
+ * Serialized per user by RunLock: two concurrent runs would both read the same
+ * stale latestReleaseMagnet and grab the same release twice.
  */
 export async function runUserAutomation(userId: string): Promise<AutomationSummary> {
+  const lockId = await acquireRunLock(userId, "automation");
+  if (!lockId) {
+    return {
+      rules: { ran: 0, matched: 0, messages: [] },
+      library: { checked: 0, sent: 0, skipped: 0, failed: 0 },
+      offline: false,
+      message: "Automation is already running — ignored this request",
+    };
+  }
+  try {
+    return await runUserAutomationUnlocked(userId);
+  } finally {
+    await releaseRunLock(lockId);
+  }
+}
+
+async function runUserAutomationUnlocked(
+  userId: string,
+): Promise<AutomationSummary> {
   const ruleResults = await runAutoRules(userId);
   const rulesMatched = ruleResults.filter((r) => r.matched).length;
   const rulesOffline = ruleResults.some((r) => r.offline);
@@ -153,7 +217,7 @@ export async function runUserAutomation(userId: string): Promise<AutomationSumma
       const withMagnet = result.results.filter(
         (t) => t.magnet && (t.seeders ?? 0) > 0,
       );
-      let best =
+      const best =
         huntCursor
           ? withMagnet.find((t) => {
               const ep = parseEpisode(t.title);
@@ -177,10 +241,7 @@ export async function runUserAutomation(userId: string): Promise<AutomationSumma
           },
         });
         summary.library.skipped += 1;
-        await prisma.watchListItem.update({
-          where: { id: item.id },
-          data: { lastChecked: new Date() },
-        });
+        await recordHuntMiss(item.id, huntCursor, item.cursorMisses);
         continue;
       }
 
@@ -197,10 +258,7 @@ export async function runUserAutomation(userId: string): Promise<AutomationSumma
           },
         });
         summary.library.skipped += 1;
-        await prisma.watchListItem.update({
-          where: { id: item.id },
-          data: { lastChecked: new Date() },
-        });
+        await recordHuntMiss(item.id, huntCursor, item.cursorMisses);
         continue;
       }
 
@@ -403,6 +461,7 @@ export async function runUserAutomation(userId: string): Promise<AutomationSumma
             lastEpisode: advanced.lastEpisode,
             cursorSeason: advanced.cursorSeason,
             cursorEpisode: advanced.cursorEpisode,
+            cursorMisses: 0,
             nextEpisodeHint: advanced.nextEpisodeHint,
             // Seed fromSeason if user never set it (legacy items)
             ...(item.fromSeason == null && huntCursor

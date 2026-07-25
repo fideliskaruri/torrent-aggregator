@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/components/providers/session-provider";
 import { toast } from "sonner";
 import {
   ArrowDownToLine,
   ArrowRight,
-  Library,
+  ImageOff,
   Loader2,
   Radar,
   Search,
@@ -88,7 +88,7 @@ function writeLastAuto(summary: LastAutoSummary) {
 }
 
 export default function WatchlistPage() {
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   const [items, setItems] = useState<WatchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningAuto, setRunningAuto] = useState(false);
@@ -119,11 +119,34 @@ export default function WatchlistPage() {
   }, []);
 
   useEffect(() => {
-    if (status === "authenticated") void load();
-    if (status === "unauthenticated") setLoading(false);
-  }, [status, load]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/watchlist");
+        if (res.status === 401) {
+          if (!cancelled) setItems([]);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error || "Failed to load");
+        setItems(data.items ?? []);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
+    // sessionStorage is an external store; syncing it on mount belongs in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLastAuto(readLastAuto());
   }, []);
 
@@ -340,7 +363,7 @@ export default function WatchlistPage() {
     }
   }
 
-  if (status === "loading" || (status === "authenticated" && loading)) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -349,19 +372,6 @@ export default function WatchlistPage() {
     );
   }
 
-  if (!session) {
-    return (
-      <div className="container-app max-w-lg py-24">
-        <TfEmptyState
-          icon={Library}
-          title="Library"
-          description="Sign in to save series and movies, monitor for new releases, and run automation."
-          actionLabel="Sign in"
-          actionHref="/login"
-        />
-      </div>
-    );
-  }
 
   const filtered =
     filter === "all" ? items : items.filter((i) => i.status === filter);
@@ -468,7 +478,7 @@ export default function WatchlistPage() {
           actionHref={items.length ? undefined : "/"}
         />
       ) : (
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid items-start sm:grid-cols-2 gap-3">
           {filtered.map((item) => {
             const isSeries =
               item.mediaType === "tv" || item.mediaType === "anime";
@@ -491,7 +501,14 @@ export default function WatchlistPage() {
                 className="surface overflow-hidden flex flex-col sm:flex-row gap-0 min-w-0"
                 data-library-card
               >
-                <div className="w-full sm:w-[5.5rem] shrink-0 bg-[var(--bg-muted)]">
+                <div
+                  className={cn(
+                    "w-full sm:w-[5.5rem] shrink-0 bg-[var(--bg-muted)]",
+                    // A full-width grey block is a lot of nothing on a phone.
+                    // Keep the narrow desktop placeholder, drop it on mobile.
+                    !item.posterUrl && "hidden sm:block",
+                  )}
+                >
                   {item.posterUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -500,8 +517,8 @@ export default function WatchlistPage() {
                       className="h-36 sm:h-full w-full object-cover sm:min-h-[140px]"
                     />
                   ) : (
-                    <div className="flex h-36 sm:min-h-[140px] sm:h-full items-center justify-center text-[var(--text-tertiary)] text-[11px] px-2 text-center">
-                      No poster
+                    <div className="flex h-full sm:min-h-[140px] items-center justify-center text-[var(--text-tertiary)]">
+                      <ImageOff className="h-4 w-4" aria-label="No poster" />
                     </div>
                   )}
                 </div>

@@ -1,8 +1,6 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -11,7 +9,6 @@ import {
   FolderSearch,
   Loader2,
   Plus,
-  Settings2,
   Tags,
   Trash2,
   XCircle,
@@ -98,7 +95,6 @@ function parseSettingsTab(value: string | null): SettingsTab | null {
 }
 
 export default function SettingsPage() {
-  const { data: session, status } = useSession();
   const [form, setForm] = useState<ClientForm>(EMPTY_FORM);
   const [hasPassword, setHasPassword] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -125,7 +121,11 @@ export default function SettingsPage() {
     const fromUrl = parseSettingsTab(
       new URLSearchParams(window.location.search).get("tab"),
     );
-    if (fromUrl) setTab(fromUrl);
+    if (fromUrl) {
+      // The URL is an external store; syncing the active tab on mount belongs in an effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTab(fromUrl);
+    }
   }, []);
 
   function selectTab(next: SettingsTab) {
@@ -146,10 +146,7 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    if (status !== "authenticated") {
-      setLoading(false);
-      return;
-    }
+    let cancelled = false;
 
     async function load() {
       try {
@@ -172,6 +169,7 @@ export default function SettingsPage() {
           } | null;
           defaults?: { categories?: string[] };
         };
+        if (cancelled) return;
         const s = data.settings;
         if (s) {
           setForm((f) => ({
@@ -199,12 +197,15 @@ export default function SettingsPage() {
           }));
         }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     void load();
-  }, [status]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const previewPath = useMemo(() => {
     if (form.category) {
@@ -456,7 +457,7 @@ export default function SettingsPage() {
     });
   }
 
-  if (status === "loading" || loading) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -465,22 +466,6 @@ export default function SettingsPage() {
     );
   }
 
-  if (!session) {
-    return (
-      <div className="mx-auto max-w-lg px-4 py-24 text-center space-y-4">
-        <Settings2 className="mx-auto h-10 w-10 text-[var(--accent-text)]" />
-        <h1 className="text-2xl font-semibold text-[var(--text)]">
-          Client settings
-        </h1>
-        <p className="text-[var(--text-tertiary)] text-sm">
-          Sign in to configure qBittorrent or Transmission integration.
-        </p>
-        <Button asChild size="lg">
-          <Link href="/login">Sign in</Link>
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="container-app max-w-2xl py-6 sm:py-8 space-y-5 pb-28 min-w-0">

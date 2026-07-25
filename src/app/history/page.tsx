@@ -5,9 +5,8 @@
  * Does not compete with Activity for “what ran”; use Activity for GrabJobs,
  * skips, failures, and save paths. Linked from Activity as “Download log”.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { ArrowRight, History, Loader2, Trash2 } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
@@ -37,32 +36,31 @@ interface HistoryItem {
 }
 
 export default function HistoryPage() {
-  const { data: session, status } = useSession();
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [pendingClear, setPendingClear] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<HistoryItem | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/history");
-      if (res.status === 401) {
-        setItems([]);
-        return;
-      }
-      const data = await res.json();
-      setItems(data.items ?? []);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (status === "authenticated") void load();
-    if (status === "unauthenticated") setLoading(false);
-  }, [status, load]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/history");
+        if (res.status === 401) {
+          if (!cancelled) setItems([]);
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setItems(data.items ?? []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function confirmClearAll() {
     setBusy(true);
@@ -95,7 +93,7 @@ export default function HistoryPage() {
     }
   }
 
-  if (status === "loading" || (status === "authenticated" && loading)) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -104,19 +102,6 @@ export default function HistoryPage() {
     );
   }
 
-  if (!session) {
-    return (
-      <div className="container-app max-w-lg py-24">
-        <TfEmptyState
-          icon={History}
-          title="Download log"
-          description="Sign in to track magnets you sent. For automation results, use Activity."
-          actionLabel="Sign in"
-          actionHref="/login"
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">

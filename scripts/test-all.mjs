@@ -153,7 +153,10 @@ run("builtin-send", "npx", ["tsx", "scripts/test-builtin-send.ts"], {
   timeout: 180_000,
 });
 
-// 3) Live HTTP (async fetch — Windows curl is unreliable)
+// 3) API contract suite (every route, against the running server)
+run("api-smoke", "node", ["scripts/api-smoke.mjs", BASE], { timeout: 180_000 });
+
+// 4) Live HTTP (async fetch — Windows curl is unreliable)
 await httpGet("home", "/", (status) => ({
   ok: status === 200,
   note: `HTTP ${status}`,
@@ -215,14 +218,29 @@ await httpGet(
   },
 );
 
-await httpGet("settings-unauth", "/api/settings/client", (status) => ({
-  ok: status === 401,
-  note: `expect 401 got ${status}`,
+// Auth was removed: TorrentFlow is a local single-user app, so these read
+// routes answer directly instead of 401-ing.
+await httpGet("settings-local", "/api/settings/client", (status, body) => {
+  if (status !== 200) return { ok: false, note: `expect 200 got ${status}` };
+  try {
+    const d = JSON.parse(body);
+    return {
+      ok: Boolean(d.settings) && !("password" in (d.settings ?? {})),
+      note: "settings present, password withheld",
+    };
+  } catch (e) {
+    return { ok: false, note: e.message };
+  }
+});
+
+await httpGet("client-local", "/api/client/torrents", (status) => ({
+  ok: status === 200 || status === 503,
+  note: `expect 200/503 got ${status}`,
 }));
 
-await httpGet("client-unauth", "/api/client/torrents", (status) => ({
-  ok: status === 401,
-  note: `expect 401 got ${status}`,
+await httpGet("login-removed", "/login", (status) => ({
+  ok: status === 404,
+  note: `expect 404 got ${status}`,
 }));
 
 // Summary

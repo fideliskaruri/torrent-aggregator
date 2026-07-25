@@ -86,9 +86,8 @@ async function testApis(cookies) {
     const res = await fetch(`${BASE}/api/settings/client`, { method: "GET" });
     const text = await res.text();
     assert(text.trim().length > 0, "GET settings unauth returns body");
-    let j;
     try {
-      j = JSON.parse(text);
+      JSON.parse(text);
     } catch {
       assert(false, `GET settings unauth is JSON (got: ${text.slice(0, 80)})`);
     }
@@ -108,9 +107,8 @@ async function testApis(cookies) {
     });
     const text = await res.text();
     assert(text.trim().length > 0, "PUT settings unauth returns body");
-    let j;
     try {
-      j = JSON.parse(text);
+      JSON.parse(text);
     } catch {
       assert(false, `PUT settings unauth is JSON (got: ${text.slice(0, 80)})`);
     }

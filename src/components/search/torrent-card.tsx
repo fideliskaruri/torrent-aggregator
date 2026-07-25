@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/components/providers/session-provider";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import {

@@ -169,8 +169,12 @@ export function parseEpisode(title: string): EpisodeInfo {
     };
   }
 
-  // - 1170 [ or - 1170 ( common anime absolute numbering
-  const dash = t.match(/[-–]\s*(\d{1,4})\s*(?:[\[\(]|$)/);
+  // - 1170 [ or - 1170 ( common anime absolute numbering.
+  // A container extension counts as the end of the title: "One Piece - 1170.mkv"
+  // is the same numbering, and refusing it split one episode across groups.
+  const dash = t.match(
+    /[-–]\s*(\d{1,4})\s*(?:\.(?:mkv|mp4|avi|m4v|ts)\s*$|[[(]|$)/i,
+  );
   if (dash) {
     const episode = parseInt(dash[1], 10);
     // Allow long-running shows (One Piece 1000+); reject pure years handled elsewhere
@@ -195,6 +199,41 @@ export function parseEpisode(title: string): EpisodeInfo {
         isSeasonPack: false,
         isMultiSeason: false,
       };
+    }
+  }
+
+  // Fansub absolute numbering with no separator: "[HatSubs] One Piece 1170 (WEB 1080p)".
+  // Gated on the leading "[Group]" tag because that prefix is the anime release
+  // convention; without it a bare number is far more likely to be part of the
+  // title ("Blade Runner 2049", "Akira 1988"). Years are rejected regardless,
+  // and a leading zero is required for 1-2 digit numbers so "[Group] Movie 4K"
+  // style noise cannot become episode 4.
+  if (/^\s*\[[^\]]+\]/.test(t)) {
+    const afterTag = t.replace(/^\s*\[[^\]]+\]\s*/, "");
+    const bare = afterTag.match(/\s(\d{3,4})(?=\s|$|[[(.])/);
+    if (bare) {
+      const episode = parseInt(bare[1], 10);
+      if (episode > 0 && !(episode >= 1900 && episode <= 2100)) {
+        const looseSeason = t.match(/\bS(?:eason)?\s*(\d{1,3})\b/i);
+        if (looseSeason) {
+          const season = parseInt(looseSeason[1], 10);
+          return {
+            season,
+            episode,
+            label: `S${pad(season)} Ep ${episode}`,
+            isBatch: false,
+            isSeasonPack: false,
+            isMultiSeason: false,
+          };
+        }
+        return {
+          episode,
+          label: `Ep ${episode}`,
+          isBatch: false,
+          isSeasonPack: false,
+          isMultiSeason: false,
+        };
+      }
     }
   }
 

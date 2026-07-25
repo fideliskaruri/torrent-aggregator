@@ -30,6 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# npm registry config (may contain private feed credentials)
+.npmrc
+
 # env files
 .env
 .env.local
@@ -65,3 +68,11 @@ tmp-home.html
 # OS
 Thumbs.db
 Desktop.ini
+
+# Auto-generated credential encryption key
+.torrentflow.key
+
+# QA artifacts
+qa-screens/
+dev-server.log
+prod-server.log

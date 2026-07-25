@@ -11,7 +11,6 @@ import { builtinClient } from "./builtin-engine";
 import { decryptSecret } from "@/lib/crypto";
 import {
   externalClientConfig,
-  hasExternalClient,
 } from "./types";
 
 export function getClient(type: TorrentClientType) {

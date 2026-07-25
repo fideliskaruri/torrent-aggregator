@@ -88,21 +88,195 @@ export function computeHealth(r: TorrentResult): number {
   return Math.round(Math.min(100, seedScore + ratioScore));
 }
 
+/**
+ * Strips the release-group tag so different encodes of the same episode share
+ * a key.
+ *
+ * `normalizeTitle` turns brackets into spaces but keeps what was inside them,
+ * so `[SubsPlease] One Piece - 1170` and `[Erai-raws] One Piece - 1170` hashed
+ * to different keys. Every result then formed a group of one and every row was
+ * badged "Best", which made the badge meaningless.
+ *
+ * Bracketed segments are dropped whole, along with the trailing `-GROUP`
+ * suffix scene releases use. If that removes everything (a title that is
+ * nothing but tags) the original is kept rather than collapsing unrelated
+ * releases together.
+ */
+export function stripReleaseGroup(title: string): string {
+  const withoutBrackets = title
+    .replace(/[[({【][^\])}】]*[\])}】]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const base = withoutBrackets || title;
+
+  // Scene suffix: "...1080p.WEB-DL.x264-NTb" → drop "-NTb".
+  //
+  // Only fires when the rest of the name carries release tokens (resolution,
+  // codec, source). A plain title has none, so "Spider-Man" keeps its hyphen
+  // instead of becoming "Spider" and colliding with an unrelated show.
+  if (!looksLikeSceneRelease(base)) return base;
+
+  const stripped = base
+    .replace(/(?<=\S)-([A-Za-z0-9]{2,12})\s*$/, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return stripped || base;
+}
+
+/**
+ * Tokens that describe *how* a release was encoded, not *what* it is. Two rows
+ * differing only by these are the same logical release and belong in one group.
+ *
+ * Written as a table because the failure mode here is always a missing token,
+ * and a list is the only shape that makes the gap obvious. Spaces are written
+ * as `\s*` since `normalizeTitle` turns dots into spaces (`H.264` → `h 264`).
+ */
+const RELEASE_TOKEN_PATTERNS = [
+  // Resolution
+  "\\d{3,4}p",
+  "4k",
+  "8k",
+  "uhd",
+  "hd",
+  "sd",
+  // Video codec
+  "hevc",
+  "x\\s*26[45]",
+  "h\\s*26[45]",
+  "avc",
+  "av1",
+  "xvid",
+  "divx",
+  "hi10p",
+  "10\\s*bit",
+  "8\\s*bit",
+  // Audio. Channel layouts arrive as separate tokens once dots become spaces
+  // (`AAC2.0` → `aac2 0`, `DDP5.1` → `ddp5 1`), so the trailing channel digit
+  // is part of the token — otherwise a stray "0" survives into the group base.
+  "aac\\s*\\d*(?:\\s*\\d)?",
+  "e?ac3\\s*\\d*(?:\\s*\\d)?",
+  "ddp?\\s*\\d*(?:\\s*\\d)?",
+  "dts(?:\\s*hd)?(?:\\s*ma)?\\s*\\d*(?:\\s*\\d)?",
+  "flac\\s*\\d*(?:\\s*\\d)?",
+  "opus\\s*\\d*(?:\\s*\\d)?",
+  "truehd\\s*\\d*(?:\\s*\\d)?",
+  "atmos",
+  "mp3",
+  "(?:dual|multi)\\s*audio",
+  // Source
+  "web\\s*-?\\s*dl",
+  "web\\s*-?\\s*rip",
+  "web",
+  "blu\\s*-?\\s*ray",
+  "bd\\s*rip",
+  "br\\s*rip",
+  "bd",
+  "hdtv",
+  "dvd\\s*rip",
+  "dvd",
+  "remux",
+  "hdr\\d*",
+  "dv",
+  "sdr",
+  "cam",
+  "ts",
+  // Release qualifiers
+  "repack",
+  "proper",
+  "rerip",
+  "internal",
+  "uncensored",
+  "batch",
+  "complete",
+  "subbed",
+  "dubbed",
+  "raw",
+  // Platforms / distributors
+  "amzn",
+  "dsnp",
+  "atvp",
+  "hulu",
+  "hmax",
+  "nf",
+  "cr",
+  "funi",
+  "tver",
+  "yts",
+  "rarbg",
+  // Asian streaming platforms — these appear as the only differing token in
+  // otherwise identical anime releases, so omitting them split one episode
+  // into a group (and therefore a "Best" badge) per platform.
+  "bili",
+  "bilibili",
+  "b-global",
+  "bglobal",
+  "iq",
+  "iqiyi",
+  "viki",
+  "wetv",
+  "abema",
+  "baha",
+  // Containers
+  "mkv",
+  "mp4",
+  "avi",
+  "m4v",
+];
+
+const RELEASE_TOKEN_RE = new RegExp(
+  `\\b(?:${RELEASE_TOKEN_PATTERNS.join("|")})\\b`,
+  "gi",
+);
+
+/**
+ * Does this name carry encoding metadata? Separate non-global regex so the
+ * shared `lastIndex` of {@link RELEASE_TOKEN_RE} cannot make this flaky.
+ */
+const RELEASE_TOKEN_TEST_RE = new RegExp(
+  `\\b(?:${RELEASE_TOKEN_PATTERNS.join("|")})\\b`,
+  "i",
+);
+
+function looksLikeSceneRelease(name: string): boolean {
+  return RELEASE_TOKEN_TEST_RE.test(name.replace(/[._]/g, " "));
+}
+
+/**
+ * Season/episode markers. The episode number is allowed up to four digits —
+ * long-running anime is numbered past 1000, and a three-digit cap meant
+ * `One Piece - 1170` kept its number in the group base, so the same episode
+ * split into a separate group per release. The key already carries the parsed
+ * episode, so the number is redundant in the base either way.
+ */
+const EPISODE_MARKER_RE =
+  /\b(s\d{1,2}\s*e\d{1,4}|\d{1,2}x\d{1,4}|ep?\s*\d{1,4}|season\s*\d+|episode\s*\d+)\b/gi;
+
 function buildGroupKey(
   title: string,
   episode: ReturnType<typeof parseEpisode>,
 ): string {
-  let base = normalizeTitle(title)
-    .replace(
-      /\b(s\d{1,2}e\d{1,3}|\d{1,2}x\d{1,3}|ep?\s*\d{1,3}|season\s*\d+)\b/gi,
+  const normalized = normalizeTitle(stripReleaseGroup(title));
+
+  let base = normalized
+    .replace(EPISODE_MARKER_RE, " ")
+    .replace(RELEASE_TOKEN_RE, " ");
+
+  // Drop a bare episode number too (`One Piece 1170`). Only the number we
+  // actually parsed, so a number that is part of the title survives.
+  if (episode.episode != null) {
+    base = base.replace(
+      new RegExp(`\\b0*${episode.episode}\\b`, "g"),
       " ",
-    )
-    .replace(
-      /\b(1080p|720p|480p|2160p|4k|hevc|x265|x264|web-?dl|webrip|bluray|bdrip|hdtv|remux|yts)\b/gi,
-      " ",
-    )
-    .replace(/\s+/g, " ")
-    .trim();
+    );
+  }
+
+  base = base.replace(/\s+/g, " ").trim();
+
+  // Stripping everything would collapse unrelated releases into one group,
+  // which is worse than the over-splitting this is meant to fix.
+  if (!base) base = normalized.replace(/\s+/g, " ").trim() || title;
 
   if (episode.isSeasonPack) {
     return `${base}|S${episode.season ?? "X"}-pack`;

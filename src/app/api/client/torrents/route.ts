@@ -7,6 +7,7 @@ import {
 } from "@/lib/clients";
 import { formatClientError } from "@/lib/clients/errors";
 import { pruneEmptyParents } from "@/lib/clients/prune-empty-parents";
+import { resetDirectorySizeCache } from "@/lib/library/disk-space";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -144,6 +145,13 @@ export async function POST(request: NextRequest) {
         }
 
         result = await client.deleteTorrent(config, body.hash, deleteFiles);
+
+        // The storage budget memoises the download tree's size; deleting files
+        // is the one event that makes it shrink, so drop it now rather than
+        // refusing the next send against a stale total.
+        if (deleteFiles && result.ok) {
+          resetDirectorySizeCache();
+        }
 
         // Built-in already prunes inside deleteTorrent; still safe to run for
         // external clients. For builtin, second pass is a no-op if already clean.

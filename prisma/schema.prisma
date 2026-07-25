@@ -11,59 +11,25 @@ datasource db {
 
 // ─── Auth.js / NextAuth models ───────────────────────────────────────────────
 
+/// The owner of everything in the database.
+///
+/// TorrentFlow is local and single-user, so exactly one row exists (id
+/// "local", created by ensureLocalUser). The relations are kept so real user
+/// management can be reintroduced without migrating every table.
 model User {
   id            String    @id @default(cuid())
   name          String?
   email         String?   @unique
-  emailVerified DateTime?
   image         String?
-  passwordHash  String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  accounts       Account[]
-  sessions       Session[]
   watchList      WatchListItem[]
   clientSettings ClientSettings?
   downloadHistory DownloadHistory[]
   autoRules      AutoRule[]
   grabJobs       GrabJob[]
   engineTorrents EngineTorrent[]
-}
-
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-}
-
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
 }
 
 // ─── App domain models ───────────────────────────────────────────────────────
@@ -88,6 +54,8 @@ model WatchListItem {
   /// Next episode automation / Download next should hunt (not rewound by off-cursor rewatch)
   cursorSeason        Int?
   cursorEpisode       Int?
+  /// Consecutive hunts that found nothing — drives season rollover
+  cursorMisses        Int       @default(0)
   /// ongoing | catchup | on_demand
   monitorMode         String    @default("ongoing")
   latestReleaseTitle  String?
@@ -238,6 +206,16 @@ model AutoRule {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, enabled])
+}
+
+/// Guards against concurrent automation/rules runs double-grabbing the same release.
+model RunLock {
+  id         String   @id @default(cuid())
+  userId     String
+  scope      String // automation | rules
+  acquiredAt DateTime @default(now())
+
+  @@unique([userId, scope])
 }
 
 model SearchCache {

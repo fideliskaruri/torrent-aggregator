@@ -27,6 +27,17 @@ import {
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
+import {
+  DESKTOP_NAV,
+  DESKTOP_NAV_DIVIDER_INDEX,
+  HISTORY_HREF,
+  MORE_ACTIVE_PREFIXES,
+  PRIMARY_NAV,
+  SECONDARY_NAV,
+  navActive,
+  navActiveHref,
+} from "@/lib/navigation";
+import type { NavItem } from "@/lib/navigation";
 
 const BASE = "/downloads";
 const CATS = ["Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "Other"];
@@ -182,27 +193,168 @@ console.log("flow: resolveSmartSendTarget Season layout…");
 }
 
 // ---------------------------------------------------------------------------
-// 4. Documentation assertions — navigation model contracts (static)
+// 4. Navigation model contracts
 // ---------------------------------------------------------------------------
 
-console.log("flow: package path roles (documented contracts)…");
+console.log("flow: navigation model contracts…");
 {
   /**
-   * These strings document the intended page roles. If someone reintroduces
-   * a competing History peer in primary nav, update the product rule first.
+   * These assert against the real exported navigation model, so they fail if
+   * someone changes the nav. An earlier version declared its own local copy of
+   * the model and asserted against that, which could never fail.
    */
-  const NAV_MODEL = {
-    primary: ["Search", "Library", "Client"] as const,
-    secondary: ["Activity", "Rules", "Settings", "About"] as const,
-    /** History is not a More peer — linked from Activity as download log */
-    historyRole: "download-log-subset",
-    automationUi: "library-only", // no second Run automation on Client/Settings
-  };
-  assert.ok(NAV_MODEL.primary.includes("Library"));
-  assert.ok(NAV_MODEL.secondary.includes("Activity"));
-  assert.ok(!NAV_MODEL.primary.includes("History" as never));
-  assert.equal(NAV_MODEL.historyRole, "download-log-subset");
-  assert.equal(NAV_MODEL.automationUi, "library-only");
+  const primaryHrefs = PRIMARY_NAV.map((i) => i.href);
+  const secondaryHrefs = SECONDARY_NAV.map((i) => i.href);
+  const desktopHrefs = DESKTOP_NAV.map((i) => i.href);
+
+  assert.deepEqual(
+    primaryHrefs,
+    ["/", "/watchlist", "/client"],
+    "primary path is Search → Library → Client",
+  );
+
+  assert.ok(
+    !primaryHrefs.includes(HISTORY_HREF),
+    "History is the download log, not a primary peer",
+  );
+  assert.ok(
+    !secondaryHrefs.includes(HISTORY_HREF),
+    "History is reached from Activity, not the More sheet",
+  );
+  assert.ok(
+    !desktopHrefs.includes(HISTORY_HREF),
+    "History is not in the desktop header",
+  );
+
+  // Desktop must start with the same primary path as mobile, so the two never
+  // drift apart again.
+  assert.deepEqual(
+    desktopHrefs.slice(0, PRIMARY_NAV.length),
+    primaryHrefs,
+    "desktop header leads with the primary path",
+  );
+  assert.equal(
+    DESKTOP_NAV_DIVIDER_INDEX,
+    PRIMARY_NAV.length,
+    "the divider sits between primary and secondary",
+  );
+
+  // Every desktop entry beyond the primary path must be a real secondary page.
+  for (const href of desktopHrefs.slice(PRIMARY_NAV.length)) {
+    assert.ok(
+      secondaryHrefs.includes(href),
+      `desktop entry ${href} must exist in the secondary nav`,
+    );
+  }
+
+  // No duplicates anywhere, and no page in both tiers.
+  const allHrefs = [...primaryHrefs, ...secondaryHrefs];
+  assert.equal(
+    new Set(allHrefs).size,
+    allHrefs.length,
+    "a page belongs to exactly one nav tier",
+  );
+
+  // The More tab must light up for every secondary route, plus History.
+  for (const href of [...secondaryHrefs, HISTORY_HREF]) {
+    assert.ok(
+      MORE_ACTIVE_PREFIXES.includes(href),
+      `${href} must light the More tab`,
+    );
+  }
+
+  /**
+   * Exactly one row highlighted, on every route, in every rendered list.
+   *
+   * `owns` claims are allowed to overlap a real entry — Settings stands in for
+   * `/rules` in the desktop header, while the More sheet lists `/rules`
+   * itself — so this is the invariant that keeps that from double-highlighting.
+   */
+  {
+    // `/search` is deliberately absent: it is a server-side redirect to `/`,
+    // so the nav never renders on it.
+    const allRoutes = [
+      "/",
+      "/watchlist",
+      "/client",
+      "/activity",
+      "/settings",
+      "/rules",
+      "/history",
+      "/about",
+    ];
+
+    // The desktop header is always on screen, so it must always show where
+    // the user is.
+    for (const route of allRoutes) {
+      const winner = navActiveHref(DESKTOP_NAV, route);
+      assert.ok(
+        winner,
+        `desktop header: nothing highlighted on ${route} — the user loses their place`,
+      );
+      assert.equal(
+        DESKTOP_NAV.filter((item: NavItem) => item.href === winner).length,
+        1,
+        `desktop header: ${route} resolved to a non-unique entry`,
+      );
+    }
+
+    // The More sheet only covers secondary routes; on a primary route it
+    // correctly highlights nothing.
+    for (const route of [...secondaryHrefs, HISTORY_HREF]) {
+      const winner = navActiveHref(SECONDARY_NAV, route);
+      assert.ok(winner, `More sheet: nothing highlighted on ${route}`);
+      assert.equal(
+        SECONDARY_NAV.filter((item: NavItem) => item.href === winner).length,
+        1,
+        `More sheet: ${route} resolved to a non-unique entry`,
+      );
+    }
+    for (const route of primaryHrefs) {
+      assert.equal(
+        navActiveHref(SECONDARY_NAV, route),
+        null,
+        `More sheet must stay unhighlighted on the primary route ${route}`,
+      );
+    }
+
+    // A page that is in the list must win over any entry merely claiming it.
+    assert.equal(
+      navActiveHref(SECONDARY_NAV, "/rules"),
+      "/rules",
+      "the More sheet lists Rules, so Rules wins over Settings' claim",
+    );
+    assert.equal(
+      navActiveHref(DESKTOP_NAV, "/rules"),
+      "/settings",
+      "the desktop header has no Rules entry, so Settings stands in",
+    );
+    assert.equal(
+      navActiveHref(DESKTOP_NAV, "/history"),
+      "/activity",
+      "History is reached from Activity",
+    );
+    // A nested route lights its parent, not the root.
+    assert.equal(navActiveHref(DESKTOP_NAV, "/watchlist/42"), "/watchlist");
+  }
+
+  // Sign-in was removed: no nav entry may point at a login route.
+  assert.ok(
+    !allHrefs.some((h) => /login|signin|sign-in|auth/i.test(h)),
+    "no sign-in entry remains in the nav",
+  );
+
+  // navActive must not treat "/" as a prefix of everything.
+  assert.equal(navActive("/", "/"), true);
+  assert.equal(navActive("/watchlist", "/"), false, "/ is exact-match only");
+  assert.equal(navActive("/watchlist", "/watchlist"), true);
+  assert.equal(navActive("/watchlist/123", "/watchlist"), true, "child routes");
+  assert.equal(
+    navActive("/watchlist-archive", "/watchlist"),
+    false,
+    "a sibling sharing a prefix is not active",
+  );
+
   console.log("  ✓ nav model contracts");
 }
 

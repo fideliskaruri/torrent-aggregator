@@ -1,12 +1,12 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { Loader2, Play, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Field } from "@/components/ui/field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
@@ -38,7 +38,6 @@ const selectClass =
   "flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function RulesPage() {
-  const { data: session, status } = useSession();
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -69,9 +68,24 @@ export default function RulesPage() {
   }, []);
 
   useEffect(() => {
-    if (status === "authenticated") void load();
-    if (status === "unauthenticated") setLoading(false);
-  }, [status, load]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/rules");
+        if (res.status === 401) {
+          if (!cancelled) setRules([]);
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled) setRules(data.rules ?? []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -168,7 +182,7 @@ export default function RulesPage() {
     }
   }
 
-  if (status === "loading" || (status === "authenticated" && loading)) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -176,19 +190,6 @@ export default function RulesPage() {
     );
   }
 
-  if (!session) {
-    return (
-      <div className="container-app max-w-lg py-24">
-        <TfEmptyState
-          icon={Zap}
-          title="Auto-download rules"
-          description="Sign in to create rules that send matching releases to your client."
-          actionLabel="Sign in"
-          actionHref="/login"
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">
@@ -218,58 +219,86 @@ export default function RulesPage() {
           New rule
         </p>
         <div className="grid sm:grid-cols-2 gap-3">
-          <Input
-            placeholder="Rule name"
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-            required
-          />
-          <Input
-            placeholder="Search query"
-            value={form.query}
-            onChange={(e) => setForm((f) => ({ ...f, query: e.target.value }))}
-            required
-          />
-          <select
-            className={selectClass}
-            value={form.category}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, category: e.target.value }))
-            }
+          <Field label="Rule name" htmlFor="rule-name">
+            <Input
+              id="rule-name"
+              placeholder="Weekly anime"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              required
+            />
+          </Field>
+          <Field
+            label="Search query"
+            htmlFor="rule-query"
+            hint="Run against every enabled indexer"
           >
-            {["all", "anime", "movies", "tv", "music", "games"].map((c) => (
-              <option key={c} value={c} className="bg-[var(--bg-elevated)]">
-                {c}
+            <Input
+              id="rule-query"
+              placeholder="one piece 1080p"
+              value={form.query}
+              onChange={(e) => setForm((f) => ({ ...f, query: e.target.value }))}
+              required
+            />
+          </Field>
+          <Field label="Category" htmlFor="rule-category">
+            <select
+              id="rule-category"
+              className={selectClass}
+              value={form.category}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, category: e.target.value }))
+              }
+            >
+              {["all", "anime", "movies", "tv", "music", "games"].map((c) => (
+                <option key={c} value={c} className="bg-[var(--bg-elevated)]">
+                  {c}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Min seeders"
+            htmlFor="rule-min-seeders"
+            hint="Skip releases with fewer"
+          >
+            <Input
+              id="rule-min-seeders"
+              inputMode="numeric"
+              placeholder="10"
+              value={form.minSeeders}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, minSeeders: e.target.value }))
+              }
+            />
+          </Field>
+          <Field
+            label="Resolution"
+            htmlFor="rule-resolution"
+            className="sm:col-span-2"
+          >
+            <select
+              id="rule-resolution"
+              className={selectClass}
+              value={form.resolution}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, resolution: e.target.value }))
+              }
+            >
+              <option value="" className="bg-[var(--bg-elevated)]">
+                Any resolution
               </option>
-            ))}
-          </select>
-          <Input
-            placeholder="Min seeders"
-            value={form.minSeeders}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, minSeeders: e.target.value }))
-            }
-          />
-          <select
-            className={`${selectClass} sm:col-span-2`}
-            value={form.resolution}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, resolution: e.target.value }))
-            }
-          >
-            <option value="" className="bg-[var(--bg-elevated)]">
-              Any resolution
-            </option>
-            <option value="1080p" className="bg-[var(--bg-elevated)]">
-              1080p
-            </option>
-            <option value="720p" className="bg-[var(--bg-elevated)]">
-              720p
-            </option>
-            <option value="2160p" className="bg-[var(--bg-elevated)]">
-              2160p
-            </option>
-          </select>
+              <option value="1080p" className="bg-[var(--bg-elevated)]">
+                1080p
+              </option>
+              <option value="720p" className="bg-[var(--bg-elevated)]">
+                720p
+              </option>
+              <option value="2160p" className="bg-[var(--bg-elevated)]">
+                2160p
+              </option>
+            </select>
+          </Field>
         </div>
         <Button type="submit" size="sm">
           Create rule

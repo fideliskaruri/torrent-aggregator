@@ -56,7 +56,11 @@ export function SearchBar({
   useEffect(() => {
     try {
       const raw = localStorage.getItem(RECENT_KEY);
-      if (raw) setRecent(JSON.parse(raw) as string[]);
+      if (raw) {
+        // localStorage is an external store; syncing it on mount belongs in an effect.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setRecent(JSON.parse(raw) as string[]);
+      }
     } catch {
       // ignore
     }

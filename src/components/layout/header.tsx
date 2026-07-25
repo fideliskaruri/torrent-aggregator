@@ -2,34 +2,22 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
-import { LogIn, LogOut, Rows3 } from "lucide-react";
+import { Rows3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
-import { Button } from "@/components/ui/button";
+import {
+  DESKTOP_NAV,
+  DESKTOP_NAV_DIVIDER_INDEX,
+  activeNavLabel,
+  navActiveHref,
+} from "@/lib/navigation";
 
-/**
- * Library aggregator path:
- *   Search (discover/add) → Library (monitor shows) → Activity → Client
- * Rules are advanced (linked from Settings/footer), not a primary peer.
- */
-const NAV = [
-  { href: "/", label: "Search" },
-  { href: "/watchlist", label: "Library" },
-  { href: "/activity", label: "Activity" },
-  { href: "/client", label: "Client" },
-  { href: "/settings", label: "Settings" },
-] as const;
-
-function navActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
 
 export function Header() {
   const pathname = usePathname();
-  const { data: session } = useSession();
   const { density, setDensity } = useUiPreferences();
+  const pageTitle = activeNavLabel(pathname);
+  const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
 
   return (
     <header className="app-header" data-app-header>
@@ -51,16 +39,33 @@ export function Header() {
           </span>
         </Link>
 
-        {/* Desktop: flat nav — one click to every main page */}
+        {/* Mobile: name the current page — the bottom tab bar is the only other
+            cue, and its labels are small. */}
+        {pageTitle ? (
+          <>
+            <span
+              className="md:hidden h-4 w-px shrink-0 bg-[var(--border)]"
+              aria-hidden
+            />
+            <span className="md:hidden text-[13px] font-medium text-[var(--text-secondary)] truncate">
+              {pageTitle}
+            </span>
+          </>
+        ) : null}
+
+        {/* Desktop: flat nav — one click to every main page.
+            py/-my give the focus ring room: the scroll container clips on both
+            axes, so without it the ring's top and bottom edges are cut off. */}
         <nav
-          className="hidden md:flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto"
+          className="hidden md:flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto py-1.5 -my-1.5"
           data-desktop-nav
           aria-label="Main"
         >
-          {NAV.map(({ href, label }, i) => {
-            const active = navActive(pathname, href);
-            // Soft split after package trio (Search · Library · Client)
-            const showDivider = i === 3;
+          {DESKTOP_NAV.map((item, i) => {
+            const { href, label } = item;
+            const active = href === activeDesktopHref;
+            // Divider separates the primary path from the secondary pages.
+            const showDivider = i === DESKTOP_NAV_DIVIDER_INDEX;
             return (
               <span key={href} className="contents">
                 {showDivider ? (
@@ -71,8 +76,10 @@ export function Header() {
                 ) : null}
                 <Link
                   href={href}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
                     "px-2.5 lg:px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
+                    "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
                     active
                       ? "text-[var(--text)] bg-[var(--bg-muted)]"
                       : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]",
@@ -85,7 +92,7 @@ export function Header() {
           })}
         </nav>
 
-        {/* Desktop actions: density (1 click) + auth */}
+        {/* Desktop actions: list density */}
         <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
           <button
             type="button"
@@ -104,31 +111,6 @@ export function Header() {
             <Rows3 className="h-3.5 w-3.5" />
             <span className="hidden xl:inline capitalize">{density}</span>
           </button>
-
-          {session?.user ? (
-            <>
-              <span className="hidden lg:block text-[12px] text-[var(--text-tertiary)] max-w-[100px] truncate">
-                {session.user.name || session.user.email}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="hidden md:inline-flex"
-                onClick={() => signOut({ callbackUrl: "/" })}
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                <span className="hidden lg:inline">Sign out</span>
-              </Button>
-            </>
-          ) : (
-            <Button asChild size="sm" className="hidden md:inline-flex">
-              <Link href="/login">
-                <LogIn className="h-3.5 w-3.5" />
-                Sign in
-              </Link>
-            </Button>
-          )}
         </div>
       </div>
     </header>

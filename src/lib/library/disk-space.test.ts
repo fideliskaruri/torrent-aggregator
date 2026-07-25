@@ -12,7 +12,9 @@ import {
   estimateBackfillBytes,
   formatBytesShort,
   getDirectorySizeBytes,
+  getDirectorySizeBytesAsync,
   gbToBytes,
+  resetDirectorySizeCache,
 } from "./disk-space";
 
 async function main() {
@@ -60,6 +62,90 @@ async function main() {
     assert.ok(allowed.usedBytes >= 3072);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // The async walk must agree with the sync one on every tree shape, since it
+  // is what the server actually uses.
+  {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tf-async-"));
+    const cases: { name: string; build: (d: string) => void }[] = [
+      { name: "empty", build: () => {} },
+      {
+        name: "flat files",
+        build: (d) => {
+          fs.writeFileSync(path.join(d, "a"), Buffer.alloc(10));
+          fs.writeFileSync(path.join(d, "b"), Buffer.alloc(20));
+        },
+      },
+      {
+        name: "nested dirs",
+        build: (d) => {
+          fs.mkdirSync(path.join(d, "x", "y"), { recursive: true });
+          fs.writeFileSync(path.join(d, "x", "y", "deep"), Buffer.alloc(64));
+          fs.writeFileSync(path.join(d, "top"), Buffer.alloc(1));
+        },
+      },
+      {
+        name: "empty nested dirs only",
+        build: (d) => fs.mkdirSync(path.join(d, "p", "q"), { recursive: true }),
+      },
+    ];
+
+    try {
+      for (const c of cases) {
+        const dir = path.join(root, c.name.replace(/\s+/g, "-"));
+        fs.mkdirSync(dir, { recursive: true });
+        c.build(dir);
+        resetDirectorySizeCache();
+        const sync = getDirectorySizeBytes(dir);
+        const async_ = await getDirectorySizeBytesAsync(dir);
+        assert.equal(async_, sync, `async walk disagreed on: ${c.name}`);
+      }
+
+      // Missing paths are 0, not a throw.
+      resetDirectorySizeCache();
+      assert.equal(
+        await getDirectorySizeBytesAsync(path.join(root, "nope")),
+        0,
+      );
+
+      // A single file measures as itself.
+      const lone = path.join(root, "lone.bin");
+      fs.writeFileSync(lone, Buffer.alloc(77));
+      resetDirectorySizeCache();
+      assert.equal(await getDirectorySizeBytesAsync(lone), 77);
+
+      // Memoised within the TTL, fresh once reset — this is what stops an
+      // automation run re-walking the library once per torrent.
+      const cached = path.join(root, "cached");
+      fs.mkdirSync(cached, { recursive: true });
+      fs.writeFileSync(path.join(cached, "f1"), Buffer.alloc(100));
+      resetDirectorySizeCache();
+      assert.equal(await getDirectorySizeBytesAsync(cached), 100);
+      fs.writeFileSync(path.join(cached, "f2"), Buffer.alloc(100));
+      assert.equal(
+        await getDirectorySizeBytesAsync(cached),
+        100,
+        "expected the memoised size within the TTL",
+      );
+      assert.equal(
+        await getDirectorySizeBytesAsync(cached, { ttlMs: 0 }),
+        200,
+        "expected a fresh walk when the TTL is zero",
+      );
+      resetDirectorySizeCache();
+      assert.equal(await getDirectorySizeBytesAsync(cached), 200);
+
+      // Concurrent callers collapse onto one walk and all see the same answer.
+      resetDirectorySizeCache();
+      const answers = await Promise.all(
+        Array.from({ length: 5 }, () => getDirectorySizeBytesAsync(cached)),
+      );
+      assert.deepEqual(answers, [200, 200, 200, 200, 200]);
+    } finally {
+      resetDirectorySizeCache();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   }
 
   console.log("disk-space.test.ts: all assertions passed");

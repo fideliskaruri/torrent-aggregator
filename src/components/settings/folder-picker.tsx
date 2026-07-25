@@ -86,6 +86,8 @@ export function FolderPicker({
 
   useEffect(() => {
     if (!open) return;
+    // Folder entries are external filesystem state; fetching them when the dialog opens belongs in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(initialPath || "");
   }, [open, initialPath, load]);
 

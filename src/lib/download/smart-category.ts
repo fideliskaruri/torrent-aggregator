@@ -261,7 +261,7 @@ export function detectContentKind(input: {
   }
 
   if (
-    /\b(epub|mobi|azw3|ebook|audiobook|comic|cbr|cbz)\b/i.test(hay) &&
+    BOOKS_RE.test(hay) &&
     !/\b(1080p|720p|bluray|webrip|x264|x265)\b/i.test(hay)
   ) {
     return "books";

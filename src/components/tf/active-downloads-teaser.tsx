@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
+import { useSession } from "@/components/providers/session-provider";
 import { ArrowRight, HardDriveDownload } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
 

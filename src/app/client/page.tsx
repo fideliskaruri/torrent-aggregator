@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import {
   FolderOpen,
@@ -15,7 +14,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { formatBytes, cn } from "@/lib/utils";
+import { formatBytes, formatDuration, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -69,7 +68,6 @@ function isPaused(state: string) {
 }
 
 export default function ClientPage() {
-  const { data: session, status } = useSession();
   const [torrents, setTorrents] = useState<ClientTorrent[]>([]);
   const [clientType, setClientType] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -184,17 +182,82 @@ export default function ClientPage() {
   }
 
   useEffect(() => {
-    if (status === "authenticated") void load();
-    if (status === "unauthenticated") setLoading(false);
-  }, [status, load]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/client/torrents");
+        const text = await res.text();
+        let data: {
+          torrents?: ClientTorrent[];
+          clientType?: string;
+          message?: string;
+          error?: string;
+          offline?: boolean;
+          host?: string;
+          hasExternal?: boolean;
+          externalClientType?: string | null;
+        } = {};
+        try {
+          data = text ? (JSON.parse(text) as typeof data) : {};
+        } catch {
+          throw new Error(
+            text?.trim()
+              ? `Bad response: ${text.slice(0, 120)}`
+              : "Empty response from client API",
+          );
+        }
+        if (cancelled) return;
+        if (data.clientType) setClientType(data.clientType);
+        setHasExternal(Boolean(data.hasExternal));
+        setExternalClientType(data.externalClientType ?? null);
+        const type = data.clientType || "";
+        if (type === "builtin") {
+          setClientHost("");
+        } else if (data.host) {
+          setClientHost(data.host);
+        } else {
+          setClientHost("");
+        }
+
+        const isBuiltin = type === "builtin";
+
+        if (!res.ok || data.offline) {
+          setOffline(!isBuiltin && Boolean(data.offline || !res.ok));
+          setTorrents(data.torrents ?? []);
+          setError(
+            data.message ||
+              data.error ||
+              (isBuiltin
+                ? "Built-in engine failed to respond"
+                : "Torrent client is offline or unreachable"),
+          );
+          return;
+        }
+        setOffline(false);
+        setError(null);
+        setTorrents(data.torrents ?? []);
+      } catch (err) {
+        if (!cancelled) {
+          setOffline(false);
+          setError(err instanceof Error ? err.message : String(err));
+          setTorrents([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Healthy: 5s poll. Offline: 20s (avoid 502 spam while client is down)
   useEffect(() => {
-    if (status !== "authenticated" || pendingDelete) return;
+    if (pendingDelete) return;
     const ms = offline ? 20_000 : 5_000;
     const t = setInterval(() => void load({ quiet: true }), ms);
     return () => clearInterval(t);
-  }, [status, offline, load, pendingDelete]);
+  }, [offline, load, pendingDelete]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -392,27 +455,15 @@ export default function ClientPage() {
     }
   }
 
-  if (status === "loading") {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
         <Loader2 className="h-5 w-5 animate-spin" />
+        <span className="text-sm">Loading client…</span>
       </div>
     );
   }
 
-  if (!session) {
-    return (
-      <div className="container-app max-w-lg py-24">
-        <TfEmptyState
-          icon={HardDriveDownload}
-          title="Client dashboard"
-          description="Sign in to manage downloads. Built-in engine works out of the box; qBittorrent/Transmission are optional."
-          actionLabel="Sign in"
-          actionHref="/login"
-        />
-      </div>
-    );
-  }
 
   const isBuiltin = clientType === "builtin";
 
@@ -749,7 +800,7 @@ export default function ClientPage() {
                             <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
                               {formatBytes(t.sizeBytes)}
                               {t.eta != null && t.eta > 0
-                                ? ` · ETA ${Math.round(t.eta / 60)}m`
+                                ? ` · ETA ${formatDuration(t.eta)}`
                                 : ""}
                             </span>
                             {t.savePath ? (

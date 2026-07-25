@@ -8,7 +8,14 @@
  * Never grows past the user-set cap; never fills the disk past the free floor.
  */
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
+
+/** How long a measured directory size stays valid. */
+export const DIR_SIZE_TTL_MS = 30_000;
+
+const dirSizeCache = new Map<string, { bytes: number; at: number }>();
+const dirSizeInFlight = new Map<string, Promise<number>>();
 
 /** Hard floor: refuse any send if free space below this. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024; // 500 MB
@@ -83,6 +90,9 @@ export async function getFreeSpace(dest: string): Promise<FreeSpaceResult> {
 
 /**
  * Recursive directory size (bytes). Caps file walk for safety.
+ *
+ * Synchronous — only for tests and CLI scripts. Server request paths must use
+ * {@link getDirectorySizeBytesAsync}, which does not block the event loop.
  */
 export function getDirectorySizeBytes(
   root: string,
@@ -127,6 +137,92 @@ export function getDirectorySizeBytes(
     return 0;
   }
   return total;
+}
+
+/**
+ * Async recursive directory size (bytes).
+ *
+ * The sync version walks up to 200k files while holding the only thread Node
+ * has, which freezes every other request for the duration. A download library
+ * is exactly the kind of tree that gets big, and this runs before every send.
+ *
+ * Results are memoised per root for {@link DIR_SIZE_TTL_MS}: an automation run
+ * sends many torrents back to back, and re-walking the same tree for each one
+ * costs far more than the accuracy it buys. Sizes only grow as downloads land,
+ * and the incoming-size reserve already covers in-flight growth.
+ */
+export async function getDirectorySizeBytesAsync(
+  root: string,
+  opts?: { maxFiles?: number; ttlMs?: number },
+): Promise<number> {
+  if (!root?.trim()) return 0;
+
+  const maxFiles = opts?.maxFiles ?? 200_000;
+  const ttlMs = opts?.ttlMs ?? DIR_SIZE_TTL_MS;
+  const key = path.resolve(root);
+  const now = Date.now();
+
+  const hit = dirSizeCache.get(key);
+  if (hit && now - hit.at < ttlMs) return hit.bytes;
+
+  // Collapse concurrent walks of the same tree into one.
+  const inFlight = dirSizeInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const job = (async () => {
+    let total = 0;
+    let files = 0;
+    const stack = [key];
+
+    try {
+      const rootStat = await fsp.stat(key);
+      if (rootStat.isFile()) return rootStat.size;
+    } catch {
+      return 0;
+    }
+
+    while (stack.length > 0 && files < maxFiles) {
+      const dir = stack.pop()!;
+      let entries: fs.Dirent[];
+      try {
+        entries = await fsp.readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const ent of entries) {
+        if (files >= maxFiles) break;
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) {
+          stack.push(full);
+        } else if (ent.isFile()) {
+          try {
+            total += (await fsp.stat(full)).size;
+            files += 1;
+          } catch {
+            /* skip inaccessible */
+          }
+        }
+      }
+    }
+    return total;
+  })();
+
+  dirSizeInFlight.set(key, job);
+  try {
+    const bytes = await job;
+    dirSizeCache.set(key, { bytes, at: Date.now() });
+    return bytes;
+  } catch {
+    return 0;
+  } finally {
+    dirSizeInFlight.delete(key);
+  }
+}
+
+/** Drop memoised directory sizes (call after deleting downloads, and in tests). */
+export function resetDirectorySizeCache(): void {
+  dirSizeCache.clear();
+  dirSizeInFlight.clear();
 }
 
 /** Refuse send if free space is known and below hard floor. */
@@ -177,7 +273,7 @@ export async function assertStorageBudget(opts: {
 
   const space = await getFreeSpace(root);
   const freeBytes = space.ok ? space.freeBytes : null;
-  const usedBytes = getDirectorySizeBytes(root);
+  const usedBytes = await getDirectorySizeBytesAsync(root);
 
   // 1) Absolute free-space floor
   if (freeBytes != null && freeBytes < minFree) {

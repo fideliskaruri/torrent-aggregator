@@ -40,3 +40,14 @@ declare module "webtorrent" {
     on(ev: string, fn: (...args: unknown[]) => void): void;
   }
 }
+
+/**
+ * The Torrent class itself, reachable only by deep import (webtorrent ships no
+ * `exports` map). Typed as the bare constructor because the only thing we do
+ * with it is patch two methods on its prototype — see
+ * `src/lib/clients/webtorrent-piece-race.ts`.
+ */
+declare module "webtorrent/lib/torrent.js" {
+  const Torrent: new (...args: never[]) => unknown;
+  export default Torrent;
+}

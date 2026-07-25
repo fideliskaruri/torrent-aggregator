@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 
 export interface DownloadPrefs {
   category: string;
@@ -87,7 +86,6 @@ export function invalidateDownloadPrefs() {
 }
 
 export function useDownloadPrefs() {
-  const { status } = useSession();
   const [prefs, setPrefs] = useState<DownloadPrefs>(
     cache ?? {
       category: "",
@@ -107,15 +105,16 @@ export function useDownloadPrefs() {
   }, []);
 
   useEffect(() => {
-    if (status !== "authenticated") {
-      setLoaded(true);
-      return;
-    }
+    let cancelled = false;
     void fetchPrefs().then((p) => {
+      if (cancelled) return;
       setPrefs(p);
       setLoaded(true);
     });
-  }, [status]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /**
    * Resolve download folder preview.

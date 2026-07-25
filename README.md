@@ -9,20 +9,21 @@ Optional: connect your own **qBittorrent** or **Transmission** in Settings if yo
 ```bash
 cd torrent-aggregator
 npm install
-cp .env.example .env   # AUTH_SECRET, GitHub OAuth, optional TMDB
-npx prisma db push
+cp .env.example .env   # only DATABASE_URL is required
+npx prisma migrate deploy
 npm run dev
 ```
 
-Open http://localhost:3000 → sign in → **Search → Send**.  
+Open http://localhost:3000 → **Search → Send**.
 Downloads go to `./downloads` by default (or `DOWNLOAD_DIR`).
+
+There is no sign-in. TorrentFlow is a single-user app that runs on your own
+machine, so it binds to `127.0.0.1` and trusts whoever is at the keyboard.
+See [Access and exposure](#access-and-exposure) before putting it on a network.
 
 ### Docker (single service)
 
 ```bash
-export AUTH_SECRET=$(openssl rand -base64 32)
-export AUTH_GITHUB_ID=...
-export AUTH_GITHUB_SECRET=...
 docker compose up --build
 ```
 
@@ -34,7 +35,7 @@ Volumes: app data + `/downloads`. No second container.
 - Smart routing: `Anime/One Piece`, `TV/Show/Season 01`, Software vs Movies, etc.
 - **Built-in engine** (WebTorrent) or optional external clients
 - Library + monitored automation + Activity
-- GitHub OAuth, dark amber UI, PWA
+- Dark amber UI, PWA
 
 ## Download engines
 
@@ -47,24 +48,67 @@ Switch anytime: **Settings → Connection**. Built-in hides host fields; externa
 
 Default download root: `DOWNLOAD_DIR` or `./downloads` (Docker volume `/downloads`).
 
+## Access and exposure
+
+`npm run dev` and `npm start` bind to `127.0.0.1`, so the app is reachable only
+from the machine it runs on. This is deliberate: there is no sign-in, so anyone
+who can reach the port can browse folders, change your download paths, and
+start downloads.
+
+To reach it from another device, put it behind something that authenticates —
+a reverse proxy with basic auth, a VPN, or a Tailscale/WireGuard network — and
+point that at `127.0.0.1:3000`. Binding straight to `0.0.0.0` publishes an
+unauthenticated app to your whole LAN.
+
+External client passwords are encrypted at rest with AES-256-GCM. If you do not
+set `ENCRYPTION_KEY` or `AUTH_SECRET`, a key is generated on first use and
+stored in `.torrentflow.key` (gitignored) — back it up with your database, or
+saved passwords will not decrypt after a move.
+
 ## Environment
 
 | Variable | Required | Description |
 | -------- | -------- | ----------- |
 | `DATABASE_URL` | Yes | Default `file:./dev.db` |
-| `AUTH_SECRET` | Yes | Sessions + encryption |
-| `AUTH_GITHUB_ID` / `SECRET` | For sign-in | GitHub OAuth |
+| `ENCRYPTION_KEY` | No | Encrypts stored client passwords. Auto-generated if unset. |
 | `DOWNLOAD_DIR` | No | Default download root (Docker: `/downloads`) |
 | `TMDB_API_KEY` | No | Movie/TV metadata |
 | `ENABLE_1337X` | No | Set `1` to enable 1337x |
+
+## Development
+
+```bash
+npm run test:unit    # fast, offline — no network required
+npm run test:api     # contract-checks every API route against a running server
+npm run test:live    # the indexer-backed tests (needs unblocked network)
+npm run test:e2e     # Playwright
+npm run test:all     # everything, plus live HTTP checks
+npm run lint
+```
+
+`test:unit` discovers every `src/**/*.test.ts` and reports all of them, so one
+failure does not hide the rest. Tests that hit real torrent indexers are kept
+out of it — they fail on networks that block those hosts, which says nothing
+about the code.
+
+`scripts/seed-demo.mjs` fills the library with sample shows and rules for
+manual QA against a running server.
 
 ## Architecture
 
 See [docs/architecture/download-engine.md](docs/architecture/download-engine.md) for the pluggable engine design (builtin → optional external → future sidecar).
 
+Navigation lives in one place — `src/lib/navigation.ts`. Header and mobile nav
+both render from it, and `flow.test.ts` asserts the product rules against it.
+
+Auth is a single seam: `src/lib/auth.ts` (server) and
+`src/components/providers/session-provider.tsx` (client) return a constant local
+session. Every table still carries a `userId`, so real user management can be
+added by changing those two files rather than migrating the schema.
+
 ## Stack
 
-Next.js 16 · Prisma + SQLite · Auth.js · Tailwind · WebTorrent (builtin)
+Next.js 16 · Prisma + SQLite · Tailwind · WebTorrent (builtin)
 
 ## License / legal
 

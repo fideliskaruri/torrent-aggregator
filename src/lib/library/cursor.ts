@@ -36,9 +36,50 @@ export function cursorFromStart(
   };
 }
 
-/** v1: episode + 1 (season length from TMDB later). */
+/** Next episode in the same season. */
 export function advanceCursor(cursor: ShowCursor): ShowCursor {
   return { season: cursor.season, episode: cursor.episode + 1 };
+}
+
+/**
+ * How many consecutive failed hunts for the same episode before we assume the
+ * season has ended and probe the next season.
+ */
+export const SEASON_ROLLOVER_MISS_THRESHOLD = 3;
+
+export type MissAdvance = {
+  cursor: ShowCursor;
+  misses: number;
+  rolledOver: boolean;
+};
+
+/**
+ * Advance the cursor after a hunt found nothing.
+ *
+ * Rule class (not a per-show hardcode): a season boundary is invisible from a
+ * release name, so we infer it. When N consecutive hunts for SxxEyy come back
+ * empty AND we have already grabbed at least one episode of this season
+ * (episode > 1), treat the season as finished and probe S(xx+1)E01.
+ *
+ * The episode > 1 guard matters: if we have never landed an episode of this
+ * season, an empty result means "this show/season isn't available", not "the
+ * season ended" — rolling forward there would skip a whole season.
+ */
+export function advanceCursorAfterMiss(
+  cursor: ShowCursor,
+  misses: number,
+  threshold = SEASON_ROLLOVER_MISS_THRESHOLD,
+): MissAdvance {
+  const next = Math.max(0, Math.trunc(misses) || 0) + 1;
+  const canRollOver = cursor.episode > 1 && next >= Math.max(1, threshold);
+  if (!canRollOver) {
+    return { cursor: { ...cursor }, misses: next, rolledOver: false };
+  }
+  return {
+    cursor: { season: cursor.season + 1, episode: 1 },
+    misses: 0,
+    rolledOver: true,
+  };
 }
 
 export function parseSeasonEpisodeLabel(

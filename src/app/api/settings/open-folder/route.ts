@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getUserClientConfig } from "@/lib/clients";
 import { resolveDownloadTarget } from "@/lib/clients";
+import { isWithinLibrary, libraryRoots } from "@/lib/download/path-containment";
 
 export const dynamic = "force-dynamic";
 
@@ -70,10 +71,30 @@ export async function POST(request: NextRequest) {
 
   const resolved = path.resolve(folder);
 
+  // Containment: this endpoint spawns the OS file manager, and the app has no
+  // sign-in, so only folders inside the user's own library may be revealed.
+  const roots = libraryRoots(config);
+  if (!isWithinLibrary(resolved, roots)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Path is outside your download folders",
+        message:
+          "TorrentFlow only opens folders inside your configured download locations. Add this location in Settings first.",
+        pathOnly: resolved,
+      },
+      { status: 403 },
+    );
+  }
+
   if (!fs.existsSync(resolved)) {
     // Try parent if file path was given
     const parent = path.dirname(resolved);
-    if (fs.existsSync(parent) && fs.statSync(parent).isDirectory()) {
+    if (
+      isWithinLibrary(parent, roots) &&
+      fs.existsSync(parent) &&
+      fs.statSync(parent).isDirectory()
+    ) {
       return openPath(parent, resolved, shouldReveal);
     }
     return NextResponse.json(

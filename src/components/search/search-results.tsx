@@ -8,21 +8,22 @@ import {
   ChevronRight,
   Rows3,
   RefreshCw,
+  SearchX,
   SlidersHorizontal,
 } from "lucide-react";
 import type { SearchResponse, TorrentSourceId } from "@/lib/torrents/types";
+import {
+  describeSourceFailure,
+  sourceShortLabel,
+} from "@/lib/torrents/source-labels";
 import { TorrentCard } from "./torrent-card";
 import { cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import { Button } from "@/components/ui/button";
 
-const ALL_SOURCES: { id: TorrentSourceId; label: string }[] = [
-  { id: "nyaa", label: "Nyaa" },
-  { id: "apibay", label: "TPB" },
-  { id: "torrentscsv", label: "CSV" },
-  { id: "yts", label: "YTS" },
-  { id: "1337x", label: "1337x" },
-];
+const ALL_SOURCES: { id: TorrentSourceId; label: string }[] = (
+  ["nyaa", "apibay", "torrentscsv", "yts", "1337x"] as const
+).map((id) => ({ id, label: sourceShortLabel(id) }));
 
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -139,6 +140,8 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   );
 
   useEffect(() => {
+    // Search results are external API state; fetching them from URL params belongs in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -255,6 +258,8 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     minSeeders || resolution || codec || maxSizeGb || sourcesParam,
   );
 
+  const failedSources = data?.sources.filter((s) => s.error) ?? [];
+
   return (
     <div className="space-y-3">
       {/* Sticky toolbar: count · density · filters · refresh */}
@@ -289,6 +294,25 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                   <>
                     <span className="text-[var(--border-strong)]">·</span>
                     <span>cached</span>
+                  </>
+                )}
+                {failedSources.length > 0 && (
+                  <>
+                    <span className="text-[var(--border-strong)]">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowFilters(true)}
+                      title={failedSources
+                        .map((s) => describeSourceFailure(s.id, s.error))
+                        .join("\n")}
+                      className="inline-flex items-center gap-1 text-[var(--danger)] hover:underline outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded"
+                    >
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      <span>
+                        {failedSources.length} of {data.sources.length} sources
+                        unavailable
+                      </span>
+                    </button>
                   </>
                 )}
               </>
@@ -424,24 +448,53 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       {/* Results list */}
       {!data?.results.length ? (
         <div className="surface px-5 py-12 text-center">
-          <p className="text-sm text-[var(--text-secondary)]">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-[var(--bg-muted)] text-[var(--text-tertiary)]">
+            <SearchX className="h-5 w-5" aria-hidden />
+          </div>
+          <p className="text-sm text-[var(--text-secondary)] mt-3">
             No results for “{query}”
           </p>
           <p className="text-[12px] text-[var(--text-tertiary)] mt-1.5">
-            Try fewer filters or another category.
+            {hasActiveFilters
+              ? "Your filters may be too narrow."
+              : "Try another spelling, or a different category."}
           </p>
-          {data?.sources?.some((s) => s.error) && (
-            <ul className="mt-4 text-left max-w-md mx-auto space-y-1 text-[11px] text-[var(--text-tertiary)]">
-              {data.sources
-                .filter((s) => s.error)
-                .map((s) => (
-                  <li key={s.id}>
-                    <span className="text-[var(--danger)]">{s.id}</span>:{" "}
-                    {s.error}
-                  </li>
-                ))}
-            </ul>
+          {failedSources.length > 0 && (
+            <p className="mt-3 text-[12px] text-[var(--text-tertiary)]">
+              {failedSources.length} of {data?.sources.length} sources could not
+              be reached, so this may be incomplete:
+              <span className="block mt-1 text-[var(--danger)]">
+                {failedSources
+                  .map((s) => describeSourceFailure(s.id, s.error))
+                  .join(" · ")}
+              </span>
+            </p>
           )}
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {hasActiveFilters && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  router.push(
+                    buildUrl({
+                      minSeeders: null,
+                      resolution: null,
+                      codec: null,
+                      maxSizeGb: null,
+                      sources: null,
+                    }),
+                  )
+                }
+              >
+                Clear filters
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => load(true)}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Search again
+            </Button>
+          </div>
         </div>
       ) : (
         <>
@@ -610,6 +663,8 @@ function FilterField({
   onChange: (v: string) => void;
 }) {
   const [local, setLocal] = useState(value);
+  // Filter value is external URL state; syncing the local draft when it changes belongs in an effect.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setLocal(value), [value]);
 
   return (

@@ -92,3 +92,34 @@ Never run torrent I/O on edge/serverless.
 - **Not a full client UI** — no sequential download priority, RSS, or advanced ratio rules in v1.
 - **Process restart** — live peers drop; magnets rehydrate from `EngineTorrent` (metadata wait may take time).
 - **WebTorrent scope** — some hybrid/v2 torrents or uncommon extensions may fail; switch to external if needed.
+- **Speed vs progress can disagree** — `downloadSpeed` counts bytes off the wire,
+  while progress only counts pieces that pass hash verification. On a network
+  where peers are throttled or unreachable you can see a non-zero speed next to
+  a progress bar that does not move. This is WebTorrent's own accounting; the
+  Client page reports both rather than smoothing one to match the other.
+
+## Upstream workaround: the nulled-piece race
+
+`src/lib/clients/webtorrent-piece-race.ts` patches two methods and four getters
+on `Torrent.prototype` before the client is constructed. It exists because
+WebTorrent nulls entries in `torrent.pieces[]` the moment a piece verifies, but
+several of its own code paths keep dereferencing them:
+
+| Site | Throws |
+|------|--------|
+| `lib/torrent.js:1941` `_request` → `piece.reserve()` | `reading 'reserve'` |
+| `lib/torrent.js:1705` `_updateWire` → `pieces[i].missing` | `reading 'missing'` |
+| `lib/torrent.js:227` `get downloaded` → `piece.length` | `reading 'length'` |
+
+The third is read on the tracker announce interval via `getAnnounceOpts`
+(`torrent.js:390`), and `progress`/`timeRemaining` delegate to it. All of these
+fire from timers and wire callbacks, so defensive reads on our own request path
+(`readProp` in `builtin-engine.ts`) cannot catch them — they surfaced as
+`uncaughtException` several times a second and buried every real error.
+
+The patch swallows **only** a `TypeError` whose message contains `of null` and
+names one of `reserve`/`missing`/`length`/`reserveRemaining`; anything else
+rethrows. Guarded getters return the previous good reading rather than zero, so
+progress bars and the tracker's `left` value never rewind. It is idempotent and
+warns if WebTorrent's internals move. Revisit on every `webtorrent` upgrade —
+`webtorrent-piece-race.test.ts` covers the contract in both directions.

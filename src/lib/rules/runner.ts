@@ -3,6 +3,7 @@ import { searchTorrents } from "@/lib/torrents/aggregator";
 import { getUserClientConfig, sendToClient } from "@/lib/clients";
 import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
+import { acquireRunLock, releaseRunLock } from "@/lib/automation/run-lock";
 import type { TorrentSourceId } from "@/lib/torrents/types";
 
 export type RuleRunStatus = "sent" | "failed" | "skipped";
@@ -64,6 +65,17 @@ function looksOfflineMessage(message: string): boolean {
  * as matched when the client send fails (so the next run can retry).
  */
 export async function runAutoRules(userId?: string): Promise<RuleRunResult[]> {
+  // Serialize per user so overlapping runs cannot both grab the same release.
+  const lockId = userId ? await acquireRunLock(userId, "rules") : null;
+  if (userId && !lockId) return [];
+  try {
+    return await runAutoRulesUnlocked(userId);
+  } finally {
+    await releaseRunLock(lockId);
+  }
+}
+
+async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
   const rules = await prisma.autoRule.findMany({
     where: {
       enabled: true,

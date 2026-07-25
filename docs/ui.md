@@ -44,6 +44,9 @@ TorrentFlow is a **warm near-black canvas** with an **amber accent**. No cyan CT
 Prefer for all new interactive UI:
 - `Button` — primary / secondary / ghost / outline / destructive
 - `Badge`, `Input`, `Checkbox`, `Progress`
+- `Field` — label + optional hint wrapper. Use it for **every** form control; it
+  generates the id and wires `htmlFor`/`aria-describedby`, so controls never end
+  up unlabelled (placeholders are not labels).
 - `AlertDialog`, `DropdownMenu`, `Tooltip`
 - `PageShell` where a consistent page width/padding is needed
 
@@ -60,9 +63,14 @@ Use **Tf\*** when the layout pattern repeats across pages:
 Do **not** reimplement page headers or empty states with ad-hoc markup on secondary pages — compose Tf\*.
 
 ### Legacy `.btn` classes
-`globals.css` still defines `.btn` / `.btn-primary` / `.btn-secondary` / `.btn-ghost` (+ size modifiers) for a few intentional call sites, mainly the **torrent-card split Send control** (primary + chevron joined as one control with custom radius/border). Prefer `@/components/ui/button` everywhere else (login, history, rules, settings, search toolbar, folder picker, pagination, …).
+`globals.css` still defines `.btn` / `.btn-primary` / `.btn-secondary` / `.btn-ghost` (+ size modifiers) for a few intentional call sites, mainly the **torrent-card split Send control** (primary + chevron joined as one control with custom radius/border). Prefer `@/components/ui/button` everywhere else (history, rules, settings, search toolbar, folder picker, pagination, …).
 
 ## Package navigation model (single path)
+
+Navigation is defined **once**, in `src/lib/navigation.ts`. The desktop header and
+the mobile nav both render from it, and `src/lib/automation/flow.test.ts` asserts
+the rules below against that module. Do not hardcode nav items in a component —
+the two lists drifted apart once already.
 
 User journey is **one path** — do not reintroduce competing “what ran / what downloaded” pages:
 
@@ -77,19 +85,25 @@ User journey is **one path** — do not reintroduce competing “what ran / what
 - **Product:** Library aggregator — Search discovers/adds; Library is the product (from season + monitor); Activity logs; Client is the pipe.
 - **Desktop header (flat):** Search · Library · Activity · Client · Settings  
   Rules demoted to mobile More as “Rules (advanced)” / not a primary peer. Density toggle next to auth. About in footer.
-- **Mobile bottom tabs:** Search · Library · Client · **More** (Activity · Settings · Rules advanced · About · density · auth).
+- **Mobile bottom tabs:** Search · Library · Client · **More** (Activity · Settings · Rules advanced · About · density).
 - History stays routable for clear/delete of send log but is labeled **Download log** and points to Activity for automation results
 
 ## Mobile navigation & More sheet
 
-- **Desktop (`md+`):** top `Header` with primary + More dropdown — no hamburger
+Nav items are defined once in `src/lib/navigation.ts` (`PRIMARY_NAV`,
+`SECONDARY_NAV`, `DESKTOP_NAV`). Header and `MobileNav` both render from it, so
+the two cannot drift; `flow.test.ts` asserts the product rules against that
+module.
+
+- **Desktop (`md+`):** top `Header` — primary trio, a divider, then Activity and Settings
 - **Mobile:** fixed bottom tab bar (`MobileNav`) with primary tabs: Search · Library · Client · **More**
 - **More sheet:** bottom sheet (`data-mobile-more-sheet`) opened from the More tab
-  - Secondary routes: Activity, Rules, Settings, About
+  - Secondary routes: Activity, Settings, Rules, About
   - Density toggle (compact / comfortable) via `UiPreferencesProvider`
-  - Sign in / Sign out
   - Closing: backdrop tap, Escape, route change, or close button
-- Routes under More prefixes light the More tab when the sheet is closed (`/activity`, `/rules`, `/settings`, `/about`, `/history`, `/login`)
+- Routes under More prefixes light the More tab when the sheet is closed (`/activity`, `/settings`, `/rules`, `/about`, `/history`)
+
+There is no sign-in UI — the app is local and single-user.
 
 ## Toast feedback convention
 

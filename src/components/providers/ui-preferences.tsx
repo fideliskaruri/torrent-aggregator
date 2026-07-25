@@ -31,6 +31,8 @@ export function UiPreferencesProvider({
   useEffect(() => {
     const stored = localStorage.getItem("tf-density") as Density | null;
     if (stored === "comfortable" || stored === "compact") {
+      // localStorage is an external store; syncing it on mount belongs in an effect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDensityState(stored);
     }
   }, []);

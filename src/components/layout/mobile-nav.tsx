@@ -3,14 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
 import {
   Activity,
   HardDriveDownload,
   Info,
   Library,
-  LogIn,
-  LogOut,
   MoreHorizontal,
   Search,
   Settings,
@@ -19,34 +16,33 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
+import {
+  MORE_ACTIVE_PREFIXES,
+  PRIMARY_NAV,
+  SECONDARY_NAV,
+  navActiveHref,
+} from "@/lib/navigation";
 
-/**
- * Package flow (one path):
- *   Library (want) → Run automation → Activity (what ran) → Client (live)
- * History is a download-log subset linked from Activity — not a More peer.
- */
-const PRIMARY_TABS = [
-  { href: "/", label: "Search", icon: Search },
-  { href: "/watchlist", label: "Library", icon: Library },
-  { href: "/client", label: "Client", icon: HardDriveDownload },
-] as const;
+/** Icons live here because they are presentation, not part of the nav model. */
+const NAV_ICONS: Record<string, typeof Search> = {
+  "/": Search,
+  "/watchlist": Library,
+  "/client": HardDriveDownload,
+  "/activity": Activity,
+  "/settings": Settings,
+  "/rules": Zap,
+  "/about": Info,
+};
 
-const MORE_ITEMS = [
-  { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/rules", label: "Rules (advanced)", icon: Zap },
-  { href: "/about", label: "About", icon: Info },
-] as const;
+const PRIMARY_TABS = PRIMARY_NAV.map((item) => ({
+  ...item,
+  icon: NAV_ICONS[item.href],
+}));
 
-/** Routes that light the More tab when the sheet is closed. */
-const MORE_ACTIVE_PREFIXES = [
-  "/activity",
-  "/rules",
-  "/settings",
-  "/about",
-  "/history",
-  "/login",
-] as const;
+const MORE_ITEMS = SECONDARY_NAV.map((item) => ({
+  ...item,
+  icon: NAV_ICONS[item.href],
+}));
 
 const DENSITY_OPTIONS = [
   { value: "compact" as const, label: "Compact" },
@@ -55,11 +51,13 @@ const DENSITY_OPTIONS = [
 
 export function MobileNav() {
   const pathname = usePathname();
-  const { data: session } = useSession();
   const { density, setDensity } = useUiPreferences();
   const [moreOpen, setMoreOpen] = useState(false);
+  const activeMoreHref = navActiveHref(SECONDARY_NAV, pathname);
 
   useEffect(() => {
+    // The current route is external navigation state; closing the sheet on route changes belongs in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMoreOpen(false);
   }, [pathname]);
 
@@ -123,12 +121,12 @@ export function MobileNav() {
             <nav className="px-2 pb-1" aria-label="Secondary">
               <ul className="flex flex-col gap-0.5">
                 {MORE_ITEMS.map(({ href, label, icon: Icon }) => {
-                  const active =
-                    pathname === href || pathname.startsWith(`${href}/`);
+                  const active = href === activeMoreHref;
                   return (
                     <li key={href}>
                       <Link
                         href={href}
+                        aria-current={active ? "page" : undefined}
                         onClick={() => setMoreOpen(false)}
                         className={cn(
                           "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors",
@@ -184,38 +182,6 @@ export function MobileNav() {
                 })}
               </div>
             </div>
-
-            <div className="mx-2 border-t border-[var(--border)] px-1 pt-2 pb-3">
-              {session?.user ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreOpen(false);
-                    void signOut({ callbackUrl: "/" });
-                  }}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
-                >
-                  <LogOut className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
-                  <span className="min-w-0 truncate">
-                    Sign out
-                    {session.user.name || session.user.email ? (
-                      <span className="ml-1.5 text-[var(--text-tertiary)] font-normal">
-                        · {session.user.name || session.user.email}
-                      </span>
-                    ) : null}
-                  </span>
-                </button>
-              ) : (
-                <Link
-                  href="/login"
-                  onClick={() => setMoreOpen(false)}
-                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
-                >
-                  <LogIn className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
-                  Sign in
-                </Link>
-              )}
-            </div>
           </div>
         </div>
       ) : null}
@@ -240,8 +206,13 @@ export function MobileNav() {
               <Link
                 key={href}
                 href={href}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   "flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
+                  // The bar is fixed to the bottom edge and the tabs run
+                  // edge-to-edge, so an outer ring is clipped by the viewport on
+                  // every side. An inset ring is always fully visible.
+                  "outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
                   active
                     ? "text-[var(--accent-text)]"
                     : "text-[var(--text-tertiary)]",
@@ -263,7 +234,7 @@ export function MobileNav() {
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen((o) => !o)}
             className={cn(
-              "flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors outline-none focus-visible:text-[var(--accent-text)]",
+              "flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
               moreTabActive
                 ? "text-[var(--accent-text)]"
                 : "text-[var(--text-tertiary)]",

@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { Activity, Loader2, Radar } from "lucide-react";
+import { Loader2, Radar } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
@@ -43,36 +42,37 @@ function statusVariant(
 }
 
 export default function ActivityPage() {
-  const { data: session, status } = useSession();
   const [items, setItems] = useState<ActivityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/activity");
-      if (res.status === 401) {
-        setItems([]);
-        return;
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/activity");
+        if (res.status === 401) {
+          if (!cancelled) setItems([]);
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error || "Failed to load");
+        setItems(data.items ?? []);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load");
-      setItems(data.items ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  useEffect(() => {
-    if (status === "authenticated") void load();
-    if (status === "unauthenticated") setLoading(false);
-  }, [status, load]);
-
-  if (status === "loading" || (status === "authenticated" && loading)) {
+  if (loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -81,19 +81,6 @@ export default function ActivityPage() {
     );
   }
 
-  if (!session) {
-    return (
-      <div className="container-app max-w-lg py-24">
-        <TfEmptyState
-          icon={Activity}
-          title="Activity"
-          description="Sign in to see automation grabs, save paths, and recent downloads."
-          actionLabel="Sign in"
-          actionHref="/login"
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">

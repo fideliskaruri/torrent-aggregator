@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     let title = body.title?.trim();
     let mediaType = body.mediaType?.trim() || "tv";
-    let watchListItemId = body.watchListItemId?.trim() || null;
+    const watchListItemId = body.watchListItemId?.trim() || null;
 
     if (watchListItemId) {
       const item = await prisma.watchListItem.findFirst({
