@@ -128,6 +128,8 @@ export interface ClientTorrent {
   upspeed: number;
   state: string;
   eta?: number;
+  /** Connected peers. 0 while downloading is what "stalled" actually means. */
+  peers?: number;
   category?: string;
   /** Absolute download directory from the torrent client */
   savePath?: string | null;

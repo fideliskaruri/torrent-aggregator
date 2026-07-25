@@ -51,11 +51,50 @@ interface ClientTorrent {
   upspeed: number;
   state: string;
   eta?: number;
+  peers?: number;
   category?: string;
   savePath?: string | null;
 }
 
 type StatusFilter = "all" | "active" | "downloading" | "seeding" | "paused";
+
+/**
+ * Both engines report qBittorrent's state vocabulary, which is precise but not
+ * English. "stalledDL" in particular reads like an error when it only means
+ * "connected to nobody yet", so say that instead.
+ */
+const STATE_LABELS: Record<string, string> = {
+  metaDL: "Finding files",
+  checkingDL: "Verifying",
+  checkingUP: "Verifying",
+  checkingResumeData: "Verifying",
+  downloading: "Downloading",
+  forcedDL: "Downloading",
+  stalledDL: "Looking for peers",
+  queuedDL: "Queued",
+  allocating: "Allocating",
+  uploading: "Seeding",
+  forcedUP: "Seeding",
+  stalledUP: "Seeding · idle",
+  queuedUP: "Queued",
+  seeding: "Seeding",
+  paused: "Paused",
+  pausedDL: "Paused",
+  pausedUP: "Paused",
+  stoppedDL: "Stopped",
+  stoppedUP: "Stopped",
+  error: "Error",
+  missingFiles: "Files missing",
+};
+
+function stateLabel(state: string) {
+  return STATE_LABELS[state] ?? state;
+}
+
+/** Work is happening but no bytes can move yet — worth saying out loud. */
+function isBusy(state: string) {
+  return /^(metaDL|checking|allocating)/i.test(state);
+}
 
 function isDownloading(state: string) {
   return /down|meta|stalledDL|allocat|queuedDL|checking/i.test(state);
@@ -790,15 +829,17 @@ export default function ClientPage() {
                                     ? "default"
                                     : "accent"
                               }
-                              className="capitalize"
                             >
-                              {t.state}
+                              {stateLabel(t.state)}
                             </Badge>
                             {t.category ? (
                               <Badge variant="outline">{t.category}</Badge>
                             ) : null}
                             <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
                               {formatBytes(t.sizeBytes)}
+                              {t.peers != null && !isBusy(t.state)
+                                ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}`
+                                : ""}
                               {t.eta != null && t.eta > 0
                                 ? ` · ETA ${formatDuration(t.eta)}`
                                 : ""}

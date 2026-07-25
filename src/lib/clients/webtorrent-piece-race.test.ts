@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   isNullPieceError,
   patchTorrentPieceRace,
+  repairedPieceCount,
   resetSwallowedPieceRaces,
   swallowedPieceRaces,
 } from "@/lib/clients/webtorrent-piece-race";
@@ -134,83 +135,202 @@ check("a prototype missing the methods is tolerated", () => {
   assert.doesNotThrow(() => patchTorrentPieceRace({}));
 });
 
-console.log("patchTorrentPieceRace: guarded getters…");
+check("a verified piece short-circuits without ever calling the original", () => {
+  resetSwallowedPieceRaces();
+  let called = 0;
+  const proto = {
+    pieces: [] as unknown[],
+    _request() {
+      called += 1;
+      return true;
+    },
+  };
+  patchTorrentPieceRace(proto);
+  const inst = Object.create(proto) as {
+    pieces: unknown[];
+    bitfield: { get: (i: number) => boolean };
+    _request: (w: unknown, i: number, h: boolean) => boolean;
+  };
+  inst.pieces = [null, { reserve: () => 0 }];
+  // Piece 0 is null *and* its bit is set: verified and complete.
+  inst.bitfield = { get: (i: number) => i === 0 };
+
+  assert.equal(inst._request({}, 0, false), false, "verified piece returns false");
+  assert.equal(called, 0, "the original must not run for a verified piece");
+  assert.equal(
+    swallowedPieceRaces(),
+    0,
+    "the fast path must not construct an exception at all",
+  );
+
+  assert.equal(inst._request({}, 1, false), true, "a live piece is passed through");
+  assert.equal(called, 1);
+});
+
+check("a leaked piece is reinstated and then requested", () => {
+  resetSwallowedPieceRaces();
+  let called = 0;
+  const proto = {
+    pieces: [] as unknown[],
+    _request() {
+      called += 1;
+      return true;
+    },
+  };
+  patchTorrentPieceRace(proto);
+  const marked: number[] = [];
+  const inst = Object.create(proto) as {
+    pieces: unknown[];
+    bitfield: { get: (i: number) => boolean };
+    _markUnverified: (i: number) => void;
+    _request: (w: unknown, i: number, h: boolean) => boolean;
+  };
+  // Null piece with its bit *unset*: leaked, unreachable by the scheduler.
+  inst.pieces = [null];
+  inst.bitfield = { get: () => false };
+  inst._markUnverified = (i: number) => {
+    marked.push(i);
+    inst.pieces[i] = { reserve: () => 0 };
+  };
+
+  assert.equal(inst._request({}, 0, false), true, "the repaired piece is requested");
+  assert.deepEqual(marked, [0], "upstream repair ran for the leaked piece");
+  assert.equal(called, 1, "the original runs once the piece exists again");
+  assert.equal(repairedPieceCount(), 1, "the repair is counted");
+});
+
+check("a leaked piece is skipped when upstream repair is unavailable", () => {
+  resetSwallowedPieceRaces();
+  let called = 0;
+  const proto = {
+    pieces: [] as unknown[],
+    _request() {
+      called += 1;
+      return true;
+    },
+  };
+  patchTorrentPieceRace(proto);
+  const inst = Object.create(proto) as {
+    pieces: unknown[];
+    bitfield: { get: (i: number) => boolean };
+    _request: (w: unknown, i: number, h: boolean) => boolean;
+  };
+  inst.pieces = [null];
+  inst.bitfield = { get: () => false };
+
+  assert.equal(inst._request({}, 0, false), false, "falls back to skipping");
+  assert.equal(called, 0, "the original must not run on a null piece");
+  assert.equal(repairedPieceCount(), 0);
+});
+
+check("a missing bitfield is treated as nothing to request", () => {
+  resetSwallowedPieceRaces();
+  let called = 0;
+  const proto = {
+    pieces: [] as unknown[],
+    _request() {
+      called += 1;
+      return true;
+    },
+  };
+  patchTorrentPieceRace(proto);
+  const inst = Object.create(proto) as {
+    pieces: unknown[];
+    _request: (w: unknown, i: number, h: boolean) => boolean;
+  };
+  inst.pieces = [null];
+
+  assert.equal(inst._request({}, 0, false), false);
+  assert.equal(called, 0, "no bitfield means no safe repair decision");
+  assert.equal(repairedPieceCount(), 0);
+});
+
+console.log("patchTorrentPieceRace: the downloaded getter…");
 
 /**
- * Mimics `Torrent.prototype.downloaded`: walks pieces and throws once a piece
- * has been nulled. The tracker announce reads this on an interval, so no guard
- * on our request path can ever see the throw.
+ * Mimics the real `Torrent.prototype` shape the getter reads: a bitfield of
+ * verified pieces plus a `pieces[]` whose entries are nulled on verify.
  */
-function makeGetterProto() {
+function makeTorrentProto() {
   const proto = {
-    pieces: [] as ({ length: number } | null)[],
+    pieceLength: 10,
+    lastPieceLength: 4,
+    bitfield: undefined as undefined | { get: (i: number) => boolean },
+    pieces: [] as ({ length: number; missing: number } | null)[],
     get downloaded(): number {
-      let total = 0;
-      for (const p of (this as unknown as { pieces: ({ length: number } | null)[] }).pieces) {
-        total += (p as { length: number }).length;
-      }
-      return total;
+      throw new Error("upstream getter should have been replaced");
     },
   };
   patchTorrentPieceRace(proto);
   return proto;
 }
 
-check("a healthy getter is untouched", () => {
-  resetSwallowedPieceRaces();
-  const inst = Object.create(makeGetterProto()) as { pieces: unknown[]; downloaded: number };
-  inst.pieces = [{ length: 10 }, { length: 5 }];
-  assert.equal(inst.downloaded, 15);
-  assert.equal(swallowedPieceRaces(), 0);
+type Inst = {
+  pieces: ({ length: number; missing: number } | null)[];
+  bitfield?: { get: (i: number) => boolean };
+  downloaded: number;
+};
+
+function bits(set: number[]) {
+  return { get: (i: number) => set.includes(i) };
+}
+
+check("verified pieces count as whole pieces, the last one shorter", () => {
+  const inst = Object.create(makeTorrentProto()) as Inst;
+  inst.pieces = [null, null, null];
+  inst.bitfield = bits([0, 1, 2]);
+  // 10 + 10 + lastPieceLength(4)
+  assert.equal(inst.downloaded, 24);
 });
 
-check("a nulled piece yields the last good value, not a jump to zero", () => {
-  resetSwallowedPieceRaces();
-  const inst = Object.create(makeGetterProto()) as { pieces: unknown[]; downloaded: number };
-  inst.pieces = [{ length: 10 }, { length: 5 }];
-  assert.equal(inst.downloaded, 15, "warm up the memo");
-  inst.pieces = [{ length: 10 }, null];
+check("partially received pieces count their received bytes", () => {
+  const inst = Object.create(makeTorrentProto()) as Inst;
+  inst.pieces = [null, { length: 10, missing: 6 }, { length: 4, missing: 4 }];
+  inst.bitfield = bits([0]);
+  // 10 verified + (10-6) in flight + (4-4) untouched
+  assert.equal(inst.downloaded, 14);
+});
+
+/**
+ * The regression this whole patch exists for. `_markVerified` nulls the piece
+ * one line *before* it sets the bitfield bit, so this exact state occurs on
+ * every verified piece. It must not throw, and it must not freeze.
+ */
+check("a piece nulled before its bit is set does not throw and does not freeze", () => {
+  const inst = Object.create(makeTorrentProto()) as Inst;
+  inst.pieces = [null, { length: 10, missing: 0 }];
+  inst.bitfield = bits([]); // mid-_markVerified: nulled, bit not yet set
   assert.equal(
     inst.downloaded,
-    15,
-    "progress must not visibly rewind while a piece is being nulled",
+    10,
+    "the nulled piece contributes 0 rather than throwing",
   );
-  assert.equal(swallowedPieceRaces(), 1);
-  // Recovers on its own once the race passes.
-  inst.pieces = [{ length: 10 }, { length: 5 }, { length: 7 }];
-  assert.equal(inst.downloaded, 22);
+
+  // One tick later the bit is set — and the number must move.
+  inst.bitfield = bits([0]);
+  assert.equal(inst.downloaded, 20, "progress must advance, not stay frozen");
 });
 
-check("with no prior reading the fallback is used", () => {
-  resetSwallowedPieceRaces();
-  const inst = Object.create(makeGetterProto()) as { pieces: unknown[]; downloaded: number };
+check("progress advances across a long run instead of pinning to one value", () => {
+  const inst = Object.create(makeTorrentProto()) as Inst;
+  inst.pieces = [null, null, null];
+  const seen: number[] = [];
+  for (const set of [[], [0], [0, 1], [0, 1, 2]]) {
+    inst.bitfield = bits(set);
+    seen.push(inst.downloaded);
+  }
+  assert.deepEqual(seen, [0, 10, 20, 24]);
+});
+
+check("a torrent with no bitfield yet reports zero rather than throwing", () => {
+  const inst = Object.create(makeTorrentProto()) as Inst;
   inst.pieces = [null];
+  inst.bitfield = undefined;
   assert.equal(inst.downloaded, 0);
-  assert.equal(swallowedPieceRaces(), 1);
 });
 
-check("the memo is per-instance, so torrents cannot read each other's value", () => {
-  resetSwallowedPieceRaces();
-  const proto = makeGetterProto();
-  const a = Object.create(proto) as { pieces: unknown[]; downloaded: number };
-  const b = Object.create(proto) as { pieces: unknown[]; downloaded: number };
-  a.pieces = [{ length: 99 }];
-  assert.equal(a.downloaded, 99);
-  b.pieces = [null];
-  assert.equal(b.downloaded, 0, "b picked up a's cached value");
-});
-
-check("an unrelated getter error still propagates", () => {
-  resetSwallowedPieceRaces();
-  const proto = {
-    get downloaded(): number {
-      throw new RangeError("nope");
-    },
-  };
-  patchTorrentPieceRace(proto);
-  const inst = Object.create(proto) as { downloaded: number };
-  assert.throws(() => inst.downloaded, RangeError);
-  assert.equal(swallowedPieceRaces(), 0);
+check("a prototype without the getter is tolerated", () => {
+  assert.doesNotThrow(() => patchTorrentPieceRace({ foo: 1 }));
 });
 
 if (failures > 0) {

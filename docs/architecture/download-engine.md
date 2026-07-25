@@ -52,6 +52,46 @@ Next.js control plane → TorrentClientAdapter
 | delete | Drop EngineTorrent row; destroy store only if no other user owns the hash |
 | rehydrate | On first list/add per process: re-`add` magnets with status ≠ `removed` |
 
+### Reported state
+
+The `/client` page filters on qBittorrent's state vocabulary, and the qBittorrent
+adapter passes its own strings straight through. So the builtin engine emits the
+*same* names rather than a private set — the UI never has to know which engine it
+is talking to:
+
+| Emitted | Condition | Shown as |
+|---------|-----------|----------|
+| `pausedDL` / `pausedUP` | explicitly paused | Paused |
+| `metaDL` | not ready, no pieces yet | Fetching metadata |
+| `checkingDL` | not ready, pieces known — existing data is being hash-checked | Verifying |
+| `stalledDL` | ready, incomplete, no download speed | Looking for peers |
+| `downloading` | ready, incomplete, moving | Downloading |
+| `uploading` / `stalledUP` | complete | Seeding / Seeding (idle) |
+
+`t.ready` is false until WebTorrent has hash-checked whatever is already on disk,
+and metadata always arrives before pieces, so `pieces.length` is what separates
+`checkingDL` from `metaDL`. The `ready` read fails *open*: if the property ever
+disappears upstream, torrents look active rather than permanently "Verifying".
+Peer counts come from `numPeers` (builtin) and `num_seeds + num_leechs` (qB).
+
+Completeness is decided by `progress`, **not** by `t.done` — see `isComplete()`.
+WebTorrent latches per-file `done` (`_checkDone` returns early for any file
+already marked done, `torrent.js:2028`) and never re-evaluates it, while
+`_markUnverified` (`torrent.js:884`) clears bits later when a hash check fails.
+The torrent-level flag therefore sticks at the optimistic high-water mark.
+Observed live: three torrents advertising `done` at **47–52% progress**, drawn
+as "Seeding", their files fully allocated on disk but only half hash-verifying.
+Since the `downloaded` getter is now exact, progress is the honest signal.
+
+### Download order
+
+Pieces are requested **sequentially** (`ADD_OPTIONS.strategy`). This is already
+WebTorrent's default in the pinned version, but it is set explicitly because a
+default is not a decision and this one has moved between releases. The trade-off
+is accepted knowingly: sequential is slightly slower than rarest-first and worse
+for swarm health, but it means a partially-downloaded video is playable from the
+start, which is what this app is for.
+
 ## Content layout (no junk nesting)
 
 Smart path leaf is Sonarr-style:
@@ -233,10 +273,82 @@ fire from timers and wire callbacks, so defensive reads on our own request path
 
 The patch swallows **only** a `TypeError` whose message contains `of null` and
 names one of `reserve`/`missing`/`length`/`reserveRemaining`; anything else
-rethrows. Guarded getters return the previous good reading rather than zero, so
-progress bars and the tracker's `left` value never rewind. It is idempotent and
-warns if WebTorrent's internals move. Revisit on every `webtorrent` upgrade —
-`webtorrent-piece-race.test.ts` covers the contract in both directions.
+rethrows. It is idempotent and warns if WebTorrent's internals move. Revisit on
+every `webtorrent` upgrade — `webtorrent-piece-race.test.ts` covers the contract
+in both directions.
+
+Two of the three sites are **not** swallowed, because swallowing them was worse
+than the crash:
+
+**`get downloaded` is replaced, not guarded.** Returning the last good value on
+a throw sounds harmless until you notice the throw recurs on essentially every
+read: `_markVerified` nulls the piece one line *before* it sets the bitfield
+bit, so the window is hit constantly once a torrent starts verifying. The
+number then never updates again. Measured on a real download: the app reported
+**69.92% frozen for 60 seconds while the bitfield said 51.86%** — and reported
+**0.0%** for a torrent that was actually 56% complete. A progress bar and ETA
+that are confidently wrong are worse than ones that are missing, and this is
+the real reason the builtin engine "looked slow". The getter now recomputes the
+same sum while skipping nulled pieces, which is exact and cannot freeze.
+
+**`_request` checks for the null piece instead of catching it.** The scheduler
+walks every piece a peer advertises, and on a half-complete torrent about half
+of those are verified and therefore nulled — so it threw **512,968 times in 70
+seconds** (~7,300/s), each one paying V8 stack capture on the event loop that
+also serves the UI. One property read before the call removed 99.9% of them
+(513k → 552 over the same window). The `try/catch` stays as a backstop for the
+piece being nulled *inside* the original call.
+
+## Leaked pieces, and why torrents used to plateau near 50%
+
+A null entry in `pieces[]` means one of two things, and the bitfield tells them
+apart:
+
+- **bit set** — verified and complete. Nothing to request.
+- **bit unset** — the piece has *leaked* and the scheduler will skip it forever.
+
+This is not a race. `_markVerified` (torrent.js:872-875) nulls the piece and
+sets the bit on adjacent synchronous lines, so single-threaded JavaScript can
+never observe the gap; every orphan found this way is genuinely stuck. Measured
+on a fresh 276 MB torrent: **328 of 1055 pieces** leaked, and the download sat
+at ~49.6% with 34 connected peers and **zero throughput**.
+
+The repair is upstream's own `_markUnverified`, which reinstates a `Piece` of
+the correct length and re-selects the range. With it, the same torrent
+went to **1055/1055 pieces (100%) in 21 seconds at 42 MB/s**, repairing 939
+pieces on the way. If the method is ever renamed the guard falls back to
+skipping, which is the previous behaviour.
+
+Verified against **vanilla WebTorrent with none of this code**: the identical
+~49.6% plateau appears (523/1055), plus the `Cannot read properties of null
+(reading 'missing')` crash. The plateau is an upstream defect, not a
+regression, and this patch is a strict improvement on it.
+
+Known remaining limit: after a torrent reaches 100%, its bitfield can still
+wobble back down while the file on disk stays complete. That also reproduces in
+vanilla and is not addressed here — `scripts/probe-downloaded-getter.mts`
+(`--vanilla` to compare) is the harness for re-measuring it.
+
+## Why the builtin engine was slow: µTP
+
+See `BUILTIN_CLIENT_OPTIONS` in `builtin-engine.ts`. WebTorrent defaults µTP on,
+and µTP *replaces* TCP as the first choice for every IPv4 peer rather than
+supplementing it. When `utp-native` cannot connect — routine on Windows — TCP is
+not tried until a ~41s retry ladder has run out, per peer. Measured on one
+torrent, same swarm, same machine:
+
+| µTP | result after 40s |
+|-----|------------------|
+| on (WebTorrent default) | **0.00%** |
+| off | **23.2% within 10s** |
+
+Peak observed with it off: **35 MB/s**. `scripts/probe-engine-speed.mts` is the
+harness; it prints reported progress next to a bitfield-derived ground truth so
+a frozen or lying getter is immediately visible.
+
+`torrentPort` is deliberately *not* pinned (no measured effect, and it would
+collide with a qBittorrent install on the same machine) and `maxConns` stays at
+WebTorrent's 55 (no observed swarm came close to saturating it).
 
 ## Upstream workaround: the second peer-socket error
 

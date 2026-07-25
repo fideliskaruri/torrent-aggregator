@@ -5,7 +5,7 @@
  * Usage: node scripts/test-all.mjs
  * Optional: BASE=http://localhost:3000 SCRATCH=./tmp
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,17 +76,26 @@ async function pingHome() {
   }
 }
 
+let devServerPid = 0;
+
 async function ensureDevServer() {
   if (await pingHome()) {
     log("dev server already up");
     return true;
   }
   log("starting dev server…");
-  spawnSync("cmd.exe", ["/c", "start", "/b", "npm", "run", "dev"], {
+  // Must be spawn(), not spawnSync(). spawnSync waits for the child's stdio to
+  // close, and a dev server never closes it — the harness hung for 28 minutes
+  // before the first test ran. This path only triggers when no server is
+  // already up, which is why it stayed hidden.
+  const child = spawn("npm.cmd", ["run", "dev"], {
     cwd: root,
-    shell: true,
-    encoding: "utf8",
+    detached: true,
+    stdio: "ignore",
+    shell: process.platform === "win32",
   });
+  child.unref();
+  devServerPid = child.pid;
   for (let i = 0; i < 40; i++) {
     await new Promise((r) => setTimeout(r, 2000));
     if (await pingHome()) {
@@ -284,5 +293,6 @@ log(
     ? `\nALL GREEN (${results.length} checks) → ${scratch}`
     : `\n${failed.length} FAILED → ${scratch}`,
 );
+if (devServerPid) log(`dev server left running (pid ${devServerPid})`);
 
 process.exit(failed.length === 0 ? 0 : 1);

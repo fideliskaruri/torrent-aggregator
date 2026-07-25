@@ -33,10 +33,14 @@ declare module "webtorrent" {
     uploadSpeed: number;
     done: boolean;
     paused: boolean;
+    /** False until existing data has been hash-checked. */
+    ready: boolean;
     numPeers: number;
     timeRemaining: number;
     path: string;
     magnetURI?: string;
+    /** Piece list; empty until metadata arrives, entries nulled as they verify. */
+    pieces?: Array<unknown>;
     /** The .torrent file itself, available once metadata is known. */
     torrentFile: Uint8Array;
     files?: TorrentFile[];

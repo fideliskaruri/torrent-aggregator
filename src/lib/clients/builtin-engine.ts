@@ -54,16 +54,77 @@ type WtTorrent = {
   uploadSpeed: number;
   done: boolean;
   paused: boolean;
+  /** False until existing data has been hash-checked (`torrent.js:928`). */
+  ready: boolean;
   numPeers: number;
   timeRemaining: number;
   path: string;
   magnetURI?: string;
+  pieces?: Array<unknown>;
   files?: Array<WtFile & { select?: () => void; deselect?: () => void }>;
   pause: () => void;
   resume: () => void;
   destroy: (opts?: { destroyStore?: boolean }, cb?: (err?: Error) => void) => void;
   on: (ev: string, fn: (...args: unknown[]) => void) => void;
 };
+
+/**
+ * Options for the in-process WebTorrent client.
+ *
+ * **`utp: false` is the single most important setting here.** WebTorrent
+ * defaults µTP on, and µTP is not an *addition* to TCP — it *replaces* it as
+ * the first choice for every IPv4 peer:
+ *
+ *   lib/torrent.js:1065   const type = (this.client.utp && this._isIPv4(host)) ? 'utp' : 'tcp'
+ *
+ * When `utp-native` cannot establish a connection — routine on Windows and
+ * behind NATs that drop unsolicited UDP — TCP is not tried until the peer has
+ * exhausted its whole retry ladder (`lib/torrent.js:2145`):
+ *
+ *   attempt 1 → 5s connect timeout, wait 1s
+ *   attempt 2 → 5s,                 wait 5s
+ *   attempt 3 → 5s,                 wait 15s
+ *   attempt 4 → 5s, only now is the peer re-added as 'tcp'
+ *
+ * That is ~41 seconds of dead air per peer before a single byte can flow, and
+ * it repeats for every peer the tracker returns. The download is not broken,
+ * just starved — which is exactly what "the builtin client is slow" looks like.
+ *
+ * Measured on one torrent, same swarm, same machine (scripts/probe-engine-speed.mts):
+ *
+ *   µTP on (default) → 0.00% after 40s
+ *   µTP off          → 23.2% within 10s
+ *
+ * Disabling it also removes the source of the `UTP_ECONNRESET` throws that
+ * `webtorrent-conn-errors.ts` exists to absorb.
+ *
+ * We do not pin `torrentPort`: measurement showed it made no difference, and a
+ * fixed port collides with a qBittorrent install on the same machine.
+ * `maxConns` is left at WebTorrent's 55 for the same reason — no observed
+ * swarm ever came close to saturating it.
+ */
+const BUILTIN_CLIENT_OPTIONS = { utp: false } as const;
+
+export const builtinClientOptions = BUILTIN_CLIENT_OPTIONS;
+
+/**
+ * Per-torrent add options.
+ *
+ * `strategy: 'sequential'` asks for pieces in file order instead of rarest-
+ * first, so a partially downloaded file is playable from the start rather than
+ * being a mesh of holes. This *is* WebTorrent's current default
+ * (`torrent.js:143`), but a default is not a decision — it has flipped between
+ * releases, and the whole point of this app is that you can start watching
+ * before the download finishes. Stating it means an upstream change cannot
+ * quietly take it away.
+ *
+ * The trade-off is real and accepted: sequential fetching is worse for the
+ * swarm and slightly slower overall than rarest-first, because you cannot
+ * prioritise the pieces that are hardest to get.
+ */
+const ADD_OPTIONS = { strategy: "sequential" } as const;
+
+export const builtinAddOptions = ADD_OPTIONS;
 
 /** Public trackers so magnets without announce still find peers (common on TPB/CSV). */
 const FALLBACK_TRACKERS = [
@@ -281,8 +342,9 @@ async function getWtClient(): Promise<WebTorrentLike> {
   s.loading = (async () => {
     // Dynamic import keeps Next bundler from packing native deps into edge
     const mod = await import("webtorrent");
-    const WebTorrent = (mod as { default?: new () => WebTorrentLike }).default ??
-      (mod as unknown as new () => WebTorrentLike);
+    const WebTorrent =
+      (mod as { default?: new (opts?: object) => WebTorrentLike }).default ??
+      (mod as unknown as new (opts?: object) => WebTorrentLike);
     // Must run before any wire connects: WebTorrent's request scheduler throws
     // on pieces it has already nulled (see webtorrent-piece-race).
     const { patchWebTorrentPieceRace } = await import(
@@ -321,7 +383,7 @@ async function getWtClient(): Promise<WebTorrentLike> {
         "[builtin-engine] could not patch WebTorrent layout; downloads will nest under a release folder",
       );
     }
-    const client = new WebTorrent();
+    const client = new WebTorrent(BUILTIN_CLIENT_OPTIONS);
     s.client = client;
     return client;
   })();
@@ -479,6 +541,7 @@ async function rehydrateFromDb(
 
           // Fire-and-forget: do not wait for metadata (can hang on dead magnets)
           const t = client.add(withPublicTrackers(row.magnet), {
+            ...ADD_OPTIONS,
             path: dest,
           });
           t.on("error", (err: unknown) => {
@@ -545,14 +608,50 @@ export function readProp<T>(read: () => T, fallback: T): T {
   }
 }
 
-/** Client-facing status for a live torrent, derived defensively. */
+/**
+ * Client-facing status for a live torrent, derived defensively.
+ *
+ * The names match qBittorrent's, because the /client page already filters on
+ * them (`isDownloading`/`isSeeding`/`isPaused` in `app/client/page.tsx`) and
+ * the qBittorrent adapter passes its own through untouched. One vocabulary for
+ * every backend means the UI never has to know which engine it is talking to.
+ *
+ * Previously this collapsed everything into downloading/seeding/stalledDL,
+ * which reported a torrent that was busy hash-checking 4 GB of existing data as
+ * "stalledDL 0.0%" — indistinguishable from a dead swarm, and the single most
+ * misleading thing on the page after a restart.
+ */
+/**
+ * True when the torrent actually holds every piece.
+ *
+ * Not `t.done`: WebTorrent latches per-file `done` and never re-evaluates it
+ * (`_checkDone`, torrent.js:2028), so the torrent-level flag sticks at the
+ * optimistic high-water mark even after `_markUnverified` clears bits on a
+ * failed hash check. `progress` is recomputed from the bitfield on every read.
+ */
+function isComplete(t: WtTorrent): boolean {
+  return readProp(() => t.progress, 0) >= 0.9999;
+}
+
 export function torrentStatus(t: WtTorrent): string {
   if (readProp(() => t.paused, false)) return "paused";
-  if (readProp(() => t.done, false)) return "seeding";
+
+  // `ready` flips only after existing data has been hash-checked, so anything
+  // before it is work in progress, not a stall. Metadata arrives first, so its
+  // presence separates "still finding the .torrent" from "checking files".
+  if (!readProp(() => t.ready, true)) {
+    const hasMetadata = readProp(() => (t.pieces?.length ?? 0) > 0, false);
+    return hasMetadata ? "checkingDL" : "metaDL";
+  }
+
   const peers = readProp(() => t.numPeers, 0);
-  const progress = readProp(() => t.progress, 0);
-  if (peers === 0 && progress < 1) return "stalledDL";
-  return "downloading";
+
+  // `t.done` cannot be trusted here — see {@link isComplete}. Observed live:
+  // three torrents reporting `done` at 47–52% progress, drawn as "Seeding"
+  // while they were still missing half their data.
+  const complete = isComplete(t);
+  if (complete) return peers > 0 ? "uploading" : "stalledUP";
+  return peers > 0 ? "downloading" : "stalledDL";
 }
 
 export function mapTorrent(
@@ -575,6 +674,7 @@ export function mapTorrent(
     upspeed: readProp(() => t.uploadSpeed, 0),
     state: st,
     eta,
+    peers: readProp(() => t.numPeers, 0),
     category: extra?.category,
     savePath: extra?.savePath || readProp(() => t.path, "") || null,
   };
@@ -814,9 +914,7 @@ export class BuiltinClient implements TorrentClientAdapter {
               magnet: magnetForPersist(payload, addUri, existing),
               savePath: dest,
               category: payload.category,
-              status: readProp(() => existing.done, false)
-                ? "seeding"
-                : "downloading",
+              status: isComplete(existing) ? "seeding" : "downloading",
               progress: readProp(() => existing.progress, 0),
               sizeBytes: readProp(() => existing.length, 0),
             });
@@ -825,7 +923,7 @@ export class BuiltinClient implements TorrentClientAdapter {
           const pct = Math.round(readProp(() => existing.progress, 0) * 100);
           return {
             ok: true,
-            message: readProp(() => existing.done, false)
+            message: isComplete(existing)
               ? `Already complete in built-in engine (${pct}% · ${existing.name || hash.slice(0, 8)})`
               : `Downloading in built-in engine (${pct}% · ${peers} peers · ${dest})`,
           };
@@ -858,7 +956,7 @@ export class BuiltinClient implements TorrentClientAdapter {
             ),
           );
         }, 90_000);
-        const t = client.add(addUri, { path: dest }, (ready) => {
+        const t = client.add(addUri, { ...ADD_OPTIONS, path: dest }, (ready) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
@@ -902,9 +1000,7 @@ export class BuiltinClient implements TorrentClientAdapter {
           magnet: magnetForPersist(payload, addUri, torrent),
           savePath: dest,
           category: payload.category,
-          status: readProp(() => torrent.done, false)
-            ? "seeding"
-            : "downloading",
+          status: isComplete(torrent) ? "seeding" : "downloading",
           progress: readProp(() => torrent.progress, 0),
           sizeBytes: readProp(() => torrent.length, 0),
         });
@@ -924,7 +1020,7 @@ export class BuiltinClient implements TorrentClientAdapter {
       const pct = Math.round(readProp(() => live.progress, 0) * 100);
       return {
         ok: true,
-        message: readProp(() => live.done, false)
+        message: isComplete(live)
           ? `Already complete (${pct}%) → ${dest}`
           : `Download started (${pct}% · ${peers} peers) → ${dest}`,
       };
@@ -1013,6 +1109,7 @@ export class BuiltinClient implements TorrentClientAdapter {
               if (!findTorrent(client, h)) {
                 repairExistingLayout(dest, row.name);
                 const t = client.add(withPublicTrackers(row.magnet), {
+                  ...ADD_OPTIONS,
                   path: dest,
                 });
                 t.on("ready", () => applyPersistedStatus(t, row.status));
@@ -1107,7 +1204,7 @@ export class BuiltinClient implements TorrentClientAdapter {
               hash: hash.toLowerCase(),
             },
             data: {
-              status: readProp(() => t.done, false) ? "seeding" : "downloading",
+              status: isComplete(t) ? "seeding" : "downloading",
             },
           });
         } catch {

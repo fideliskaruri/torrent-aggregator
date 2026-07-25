@@ -118,6 +118,8 @@ export class QBittorrentClient implements TorrentClientAdapter {
       upspeed: number;
       state: string;
       eta: number;
+      num_seeds?: number;
+      num_leechs?: number;
       category?: string;
       save_path?: string;
       content_path?: string;
@@ -132,6 +134,7 @@ export class QBittorrentClient implements TorrentClientAdapter {
       upspeed: t.upspeed,
       state: t.state,
       eta: t.eta >= 8640000 ? undefined : t.eta,
+      peers: (t.num_seeds ?? 0) + (t.num_leechs ?? 0),
       category: t.category,
       // Prefer save_path (dir); content_path may be a file — open-folder handles parents
       savePath: t.save_path || t.content_path || null,
