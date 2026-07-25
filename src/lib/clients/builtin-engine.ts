@@ -15,7 +15,8 @@ import type {
   ClientConnectionConfig,
   TorrentClientAdapter,
 } from "./types";
-import { flattenSingleReleaseRoot } from "./flatten-release-root";
+import { repairContentLayout } from "./content-layout-repair";
+import { releasePaths } from "./layout-ownership";
 import { pruneEmptyParents } from "./prune-empty-parents";
 import { findTorrentByHash } from "./find-torrent-by-hash";
 import prisma from "@/lib/prisma";
@@ -174,6 +175,104 @@ function state(): EngineState {
   return s;
 }
 
+/**
+ * Stops the in-process engine without touching downloaded files.
+ *
+ * Called when the primary client changes away from `builtin`. Without this the
+ * WebTorrent client stays alive with every torrent still connected: invisible
+ * in the UI (which now lists the newly selected client) but still consuming
+ * bandwidth, disk and peer slots.
+ *
+ * `EngineTorrent` rows are deliberately left in place — switching back
+ * rehydrates from them, so a round trip costs a re-verify, not the download.
+ * Resets the rehydrate bookkeeping so the next `getWtClient()` starts clean.
+ */
+export async function shutdownBuiltinEngine(): Promise<boolean> {
+  const s = state();
+  const client = s.client ?? (s.loading ? await s.loading.catch(() => null) : null);
+
+  s.client = null;
+  s.loading = null;
+  s.meta.clear();
+  s.rehydrated.clear();
+  s.rehydrating.clear();
+
+  if (!client) return false;
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    // destroy() with no opts leaves files on disk.
+    try {
+      client.destroy(() => finish());
+    } catch (err) {
+      console.warn(
+        "[builtin-engine] shutdown failed",
+        err instanceof Error ? err.message : err,
+      );
+      finish();
+      return;
+    }
+    // Never let a stuck destroy hang the settings save.
+    setTimeout(finish, 5000);
+  });
+
+  return true;
+}
+
+/**
+ * What is already sitting at a path we intend to write to.
+ *
+ * Walks every ancestor as well as the leaf. A file named `Subs` where we want
+ * `Subs/en.srt` makes `lstat` on the leaf throw `ENOTDIR`, which naively reads
+ * as "nothing is there" — and the chunk store then fails when it tries to
+ * create the directory. A junction anywhere along the path is worse: the store
+ * follows it and writes outside the library entirely.
+ */
+function probeExisting(
+  dest: string,
+  rel: string,
+  ownerOf: (dest: string, rel: string) => string | null,
+): { size: number; owner: string | null; isDirectory?: boolean } | null {
+  const parts = rel.split(/[\\/]+/).filter(Boolean);
+  let current = dest;
+
+  for (let i = 0; i < parts.length; i++) {
+    current = path.join(current, parts[i]);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(current);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      // A missing path is the normal case. Anything else — notably ENOTDIR,
+      // meaning a file blocks one of our folders — must block the rewrite.
+      if (code === "ENOENT") return null;
+      return { size: -1, owner: null, isDirectory: true };
+    }
+
+    if (stat.isSymbolicLink()) {
+      return { size: -1, owner: null, isDirectory: true };
+    }
+
+    const isLeaf = i === parts.length - 1;
+    if (!isLeaf) {
+      // A parent that is not a directory blocks the whole path.
+      if (!stat.isDirectory()) return { size: -1, owner: null, isDirectory: true };
+      continue;
+    }
+    return {
+      size: stat.size,
+      owner: ownerOf(dest, rel),
+      isDirectory: stat.isDirectory(),
+    };
+  }
+  return null;
+}
+
 async function getWtClient(): Promise<WebTorrentLike> {
   const s = state();
   if (s.client) return s.client;
@@ -192,6 +291,34 @@ async function getWtClient(): Promise<WebTorrentLike> {
     if (!(await patchWebTorrentPieceRace())) {
       console.warn(
         "[builtin-engine] could not patch WebTorrent piece race; expect noisy uncaughtException logs",
+      );
+    }
+    // Peer sockets get only a `once('error')` from WebTorrent, so a second
+    // reset on the same socket has no listener and crashes out of Node.
+    const { patchWebTorrentConnErrors } = await import(
+      "@/lib/clients/webtorrent-conn-errors"
+    );
+    const conns = await patchWebTorrentConnErrors();
+    if (!conns.outgoing || !conns.incoming) {
+      console.warn(
+        `[builtin-engine] could not guard peer sockets (outgoing=${conns.outgoing} incoming=${conns.incoming}); expect UTP_ECONNRESET uncaughtException logs`,
+      );
+    }
+    // Must run before any metadata arrives: this is what stops WebTorrent
+    // creating a redundant release-root folder inside our smart path.
+    const { patchWebTorrentContentLayout } = await import(
+      "@/lib/clients/content-layout"
+    );
+    const { ownerOf, claimPaths } = await import(
+      "@/lib/clients/layout-ownership"
+    );
+    const applied = await patchWebTorrentContentLayout(
+      (dest, rel) => probeExisting(dest, rel, ownerOf),
+      claimPaths,
+    );
+    if (!applied) {
+      console.warn(
+        "[builtin-engine] could not patch WebTorrent layout; downloads will nest under a release folder",
       );
     }
     const client = new WebTorrent();
@@ -341,6 +468,7 @@ async function rehydrateFromDb(
           } catch {
             /* best-effort */
           }
+          repairExistingLayout(dest, row.name);
 
           s.meta.set(hash, {
             savePath: dest,
@@ -368,7 +496,6 @@ async function rehydrateFromDb(
               name: t.name || row.name,
               userId: row.userId,
             });
-            scheduleReleaseRootFlatten(t, dest);
           });
         } catch (err) {
           console.warn(
@@ -500,9 +627,18 @@ function destroyLiveTorrent(
       return;
     }
     try {
+      const hash = readProp(() => t.infoHash, "");
+      const savePath = readProp(() => t.path, "");
       t.destroy({ destroyStore: deleteFiles }, (err) => {
-        if (err) reject(err);
-        else resolve();
+        if (err) {
+          reject(err);
+          return;
+        }
+        // Only give up the claim once the files are actually gone, and only
+        // for the destination that was deleted — the same torrent may still
+        // have a copy somewhere else whose files must stay protected.
+        if (deleteFiles && hash) releasePaths(hash, savePath || undefined);
+        resolve();
       });
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
@@ -555,40 +691,50 @@ function defaultDownloadRoot(config: ClientConnectionConfig): string {
 }
 
 /**
- * WebTorrent multi-file packs write to savePath/<torrentName>/….
- * Single-file packs already land files directly under savePath.
+ * Lines up whatever is already on disk with the flat paths the engine now
+ * uses. Folders downloaded before the layout rewrite — and any pack that
+ * nested its release name more than once — sit one or two levels too deep, so
+ * a resumed torrent would find nothing and re-download from zero.
  *
- * After the torrent finishes (files closed), best-effort flatten a single
- * junk release root so the leaf is Category/Show/Season NN/<episode files>.
- * Also try once on ready if already complete (rehydrate / fast local).
+ * Call this only before the torrent is added: at that point nothing holds a
+ * file handle, which is what makes the rename safe.
  */
-function scheduleReleaseRootFlatten(t: WtTorrent, dest: string): void {
-  const run = () => {
-    try {
-      const result = flattenSingleReleaseRoot(dest, t.name);
-      if (result.flattened) {
-        console.info(
-          `[builtin-engine] flattened release root → ${dest} (moved ${result.moved})`,
-        );
-      }
-    } catch (err) {
-      console.warn(
-        "[builtin-engine] flatten release root failed",
-        err instanceof Error ? err.message : err,
+function repairExistingLayout(dest: string, torrentName?: string | null): void {
+  try {
+    const { moved, roots } = repairContentLayout(dest, torrentName);
+    if (moved > 0) {
+      console.info(
+        `[builtin-engine] repaired nested layout in ${dest} — lifted ${moved} entr${
+          moved === 1 ? "y" : "ies"
+        } out of ${roots.map((r) => `"${r}"`).join(" / ")}`,
       );
     }
-  };
-
-  // Prefer post-done so chunk store has released handles
-  if (readProp(() => t.done, false)) {
-    // Defer so destroy/store settles after ready callback returns
-    setTimeout(run, 250);
-    return;
+  } catch (err) {
+    console.warn(
+      "[builtin-engine] layout repair failed",
+      err instanceof Error ? err.message : err,
+    );
   }
-  t.on("done", () => {
-    setTimeout(run, 500);
-  });
 }
+
+/**
+ * There is deliberately NO post-download flatten.
+ *
+ * `done` means every piece verified, not that the chunk store closed its
+ * handles — the torrent goes straight on to seed from exactly those paths.
+ * Renaming underneath a live store fails outright on Windows, and on Linux
+ * succeeds while leaving every reopened read pointing at a path that no longer
+ * exists, which silently breaks seeding.
+ *
+ * That was true even in the "already complete when added" case: WebTorrent
+ * verified those bytes and is serving them.
+ *
+ * So the on-disk repair only ever runs *before* `client.add()`, in
+ * {@link repairExistingLayout}, which is the one moment nothing holds a
+ * handle. A torrent that lands nested because the prototype patch could not be
+ * applied stays nested until the next add or restart. Nested is survivable;
+ * a broken seed is not.
+ */
 
 export class BuiltinClient implements TorrentClientAdapter {
   readonly type = "builtin" as const;
@@ -687,6 +833,9 @@ export class BuiltinClient implements TorrentClientAdapter {
       }
 
       const torrent = await new Promise<WtTorrent>((resolve, reject) => {
+        // Existing bytes may still sit under a release root from before the
+        // layout rewrite. Lift them now, while nothing has the files open.
+        repairExistingLayout(dest, payload.name);
         let settled = false;
         // A magnet that never resolves metadata stays in client.torrents
         // forever unless we destroy it, leaking handles/sockets and showing up
@@ -744,7 +893,6 @@ export class BuiltinClient implements TorrentClientAdapter {
       });
 
       // Multi-file → often savePath/torrentName/…; flatten junk root when done
-      scheduleReleaseRootFlatten(torrent, dest);
 
       if (config.userId) {
         await upsertEngineTorrent({
@@ -863,6 +1011,7 @@ export class BuiltinClient implements TorrentClientAdapter {
               row.savePath?.trim() || defaultDownloadRoot(config);
             try {
               if (!findTorrent(client, h)) {
+                repairExistingLayout(dest, row.name);
                 const t = client.add(withPublicTrackers(row.magnet), {
                   path: dest,
                 });

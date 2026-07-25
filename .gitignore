@@ -76,3 +76,9 @@ Desktop.ini
 qa-screens/
 dev-server.log
 prod-server.log
+
+# Layout ownership manifest (which torrent owns which file on disk)
+.torrentflow-layout.json
+
+# Scratch request bodies for manual API pokes
+switch.json

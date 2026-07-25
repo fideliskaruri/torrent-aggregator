@@ -332,6 +332,27 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    // The in-process engine keeps running until it is told to stop. Leaving it
+    // alive after the user moves to an external client means torrents that no
+    // longer appear anywhere in the UI still hold peers, bandwidth and disk.
+    if (
+      (existing?.clientType ?? "builtin") === "builtin" &&
+      clientType !== "builtin"
+    ) {
+      try {
+        const { shutdownBuiltinEngine } = await import(
+          "@/lib/clients/builtin-engine"
+        );
+        await shutdownBuiltinEngine();
+      } catch (err) {
+        // The setting is already saved; a failed teardown must not undo it.
+        console.warn(
+          "[settings/client PUT] builtin engine shutdown failed",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     let testResult = null;
     if (body.test) {
       try {

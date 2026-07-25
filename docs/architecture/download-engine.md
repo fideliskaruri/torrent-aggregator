@@ -64,8 +64,122 @@ Smart path leaf is Sonarr-style:
 | Engine | How files avoid `Season NN/<torrent-name>/video.mkv` |
 |--------|------------------------------------------------------|
 | **qBittorrent** | On add: `contentLayout=NoSubfolder` + `autoTMM=false` when `savepath` is set |
-| **builtin (WebTorrent)** | Single-file → directly under `savePath`. Multi-file often uses a release root; best-effort `flattenSingleReleaseRoot` after `done` when that root matches the torrent/scene name |
+| **builtin (WebTorrent)** | `file.path` is rewritten at metadata time, before the chunk store exists — see below |
 | **Transmission** | Uses `download-dir` only (no subfolder API); multi-file may still create a torrent-name dir depending on client version |
+
+### How the builtin engine does it
+
+WebTorrent has no `contentLayout` option, and `fs-chunk-store` writes to
+`savePath + dirname(file.path)`, so a multi-file torrent always lands one level
+too deep. `src/lib/clients/content-layout.ts` patches
+`Torrent.prototype._processParsedTorrent` — the last point before the store is
+built from `files`, and after `torrentFile` has been serialised, so **the info
+hash is unaffected**.
+
+Every rule about what a folder *means* lives in one place,
+`content-layout-policy.ts`, and is shared verbatim by the path rewrite and the
+on-disk repair. If the two disagreed by a single rule, a torrent would be added
+expecting one layout while its own resume data sat in another, and every byte
+would be fetched twice.
+
+The rule is deliberately conservative, because "this folder is the only child"
+is *not* evidence that it is redundant:
+
+1. **The container root is dropped.** We chose the save path, so the folder
+   named after the release adds nothing. This is the same job qBittorrent's
+   `NoSubfolder` does, though not identical: qBittorrent drops the top folder
+   unconditionally, while we keep it when the layout below it is meaningful
+   (`Disc 1`, `VIDEO_TS`). Where the two differ, we are the conservative one.
+2. **Standard media structures are never dropped, at any depth** — `VIDEO_TS`,
+   `BDMV`, `AUDIO_TS`, `PS3_GAME` and friends. Players and consoles look these
+   up by name, so dropping one breaks playback rather than moving files.
+3. **Organisational folders are kept unless the destination already says the
+   same thing.** `Season 02`, `Disc 1`, `CD2`, `Volume 03` are the only thing
+   separating two sets of identically named files; dropping one silently
+   merges them. `Season 01` inside `…/Season 01` is pure repetition and goes.
+4. **Deeper folders are dropped only on proof of redundancy** — either they
+   repeat a destination component, or they are the same release name wrapped
+   twice, as EMBER-style packs ship:
+   `Solo Leveling 1080p … EMBER/Solo Leveling S01 1080p … EMBER/`.
+
+   "Same release" is an exact test, not a similarity score: the two names must
+   agree on every token except season markers. A threshold cannot tell
+   `… Dual Audio` from `… English Audio`, or `x264` from `x265`, and getting
+   that wrong merges two different releases into one folder. A false negative
+   only leaves a folder nested, so the asymmetry is intentional.
+5. **Anything ambiguous is left alone.** Traversal segments, or a rewrite that
+   would collide two files, cancels the whole thing.
+
+Collisions are compared the way the *filesystem* sees them, not as strings:
+`fs-chunk-store` strips reserved characters from every basename it writes (on
+every platform), and Windows folds case and ignores trailing dots and spaces.
+Two files that differ only in those respects are one file on disk.
+
+The patch is skipped when `skipVerify` or `_preloadedStore` is set — those mean
+the bytes already exist at the stated paths (seeding), where rewriting would
+point the store at files that are not there.
+
+### Who owns which file
+
+Flattening several releases into one season folder points two chunk stores at
+the same directory. Two episodes of the same show routinely ship
+`Screens/screen0001.png` — same name, same length, different bytes — and "a
+file of the same size is already there" is *not* evidence that it is ours.
+Fixed-size RAR volumes, `.pad` files and zero-length placeholders collide the
+same way, and the loser gets verified over by the winner's pieces.
+
+So `layout-ownership.ts` writes it down: a JSON sidecar mapping each written
+path to the info hash that claimed it. A path claimed by a *different* torrent
+is never treated as resume data, whatever its size, and the rewrite is
+cancelled so that torrent keeps its own release folder. An unclaimed path of
+the right size is still accepted — that is a download from before the manifest
+existed. The claim is dropped only when the files are actually deleted.
+
+### Repairing what is already on disk
+
+`content-layout-repair.ts` lifts folders that are already nested — from
+torrents added before this existed, or wrapped twice — and runs **before** a
+torrent is added, when nothing holds a file handle. It picks the folder by
+exact name match against the torrent, because a season folder legitimately
+holds one release folder per episode and each episode's torrent may only touch
+its own.
+
+A lift is **all-or-nothing**. It plans every move first and abandons the whole
+operation on a symlink, a file where a directory should go, or a name that is
+already taken — *even if the file there is the same size and the same at both
+ends of a sample*. Sampling proves nothing about the middle of a 4 GB file, and
+the only way to be wrong is to delete bytes that exist nowhere else. Nothing is
+ever deleted to make room; the folder simply stays nested, which costs a level
+of nesting and no data.
+
+Moving what fits and stranding the rest would be worse still: it produces a
+split-brain layout — half the files at the destination, half still nested —
+which the planner then declines to flatten because of the very collision it can
+see, and the partial download is orphaned.
+
+Known limits, all of which cost an extra folder or a re-download rather than
+data: an untracked file dropped into a release folder (`.DS_Store`, `Thumbs.db`)
+can make the repair decline a lift the planner would have allowed; the
+ownership manifest is append-mostly and only shrinks when files are deleted;
+and Windows reserved device names (`CON`, `LPT1`) are not rejected, because
+`fs-chunk-store` would fail the write first.
+
+If the prototype patch cannot be applied (a webtorrent upgrade that moves
+`lib/torrent.js`), the engine logs a warning and the repair covers it on the
+next add or restart. It deliberately does **not** move files after `done`:
+`done` means every piece verified, not that the store closed its handles — the
+torrent keeps seeding from exactly those paths.
+
+**Known limit:** only paths are recorded, not the rule version that produced
+them. Changing these rules can orphan a partial download; the on-disk repair
+re-flattens on the next add, which covers the realistic cases for a single-user
+install.
+
+`scripts/e2e-content-layout.mts` proves this end to end with real torrents:
+it builds nested fixtures, seeds them from one WebTorrent client, downloads
+them over a real socket into a second, and compares the resulting files on disk
+byte for byte — including two releases whose identically sized files collide in
+one season folder. Run it with `npm run test:torrent`.
 
 ## Scalability
 
@@ -123,3 +237,34 @@ rethrows. Guarded getters return the previous good reading rather than zero, so
 progress bars and the tracker's `left` value never rewind. It is idempotent and
 warns if WebTorrent's internals move. Revisit on every `webtorrent` upgrade —
 `webtorrent-piece-race.test.ts` covers the contract in both directions.
+
+## Upstream workaround: the second peer-socket error
+
+A socket is an EventEmitter, so an `error` event with no listener is rethrown by
+Node as an `uncaughtException`. WebTorrent registers its handler with `once`:
+
+```js
+lib/torrent.js:2134   conn.once('error', err => { …; peer.destroy(err) })
+```
+
+which hears the first error and nothing after it. utp-native routinely emits a
+second — the peer resets while the teardown from the first is still in flight —
+and that one escapes as `⨯ uncaughtException: Error: UTP_ECONNRESET`. Incoming
+connections are worse: `lib/conn-pool.js:_onConnection` attaches no lasting
+`error` listener at all outside its early-return path.
+
+`src/lib/clients/webtorrent-conn-errors.ts` wraps `Torrent.prototype._drain`
+(reading the peer off `_queue` before the call, then guarding the `conn` it
+assigns) and `ConnPool.prototype._onConnection` (guarding before the original
+runs, which can destroy the socket synchronously). A peer connection failing is
+not an application error — WebTorrent already retries with backoff — so the
+guard just counts it.
+
+This does **not** replace WebTorrent's handling: EventEmitter runs every
+listener, so its `once` still fires and still destroys the peer. The guard only
+ensures the event is never *unhandled*. Nothing here touches the process level,
+so a genuine bug anywhere else still crashes loudly.
+
+`scripts/test-conn-errors.mts` runs in `test-all` and binds against the real
+prototypes, so a `webtorrent` upgrade that moves either seam fails the gate
+rather than silently resuming the crashes.

@@ -28,11 +28,14 @@ export function defaultDownloadDir(): string {
 }
 
 /**
- * One-app first run: ensure ClientSettings with built-in as primary.
+ * One-app first run: ensure ClientSettings exist with built-in as the default.
  *
- * Migration: users who previously set qBittorrent/Transmission as *primary*
- * are moved to primary=builtin with credentials kept as optional external
- * ("Send to my client"). Stops Client page dying when qBit is closed.
+ * Built-in is the *default*, not a lock-in: qBittorrent and Transmission can be
+ * chosen as the primary client. An earlier version rewrote any external primary
+ * back to builtin on every read, which made the choice impossible to keep and
+ * turned the Client page's offline framing and its "switch to built-in"
+ * recovery button into dead code. Recovering from an unreachable external
+ * primary is that button's job, not this function's.
  *
  * Soft backfill: baseDownloadPath when missing.
  */
@@ -60,28 +63,11 @@ export async function ensureDefaultClientSettings(userId: string) {
 
   const data: {
     baseDownloadPath?: string;
-    clientType?: string;
-    externalClientType?: string | null;
   } = {};
 
   // Soft backfill download root
   if (!existing.baseDownloadPath?.trim()) {
     data.baseDownloadPath = defaultDownloadDir();
-  }
-
-  // Promote external-as-primary → builtin primary + optional external
-  // Only when they never set externalClientType (legacy rows).
-  const primary = (existing.clientType || "builtin").toLowerCase();
-  const hasExternalField =
-    existing.externalClientType != null &&
-    existing.externalClientType.trim() !== "";
-
-  if (
-    (primary === "qbittorrent" || primary === "transmission") &&
-    !hasExternalField
-  ) {
-    data.clientType = "builtin";
-    data.externalClientType = primary;
   }
 
   if (Object.keys(data).length === 0) {

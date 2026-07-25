@@ -55,7 +55,17 @@ async function main() {
   console.log("search hits:", search.totalCount);
 
   const best = search.results.find((t) => t.magnet && (t.seeders ?? 0) > 0);
-  if (!best?.magnet) throw new Error("no magnet to send");
+  if (!best?.magnet) {
+    // Nothing to send because the public indexers are blocked or empty, not
+    // because the send path is broken. Skip rather than cry wolf.
+    console.log(
+      "SKIP: no seeded magnet available —",
+      (search.sources || [])
+        .map((s) => `${s.id}:${s.count}${s.error ? " " + s.error : ""}`)
+        .join(", "),
+    );
+    process.exit(0);
+  }
   console.log("sending:", best.title.slice(0, 80), "seeds", best.seeders);
 
   const target = resolveSmartSendTarget(config, {

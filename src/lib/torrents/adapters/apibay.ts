@@ -8,7 +8,7 @@ import { extractTags } from "../ranking";
 const BASE = process.env.APIBAY_BASE_URL ?? "https://apibay.org";
 
 /**
- * The Pirate Bay public JSON API (apibay.org) — no API key, rarely Cloudflare-blocked.
+ * The Pirate Bay public JSON API (apibay.org) — no API key.
  */
 export class ApiBayAdapter implements TorrentSourceAdapter {
   readonly id = "apibay" as const;
@@ -25,8 +25,12 @@ export class ApiBayAdapter implements TorrentSourceAdapter {
 
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "TorrentFlow/1.0",
-        Accept: "application/json",
+        // apibay's edge returns 403 to anything that does not look like a
+        // browser — a self-identifying agent gets the whole source blocked,
+        // which reads as "no results" rather than an outage.
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        Accept: "application/json, text/plain, */*",
       },
       signal: AbortSignal.timeout(12_000),
       next: { revalidate: 0 },

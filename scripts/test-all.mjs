@@ -152,6 +152,15 @@ run("ondemand-advance", "npx", ["tsx", "scripts/test-ondemand-advance.ts"], {
 run("builtin-send", "npx", ["tsx", "scripts/test-builtin-send.ts"], {
   timeout: 180_000,
 });
+// Real torrents over a real socket — proves where the bytes actually land.
+run("content-layout-e2e", "npx", ["tsx", "scripts/e2e-content-layout.mts"], {
+  timeout: 300_000,
+});
+// Binds against webtorrent's real internals, so a dependency bump that moves
+// them fails here rather than silently resuming the UTP_ECONNRESET crashes.
+run("conn-errors", "npx", ["tsx", "scripts/test-conn-errors.mts"], {
+  timeout: 120_000,
+});
 
 // 3) API contract suite (every route, against the running server)
 run("api-smoke", "node", ["scripts/api-smoke.mjs", BASE], { timeout: 180_000 });

@@ -3,9 +3,10 @@
  * Run: npx tsx scripts/test-settings-upsert.ts
  */
 import prisma from "../src/lib/prisma";
+import { LOCAL_USER_ID } from "../src/lib/auth-constants";
 
 async function main() {
-  const userId = "cmrxfw8nf0000fkcb3w9l34vj";
+  const userId = LOCAL_USER_ID;
   const existing = await prisma.clientSettings.findUnique({ where: { userId } });
   console.log("before:", {
     clientType: existing?.clientType,

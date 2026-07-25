@@ -18,7 +18,8 @@
     "test:all": "node scripts/test-all.mjs",
     "test:e2e": "node scripts/playwright-e2e.mjs",
     "test": "npm run test:unit && npm run test:api && npm run test:e2e",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test:torrent": "tsx scripts/e2e-content-layout.mts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
