@@ -221,6 +221,55 @@ them over a real socket into a second, and compares the resulting files on disk
 byte for byte — including two releases whose identically sized files collide in
 one season folder. Run it with `npm run test:torrent`.
 
+### Multi-season packs: the folder the torrent brings
+
+A season pack is the one shape where the torrent's own folders must survive.
+Dropping them merges two sets of identically numbered episodes, so the planner
+keeps them — and the library ends up holding
+`Solo Leveling/Solo Leveling S01 1080p … x265-EMBER/` instead of `Season 01/`.
+
+Reported as both halves of one bug:
+
+```
+…/Anime/Solo Leveling/Season 01/Solo Leveling S01 1080p … x265-EMBER
+…/Anime/Solo Leveling/Season 01/Solo Leveling S02 1080p … x265-EMBER
+```
+
+Two independent defects produced that:
+
+1. **The destination was wrong.** `[EMBER] Solo Leveling (Season 1 + 2) …`
+   is a two-season pack, so it belongs at the show root. `parseEpisode`'s range
+   regex accepted only `-`, `–`, `—` and `~`, so `Season 1 + 2` read as a single
+   season and the destination became `…/Season 01`. Three copies of that regex
+   had drifted apart across `episodes.ts` and `smart-category.ts`; there is now
+   one, `SEASON_RANGE_RE`, and it also accepts `&`, `,`, `and`, `to` and `plus`.
+   The planner was never wrong here — it was fed a destination that was.
+2. **The folders kept their release names.** Fixed by renaming rather than
+   dropping: a folder that names exactly one season becomes `Season NN`, so a
+   pack lands identically to two single-season downloads.
+
+The rename is deliberately narrow, because a wrong one merges two releases. It
+skips protected and already-structural folders, requires at least one encode
+token so a *title* containing `S2` is not mistaken for a season folder, and
+requires the name to resolve to exactly one season — `S01-S02` is left alone.
+It is also skipped when the destination itself names a season: the only way to
+be under `Season 01` holding an S02 folder is a mis-detection upstream, and
+`Season 01/Season 02` is no improvement on leaving it be.
+
+Planner and repair have to agree here for the same reason they do everywhere
+else: if only the planner renamed, a pack already on disk under its release
+folder would be re-fetched in full. So `renameSeasonFolders` performs the same
+rename on disk, before the torrent is added, while nothing holds a handle.
+
+One extra constraint applies on disk that does not apply in the planner. The
+planner only ever sees the torrent's own file list; the repair sees a whole
+*destination*, and a destination is not private — `downloads/Other` and
+`TV/Show` are both shared. Renaming every season-shaped folder found there
+would pull the ground out from under another torrent mid-download, so the
+repair renames only folders that match the name of the torrent being added
+(via the shared `isSameRelease`, permitting the season marker as the one token
+the folder may add). With no name to match against, it renames nothing.
+
 ## Scalability
 
 1. **v1** — in-process WebTorrent singleton (`globalThis`), `serverExternalPackages: ["webtorrent"]`
@@ -238,6 +287,101 @@ Never run torrent I/O on edge/serverless.
 - [x] Free-space guard + EngineTorrent durability + rehydrate
 - [x] External clients still work when selected
 - [x] Docker: single `torrentflow` service + `/downloads` volume
+
+## The 50% that was never downloaded: in-place message encryption
+
+This was the root cause of almost everything below, and it took a byte-level
+trap to find because every layer above it was reporting faithfully.
+
+`Wire.prototype._push` encrypts outgoing data in place:
+
+```js
+_push (data) {
+  if (this._encryptor) data = this._encryptor.encrypt(data)   // mutates `data`
+  return this.push(data)
+}
+```
+
+and the RC4 stream behind it XORs straight into the caller's array
+(`buf[i] ^= s[...]`, `mse.js:41`). That is fine for the header `_message`
+allocates itself — but `_message(id, numbers, data)` forwards the trailing
+`data`, which the **caller** still owns, into the same `_push`. Two callers
+hand over live, long-lived buffers:
+
+| Site | Buffer handed over |
+|------|--------------------|
+| `bittorrent-protocol/index.js:433` `wire.bitfield(...)` | the torrent's own `bitfield.buffer`, via `torrent.js:1494` |
+| `bittorrent-protocol/index.js:468` `wire.piece(...)`    | a block still held by the chunk store |
+
+So **every encrypted peer we announced to overwrote the torrent's progress
+bitfield with ciphertext.** Random bytes mean roughly half the bits come back
+set, which is exactly the symptom: a torrent added seconds ago reporting ~50%.
+Caught in the act by wrapping `bitfield.buffer` in a `Proxy`:
+
+```
+byte 0 = 214
+  at MessageStreamEncryptor.encryptCipher (mse.js:45)
+  at Wire._push                           (index.js:608)
+  at Wire._message                        (index.js:599)
+  at Wire.bitfield                        (index.js:433)
+```
+
+The reconciliation counters made it unarguable: on one sample the bitfield held
+**549 set bits after only 126 `set()` calls**, on the same object, with the
+wrapper still installed and no reallocation.
+
+This single defect explains the whole cluster of symptoms that had been
+attributed to four different causes: the instant ~50%, progress drifting *down*
+as more peers connected, pieces marked present that were never downloaded,
+pieces nulled with their bit cleared ("leaked"), and spurious hash failures
+while seeding (the `piece` row above corrupts the cached block itself).
+
+`src/lib/clients/webtorrent-wire-encrypt.ts` copies that trailing buffer before
+it reaches the cipher, and only on wires that are actually encrypted. Upstream
+already ships `_pushCopy` for precisely this hazard and uses it for its own
+constants; `_message` simply never adopted it for caller-owned data.
+
+Before and after on the same 276 MB torrent, same harness:
+
+| | before | after |
+|---|---|---|
+| progress at 5s | 51.8% | 1.5% |
+| shape | oscillates 48–70% | monotonic 1.5 → 14 → 32 → 87 → 100% |
+| foreign bitfield writes | 528 | **0** |
+| bits un-verified (`bfClear`) | 704 | **0** |
+| pieces needing repair | 954 | **0** |
+| orphaned pieces at exit | 443 | **0** |
+
+## Metadata re-entrancy
+
+`Torrent.prototype._onMetadata` opens with a guard that cannot work:
+
+```js
+async _onMetadata (metadata) {
+  if (this.metadata || this.destroyed) return
+  ...
+  parsedTorrent = await parseTorrent(metadata)   // ← yields here
+  this._processParsedTorrent(parsedTorrent)      // rebuilds pieces + bitfield
+  this.metadata = this.torrentFile               // ← flag set only now
+```
+
+Every peer offering metadata calls it (the `ut_metadata` handler at
+`torrent.js:1344`), so simultaneous responders all pass the check before any of
+them sets the flag. Each survivor then runs `_processParsedTorrent`, which
+replaces `this.bitfield` and every entry in `this.pieces` — while the
+verification pass started by the previous call is still in flight holding
+indices into the arrays that were just swapped out. Measured: `_onMetadata` ran
+**four times** on a single torrent.
+
+`src/lib/clients/webtorrent-metadata-race.ts` sets an in-flight latch
+*synchronously*, before the first `await`, so concurrent callers are rejected on
+the same tick; the latch is released if the call rejects so a genuine retry can
+still get through. With it, torrents consistently reach `ready` with
+`bitsAtReady=0` and exactly one initialisation.
+
+This was found while chasing the bogus 50% and is a real defect, but it was not
+the cause of it — closing it alone left the corruption untouched. Both fixes
+ship.
 
 ## Known limits (built-in)
 
@@ -299,7 +443,7 @@ also serves the UI. One property read before the call removed 99.9% of them
 (513k → 552 over the same window). The `try/catch` stays as a backstop for the
 piece being nulled *inside* the original call.
 
-## Leaked pieces, and why torrents used to plateau near 50%
+## Leaked pieces: a symptom, kept as a backstop
 
 A null entry in `pieces[]` means one of two things, and the bitfield tells them
 apart:
@@ -307,27 +451,30 @@ apart:
 - **bit set** — verified and complete. Nothing to request.
 - **bit unset** — the piece has *leaked* and the scheduler will skip it forever.
 
-This is not a race. `_markVerified` (torrent.js:872-875) nulls the piece and
-sets the bit on adjacent synchronous lines, so single-threaded JavaScript can
-never observe the gap; every orphan found this way is genuinely stuck. Measured
-on a fresh 276 MB torrent: **328 of 1055 pieces** leaked, and the download sat
-at ~49.6% with 34 connected peers and **zero throughput**.
+This was originally read as an upstream scheduling defect, on the evidence that
+`_markVerified` (torrent.js:872-875) nulls the piece and sets the bit on
+adjacent synchronous lines, so single-threaded JavaScript can never observe the
+gap. That reasoning was sound but the premise was not: the bit was not missed,
+it was **overwritten** — by the encryption defect documented above, which
+scribbles ciphertext over the whole bitfield. Measured at the time: 328 of 1055
+pieces "leaked", the download pinned at ~49.6% with 34 peers and zero
+throughput. The repair (upstream's own `_markUnverified`, which reinstates a
+`Piece` of the correct length and re-selects the range) took the same torrent to
+1055/1055 in 21 seconds at 42 MB/s, repairing 939 pieces.
 
-The repair is upstream's own `_markUnverified`, which reinstates a `Piece` of
-the correct length and re-selects the range. With it, the same torrent
-went to **1055/1055 pieces (100%) in 21 seconds at 42 MB/s**, repairing 939
-pieces on the way. If the method is ever renamed the guard falls back to
-skipping, which is the previous behaviour.
+With the encryption fix in place the condition **no longer occurs**: repeated
+runs report `repaired=0` and `orphans=0` end to end. The repair is kept anyway —
+it is cheap, guarded, covered by tests, and now provably inert, so it costs
+nothing and still catches the state if anything else ever produces it. If
+`_markUnverified` is ever renamed the guard falls back to skipping, which is the
+previous behaviour.
 
-Verified against **vanilla WebTorrent with none of this code**: the identical
-~49.6% plateau appears (523/1055), plus the `Cannot read properties of null
-(reading 'missing')` crash. The plateau is an upstream defect, not a
-regression, and this patch is a strict improvement on it.
-
-Known remaining limit: after a torrent reaches 100%, its bitfield can still
-wobble back down while the file on disk stays complete. That also reproduces in
-vanilla and is not addressed here — `scripts/probe-downloaded-getter.mts`
-(`--vanilla` to compare) is the harness for re-measuring it.
+`scripts/probe-downloaded-getter.mts` is the harness for all of this. It prints
+reported progress next to an independently recomputed bitfield truth, plus
+`markV`/`markU` call counts reconciled against `bfSet`/`bfClear` writes on the
+bitfield object itself and a `bfSwaps` identity check — which is what finally
+localised the corruption. `--vanilla` runs the same probe against unpatched
+WebTorrent for comparison.
 
 ## Why the builtin engine was slow: µTP
 

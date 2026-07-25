@@ -24,9 +24,11 @@ import path from "node:path";
 
 import {
   destinationKeys,
-
+  destinationNamesSeason,
   isInside,
+  isSameRelease,
   mayDropFolder,
+  seasonFolderRename,
 } from "./content-layout-policy";
 
 /** Normalize for comparing a torrent name against a folder name. */
@@ -214,6 +216,64 @@ export function liftWrapperFolder(
 }
 
 /**
+ * Renames release folders directly under `dest` to the season they name,
+ * matching what the planner now does for freshly added torrents.
+ *
+ * This is the migration half: bytes already on disk under
+ * `Solo Leveling S01 …-EMBER/` have to move to `Season 01/` or the planner
+ * will point the store at a path that has nothing in it and fetch the whole
+ * pack again. Like the lift, it runs before the torrent is added.
+ *
+ * Only folders belonging to `torrentName` are touched. A destination is not
+ * private — `downloads/Other` and `TV/Show` are both shared — so renaming
+ * every season-shaped folder found there would rename another torrent's
+ * folder out from under it while it is mid-download. Without a name to match
+ * against, nothing is renamed.
+ *
+ * Never merges: if the target name is already taken, the folder is left where
+ * it is. Two seasons' worth of episodes sharing a folder is worse than an
+ * ugly folder name.
+ */
+export function renameSeasonFolders(
+  dest: string,
+  torrentName?: string | null,
+): string[] {
+  if (!torrentName || destinationNamesSeason(dest)) return [];
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dest, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const renamed: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const to = seasonFolderRename(entry.name);
+    if (!to || to === entry.name) continue;
+
+    // The season marker is the one token the folder may add to the pack name.
+    const season = Number(to.slice("Season ".length));
+    if (!isSameRelease(torrentName, entry.name, new Set([`season ${season}`]))) {
+      continue;
+    }
+
+    const target = path.join(dest, to);
+    if (fs.existsSync(target)) continue;
+
+    try {
+      fs.renameSync(path.join(dest, entry.name), target);
+      renamed.push(`${entry.name} → ${to}`);
+    } catch {
+      // A locked folder just keeps its name; the planner's collision check
+      // will decline to rewrite rather than strand the bytes.
+    }
+  }
+  return renamed;
+}
+
+/**
  * Lifts however many wrapper folders are stacked under `dest`.
  *
  * Depth is passed through to the shared policy, which decides what is
@@ -223,7 +283,7 @@ export function liftWrapperFolder(
 export function repairContentLayout(
   dest: string,
   torrentName?: string | null,
-): { moved: number; roots: string[] } {
+): { moved: number; roots: string[]; renamed: string[] } {
   const roots: string[] = [];
   let moved = 0;
 
@@ -238,5 +298,5 @@ export function repairContentLayout(
     moved += result.moved;
   }
 
-  return { moved, roots };
+  return { moved, roots, renamed: renameSeasonFolders(dest, torrentName) };
 }

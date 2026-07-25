@@ -44,23 +44,86 @@ type T = {
   on(ev: string, fn: () => void): void;
 };
 
-if (!vanilla) await patchWebTorrentPieceRace();
+if (!vanilla) {
+  await patchWebTorrentPieceRace();
+  const { patchWebTorrentMetadataRace } = await import(
+    "../src/lib/clients/webtorrent-metadata-race.js"
+  );
+  await patchWebTorrentMetadataRace();
+  const { patchWebTorrentWireEncrypt } = await import(
+    "../src/lib/clients/webtorrent-wire-encrypt.js"
+  );
+  console.log(`wireEncryptPatched=${await patchWebTorrentWireEncrypt()}`);
+}
 console.log(vanilla ? "MODE: vanilla webtorrent (no patch)" : "MODE: patched");
 process.on("uncaughtException", (e) => {
   console.log(`uncaughtException: ${e instanceof Error ? e.message : e}`);
 });
+
+// Count the only two functions that are supposed to move bits, so the
+// bitfield can be reconciled against them instead of guessed at.
+const counts = { verified: 0, unverified: 0, metadata: 0, bitfieldSwaps: 0 };
+{
+  const mod: Record<string, unknown> = await import("webtorrent/lib/torrent.js");
+  const Ctor = (mod.default ?? mod) as { prototype: Record<string, unknown> };
+  const proto = Ctor.prototype;
+  for (const [name, key] of [
+    ["_markVerified", "verified"],
+    ["_markUnverified", "unverified"],
+    ["_onMetadata", "metadata"],
+  ] as const) {
+    const orig = proto[name] as (this: unknown, ...a: unknown[]) => unknown;
+    proto[name] = function counted(this: unknown, ...a: unknown[]) {
+      counts[key] += 1;
+      return orig.apply(this, a);
+    };
+  }
+}
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-getter-"));
 const client = new WebTorrent(builtinClientOptions) as unknown as {
   add(uri: string, opts: object): T;
   destroy(): void;
 };
+const bitWrites = { set: 0, clear: 0, swaps: 0 };
+let seenBitfield: object | null = null;
+let installedSetter: unknown = null;
+function watchBitfield(): void {
+  const bf = t.bitfield as unknown as {
+    set(i: number, v?: boolean): unknown;
+    buffer: Uint8Array;
+  } | null;
+  if (!bf || bf === seenBitfield) return;
+  if (seenBitfield) bitWrites.swaps += 1;
+  seenBitfield = bf;
+  const orig = bf.set.bind(bf);
+  const wrapper = (i: number, v?: boolean) => {
+    if (v === false) bitWrites.clear += 1;
+    else bitWrites.set += 1;
+    return orig(i, v);
+  };
+  installedSetter = wrapper;
+  bf.set = wrapper;
+}
+function wrapperLive(): boolean {
+  const bf = t.bitfield as unknown as { set?: unknown } | null;
+  return !!bf && bf.set === installedSetter;
+}
 const t = client.add(uri, { ...builtinAddOptions, path: dir });
 
-t.on("ready", () => console.log(`ready · pieces=${t.pieces?.length} pieceLength=${t.pieceLength}`));
+t.on("ready", () => {
+  const bf0 = t.bitfield;
+  let atReady = 0;
+  for (let i = 0; i < (t.pieces?.length ?? 0); i++) if (bf0?.get(i)) atReady++;
+  console.log(
+    `ready · pieces=${t.pieces?.length} pieceLength=${t.pieceLength} bitsAtReady=${atReady} markV=${counts.verified} markU=${counts.unverified}`,
+  );
+  watchBitfield();
+});
 
 const started = Date.now();
 const timer = setInterval(() => {
+  watchBitfield();
   const pieces = t.pieces;
   const bf = t.bitfield;
   if (!pieces || !bf) {
@@ -103,6 +166,15 @@ const timer = setInterval(() => {
       `peers=${t.numPeers}`,
       `kbps=${((t.downloadSpeed ?? 0) / 1024).toFixed(0)}`,
       `repaired=${repairedPieceCount()}`,
+      `markV=${counts.verified}`,
+      `markU=${counts.unverified}`,
+      `onMeta=${counts.metadata}`,
+      `bfSet=${bitWrites.set}`,
+      `bfClear=${bitWrites.clear}`,
+      `bfSwaps=${bitWrites.swaps}`,
+      `wrapLive=${wrapperLive()}`,
+      `bufLen=${(t.bitfield as unknown as { buffer?: { length?: number } })?.buffer?.length}`,
+      `expectBits=${counts.verified - counts.unverified}`,
     ].join(" "),
   );
 }, 5000);

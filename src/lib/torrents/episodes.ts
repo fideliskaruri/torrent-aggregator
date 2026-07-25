@@ -17,18 +17,36 @@ export interface EpisodeInfo {
  * Supports long-running anime (4-digit absolute ep numbers, e.g. One Piece 1170)
  * and hybrid forms (EP1233 S23, S023E01).
  */
+/**
+ * A run of season numbers: a range (`S01-S05`, `Seasons 1 – 3`) or a list
+ * (`Season 1 + 2`, `Seasons 1 & 2`, `Seasons 1, 2, 3`, `Seasons 1 and 2`).
+ *
+ * Scene and fansub naming is not consistent about the separator, and getting
+ * this wrong is not cosmetic: an undetected multi-season pack is filed under
+ * `Season 01`, and every season inside it then lands in the wrong folder.
+ * `[EMBER] Solo Leveling (2024-2025) (Season 1 + 2)` is the case that showed
+ * it — a `+` where the pattern only accepted a dash.
+ *
+ * `(?!\d)` stops the trailing number swallowing part of a resolution or year,
+ * so `Season 1, 2024` and `S01 - 1080p` stay single-season.
+ *
+ * Exported so `smart-category.ts` scores and strips the exact same shape;
+ * two regexes that drift apart would classify and file a torrent differently.
+ */
+export const SEASON_RANGE_RE =
+  /\bS(?:easons?)?\s*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?)?\s*)?\d{1,3}(?!\d))+/i;
+
 export function parseEpisode(title: string): EpisodeInfo {
   const t = title;
 
-  // Multi-season ranges: S01-S02, S01 – S05, Season 1-3, Seasons 1-3
-  // Allow 1–3 digit seasons (S01, S23, S023)
-  const multiSeason = t.match(
-    /\bS(?:easons?)?\s*(\d{1,3})\s*[-–—~]\s*S?(?:easons?)?\s*(\d{1,3})\b/i,
-  );
+  const multiSeason = t.match(SEASON_RANGE_RE);
   if (multiSeason) {
-    const from = parseInt(multiSeason[1], 10);
-    const to = parseInt(multiSeason[2], 10);
-    const multi = from !== to;
+    const nums = (multiSeason[0].match(/\d{1,3}/g) ?? []).map((n) =>
+      parseInt(n, 10),
+    );
+    const from = nums[0];
+    const to = nums[nums.length - 1];
+    const multi = nums.some((n) => n !== from);
     return {
       // Keep "from" for labels; path nesting uses isMultiSeason to skip Season folder
       season: from,

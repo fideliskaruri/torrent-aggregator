@@ -73,3 +73,12 @@ declare module "webtorrent/lib/conn-pool.js" {
   const ConnPool: new (...args: never[]) => unknown;
   export default ConnPool;
 }
+
+/**
+ * The peer wire, whose outgoing-message path encrypts in place; see
+ * src/lib/clients/webtorrent-wire-encrypt.ts. Untyped upstream.
+ */
+declare module "bittorrent-protocol" {
+  const Wire: new (...args: never[]) => unknown;
+  export default Wire;
+}

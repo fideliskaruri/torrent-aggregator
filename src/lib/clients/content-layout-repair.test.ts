@@ -271,4 +271,70 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
   }
 }
 
+// --- Season folders migrate to `Season NN`, but only the torrent's own ---
+{
+  const tmp = tmpdir();
+  try {
+    const S01 = "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+    const S02 = "Solo Leveling S02 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+    const PACK = "Solo Leveling 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+
+    const dest = path.join(tmp, "Anime", "Solo Leveling");
+    write(path.join(dest, S01, "S01E01.mkv"), "a");
+    write(path.join(dest, S02, "S02E01.mkv"), "b");
+
+    const result = repairContentLayout(dest, PACK);
+    assert.equal(result.renamed.length, 2, JSON.stringify(result));
+    assert.deepEqual(tree(dest), [
+      "Season 01/S01E01.mkv",
+      "Season 02/S02E01.mkv",
+    ]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// --- A shared destination is not a licence to rename someone else's folder ---
+// `downloads/Other` holds whatever could not be categorised. Renaming every
+// season-shaped folder there pulls the ground out from under a torrent that
+// is still writing to it.
+{
+  const tmp = tmpdir();
+  try {
+    const S01 = "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+    const dest = path.join(tmp, "Other");
+    write(path.join(dest, S01, "S01E01.mkv"), "a");
+
+    const result = repairContentLayout(dest, "Big Buck Bunny");
+    assert.deepEqual(result.renamed, [], "another torrent's folder is left alone");
+    assert.deepEqual(tree(dest), [`${S01}/S01E01.mkv`]);
+
+    // …and with no name to match against, nothing is renamed either.
+    assert.deepEqual(repairContentLayout(dest, null).renamed, []);
+    assert.deepEqual(tree(dest), [`${S01}/S01E01.mkv`]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// --- A name already taken is never merged into ---
+{
+  const tmp = tmpdir();
+  try {
+    const S01 = "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+    const PACK = "Solo Leveling 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+    const dest = path.join(tmp, "Anime", "Solo Leveling");
+    write(path.join(dest, S01, "S01E01.mkv"), "a");
+    write(path.join(dest, "Season 01", "S01E01.mkv"), "older");
+
+    assert.deepEqual(repairContentLayout(dest, PACK).renamed, []);
+    assert.deepEqual(tree(dest), [
+      "Season 01/S01E01.mkv",
+      `${S01}/S01E01.mkv`,
+    ]);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 console.log("content-layout-repair.test.ts: all assertions passed");

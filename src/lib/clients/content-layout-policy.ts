@@ -167,6 +167,50 @@ export function mayDropFolder(
   );
 }
 
+/** True when the destination path itself already names one season. */
+export function destinationNamesSeason(destPath?: string | null): boolean {
+  const segs = segments(destPath ?? "");
+  const last = segs[segs.length - 1];
+  return last !== undefined && /^(?:season|series|s)[\s._-]*\d{1,3}$/i.test(last);
+}
+
+/**
+ * Renames a release folder that names exactly one season into `Season NN`.
+ *
+ * A multi-season pack cannot have its season folders *dropped* — they are the
+ * only thing keeping two sets of identically numbered episodes apart — so the
+ * batch root goes and the library is left holding
+ * `Solo Leveling/Solo Leveling S01 1080p … x265-EMBER/`. Renaming gives the
+ * same layout a single-season download would have produced.
+ *
+ * Deliberately narrow, because a wrong rename merges two releases:
+ *
+ *   - never a protected or already-structural folder (`Season 01`, `Specials`,
+ *     `Extras`, `BDMV` …) — those are either correct already or not seasons;
+ *   - the name must carry at least one encode token, so a *title* that happens
+ *     to contain `S2` is not mistaken for a season folder;
+ *   - the name must resolve to exactly one season number, so `S01-S02` and
+ *     other ranges are left alone.
+ *
+ * Returns null to leave the folder untouched, which is always the safe answer.
+ */
+export function seasonFolderRename(name: string): string | null {
+  if (PROTECTED_FOLDER.test(name)) return null;
+  if (STRUCTURAL_FOLDER.test(name)) return null;
+
+  const found = [
+    ...name.matchAll(/(?:^|[^a-z0-9])s(?:eason)?[\s._-]*(\d{1,3})(?![0-9])/gi),
+  ];
+  const seasons = new Set(found.map((m) => Number(m[1])));
+  if (seasons.size !== 1) return null;
+
+  const tokens = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (!tokens.some((t) => TECHNICAL_TOKEN.test(t))) return null;
+
+  const season = [...seasons][0];
+  return `Season ${String(season).padStart(2, "0")}`;
+}
+
 /**
  * The key two paths collide on *as files on disk*, which is not the same as
  * being equal strings.

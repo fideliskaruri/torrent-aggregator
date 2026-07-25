@@ -210,6 +210,47 @@ const MATRIX: MatrixCase[] = [
     show: /^Lost$/i,
     season: null,
   },
+  // The real torrent that shipped both seasons into Anime/Solo Leveling/Season 01:
+  // a "+" separator the range pattern did not accept, so the pack read as
+  // single-season and every season folder inside it landed in the wrong place.
+  {
+    name: "Solo Leveling (Season 1 + 2) batch → show root",
+    title:
+      "[EMBER] Solo Leveling (2024-2025) (Season 1 + 2) [BDRip] [1080p Dual Audio HEVC 10 bits DDP] (Ore dake Level Up na Ken) (Batch)",
+    kind: "anime",
+    show: /^Solo Leveling$/i,
+    season: null,
+    forbidInShow: /ember|bdrip|1080p|batch|season/i,
+  },
+  {
+    name: "Seasons 1 & 2 → show root",
+    title: "Some Show Seasons 1 & 2 1080p BluRay",
+    kind: "tv",
+    show: /^Some Show$/i,
+    season: null,
+  },
+  {
+    name: "Seasons 1 and 2 → show root",
+    title: "Some Show Seasons 1 and 2 1080p BluRay",
+    kind: "tv",
+    show: /^Some Show$/i,
+    season: null,
+  },
+  // Guards: a separator must not swallow a year or a resolution.
+  {
+    name: "Season 1, 2024 stays single-season",
+    title: "Some Show Season 1, 2024 BluRay 1080p",
+    kind: "tv",
+    show: /^Some Show$/i,
+    season: 1,
+  },
+  {
+    name: "S01 - 1080p stays single-season",
+    title: "Some Show S01 - 1080p x265",
+    kind: "tv",
+    show: /^Some Show$/i,
+    season: 1,
+  },
   {
     name: "Season 1 2 3 list (no dashes) → show root",
     title: "The Simpsons Season 1 2 3 4 5 6 7 8 9 + Shorts",

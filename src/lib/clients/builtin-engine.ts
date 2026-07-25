@@ -355,6 +355,28 @@ async function getWtClient(): Promise<WebTorrentLike> {
         "[builtin-engine] could not patch WebTorrent piece race; expect noisy uncaughtException logs",
       );
     }
+    // Must run before any metadata arrives: WebTorrent's own `_onMetadata`
+    // guard is defeated by its own `await`, so concurrent peers re-initialise
+    // the torrent and corrupt the bitfield (see webtorrent-metadata-race).
+    const { patchWebTorrentMetadataRace } = await import(
+      "@/lib/clients/webtorrent-metadata-race"
+    );
+    if (!(await patchWebTorrentMetadataRace())) {
+      console.warn(
+        "[builtin-engine] could not patch WebTorrent metadata race; expect bogus progress on freshly added torrents",
+      );
+    }
+    // Outgoing message encryption XORs in place, and `_message` forwards the
+    // caller's own buffer — so announcing our bitfield to an encrypted peer
+    // overwrites it with ciphertext (see webtorrent-wire-encrypt).
+    const { patchWebTorrentWireEncrypt } = await import(
+      "@/lib/clients/webtorrent-wire-encrypt"
+    );
+    if (!(await patchWebTorrentWireEncrypt())) {
+      console.warn(
+        "[builtin-engine] could not patch wire encryption aliasing; expect corrupted progress and spurious hash failures",
+      );
+    }
     // Peer sockets get only a `once('error')` from WebTorrent, so a second
     // reset on the same socket has no listener and crashes out of Node.
     const { patchWebTorrentConnErrors } = await import(
@@ -801,12 +823,17 @@ function defaultDownloadRoot(config: ClientConnectionConfig): string {
  */
 function repairExistingLayout(dest: string, torrentName?: string | null): void {
   try {
-    const { moved, roots } = repairContentLayout(dest, torrentName);
+    const { moved, roots, renamed } = repairContentLayout(dest, torrentName);
     if (moved > 0) {
       console.info(
         `[builtin-engine] repaired nested layout in ${dest} — lifted ${moved} entr${
           moved === 1 ? "y" : "ies"
         } out of ${roots.map((r) => `"${r}"`).join(" / ")}`,
+      );
+    }
+    if (renamed.length > 0) {
+      console.info(
+        `[builtin-engine] renamed season folders in ${dest} — ${renamed.join(", ")}`,
       );
     }
   } catch (err) {

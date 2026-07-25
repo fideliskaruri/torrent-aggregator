@@ -18,8 +18,10 @@
  */
 import {
   destinationKeys,
+  destinationNamesSeason,
   mayDropFolder,
   physicalKey,
+  seasonFolderRename,
   segments,
 } from "./content-layout-policy";
 
@@ -28,6 +30,8 @@ export type TorrentFileLike = { path: string; length?: number };
 export type LayoutPlan = {
   /** Folders dropped, outermost first. */
   roots: string[];
+  /** Release folders renamed to `Season NN`, as `from → to`. */
+  renamed: string[];
   /** New path for each file, in the same order as the input. */
   paths: string[];
 };
@@ -72,7 +76,28 @@ export function planContentLayout(
     roots.push(root);
   }
 
-  if (roots.length === 0) return null;
+  // A multi-season pack keeps its season folders — dropping them would merge
+  // two S01E01s — but they arrive named after the release, not the season.
+  // Skipped when the destination already names a season: the only way to be
+  // under `Season 01` holding an S02 folder is a mis-detection upstream, and
+  // `Season 01/Season 02` is not an improvement on leaving it alone.
+  const renamed: string[] = [];
+  if (!destinationNamesSeason(destPath)) {
+    const renameOf = new Map<string, string | null>();
+    split = split.map((s) => {
+      if (s.length < 2) return s;
+      const from = s[0];
+      if (!renameOf.has(from)) {
+        const to = seasonFolderRename(from);
+        renameOf.set(from, to);
+        if (to) renamed.push(`${from} → ${to}`);
+      }
+      const to = renameOf.get(from);
+      return to ? [to, ...s.slice(1)] : s;
+    });
+  }
+
+  if (roots.length === 0 && renamed.length === 0) return null;
 
   const paths = split.map((s) => s.join("/"));
   if (paths.some((p) => !p)) return null;
@@ -83,7 +108,7 @@ export function planContentLayout(
   const keys = new Set(paths.map(physicalKey));
   if (keys.size !== paths.length) return null;
 
-  return { roots, paths };
+  return { roots, renamed, paths };
 }
 
 /** What the caller found at a path we are about to write to. */
@@ -97,8 +122,8 @@ export type ExistingFile = {
 };
 
 /**
- * Applies {@link planContentLayout} in place. Returns the dropped folders, or
- * null when nothing changed.
+ * Applies {@link planContentLayout} in place. Returns the plan that was
+ * applied, or null when nothing changed.
  *
  * `existingAt` lets the caller veto a rewrite that would land on a file
  * another torrent already owns — flattening several episode releases into one
@@ -113,7 +138,7 @@ export function applyContentLayout(
   },
   existingAt?: (relativePath: string) => ExistingFile | null,
   claim?: (paths: readonly string[]) => boolean,
-): string[] | null {
+): LayoutPlan | null {
   const files = torrent.files;
   if (!Array.isArray(files)) return null;
 
@@ -161,7 +186,7 @@ export function applyContentLayout(
   files.forEach((file, i) => {
     file.path = plan.paths[i];
   });
-  return plan.roots;
+  return plan;
 }
 
 const PATCHED = Symbol.for("torrentflow.contentLayoutPatched");
@@ -228,14 +253,20 @@ export function patchTorrentContentLayout(
           ? (paths: readonly string[]) => claim(this.infoHash!, dest, paths)
           : undefined;
 
-      const dropped = applyContentLayout(this, probe, record);
-      if (dropped) {
+      const plan = applyContentLayout(this, probe, record);
+      if (plan) {
+        const what = [
+          plan.roots.length
+            ? `removed ${plan.roots.length} wrapper folder${plan.roots.length === 1 ? "" : "s"}`
+            : null,
+          plan.renamed.length ? `renamed ${plan.renamed.join(", ")}` : null,
+        ]
+          .filter(Boolean)
+          .join("; ");
         console.info(
-          `[content-layout] ${this.name ?? "torrent"}: files land directly in ${
+          `[content-layout] ${this.name ?? "torrent"} → ${
             dest || "the save path"
-          } (removed ${dropped.length} wrapper folder${
-            dropped.length === 1 ? "" : "s"
-          })`,
+          }: ${what}`,
         );
       }
     } catch (err) {

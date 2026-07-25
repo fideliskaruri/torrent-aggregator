@@ -6,7 +6,11 @@ import {
   type ExistingFile,
   type TorrentFileLike,
 } from "./content-layout";
-import { isSameRelease, physicalKey } from "./content-layout-policy";
+import {
+  isSameRelease,
+  physicalKey,
+  seasonFolderRename,
+} from "./content-layout-policy";
 
 const files = (...paths: string[]): TorrentFileLike[] =>
   paths.map((p) => ({ path: p, length: 100 }));
@@ -288,7 +292,7 @@ const asProbe =
     torrent,
     asProbe({ "episode.mkv": { size: 7, owner: "aaaa" } }),
   );
-  assert.deepEqual(dropped, ["Release"]);
+  assert.deepEqual(dropped?.roots, ["Release"]);
   assert.equal(torrent.files[0].path, "episode.mkv");
 }
 
@@ -319,7 +323,7 @@ const asProbe =
     applyContentLayout(
       torrent,
       asProbe({ "movie.mkv": { size: 100, owner: null } }),
-    ),
+    )?.roots,
     ["Release"],
   );
 }
@@ -338,6 +342,107 @@ const asProbe =
     ),
     null,
   );
+}
+
+// --- Solo Leveling: the shapes that shipped nested folders to the library ---
+// Reported as
+//   …/Anime/Solo Leveling/Season 01/Solo Leveling S01 1080p … x265-EMBER
+//   …/Anime/Solo Leveling/Season 01/Solo Leveling S02 1080p … x265-EMBER
+// The season marker must be droppable when the destination already names that
+// season, and must NOT be when it names a different one — filing S02 under
+// Season 01 is the one case where keeping the folder is the safe answer.
+{
+  const S01 = "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+  const S02 = "Solo Leveling S02 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+  const ROOT = "Solo Leveling 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
+  const SEASON_01 = "D:/Torrents/Anime/Solo Leveling/Season 01";
+
+  // Wrapped twice: both levels go.
+  assert.deepEqual(
+    planContentLayout(
+      files(`${ROOT}/${S01}/Solo Leveling - S01E01.mkv`, `${ROOT}/${S01}/Solo Leveling - S01E02.mkv`),
+      SEASON_01,
+    )?.roots,
+    [ROOT, S01],
+  );
+
+  // Wrapped once: the release root goes.
+  assert.deepEqual(
+    planContentLayout(files(`${S01}/Solo Leveling - S01E01.mkv`), SEASON_01)
+      ?.roots,
+    [S01],
+  );
+  assert.deepEqual(
+    planContentLayout(
+      files(`${S02}/Solo Leveling - S02E01.mkv`),
+      "D:/Torrents/Anime/Solo Leveling/Season 02",
+    )?.roots,
+    [S02],
+  );
+
+  // A second season wrapped inside the first season's folder must survive:
+  // dropping it would merge two seasons of identically numbered episodes.
+  assert.deepEqual(
+    planContentLayout(
+      files(`${ROOT}/${S02}/Solo Leveling - S02E01.mkv`),
+      SEASON_01,
+    )?.roots,
+    [ROOT],
+  );
+
+  // The real batch: dest is the show root, so the batch root goes and each
+  // release folder becomes the season it names. Without the rename the
+  // library keeps two `… x265-EMBER` folders where it wants `Season NN`.
+  {
+    const plan = planContentLayout(
+      files(
+        `${ROOT}/${S01}/S01E01-I'm Used to It [28559867].mkv`,
+        `${ROOT}/${S02}/S02E02-I Suppose You Aren't Aware [15146868].mkv`,
+      ),
+      "D:/Torrents/Anime/Solo Leveling",
+    );
+    assert.deepEqual(plan?.roots, [ROOT]);
+    assert.deepEqual(plan?.paths, [
+      "Season 01/S01E01-I'm Used to It [28559867].mkv",
+      "Season 02/S02E02-I Suppose You Aren't Aware [15146868].mkv",
+    ]);
+  }
+
+  // A rename alone is enough to be worth applying — no wrapper to drop here.
+  {
+    const plan = planContentLayout(
+      files(`${S01}/ep.mkv`, `${S02}/ep.mkv`),
+      "D:/Torrents/Anime/Solo Leveling",
+    );
+    assert.deepEqual(plan?.roots, []);
+    assert.deepEqual(plan?.paths, ["Season 01/ep.mkv", "Season 02/ep.mkv"]);
+  }
+}
+
+// --- The rename never touches a folder whose season is not unambiguous ---
+{
+  const keep = (folder: string, why: string) =>
+    assert.equal(seasonFolderRename(folder), null, why);
+
+  keep("Season 01", "a structural folder is already right");
+  keep("S01", "a structural folder is already right");
+  keep("Specials", "not a season");
+  keep("BDMV", "a protected folder is never rewritten");
+  keep("Show S01-S02 1080p x265", "a range names two seasons");
+  keep("Show S01 S03 1080p x265", "two seasons is not one season");
+  keep("The Show S2", "a title without encode tokens is not a release folder");
+  keep("Behind The Scenes", "no season marker at all");
+  keep("Some Film 1998 1080p x265", "a year is not a season");
+
+  assert.equal(
+    seasonFolderRename("Some Show S03 1080p WEB-DL x265-GRP"),
+    "Season 03",
+  );
+  assert.equal(
+    seasonFolderRename("Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER"),
+    "Season 01",
+  );
+  assert.equal(seasonFolderRename("Show Season 4 1080p BluRay"), "Season 04");
 }
 
 console.log("content-layout.test.ts: all assertions passed");

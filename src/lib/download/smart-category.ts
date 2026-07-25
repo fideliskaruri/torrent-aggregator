@@ -2,6 +2,7 @@ import type { MediaMetadata, TorrentResult } from "@/lib/torrents/types";
 import {
   parseEpisode,
   seasonFolderSegment,
+  SEASON_RANGE_RE,
   type EpisodeInfo,
 } from "@/lib/torrents/episodes";
 
@@ -37,9 +38,11 @@ const QUALITY_TOKEN_RE =
 
 /** Western SxxEyy episode marker (up to 3-digit season) */
 const SXXEYY_RE = /\bS(\d{1,3})\s*E(\d{1,4})\b/i;
-/** Multi-season range: S01-S02, S01 – S05, Season 1-3, Seasons 1-3 */
-const MULTI_SEASON_RE =
-  /\bS(?:easons?)?\s*(\d{1,3})\s*[-–—~]\s*S?(?:easons?)?\s*(\d{1,3})\b/i;
+/**
+ * Multi-season range or list. Shared with `parseEpisode` so classification and
+ * filing can never disagree about what a multi-season pack looks like.
+ */
+const MULTI_SEASON_RE = SEASON_RANGE_RE;
 /** 1x05 style */
 const NXNN_RE = /\b(\d{1,2})x(\d{1,4})\b/i;
 /**
@@ -506,7 +509,7 @@ function showNameFromRelease(title: string): string {
 function cutAtStructuralMarker(title: string): string {
   const patterns: RegExp[] = [
     /\bS\d{1,3}\s*E\d{1,4}\b/i,
-    /\bS(?:easons?)?\s*\d{1,3}\s*[-–—~]\s*S?(?:easons?)?\s*\d{1,3}\b/i,
+    SEASON_RANGE_RE,
     /\b\d{1,2}x\d{1,4}\b/i,
     /\bSeasons?\s*\d{1,3}\b/i,
     /\bS\d{1,3}\b/i,
