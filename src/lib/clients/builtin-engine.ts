@@ -1092,7 +1092,7 @@ export class BuiltinClient implements TorrentClientAdapter {
             dlspeed: 0,
             upspeed: 0,
             state: "metaDL",
-            category: config.category || undefined,
+            category: undefined,
             savePath: readProp(() => t.path, "") || null,
           });
           continue;
@@ -1109,7 +1109,9 @@ export class BuiltinClient implements TorrentClientAdapter {
         out.push(
           mapTorrent(t, {
             savePath: m?.savePath || readProp(() => t.path, "") || undefined,
-            category: m?.category || config.category || undefined,
+            // A torrent with no recorded category is uncategorised. Borrowing
+            // the client's default label here would display a guess as a fact.
+            category: m?.category || undefined,
             name: m?.name,
             userId: m?.userId,
           }),

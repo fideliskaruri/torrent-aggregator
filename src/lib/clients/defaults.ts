@@ -54,7 +54,11 @@ export async function ensureDefaultClientSettings(userId: string) {
         // Placeholder for optional external — builtin ignores host
         host: "http://127.0.0.1:8080",
         baseDownloadPath,
-        category: "TV",
+        // No default label. Every send is categorised from the release's own
+        // identity, so seeding "TV" here only lets uncategorised content be
+        // asserted as a TV series and written into the real TV/ folder that
+        // season logic then trusts.
+        category: null,
         categories: JSON.stringify(DEFAULT_CATEGORIES),
         pathRules: null,
       },

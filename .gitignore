@@ -82,3 +82,7 @@ prod-server.log
 
 # Scratch request bodies for manual API pokes
 switch.json
+
+# local run logs
+run.log
+fix-server.log

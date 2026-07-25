@@ -207,23 +207,10 @@ export default function SettingsPage() {
     };
   }, []);
 
-  const previewPath = useMemo(() => {
-    if (form.category) {
-      const p = effectiveCategoryPath(
-        form.category,
-        form.pathRules,
-        form.baseDownloadPath,
-        form.savePath,
-      );
-      if (p) return p;
-    }
-    return form.savePath || form.baseDownloadPath || "(client default)";
-  }, [
-    form.category,
-    form.pathRules,
-    form.savePath,
-    form.baseDownloadPath,
-  ]);
+  const previewPath = useMemo(
+    () => form.savePath || form.baseDownloadPath || "(client default)",
+    [form.savePath, form.baseDownloadPath],
+  );
 
   const customPathCount = useMemo(
     () =>
@@ -285,7 +272,9 @@ export default function SettingsPage() {
           host: form.host || "http://127.0.0.1:8080",
           username: form.username,
           password: form.password,
-          category: form.category,
+          // The default-label concept is gone: every send is categorised from
+          // the release's own identity, so nothing is asserted here.
+          category: null,
           savePath: form.savePath,
           baseDownloadPath: form.baseDownloadPath,
           maxStorageGb: (() => {
@@ -400,7 +389,7 @@ export default function SettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: pathToOpen || null,
-          category: category || form.category || null,
+          category: category || null,
         }),
       });
       const data = await res.json();
@@ -833,27 +822,6 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <Field
-              label={
-                form.clientType === "qbittorrent"
-                  ? "Default category"
-                  : "Default label"
-              }
-              value={form.category}
-              onChange={(v) => setForm((f) => ({ ...f, category: v }))}
-              placeholder={
-                form.clientType === "qbittorrent"
-                  ? "e.g. Anime (must exist in qBittorrent, or it will be created)"
-                  : "e.g. Anime (Transmission label)"
-              }
-              listId="category-suggestions"
-            />
-            <datalist id="category-suggestions">
-              {form.categories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs text-[var(--text-tertiary)]">
@@ -923,11 +891,7 @@ export default function SettingsPage() {
 
             <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border)] px-3 py-2.5 text-xs text-[var(--text-tertiary)] flex flex-wrap items-center justify-between gap-2">
               <span>
-                Preview for default send:{" "}
-                <span className="text-[var(--text-secondary)]">
-                  {form.category || "(no category)"}
-                </span>
-                {" → "}
+                Uncategorised downloads go to:{" "}
                 <span className="text-[var(--accent-text)] font-mono break-all">
                   {previewPath}
                 </span>
@@ -986,23 +950,15 @@ export default function SettingsPage() {
             <div className="flex flex-wrap gap-2">
               {form.categories.map((c) => {
                 const hasCustom = Boolean(form.pathRules[c]?.trim());
-                const isDefault = form.category === c;
                 return (
                   <span
                     key={c}
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ring-1",
-                      isDefault
-                        ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                        : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)]",
+                      "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)]",
                     )}
                   >
-                    <button
-                      type="button"
-                      onClick={() => setForm((f) => ({ ...f, category: c }))}
-                      className="hover:text-[var(--text)]"
-                      title="Set as default category"
-                    >
+                    <span>
                       {c}
                       {hasCustom && (
                         <span
@@ -1011,7 +967,7 @@ export default function SettingsPage() {
                           aria-hidden
                         />
                       )}
-                    </button>
+                    </span>
                     <button
                       type="button"
                       onClick={() => removeCategory(c)}

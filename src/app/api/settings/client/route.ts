@@ -179,7 +179,7 @@ export async function PUT(request: NextRequest) {
           host: existing?.host || "http://127.0.0.1:8080",
           username: existing?.username ?? null,
           password: existing?.password ?? null,
-          category: existing?.category ?? "TV",
+          category: existing?.category ?? null,
           savePath: existing?.savePath ?? null,
           baseDownloadPath:
             existing?.baseDownloadPath ?? defaultDownloadDir(),
