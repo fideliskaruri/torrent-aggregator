@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import {
   detectContentKind,
+  metadataMatchesTitle,
   pickCategoryLabel,
   resolveSmartPath,
   segmentTitle,
@@ -433,4 +434,131 @@ const CATS = ["Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "O
   );
 }
 
+// --- Regression: same-named shows in both catalogs must not collide ---
+// AniList genuinely contains an anime called "The Bear", and TMDB contains
+// the FX drama. A bare-title lookup scored them identically and the anime
+// won, misfiling western TV into Anime/. The discriminator is the catalog's
+// own origin data (TMDB reports original_language / origin_country on search
+// results), not anything readable off the release name.
+{
+  const bear = detectContentKind({
+    title: "The Bear S03E01 1080p HEVC x265-MeGusta",
+    source: "apibay",
+    metadata: {
+      source: "tmdb",
+      mediaType: "tv",
+      externalId: "136315",
+      title: "The Bear",
+      genres: ["Drama", "Comedy"],
+      originalLanguage: "en",
+      originCountry: ["US"],
+    },
+  });
+  assert.equal(bear, "tv", `expected tv for The Bear, got ${bear}`);
+
+  // Same structural shape, same lack of anime cues in the name — but the
+  // catalog says Japanese + Animation, so this one IS anime.
+  const solo = detectContentKind({
+    title: "Solo Leveling S02E05 1080p WEB-DL x265-GRP",
+    source: "apibay",
+    metadata: {
+      source: "tmdb",
+      mediaType: "tv",
+      externalId: "127532",
+      title: "Solo Leveling",
+      genres: ["Animation", "Action & Adventure", "Sci-Fi & Fantasy"],
+      originalLanguage: "ja",
+      originCountry: ["JP"],
+    },
+  });
+  assert.equal(solo, "anime", `expected anime for Solo Leveling, got ${solo}`);
+
+  // Japanese live action must not become anime just because it is Japanese —
+  // the Animation genre is required alongside the origin.
+  const jdrama = detectContentKind({
+    title: "Shogun S01E03 1080p WEB-DL x265-GRP",
+    source: "apibay",
+    metadata: {
+      source: "tmdb",
+      mediaType: "tv",
+      externalId: "126308",
+      title: "Shogun",
+      genres: ["Drama", "War & Politics"],
+      originalLanguage: "ja",
+      originCountry: ["JP"],
+    },
+  });
+  assert.equal(jdrama, "tv", `expected tv for Shogun, got ${jdrama}`);
+
+  // A watchlist row the user added from AniList stays authoritative even
+  // with clean western-style SxxEyy numbering and no anime cues.
+  const fromWatchlist = detectContentKind({
+    title: "Solo Leveling S02E05 1080p WEB-DL x265-GRP",
+    source: "apibay",
+    metadata: {
+      source: "anilist",
+      mediaType: "anime",
+      externalId: "151807",
+      title: "Solo Leveling",
+    },
+  });
+  assert.equal(fromWatchlist, "anime", `watchlist verdict lost: ${fromWatchlist}`);
+}
+
+// --- Regression: punctuated catalog titles must still match release names ---
+// Catalogs keep punctuation that scene names drop. "Frieren: Beyond Journey's
+// End" tokenized to ["frieren:", "journey's"] and never matched "Frieren
+// Beyond Journeys End", so metadata was discarded for every show with a colon
+// or apostrophe in its title — silently disabling catalog-based routing.
+{
+  const punctuated: [string, string][] = [
+    ["Frieren Beyond Journeys End S01E12 1080p", "Frieren: Beyond Journey's End"],
+    ["Demon Slayer Kimetsu no Yaiba S04E01 1080p", "Demon Slayer: Kimetsu no Yaiba"],
+    ["JoJos Bizarre Adventure S05E10 1080p", "JoJo's Bizarre Adventure"],
+  ];
+  for (const [torrent, catalog] of punctuated) {
+    assert.ok(
+      metadataMatchesTitle(torrent, {
+        source: "tmdb",
+        mediaType: "tv",
+        externalId: "1",
+        title: catalog,
+      }),
+      `"${catalog}" should match "${torrent}"`,
+    );
+  }
+
+  // The gate must still reject an unrelated catalog record.
+  assert.equal(
+    metadataMatchesTitle("The Simpsons S37E16 Extreme Makeover Homer Edition", {
+      source: "tmdb",
+      mediaType: "tv",
+      externalId: "2",
+      title: "Extreme Makeover: Home Edition",
+    }),
+    false,
+    "episode subtitle must not be read as the series id",
+  );
+
+  // End to end: TMDB origin + Animation reclassifies a clean western-style
+  // release name that carries no anime cues at all.
+  assert.equal(
+    detectContentKind({
+      title: "Frieren Beyond Journeys End S01E12 1080p",
+      source: "apibay",
+      metadata: {
+        source: "tmdb",
+        mediaType: "tv",
+        externalId: "209867",
+        title: "Frieren: Beyond Journey's End",
+        genres: ["Animation", "Action & Adventure", "Drama"],
+        originalLanguage: "ja",
+        originCountry: ["JP"],
+      },
+    }),
+    "anime",
+  );
+}
+
 console.log("smart-category.test.ts: all assertions passed");
+

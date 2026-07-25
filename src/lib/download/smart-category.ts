@@ -116,9 +116,28 @@ function normalizeForMatch(s: string): string {
       /\b(s\d{1,3}e\d{1,4}|s\d{1,3}|1080p|720p|480p|2160p|bluray|webrip|web-?dl|hevc|x265|x264|bone|yts)\b/gi,
       " ",
     )
-    .replace(/[._\-–—|]+/g, " ")
+    // Catalogs keep punctuation that release names drop: TMDB says
+    // "Frieren: Beyond Journey's End", the torrent says "Frieren Beyond
+    // Journeys End". Apostrophes close up (journey's → journeys), every
+    // other separator becomes a gap. Unicode-aware so non-latin titles
+    // keep their characters instead of normalizing to an empty string.
+    .replace(/['’`]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * A catalog record that says "made in Japan". TMDB reports this directly on
+ * search results, so combined with an Animation genre it identifies anime
+ * without reading anything off the release name. This is what separates
+ * "Solo Leveling" (ja/JP, Animation) from "The Bear" (en/US, Drama) when
+ * both catalogs happen to contain a show by the same name.
+ */
+function isJapaneseCatalogOrigin(metadata?: MediaMetadata | null): boolean {
+  if (!metadata) return false;
+  if (metadata.originalLanguage?.toLowerCase() === "ja") return true;
+  return (metadata.originCountry ?? []).some((c) => c.toUpperCase() === "JP");
 }
 
 function isJapaneseAnimeSignal(
@@ -130,6 +149,9 @@ function isJapaneseAnimeSignal(
   if (JP_ANIME_SIGNAL_RE.test(hay)) return true;
   if (ANIME_GROUP_RE.test(hay)) return true;
   if (isExplicitAniListAnime(metadata)) return true;
+  // Catalog origin beats release-name cues: a clean "S02E05 1080p WEB-DL"
+  // name carries no anime tells, but TMDB still knows the show is Japanese.
+  if (isJapaneseCatalogOrigin(metadata)) return true;
   // Bracketed short release groups + bare episode numbers (classic anime naming)
   const ep = parseEpisode(title);
   if (
@@ -309,11 +331,20 @@ export function detectContentKind(input: {
   }
 
   // --- Search category hint (weaker than domain / structure / metadata) ---
+  //
+  // A hint, not a fact: "the user had Anime selected" is not "AniList says
+  // this is anime". Anything authoritative — a watchlist row, an enriched
+  // result, a catalog lookup — arrives as `metadata` and has already decided
+  // above. See `lib/metadata/catalog-identity.ts`.
   const sc = (input.searchCategory ?? "").toLowerCase();
   if (sc === "apps" || sc === "software") return "software";
   if (sc === "games") return "games";
   if (sc === "music") return "music";
-  if (sc === "anime" && !strongTv) return "anime";
+  // `strongTv` is necessarily false here — the block above returns on every
+  // path — so no `!strongTv` guard. It used to read as though the hint could
+  // beat SxxEyy numbering; it never could, which is how monitored anime ended
+  // up in TV/.
+  if (sc === "anime") return "anime";
   // movies/tv search filters are hints only — never override domain signals
   // (already handled). Still respect them when no domain signal.
   if (sc === "movies") return "movies";
@@ -506,7 +537,7 @@ function showNameFromRelease(title: string): string {
  * Cut release title at the first season/episode structural marker so
  * episode names ("Tall Stewie") and scene tags never become the show folder.
  */
-function cutAtStructuralMarker(title: string): string {
+export function cutAtStructuralMarker(title: string): string {
   const patterns: RegExp[] = [
     /\bS\d{1,3}\s*E\d{1,4}\b/i,
     SEASON_RANGE_RE,

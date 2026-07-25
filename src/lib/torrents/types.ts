@@ -111,6 +111,14 @@ export interface MediaMetadata {
   rating?: number | null;
   year?: number | null;
   genres?: string[];
+  /**
+   * ISO 639-1 original language reported by the catalog (TMDB), e.g. "ja".
+   * Together with an Animation genre this is what separates a Japanese
+   * animated series from a same-named western show.
+   */
+  originalLanguage?: string | null;
+  /** ISO 3166-1 origin countries reported by the catalog (TMDB), e.g. ["JP"]. */
+  originCountry?: string[];
 }
 
 export interface TorrentSourceAdapter {

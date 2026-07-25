@@ -64,6 +64,42 @@ export async function getTmdbById(
   return mapTmdbDetail(data, mediaType);
 }
 
+/**
+ * TMDB's static genre ids (movie + tv lists merged; ids do not collide).
+ * `/search/multi` returns `genre_ids`, never genre names, so without this
+ * table every search-derived record arrives with an empty genre list and
+ * anything keying off "Animation" silently never fires.
+ */
+const TMDB_GENRES: Record<number, string> = {
+  12: "Adventure",
+  14: "Fantasy",
+  16: "Animation",
+  18: "Drama",
+  27: "Horror",
+  28: "Action",
+  35: "Comedy",
+  36: "History",
+  37: "Western",
+  53: "Thriller",
+  80: "Crime",
+  99: "Documentary",
+  878: "Science Fiction",
+  9648: "Mystery",
+  10402: "Music",
+  10749: "Romance",
+  10751: "Family",
+  10752: "War",
+  10759: "Action & Adventure",
+  10762: "Kids",
+  10763: "News",
+  10764: "Reality",
+  10765: "Sci-Fi & Fantasy",
+  10766: "Soap",
+  10767: "Talk",
+  10768: "War & Politics",
+  10770: "TV Movie",
+};
+
 interface TmdbMultiResult {
   id: number;
   media_type: "movie" | "tv" | "person";
@@ -76,6 +112,8 @@ interface TmdbMultiResult {
   release_date?: string;
   first_air_date?: string;
   genre_ids?: number[];
+  original_language?: string;
+  origin_country?: string[];
 }
 
 interface TmdbDetail {
@@ -89,6 +127,8 @@ interface TmdbDetail {
   release_date?: string;
   first_air_date?: string;
   genres?: { id: number; name: string }[];
+  original_language?: string;
+  origin_country?: string[];
 }
 
 function mapTmdb(r: TmdbMultiResult): MediaMetadata {
@@ -107,7 +147,11 @@ function mapTmdb(r: TmdbMultiResult): MediaMetadata {
     synopsis: r.overview || null,
     rating: r.vote_average ?? null,
     year: Number.isNaN(year as number) ? null : year,
-    genres: [],
+    genres: (r.genre_ids ?? [])
+      .map((id) => TMDB_GENRES[id])
+      .filter((g): g is string => Boolean(g)),
+    originalLanguage: r.original_language ?? null,
+    originCountry: r.origin_country ?? [],
   };
 }
 
@@ -130,5 +174,7 @@ function mapTmdbDetail(
     rating: r.vote_average ?? null,
     year: Number.isNaN(year as number) ? null : year,
     genres: (r.genres ?? []).map((g) => g.name),
+    originalLanguage: r.original_language ?? null,
+    originCountry: r.origin_country ?? [],
   };
 }

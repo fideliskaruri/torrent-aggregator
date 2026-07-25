@@ -19,6 +19,7 @@ import {
 } from "@/lib/clients";
 import { formatClientError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
+import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 
 export type OnDemandResult = {
   ok: boolean;
@@ -187,6 +188,11 @@ export async function grabSingleEpisode(opts: {
     name: best.title,
     source: best.source,
     searchCategory,
+    // Same fact the search category was derived from, passed as a fact.
+    metadata: catalogMetadata({
+      mediaType: opts.mediaType,
+      title: opts.showTitle,
+    }),
   });
 
   {

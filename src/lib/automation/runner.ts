@@ -16,6 +16,7 @@ import {
 } from "@/lib/clients";
 import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
+import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { acquireRunLock, releaseRunLock } from "@/lib/automation/run-lock";
 import { runAutoRules } from "@/lib/rules/runner";
 
@@ -336,6 +337,10 @@ async function runUserAutomationUnlocked(
         name: best.title,
         source: best.source,
         searchCategory,
+        // The watchlist row is a catalog record, not a parse of a release
+        // name — passing it stops `S02E05` numbering from demoting a
+        // monitored anime to TV, and names the show folder canonically.
+        metadata: catalogMetadata(item),
       });
 
       // Automatic storage cap + free-space floor (no manual check)

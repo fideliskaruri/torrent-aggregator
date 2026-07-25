@@ -192,6 +192,7 @@ async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
         name: best.title,
         source: best.source,
         searchCategory: rule.category,
+        metadata: best.metadata,
       });
 
       let send: { ok: boolean; message: string };

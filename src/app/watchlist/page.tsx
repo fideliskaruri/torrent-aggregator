@@ -346,6 +346,7 @@ export default function WatchlistPage() {
           magnet: item.latestReleaseMagnet,
           name: item.latestReleaseTitle || item.title,
           source: "watchlist",
+          watchListItemId: item.id,
         }),
       });
       const data = await res.json();

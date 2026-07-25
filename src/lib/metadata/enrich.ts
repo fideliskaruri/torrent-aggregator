@@ -82,7 +82,13 @@ export async function resolveMetadata(
         const s = scoreMatch(cleaned, hit.title);
         // slight preference for anime when category is anime
         const adjusted = preferAnime && hit.mediaType !== "anime" ? s - 5 : s;
-        if (adjusted > bestScore) {
+        // TMDB wins ties unless the request actually points at anime. Both
+        // catalogs carry same-named shows — "The Bear" is an FX drama on TMDB
+        // and a separate anime on AniList — and they score identically, so
+        // whichever is queried first used to win by accident. The general
+        // catalog is the safer default; a genuinely Japanese animated show
+        // still resolves to anime from its TMDB origin + Animation genre.
+        if (adjusted > bestScore || (!preferAnime && adjusted === bestScore)) {
           bestScore = adjusted;
           best = hit;
         }

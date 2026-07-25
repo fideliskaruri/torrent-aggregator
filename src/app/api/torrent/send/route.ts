@@ -8,6 +8,7 @@ import {
 } from "@/lib/clients";
 import { formatClientError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
+import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import type { MediaMetadata } from "@/lib/torrents/types";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest) {
       category?: string | null;
       savePath?: string | null;
       metadata?: MediaMetadata | null;
+      /** Watchlist row this grab belongs to; its catalog record beats guessing. */
+      watchListItemId?: string | null;
       /**
        * primary (default) = active client (built-in by default).
        * external = optional qBittorrent/Transmission ("Send to my client").
@@ -91,10 +94,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A watchlist grab carries the catalog's own verdict — the same record the
+    // user picked when adding the show. Resolved server-side from the id
+    // rather than trusted from the request body. Anything else falls through
+    // to the title heuristics: guessing a show's identity from a bare release
+    // name is what misfiles same-named titles, so we don't do it.
+    let metadata = body.metadata ?? null;
+    if (!metadata && body.watchListItemId) {
+      const item = await prisma.watchListItem.findFirst({
+        where: { id: body.watchListItemId, userId: session.user.id },
+        select: {
+          mediaType: true,
+          externalId: true,
+          title: true,
+          posterUrl: true,
+          synopsis: true,
+          rating: true,
+        },
+      });
+      metadata = catalogMetadata(item);
+    }
+
     const pathTarget = resolveSmartSendTarget(config, {
       name: body.name || "",
       tags: body.tags,
-      metadata: body.metadata,
+      metadata,
       source: body.source,
       searchCategory: body.searchCategory,
       categoryManual: body.categoryManual,

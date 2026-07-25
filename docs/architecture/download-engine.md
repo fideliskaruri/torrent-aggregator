@@ -527,3 +527,81 @@ so a genuine bug anywhere else still crashes loudly.
 `scripts/test-conn-errors.mts` runs in `test-all` and binds against the real
 prototypes, so a `webtorrent` upgrade that moves either seam fails the gate
 rather than silently resuming the crashes.
+
+## Category resolution: identity beats guessing
+
+Deciding whether a release is anime, TV or a movie is an *identity* question,
+and identity does not survive being re-derived from a release name. Jellyfin
+solves this by making the user assign a library and pinning matches with IDs
+in the folder name (`Attack on Titan [mal-16498]`) or file hashes (Shoko).
+Sonarr solves it with a per-series `seriesType` (`standard | daily | anime`)
+chosen once when the series is added — explicitly *not* auto-derived from
+TheTVDB genres, despite years of requests.
+
+TorrentFlow follows the same rule. `WatchListItem.mediaType` is our
+`seriesType`: it is written once from the catalog record the user picked
+(AniList only ever yields `anime`, TMDB only ever yields `movie`/`tv`), and
+every send path reads it back rather than re-deriving it.
+
+Order of authority in `detectContentKind`:
+
+1. **Catalog identity** — a watchlist row, or metadata attached to a search
+   result. `catalogMetadata()` rebuilds the `MediaMetadata` the row came from,
+   and returns `null` rather than a half-made record, so a guess can never be
+   laundered into a fact.
+2. **Structure** — `SxxEyy`, season packs, software/game/music markers.
+3. **Source bias** — Nyaa is anime-first, YTS is movies.
+4. **Search category** — a weak hint ("the user had Anime selected"), never
+   authoritative.
+
+The bug this replaced: every send path except the search card converted
+`item.mediaType` into a *search category hint* via `categoryForMediaType()`.
+A hint loses to `SxxEyy` numbering, so monitored anime landed in `TV/`. The
+type system could not tell a fact from a hint, so the fact was quietly
+downgraded at three call sites.
+
+### Why there is no per-release catalog lookup
+
+An earlier attempt queried the catalogs with the bare release name whenever no
+metadata was attached. It looked like it worked and was wrong in a way only
+live data exposed: AniList contains an anime called *The Bear*, TMDB contains
+the FX drama, both scored 100, and AniList won ties purely by being queried
+first — so `The Bear S03E01` filed into `Anime/`, and a YTS copy of
+*Masters Of The Universe* did too. Guessing an identity per release also
+breaks path determinism: one failed lookup and the same show lands in `TV/`
+this week and `Anime/` next, splitting a library so season logic can never
+reconcile it. No mainstream tool does this, and neither do we.
+
+### The dynamic signal: catalog origin, not release names
+
+`mapTmdb` used to hardcode `genres: []`, discarding the `genre_ids`,
+`original_language` and `origin_country` that `/search/multi` already returns.
+Every search-derived record therefore arrived with no genres, and the
+"TMDB TV + Animation" branch in `detectContentKind` could never fire — dead
+code that looked alive. With those fields mapped, anime is identified from
+catalog facts instead of scene-name cues:
+
+```
+The Bear       lang=en country=US  genres=[Drama, Comedy]              → tv
+Solo Leveling  lang=ja country=JP  genres=[Animation, ...]             → anime
+Shogun         lang=ja country=JP  genres=[Drama, War & Politics]      → tv
+```
+
+Animation *and* Japanese origin are both required, so Japanese live action
+(Shogun) stays TV and western animation stays TV. Because TMDB records now
+carry this, ties in `resolveMetadata` were flipped to favour TMDB unless the
+request actually points at anime — the general catalog is the safer default,
+and a genuinely Japanese animated show still resolves to anime through its
+own origin data.
+
+### Punctuation: the gate that rejected everything
+
+`metadataMatchesTitle` guards against an episode subtitle being mistaken for a
+series id, and it is worth keeping. But `normalizeForMatch` never stripped
+`:` or `'`, so the catalog's `Frieren: Beyond Journey's End` tokenized to
+`["frieren:", "journey's"]` and scored 0.5 against the release's
+`Frieren Beyond Journeys End` — under the 0.6 threshold. Every show with a
+colon or apostrophe in its catalog title silently failed the gate and lost its
+metadata. Apostrophes now close up (`journey's` → `journeys`) and remaining
+punctuation becomes a gap, Unicode-aware so non-latin titles are not
+normalized into an empty string.
