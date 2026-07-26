@@ -9,6 +9,7 @@ export interface DownloadPrefs {
   categories: string[];
   pathRules: Record<string, string>;
   clientType?: string;
+  automationIntervalMinutes?: number | null;
   /** Optional secondary client for dual-send */
   externalClientType?: "qbittorrent" | "transmission" | null;
   hasExternal?: boolean;
@@ -60,6 +61,7 @@ async function fetchPrefs(): Promise<DownloadPrefs> {
         categories: s?.categories ?? data.defaults?.categories ?? DEFAULT_CATEGORIES,
         pathRules: s?.pathRules ?? {},
         clientType: s?.clientType,
+        automationIntervalMinutes: s?.automationIntervalMinutes ?? 0,
         externalClientType: s?.externalClientType ?? null,
         hasExternal: Boolean(s?.hasExternal ?? s?.externalClientType),
       };

@@ -75,7 +75,20 @@ indexers answered and had nothing" and "half of them are down".
 | `qbittorrent.ts`, `transmission.ts` | Optional external clients. The built-in engine is the default and the supported path. |
 | `disk-space.ts` | The storage cap and free-space floor, enforced on **every** send. |
 
-### Library and automation — `src/lib/library/`, `src/lib/automation/`
+### Playback — `src/app/api/stream/`, `src/components/watch/`
+
+| File | Role |
+|------|------|
+| `api/stream/[infoHash]/route.ts` | Lists the video files in a live torrent so the player can offer a file picker. |
+| `api/stream/[infoHash]/[...filePath]/route.ts` | The byte-range endpoint. Serves HTTP 206 straight out of the live swarm via `file.stream({start,end})`. |
+| `builtin-engine.ts` → `findBuiltinTorrentFile`, `prefetchBuiltinFileEdges` | The lookup and the head/tail warm-up. Purely additive to the engine. |
+| `components/watch/inline-player.tsx` | The in-tab player, plus "Copy stream URL" for VLC/MPV. Built-in engine only. |
+
+Streaming exists **only** for the built-in engine — `file.stream()` is an
+in-process WebTorrent API with no qBittorrent or Transmission equivalent, so the
+route answers 409 and the UI hides the button for other clients.
+
+
 
 | File | Role |
 |------|------|
@@ -139,6 +152,32 @@ explicitly. If you change that, change the copy in the same commit.
 ---
 
 ## 4. Things that look wrong but are deliberate
+
+- **`.mkv` is served as `Content-Type: video/webm`.** It is a lie, and it is
+  load-bearing. Chromium demuxes Matroska fine but `canPlayType("video/x-matroska")`
+  returns `""`, and `application/octet-stream` fails outright. Do not "fix" this
+  to a correct MIME type.
+- **The stream route emits a fake `torrent.emit("verified", -1)` when a request
+  is aborted or stalls.** WebTorrent's `FileIterator.next()` parks on a
+  `'verified'` listener that only unregisters when the emitted index matches the
+  piece it wants *or* the iterator is destroyed — so with zero peers it never
+  fires and the listener leaks. `-1` can never match a real piece index, so it
+  can only take the destroyed branch: it evicts the listener and can never cause
+  a spurious read. It must be emitted **after** awaiting `reader.cancel()`,
+  because that is what sets `destroyed`. Emitting it earlier silently leaks;
+  there is a regression test that fails if you reorder it.
+- **Silent audio is detected with `webkitAudioDecodedByteCount`, not
+  `audioTracks`.** Chrome and Edge do not implement `HTMLMediaElement.audioTracks`
+  at all, so the spec API is dead code there. The check waits for real playback
+  progress before firing, because both counters read 0 before the first frames
+  land and checking earlier reports every file as silent. This matters because
+  the common failure is **soundless video, not an error** — most WEB-DL releases
+  carry Dolby AC-3/E-AC-3, which no browser will ever decode (a licensing
+  decision, not a bug), so without this the user blames the downloader.
+- **`ADD_OPTIONS.strategy = "sequential"` in `builtin-engine.ts` is worse for the
+  swarm on purpose.** It is what makes playback-before-completion possible. It
+  was paying that cost for a long time before the stream route existed; if you
+  ever remove playback, remove the strategy too.
 
 - **The rate limiter is an *indexer* budget, not a request limit.** It lives
   inside `aggregator.ts` at the upstream fan-out, not on the API route.

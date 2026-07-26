@@ -30,6 +30,11 @@ import {
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { RecommendationRailSection } from "@/components/tf/recommendation-rail";
+import {
+  infoHashFromMagnet,
+  InlineStreamPlayer,
+} from "@/components/watch/inline-player";
+import { useDownloadPrefs } from "@/hooks/use-download-prefs";
 
 interface WatchItem {
   id: string;
@@ -89,6 +94,7 @@ function writeLastAuto(summary: LastAutoSummary) {
 
 export default function WatchlistPage() {
   const { data: session } = useSession();
+  const { prefs, loaded: prefsLoaded } = useDownloadPrefs();
   const [items, setItems] = useState<WatchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningAuto, setRunningAuto] = useState(false);
@@ -102,9 +108,10 @@ export default function WatchlistPage() {
   // same letter tile a missing URL gets, not paint nothing.
   const [brokenPosters, setBrokenPosters] = useState<Set<string>>(new Set());
   /** null = not loaded yet; 0 = no schedule. */
-  const [autoIntervalMinutes, setAutoIntervalMinutes] = useState<number | null>(
-    null,
-  );
+  const autoIntervalMinutes = prefsLoaded
+    ? (prefs.automationIntervalMinutes ?? 0)
+    : null;
+  const isBuiltinClient = !prefs.clientType || prefs.clientType === "builtin";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -155,28 +162,6 @@ export default function WatchlistPage() {
     // sessionStorage is an external store; syncing it on mount belongs in an effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLastAuto(readLastAuto());
-  }, []);
-
-  // The page used to label every item "monitoring" while nothing ran on a
-  // timer. Read the real schedule so the copy can state what actually happens.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/settings/client");
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          settings?: { automationIntervalMinutes?: number | null } | null;
-        };
-        if (cancelled) return;
-        setAutoIntervalMinutes(data.settings?.automationIntervalMinutes ?? 0);
-      } catch {
-        /* the schedule line just stays hidden */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   async function updateStatus(id: string, newStatus: string) {
@@ -550,6 +535,7 @@ export default function WatchlistPage() {
                 : item.mediaType === "movie"
                   ? "movies"
                   : "tv";
+            const latestInfoHash = infoHashFromMagnet(item.latestReleaseMagnet);
 
             return (
               <article
@@ -765,6 +751,13 @@ export default function WatchlistPage() {
                       </details>
                     ) : null}
                   </div>
+
+                  {isBuiltinClient && latestInfoHash ? (
+                    <InlineStreamPlayer
+                      infoHash={latestInfoHash}
+                      title={item.latestReleaseTitle || item.title}
+                    />
+                  ) : null}
                 </div>
               </article>
             );

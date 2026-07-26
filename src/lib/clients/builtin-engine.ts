@@ -44,6 +44,8 @@ type WtFile = {
   name: string;
   path: string;
   length: number;
+  type?: string;
+  stream: (opts?: { start?: number; end?: number }) => ReadableStream<Uint8Array>;
 };
 
 type WtTorrent = {
@@ -74,6 +76,9 @@ type WtTorrent = {
   resume: () => void;
   destroy: (opts?: { destroyStore?: boolean }, cb?: (err?: Error) => void) => void;
   on: (ev: string, fn: (...args: unknown[]) => void) => void;
+  emit?: (ev: string, ...args: unknown[]) => boolean;
+  listenerCount?: (ev: string) => number;
+  removeListener?: (ev: string, fn: (...args: unknown[]) => void) => void;
 };
 
 /**
@@ -743,6 +748,136 @@ function findTorrent(
   hash: string,
 ): WtTorrent | undefined {
   return findTorrentByHash(client.torrents, hash);
+}
+
+export type BuiltinStreamFile = WtFile;
+export type BuiltinStreamTorrent = Pick<
+  WtTorrent,
+  | "infoHash"
+  | "name"
+  | "progress"
+  | "downloadSpeed"
+  | "numPeers"
+  | "files"
+  | "emit"
+  | "listenerCount"
+>;
+
+export type BuiltinStreamLookup =
+  | { status: "found"; torrent: BuiltinStreamTorrent; file: BuiltinStreamFile }
+  | { status: "not_found" }
+  | { status: "metadata_pending"; torrent: BuiltinStreamTorrent };
+
+function normalizeTorrentFilePath(filePath: string): string {
+  return filePath.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+/**
+ * Look up a live built-in torrent file for streaming.
+ *
+ * This intentionally scans the live WebTorrent client's `torrents` array with
+ * `findTorrentByHash`; WebTorrent 3's `client.get()` is async and unsafe to use
+ * as a synchronous handle.
+ */
+export async function findBuiltinTorrentFile(
+  config: ClientConnectionConfig,
+  hash: string,
+  filePath?: string,
+): Promise<BuiltinStreamLookup> {
+  const client = await ensureClientAndRehydrate(config);
+  const normalizedHash = hash.toLowerCase().trim();
+  const torrent = findTorrentByHash(client.torrents, normalizedHash);
+  if (!torrent) return { status: "not_found" };
+
+  const uid = config.userId?.trim() || null;
+  if (uid) {
+    const allowed = await allowedHashesForUser(uid);
+    if (!allowed.has(normalizedHash)) return { status: "not_found" };
+  }
+
+  const files = torrent.files ?? [];
+  if (files.length === 0) return { status: "metadata_pending", torrent };
+  if (!filePath) return { status: "found", torrent, file: files[0] };
+
+  const wanted = normalizeTorrentFilePath(filePath);
+  const file = files.find((f) => normalizeTorrentFilePath(f.path) === wanted);
+  return file
+    ? { status: "found", torrent, file }
+    : { status: "not_found" };
+}
+
+export const BUILTIN_STREAM_EDGE_PREFETCH_BYTES = 2 * 1024 * 1024;
+
+async function drainBuiltinFileRange(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+  range: { start: number; end: number },
+  timeoutMs: number,
+): Promise<void> {
+  const stream = file.stream(range);
+  const reader = stream.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        reject(new Error("prefetch stalled"));
+      }, timeoutMs);
+    });
+    for (;;) {
+      const next = await Promise.race([reader.read(), timeout]);
+      if (next.done) return;
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (timedOut) {
+      const cancel = reader.cancel("prefetch stalled").catch(() => undefined);
+      try {
+        torrent.emit?.("verified", -1);
+      } catch {
+        /* best-effort */
+      }
+      await Promise.race([
+        cancel,
+        new Promise((resolve) => setTimeout(resolve, 25)),
+      ]);
+    } else {
+      reader.releaseLock();
+    }
+  }
+}
+
+/**
+ * Pull the file's first and last bytes into WebTorrent's piece selector.
+ * Chromium usually probes the tail first for MP4 `moov` / MKV `Cues`; without
+ * this a barely-started large file can appear to spin forever.
+ */
+export async function prefetchBuiltinFileEdges(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+  opts: {
+    bytes?: number;
+    timeoutMs?: number;
+  } = {},
+): Promise<void> {
+  const bytes = Math.max(1, Math.floor(opts.bytes ?? BUILTIN_STREAM_EDGE_PREFETCH_BYTES));
+  const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs ?? 15_000));
+  const lastByte = Math.max(0, file.length - 1);
+  const headEnd = Math.min(lastByte, bytes - 1);
+  const ranges = [{ start: 0, end: headEnd }];
+  if (file.length > bytes) {
+    ranges.push({ start: Math.max(0, file.length - bytes), end: lastByte });
+  }
+  await Promise.allSettled(
+    ranges.map((range) => drainBuiltinFileRange(torrent, file, range, timeoutMs)),
+  ).then((settled) => {
+    // Surface a stalled edge drain instead of swallowing it: the caller uses the
+    // rejection to allow a later retry, and a stalled prefetch means the edge
+    // bytes were never actually pulled.
+    const failed = settled.find((s) => s.status === "rejected");
+    if (failed && failed.status === "rejected") throw failed.reason;
+  });
 }
 
 /** Destroy a live torrent; rejects with a clear message if handle is invalid. */

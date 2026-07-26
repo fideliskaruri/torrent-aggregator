@@ -41,6 +41,7 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfStatStrip } from "@/components/tf/stat-strip";
 import { TfPathChip } from "@/components/tf/path-chip";
+import { InlineStreamPlayer } from "@/components/watch/inline-player";
 
 interface ClientTorrent {
   hash: string;
@@ -835,6 +836,9 @@ export default function ClientPage() {
                         if (
                           e.target instanceof HTMLElement &&
                           (e.target.closest("button") ||
+                            e.target.closest("select") ||
+                            e.target.closest("video") ||
+                            e.target.closest("[data-inline-player]") ||
                             e.target.closest('[role="checkbox"]') ||
                             e.target.closest("a"))
                         ) {
@@ -974,6 +978,19 @@ export default function ClientPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
+
+                      {isBuiltin ? (
+                        <InlineStreamPlayer
+                          infoHash={t.hash}
+                          title={t.name}
+                          progress={{
+                            totalBytes: t.sizeBytes,
+                            progress: t.progress,
+                            peers: t.peers,
+                          }}
+                          className="sm:col-start-2 sm:col-span-5"
+                        />
+                      ) : null}
                     </div>
                   );
                 })}
