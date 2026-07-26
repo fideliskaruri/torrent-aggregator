@@ -9,6 +9,19 @@ const RATE_MAX = 40;
 
 const rateBuckets = new Map<string, { count: number; reset: number }>();
 
+/**
+ * Budget for **outbound indexer fetches**, not for user requests.
+ *
+ * This app binds to 127.0.0.1 with no auth, so throttling the user protects
+ * nobody — there is no adversary on the other end of the socket. What genuinely
+ * needs protecting is the public indexers, which ban IPs that hammer them.
+ *
+ * Counting HTTP requests to `/api/search` measured the wrong thing entirely: a
+ * cache hit contacts no indexer at all, yet still burned budget, so paging
+ * through results or nudging a filter could lock the user out of his own app
+ * for a minute with nothing to show for it. The budget is therefore spent at
+ * the point of the actual upstream fan-out.
+ */
 export function rateLimit(key: string, max = RATE_MAX): boolean {
   const now = Date.now();
   const bucket = rateBuckets.get(key);
@@ -19,6 +32,13 @@ export function rateLimit(key: string, max = RATE_MAX): boolean {
   if (bucket.count >= max) return false;
   bucket.count += 1;
   return true;
+}
+
+/** Seconds until `key`'s budget refills, for an actionable error message. */
+export function rateLimitResetSeconds(key: string): number {
+  const bucket = rateBuckets.get(key);
+  if (!bucket) return 0;
+  return Math.max(0, Math.ceil((bucket.reset - Date.now()) / 1000));
 }
 
 /**
@@ -45,14 +65,18 @@ function sortKeysDeep(value: unknown): unknown {
 
 export async function getSearchCache(
   key: string,
+  opts: { allowStale?: boolean } = {},
 ): Promise<SearchResponse | null> {
   const mem = memory.get(key);
-  if (mem && mem.expires > Date.now()) return mem.value;
+  if (mem && (opts.allowStale || mem.expires > Date.now())) return mem.value;
 
   try {
     const row = await prisma.searchCache.findUnique({ where: { cacheKey: key } });
     if (!row) return null;
     if (row.expiresAt.getTime() < Date.now()) {
+      // A stale entry is worth far more than an error when we are being
+      // throttled — the alternative is showing the user nothing at all.
+      if (opts.allowStale) return JSON.parse(row.payload) as SearchResponse;
       void prisma.searchCache.delete({ where: { cacheKey: key } }).catch(() => undefined);
       return null;
     }

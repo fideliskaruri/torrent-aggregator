@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchTorrents, listAvailableSources } from "@/lib/torrents/aggregator";
+import { searchTorrents, listAvailableSources, SearchThrottledError } from "@/lib/torrents/aggregator";
 import type { TorrentSourceId } from "@/lib/torrents/types";
 import { parseFiltersFromParams } from "@/lib/torrents/filters";
-import { rateLimit } from "@/lib/torrents/search-cache";
 import { auth } from "@/lib/auth";
 import { getUserClientConfig } from "@/lib/clients";
 
@@ -27,17 +26,6 @@ const VALID_SOURCES = new Set<TorrentSourceId>([
 ]);
 
 export async function GET(request: NextRequest) {
-  const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "local";
-
-  if (!rateLimit(`search:${ip}`)) {
-    return NextResponse.json(
-      { error: "Rate limit exceeded. Try again in a minute." },
-      { status: 429 },
-    );
-  }
 
   const { searchParams } = request.nextUrl;
   const q = searchParams.get("q")?.trim() ?? "";
@@ -133,6 +121,19 @@ export async function GET(request: NextRequest) {
       availableSources: listAvailableSources(),
     });
   } catch (err) {
+    if (err instanceof SearchThrottledError) {
+      return NextResponse.json(
+        {
+          error: "Indexers busy",
+          message: err.message,
+          retryAfterSeconds: err.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(err.retryAfterSeconds) },
+        },
+      );
+    }
     console.error("[search]", err);
     return NextResponse.json(
       {

@@ -180,4 +180,56 @@ function item(
   assert.equal(out[0].seeders, 50);
 }
 
+// --- releaseKind: packs vs episodes ---
+{
+  const pool = [
+    item({ title: "Breaking Bad S01E03 1080p WEB-DL" }),
+    item({ title: "Breaking Bad Season 1 Complete 1080p" }),
+    item({ title: "Breaking Bad S01-S05 Complete 1080p BluRay" }),
+    item({ title: "[SubsPlease] One Piece - 1090 (1080p)" }),
+    item({ title: "Frieren Complete 1080p Batch" }),
+  ];
+
+  const packs = applyFilters(pool, { releaseKind: "packs" });
+  const episodes = applyFilters(pool, { releaseKind: "episodes" });
+
+  assert.equal(packs.length, 3, "expected 3 packs");
+  for (const p of packs) {
+    assert.match(p.title, /complete|batch/i);
+  }
+
+  assert.equal(episodes.length, 2, "expected 2 single episodes");
+  for (const e of episodes) {
+    assert.doesNotMatch(e.title, /complete|batch/i);
+  }
+
+  // The two kinds must partition the pool exactly — no release may be dropped
+  // by both filters, or it becomes unreachable from the UI.
+  assert.equal(
+    packs.length + episodes.length,
+    pool.length,
+    "packs + episodes must cover every release exactly once",
+  );
+
+  // Absent filter means no filtering at all.
+  assert.equal(applyFilters(pool, {}).length, pool.length);
+}
+
+// --- releaseKind uses the pre-parsed episode when the adapter supplied one ---
+{
+  const pool = [
+    {
+      ...item({ title: "Ambiguously Named Release" }),
+      episode: {
+        label: "S01 pack",
+        isBatch: true,
+        isSeasonPack: true,
+        season: 1,
+      },
+    },
+  ];
+  assert.equal(applyFilters(pool, { releaseKind: "packs" }).length, 1);
+  assert.equal(applyFilters(pool, { releaseKind: "episodes" }).length, 0);
+}
+
 console.log("filters.test.ts: all assertions passed");

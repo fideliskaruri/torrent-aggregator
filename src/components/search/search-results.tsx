@@ -42,6 +42,8 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   const [showFilters, setShowFilters] = useState(false);
 
   const minSeeders = searchParams.get("minSeeders") ?? "";
+  const releaseKind = searchParams.get("releaseKind") ?? "";
+  const groupBySeason = searchParams.get("groupSeasons") ?? "";
   const resolution = searchParams.get("resolution") ?? "";
   const codec = searchParams.get("codec") ?? "";
   const maxSizeGb = searchParams.get("maxSizeGb") ?? "";
@@ -104,6 +106,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         });
         if (category && category !== "all") params.set("category", category);
         if (minSeeders) params.set("minSeeders", minSeeders);
+        if (releaseKind) params.set("releaseKind", releaseKind);
         if (resolution) params.set("resolution", resolution);
         if (codec) params.set("codec", codec);
         if (maxSizeGb) {
@@ -130,6 +133,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       query,
       category,
       minSeeders,
+      releaseKind,
       resolution,
       codec,
       maxSizeGb,
@@ -255,8 +259,76 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   }
 
   const hasActiveFilters = Boolean(
-    minSeeders || resolution || codec || maxSizeGb || sourcesParam,
+    minSeeders || resolution || codec || maxSizeGb || sourcesParam || releaseKind,
   );
+
+  /**
+   * Split results into season sections.
+   *
+   * Only when it actually helps: a movie search, or a page where everything
+   * lands in one bucket, is easier to scan as a flat list — sections there are
+   * just chrome. Packs lead, because one grab beats twelve.
+   *
+   * Order within a section is preserved from the server's ranking, so the best
+   * release still sits at the top of whichever section it belongs to.
+   */
+  const seasonSections = (() => {
+    if (!data?.results.length) return null;
+    if (groupBySeason === "0") return null;
+
+    const indexOf = new Map<string, number>();
+    const base = (currentPage - 1) * (data.pageSize ?? pageSize);
+    data.results.forEach((t, i) => indexOf.set(t.id, base + i));
+
+    const packs: typeof data.results = [];
+    const bySeason = new Map<number, typeof data.results>();
+    const other: typeof data.results = [];
+
+    for (const t of data.results) {
+      const ep = t.episode;
+      if (ep?.isBatch || ep?.isSeasonPack) packs.push(t);
+      else if (ep?.season != null) {
+        const list = bySeason.get(ep.season) ?? [];
+        list.push(t);
+        bySeason.set(ep.season, list);
+      } else other.push(t);
+    }
+
+    const sections: {
+      key: string;
+      label: string;
+      items: typeof data.results;
+      indexOf: Map<string, number>;
+    }[] = [];
+
+    if (packs.length) {
+      sections.push({
+        key: "packs",
+        label: "Packs & batches",
+        items: packs,
+        indexOf,
+      });
+    }
+    for (const season of [...bySeason.keys()].sort((a, b) => a - b)) {
+      sections.push({
+        key: `s${season}`,
+        label: `Season ${season}`,
+        items: bySeason.get(season)!,
+        indexOf,
+      });
+    }
+    if (other.length) {
+      sections.push({
+        key: "other",
+        label: sections.length ? "Everything else" : "Results",
+        items: other,
+        indexOf,
+      });
+    }
+
+    // One bucket is not a grouping — it is a header with nothing to separate.
+    return sections.length > 1 ? sections : null;
+  })();
 
   const failedSources = data?.sources.filter((s) => s.error) ?? [];
 
@@ -391,6 +463,60 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
               </div>
             </div>
 
+            <div className="pt-1 border-t border-[var(--border)] space-y-1">
+              <span className="text-[11px] text-[var(--text-tertiary)]">
+                Show
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { value: "", label: "Everything" },
+                  { value: "packs", label: "Packs only" },
+                  { value: "episodes", label: "Episodes only" },
+                ].map((opt) => {
+                  const active = releaseKind === opt.value;
+                  return (
+                    <button
+                      key={opt.value || "all"}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() =>
+                        router.push(
+                          buildUrl({ releaseKind: opt.value || null }),
+                        )
+                      }
+                      className={cn(
+                        "h-8 rounded-lg px-3 text-[12px] transition-colors ring-1",
+                        active
+                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                          : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  aria-pressed={groupBySeason !== "0"}
+                  onClick={() =>
+                    router.push(
+                      buildUrl({
+                        groupSeasons: groupBySeason === "0" ? null : "0",
+                      }),
+                    )
+                  }
+                  className={cn(
+                    "h-8 rounded-lg px-3 text-[12px] transition-colors ring-1 ml-auto",
+                    groupBySeason !== "0"
+                      ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                      : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
+                  )}
+                >
+                  Group by season
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-[var(--border)]">
               <FilterField
                 label="Min seeders"
@@ -479,6 +605,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                   router.push(
                     buildUrl({
                       minSeeders: null,
+                      releaseKind: null,
                       resolution: null,
                       codec: null,
                       maxSizeGb: null,
@@ -498,16 +625,44 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         </div>
       ) : (
         <>
-          <div className="surface overflow-x-hidden divide-y divide-[var(--border)]">
-            {data.results.map((t, i) => (
-              <TorrentCard
-                key={t.id}
-                torrent={t}
-                index={(currentPage - 1) * (data.pageSize ?? pageSize) + i}
-                searchCategory={category}
-              />
-            ))}
-          </div>
+          {seasonSections ? (
+            <div className="space-y-3">
+              {seasonSections.map((section) => (
+                <section key={section.key} className="space-y-1.5">
+                  <h3
+                    data-season-section={section.key}
+                    className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
+                  >
+                    {section.label}
+                    <span className="text-[var(--text-tertiary)] font-normal tabular-nums">
+                      {section.items.length}
+                    </span>
+                  </h3>
+                  <div className="surface divide-y divide-[var(--border)]">
+                    {section.items.map((t) => (
+                      <TorrentCard
+                        key={t.id}
+                        torrent={t}
+                        index={section.indexOf.get(t.id) ?? 0}
+                        searchCategory={category}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div className="surface divide-y divide-[var(--border)]">
+              {data.results.map((t, i) => (
+                <TorrentCard
+                  key={t.id}
+                  torrent={t}
+                  index={(currentPage - 1) * (data.pageSize ?? pageSize) + i}
+                  searchCategory={category}
+                />
+              ))}
+            </div>
+          )}
 
           {totalPages > 1 && (
             <Pagination

@@ -22,7 +22,27 @@ import {
   cacheKeyFrom,
   getSearchCache,
   setSearchCache,
+  rateLimit,
+  rateLimitResetSeconds,
 } from "./search-cache";
+
+/**
+ * Raised only when the indexer budget is spent AND there is nothing cached to
+ * fall back on. Carries the wait so the UI can say something actionable.
+ */
+export class SearchThrottledError extends Error {
+  readonly retryAfterSeconds: number;
+  constructor(retryAfterSeconds: number) {
+    super(
+      `Indexers are being rate limited. Retry in ${Math.max(1, retryAfterSeconds)}s.`,
+    );
+    this.name = "SearchThrottledError";
+    this.retryAfterSeconds = Math.max(1, retryAfterSeconds);
+  }
+}
+
+/** All callers share one indexer budget: it models the indexers, not the user. */
+const UPSTREAM_BUDGET_KEY = "indexer-fanout";
 
 /**
  * 1337x is Cloudflare-blocked from many networks (HTTP 403, no API key).
@@ -126,6 +146,23 @@ export async function searchTorrents(
 
   if (!fullResults) {
     const adapters = pickAdapters(options.sources);
+
+    // Spend the indexer budget here — the only place that actually contacts
+    // them. If it is exhausted, a stale cached pool beats an error every time.
+    if (!rateLimit(UPSTREAM_BUDGET_KEY)) {
+      const stale = await getSearchCache(cacheKey, { allowStale: true });
+      if (stale) {
+        fullResults = stale.results;
+        sources = stale.sources;
+        fromCache = true;
+      } else {
+        throw new SearchThrottledError(
+          rateLimitResetSeconds(UPSTREAM_BUDGET_KEY),
+        );
+      }
+    }
+
+    if (!fullResults) {
     const perSourceLimit = Math.min(
       Math.max(options.limit ?? DEFAULT_PER_SOURCE_LIMIT, pageSize),
       80,
@@ -189,6 +226,7 @@ export async function searchTorrents(
       pageSize,
       totalPages: 0,
     });
+    }
   }
 
   const totalCount = fullResults.length;

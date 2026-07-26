@@ -12,6 +12,12 @@ export interface SearchFilters {
   hasMagnet?: boolean;
   season?: number;
   episode?: number;
+  /**
+   * "packs"    — only multi-episode releases (season packs, batches, complete
+   *              collections). One grab instead of twelve.
+   * "episodes" — only single episodes, for topping up a season you mostly have.
+   */
+  releaseKind?: "packs" | "episodes";
 }
 
 export function applyFilters(
@@ -61,6 +67,15 @@ export function applyFilters(
     }
     if (filters.hasMagnet && !r.magnet) return false;
 
+    if (filters.releaseKind) {
+      // Trust the adapter-supplied parse when present so the filter can never
+      // disagree with the "S01 pack" chip the card renders.
+      const ep = r.episode ?? parseEpisode(r.title);
+      const isPack = ep.isBatch || ep.isSeasonPack;
+      if (filters.releaseKind === "packs" && !isPack) return false;
+      if (filters.releaseKind === "episodes" && isPack) return false;
+    }
+
     if (filters.season != null || filters.episode != null) {
       const ep = parseEpisode(r.title);
       if (filters.season != null && ep.season != null && ep.season !== filters.season) {
@@ -95,5 +110,11 @@ export function parseFiltersFromParams(
     hasMagnet: params.get("hasMagnet") === "1" ? true : undefined,
     season: num("season"),
     episode: num("episode"),
+    releaseKind:
+      params.get("releaseKind") === "packs"
+        ? "packs"
+        : params.get("releaseKind") === "episodes"
+          ? "episodes"
+          : undefined,
   };
 }
