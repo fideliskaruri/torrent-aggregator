@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import type { SearchResponse, TorrentSourceId } from "@/lib/torrents/types";
+import { parseResolution } from "@/lib/torrents/quality";
 import {
   describeSourceFailure,
   sourceShortLabel,
@@ -29,11 +30,11 @@ const ALL_SOURCES: { id: TorrentSourceId; label: string }[] = (
 const DEFAULT_PAGE_SIZE = 20;
 
 /**
- * Releases shown per season before "Show N more". Three is enough to see the
- * shape of the season's options (a pack, a 1080p, a 720p) without the page
- * becoming a scroll of near-identical rows.
+ * A season the user cannot reach without scrolling past another season is a
+ * season they will not reach. Seasons are therefore a *switcher*, not a stack:
+ * one season is on screen at a time, complete and uncapped, and every other
+ * season is one click away at a fixed position near the top of the page.
  */
-const SECTION_PREVIEW = 3;
 
 interface SearchResultsProps {
   query: string;
@@ -48,7 +49,8 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [openQuality, setOpenQuality] = useState<Set<string>>(new Set());
 
   const minSeeders = searchParams.get("minSeeders") ?? "";
   const releaseKind = searchParams.get("releaseKind") ?? "";
@@ -106,8 +108,9 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       if (!query) return;
       setLoading(true);
       setError(null);
-      // A section the user opened on the last query says nothing about this one.
-      setExpanded(new Set());
+      // A season the user picked for the last query says nothing about this one.
+      setActiveSection(null);
+      setOpenQuality(new Set());
       try {
         const params = new URLSearchParams({
           q: query,
@@ -350,6 +353,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     const sections: {
       key: string;
       label: string;
+      short: string;
       items: typeof data.results;
     }[] = [];
 
@@ -357,6 +361,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       sections.push({
         key: "complete",
         label: "Complete series",
+        short: "Complete",
         items: complete,
       });
     }
@@ -364,6 +369,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       sections.push({
         key: `s${season}`,
         label: `Season ${season}`,
+        short: `S${String(season).padStart(2, "0")}`,
         items: bySeason.get(season)!,
       });
     }
@@ -371,18 +377,151 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       sections.push({
         key: "other",
         label: sections.length ? "Everything else" : "Results",
+        short: sections.length ? "Other" : "Results",
         items: other,
       });
     }
+
+    /**
+     * Which season opens first. Ranking order looks like the principled
+     * answer but isn't: on a bare "the bear" search the top-ranked release
+     * happened to be a season 1 rip, so the page opened on the oldest season.
+     * What the user meant is in the query itself — and when the query names no
+     * season, the reason to search a running show is almost always the newest.
+     */
+    const askedSeason = /\bs(?:eason)?\s*0*(\d{1,3})\b/i.exec(query)?.[1];
+    const askedKey = askedSeason ? `s${parseInt(askedSeason, 10)}` : null;
+    const defaultKey =
+      (askedKey && sections.find((s) => s.key === askedKey)?.key) ??
+      sections.find((s) => s.key.startsWith("s"))?.key ??
+      sections[0]?.key ??
+      null;
 
     return {
       subject,
       indexOf,
       seasonCount: bySeason.size,
       sections: sections.length > 1 ? sections : null,
+      defaultKey,
       flat: data.results,
     };
   })();
+
+  const sectionKeys = layout?.sections?.map((s) => s.key) ?? [];
+  const activeKey =
+    activeSection && sectionKeys.includes(activeSection)
+      ? activeSection
+      : (layout?.defaultKey ?? null);
+  const activeItems =
+    layout?.sections?.find((s) => s.key === activeKey)?.items ??
+    layout?.flat ??
+    [];
+
+  /**
+   * Twenty rows is not a choice, it is homework. The only decision the user is
+   * actually making is *which quality* — everything below the best 1080p is a
+   * near-duplicate of it. So the list collapses to one row per resolution, in
+   * a fixed descending ladder, and the runners-up stay reachable behind an
+   * honestly-counted disclosure rather than being deleted.
+   *
+   * The ladder is fixed rather than rank-ordered on purpose: it must be in the
+   * same place on every search, or it stops being scannable.
+   */
+  const qualityGroups = (() => {
+    if (!activeItems.length) return null;
+
+    const buckets = new Map<number, typeof activeItems>();
+    for (const t of activeItems) {
+      // 0 stands for "no resolution in the title" — real, and not a failure.
+      const res = parseResolution(t.title) ?? 0;
+      const list = buckets.get(res) ?? [];
+      list.push(t);
+      buckets.set(res, list);
+    }
+
+    // A page with only one quality has nothing to compare; a ladder of one is
+    // a header over the whole list, which is noise.
+    if (buckets.size < 2) return null;
+
+    return [...buckets.keys()]
+      .sort((a, b) => b - a)
+      .map((res) => ({
+        key: `q${res}`,
+        label: res ? `${res}p` : "Unlabelled quality",
+        items: buckets.get(res)!,
+      }));
+  })();
+
+  const releaseList = !layout ? null : qualityGroups ? (
+    <div className="space-y-2">
+      {qualityGroups.map((group) => {
+        const open = openQuality.has(group.key);
+        const shown = open ? group.items : group.items.slice(0, 1);
+        const hidden = group.items.length - shown.length;
+        return (
+          <section key={group.key} className="space-y-1">
+            <h3
+              data-quality-group={group.key}
+              className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
+            >
+              {group.label}
+              <span className="font-normal tabular-nums text-[var(--text-tertiary)]">
+                {group.items.length}
+              </span>
+            </h3>
+            <div className="surface divide-y divide-[var(--border)]">
+              {shown.map((t) => (
+                <TorrentCard
+                  key={t.id}
+                  torrent={t}
+                  index={layout.indexOf.get(t.id) ?? 0}
+                  searchCategory={category}
+                  grouped={Boolean(layout.subject)}
+                />
+              ))}
+              {hidden > 0 || open ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenQuality((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(group.key)) next.delete(group.key);
+                      else next.add(group.key);
+                      return next;
+                    })
+                  }
+                  aria-expanded={open}
+                  className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] sm:px-4"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform",
+                      open && "rotate-180",
+                    )}
+                  />
+                  {open
+                    ? `Show only the best ${group.label}`
+                    : `${hidden} more ${group.label}`}
+                </button>
+              ) : null}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  ) : (
+    <div className="surface divide-y divide-[var(--border)]">
+      {activeItems.map((t) => (
+        <TorrentCard
+          key={t.id}
+          torrent={t}
+          index={layout.indexOf.get(t.id) ?? 0}
+          searchCategory={category}
+          grouped={Boolean(layout.subject)}
+        />
+      ))}
+    </div>
+  );
 
   const failedSources = data?.sources.filter((s) => s.error) ?? [];
 
@@ -723,76 +862,51 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
           ) : null}
 
           {layout?.sections ? (
-            <div className="space-y-3">
-              {layout.sections.map((section) => {
-                const open = expanded.has(section.key);
-                const shown = open
-                  ? section.items
-                  : section.items.slice(0, SECTION_PREVIEW);
-                const hidden = section.items.length - shown.length;
-                return (
-                  <section key={section.key} className="space-y-1.5">
-                    <h3
-                      data-season-section={section.key}
-                      className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
+            <div className="space-y-2">
+              <div
+                role="tablist"
+                aria-label="Seasons"
+                className="sticky top-0 z-20 -mx-1 flex gap-1 overflow-x-auto bg-[var(--bg)]/95 px-1 py-1.5 backdrop-blur"
+              >
+                {layout.sections.map((section) => {
+                  const active = section.key === activeKey;
+                  return (
+                    <button
+                      key={section.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      data-season-tab={section.key}
+                      onClick={() => setActiveSection(section.key)}
+                      title={section.label}
+                      className={cn(
+                        "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                        active
+                          ? "border-transparent bg-[var(--text)] text-[var(--bg)]"
+                          : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
+                      )}
                     >
-                      {section.label}
-                      <span className="font-normal tabular-nums text-[var(--text-tertiary)]">
+                      {section.short}
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          active
+                            ? "text-[var(--bg)]/70"
+                            : "text-[var(--text-tertiary)]",
+                        )}
+                      >
                         {section.items.length}
                       </span>
-                    </h3>
-                    <div className="surface divide-y divide-[var(--border)]">
-                      {shown.map((t) => (
-                        <TorrentCard
-                          key={t.id}
-                          torrent={t}
-                          index={layout.indexOf.get(t.id) ?? 0}
-                          searchCategory={category}
-                          grouped={Boolean(layout.subject)}
-                        />
-                      ))}
-                      {hidden > 0 || open ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpanded((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(section.key)) next.delete(section.key);
-                              else next.add(section.key);
-                              return next;
-                            })
-                          }
-                          aria-expanded={open}
-                          className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] sm:px-4"
-                        >
-                          <ChevronDown
-                            className={cn(
-                              "h-3.5 w-3.5 transition-transform",
-                              open && "rotate-180",
-                            )}
-                          />
-                          {open
-                            ? "Show fewer"
-                            : `Show ${hidden} more release${hidden === 1 ? "" : "s"}`}
-                        </button>
-                      ) : null}
-                    </div>
-                  </section>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
+              <div role="tabpanel" data-season-panel={activeKey ?? ""}>
+                {releaseList}
+              </div>
             </div>
           ) : layout && layout.flat.length ? (
-            <div className="surface divide-y divide-[var(--border)]">
-              {layout.flat.map((t) => (
-                <TorrentCard
-                  key={t.id}
-                  torrent={t}
-                  index={layout.indexOf.get(t.id) ?? 0}
-                  searchCategory={category}
-                  grouped={Boolean(layout.subject)}
-                />
-              ))}
-            </div>
+            releaseList
           ) : null}
 
           {totalPages > 1 && (
