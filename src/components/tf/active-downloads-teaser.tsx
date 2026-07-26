@@ -47,8 +47,20 @@ export function ActiveDownloadsTeaser() {
       }
     }
     void load();
+    // Without this the panel fetches once and freezes — but it shows a live
+    // download *speed*, so a frozen value is not merely stale, it is wrong.
+    // Hidden tabs do not poll: nobody is reading it, and the engine pays.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      if (cancelled) return;
+      if (document.visibilityState === "visible") await load();
+      if (!cancelled) timer = setTimeout(tick, 10_000);
+    };
+    timer = setTimeout(tick, 10_000);
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [status]);
 

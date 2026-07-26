@@ -290,12 +290,48 @@ export default function ClientPage() {
     };
   }, []);
 
-  // Healthy: 5s poll. Offline: 20s (avoid 502 spam while client is down)
+  // Healthy: 5s poll. Offline: 20s (avoid 502 spam while client is down).
+  //
+  // Self-scheduling rather than `setInterval`, for two reasons. An interval
+  // keeps firing while a request is still in flight, so a slow or hanging
+  // client stacks up overlapping polls; chaining the next timer to the end of
+  // the previous request cannot. And a background tab has nobody looking at
+  // it — polling a torrent client every 5s from a tab left open overnight is
+  // pure load on the engine for no one's benefit, so it pauses when hidden and
+  // refreshes immediately on return.
   useEffect(() => {
     if (pendingDelete) return;
-    const ms = offline ? 20_000 : 5_000;
-    const t = setInterval(() => void load({ quiet: true }), ms);
-    return () => clearInterval(t);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+
+    const schedule = () => {
+      if (stopped) return;
+      timer = setTimeout(tick, offline ? 20_000 : 5_000);
+    };
+
+    const tick = async () => {
+      if (stopped) return;
+      if (document.visibilityState === "visible") {
+        await load({ quiet: true });
+      }
+      schedule();
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || stopped) return;
+      // Whatever is on screen is as old as the time spent hidden.
+      clearTimeout(timer);
+      void tick();
+    };
+
+    schedule();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [offline, load, pendingDelete]);
 
   const filtered = useMemo(() => {
