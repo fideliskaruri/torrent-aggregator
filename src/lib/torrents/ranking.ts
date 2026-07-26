@@ -1,79 +1,82 @@
 import type { ReleaseGroup, TorrentResult } from "./types";
 import { normalizeTitle } from "@/lib/utils";
 import { parseEpisode } from "./episodes";
+import {
+  compareReleases,
+  describeRelease,
+  parseResolution,
+  resolutionAffinity,
+  DEFAULT_TARGET_RESOLUTION,
+  type ReleaseRank,
+} from "./quality";
 
 /**
- * Rank torrent results by seeders, recency, size sanity, and query relevance.
- * Higher score = better placement.
+ * Distinct affinity values, ascending, so a rank index can be derived without
+ * hardcoding the affinity arithmetic in two places.
+ */
+const AFFINITY_STEPS = [null, 360, 480, 576, 720, 1080, 2160]
+  .map((res) => resolutionAffinity(res, DEFAULT_TARGET_RESOLUTION))
+  .sort((a, b) => a - b);
+
+function affinityRank(affinity: number): number {
+  const i = AFFINITY_STEPS.indexOf(affinity);
+  return i < 0 ? 0 : i;
+}
+
+/**
+ * A single number that reproduces {@link compareReleases} exactly.
+ *
+ * This is a *positional* encoding, not a weighted sum: each field's multiplier
+ * exceeds the largest total every lower-priority field can contribute, so a
+ * lower-priority field can never compensate for a higher-priority one. That is
+ * the property the old additive score lacked, and the reason a 5,000-seeder
+ * 480p used to beat a 1080p.
+ *
+ * It exists so that `score` — which `groupReleases` sorts by, and which the
+ * search API exposes — can never disagree with the comparator. Anything that
+ * sorts by descending `score` gets the same order as the comparator, minus the
+ * size tiebreak, which only ever splits otherwise-equal releases.
+ */
+function encodeScore(d: ReleaseRank): number {
+  const good = 2 - ((d.junk ? 1 : 0) + (d.implausible ? 1 : 0));
+  return (
+    d.relevance * 100_000 +
+    good * 10_000 +
+    (d.viable ? 1 : 0) * 1_000 +
+    affinityRank(d.affinity) * 100 +
+    Math.min(d.seeders, 9) * 10 +
+    d.recency
+  );
+}
+
+/**
+ * Order results best-first.
+ *
+ * Ordering is delegated wholesale to {@link compareReleases}; see `quality.ts`
+ * for why this is a comparison chain rather than a score. Nothing here filters:
+ * every input release appears in the output.
  */
 export function rankResults(
   results: TorrentResult[],
   query: string,
 ): TorrentResult[] {
-  const q = normalizeTitle(query);
-
   const scored = results.map((r) => {
-    let score = 0;
     const episode = r.episode ?? parseEpisode(r.title);
-    const health = computeHealth(r);
-
-    // Seeders (log scale so mega-seeded releases don't dominate forever)
-    score += Math.log10((r.seeders ?? 0) + 1) * 25;
-
-    // Leechers slightly positive (active swarm)
-    score += Math.log10((r.leechers ?? 0) + 1) * 4;
-
-    // Recency boost (last 7 days strong, then decay)
-    if (r.publishedAt) {
-      const ageHours =
-        (Date.now() - new Date(r.publishedAt).getTime()) / (1000 * 60 * 60);
-      if (!Number.isNaN(ageHours) && ageHours >= 0) {
-        if (ageHours < 24) score += 18;
-        else if (ageHours < 72) score += 12;
-        else if (ageHours < 168) score += 6;
-        else if (ageHours < 720) score += 2;
-      }
-    }
-
-    // Query relevance
-    const title = normalizeTitle(r.title);
-    if (title === q) score += 40;
-    else if (title.includes(q)) score += 22;
-    else {
-      const tokens = q.split(" ").filter(Boolean);
-      const hits = tokens.filter((t) => title.includes(t)).length;
-      score += (hits / Math.max(tokens.length, 1)) * 18;
-    }
-
-    // Prefer known good quality tags
-    const tags = r.tags.map((t) => t.toLowerCase());
-    if (tags.includes("1080p") || tags.includes("bluray")) score += 6;
-    if (tags.includes("2160p") || tags.includes("4k")) score += 4;
-    if (tags.includes("hevc") || tags.includes("x265")) score += 2;
-
-    // Mild source preference
-    if (r.source === "nyaa") score += 1;
-    if (r.source === "yts") score += 2;
-
-    // Penalize zero-seed dead torrents
-    if ((r.seeders ?? 0) === 0) score -= 15;
-
-    // Health contributes lightly
-    score += health / 20;
-
-    const groupKey = buildGroupKey(r.title, episode);
-
+    const rank = describeRelease(r, query);
     return {
-      ...r,
-      episode,
-      health,
-      groupKey,
-      score: Math.round(score * 10) / 10,
+      rank,
+      result: {
+        ...r,
+        episode,
+        health: computeHealth(r),
+        groupKey: buildGroupKey(r.title, episode),
+        score: encodeScore(rank),
+      },
     };
   });
 
-  const sorted = scored.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  return markBestPicks(sorted);
+  scored.sort((a, b) => compareReleases(a.rank, b.rank));
+  return markBestPicks(scored.map((s) => s.result));
 }
 
 export function computeHealth(r: TorrentResult): number {
@@ -331,14 +334,24 @@ export function groupReleases(results: TorrentResult[]): ReleaseGroup[] {
   );
 }
 
-/** Extract quality / codec tags from a torrent title */
+/**
+ * Human-readable chips for the UI.
+ *
+ * The resolution chip comes from {@link parseResolution} — the *same* function
+ * the comparator uses — so the badge on a card can never disagree with the
+ * order the card was placed in. When those two drifted apart the UI showed
+ * "1080p" on a release the ranker had read as unknown, which is how a quality
+ * bug hides in plain sight.
+ */
 export function extractTags(title: string): string[] {
-  const patterns = [
-    "2160p",
-    "4K",
-    "1080p",
-    "720p",
-    "480p",
+  const found: string[] = [];
+
+  const res = parseResolution(title);
+  if (res != null) found.push(res === 2160 ? "2160p" : `${res}p`);
+
+  // Substring matching is fine for these — they are long enough to be
+  // unambiguous. The short, collision-prone ones below need word boundaries.
+  const substrings = [
     "HEVC",
     "x265",
     "x264",
@@ -350,22 +363,30 @@ export function extractTags(title: string): string[] {
     "HDTV",
     "REMUX",
     "HDR",
-    "DV",
     "Atmos",
-    "DTS",
-    "AAC",
     "FLAC",
-    "Dual",
-    "Multi",
-    "Sub",
-    "Dub",
     "Batch",
   ];
-  const found: string[] = [];
   const upper = title.toUpperCase();
-  for (const p of patterns) {
+  for (const p of substrings) {
     if (upper.includes(p.toUpperCase())) found.push(p);
   }
+
+  // `DV` must not match "DVDRip", `Sub` must not swallow "Subtitle", and `DTS`
+  // must not fire on "DTS-HD" twice. Anchored to word boundaries instead.
+  const anchored: Array<[string, RegExp]> = [
+    ["DV", /\bd(?:olby ?)?v(?:ision)?\b/i],
+    ["DTS", /\bdts(?:-?hd|-?x)?\b/i],
+    ["AAC", /\baac\d?(?:\.\d)?\b/i],
+    ["Dual", /\bdual(?:[- ]?audio)?\b/i],
+    ["Multi", /\bmulti(?:ple)?\b/i],
+    ["Sub", /\bsubs?(?:titles?|bed)?\b/i],
+    ["Dub", /\bdub(?:bed)?\b/i],
+  ];
+  for (const [label, re] of anchored) {
+    if (re.test(title)) found.push(label);
+  }
+
   return found;
 }
 

@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { isViable, MIN_VIABLE_SEEDERS } from "@/lib/torrents/quality";
 import {
   advanceCursorAfterMiss,
   afterSuccessfulGrab,
@@ -260,6 +261,40 @@ async function runUserAutomationUnlocked(
         });
         summary.library.skipped += 1;
         await recordHuntMiss(item.id, huntCursor, item.cursorMisses);
+        continue;
+      }
+
+      if (best?.magnet && !isViable(best)) {
+        // A swarm this thin will sit at 0% indefinitely. There is no stall
+        // detector or blocklist in this app, so a dead grab is never retried —
+        // it just occupies the slot while `latestReleaseMagnet` reports
+        // "Already sent this release" forever.
+        //
+        // Crucially this is NOT recorded as a hunt miss. A miss means "this
+        // episode does not exist", and three of them roll the cursor to the
+        // next season, permanently skipping episodes. Here the episode plainly
+        // does exist — it is just not seeded yet, which is the normal state of
+        // a release in its first minutes. Holding the cursor means the next run
+        // picks it up once peers arrive.
+        await prisma.grabJob.create({
+          data: {
+            userId,
+            title: best.title,
+            query,
+            status: "skipped",
+            message: `Waiting for seeders (${best.seeders ?? 0} of ${MIN_VIABLE_SEEDERS} needed) — will retry`,
+            magnet: best.magnet,
+            infoHash: best.infoHash ?? null,
+            source: best.source,
+            kind: "library",
+            externalId: item.id,
+          },
+        });
+        summary.library.skipped += 1;
+        await prisma.watchListItem.update({
+          where: { id: item.id },
+          data: { lastChecked: new Date() },
+        });
         continue;
       }
 
