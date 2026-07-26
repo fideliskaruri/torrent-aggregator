@@ -78,7 +78,18 @@ function pickAdapters(sources?: TorrentSourceId[]): TorrentSourceAdapter[] {
 }
 
 const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 50;
+/**
+ * The search UI groups a page into seasons and then into a quality ladder, and
+ * shows one row per rung. Those buckets are only truthful if they are computed
+ * over the whole ranked pool — with a 20-row slice, "the best 1080p of season
+ * 5" really meant "the best 1080p among an arbitrary 20 of 145".
+ *
+ * Raising this is cheap: metadata enrichment is independently capped at the top
+ * 16 results (see `enrichResultsWithMetadata`), so a larger page costs no extra
+ * catalog lookups, and the client renders a handful of rows regardless of how
+ * many it holds.
+ */
+const MAX_PAGE_SIZE = 200;
 /** Per-source fetch when no explicit limit is set — enough for multi-page results. */
 const DEFAULT_PER_SOURCE_LIMIT = 50;
 

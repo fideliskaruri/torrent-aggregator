@@ -27,7 +27,14 @@ const ALL_SOURCES: { id: TorrentSourceId; label: string }[] = (
   ["nyaa", "apibay", "torrentscsv", "yts", "1337x"] as const
 ).map((id) => ({ id, label: sourceShortLabel(id) }));
 
-const DEFAULT_PAGE_SIZE = 20;
+/**
+ * The page groups results into seasons and then a quality ladder, showing one
+ * row per rung. Those counts are only honest if they are computed over the
+ * whole pool, so the page fetches the pool rather than a 20-row window — the
+ * old 20 made "best 1080p of season 5" mean "best among an arbitrary 20 of
+ * 145". Rendering cost is unchanged; the ladder still shows a handful of rows.
+ */
+const DEFAULT_PAGE_SIZE = 200;
 
 /**
  * A season the user cannot reach without scrolling past another season is a
@@ -312,20 +319,45 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       year?: number | null;
       posterUrl?: string | null;
     } | null = null;
-    const byTitle = new Map<string, number>();
+    /**
+     * The vote is taken over the *top* identified releases, not all of them.
+     *
+     * Two things make a whole-page vote wrong. Metadata enrichment is capped
+     * server-side at the top 16 results, so most rows on a 100-row page carry
+     * no catalog title at all. And the identified rows that do appear far down
+     * the ranking are mostly junk fuzzy matches — a real "the bear" search
+     * resolves its tail to `Jack the Bear`, `Hair of the Bear`, `The Bears and
+     * I`. Counting those diluted a genuine 15-of-16 consensus down to 15-of-27
+     * and switched show-collapse off, putting the wall of duplicate posters
+     * back on the page.
+     *
+     * Sampling the top of a rank-ordered list is also just the right question:
+     * the best matches are where the search's intent lives.
+     */
+    const SUBJECT_SAMPLE = 16;
+    const sample: string[] = [];
     for (const t of data.results) {
       const name = t.metadata?.title?.trim();
-      if (name) byTitle.set(name, (byTitle.get(name) ?? 0) + 1);
+      if (name) sample.push(name);
+      if (sample.length >= SUBJECT_SAMPLE) break;
     }
+    const byTitle = new Map<string, number>();
+    for (const name of sample) byTitle.set(name, (byTitle.get(name) ?? 0) + 1);
     const [topTitle, topCount] = [...byTitle.entries()].sort(
       (a, b) => b[1] - a[1],
     )[0] ?? ["", 0];
-    if (topTitle && topCount >= Math.ceil(data.results.length * 0.6)) {
-      const sample = data.results.find((t) => t.metadata?.title === topTitle);
+    if (
+      topTitle &&
+      sample.length > 0 &&
+      topCount >= Math.ceil(sample.length * 0.6)
+    ) {
+      const sampleRow = data.results.find(
+        (t) => t.metadata?.title === topTitle,
+      );
       subject = {
         title: topTitle,
-        year: sample?.metadata?.year,
-        posterUrl: sample?.metadata?.posterUrl,
+        year: sampleRow?.metadata?.year,
+        posterUrl: sampleRow?.metadata?.posterUrl,
       };
     }
 
@@ -852,7 +884,16 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                     layout.seasonCount > 1
                       ? `${layout.seasonCount} seasons here`
                       : null,
-                    `${totalCount.toLocaleString()} releases`,
+                    /**
+                     * The season and quality counts below are computed over
+                     * the releases actually fetched. Saying "205 releases"
+                     * while the season tabs sum to 200 is the same kind of
+                     * small lie the ladder itself just stopped telling, so
+                     * when the pool is truncated the header says so.
+                     */
+                    (data?.results.length ?? 0) < totalCount
+                      ? `${(data?.results.length ?? 0).toLocaleString()} of ${totalCount.toLocaleString()} releases`
+                      : `${totalCount.toLocaleString()} releases`,
                   ]
                     .filter(Boolean)
                     .join(" · ")}

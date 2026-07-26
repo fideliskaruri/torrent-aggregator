@@ -120,6 +120,76 @@ export function isJunkSource(title: string): boolean {
 const SAMPLE_RE = /\bsample\b/i;
 
 /**
+ * How the release was captured, as an ordering key. Higher is better.
+ *
+ * Resolution alone is a lie about quality. Sonarr's quality ladder puts
+ * `WEBDL-720p` *above* `HDTV-1080p` because an over-the-air 1080p broadcast rip
+ * carries broadcaster bugs, ad-break artefacts and a lower bitrate than a 720p
+ * streaming pull. Bucketing purely by pixel count therefore lets an HDTV rip be
+ * presented as "the best 1080p" over a WEB-DL that is genuinely better.
+ *
+ * Two deliberate departures from Sonarr's 18-rung ladder:
+ *
+ * - **Remux is not promoted above Bluray.** Sonarr ranks it top because its
+ *   users pick a profile explicitly. Here there is no profile, so promoting
+ *   remuxes would silently start grabbing 40–80 GB files onto a personal disk
+ *   for a quality difference the user never asked for.
+ * - **Unknown is `WEBRIP`-level, not last.** Plenty of legitimate Nyaa releases
+ *   (`[Erai-raws] Show - 05`) name no source at all. Sinking them below HDTV
+ *   would starve the primary anime indexer — the same failure mode
+ *   {@link parseResolution} documents for unknown resolutions.
+ */
+export const SOURCE_TIER = {
+  HDTV: 1,
+  WEBRIP: 2,
+  /** No source token in the name. Common and not a defect — see above. */
+  UNKNOWN: 2,
+  WEBDL: 3,
+  BLURAY: 3,
+} as const;
+
+const SOURCE_PATTERNS: Array<[RegExp, number]> = [
+  [/\b(?:blu[-_. ]?ray|bluray|bdrip|brrip|bd[-_. ]?remux|remux|uhdbd)\b/i, SOURCE_TIER.BLURAY],
+  // WEBRip is matched *before* WEB-DL on purpose. A service tag names the
+  // provenance, not the capture method: `AMZN WEBRip` is a re-encode of a
+  // stream, not a direct pull, and must not be promoted by the word "AMZN".
+  [/\b(?:web[-_. ]?rip|webrip)\b/i, SOURCE_TIER.WEBRIP],
+  [/\b(?:web[-_. ]?dl|webdl)\b/i, SOURCE_TIER.WEBDL],
+  [/\b(?:hdtv|pdtv|sdtv|dsr|dvbs?[-_. ]?rip|tvrip)\b/i, SOURCE_TIER.HDTV],
+];
+
+/**
+ * Bare `WEB` is the common short form of WEB-DL (`1080p WEB x264`), but `Web`
+ * is also an ordinary English word in real titles — *Charlotte's Web*,
+ * *Spider-Web*. Same disambiguation as {@link isJunkSource} uses for bare
+ * `CAM`: scene metadata always trails the title block, so a bare `WEB` counts
+ * only when it appears *after* a year or resolution token.
+ *
+ *   "Charlotte's Web 1080p x264"  -> title    -> not a source tag
+ *   "Show S01E01 1080p WEB x264"  -> metadata -> WEB-DL
+ */
+const BARE_WEB_RE = /\bweb\b/i;
+
+/**
+ * Capture tier for a release name. Never `null` — an unnamed source is a real,
+ * common answer, and it is scored neutrally rather than last.
+ */
+export function parseSourceTier(title: string): number {
+  if (!title) return SOURCE_TIER.UNKNOWN;
+  const t = title.replace(/[._]/g, " ");
+  for (const [re, tier] of SOURCE_PATTERNS) {
+    if (re.test(t)) return tier;
+  }
+
+  const web = BARE_WEB_RE.exec(t);
+  if (web) {
+    const anchor = METADATA_ANCHOR_RE.exec(t);
+    if (anchor != null && anchor.index < web.index) return SOURCE_TIER.WEBDL;
+  }
+  return SOURCE_TIER.UNKNOWN;
+}
+
+/**
  * A size that cannot be what the name claims.
  *
  * Deliberately *very* permissive. A flat "1080p must exceed 300 MB" rule

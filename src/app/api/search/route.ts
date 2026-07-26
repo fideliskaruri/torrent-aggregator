@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
   );
   const pageSize = Math.min(
     Math.max(parseInt(searchParams.get("pageSize") ?? "20", 10) || 20, 1),
-    50,
+    200,
   );
   // Optional hard cap on ranked pool (legacy / power users). Default: no cap.
   const limitRaw = searchParams.get("limit");
