@@ -20,6 +20,22 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Intervals the UI offers. 0 means "never on a timer".
+ *
+ * Nothing shorter than 15 minutes: episodes do not appear that fast, and a
+ * tighter loop only buys extra requests against indexers that ban IPs.
+ */
+export const AUTOMATION_INTERVAL_CHOICES = [0, 30, 120, 360] as const;
+
+/** Clamp anything unrecognised to "off" rather than inventing a schedule. */
+function normalizeAutomationInterval(value: number | null | undefined): number {
+  if (value == null || !Number.isFinite(value) || value <= 0) return 0;
+  return (AUTOMATION_INTERVAL_CHOICES as readonly number[]).includes(value)
+    ? value
+    : 0;
+}
+
 function parseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return [];
   try {
@@ -58,6 +74,7 @@ function publicSettings(settings: {
   baseDownloadPath: string | null;
   maxStorageBytes?: bigint | number | null;
   preferredResolution?: number | null;
+  automationIntervalMinutes?: number | null;
   categories: string | null;
   pathRules: string | null;
 }) {
@@ -99,6 +116,9 @@ function publicSettings(settings: {
       )
         ? settings.preferredResolution
         : DEFAULT_TARGET_RESOLUTION,
+    automationIntervalMinutes: normalizeAutomationInterval(
+      settings.automationIntervalMinutes,
+    ),
     categories: categories.length ? categories : DEFAULT_CATEGORIES,
     pathRules: parseJsonRecord(settings.pathRules),
     hasExternal: Boolean(external),
@@ -155,6 +175,8 @@ export async function PUT(request: NextRequest) {
       maxStorageBytes?: number | null;
       /** Target vertical resolution for ranking: 480 | 720 | 1080 | 2160. */
       preferredResolution?: number | null;
+      /** Minutes between automatic automation runs; 0 = off. */
+      automationIntervalMinutes?: number | null;
       categories?: string[] | null;
       pathRules?: Record<string, string> | null;
       test?: boolean;
@@ -319,6 +341,13 @@ export async function PUT(request: NextRequest) {
         : DEFAULT_TARGET_RESOLUTION;
     }
 
+    let automationIntervalMinutes: number | undefined;
+    if (body.automationIntervalMinutes !== undefined) {
+      automationIntervalMinutes = normalizeAutomationInterval(
+        body.automationIntervalMinutes,
+      );
+    }
+
     const settings = await prisma.clientSettings.upsert({
       where: { userId: session.user.id },
       create: {
@@ -336,6 +365,7 @@ export async function PUT(request: NextRequest) {
             ? BigInt(100 * 1e9) // default 100 GB
             : maxStorageBytes,
         preferredResolution: preferredResolution ?? DEFAULT_TARGET_RESOLUTION,
+        automationIntervalMinutes: automationIntervalMinutes ?? 0,
         categories: categoriesJson,
         pathRules: pathRulesJson,
       },
@@ -355,6 +385,9 @@ export async function PUT(request: NextRequest) {
           ? { maxStorageBytes }
           : {}),
         ...(preferredResolution !== undefined ? { preferredResolution } : {}),
+        ...(automationIntervalMinutes !== undefined
+          ? { automationIntervalMinutes }
+          : {}),
         categories: categoriesJson,
         pathRules: pathRulesJson,
       },

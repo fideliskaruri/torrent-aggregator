@@ -97,6 +97,10 @@ export default function WatchlistPage() {
   const [pendingRemove, setPendingRemove] = useState<WatchItem | null>(null);
   const [removing, setRemoving] = useState(false);
   const [lastAuto, setLastAuto] = useState<LastAutoSummary | null>(null);
+  /** null = not loaded yet; 0 = no schedule. */
+  const [autoIntervalMinutes, setAutoIntervalMinutes] = useState<number | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -147,6 +151,28 @@ export default function WatchlistPage() {
     // sessionStorage is an external store; syncing it on mount belongs in an effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLastAuto(readLastAuto());
+  }, []);
+
+  // The page used to label every item "monitoring" while nothing ran on a
+  // timer. Read the real schedule so the copy can state what actually happens.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings/client");
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          settings?: { automationIntervalMinutes?: number | null } | null;
+        };
+        if (cancelled) return;
+        setAutoIntervalMinutes(data.settings?.automationIntervalMinutes ?? 0);
+      } catch {
+        /* the schedule line just stays hidden */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function updateStatus(id: string, newStatus: string) {
@@ -415,7 +441,29 @@ export default function WatchlistPage() {
         <span className="text-[var(--text-secondary)]">Run automation</span> or{" "}
         <span className="text-[var(--text-secondary)]">Download next</span>{" "}
         gets that one episode and advances the cursor — not the whole series at
-        once.
+        once.{" "}
+        {autoIntervalMinutes === null ? null : autoIntervalMinutes > 0 ? (
+          <span className="text-[var(--text-secondary)]">
+            The server also checks on its own every{" "}
+            {autoIntervalMinutes < 60
+              ? `${autoIntervalMinutes} minutes`
+              : autoIntervalMinutes === 60
+                ? "hour"
+                : `${autoIntervalMinutes / 60} hours`}
+            .
+          </span>
+        ) : (
+          <>
+            Nothing runs on a timer —{" "}
+            <Link
+              href="/settings"
+              className="text-[var(--accent-text)] underline underline-offset-2"
+            >
+              turn on automatic checks
+            </Link>{" "}
+            to have episodes fetched while you are away.
+          </>
+        )}
       </p>
 
       {lastAuto ? (
@@ -448,12 +496,13 @@ export default function WatchlistPage() {
           <button
             key={c.id}
             type="button"
+            aria-pressed={filter === c.id}
             onClick={() => setFilter(c.id)}
             className={cn(
-              "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors capitalize",
+              "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors capitalize ring-1",
               filter === c.id
-                ? "bg-[var(--bg-muted)] text-[var(--text)]"
-                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
+                ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
             )}
           >
             {c.label}
@@ -530,7 +579,7 @@ export default function WatchlistPage() {
                           same fallback Plex/Jellyfin use. */}
                       <span
                         aria-hidden
-                        className="select-none text-2xl font-semibold text-[var(--text-tertiary)]/60"
+                        className="select-none text-2xl font-semibold text-[var(--text-tertiary)]"
                       >
                         {item.title.trim().charAt(0).toUpperCase() || "?"}
                       </span>

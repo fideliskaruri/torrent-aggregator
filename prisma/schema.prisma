@@ -146,6 +146,11 @@ model ClientSettings {
   /// them. Nothing is ever rejected for resolution, so raising or lowering this
   /// can never starve a monitored show. See docs/architecture/release-ranking.md
   preferredResolution Int?
+  /// Minutes between automatic automation runs. Null or 0 = never run on a
+  /// timer (automation only fires when the user asks for it). Opt-in on
+  /// purpose: a background timer that grabs releases is not something to
+  /// switch on behind the user's back.
+  automationIntervalMinutes Int?
   /// JSON string[] — quick-pick category chips in UI
   categories String?
   /// JSON Record<string,string> — category name → download folder

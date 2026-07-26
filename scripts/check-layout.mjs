@@ -43,6 +43,19 @@ function ok(msg) {
 async function overflowingElements(page, width) {
   return page.evaluate((vw) => {
     const bad = [];
+    // Content an ancestor deliberately clips is not overflow the user can see.
+    // A Radix progress indicator, for example, is a full-width bar translated
+    // left by (100 - value)% inside an `overflow: hidden` track: its rect
+    // legitimately starts at a negative x on every partial download, and
+    // reporting it as a layout bug is a false positive that trains you to
+    // ignore this probe.
+    const isClipped = (el) => {
+      for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        if (s.overflowX !== "visible" || s.overflow === "clip") return true;
+      }
+      return false;
+    };
     for (const el of document.querySelectorAll("body *")) {
       const r = el.getBoundingClientRect();
       if (r.width === 0 && r.height === 0) continue;
@@ -52,6 +65,7 @@ async function overflowingElements(page, width) {
       // is the same bug reported twice.
       if (r.right > vw + 1 || r.left < -1) {
         if (bad.some((b) => b.el.contains(el))) continue;
+        if (isClipped(el)) continue;
         bad.push({
           el,
           desc:

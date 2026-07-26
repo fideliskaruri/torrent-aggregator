@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -53,6 +53,7 @@ export function MobileNav() {
   const pathname = usePathname();
   const { density, setDensity } = useUiPreferences();
   const [moreOpen, setMoreOpen] = useState(false);
+  const sheetRef = useRef<HTMLDivElement | null>(null);
   const activeMoreHref = navActiveHref(SECONDARY_NAV, pathname);
 
   useEffect(() => {
@@ -77,9 +78,57 @@ export function MobileNav() {
     const root = document.documentElement;
     const prev = root.style.overflow;
     root.style.overflow = "hidden";
+
+    // The sheet claims `aria-modal="true"`, which tells assistive technology
+    // that everything behind it is inert. Without focus management that claim
+    // was false: focus stayed on the More button, and 41 tab stops sat between
+    // it and the first item *inside* the sheet — a keyboard or screen-reader
+    // user tabbed through the dimmed page they were told they could not reach.
+    const sheet = sheetRef.current;
+    const restoreTo = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(
+        sheet?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter(
+        // The scrim is a full-bleed close button that exists for pointer
+        // dismissal only; putting it in the tab order would mean the first Tab
+        // press lands on "close the thing you just opened".
+        (el) => el.offsetParent !== null && !el.hasAttribute("data-sheet-scrim"),
+      );
+
+    focusables()[0]?.focus();
+
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (!items.length) return;
+      const head = items[0];
+      const tail = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (!sheet?.contains(active)) {
+        e.preventDefault();
+        (e.shiftKey ? tail : head).focus();
+      } else if (e.shiftKey && active === head) {
+        e.preventDefault();
+        tail.focus();
+      } else if (!e.shiftKey && active === tail) {
+        e.preventDefault();
+        head.focus();
+      }
+    };
+    document.addEventListener("keydown", onTab, true);
+
     return () => {
       document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onTab, true);
       root.style.overflow = prev;
+      // Only restore focus if it is still inside the sheet; a click on a nav
+      // link has already moved it somewhere the user chose.
+      if (!restoreTo) return;
+      if (sheet && sheet.contains(document.activeElement)) restoreTo.focus();
+      else if (document.activeElement === document.body) restoreTo.focus();
     };
   }, [moreOpen]);
 
@@ -94,12 +143,15 @@ export function MobileNav() {
         <div
           className="md:hidden fixed inset-0 z-50"
           data-mobile-more-sheet
+          ref={sheetRef}
           role="dialog"
           aria-modal="true"
           aria-label="More"
         >
           <button
             type="button"
+            data-sheet-scrim
+            tabIndex={-1}
             className="absolute inset-0 bg-black/55"
             aria-label="Close menu"
             onClick={() => setMoreOpen(false)}

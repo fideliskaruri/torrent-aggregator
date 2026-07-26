@@ -72,7 +72,10 @@ export default function RootLayout({
                     >
                       About
                     </a>
-                    <span className="hidden sm:inline text-[var(--border-strong)]">
+                    <span
+                      aria-hidden="true"
+                      className="hidden sm:inline text-[var(--border-strong)]"
+                    >
                       ·
                     </span>
                     <span className="hidden sm:inline font-mono text-[10px]">

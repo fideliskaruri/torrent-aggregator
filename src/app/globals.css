@@ -15,7 +15,10 @@
   --border-strong: #3a3a44;
   --text: #ececef;
   --text-secondary: #a1a1aa;
-  --text-tertiary: #71717a;
+  /* 4.66:1 on --surface. The old #71717a measured 3.59:1, which fails WCAG AA
+     everywhere it is used — and it is used for every form label, hint and
+     metadata line in the app, so the failure was app-wide rather than local. */
+  --text-tertiary: #85858e;
   /* Amber accent */
   --accent: #e8a54b;
   --accent-hover: #f0b45c;

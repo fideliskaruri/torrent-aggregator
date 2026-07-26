@@ -35,6 +35,8 @@ interface ClientForm {
   maxStorageGb: string;
   /** Target vertical resolution for ranking: 480 | 720 | 1080 | 2160. */
   preferredResolution: number;
+  /** Minutes between automatic watchlist runs; 0 = never. */
+  automationIntervalMinutes: number;
   categories: string[];
   pathRules: Record<string, string>;
 }
@@ -43,7 +45,7 @@ type SettingsTab = "connection" | "folders" | "categories";
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: "connection", label: "Connection" },
-  { id: "folders", label: "Folders" },
+  { id: "folders", label: "Downloads" },
   { id: "categories", label: "Categories" },
 ];
 
@@ -81,7 +83,29 @@ const QUALITY_CHOICES: {
   },
 ];
 
+/**
+ * How often the server may check the watchlist on its own.
+ *
+ * Off is first and is the default: a timer that downloads files while nobody
+ * is watching should be something the user turns on, not something they
+ * discover afterwards. Nothing under 15 minutes — episodes do not appear that
+ * fast and indexers ban IPs that poll.
+ */
+const AUTOMATION_INTERVAL_CHOICES: { value: number; label: string }[] = [
+  { value: 0, label: "Off" },
+  { value: 30, label: "30m" },
+  { value: 120, label: "2h" },
+  { value: 360, label: "6h" },
+];
+
+function formatInterval(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = minutes / 60;
+  return hours === 1 ? "hour" : `${hours} hours`;
+}
+
 const EMPTY_FORM: ClientForm = {
+
   clientType: "builtin",
   externalClientType: "",
   host: "http://127.0.0.1:8080",
@@ -92,6 +116,7 @@ const EMPTY_FORM: ClientForm = {
   baseDownloadPath: "",
   maxStorageGb: "100",
   preferredResolution: 1080,
+  automationIntervalMinutes: 0,
   categories: [
     "Anime",
     "Movies",
@@ -201,6 +226,7 @@ export default function SettingsPage() {
             baseDownloadPath?: string | null;
             maxStorageGb?: number | null;
             preferredResolution?: number | null;
+            automationIntervalMinutes?: number | null;
             categories?: string[];
             pathRules?: Record<string, string>;
             hasPassword?: boolean;
@@ -224,6 +250,7 @@ export default function SettingsPage() {
                 ? String(s.maxStorageGb)
                 : "100",
             preferredResolution: s.preferredResolution ?? f.preferredResolution,
+            automationIntervalMinutes: s.automationIntervalMinutes ?? 0,
             categories: s.categories ?? f.categories,
             pathRules: s.pathRules ?? {},
             password: "",
@@ -321,6 +348,7 @@ export default function SettingsPage() {
             return Number.isFinite(n) && n > 0 ? n : 100;
           })(),
           preferredResolution: form.preferredResolution,
+          automationIntervalMinutes: form.automationIntervalMinutes,
           categories: form.categories,
           pathRules: form.pathRules,
           test,
@@ -350,6 +378,7 @@ export default function SettingsPage() {
           baseDownloadPath?: string | null;
           maxStorageGb?: number | null;
           preferredResolution?: number | null;
+          automationIntervalMinutes?: number | null;
         };
         testResult?: { ok: boolean; message: string };
       };
@@ -383,6 +412,8 @@ export default function SettingsPage() {
               : f.maxStorageGb,
           preferredResolution:
             saved.preferredResolution ?? f.preferredResolution,
+          automationIntervalMinutes:
+            saved.automationIntervalMinutes ?? f.automationIntervalMinutes,
         }));
       }
       if (data.testResult) {
@@ -532,7 +563,7 @@ export default function SettingsPage() {
                 "flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                 tab === t.id
                   ? "bg-[var(--accent-dim)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-ring)]"
-                  : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
+                  : "text-[var(--text-secondary)] hover:text-[var(--text)]",
               )}
             >
               {t.label}
@@ -906,6 +937,44 @@ export default function SettingsPage() {
                 }{" "}
                 Seeder count can never override this — but a release that is too
                 thinly seeded to finish still loses to one that can.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs text-[var(--text-tertiary)]">
+                Check watchlist automatically
+              </label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {AUTOMATION_INTERVAL_CHOICES.map((choice) => {
+                  const active =
+                    form.automationIntervalMinutes === choice.value;
+                  return (
+                    <button
+                      key={choice.value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        touchForm();
+                        setForm((f) => ({
+                          ...f,
+                          automationIntervalMinutes: choice.value,
+                        }));
+                      }}
+                      className={`h-11 rounded-lg px-2 text-sm font-medium transition-colors ring-1 ${
+                        active
+                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                          : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
+                      }`}
+                    >
+                      {choice.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+                {form.automationIntervalMinutes > 0
+                  ? `Every ${formatInterval(form.automationIntervalMinutes)} the server searches for the next episode of everything you are monitoring and downloads it. Nothing else starts a download on its own.`
+                  : "Off. Your watchlist is only checked when you press Run automation — nothing downloads while you are away."}
               </p>
             </div>
 
