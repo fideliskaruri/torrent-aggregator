@@ -161,19 +161,27 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               </Button>
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center gap-x-1 gap-y-2">
-              <span className="text-[12px] text-[var(--text-tertiary)] mr-2">
-                Continue
-              </span>              {shortcuts.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/?q=${encodeURIComponent(t.label)}&category=${t.category}`}
-                  className="text-[12px] text-[var(--text-secondary)] hover:text-[var(--accent-text)] px-2 py-0.5 rounded-md hover:bg-[var(--bg-muted)] transition-colors"
-                >
-                  {t.label}
-                </Link>
-              ))}
-            </div>
+            {shortcuts.length > 0 ? (
+              <div className="mt-6">
+                <p className="text-[12px] text-[var(--text-tertiary)]">
+                  Continue
+                </p>
+                {/* A label inline with padded chips left a ragged edge on every
+                    wrapped line, and unbordered text gave no hint these are
+                    links. Label above, real chips below. */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {shortcuts.map((t) => (
+                    <Link
+                      key={t.id}
+                      href={`/?q=${encodeURIComponent(t.label)}&category=${t.category}`}
+                      className="rounded-full border border-[var(--border)] bg-[var(--bg-muted)]/60 px-2.5 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent-text)]"
+                    >
+                      {t.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <ActiveDownloadsTeaser />

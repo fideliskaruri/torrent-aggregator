@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
+import { RecommendationRailSection } from "@/components/tf/recommendation-rail";
 
 interface WatchItem {
   id: string;
@@ -97,6 +98,9 @@ export default function WatchlistPage() {
   const [pendingRemove, setPendingRemove] = useState<WatchItem | null>(null);
   const [removing, setRemoving] = useState(false);
   const [lastAuto, setLastAuto] = useState<LastAutoSummary | null>(null);
+  // The library mixes TMDb and AniList CDNs; a dead URL must fall back to the
+  // same letter tile a missing URL gets, not paint nothing.
+  const [brokenPosters, setBrokenPosters] = useState<Set<string>>(new Set());
   /** null = not loaded yet; 0 = no schedule. */
   const [autoIntervalMinutes, setAutoIntervalMinutes] = useState<number | null>(
     null,
@@ -550,27 +554,29 @@ export default function WatchlistPage() {
             return (
               <article
                 key={item.id}
-                className="surface overflow-hidden flex flex-col sm:flex-row gap-0 min-w-0"
+                className="surface overflow-hidden flex flex-row gap-0 min-w-0"
                 data-library-card
               >
-                <div
-                  className={cn(
-                    "w-full sm:w-[5.5rem] shrink-0 bg-[var(--bg-muted)]",
-                    // A full-width grey block is a lot of nothing on a phone.
-                    // Keep the narrow desktop placeholder, drop it on mobile.
-                    !item.posterUrl && "hidden sm:block",
-                  )}
-                >
-                  {item.posterUrl ? (
+                {/* The poster column stretches to the card's height and the
+                    image is absolutely positioned inside it. Sizing the image
+                    itself (h-full / min-h) left a grey strip under every real
+                    poster, because a stretch-sized flex parent gives `height:
+                    100%` nothing to resolve against — and it let AniList's
+                    460x649 covers render shorter than TMDb's 2:3 ones. */}
+                <div className="relative w-[4.75rem] sm:w-[5.5rem] shrink-0 self-stretch min-h-[7.25rem] overflow-hidden bg-[var(--bg-muted)]">
+                  {item.posterUrl && !brokenPosters.has(item.id) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={item.posterUrl}
                       alt=""
-                      className="h-36 sm:h-full w-full object-cover sm:min-h-[140px]"
+                      onError={() =>
+                        setBrokenPosters((prev) => new Set(prev).add(item.id))
+                      }
+                      className="absolute inset-0 h-full w-full object-cover"
                     />
                   ) : (
                     <div
-                      className="flex h-full sm:min-h-[140px] items-center justify-center px-1"
+                      className="absolute inset-0 flex items-center justify-center px-1"
                       aria-label="No poster"
                       title="No poster"
                     >
@@ -765,6 +771,11 @@ export default function WatchlistPage() {
           })}
         </div>
       )}
+
+      <RecommendationRailSection
+        onAdded={() => void load()}
+        refreshKey={items.length}
+      />
 
       <AlertDialog
         open={Boolean(pendingRemove)}

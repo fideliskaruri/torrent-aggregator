@@ -171,19 +171,43 @@ export default function HistoryPage() {
                   >
                     {item.status}
                   </Badge>
-                  {item.source ? (
-                    <span className="text-[var(--text-secondary)]">
-                      {item.source}
-                    </span>
-                  ) : null}
-                  <span>·</span>
-                  <span>{formatRelativeTime(item.createdAt)}</span>
-                  {item.message ? (
-                    <>
-                      <span>·</span>
-                      <span className="line-clamp-1">{item.message}</span>
-                    </>
-                  ) : null}
+                  {/* Build the trail from what actually exists — a missing
+                      source used to leave an orphan separator. */}
+                  {[
+                    item.source ? (
+                      <span
+                        key="src"
+                        className="text-[var(--text-secondary)]"
+                      >
+                        {item.source}
+                      </span>
+                    ) : null,
+                    <span key="when">{formatRelativeTime(item.createdAt)}</span>,
+                    item.message ? (
+                      <span key="msg" className="line-clamp-1">
+                        {item.message}
+                      </span>
+                    ) : null,
+                  ]
+                    .filter(Boolean)
+                    .map((node, i, all) => (
+                      // The separator trails its own part rather than leading
+                      // the next one. Both keep the dot glued to a neighbour,
+                      // but only this order lets a wrap leave the dot at the
+                      // end of a line instead of stranding it in the left
+                      // margin of the next.
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1.5"
+                      >
+                        {node}
+                        {i < all.length - 1 ? (
+                          <span aria-hidden className="text-[var(--border-strong)]">
+                            ·
+                          </span>
+                        ) : null}
+                      </span>
+                    ))}
                 </div>
               </div>
               <Button

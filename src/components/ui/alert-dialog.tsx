@@ -61,7 +61,10 @@ function AlertDialogFooter({
   return (
     <div
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        // Not `flex-col-reverse`: it put the destructive action above Cancel on
+        // a phone while the wide layout put it last, so the same dialog led
+        // with a different button depending on the viewport.
+        "flex flex-col gap-2 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}

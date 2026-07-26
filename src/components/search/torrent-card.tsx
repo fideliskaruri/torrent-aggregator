@@ -36,12 +36,27 @@ interface TorrentCardProps {
   torrent: TorrentResult;
   index?: number;
   searchCategory?: string;
+  /**
+   * Set when the row sits under a header that already carries the show's
+   * artwork, name and season. Repeating all three on twenty consecutive rows
+   * turned the results page into wallpaper — the same poster twenty times
+   * reads as texture, not information.
+   */
+  /**
+   * Set when the row sits under a header that already carries the show's
+   * artwork, name and season. Repeating all three on twenty consecutive rows
+   * turned the results page into wallpaper — the same poster twenty times
+   * reads as texture, not information. It also suppresses the "Best" badge:
+   * under a rank-ordered season header, being first already says it.
+   */
+  grouped?: boolean;
 }
 
 export function TorrentCard({
   torrent,
   index = 0,
   searchCategory,
+  grouped = false,
 }: TorrentCardProps) {
   const { data: session } = useSession();
   const { density } = useUiPreferences();
@@ -288,7 +303,8 @@ export function TorrentCard({
         the full row (that created the empty mid-gap).
       */}
       <div className="flex gap-3 sm:gap-4">
-        {/* Poster — fixed 8pt-friendly sizes */}
+        {/* Poster — dropped when a group header already shows it */}
+        {grouped ? null : (
         <div
           className={cn(
             "torrent-poster relative shrink-0 self-start",
@@ -303,18 +319,32 @@ export function TorrentCard({
               className="w-full aspect-[2/3] rounded-md object-cover bg-[var(--bg-muted)]"
             />
           ) : (
-            <div className="w-full aspect-[2/3] rounded-md bg-[var(--bg-muted)]" />
+            // A bare grey box is pixel-identical to the loading skeleton, so a
+            // fully-loaded list of unmatched releases reads as "still
+            // searching". An initial is unmistakably a placeholder.
+            <div
+              className="flex w-full aspect-[2/3] items-center justify-center rounded-md bg-[var(--bg-muted)] px-0.5"
+              aria-hidden
+            >
+              <span className="select-none text-2xl font-semibold text-[var(--text-tertiary)]">
+                {(meta?.title ?? torrent.title ?? "?")
+                  .trim()
+                  .charAt(0)
+                  .toUpperCase() || "?"}
+              </span>
+            </div>
           )}
-          {torrent.bestPick && (
+          {torrent.bestPick && !grouped && (
             <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg)]" />
           )}
         </div>
+        )}
 
         {/* Content column: stacked blocks with consistent 8px rhythm */}
         <div className="min-w-0 flex-1 flex flex-col gap-2">
           {/* 1. Title block */}
           <div className="min-w-0 space-y-1">
-            {!compact && (
+            {!compact && !grouped && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 {meta?.title && (
                   <span className="text-xs font-medium text-[var(--accent-text)]">
@@ -332,7 +362,14 @@ export function TorrentCard({
                     {torrent.episode.label}
                   </span>
                 )}
-                {torrent.bestPick && <span className="badge">Best</span>}
+                {torrent.bestPick && !grouped && (
+                  <span
+                    className="badge"
+                    title="Highest-ranked copy of this particular release"
+                  >
+                    Best
+                  </span>
+                )}
               </div>
             )}
             <h3
@@ -343,7 +380,7 @@ export function TorrentCard({
                   : "text-sm line-clamp-2",
               )}
             >
-              {compact && torrent.bestPick ? (
+              {compact && torrent.bestPick && !grouped ? (
                 <span className="mr-1.5 text-[11px] font-medium text-[var(--accent-text)]">
                   Best
                 </span>
@@ -352,9 +389,12 @@ export function TorrentCard({
             </h3>
           </div>
 
-          {/* 2. Stats row — tabular, wrap with 8px gaps (not one endless strip) */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            {compact && torrent.episode?.label && (
+          {/* 2. Stats + actions on one line — the old build gave each row three
+               stacked lines, so twelve rows filled two screens. Wraps to two
+               lines on narrow. */}
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
+            {(compact || grouped) && torrent.episode?.label && (
               <span className="badge badge-accent">{torrent.episode.label}</span>
             )}
             <span className="stat">
@@ -395,7 +435,9 @@ export function TorrentCard({
                   {tag}
                 </span>
               ))}
-            {route && (
+            {/* Under a show header every row routes to the same place; twelve
+                identical "TV" badges is a column of noise. */}
+            {route && !grouped && (
               <span
                 className={cn(
                   "badge",
@@ -413,20 +455,8 @@ export function TorrentCard({
             )}
           </div>
 
-          {/* 3. Path alone — avoids cramming into stats */}
-          {chipPath || chipRelative ? (
-            <div className="min-w-0">
-              <TfPathChip
-                path={chipPath || chipRelative}
-                relative={chipRelative}
-                onOpen={effectivePath ? () => void openFolder() : undefined}
-                className="max-w-full sm:max-w-md"
-              />
-            </div>
-          ) : null}
-
-          {/* 4. Actions — left under content (8pt), primary Send + overflow */}
-          <div className="torrent-actions flex flex-wrap items-center gap-2 pt-0.5">
+          {/* 3. Actions — primary Send + overflow, right-aligned on wide */}
+          <div className="torrent-actions flex shrink-0 flex-wrap items-center gap-2">
             <div className="inline-flex h-9 sm:h-8 rounded-md overflow-hidden shadow-sm">
               <button
                 type="button"
@@ -464,37 +494,12 @@ export function TorrentCard({
               </button>
             </div>
 
-            {canSendExternal ? (
-              <button
-                type="button"
-                onClick={() => void sendToClient("external")}
-                disabled={sending || !canSend}
-                data-action="send-external"
-                className="btn btn-secondary h-9 sm:h-8 min-h-9 sm:min-h-8 px-2.5 text-[13px]"
-                title={`Also add to ${externalLabel} (must be running)`}
-              >
-                {sending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ArrowDownToLine className="h-3.5 w-3.5" />
-                )}
-                <span className="hidden sm:inline">To {externalLabel}</span>
-                <span className="sm:hidden">To client</span>
-              </button>
-            ) : null}
+            {/* Magnet, Copy and "send to external client" all live in the
+                overflow menu below. Rendering them again as three visible
+                buttons put five controls on every row for one decision the
+                user actually makes — and 100 buttons on a 20-row page. */}
 
-            {torrent.magnet && (
-              <a
-                href={torrent.magnet}
-                className="btn btn-secondary h-9 sm:h-8 min-h-9 sm:min-h-8 px-2.5 text-[13px] hidden xs:inline-flex sm:inline-flex"
-                data-action="magnet"
-              >
-                <Magnet className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Magnet</span>
-              </a>
-            )}
-
-            {/* Always present for e2e / keyboard when magnet link hidden on narrow */}
+            {/* Kept for keyboard/e2e reach without spending row width. */}
             {torrent.magnet && (
               <a
                 href={torrent.magnet}
@@ -506,24 +511,6 @@ export function TorrentCard({
                 Magnet
               </a>
             )}
-
-            <button
-              type="button"
-              onClick={copyMagnet}
-              disabled={!torrent.magnet}
-              data-action="copy"
-              className="btn btn-ghost h-9 sm:h-8 min-h-9 sm:min-h-8 px-2.5 text-[13px] hidden sm:inline-flex"
-              title={copied ? "Copied" : "Copy magnet"}
-            >
-              {copied ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-              <span className="hidden md:inline">
-                {copied ? "Copied" : "Copy"}
-              </span>
-            </button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -609,6 +596,19 @@ export function TorrentCard({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+          </div>
+
+          {/* 4. Path — redundant under a group header that names the show */}
+          {!grouped && (chipPath || chipRelative) ? (
+            <div className="min-w-0">
+              <TfPathChip
+                path={chipPath || chipRelative}
+                relative={chipRelative}
+                onOpen={effectivePath ? () => void openFolder() : undefined}
+                className="max-w-full sm:max-w-md"
+              />
+            </div>
+          ) : null}
 
           {/* 5. Advanced send — inset panel */}
           <AnimatePresence>

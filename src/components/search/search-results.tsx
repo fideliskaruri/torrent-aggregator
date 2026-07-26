@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Rows3,
@@ -27,6 +28,13 @@ const ALL_SOURCES: { id: TorrentSourceId; label: string }[] = (
 
 const DEFAULT_PAGE_SIZE = 20;
 
+/**
+ * Releases shown per season before "Show N more". Three is enough to see the
+ * shape of the season's options (a pack, a 1080p, a 720p) without the page
+ * becoming a scroll of near-identical rows.
+ */
+const SECTION_PREVIEW = 3;
+
 interface SearchResultsProps {
   query: string;
   category?: string;
@@ -40,10 +48,10 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const minSeeders = searchParams.get("minSeeders") ?? "";
   const releaseKind = searchParams.get("releaseKind") ?? "";
-  const groupBySeason = searchParams.get("groupSeasons") ?? "";
   const resolution = searchParams.get("resolution") ?? "";
   const codec = searchParams.get("codec") ?? "";
   const maxSizeGb = searchParams.get("maxSizeGb") ?? "";
@@ -98,6 +106,8 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       if (!query) return;
       setLoading(true);
       setError(null);
+      // A section the user opened on the last query says nothing about this one.
+      setExpanded(new Set());
       try {
         const params = new URLSearchParams({
           q: query,
@@ -216,21 +226,26 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
 
   if (loading) {
     return (
-      <div className="space-y-0 border border-[var(--border)] rounded-[var(--radius)] overflow-hidden">
-        <div className="px-4 py-3 text-[12px] text-[var(--text-tertiary)] border-b border-[var(--border)]">
+      <div className="space-y-0 overflow-hidden rounded-[var(--radius)] border border-[var(--border)]">
+        <div className="border-b border-[var(--border)] px-4 py-3 text-[12px] text-[var(--text-tertiary)]">
           Searching sources…
         </div>
+        {/*
+          Mirrors the loaded row: title line, meta line, action block right.
+          It deliberately does NOT draw a per-row poster — artwork only appears
+          on some result shapes, and a placeholder that vanishes on load is a
+          reflow the user reads as the page changing its mind.
+        */}
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="px-4 py-3.5 border-b border-[var(--border)] last:border-0 flex gap-3"
+            className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-4 last:border-0"
           >
-            <div className="skeleton w-12 sm:w-14 aspect-[2/3] shrink-0" />
-            <div className="flex-1 space-y-2 py-0.5">
-              <div className="skeleton h-3 w-1/3" />
+            <div className="min-w-0 flex-1 space-y-2">
               <div className="skeleton h-4 w-4/5" />
               <div className="skeleton h-3 w-1/2" />
             </div>
+            <div className="skeleton h-8 w-24 shrink-0 rounded-md" />
           </div>
         ))}
       </div>
@@ -263,58 +278,93 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   );
 
   /**
-   * Split results into season sections.
+   * Rank order is the server's. This only decides *where each row is drawn* —
+   * it never reorders within a bucket, so the best release still sits at the
+   * top of whichever section it belongs to.
    *
-   * Only when it actually helps: a movie search, or a page where everything
-   * lands in one bucket, is easier to scan as a flat list — sections there are
-   * just chrome. Packs lead, because one grab beats twelve.
+   * Three decisions:
    *
-   * Order within a section is preserved from the server's ranking, so the best
-   * release still sits at the top of whichever section it belongs to.
+   * 1. When one show dominates the results, it gets ONE header with the
+   *    artwork and name, and every row below drops its own copy. Twenty
+   *    identical posters down the left edge is texture, not information.
+   * 2. Rows bucket on an intrinsic key — the season number the release itself
+   *    declares — never on a computed "relevance" band. Newest season first:
+   *    the reason to search a running show is almost always the latest season,
+   *    and the old build buried it under four screens of back catalogue.
+   * 3. Each season shows its top three releases. The rest are one click away,
+   *    counted honestly. Nine near-identical rows per season is the wall the
+   *    user was looking at; the best of each season, side by side, is the
+   *    comparison he was actually trying to make.
    */
-  const seasonSections = (() => {
+  const layout = (() => {
     if (!data?.results.length) return null;
-    if (groupBySeason === "0") return null;
 
     const indexOf = new Map<string, number>();
     const base = (currentPage - 1) * (data.pageSize ?? pageSize);
     data.results.forEach((t, i) => indexOf.set(t.id, base + i));
 
-    const packs: typeof data.results = [];
+    // A header can only speak for the page if the page is mostly one show.
+    let subject: {
+      title: string;
+      year?: number | null;
+      posterUrl?: string | null;
+    } | null = null;
+    const byTitle = new Map<string, number>();
+    for (const t of data.results) {
+      const name = t.metadata?.title?.trim();
+      if (name) byTitle.set(name, (byTitle.get(name) ?? 0) + 1);
+    }
+    const [topTitle, topCount] = [...byTitle.entries()].sort(
+      (a, b) => b[1] - a[1],
+    )[0] ?? ["", 0];
+    if (topTitle && topCount >= Math.ceil(data.results.length * 0.6)) {
+      const sample = data.results.find((t) => t.metadata?.title === topTitle);
+      subject = {
+        title: topTitle,
+        year: sample?.metadata?.year,
+        posterUrl: sample?.metadata?.posterUrl,
+      };
+    }
+
+    const isPack = (t: (typeof data.results)[number]) =>
+      Boolean(t.episode?.isBatch || t.episode?.isSeasonPack);
+
+    const complete: typeof data.results = [];
     const bySeason = new Map<number, typeof data.results>();
     const other: typeof data.results = [];
 
-    for (const t of data.results) {
-      const ep = t.episode;
-      if (ep?.isBatch || ep?.isSeasonPack) packs.push(t);
-      else if (ep?.season != null) {
-        const list = bySeason.get(ep.season) ?? [];
-        list.push(t);
-        bySeason.set(ep.season, list);
-      } else other.push(t);
+    // A movie search has no seasons to group by; a stray TV hit must not
+    // impose a "Season 1" header on a page of films.
+    if (category !== "movies") {
+      for (const t of data.results) {
+        const season = t.episode?.season;
+        if (season != null && !t.episode?.isMultiSeason) {
+          const list = bySeason.get(season) ?? [];
+          list.push(t);
+          bySeason.set(season, list);
+        } else if (isPack(t)) complete.push(t);
+        else other.push(t);
+      }
     }
 
     const sections: {
       key: string;
       label: string;
       items: typeof data.results;
-      indexOf: Map<string, number>;
     }[] = [];
 
-    if (packs.length) {
+    if (complete.length) {
       sections.push({
-        key: "packs",
-        label: "Packs & batches",
-        items: packs,
-        indexOf,
+        key: "complete",
+        label: "Complete series",
+        items: complete,
       });
     }
-    for (const season of [...bySeason.keys()].sort((a, b) => a - b)) {
+    for (const season of [...bySeason.keys()].sort((a, b) => b - a)) {
       sections.push({
         key: `s${season}`,
         label: `Season ${season}`,
         items: bySeason.get(season)!,
-        indexOf,
       });
     }
     if (other.length) {
@@ -322,12 +372,16 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         key: "other",
         label: sections.length ? "Everything else" : "Results",
         items: other,
-        indexOf,
       });
     }
 
-    // One bucket is not a grouping — it is a header with nothing to separate.
-    return sections.length > 1 ? sections : null;
+    return {
+      subject,
+      indexOf,
+      seasonCount: bySeason.size,
+      sections: sections.length > 1 ? sections : null,
+      flat: data.results,
+    };
   })();
 
   const failedSources = data?.sources.filter((s) => s.error) ?? [];
@@ -371,13 +425,17 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                 {failedSources.length > 0 && (
                   <>
                     <span className="text-[var(--border-strong)]">·</span>
+                    {/* A public tracker being Cloudflare-blocked is routine and
+                        nothing the user can act on. Red made it the loudest
+                        thing on an otherwise calm page — especially on the
+                        empty state, where it read as the reason for 0 results. */}
                     <button
                       type="button"
                       onClick={() => setShowFilters(true)}
                       title={failedSources
                         .map((s) => describeSourceFailure(s.id, s.error))
                         .join("\n")}
-                      className="inline-flex items-center gap-1 text-[var(--danger)] hover:underline outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] rounded"
+                      className="inline-flex cursor-pointer items-center gap-1 rounded text-[var(--text-tertiary)] outline-none hover:text-[var(--text-secondary)] hover:underline focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
                     >
                       <AlertCircle className="h-3 w-3 shrink-0" />
                       <span>
@@ -391,6 +449,49 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
             )}
           </div>
           <div className="flex items-center gap-1">
+            {/* One decision, one control, always visible. The panel used to
+                carry a second copy of this plus a grouping toggle that fought
+                the automatic grouping. */}
+            {category !== "movies" ? (
+              <div
+                role="group"
+                aria-label="Release kind"
+                className="mr-1 flex items-center rounded-lg bg-[var(--bg-muted)] p-0.5 ring-1 ring-[var(--border)]"
+              >
+                {[
+                  { value: "", label: "All" },
+                  { value: "packs", label: "Packs" },
+                  { value: "episodes", label: "Episodes" },
+                ].map((opt) => {
+                  const active = releaseKind === opt.value;
+                  return (
+                    <button
+                      key={opt.value || "all"}
+                      type="button"
+                      aria-pressed={active}
+                      title={
+                        opt.value === "packs"
+                          ? "Season packs and batches only"
+                          : opt.value === "episodes"
+                            ? "Single episodes only"
+                            : "Packs and episodes"
+                      }
+                      onClick={() =>
+                        router.push(buildUrl({ releaseKind: opt.value || null }))
+                      }
+                      className={cn(
+                        "h-7 cursor-pointer rounded-[6px] px-2.5 text-[12px] transition-colors",
+                        active
+                          ? "bg-[var(--bg-elevated)] text-[var(--text)] shadow-sm"
+                          : "text-[var(--text-tertiary)] hover:text-[var(--text)]",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -448,7 +549,13 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                       key={s.id}
                       type="button"
                       onClick={() => toggleSource(s.id)}
-                      title={src?.error}
+                      title={
+                        src?.error
+                          ? describeSourceFailure(s.id, src.error)
+                          : src
+                            ? `${src.count} results`
+                            : "Not queried in this search"
+                      }
                       className={cn(
                         "badge cursor-pointer transition-colors",
                         active && "badge-accent",
@@ -456,64 +563,14 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                       )}
                     >
                       {s.label}
-                      {src != null ? ` ${src.count}` : ""}
+                      {/* Every chip carries a count slot, so an unqueried
+                          source doesn't read as an unfinished one. */}
+                      <span className="ml-1 tabular-nums opacity-70">
+                        {src != null ? src.count : "—"}
+                      </span>
                     </button>
                   );
                 })}
-              </div>
-            </div>
-
-            <div className="pt-1 border-t border-[var(--border)] space-y-1">
-              <span className="text-[11px] text-[var(--text-tertiary)]">
-                Show
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { value: "", label: "Everything" },
-                  { value: "packs", label: "Packs only" },
-                  { value: "episodes", label: "Episodes only" },
-                ].map((opt) => {
-                  const active = releaseKind === opt.value;
-                  return (
-                    <button
-                      key={opt.value || "all"}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() =>
-                        router.push(
-                          buildUrl({ releaseKind: opt.value || null }),
-                        )
-                      }
-                      className={cn(
-                        "h-8 rounded-lg px-3 text-[12px] transition-colors ring-1",
-                        active
-                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                          : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-                <button
-                  type="button"
-                  aria-pressed={groupBySeason !== "0"}
-                  onClick={() =>
-                    router.push(
-                      buildUrl({
-                        groupSeasons: groupBySeason === "0" ? null : "0",
-                      }),
-                    )
-                  }
-                  className={cn(
-                    "h-8 rounded-lg px-3 text-[12px] transition-colors ring-1 ml-auto",
-                    groupBySeason !== "0"
-                      ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                      : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
-                  )}
-                >
-                  Group by season
-                </button>
               </div>
             </div>
 
@@ -521,7 +578,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
               <FilterField
                 label="Min seeders"
                 value={minSeeders}
-                placeholder="5"
+                placeholder="Any"
                 onChange={(v) =>
                   router.push(buildUrl({ minSeeders: v || null }))
                 }
@@ -589,7 +646,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
             <p className="mt-3 text-[12px] text-[var(--text-tertiary)]">
               {failedSources.length} of {data?.sources.length} sources could not
               be reached, so this may be incomplete:
-              <span className="block mt-1 text-[var(--danger)]">
+              <span className="block mt-1 text-[var(--text-secondary)]">
                 {failedSources
                   .map((s) => describeSourceFailure(s.id, s.error))
                   .join(" · ")}
@@ -625,44 +682,118 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         </div>
       ) : (
         <>
-          {seasonSections ? (
-            <div className="space-y-3">
-              {seasonSections.map((section) => (
-                <section key={section.key} className="space-y-1.5">
-                  <h3
-                    data-season-section={section.key}
-                    className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
+          {layout?.subject ? (
+            <div className="surface flex items-center gap-3 px-3 py-2.5 sm:px-4">
+              <div className="relative w-11 shrink-0 overflow-hidden rounded-md sm:w-12">
+                {layout.subject.posterUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={layout.subject.posterUrl}
+                    alt=""
+                    className="aspect-[2/3] w-full rounded-md bg-[var(--bg-muted)] object-cover"
+                  />
+                ) : (
+                  <div
+                    className="flex aspect-[2/3] w-full items-center justify-center rounded-md bg-[var(--bg-muted)]"
+                    aria-hidden
                   >
-                    {section.label}
-                    <span className="text-[var(--text-tertiary)] font-normal tabular-nums">
-                      {section.items.length}
+                    <span className="select-none text-base font-semibold text-[var(--text-tertiary)]">
+                      {layout.subject.title.charAt(0).toUpperCase()}
                     </span>
-                  </h3>
-                  <div className="surface divide-y divide-[var(--border)]">
-                    {section.items.map((t) => (
-                      <TorrentCard
-                        key={t.id}
-                        torrent={t}
-                        index={section.indexOf.get(t.id) ?? 0}
-                        searchCategory={category}
-                      />
-                    ))}
                   </div>
-                </section>
-              ))}
+                )}
+              </div>
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold text-[var(--text)]">
+                  {layout.subject.title}
+                </h2>
+                <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+                  {[
+                    layout.subject.year ? String(layout.subject.year) : null,
+                    layout.seasonCount > 1
+                      ? `${layout.seasonCount} seasons here`
+                      : null,
+                    `${totalCount.toLocaleString()} releases`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
             </div>
-          ) : (
+          ) : null}
+
+          {layout?.sections ? (
+            <div className="space-y-3">
+              {layout.sections.map((section) => {
+                const open = expanded.has(section.key);
+                const shown = open
+                  ? section.items
+                  : section.items.slice(0, SECTION_PREVIEW);
+                const hidden = section.items.length - shown.length;
+                return (
+                  <section key={section.key} className="space-y-1.5">
+                    <h3
+                      data-season-section={section.key}
+                      className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
+                    >
+                      {section.label}
+                      <span className="font-normal tabular-nums text-[var(--text-tertiary)]">
+                        {section.items.length}
+                      </span>
+                    </h3>
+                    <div className="surface divide-y divide-[var(--border)]">
+                      {shown.map((t) => (
+                        <TorrentCard
+                          key={t.id}
+                          torrent={t}
+                          index={layout.indexOf.get(t.id) ?? 0}
+                          searchCategory={category}
+                          grouped={Boolean(layout.subject)}
+                        />
+                      ))}
+                      {hidden > 0 || open ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpanded((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(section.key)) next.delete(section.key);
+                              else next.add(section.key);
+                              return next;
+                            })
+                          }
+                          aria-expanded={open}
+                          className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] sm:px-4"
+                        >
+                          <ChevronDown
+                            className={cn(
+                              "h-3.5 w-3.5 transition-transform",
+                              open && "rotate-180",
+                            )}
+                          />
+                          {open
+                            ? "Show fewer"
+                            : `Show ${hidden} more release${hidden === 1 ? "" : "s"}`}
+                        </button>
+                      ) : null}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          ) : layout && layout.flat.length ? (
             <div className="surface divide-y divide-[var(--border)]">
-              {data.results.map((t, i) => (
+              {layout.flat.map((t) => (
                 <TorrentCard
                   key={t.id}
                   torrent={t}
-                  index={(currentPage - 1) * (data.pageSize ?? pageSize) + i}
+                  index={layout.indexOf.get(t.id) ?? 0}
                   searchCategory={category}
+                  grouped={Boolean(layout.subject)}
                 />
               ))}
             </div>
-          )}
+          ) : null}
 
           {totalPages > 1 && (
             <Pagination

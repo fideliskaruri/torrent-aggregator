@@ -85,6 +85,15 @@ indexers answered and had nothing" and "half of them are down".
 | `scheduler.ts` | The background timer. See `docs/architecture/automation-scheduling.md`. |
 | `ondemand.ts` | "Download next" / rewatch from the Library UI. Shares the cursor rules with automation. |
 
+### Metadata and suggestions — `src/lib/metadata/`, `src/lib/recommend/`
+
+| File | Role |
+|------|------|
+| `metadata/enrich.ts` | Title → catalog record. Arbitrates between AniList and TMDB, penalises a media type that contradicts the request, strips release noise from the title, and falls back to progressively shorter prefixes (see §4). |
+| `metadata/tmdb.ts`, `metadata/anilist.ts` | The two catalogs. TMDB needs `TMDB_API_KEY`; AniList needs nothing. |
+| `recommend/index.ts` | One "Because you're watching X" rail from the catalogs' own `/recommendations`. **No recommender is implemented here and none should be** — TMDB `/similar` is a genre-vector match that returns 320,032 films similar to *Oppenheimer*, and a hand-rolled version over a five-row library would be strictly worse. Cached by `next: { revalidate }`, nothing else. |
+| `scripts/backfill-metadata.mts` | One-time repair for library rows created without a real catalog id or artwork. Resolves each row against the catalog its `mediaType` implies, because the schema's `externalId` is "AniList id **or** TMDB id" and `mediaType` is what tells them apart. |
+
 ---
 
 ## 3. Invariants you must not break
@@ -152,8 +161,78 @@ explicitly. If you change that, change the copy in the same commit.
 - **An adapter that is unconfigured returns `[]`, not an error.** `eztv` without
   `TMDB_API_KEY` is not an outage, and claiming one in the source-health strip
   would be false.
+- **Automation dedupes on what the client still holds, not on history.** The
+  library check queries `EngineTorrent` by info hash, not `DownloadHistory`.
+  That is deliberate in both directions: an episode reappearing on another
+  indexer under a different magnet is not downloaded twice (which is how the
+  duplicate release folder in §8 was created), but a release the user has
+  deleted *is* grabbable again.
+- **An auto-rule verifies its own category before grabbing.** The indexer's
+  category filter is a request, not a guarantee — a rule named "Weekly anime"
+  once grabbed a live-action drama. `matchesRuleCategory` in `rules/runner.ts`
+  re-derives the kind from the release itself and deliberately does *not* pass
+  the rule's own category in as a hint, which would let the check answer with
+  the question. This is why rules run with `enrich: true`: catalog metadata is
+  the only thing separating an anime episode from a live-action one when both
+  are `SxxEyy` on the same indexer.
+- **`resolveMetadata` penalises a candidate whose media type contradicts the
+  request.** "Severance" is a 2015 film and a 2022 series, both exact title
+  matches, so whichever the catalog listed first used to win — and the wrong id
+  was then written to the library row. Anime is exempt, since anime is
+  legitimately both series and films.
+- **The recommendation rail renders nothing rather than an empty shelf.** No
+  catalog id, no TMDB key, a provider outage and "everything suggested is
+  already in the library" all resolve to *absent*. An empty rail reads as
+  "there is nothing for you" when the truth is "we could not ask".
+- **Suggestions are added `planned` and unmonitored.** A suggestion has not
+  earned disk. `POST /api/watchlist` takes `monitored: false` for exactly this;
+  it used to hardcode `true`, which would have made clicking a poster start a
+  download.
 - **Automation is opt-in and defaults to off.** A timer that downloads files
   while nobody is watching should be switched on, not discovered afterwards.
+- **`cleanTorrentTitle` strips a bare season token, and `resolveMetadata`
+  retries on shorter prefixes.** Catalogs match literally: TMDB returns *nothing
+  at all* for `The Bear S03`, so a season search rendered twenty results with no
+  artwork. Release names carry noise no denylist will fully cover, so rather
+  than grow the denylist forever, the resolver falls back to everything before
+  the first token containing a digit, then the first three words, then two —
+  stopping as soon as a candidate scores 55. Only failures pay for the extra
+  catalog calls.
+- **A failed metadata lookup is remembered for 3 minutes, not 30.** Negative
+  answers are usually a rate limit or a blip; caching them as long as real ones
+  turned a five-second outage into a page of grey boxes long after it passed.
+- **A missing poster renders an initial, never an empty box.** An empty grey
+  rectangle is pixel-identical to the loading skeleton, so a fully-loaded list
+  of unmatched releases read as "still searching". Library cards, search rows
+  and the recommendation rail all use the same initial tile, filling exactly
+  the box a real poster would. Every one of them also falls back on `onError`,
+  not just on a null URL — the library mixes TMDb and AniList CDNs.
+- **The replaced-element reset in `globals.css` lives inside `@layer base`, and
+  must stay there.** Tailwind v4 sorts *unlayered* CSS above every `@layer`, so
+  while `img, video, svg { height: auto }` sat bare at the bottom of the file it
+  beat `@layer utilities` — silently killing `h-full`/`inset-0` sizing on every
+  `<img>` in the app. Posters laid out at their intrinsic ratio inside taller
+  columns and left grey slabs beneath, and no Tailwind height utility could fix
+  it. If images start mis-sizing app-wide, check this first.
+- **A season marker with no episode number is a season pack.** `parseEpisode`
+  reports `<Show> S04` and `<Show> Season 4` as `isSeasonPack`, because that is
+  what every indexer calls a complete season. Treating them as ordinary
+  episodes made the `Packs` filter hide real packs. Ambiguous shapes (absolute
+  numbering, `Ep 1233 S23`) are matched by earlier branches, so reaching the
+  bare-season branch really does mean "whole season".
+- **Search results collapse into one show when one show dominates.** At ≥60% of
+  rows sharing a metadata title, artwork and name move to a single header and
+  every row drops its own copy, its route badge and its path chip. Twenty
+  identical posters down the left edge is texture, not information. Mixed
+  result pages (a `dune` search spanning four different films) keep per-row
+  posters, because there the artwork is doing real work.
+- **Seasons are listed newest-first and capped at three releases each.** The
+  reason to search a running show is almost always the newest season; ascending
+  order buried it under the back catalogue. The rest of each season is one
+  honest, counted click away.
+- **The search skeleton deliberately draws no per-row poster.** Artwork appears
+  on only one of the two result shapes, and a placeholder that vanishes on load
+  is a reflow the user reads as the page changing its mind.
 - **`.app-shell` *is* `body`.** Confusing, but true, and it matters when
   reasoning about scroll containers.
 - **There is no auth and that is the design.** `src/lib/auth.ts` returns a
@@ -247,8 +326,15 @@ Tracked here because it is real, not because it is planned:
   500 GB One Piece pack eating the whole 100 GB cap).
 - **Series-completion detection** — stop hunting a series that has ended
   instead of burning three misses per run forever.
-- **Recommendations** from the existing library. `/api/suggest` is search
-  autocomplete, not this.
-- Two known filing bugs: a YTS movie landing under `Anime` via a rule's blind
-  `results[0]`, and a surviving duplicate release-root folder under
-  `TV/The Bear/Season 03`.
+- **One duplicate left on disk from before the dedupe fix**:
+  `downloads/TV/The Bear/Season 03` holds `S03E02` both flattened and inside a
+  `www.SceneTime.com …` folder. Deliberately not deleted — it is the user's
+  data, and nothing in this app deletes downloaded files on its own. New
+  duplicates are prevented (see §4).
+- `/client` polls with `setInterval`; it should be a self-scheduling
+  `setTimeout` gated on `document.visibilityState` so a hidden tab stops
+  polling.
+- `src/lib/download/path-organization.test.ts` has an intermittent libuv
+  teardown assertion on Windows (`!(handle->flags & UV_HANDLE_CLOSING)`). It
+  passes on re-run; the assertion fires after the test body, during cleanup.
+
