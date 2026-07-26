@@ -19,6 +19,7 @@ import { repairContentLayout } from "./content-layout-repair";
 import { releasePaths } from "./layout-ownership";
 import { pruneEmptyParents } from "./prune-empty-parents";
 import { findTorrentByHash } from "./find-torrent-by-hash";
+import { haltTransfer, resumeTransfer as resumeTransferCore } from "./transfer-control";
 import prisma from "@/lib/prisma";
 
 type WebTorrentLike = {
@@ -62,6 +63,13 @@ type WtTorrent = {
   magnetURI?: string;
   pieces?: Array<unknown>;
   files?: Array<WtFile & { select?: () => void; deselect?: () => void }>;
+  /** Live peer connections. Destroying these is the only way to stop transfer. */
+  wires?: Array<{ destroyed?: boolean; destroy?: () => void }>;
+  _peers?: Map<string, { destroyed?: boolean; destroy?: (err?: Error) => void }>;
+  discovery?: {
+    tracker?: { update?: () => void } | null;
+    dht?: { lookup?: (infoHash: string) => void } | null;
+  } | null;
   pause: () => void;
   resume: () => void;
   destroy: (opts?: { destroyStore?: boolean }, cb?: (err?: Error) => void) => void;
@@ -183,16 +191,19 @@ function ensureDownloading(t: WtTorrent): void {
     /* best-effort */
   }
 }
+/**
+ * Resume, re-selecting files before the re-announce so the first peer to arrive
+ * finds every piece wanted.
+ */
+function resumeTransfer(t: WtTorrent): void {
+  resumeTransferCore(t, (x) => ensureDownloading(x as WtTorrent));
+}
 
 /** Apply the persisted status to a freshly re-added torrent. */
 function applyPersistedStatus(t: WtTorrent, status: string | null | undefined): void {
   if (status === "paused") {
     selectAllFiles(t);
-    try {
-      t.pause();
-    } catch {
-      /* best-effort */
-    }
+    haltTransfer(t);
     return;
   }
   ensureDownloading(t);
@@ -1190,7 +1201,7 @@ export class BuiltinClient implements TorrentClientAdapter {
       }
       const t = findTorrent(client, hash);
       if (!t) return { ok: false, message: "Torrent not found in engine" };
-      t.pause();
+      haltTransfer(t);
       if (config.userId) {
         try {
           await prisma.engineTorrent.updateMany({
@@ -1224,7 +1235,7 @@ export class BuiltinClient implements TorrentClientAdapter {
       }
       const t = findTorrent(client, hash);
       if (!t) return { ok: false, message: "Torrent not found in engine" };
-      t.resume();
+      resumeTransfer(t);
       if (config.userId) {
         try {
           await prisma.engineTorrent.updateMany({

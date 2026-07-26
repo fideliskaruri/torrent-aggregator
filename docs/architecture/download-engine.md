@@ -605,3 +605,61 @@ colon or apostrophe in its catalog title silently failed the gate and lost its
 metadata. Apostrophes now close up (`journey's` → `journeys`) and remaining
 punctuation becomes a gap, Unicode-aware so non-latin titles are not
 normalized into an empty string.
+
+## Pause: the flag that stopped nothing
+
+Pressing pause set a boolean and left the download running. The UI read the
+same boolean back, so it reported "Paused" honestly and described the app
+falsely — bytes kept arriving, the disk kept filling and the torrent kept
+seeding.
+
+`Torrent.pause()` upstream (`webtorrent/lib/torrent.js:2078`) is, in full:
+
+```js
+pause () {
+  if (this.destroyed) return
+  this._debug('pause')
+  this.paused = true
+}
+```
+
+That flag is read in exactly three places, and all three are about *acquiring*
+peers rather than transferring with the ones already connected:
+
+| Line | Site | Effect while paused |
+|------|------|---------------------|
+| `torrent.js:1093` | `_addPeer` | ignore a newly discovered peer |
+| `torrent.js:1173` | inbound handler | destroy an incoming connection |
+| `torrent.js:2104` | `_drain` | do not dial out |
+
+The request pump is `_update` -> `_updateWireWrapper` -> `_updateWire`
+(`torrent.js:1580-1602`). None of them consults `paused`. A torrent that
+already has peers therefore keeps requesting blocks after `pause()` returns.
+Pause only ever meant "stop making new friends".
+
+Deselecting the files does not help either. `_onMetadata` installs a
+whole-torrent selection with `select(0, pieces.length - 1)` (`torrent.js:624`),
+while `file.deselect()` calls `torrent.deselect(startPiece, endPiece)`
+(`file.js:92`) and `Selections.remove` matches on the exact `{from, to}` pair.
+A per-file deselect can never remove the whole-torrent entry, so the torrent
+stays interested and the wires stay busy.
+
+What stops bytes moving is closing the sockets, which is what every real client
+does when you press pause. `haltTransfer` (`src/lib/clients/transfer-control.ts`)
+sets the flag first -- so a peer discovered mid-teardown is rejected on arrival
+instead of slipping in behind us -- then destroys every entry in `torrent._peers`
+and sweeps `torrent.wires` afterwards for web seeds, which have a wire but no
+peer object. Both collections are snapshotted before iterating, because
+`peer.destroy()` (`peer.js:231`) removes itself from both as it unwinds. That
+same teardown calls `swarm.removePeer`, so piece reservations are released
+rather than leaked.
+
+Resume then has a second problem. `torrent.resume()` clears the flag and calls
+`_drain()`, which dials peers out of `torrent._queue` -- the queue that halting
+just emptied. A bare resume has nothing to dial, so the torrent sits at zero
+peers until discovery next announces on its own, commonly a 30-minute tracker
+interval. Resume would look broken for half an hour. `resumeTransfer`
+re-selects the files, clears the flag, then explicitly calls
+`discovery.tracker.update()` and `discovery.dht.lookup()` so peers come back in
+seconds. Selection happens first, so the first peer to arrive finds every piece
+wanted.
