@@ -89,6 +89,35 @@ an explicit choice (raise the target) rather than something automation does on
 the user's behalf. A user who wants 4K sets the target to 2160 and 2160 becomes
 the exact match — the rule needs no special case.
 
+### Where the target comes from
+
+`ClientSettings.preferredResolution` (480 / 720 / 1080 / 2160), surfaced as
+**Settings → Folders → Preferred quality**. `NULL` means "use the built-in
+default", so existing installs needed no backfill.
+
+It is resolved **inside `searchTorrents`** (`torrents/target-resolution.ts`)
+rather than threaded through every caller, for the same reason the ordering
+itself lives in `rankResults`: all four grab sites plus the search API already
+funnel through `searchTorrents`, so the setting takes effect everywhere at once
+and cannot be wired into only half the places — which is exactly how the
+original quality bug stayed invisible in the UI while automation misbehaved.
+
+Two things here are easy to get wrong:
+
+- The target is **part of the search cache key**. It changes the *order* of the
+  cached pool, so without it the user would change the setting and be served a
+  pool still ranked for the old target.
+- Saving settings calls `invalidateTargetResolution()`, because the resolver
+  memoises for 30 s.
+
+Verified live by flipping the setting and re-querying. An `Interstellar` search:
+
+| Target | Ordering by position |
+|---|---|
+| 720 | `720p@1` · `1080p@2-13` · `2160p@14-18` · `unknown@19-20` |
+| 1080 | `1080p@1-12` · `720p@13` · `2160p@14-18` · `unknown@19-20` |
+| 2160 | `2160p@1-5` · `1080p@6-17` · `720p@18` · `unknown@19-20` |
+
 ## Nothing here rejects anything
 
 `rankResults` returns **every** input release, reordered. This is load-bearing:

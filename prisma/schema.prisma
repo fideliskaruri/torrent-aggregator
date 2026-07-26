@@ -136,6 +136,12 @@ model ClientSettings {
   /// Cap on total size under baseDownloadPath (bytes). Null = default 100GB cap.
   /// Enforced automatically on every send / automation / on-demand grab.
   maxStorageBytes BigInt?
+  /// Target vertical resolution for ranking (e.g. 1080). Null = 1080p default.
+  /// This is a *target*, not a floor: releases are ordered by closeness to it,
+  /// below-target degrading gracefully and above-target sinking below all of
+  /// them. Nothing is ever rejected for resolution, so raising or lowering this
+  /// can never starve a monitored show. See docs/architecture/release-ranking.md
+  preferredResolution Int?
   /// JSON string[] — quick-pick category chips in UI
   categories String?
   /// JSON Record<string,string> — category name → download folder

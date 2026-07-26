@@ -12,6 +12,7 @@ import { torrentsCsvAdapter } from "./adapters/torrentscsv";
 import { ytsAdapter } from "./adapters/yts";
 import { dedupeResults, groupReleases, rankResults } from "./ranking";
 import { applyFilters, type SearchFilters } from "./filters";
+import { getTargetResolution } from "./target-resolution";
 import { enrichResultsWithMetadata } from "@/lib/metadata/enrich";
 import {
   attachDownloadRoutes,
@@ -97,12 +98,17 @@ export async function searchTorrents(
   }
 
   // Cache full ranked+filtered pool (no page). Enrich runs per page after slice.
+  // The target resolution is part of the key: it changes the *order* of the
+  // cached pool, so serving a pool ranked for a different target would silently
+  // undo the setting the user just changed.
+  const targetResolution = await getTargetResolution();
   const cacheKey = cacheKeyFrom({
     q: query.toLowerCase(),
     category: options.category ?? "all",
     limit: options.limit ?? "default",
     sources: options.sources?.slice().sort() ?? "default",
     filters: options.filters ?? {},
+    target: targetResolution,
   });
 
   let fullResults: TorrentResult[] | null = null;
@@ -163,7 +169,7 @@ export async function searchTorrents(
     if (options.filters) {
       results = applyFilters(results, options.filters);
     }
-    results = rankResults(results, query);
+    results = rankResults(results, query, targetResolution);
 
     if (options.limit != null) {
       results = results.slice(0, options.limit);

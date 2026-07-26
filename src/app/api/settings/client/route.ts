@@ -12,6 +12,11 @@ import {
   defaultDownloadDir,
 } from "@/lib/clients/defaults";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { DEFAULT_TARGET_RESOLUTION } from "@/lib/torrents/quality";
+import {
+  SELECTABLE_RESOLUTIONS,
+  invalidateTargetResolution,
+} from "@/lib/torrents/target-resolution";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +57,7 @@ function publicSettings(settings: {
   savePath: string | null;
   baseDownloadPath: string | null;
   maxStorageBytes?: bigint | number | null;
+  preferredResolution?: number | null;
   categories: string | null;
   pathRules: string | null;
 }) {
@@ -86,6 +92,13 @@ function publicSettings(settings: {
         ? maxStorageBytes
         : null,
     maxStorageGb,
+    preferredResolution:
+      settings.preferredResolution != null &&
+      SELECTABLE_RESOLUTIONS.includes(
+        settings.preferredResolution as (typeof SELECTABLE_RESOLUTIONS)[number],
+      )
+        ? settings.preferredResolution
+        : DEFAULT_TARGET_RESOLUTION,
     categories: categories.length ? categories : DEFAULT_CATEGORIES,
     pathRules: parseJsonRecord(settings.pathRules),
     hasExternal: Boolean(external),
@@ -140,6 +153,8 @@ export async function PUT(request: NextRequest) {
       /** Max download library size in GB (converted to maxStorageBytes). */
       maxStorageGb?: number | null;
       maxStorageBytes?: number | null;
+      /** Target vertical resolution for ranking: 480 | 720 | 1080 | 2160. */
+      preferredResolution?: number | null;
       categories?: string[] | null;
       pathRules?: Record<string, string> | null;
       test?: boolean;
@@ -293,6 +308,17 @@ export async function PUT(request: NextRequest) {
       maxStorageBytes = undefined; // leave existing
     }
 
+    // Only accept a value the UI actually offers. An arbitrary number would
+    // make every release "above target" and quietly invert the ordering.
+    let preferredResolution: number | null | undefined;
+    if (body.preferredResolution !== undefined) {
+      preferredResolution = SELECTABLE_RESOLUTIONS.includes(
+        body.preferredResolution as (typeof SELECTABLE_RESOLUTIONS)[number],
+      )
+        ? body.preferredResolution
+        : DEFAULT_TARGET_RESOLUTION;
+    }
+
     const settings = await prisma.clientSettings.upsert({
       where: { userId: session.user.id },
       create: {
@@ -309,6 +335,7 @@ export async function PUT(request: NextRequest) {
           maxStorageBytes === undefined
             ? BigInt(100 * 1e9) // default 100 GB
             : maxStorageBytes,
+        preferredResolution: preferredResolution ?? DEFAULT_TARGET_RESOLUTION,
         categories: categoriesJson,
         pathRules: pathRulesJson,
       },
@@ -327,10 +354,15 @@ export async function PUT(request: NextRequest) {
         ...(maxStorageBytes !== undefined
           ? { maxStorageBytes }
           : {}),
+        ...(preferredResolution !== undefined ? { preferredResolution } : {}),
         categories: categoriesJson,
         pathRules: pathRulesJson,
       },
     });
+
+    // Ranking reads this through a short-lived memo; without this the user
+    // would change the quality target, hit Search, and see the old order.
+    invalidateTargetResolution();
 
     // The in-process engine keeps running until it is told to stop. Leaving it
     // alive after the user moves to an external client means torrents that no

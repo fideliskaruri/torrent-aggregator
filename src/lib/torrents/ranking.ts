@@ -14,12 +14,14 @@ import {
  * Distinct affinity values, ascending, so a rank index can be derived without
  * hardcoding the affinity arithmetic in two places.
  */
-const AFFINITY_STEPS = [null, 360, 480, 576, 720, 1080, 2160]
-  .map((res) => resolutionAffinity(res, DEFAULT_TARGET_RESOLUTION))
-  .sort((a, b) => a - b);
+function affinitySteps(target: number): number[] {
+  return [null, 360, 480, 576, 720, 1080, 2160]
+    .map((res) => resolutionAffinity(res, target))
+    .sort((a, b) => a - b);
+}
 
-function affinityRank(affinity: number): number {
-  const i = AFFINITY_STEPS.indexOf(affinity);
+function affinityRank(affinity: number, steps: number[]): number {
+  const i = steps.indexOf(affinity);
   return i < 0 ? 0 : i;
 }
 
@@ -37,13 +39,13 @@ function affinityRank(affinity: number): number {
  * sorts by descending `score` gets the same order as the comparator, minus the
  * size tiebreak, which only ever splits otherwise-equal releases.
  */
-function encodeScore(d: ReleaseRank): number {
+function encodeScore(d: ReleaseRank, steps: number[]): number {
   const good = 2 - ((d.junk ? 1 : 0) + (d.implausible ? 1 : 0));
   return (
     d.relevance * 100_000 +
     good * 10_000 +
     (d.viable ? 1 : 0) * 1_000 +
-    affinityRank(d.affinity) * 100 +
+    affinityRank(d.affinity, steps) * 100 +
     Math.min(d.seeders, 9) * 10 +
     d.recency
   );
@@ -59,10 +61,12 @@ function encodeScore(d: ReleaseRank): number {
 export function rankResults(
   results: TorrentResult[],
   query: string,
+  target: number = DEFAULT_TARGET_RESOLUTION,
 ): TorrentResult[] {
+  const steps = affinitySteps(target);
   const scored = results.map((r) => {
     const episode = r.episode ?? parseEpisode(r.title);
-    const rank = describeRelease(r, query);
+    const rank = describeRelease(r, query, target);
     return {
       rank,
       result: {
@@ -70,7 +74,7 @@ export function rankResults(
         episode,
         health: computeHealth(r),
         groupKey: buildGroupKey(r.title, episode),
-        score: encodeScore(rank),
+        score: encodeScore(rank, steps),
       },
     };
   });

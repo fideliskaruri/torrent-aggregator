@@ -33,6 +33,8 @@ interface ClientForm {
   baseDownloadPath: string;
   /** Max total size of download library in GB (automatic hard cap). */
   maxStorageGb: string;
+  /** Target vertical resolution for ranking: 480 | 720 | 1080 | 2160. */
+  preferredResolution: number;
   categories: string[];
   pathRules: Record<string, string>;
 }
@@ -45,6 +47,40 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: "categories", label: "Categories" },
 ];
 
+/**
+ * Quality is a *target*, not a floor — nothing is ever rejected for its
+ * resolution, so no choice here can starve a monitored show. The hints say what
+ * actually happens rather than just naming a number, because the previous
+ * behaviour (silently grabbing 480p) was invisible precisely because nothing
+ * ever stated the rule.
+ */
+const QUALITY_CHOICES: {
+  value: number;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: 480,
+    label: "480p",
+    hint: "Smallest files. Anything larger is only picked when no 480p exists.",
+  },
+  {
+    value: 720,
+    label: "720p",
+    hint: "Prefers 720p, falls back to 480p before ever taking 1080p or 4K.",
+  },
+  {
+    value: 1080,
+    label: "1080p",
+    hint: "Prefers 1080p, falls back to 720p then 480p, and takes 4K only as a last resort.",
+  },
+  {
+    value: 2160,
+    label: "4K",
+    hint: "Prefers 2160p. Expect 15–60 GB per file and much longer downloads.",
+  },
+];
+
 const EMPTY_FORM: ClientForm = {
   clientType: "builtin",
   externalClientType: "",
@@ -55,6 +91,7 @@ const EMPTY_FORM: ClientForm = {
   savePath: "",
   baseDownloadPath: "",
   maxStorageGb: "100",
+  preferredResolution: 1080,
   categories: [
     "Anime",
     "Movies",
@@ -163,6 +200,7 @@ export default function SettingsPage() {
             savePath?: string | null;
             baseDownloadPath?: string | null;
             maxStorageGb?: number | null;
+            preferredResolution?: number | null;
             categories?: string[];
             pathRules?: Record<string, string>;
             hasPassword?: boolean;
@@ -185,6 +223,7 @@ export default function SettingsPage() {
               s.maxStorageGb != null && s.maxStorageGb > 0
                 ? String(s.maxStorageGb)
                 : "100",
+            preferredResolution: s.preferredResolution ?? f.preferredResolution,
             categories: s.categories ?? f.categories,
             pathRules: s.pathRules ?? {},
             password: "",
@@ -281,6 +320,7 @@ export default function SettingsPage() {
             const n = parseFloat(form.maxStorageGb);
             return Number.isFinite(n) && n > 0 ? n : 100;
           })(),
+          preferredResolution: form.preferredResolution,
           categories: form.categories,
           pathRules: form.pathRules,
           test,
@@ -309,6 +349,7 @@ export default function SettingsPage() {
           savePath?: string | null;
           baseDownloadPath?: string | null;
           maxStorageGb?: number | null;
+          preferredResolution?: number | null;
         };
         testResult?: { ok: boolean; message: string };
       };
@@ -340,6 +381,8 @@ export default function SettingsPage() {
             saved.maxStorageGb != null && saved.maxStorageGb > 0
               ? String(saved.maxStorageGb)
               : f.maxStorageGb,
+          preferredResolution:
+            saved.preferredResolution ?? f.preferredResolution,
         }));
       }
       if (data.testResult) {
@@ -819,6 +862,47 @@ export default function SettingsPage() {
                 are refused when usage would exceed this — no manual storage
                 check. Default 100 GB. Also keeps at least ~500 MB free on the
                 drive.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs text-[var(--text-tertiary)]">
+                Preferred quality
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {QUALITY_CHOICES.map((choice) => {
+                  const active = form.preferredResolution === choice.value;
+                  return (
+                    <button
+                      key={choice.value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        touchForm();
+                        setForm((f) => ({
+                          ...f,
+                          preferredResolution: choice.value,
+                        }));
+                      }}
+                      className={`h-11 rounded-lg px-4 text-sm font-medium transition-colors ${
+                        active
+                          ? "bg-[var(--accent)] text-white"
+                          : "bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
+                      }`}
+                    >
+                      {choice.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+                {
+                  QUALITY_CHOICES.find(
+                    (c) => c.value === form.preferredResolution,
+                  )?.hint
+                }{" "}
+                Seeder count can never override this — but a release that is too
+                thinly seeded to finish still loses to one that can.
               </p>
             </div>
 
