@@ -5,7 +5,7 @@
  * to the library row, where every later episode hunt used it.
  */
 import assert from "node:assert/strict";
-import { resolveMetadata } from "./enrich";
+import { cleanTorrentTitle, resolveMetadata } from "./enrich";
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -91,6 +91,26 @@ async function main() {
     if (originalKey === undefined) delete process.env.TMDB_API_KEY;
     else process.env.TMDB_API_KEY = originalKey;
   }
+
+  // Catalogs match literally: TMDB returns nothing for "The Bear S03", so a
+  // season search rendered twenty results with no artwork at all.
+  console.log("metadata/enrich title cleaning");
+  check("a bare season token is stripped", () => {
+    assert.equal(cleanTorrentTitle("The Bear S03"), "The Bear");
+    assert.equal(cleanTorrentTitle("The Bear S01-S03"), "The Bear");
+  });
+  check("season/episode ranges are stripped", () => {
+    assert.equal(cleanTorrentTitle("Silo S02E01-E05"), "Silo");
+  });
+  check("codec and platform noise is stripped", () => {
+    assert.equal(
+      cleanTorrentTitle("Dune Part Two 2160p HULU WEB-DL DDP5.1 H.265"),
+      "Dune Part Two",
+    );
+  });
+  check("a real title keeps its own digits", () => {
+    assert.equal(cleanTorrentTitle("Blade Runner 2049 1080p BluRay"), "Blade Runner 2049");
+  });
 
   if (failures > 0) {
     console.error(`\n${failures} failed`);

@@ -255,16 +255,22 @@ export function parseEpisode(title: string): EpisodeInfo {
     }
   }
 
-  // Standalone season: S23 / Season 23 / S023 (no episode)
+  // Standalone season: S23 / Season 23 / S023 (no episode).
+  //
+  // A season marker with no episode number IS a season pack — that is what a
+  // season pack is called. Reporting it as a plain episode made the `Packs`
+  // filter hide real packs, and stopped automation preferring one grab over
+  // twelve. Everything ambiguous (absolute numbering, `Ep 12 S02`) has already
+  // been matched by the branches above, so reaching here means "whole season".
   const seasonOnly = t.match(/\bS(\d{1,3})\b(?!\s*E\d)/i);
   if (seasonOnly) {
     const season = parseInt(seasonOnly[1], 10);
     return {
       season,
       episode: undefined,
-      label: `S${pad(season)}`,
-      isBatch: false,
-      isSeasonPack: false,
+      label: `S${pad(season)} pack`,
+      isBatch: true,
+      isSeasonPack: true,
       isMultiSeason: false,
     };
   }
@@ -274,9 +280,9 @@ export function parseEpisode(title: string): EpisodeInfo {
     return {
       season,
       episode: undefined,
-      label: `S${pad(season)}`,
-      isBatch: false,
-      isSeasonPack: false,
+      label: `S${pad(season)} pack`,
+      isBatch: true,
+      isSeasonPack: true,
       isMultiSeason: false,
     };
   }

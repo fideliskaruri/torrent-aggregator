@@ -406,11 +406,23 @@ html[data-density="comfortable"] .torrent-row {
   min-width: 0;
 }
 
-img,
-video,
-svg {
-  max-width: 100%;
-  height: auto;
+/*
+  Replaced-element reset.
+
+  MUST stay inside `@layer base`. Tailwind v4 sorts unlayered CSS ABOVE every
+  `@layer`, so writing this bare made `height: auto` beat `@layer utilities` —
+  which silently killed `h-full`, `h-*` and `inset-0` sizing on every <img> in
+  the app. Posters then laid out at their intrinsic ratio inside a taller
+  column and left a grey slab underneath, and no amount of Tailwind height
+  utility could fix it. Inside `base`, utilities win again.
+*/
+@layer base {
+  img,
+  video,
+  svg {
+    max-width: 100%;
+    height: auto;
+  }
 }
 
 /* ── Mobile layout (≤639px) — 8pt grid + safe areas ───────────────── */

@@ -31,6 +31,8 @@ export interface TorrentResult {
     label: string | null;
     isBatch: boolean;
     isSeasonPack: boolean;
+    /** A range like S01-S05 — must not be filed under a single season. */
+    isMultiSeason?: boolean;
   };
   /** Enriched metadata (posters, synopsis) when available */
   metadata?: MediaMetadata | null;

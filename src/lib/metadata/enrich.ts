@@ -15,16 +15,47 @@ export function cleanTorrentTitle(title: string): string {
   return title
     .replace(/[\[\(].*?[\]\)]/g, " ")
     .replace(
-      /\b(S\d{1,2}E\d{1,3}|E\d{1,3}|EP?\s*\d{1,3}|Season\s*\d+|Complete|Batch)\b/gi,
+      // A bare season token (`S03`, `S01-S03`) is by far the most common thing
+      // a person types after a show name, and catalogs match it literally:
+      // TMDB returns nothing at all for "The Bear S03", so every result in a
+      // season search rendered without artwork.
+      /\b(S\d{1,2}\s*-\s*S?\d{1,2}|S\d{1,2}E\d{1,3}(?:\s*-\s*E?\d{1,3})?|S\d{1,2}|E\d{1,3}|EP?\s*\d{1,3}|Season\s*\d+|Complete|Batch)\b/gi,
       " ",
     )
     .replace(
-      /\b(1080p|720p|480p|2160p|4K|UHD|HDR|DV|HEVC|x265|x264|AV1|WEB-?DL|WEBRip|BluRay|BDRip|HDTV|REMUX|AAC|FLAC|DTS|Atmos|10bit|Dual|Multi|Sub|Dub|NF|AMZN|DSNP|CR)\b/gi,
+      /\b(1080p|720p|480p|2160p|4K|UHD|HDR10?\+?|DV|HEVC|x265|x264|H\.?26[45]|AV1|WEB-?DL|WEBRip|BluRay|BDRip|BRRip|DVDRip|HDTV|REMUX|PROPER|REPACK|FINAL|INTERNAL|LIMITED|AAC\d?|FLAC|DTS(?:-HD)?|DDP?\d?(?:\.\d)?|EAC3|AC3|Atmos|TrueHD|\d+bit|Dual|Multi|Sub|Dub|NF|AMZN|DSNP|HULU|HMAX|ATVP|iP|CR)\b/gi,
       " ",
     )
     .replace(/[._\-–—|]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Progressively shorter things to ask a catalog, best first.
+ *
+ * Release names carry noise no denylist will ever fully cover — scene groups,
+ * codecs nobody has heard of, "FINAL". Catalogs match literally, so one stray
+ * token is the difference between a poster and a grey box. Rather than grow
+ * the denylist forever, fall back to a shorter prefix: everything up to the
+ * first token containing a digit, then the first three words.
+ */
+function titleCandidates(cleaned: string): string[] {
+  const out: string[] = [];
+  const push = (s: string) => {
+    const v = s.trim();
+    if (v.length > 1 && !out.includes(v)) out.push(v);
+  };
+
+  push(cleaned);
+
+  const words = cleaned.split(/\s+/);
+  const firstNoisy = words.findIndex((w) => /\d/.test(w));
+  if (firstNoisy > 0) push(words.slice(0, firstNoisy).join(" "));
+  if (words.length > 3) push(words.slice(0, 3).join(" "));
+  if (words.length > 2) push(words.slice(0, 2).join(" "));
+
+  return out;
 }
 
 function scoreMatch(query: string, candidateTitle: string): number {
@@ -88,6 +119,39 @@ export async function resolveMetadata(
   let best: MediaMetadata | null = null;
   let bestScore = 0;
 
+  for (const candidate of titleCandidates(cleaned)) {
+    const hit = await lookupOnce(candidate, category, preferAnime);
+    if (hit.score > bestScore) {
+      bestScore = hit.score;
+      best = hit.best;
+    }
+    // A shorter prefix is a guess; stop as soon as one is convincing.
+    if (bestScore >= 55) break;
+  }
+
+  // Require a minimum match quality
+  const result = bestScore >= 40 ? best : null;
+  // Negative answers are often a rate limit or a blip upstream. Remembering
+  // "no artwork" for half an hour turns a five-second outage into a page of
+  // grey boxes long after it has passed.
+  setMemoryQueryCache(memKey, result, result ? undefined : 1000 * 60 * 3);
+
+  if (result) {
+    void setCachedMetadata(result);
+  }
+
+  return result;
+}
+
+/** One pass over both catalogs for a single candidate string. */
+async function lookupOnce(
+  cleaned: string,
+  category: string | undefined,
+  preferAnime: boolean,
+): Promise<{ best: MediaMetadata | null; score: number }> {
+  let best: MediaMetadata | null = null;
+  let bestScore = 0;
+
   try {
     if (preferAnime || category === "all" || !category) {
       const animeHits = await searchAniList(cleaned, 5);
@@ -129,15 +193,7 @@ export async function resolveMetadata(
     }
   }
 
-  // Require a minimum match quality
-  const result = bestScore >= 40 ? best : null;
-  setMemoryQueryCache(memKey, result);
-
-  if (result) {
-    void setCachedMetadata(result);
-  }
-
-  return result;
+  return { best, score: bestScore };
 }
 
 /**
