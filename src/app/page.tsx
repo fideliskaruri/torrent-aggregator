@@ -6,15 +6,43 @@ import { SearchBar } from "@/components/search/search-bar";
 import { SearchResults } from "@/components/search/search-results";
 import { ActiveDownloadsTeaser } from "@/components/tf/active-downloads-teaser";
 import { Button } from "@/components/ui/button";
+import { auth } from "@/lib/auth";
+import prisma from "@/lib/prisma";
 
-const TRENDING = [
-  { q: "One Piece", category: "anime", label: "One Piece" },
-  { q: "Solo Leveling", category: "anime", label: "Solo Leveling" },
-  { q: "Dune Part Two", category: "movies", label: "Dune: Part Two" },
-  { q: "The Last of Us", category: "tv", label: "The Last of Us" },
-  { q: "Frieren", category: "anime", label: "Frieren" },
-  { q: "Severance", category: "tv", label: "Severance" },
-];
+const CATEGORY_BY_MEDIA_TYPE: Record<string, string> = {
+  anime: "anime",
+  movie: "movies",
+  tv: "tv",
+};
+
+/**
+ * Shortcuts back into the titles you are actually tracking.
+ *
+ * This row used to be a hardcoded "Popular" list — six frozen strings dressed
+ * up as a live trending feed, identical for every install and stale the day it
+ * was written. On a single-user tool the only honest source of "what matters
+ * right now" is your own library, so that is what it reads. Empty library means
+ * the row is not rendered at all.
+ */
+async function recentLibraryShortcuts() {
+  try {
+    const session = await auth();
+    const items = await prisma.watchListItem.findMany({
+      where: { userId: session.user.id, status: { in: ["watching", "planned"] } },
+      orderBy: { updatedAt: "desc" },
+      take: 6,
+      select: { id: true, title: true, mediaType: true },
+    });
+    return items.map((item) => ({
+      id: item.id,
+      label: item.title,
+      category: CATEGORY_BY_MEDIA_TYPE[item.mediaType] ?? "all",
+    }));
+  } catch {
+    // The landing page must still render if the DB is unreachable.
+    return [];
+  }
+}
 
 const BROWSE = [
   {
@@ -69,6 +97,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const q = params.q?.trim() ?? "";
   const category = params.category ?? "all";
   const hasQuery = Boolean(q);
+  const shortcuts = hasQuery ? [] : await recentLibraryShortcuts();
 
   return (
     <div className="container-app min-w-0">
@@ -134,12 +163,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
             <div className="mt-5 flex flex-wrap items-center gap-x-1 gap-y-2">
               <span className="text-[12px] text-[var(--text-tertiary)] mr-2">
-                Popular
-              </span>
-              {TRENDING.map((t) => (
+                Continue
+              </span>              {shortcuts.map((t) => (
                 <Link
-                  key={t.label}
-                  href={`/?q=${encodeURIComponent(t.q)}&category=${t.category}`}
+                  key={t.id}
+                  href={`/?q=${encodeURIComponent(t.label)}&category=${t.category}`}
                   className="text-[12px] text-[var(--text-secondary)] hover:text-[var(--accent-text)] px-2 py-0.5 rounded-md hover:bg-[var(--bg-muted)] transition-colors"
                 >
                   {t.label}

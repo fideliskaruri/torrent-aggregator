@@ -3,8 +3,9 @@ import { searchTorrents } from "@/lib/torrents/aggregator";
 import { getUserClientConfig, sendToClient } from "@/lib/clients";
 import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
+import { detectContentKind } from "@/lib/download/smart-category";
 import { acquireRunLock, releaseRunLock } from "@/lib/automation/run-lock";
-import type { TorrentSourceId } from "@/lib/torrents/types";
+import type { TorrentSourceId, TorrentResult } from "@/lib/torrents/types";
 
 export type RuleRunStatus = "sent" | "failed" | "skipped";
 
@@ -21,6 +22,48 @@ export type RuleRunResult = {
   savePath?: string | null;
   category?: string | null;
 };
+
+/**
+ * Content kinds a rule of a given category may legitimately grab.
+ *
+ * An indexer's own category filter is a request, not a guarantee: a rule named
+ * "Weekly anime, 1080p" grabbed *Silo* (live-action drama) and a "4K movies"
+ * rule grabbed a TV episode, because the runner took `results[0]` on trust.
+ * A rule is unattended and writes to disk, so it has to check.
+ *
+ * `tv` accepts anime because an anime episode arriving through a TV rule is a
+ * reasonable reading of the request. `anime` and `movies` are strict: those are
+ * the two the user pins down deliberately, and the two that went wrong.
+ */
+const RULE_KINDS: Record<string, string[]> = {
+  anime: ["anime"],
+  movies: ["movies"],
+  tv: ["tv", "anime"],
+  music: ["music"],
+  games: ["games"],
+  apps: ["software"],
+};
+
+export function matchesRuleCategory(
+  result: Pick<TorrentResult, "title" | "source"> & {
+    tags?: string[] | null;
+    metadata?: TorrentResult["metadata"];
+  },
+  ruleCategory: string | null | undefined,
+): boolean {
+  const allowed = RULE_KINDS[(ruleCategory ?? "").toLowerCase()];
+  if (!allowed) return true; // "all", or a category with no meaningful kind
+  const kind = detectContentKind({
+    title: result.title,
+    tags: result.tags ?? undefined,
+    metadata: result.metadata,
+    // Deliberately withheld: passing the rule's own category as a hint would
+    // make this check answer with the question.
+    searchCategory: null,
+    source: result.source,
+  });
+  return allowed.includes(kind);
+}
 
 /**
  * Persist a GrabJob so Activity always reflects rule hunts
@@ -121,7 +164,10 @@ async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
           | "games",
         limit: 15,
         sources,
-        enrich: false,
+        // Metadata is what separates an anime episode from a live-action one
+        // when both are SxxEyy on the same indexer, and matchesRuleCategory
+        // below depends on it. A scheduled run can afford the lookup.
+        enrich: true,
         skipCache: true,
         // Scheduled work, not a person waiting: use the background indexer budget.
         background: true,
@@ -135,7 +181,9 @@ async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
         },
       });
 
-      const best = result.results[0];
+      const best = result.results.find(
+        (r) => r.magnet && matchesRuleCategory(r, rule.category),
+      );
       if (!best?.magnet) {
         await prisma.autoRule.update({
           where: { id: rule.id },
@@ -144,7 +192,9 @@ async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
         const entry: RuleRunResult = {
           ruleId: rule.id,
           matched: false,
-          message: "No matching torrents",
+          message: result.results.length
+            ? `No ${rule.category ?? "matching"} releases in ${result.results.length} results`
+            : "No matching torrents",
           status: "skipped",
         };
         summary.push(entry);

@@ -6,6 +6,7 @@ import {
   episodeSearchQuery,
   resolveHuntCursor,
 } from "@/lib/library/cursor";
+import { resolveMetadata } from "@/lib/metadata/enrich";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,11 @@ export async function POST(request: NextRequest) {
     synopsis?: string | null;
     rating?: number | null;
     status?: string;
+    /**
+     * Defaults to true. A recommendation added as "planned" passes false: it
+     * has not earned disk, and automation hunts every monitored row.
+     */
+    monitored?: boolean;
     /** Library aggregator: start monitoring from this season (TV/anime) */
     fromSeason?: number | null;
     fromEpisode?: number | null;
@@ -66,6 +72,37 @@ export async function POST(request: NextRequest) {
     nextEpisodeHint = episodeSearchQuery(body.title, cur.season, cur.episode);
   }
 
+  /**
+   * Callers that already hold metadata (the search flow) pass it through.
+   * Callers that do not (the demo seeder, a hand-rolled curl) used to create a
+   * row with no poster, which the library renders as a grey letter tile. Fill
+   * the gap here rather than at every call site, and never let a catalog
+   * outage block the add itself.
+   */
+  let art: {
+    posterUrl?: string | null;
+    synopsis?: string | null;
+    rating?: number | null;
+  } = {
+    posterUrl: body.posterUrl ?? null,
+    synopsis: body.synopsis ?? null,
+    rating: body.rating ?? null,
+  };
+  if (!art.posterUrl) {
+    try {
+      const resolved = await resolveMetadata(body.title, body.mediaType);
+      if (resolved) {
+        art = {
+          posterUrl: resolved.posterUrl ?? null,
+          synopsis: art.synopsis ?? resolved.synopsis ?? null,
+          rating: art.rating ?? resolved.rating ?? null,
+        };
+      }
+    } catch {
+      // Metadata is decoration; adding to the library is the actual request.
+    }
+  }
+
   const item = await prisma.watchListItem.upsert({
     where: {
       userId_mediaType_externalId: {
@@ -79,11 +116,11 @@ export async function POST(request: NextRequest) {
       mediaType: body.mediaType,
       externalId: body.externalId,
       title: body.title,
-      posterUrl: body.posterUrl ?? null,
-      synopsis: body.synopsis ?? null,
-      rating: body.rating ?? null,
+      posterUrl: art.posterUrl,
+      synopsis: art.synopsis,
+      rating: art.rating,
       status: body.status ?? "watching",
-      monitored: true,
+      monitored: body.monitored ?? true,
       fromSeason,
       fromEpisode,
       cursorSeason,
@@ -93,9 +130,11 @@ export async function POST(request: NextRequest) {
     },
     update: {
       title: body.title,
-      posterUrl: body.posterUrl ?? null,
-      synopsis: body.synopsis ?? null,
-      rating: body.rating ?? null,
+      // Only overwrite art we actually have. `?? null` here meant re-adding a
+      // title from a source with no poster erased the poster already on file.
+      ...(art.posterUrl ? { posterUrl: art.posterUrl } : {}),
+      ...(art.synopsis ? { synopsis: art.synopsis } : {}),
+      ...(art.rating != null ? { rating: art.rating } : {}),
       status: body.status ?? undefined,
       // Re-adding with a season resets the hunt cursor
       ...(fromSeason != null

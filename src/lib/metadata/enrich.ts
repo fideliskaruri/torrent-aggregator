@@ -39,6 +39,35 @@ function scoreMatch(query: string, candidateTitle: string): number {
 }
 
 /**
+ * Media types that plausibly answer a request for `category`.
+ *
+ * Catalogs are full of a film and a series sharing a name — "Severance" is a
+ * 2015 horror comedy and a 2022 Apple TV series, both an exact title match, so
+ * whichever the catalog listed first used to win. Getting this wrong is not
+ * cosmetic: the id is stored on the library row, and every later lookup
+ * (episode hunts, recommendations) is then made against the wrong title.
+ * Anime is deliberately permissive — anime exists as both series and films.
+ */
+const EXPECTED_MEDIA_TYPES: Record<string, MediaMetadata["mediaType"][]> = {
+  anime: ["anime", "tv", "movie"],
+  tv: ["tv", "anime"],
+  movies: ["movie", "anime"],
+  movie: ["movie", "anime"],
+};
+
+const WRONG_MEDIA_TYPE_PENALTY = 25;
+
+function mediaTypePenalty(
+  category: string | undefined,
+  mediaType: MediaMetadata["mediaType"],
+): number {
+  if (!category) return 0;
+  const expected = EXPECTED_MEDIA_TYPES[category];
+  if (!expected) return 0;
+  return expected.includes(mediaType) ? 0 : WRONG_MEDIA_TYPE_PENALTY;
+}
+
+/**
  * Resolve the best media metadata for a search query / torrent title.
  */
 export async function resolveMetadata(
@@ -63,7 +92,8 @@ export async function resolveMetadata(
     if (preferAnime || category === "all" || !category) {
       const animeHits = await searchAniList(cleaned, 5);
       for (const hit of animeHits) {
-        const s = scoreMatch(cleaned, hit.title);
+        const s =
+          scoreMatch(cleaned, hit.title) - mediaTypePenalty(category, hit.mediaType);
         if (s > bestScore) {
           bestScore = s;
           best = hit;
@@ -79,7 +109,8 @@ export async function resolveMetadata(
     try {
       const tmdbHits = await searchTmdb(cleaned, 5);
       for (const hit of tmdbHits) {
-        const s = scoreMatch(cleaned, hit.title);
+        const s =
+          scoreMatch(cleaned, hit.title) - mediaTypePenalty(category, hit.mediaType);
         // slight preference for anime when category is anime
         const adjusted = preferAnime && hit.mediaType !== "anime" ? s - 5 : s;
         // TMDB wins ties unless the request actually points at anime. Both

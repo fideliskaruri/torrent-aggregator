@@ -334,6 +334,49 @@ async function runUserAutomationUnlocked(
         continue;
       }
 
+      // Second dedupe, on content identity rather than on this item's last
+      // send. `latestReleaseMagnet` only remembers the most recent grab, so a
+      // release picked up again later — after a cursor rewind, or the same
+      // episode reappearing on another indexer under a different magnet
+      // string — was re-sent and downloaded a second time. That is where the
+      // duplicate release folders in the library came from: the second copy
+      // collides with the first, so it has to keep its release folder.
+      //
+      // Keyed on what the client still holds, not on history: a release the
+      // user has since deleted *should* be grabbable again.
+      if (best.infoHash) {
+        const held = await prisma.engineTorrent.findFirst({
+          where: {
+            userId,
+            hash: best.infoHash.toLowerCase(),
+            status: { not: "removed" },
+          },
+          select: { id: true },
+        });
+        if (held) {
+          await prisma.grabJob.create({
+            data: {
+              userId,
+              title: best.title,
+              query,
+              status: "skipped",
+              message: "Already in the client",
+              magnet: best.magnet,
+              infoHash: best.infoHash,
+              source: best.source,
+              kind: "library",
+              externalId: item.id,
+            },
+          });
+          summary.library.skipped += 1;
+          await prisma.watchListItem.update({
+            where: { id: item.id },
+            data: { lastChecked: new Date() },
+          });
+          continue;
+        }
+      }
+
       if (!isViable(best)) {
         // A swarm this thin will sit at 0% indefinitely. There is no stall
         // detector or blocklist in this app, so a dead grab is never retried —
