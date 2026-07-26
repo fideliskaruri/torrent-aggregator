@@ -80,6 +80,7 @@ saved passwords will not decrypt after a move.
 ```bash
 npm run test:unit    # fast, offline — no network required
 npm run test:api     # contract-checks every API route against a running server
+npm run test:ui      # layout, contrast and modal probes against a running server
 npm run test:live    # the indexer-backed tests (needs unblocked network)
 npm run test:e2e     # Playwright
 npm run test:all     # everything, plus live HTTP checks
@@ -91,10 +92,20 @@ failure does not hide the rest. Tests that hit real torrent indexers are kept
 out of it — they fail on networks that block those hosts, which says nothing
 about the code.
 
+`test:ui` needs a server already running (`npm run start`). It measures the
+things `tsc`, `eslint` and `next build` cannot see: sticky positioning,
+horizontal overflow, text contrast against WCAG AA on every route, and the
+mobile sheet's scroll lock and focus trap.
+
 `scripts/seed-demo.mjs` fills the library with sample shows and rules for
 manual QA against a running server.
 
 ## Architecture
+
+**Handing this project to someone (or some agent) else?** Start with
+[docs/handover.md](docs/handover.md) — the pipeline map, the invariants that
+must not break, the things that look wrong but are deliberate, and how to
+verify a change.
 
 See [docs/architecture/download-engine.md](docs/architecture/download-engine.md) for the pluggable engine design (builtin → optional external → future sidecar).
 

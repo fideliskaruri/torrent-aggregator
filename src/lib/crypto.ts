@@ -11,9 +11,27 @@ const PREFIX = "enc:v1:";
 
 /**
  * Where the auto-generated key lives when no secret is configured.
- * Kept next to the database so a backup of the data directory stays coherent.
+ *
+ * Derived from `DATABASE_URL` so the key genuinely sits next to the database:
+ * in Docker the database is on a volume at `/app/data` while `process.cwd()`
+ * is `/app`, so a cwd-relative key was thrown away on every image rebuild and
+ * every saved external-client password stopped decrypting. A backup of the
+ * data directory must be self-sufficient.
  */
-const KEY_FILE = path.join(process.cwd(), ".torrentflow.key");
+function keyFilePath(): string {
+  const url = process.env.DATABASE_URL ?? "";
+  const m = url.match(/^file:(.+)$/);
+  if (m) {
+    const dir = path.dirname(path.resolve(process.cwd(), m[1].trim()));
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      return path.join(dir, ".torrentflow.key");
+    } catch {
+      /* fall through to cwd */
+    }
+  }
+  return path.join(process.cwd(), ".torrentflow.key");
+}
 
 let cachedKey: Buffer | null = null;
 
@@ -37,13 +55,14 @@ function keyFromSecret(): Buffer {
   }
 
   let material: string;
+  const keyFile = keyFilePath();
   try {
-    material = fs.readFileSync(KEY_FILE, "utf8").trim();
+    material = fs.readFileSync(keyFile, "utf8").trim();
     if (!material) throw new Error("empty key file");
   } catch {
     material = randomBytes(32).toString("base64");
     // mode 0600: the key is only useful to whoever already has the database.
-    fs.writeFileSync(KEY_FILE, material, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(keyFile, material, { encoding: "utf8", mode: 0o600 });
   }
 
   cachedKey = createHash("sha256").update(material).digest();

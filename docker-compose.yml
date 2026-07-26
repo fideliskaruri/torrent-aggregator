@@ -5,16 +5,19 @@ services:
   torrentflow:
     build: .
     ports:
-      - "3000:3000"
+      # 127.0.0.1 only: there is no sign-in, so publishing to 0.0.0.0 would put
+      # an unauthenticated app on the whole LAN. Put a reverse proxy or VPN in
+      # front if you want it from another device.
+      - "127.0.0.1:3000:3000"
       # Optional: better peer connectivity for built-in engine
       # - "6881:6881"
       # - "6881:6881/udp"
     environment:
       DATABASE_URL: file:./data/prod.db
-      AUTH_SECRET: ${AUTH_SECRET:-change-me-in-production}
-      AUTH_URL: ${AUTH_URL:-http://localhost:3000}
-      AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
-      AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
+      # Encrypts stored external-client passwords. Leave unset and a key is
+      # generated next to the database on the tf-data volume, which survives
+      # image rebuilds.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       ENABLE_1337X: ${ENABLE_1337X:-0}
       # One-app download root (mounted volume)

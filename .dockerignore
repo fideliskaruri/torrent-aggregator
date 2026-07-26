@@ -1,0 +1,27 @@
+# The builder does `COPY . .`, so without this the image would carry the dev
+# database, the auto-generated encryption key, every downloaded file and the
+# host's node_modules — a slow build that also bakes local secrets into a
+# layer.
+node_modules
+.next
+out
+downloads
+data
+*.db
+*.db-journal
+prisma/dev.db*
+.torrentflow.key
+.env
+.env.*
+!.env.example
+.git
+.github
+.vscode
+npm-debug.log*
+*.log
+test-results
+playwright-report
+docs
+README.md
+CLAUDE.md
+AGENTS.md

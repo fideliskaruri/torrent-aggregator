@@ -35,6 +35,14 @@ RUN mkdir -p /app/data /downloads && chown -R nextjs:nodejs /app /downloads
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
 
-CMD ["sh", "-c", "npx prisma db push && npm run start"]
+# `npm run start` is `next start -H 127.0.0.1`, which is right on the host (no
+# auth, so do not publish it) and wrong in a container: loopback inside the
+# namespace is unreachable from the published port, so `docker compose up`
+# produced an app that never answered. The container boundary *is* the
+# isolation here; bind to the container's own interfaces and let the compose
+# port mapping decide what is exposed.
+#
+# `migrate deploy` rather than `db push`: the repo has a real migration
+# history, and `db push` diverges from it silently.
+CMD ["sh", "-c", "npx prisma migrate deploy && npx next start -H 0.0.0.0 -p ${PORT:-3000}"]
