@@ -56,6 +56,10 @@ model WatchListItem {
   cursorEpisode       Int?
   /// Consecutive hunts that found nothing — drives season rollover
   cursorMisses        Int       @default(0)
+  /// First time the current cursor episode was skipped for a thin swarm.
+  /// Drives the "waited long enough, take what we can get" escape hatch so a
+  /// low-seeder-but-alive release is not deferred forever. Cleared on grab/miss.
+  seederWaitSince     DateTime?
   /// ongoing | catchup | on_demand
   monitorMode         String    @default("ongoing")
   latestReleaseTitle  String?

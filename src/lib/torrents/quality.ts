@@ -41,10 +41,13 @@ import { normalizeTitle } from "@/lib/utils";
  *   would read it as the opposite of what it says.
  * - bare `4k` is **not** a resolution token. It is marketing text that appears
  *   in titles of 1080p files. Only `[4K]` and `4k-UHD`/`4k-HEVC` count.
+ * - standalone `UHD` **is** 2160. Unlike bare `4k` it is an encoder/disc term,
+ *   not marketing, so reading it as unknown would sink a real 4K disc below
+ *   360p (unknown ranks last).
  */
 const RESOLUTION_PATTERNS: Array<[RegExp, number]> = [
   [/\b(?:4kto1080p)\b/i, 1080],
-  [/\b(?:2160p|3840x2160|4k[-_. ]?(?:uhd|hevc|bd|h ?265)|(?:uhd|hevc|bd|h ?265)[-_. ]4k)\b/i, 2160],
+  [/\b(?:2160p|3840x2160|uhd|4k[-_. ]?(?:uhd|hevc|bd|h ?265)|(?:uhd|hevc|bd|h ?265)[-_. ]4k)\b/i, 2160],
   [/\[4k\]/i, 2160],
   [/\b(?:1080p|1920x1080|1440p|fhd|1080i)\b/i, 1080],
   [/\b(?:720p|1280x720|960p)\b/i, 720],
@@ -83,10 +86,34 @@ export function parseResolution(title: string): number | null {
  * fansub tags. `TELESYNC` and `HDTS` carry the same meaning unambiguously.
  */
 const JUNK_SOURCE_RE =
-  /\b(?:hdcam|cam-?rip|camrip|telesync|hdts|telecine|tele-?cine|dvdscr|dvd-?screener|screener|workprint|hdtc)\b|\bcam\b(?![a-z])/i;
+  /\b(?:hdcam|cam-?rip|camrip|telesync|hdts|telecine|tele-?cine|dvdscr|dvd-?screener|screener|workprint|hdtc)\b/i;
+
+/**
+ * Bare `CAM` is a real scene tag, but `Cam` (2018) is a real film — and junk is
+ * the comparator's second key, so a false positive buries a legitimate 1080p
+ * release below every 480p on the page.
+ *
+ * Scene naming disambiguates them by *position*: metadata always trails the
+ * title block (`Title.YEAR.SOURCE.CODEC`). So bare `cam` counts as junk only
+ * when it appears after a year or a resolution token — never when it is part
+ * of the title itself.
+ *
+ *   "Cam 2018 1080p WEB-DL"   -> title    -> not junk
+ *   "The Cam 1080p"           -> title    -> not junk
+ *   "Movie 2024 CAM XviD"     -> metadata -> junk
+ *   "Movie 1080p CAM"         -> metadata -> junk
+ */
+const BARE_CAM_RE = /\bcam\b(?![a-z])/i;
+const METADATA_ANCHOR_RE = /\b(?:19|20)\d{2}\b|\b\d{3,4}[pi]\b/i;
 
 export function isJunkSource(title: string): boolean {
-  return JUNK_SOURCE_RE.test((title || "").replace(/[._]/g, " "));
+  const t = (title || "").replace(/[._]/g, " ");
+  if (JUNK_SOURCE_RE.test(t)) return true;
+
+  const cam = BARE_CAM_RE.exec(t);
+  if (!cam) return false;
+  const anchor = METADATA_ANCHOR_RE.exec(t);
+  return anchor != null && anchor.index < cam.index;
 }
 
 /** Sample clips and extras masquerading as the release. */
@@ -220,10 +247,29 @@ export function recencyBucket(publishedAt: string | null | undefined): number {
  * relevance only needs the show name.
  */
 const EPISODE_QUERY_TOKEN_RE =
-  /\b(?:s\d{1,3}\s?e\d{1,4}|season\s*\d{1,3}|episode\s*\d{1,4}|\d{1,3}x\d{1,3})\b/gi;
+  /\b(?:s\d{1,3}\s?e\d{1,4}|season\s*\d{1,3}|episode\s*\d{1,4})\b/gi;
+
+/**
+ * `1x05`-style episode tokens, stripped **only when they don't lead the query**.
+ *
+ * `3x3 Eyes` and `5x5` are real titles. Stripping a leading `NxN` turns them
+ * into `"Eyes"` / `""`, and relevance is the comparator's highest-priority key
+ * — so a generic word (or nothing at all) would decide ordering, re-creating
+ * the exact "wins on a naming coincidence" failure this module exists to kill.
+ * A genuine episode token always follows a show name, so requiring a preceding
+ * word costs nothing.
+ */
+const LOOSE_EPISODE_TOKEN_RE = /(?<=\S\s+)\b\d{1,3}x\d{1,3}\b/gi;
 
 export function stripEpisodeTokens(query: string): string {
-  return (query || "").replace(EPISODE_QUERY_TOKEN_RE, " ").trim();
+  const stripped = (query || "")
+    .replace(EPISODE_QUERY_TOKEN_RE, " ")
+    .replace(LOOSE_EPISODE_TOKEN_RE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Never let stripping erase the query. An empty relevance key scores every
+  // release identically, which is strictly worse than not stripping at all.
+  return stripped || (query || "").trim();
 }
 
 /**

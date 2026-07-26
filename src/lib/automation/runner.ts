@@ -2,6 +2,13 @@ import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { isViable, MIN_VIABLE_SEEDERS } from "@/lib/torrents/quality";
+
+/**
+ * How long automation defers a thin-but-present release before grabbing it
+ * anyway. Long enough that a genuinely fresh release has found peers, short
+ * enough that a niche title is not undownloadable overnight.
+ */
+const SEEDER_WAIT_GRACE_MS = 6 * 60 * 60 * 1000;
 import {
   advanceCursorAfterMiss,
   afterSuccessfulGrab,
@@ -83,6 +90,9 @@ async function recordHuntMiss(
       cursorMisses: next.misses,
       ...(next.rolledOver
         ? {
+            // Cursor moved to a new season — a wait recorded against the old
+            // episode must not carry over and instantly expire on the new one.
+            seederWaitSince: null,
             cursorSeason: next.cursor.season,
             cursorEpisode: next.cursor.episode,
             nextEpisodeHint: formatEpisodeLabel(
@@ -208,7 +218,12 @@ async function runUserAutomationUnlocked(
         skipCache: true,
         filters: {
           hasMagnet: true,
-          minSeeders: 1,
+          // Deliberately NOT `minSeeders: 1`. A brand-new episode routinely
+          // sits at 0 seeders for its first minutes, and dropping it here made
+          // `best` undefined, which recorded a *hunt miss* — three of which
+          // roll the cursor to the next season and skip episodes forever. The
+          // single viability gate below owns the whole thin/dead decision so
+          // "not seeded yet" can never be mistaken for "does not exist".
           ...(huntCursor
             ? { season: huntCursor.season, episode: huntCursor.episode }
             : {}),
@@ -216,9 +231,7 @@ async function runUserAutomationUnlocked(
       });
 
       // Prefer exact SxxEyy match. When hunting a cursor, never grab a random ep.
-      const withMagnet = result.results.filter(
-        (t) => t.magnet && (t.seeders ?? 0) > 0,
-      );
+      const withMagnet = result.results.filter((t) => t.magnet);
       const best =
         huntCursor
           ? withMagnet.find((t) => {
@@ -264,40 +277,10 @@ async function runUserAutomationUnlocked(
         continue;
       }
 
-      if (best?.magnet && !isViable(best)) {
-        // A swarm this thin will sit at 0% indefinitely. There is no stall
-        // detector or blocklist in this app, so a dead grab is never retried —
-        // it just occupies the slot while `latestReleaseMagnet` reports
-        // "Already sent this release" forever.
-        //
-        // Crucially this is NOT recorded as a hunt miss. A miss means "this
-        // episode does not exist", and three of them roll the cursor to the
-        // next season, permanently skipping episodes. Here the episode plainly
-        // does exist — it is just not seeded yet, which is the normal state of
-        // a release in its first minutes. Holding the cursor means the next run
-        // picks it up once peers arrive.
-        await prisma.grabJob.create({
-          data: {
-            userId,
-            title: best.title,
-            query,
-            status: "skipped",
-            message: `Waiting for seeders (${best.seeders ?? 0} of ${MIN_VIABLE_SEEDERS} needed) — will retry`,
-            magnet: best.magnet,
-            infoHash: best.infoHash ?? null,
-            source: best.source,
-            kind: "library",
-            externalId: item.id,
-          },
-        });
-        summary.library.skipped += 1;
-        await prisma.watchListItem.update({
-          where: { id: item.id },
-          data: { lastChecked: new Date() },
-        });
-        continue;
-      }
-
+      // Dedupe BEFORE the viability gate. A release that was already sent and
+      // has since lost peers is "grabbed, downloading" — not "waiting for
+      // seeders". Gating first would log a misleading skip row every single
+      // run for a torrent the client is already working on.
       if (
         item.latestReleaseMagnet &&
         item.latestReleaseMagnet === best.magnet
@@ -322,6 +305,57 @@ async function runUserAutomationUnlocked(
           data: { lastChecked: new Date() },
         });
         continue;
+      }
+
+      if (!isViable(best)) {
+        // A swarm this thin will sit at 0% indefinitely. There is no stall
+        // detector or blocklist in this app, so a dead grab is never retried —
+        // it just occupies the slot while `latestReleaseMagnet` reports
+        // "Already sent this release" forever.
+        //
+        // Crucially this is NOT recorded as a hunt miss. A miss means "this
+        // episode does not exist", and three of them roll the cursor to the
+        // next season, permanently skipping episodes. Here the episode plainly
+        // does exist — it is just not seeded yet, which is the normal state of
+        // a release in its first minutes. Holding the cursor means the next run
+        // picks it up once peers arrive.
+        //
+        // But waiting must not be forever: "thin ⇒ dead" is a heuristic, and a
+        // stable 2-seeder swarm does complete. After the grace window we take
+        // what we can get, so a niche title is never permanently undownloadable.
+        const waitingSince = item.seederWaitSince ?? new Date();
+        const waitedMs = Date.now() - waitingSince.getTime();
+
+        if (waitedMs < SEEDER_WAIT_GRACE_MS) {
+          const hoursLeft = Math.max(
+            1,
+            Math.round((SEEDER_WAIT_GRACE_MS - waitedMs) / 3_600_000),
+          );
+          await prisma.grabJob.create({
+            data: {
+              userId,
+              title: best.title,
+              query,
+              status: "skipped",
+              message: `Waiting for seeders (${best.seeders ?? 0} of ${MIN_VIABLE_SEEDERS}) — grabbing anyway in ~${hoursLeft}h if no peers arrive`,
+              magnet: best.magnet,
+              infoHash: best.infoHash ?? null,
+              source: best.source,
+              kind: "library",
+              externalId: item.id,
+            },
+          });
+          summary.library.skipped += 1;
+          await prisma.watchListItem.update({
+            where: { id: item.id },
+            data: {
+              lastChecked: new Date(),
+              seederWaitSince: waitingSince,
+            },
+          });
+          continue;
+        }
+        // Grace window elapsed — fall through and grab the thin release.
       }
 
       if (!config) {
@@ -502,6 +536,9 @@ async function runUserAutomationUnlocked(
             cursorSeason: advanced.cursorSeason,
             cursorEpisode: advanced.cursorEpisode,
             cursorMisses: 0,
+            // The cursor moved on, so any thin-swarm wait belonged to the
+            // episode we just grabbed and must not leak into the next one.
+            seederWaitSince: null,
             nextEpisodeHint: advanced.nextEpisodeHint,
             // Seed fromSeason if user never set it (legacy items)
             ...(item.fromSeason == null && huntCursor

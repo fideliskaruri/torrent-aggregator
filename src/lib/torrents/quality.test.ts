@@ -459,9 +459,181 @@ check("short tags do not fire on substrings of longer words", () => {
   assert.ok(extractTags("Movie 2160p Dolby Vision REMUX").includes("DV"));
 });
 
-console.log(
-  failures === 0
-    ? "\nquality.test.ts: all assertions passed"
-    : `\nquality.test.ts: ${failures} FAILED`,
-);
+console.log("\n--- regressions found by review of the shipped diff ---");
+
+// [3] stripEpisodeTokens must not corrupt "NxN" titles into a generic word.
+check("leading NxN is a title, not an episode token", () => {
+  assert.equal(stripEpisodeTokens("3x3 Eyes"), "3x3 Eyes");
+  assert.equal(stripEpisodeTokens("3x3 Eyes S01E05"), "3x3 Eyes");
+  assert.equal(stripEpisodeTokens("5x5"), "5x5");
+  // A genuine episode token always trails a show name.
+  assert.equal(stripEpisodeTokens("Family Guy 1x05"), "Family Guy");
+  assert.equal(stripEpisodeTokens("The Wire 2x11"), "The Wire");
+});
+
+check("stripping never empties the relevance key", () => {
+  for (const q of ["S01E05", "Season 2", "Episode 7", "5x5", ""]) {
+    const out = stripEpisodeTokens(q);
+    if (q !== "") {
+      assert.ok(out.length > 0, `stripping emptied the query: "${q}"`);
+    }
+  }
+});
+
+check("years survive stripping", () => {
+  assert.equal(stripEpisodeTokens("Blade Runner 2049"), "Blade Runner 2049");
+});
+
+// [4] "Cam" (2018) is a real film; bare CAM is only junk as trailing metadata.
+check("a film titled Cam is not a camrip", () => {
+  assert.ok(!isJunkSource("Cam 2018 1080p WEB-DL"), "Cam (2018) flagged as junk");
+  assert.ok(!isJunkSource("The Cam 1080p"), "The Cam flagged as junk");
+  assert.ok(!isJunkSource("Camp 1080p"));
+  assert.ok(!isJunkSource("webcam show 1080p"));
+  assert.ok(!isJunkSource("Scam 1992 1080p"));
+});
+
+check("bare CAM in the metadata block is still junk", () => {
+  assert.ok(isJunkSource("Movie 2024 CAM XviD-GROUP"));
+  assert.ok(isJunkSource("Movie.2024.CAM.x264"));
+  assert.ok(isJunkSource("Some Movie 1080p CAM"));
+  assert.ok(isJunkSource("Movie 2024 HDCAM"));
+  assert.ok(isJunkSource("Movie 2024 CamRip"));
+});
+
+check("a junk-flagged release loses to a clean one regardless of swarm", () => {
+  const junk = rel({ id: "junk", title: "Movie 2024 CAM XviD", seeders: 20_000 });
+  const clean = rel({ id: "clean", title: "Movie 2024 1080p WEB-DL", seeders: 3 });
+  assert.equal(winner(junk, clean), "clean");
+});
+
+// [10] standalone UHD is a real 2160 signal, unlike marketing "4k".
+check("standalone UHD reads as 2160", () => {
+  assert.equal(parseResolution("Movie UHD BluRay REMUX"), 2160);
+  assert.equal(parseResolution("Movie 2160p UHD"), 2160);
+  // Bare 4k stays marketing text.
+  assert.equal(parseResolution("Movie 4k Remastered 1080p BluRay"), 1080);
+});
+
+// [5] The user-settable target is the newest surface; every target must keep a
+// strict total order over resolutions, or two resolutions tie and ordering
+// silently falls through to seeders — the original bug.
+const SELECTABLE_TARGETS = [480, 720, 1080, 2160];
+const ALL_RES = [360, 480, 576, 720, 1080, 2160];
+
+check("every selectable target yields a strict order over resolutions", () => {
+  for (const target of SELECTABLE_TARGETS) {
+    const affinities = ALL_RES.map((r) => resolutionAffinity(r, target));
+    const unique = new Set(affinities);
+    assert.equal(
+      unique.size,
+      ALL_RES.length,
+      `target ${target}: affinity collision ${JSON.stringify(
+        ALL_RES.map((r, i) => [r, affinities[i]]),
+      )}`,
+    );
+    // Unknown must rank below every known resolution.
+    const unknown = resolutionAffinity(null, target);
+    for (const a of affinities) {
+      assert.ok(a > unknown, `target ${target}: unknown outranks a known res`);
+    }
+    // The target itself must win outright.
+    const best = Math.max(...affinities);
+    assert.equal(
+      affinities[ALL_RES.indexOf(target)],
+      best,
+      `target ${target} is not the top-ranked resolution`,
+    );
+  }
+});
+
+check("above-target sinks below every at-or-below-target option", () => {
+  for (const target of SELECTABLE_TARGETS) {
+    const below = ALL_RES.filter((r) => r <= target);
+    const above = ALL_RES.filter((r) => r > target);
+    for (const hi of above) {
+      for (const lo of below) {
+        assert.ok(
+          resolutionAffinity(lo, target) > resolutionAffinity(hi, target),
+          `target ${target}: ${hi} outranked ${lo}`,
+        );
+      }
+    }
+  }
+});
+
+check("at every target, seeders never buy a resolution downgrade", () => {
+  for (const target of SELECTABLE_TARGETS) {
+    for (const lo of ALL_RES) {
+      for (const hi of ALL_RES) {
+        if (resolutionAffinity(hi, target) <= resolutionAffinity(lo, target)) {
+          continue;
+        }
+        for (const loSeeders of SEEDER_SWEEP) {
+          for (const hiSeeders of SEEDER_SWEEP) {
+            const ranked = rankResults(
+              [
+                rel({ id: "lo", title: `Show ${lo}p WEB-DL`, seeders: loSeeders }),
+                rel({ id: "hi", title: `Show ${hi}p WEB-DL`, seeders: hiSeeders }),
+              ],
+              "Show",
+              target,
+            );
+            assert.equal(
+              ranked[0].id,
+              "hi",
+              `target ${target}: ${lo}p@${loSeeders} beat ${hi}p@${hiSeeders}`,
+            );
+          }
+        }
+      }
+    }
+  }
+});
+
+// [6] Every existing test leaves publishedAt undefined, so recency is pinned
+// at 0 and the "score can never disagree with the comparator" claim is only
+// proven on a sub-lattice. Drive recency and seeders to their ceilings.
+check("score encoding agrees with the comparator when recency is live", () => {
+  const now = Date.now();
+  const ages = [0, 2, 10, 40, 400].map(
+    (d) => new Date(now - d * 86_400_000).toISOString(),
+  );
+  const pool: TorrentResult[] = [];
+  for (const res of [480, 720, 1080, 2160]) {
+    for (const seeders of [3, 150, 20_000]) {
+      for (const publishedAt of ages) {
+        pool.push(
+          rel({
+            id: `${res}-${seeders}-${publishedAt}`,
+            title: `Show ${res}p WEB-DL`,
+            seeders,
+            publishedAt,
+          }),
+        );
+      }
+    }
+  }
+
+  for (const target of SELECTABLE_TARGETS) {
+    const ranked = rankResults(pool, "Show", target);
+    for (let i = 0; i < ranked.length - 1; i += 1) {
+      const a = ranked[i];
+      const b = ranked[i + 1];
+      // The encoded score is what the UI groups on; it must never contradict
+      // the comparator that produced the order.
+      assert.ok(
+        (a.score ?? 0) >= (b.score ?? 0),
+        `target ${target}: score inverted at ${i} (${a.title} ${a.score} < ${b.title} ${b.score})`,
+      );
+      const cmp = compareReleases(
+        describeRelease(a, "Show", target),
+        describeRelease(b, "Show", target),
+      );
+      assert.ok(cmp <= 0, `target ${target}: comparator disagrees with rank at ${i}`);
+    }
+  }
+});
+
+
 if (failures > 0) process.exit(1);
