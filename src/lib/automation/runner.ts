@@ -13,6 +13,7 @@ import {
   advanceCursorAfterMiss,
   afterSuccessfulGrab,
   formatEpisodeLabel,
+  isHuntDue,
   resolveHuntCursor,
   type ShowCursor,
 } from "@/lib/library/cursor";
@@ -45,6 +46,8 @@ export type AutomationSummary = {
     sent: number;
     skipped: number;
     failed: number;
+    /** Monitored items not hunted this pass because they are in miss backoff. */
+    deferred: number;
   };
   offline: boolean;
   message: string;
@@ -68,7 +71,12 @@ function looksOfflineMessage(message: string): boolean {
  *
  * Counts the miss and, once the season looks finished, rolls the cursor to the
  * next season so a monitored show cannot dead-end forever at the last episode
- * of a season. Non-series items (no cursor) just get lastChecked bumped.
+ * of a season.
+ *
+ * Non-series items have no cursor and nothing to roll, but they still count
+ * misses: an unreleased movie is otherwise hunted on every single pass for the
+ * life of the install. The count is what drives hunt backoff, and a successful
+ * grab resets it to 0.
  */
 async function recordHuntMiss(
   itemId: string,
@@ -78,7 +86,10 @@ async function recordHuntMiss(
   if (!cursor) {
     await prisma.watchListItem.update({
       where: { id: itemId },
-      data: { lastChecked: new Date() },
+      data: {
+        lastChecked: new Date(),
+        cursorMisses: Math.max(0, Math.trunc(misses) || 0) + 1,
+      },
     });
     return;
   }
@@ -117,7 +128,7 @@ export async function runUserAutomation(userId: string): Promise<AutomationSumma
   if (!lockId) {
     return {
       rules: { ran: 0, matched: 0, messages: [] },
-      library: { checked: 0, sent: 0, skipped: 0, failed: 0 },
+      library: { checked: 0, sent: 0, skipped: 0, failed: 0, deferred: 0 },
       offline: false,
       message: "Automation is already running — ignored this request",
     };
@@ -153,6 +164,7 @@ async function runUserAutomationUnlocked(
       sent: 0,
       skipped: 0,
       failed: 0,
+      deferred: 0,
     },
     offline: rulesOffline,
     message: "",
@@ -202,6 +214,13 @@ async function runUserAutomationUnlocked(
   }
 
   for (const item of items) {
+    // An item that has missed repeatedly is not re-hunted every pass. Without
+    // this, a cursor that can never advance (see huntBackoffMs) burns one
+    // indexer request per item per scheduler tick, forever.
+    if (!isHuntDue(item.cursorMisses, item.lastChecked)) {
+      summary.library.deferred += 1;
+      continue;
+    }
     summary.library.checked += 1;
     // Library aggregator: hunt Title SxxEyy from cursor, not bare show name
     const hunt = resolveHuntCursor(item);
@@ -216,6 +235,8 @@ async function runUserAutomationUnlocked(
         limit: 15,
         enrich: false,
         skipCache: true,
+        // Scheduled work, not a person waiting: use the background indexer budget.
+        background: true,
         filters: {
           hasMagnet: true,
           // Deliberately NOT `minSeeders: 1`. A brand-new episode routinely
@@ -587,7 +608,10 @@ async function runUserAutomationUnlocked(
     `Rules: ${summary.rules.ran} ran, ${summary.rules.matched} matched`,
   );
   parts.push(
-    `Library: ${summary.library.checked} checked, ${summary.library.sent} sent, ${summary.library.skipped} skipped, ${summary.library.failed} failed`,
+    `Library: ${summary.library.checked} checked, ${summary.library.sent} sent, ${summary.library.skipped} skipped, ${summary.library.failed} failed` +
+      (summary.library.deferred > 0
+        ? `, ${summary.library.deferred} waiting (repeated misses)`
+        : ""),
   );
   if (summary.offline) {
     parts.push(

@@ -10,6 +10,9 @@ import {
   episodeSearchQuery,
   resolveHuntCursor,
   SEASON_ROLLOVER_MISS_THRESHOLD,
+  HUNT_BACKOFF_AFTER_MISSES,
+  huntBackoffMs,
+  isHuntDue,
 } from "./cursor";
 
 {
@@ -172,6 +175,67 @@ import {
     season: 4,
     episode: 10,
   });
+}
+
+// Hunt backoff: an item that can never succeed must not burn one indexer
+// request per scheduler tick forever. A cursor parked at S04E01 of a
+// three-season show cannot roll over (rollover needs episode > 1), so it is
+// the case this exists for.
+{
+  assert.ok(
+    HUNT_BACKOFF_AFTER_MISSES > SEASON_ROLLOVER_MISS_THRESHOLD,
+    "backoff must not fire before a normal season rollover gets its chance",
+  );
+
+  // Below the threshold nothing is deferred — a new or recovering item is
+  // hunted every pass.
+  for (let m = 0; m < HUNT_BACKOFF_AFTER_MISSES; m += 1) {
+    assert.equal(huntBackoffMs(m), 0, `misses=${m} must not back off`);
+    assert.equal(isHuntDue(m, new Date()), true);
+  }
+
+  // Then it grows, and it is monotonic.
+  const first = huntBackoffMs(HUNT_BACKOFF_AFTER_MISSES);
+  const second = huntBackoffMs(HUNT_BACKOFF_AFTER_MISSES + 1);
+  assert.ok(first > 0);
+  assert.ok(second > first, "backoff must grow with consecutive misses");
+
+  // And it is capped, so a long-abandoned item is still retried daily rather
+  // than never — the show may simply not have aired yet.
+  const huge = huntBackoffMs(500);
+  assert.ok(Number.isFinite(huge), "2 ** misses must not overflow to Infinity");
+  assert.equal(huge, huntBackoffMs(1000), "backoff must plateau at the cap");
+  assert.ok(huge <= 24 * 60 * 60 * 1000);
+
+  // Due once the wait has elapsed.
+  const misses = HUNT_BACKOFF_AFTER_MISSES;
+  const wait = huntBackoffMs(misses);
+  const now = new Date("2025-01-01T12:00:00Z");
+  assert.equal(
+    isHuntDue(misses, new Date(now.getTime() - wait + 1000), now),
+    false,
+    "still inside the backoff window",
+  );
+  assert.equal(
+    isHuntDue(misses, new Date(now.getTime() - wait), now),
+    true,
+    "exactly at the window edge counts as due",
+  );
+
+  // Never-checked items are due.
+  assert.equal(isHuntDue(misses, null, now), true);
+
+  // A clock change that puts lastChecked in the future must not park the item
+  // until the clock catches up.
+  assert.equal(
+    isHuntDue(misses, new Date(now.getTime() + 86_400_000), now),
+    true,
+    "a future lastChecked must not strand the item",
+  );
+
+  // Garbage miss counts degrade to "hunt it".
+  assert.equal(huntBackoffMs(NaN), 0);
+  assert.equal(huntBackoffMs(-5), 0);
 }
 
 console.log("cursor.test.ts: all assertions passed");

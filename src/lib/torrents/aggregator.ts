@@ -10,6 +10,7 @@ import { x1337Adapter } from "./adapters/x1337";
 import { apibayAdapter } from "./adapters/apibay";
 import { torrentsCsvAdapter } from "./adapters/torrentscsv";
 import { ytsAdapter } from "./adapters/yts";
+import { eztvAdapter } from "./adapters/eztv";
 import { dedupeResults, groupReleases, rankResults } from "./ranking";
 import { applyFilters, type SearchFilters } from "./filters";
 import { getTargetResolution } from "./target-resolution";
@@ -41,8 +42,16 @@ export class SearchThrottledError extends Error {
   }
 }
 
-/** All callers share one indexer budget: it models the indexers, not the user. */
+/**
+ * Two budgets, because two callers with very different urgency share one set of
+ * indexers. The budget models the indexers — they ban IPs that hammer them —
+ * but a background watchlist pass over twenty shows would otherwise spend the
+ * whole minute's allowance and throttle the human sitting at the search box.
+ * The person waiting wins; a scheduled hunt can retry in half an hour.
+ */
 const UPSTREAM_BUDGET_KEY = "indexer-fanout";
+const BACKGROUND_BUDGET_KEY = "indexer-fanout:background";
+const BACKGROUND_BUDGET_MAX = 15;
 
 /**
  * 1337x is Cloudflare-blocked from many networks (HTTP 403, no API key).
@@ -53,6 +62,7 @@ const ALL_ADAPTERS: TorrentSourceAdapter[] = [
   apibayAdapter,
   torrentsCsvAdapter,
   ytsAdapter,
+  eztvAdapter,
   ...(process.env.ENABLE_1337X === "1" ? [x1337Adapter] : []),
 ];
 
@@ -97,6 +107,11 @@ export async function searchTorrents(
     skipCache?: boolean;
     /** User download prefs for server-side path/category routing */
     routing?: RoutingPrefs | null;
+    /**
+     * Background work draws on a smaller, separate indexer budget so a large
+     * watchlist cannot throttle the user's own interactive searches.
+     */
+    background?: boolean;
   },
 ): Promise<SearchResponse> {
   const started = Date.now();
@@ -149,16 +164,18 @@ export async function searchTorrents(
 
     // Spend the indexer budget here — the only place that actually contacts
     // them. If it is exhausted, a stale cached pool beats an error every time.
-    if (!rateLimit(UPSTREAM_BUDGET_KEY)) {
+    const budgetKey = options.background
+      ? BACKGROUND_BUDGET_KEY
+      : UPSTREAM_BUDGET_KEY;
+    const budgetMax = options.background ? BACKGROUND_BUDGET_MAX : undefined;
+    if (!rateLimit(budgetKey, budgetMax)) {
       const stale = await getSearchCache(cacheKey, { allowStale: true });
       if (stale) {
         fullResults = stale.results;
         sources = stale.sources;
         fromCache = true;
       } else {
-        throw new SearchThrottledError(
-          rateLimitResetSeconds(UPSTREAM_BUDGET_KEY),
-        );
+        throw new SearchThrottledError(rateLimitResetSeconds(budgetKey));
       }
     }
 

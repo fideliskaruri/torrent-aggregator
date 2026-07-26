@@ -4,8 +4,19 @@ import type {
   TorrentSourceAdapter,
 } from "../types";
 import { extractTags } from "../ranking";
+import { fetchFromMirrors, mirrorList } from "./mirrors";
 
-const BASE = process.env.YTS_BASE_URL ?? "https://yts.mx/api/v2";
+/**
+ * `yts.mx` is the canonical host and is tried first, but it stopped resolving
+ * from at least one network while `yts.lt` and the `movies-api.accel.li` host
+ * named in YTS's own API response both answered. One dead hostname used to take
+ * the entire movie source offline silently.
+ */
+const HOSTS = mirrorList(process.env.YTS_BASE_URL, [
+  "https://yts.mx/api/v2",
+  "https://yts.lt/api/v2",
+  "https://movies-api.accel.li/api/v2",
+]);
 
 /**
  * YTS public JSON API — movies only, no API key.
@@ -23,15 +34,21 @@ export class YtsAdapter implements TorrentSourceAdapter {
     const q = options.query.trim();
     if (!q) return [];
 
-    const url = new URL(`${BASE}/list_movies.json`);
-    url.searchParams.set("query_term", q);
-    url.searchParams.set("limit", String(Math.min(options.limit ?? 20, 50)));
-    url.searchParams.set("sort_by", "seeds");
+    const query = new URLSearchParams({
+      query_term: q,
+      limit: String(Math.min(options.limit ?? 20, 50)),
+      sort_by: "seeds",
+    });
 
-    const res = await fetch(url, {
-      headers: { Accept: "application/json", "User-Agent": "TorrentFlow/1.0" },
-      signal: AbortSignal.timeout(12_000),
-      next: { revalidate: 0 },
+    const res = await fetchFromMirrors({
+      key: "yts",
+      hosts: HOSTS,
+      path: (host) => `${host}/list_movies.json?${query}`,
+      init: {
+        headers: { Accept: "application/json", "User-Agent": "TorrentFlow/1.0" },
+        signal: AbortSignal.timeout(12_000),
+        next: { revalidate: 0 },
+      },
     });
 
     if (!res.ok) {
@@ -85,6 +102,12 @@ export class YtsAdapter implements TorrentSourceAdapter {
         });
       }
     }
+
+    // YTS returns fuzzy title matches, and one movie can carry eight torrents.
+    // Truncating in API order therefore drops on relevance-by-accident: an
+    // unrelated film matched first can eat the whole budget while the actual
+    // match's only well-seeded release is cut. Keep the viable ones.
+    results.sort((a, b) => b.seeders - a.seeders);
 
     return results.slice(0, options.limit ?? 40);
   }

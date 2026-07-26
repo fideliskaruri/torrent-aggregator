@@ -82,6 +82,57 @@ export function advanceCursorAfterMiss(
   };
 }
 
+/**
+ * Consecutive empty hunts before an item stops being checked every pass.
+ *
+ * Set above SEASON_ROLLOVER_MISS_THRESHOLD so a normal season boundary — which
+ * resets misses to 0 when it rolls — never triggers backoff.
+ */
+export const HUNT_BACKOFF_AFTER_MISSES = 4;
+const HUNT_BACKOFF_BASE_MS = 60 * 60 * 1000;
+const HUNT_BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * How long to wait before hunting an item again, given its consecutive misses.
+ *
+ * Some items can never succeed: a cursor parked at S04E01 of a three-season
+ * show cannot roll over (rollover requires episode > 1, because at E01 an empty
+ * result means "not available" rather than "season finished"), so it misses
+ * forever. With a scheduler running every 30 minutes that is a real indexer
+ * request, every pass, for the life of the install.
+ *
+ * Backoff rather than a terminal "give up" state is deliberate. An empty result
+ * is ambiguous — the show may genuinely be over, or two of four indexers may be
+ * down, which has actually happened here. Unmonitoring on that evidence would
+ * be wrong and would need the user to notice and undo it. Backoff costs almost
+ * nothing when we are wrong, and self-heals the moment a hunt succeeds, because
+ * a grab resets cursorMisses to 0.
+ */
+export function huntBackoffMs(misses: number): number {
+  const m = Math.max(0, Math.trunc(misses) || 0);
+  if (m < HUNT_BACKOFF_AFTER_MISSES) return 0;
+  const steps = m - HUNT_BACKOFF_AFTER_MISSES;
+  // Cap the exponent before it is applied, so a long-abandoned item cannot
+  // overflow 2 ** steps into Infinity.
+  if (steps > 10) return HUNT_BACKOFF_MAX_MS;
+  return Math.min(HUNT_BACKOFF_BASE_MS * 2 ** steps, HUNT_BACKOFF_MAX_MS);
+}
+
+/** Whether an item has waited out its backoff and should be hunted this pass. */
+export function isHuntDue(
+  misses: number,
+  lastChecked: Date | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  const wait = huntBackoffMs(misses);
+  if (wait === 0) return true;
+  if (!lastChecked) return true;
+  const elapsed = now.getTime() - lastChecked.getTime();
+  // A lastChecked in the future (clock change) must not park an item forever.
+  if (elapsed < 0) return true;
+  return elapsed >= wait;
+}
+
 export function parseSeasonEpisodeLabel(
   label: string | null | undefined,
 ): ShowCursor | null {

@@ -58,6 +58,7 @@ export type TorrentSourceId =
   | "1337x"
   | "apibay"
   | "torrentscsv"
+  | "eztv"
   | "yts";
 
 export interface SearchOptions {

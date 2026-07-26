@@ -11,6 +11,7 @@ export const SOURCE_LABELS: Record<TorrentSourceId, string> = {
   nyaa: "Nyaa",
   apibay: "The Pirate Bay",
   torrentscsv: "Torrents-CSV",
+  eztv: "EZTV",
   yts: "YTS",
   "1337x": "1337x",
 };
@@ -20,6 +21,7 @@ export const SOURCE_SHORT_LABELS: Record<TorrentSourceId, string> = {
   nyaa: "Nyaa",
   apibay: "TPB",
   torrentscsv: "CSV",
+  eztv: "EZTV",
   yts: "YTS",
   "1337x": "1337x",
 };

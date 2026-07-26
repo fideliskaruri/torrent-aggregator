@@ -48,7 +48,22 @@ The whole product is that pipeline. Every module below is one stage of it.
 | `quality.ts` | The comparator. Ported from Sonarr's logic. **This is the most subtle file in the repo** — read `docs/architecture/release-ranking.md` before touching it. |
 | `episodes.ts` | `parseEpisode(title)` → season/episode/pack detection. Consumed by ranking, filters, path layout and category detection, so a change here ripples everywhere. |
 | `search-cache.ts` | TTL cache + the budget counter. |
+| `adapters/mirrors.ts` | Mirror failover. Public indexers lose hostnames; without this, one dead host silently deletes an entire source (see §4). |
 | `target-resolution.ts` | Short-lived memo of the user's quality target. Must be invalidated when settings change or the user sees stale ordering. |
+
+**Indexer reality, as measured.** Adapters do not degrade gracefully by
+accident — they degrade because the code says so, and the source-health strip in
+search results is the only thing that tells the user the difference between "the
+indexers answered and had nothing" and "half of them are down".
+
+| Source | Status | Notes |
+|--------|--------|-------|
+| `torrentscsv` | working | The only source answering for older TV. |
+| `yts` | working **via mirror** | `yts.mx` stopped resolving; `yts.lt` and `movies-api.accel.li` answer. Movies only. |
+| `nyaa` | working | Anime. |
+| `eztv` | working | TV only, and only recent seasons. Requires `TMDB_API_KEY` — its API filters by IMDb id and **ignores free text**, so titles are resolved through TMDB first. Returns `[]` (not an error) when unconfigured. |
+| `apibay` | **down** | Cloudflare interstitial; a browser User-Agent no longer passes it. No working mirror found. Reports honestly rather than pretending to be empty. |
+| `1337x` | off by default | Cloudflare-blocked from most networks. `ENABLE_1337X=1`. |
 
 ### Download and layout — `src/lib/clients/` and `src/lib/download/`
 
@@ -122,7 +137,21 @@ explicitly. If you change that, change the copy in the same commit.
   needs protecting is the indexers, which ban IPs. A route-level limiter also
   charged cache hits (which contact nobody) and missed automation entirely
   (which calls `searchTorrents` directly). Stale cache is served in preference
-  to erroring.
+  to erroring. **Foreground and background draw on separate budgets** — a
+  watchlist pass over twenty shows would otherwise spend the whole minute's
+  allowance and throttle the human sitting at the search box. Pass
+  `background: true` from anything scheduled.
+- **Repeatedly-missing watchlist items back off, but are never dropped.** See
+  `huntBackoffMs` in `src/lib/library/cursor.ts`. A cursor parked at S04E01 of a
+  three-season show cannot roll over (rollover requires `episode > 1`, because
+  at E01 an empty result means "not available", not "season finished"), so it
+  would otherwise burn one indexer request per scheduler tick forever. Backoff
+  rather than a terminal "give up" is deliberate: an empty result is ambiguous,
+  and with apibay down it is frequently a lie. A grab resets `cursorMisses` to
+  0, so it self-heals.
+- **An adapter that is unconfigured returns `[]`, not an error.** `eztv` without
+  `TMDB_API_KEY` is not an outage, and claiming one in the source-health strip
+  would be false.
 - **Automation is opt-in and defaults to off.** A timer that downloads files
   while nobody is watching should be switched on, not discovered afterwards.
 - **`.app-shell` *is* `body`.** Confusing, but true, and it matters when

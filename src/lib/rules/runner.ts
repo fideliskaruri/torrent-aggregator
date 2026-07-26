@@ -123,6 +123,8 @@ async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
         sources,
         enrich: false,
         skipCache: true,
+        // Scheduled work, not a person waiting: use the background indexer budget.
+        background: true,
         filters: {
           minSeeders: rule.minSeeders,
           maxSizeBytes: rule.maxSizeBytes
