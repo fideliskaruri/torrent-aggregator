@@ -1095,9 +1095,17 @@ export class BuiltinClient implements TorrentClientAdapter {
         // Still warming metadata — keep in list as metaDL so Client isn't empty
         const h = (readProp(() => t.infoHash, "") || "").toLowerCase();
         if (!h) {
+          // The key must be stable across polls. `pending-${out.length}` was
+          // derived from list position, so a second pending torrent renumbered
+          // the first and React remounted the row every 5 seconds. Fall back to
+          // the info hash embedded in the magnet, which exists before metadata
+          // does; only a torrent with neither is keyed by name.
+          const magnet = readProp(() => t.magnetURI, "") || "";
+          const btih = /xt=urn:btih:([a-z0-9]+)/i.exec(magnet)?.[1];
+          const name = readProp(() => t.name, "") || "Fetching metadata…";
           out.push({
-            hash: `pending-${out.length}`,
-            name: readProp(() => t.name, "") || "Fetching metadata…",
+            hash: btih ? btih.toLowerCase() : `pending-${name}`,
+            name,
             progress: 0,
             sizeBytes: 0,
             dlspeed: 0,
@@ -1186,6 +1194,24 @@ export class BuiltinClient implements TorrentClientAdapter {
         /* ignore */
       }
     }
+
+    // Deterministic order.
+    //
+    // Rows come from two sources: live engine torrents first, then DB rows that
+    // are not live yet. `client.torrents` is an internal array and `findMany`
+    // has no ORDER BY, so a torrent visibly JUMPED from the tail of the list
+    // into the middle the moment it went live. The Client page polls this every
+    // 5 seconds and renders it verbatim, so rows moved under the cursor while
+    // the user was reaching for a button.
+    //
+    // Sorting here (rather than only in the page) keeps every consumer
+    // consistent. `hash` is the final tiebreaker so the order is total and
+    // cannot depend on the order the two sources happened to be concatenated.
+    out.sort(
+      (a, b) =>
+        a.name.localeCompare(b.name, undefined, { numeric: true }) ||
+        a.hash.localeCompare(b.hash),
+    );
 
     return out;
   }

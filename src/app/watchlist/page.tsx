@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import {
   ArrowDownToLine,
   ArrowRight,
-  ImageOff,
   Loader2,
   Radar,
   Search,
@@ -479,7 +478,10 @@ export default function WatchlistPage() {
           actionHref={items.length ? undefined : "/"}
         />
       ) : (
-        <div className="grid items-start sm:grid-cols-2 gap-3">
+        // No `items-start`: grid's default stretch gives equal-height cards per
+        // row, so a Movie card (no "Next up" block) no longer leaves a ragged
+        // void beside a taller series card.
+        <div className="grid sm:grid-cols-2 gap-3">
           {filtered.map((item) => {
             const isSeries =
               item.mediaType === "tv" || item.mediaType === "anime";
@@ -518,8 +520,20 @@ export default function WatchlistPage() {
                       className="h-36 sm:h-full w-full object-cover sm:min-h-[140px]"
                     />
                   ) : (
-                    <div className="flex h-full sm:min-h-[140px] items-center justify-center text-[var(--text-tertiary)]">
-                      <ImageOff className="h-4 w-4" aria-label="No poster" />
+                    <div
+                      className="flex h-full sm:min-h-[140px] items-center justify-center px-1"
+                      aria-label="No poster"
+                      title="No poster"
+                    >
+                      {/* A crossed-out-image glyph reads as a *failed load*.
+                          An initial reads as a deliberate placeholder — the
+                          same fallback Plex/Jellyfin use. */}
+                      <span
+                        aria-hidden
+                        className="select-none text-2xl font-semibold text-[var(--text-tertiary)]/60"
+                      >
+                        {item.title.trim().charAt(0).toUpperCase() || "?"}
+                      </span>
                     </div>
                   )}
                 </div>

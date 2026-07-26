@@ -24,7 +24,7 @@ export function Field({
     <div className={cn("space-y-1.5", className)}>
       <label
         htmlFor={htmlFor}
-        className="block text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]"
+        className="block text-xs text-[var(--text-tertiary)]"
       >
         {label}
       </label>

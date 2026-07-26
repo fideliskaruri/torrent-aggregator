@@ -272,11 +272,7 @@ export default function RulesPage() {
               }
             />
           </Field>
-          <Field
-            label="Resolution"
-            htmlFor="rule-resolution"
-            className="sm:col-span-2"
-          >
+          <Field label="Resolution" htmlFor="rule-resolution">
             <select
               id="rule-resolution"
               className={selectClass}

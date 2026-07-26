@@ -67,11 +67,19 @@ export function MobileNav() {
       if (e.key === "Escape") setMoreOpen(false);
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    // Lock the *document element*, not `body`. `body { overflow: hidden }` only
+    // stops the page when the UA propagates body's overflow to the viewport,
+    // and that propagation is disabled whenever `html` is not `overflow:
+    // visible` — which it isn't, because `html` carries `overflow-x: hidden`.
+    // Locking body was therefore a no-op and the page scrolled behind the open
+    // sheet. `scrollbar-gutter: stable` on `html` keeps this from shifting the
+    // layout when the scrollbar goes away.
+    const root = document.documentElement;
+    const prev = root.style.overflow;
+    root.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      root.style.overflow = prev;
     };
   }, [moreOpen]);
 

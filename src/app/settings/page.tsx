@@ -594,7 +594,7 @@ export default function SettingsPage() {
                       "rounded-lg px-3 py-2.5 text-sm transition-colors",
                       form.clientType === value
                         ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-1 ring-[var(--accent-ring)]"
-                        : "bg-[var(--bg-muted)] text-[var(--text-tertiary)] ring-1 ring-[var(--border)] hover:text-[var(--text-secondary)]",
+                        : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-1 ring-[var(--border)] hover:text-[var(--text)]",
                     )}
                   >
                     {label}
@@ -653,7 +653,7 @@ export default function SettingsPage() {
                         "rounded-lg px-3 py-2 text-sm transition-colors",
                         form.externalClientType === value
                           ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-1 ring-[var(--accent-ring)]"
-                          : "bg-[var(--bg-elevated)] text-[var(--text-tertiary)] ring-1 ring-[var(--border)] hover:text-[var(--text-secondary)]",
+                          : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-1 ring-[var(--border)] hover:text-[var(--text)]",
                       )}
                     >
                       {label}
@@ -869,7 +869,10 @@ export default function SettingsPage() {
               <label className="text-xs text-[var(--text-tertiary)]">
                 Preferred quality
               </label>
-              <div className="flex flex-wrap gap-1.5">
+              {/* A 4-column grid, not flex-wrap: equal widths read as one
+                  segmented control, and the group can never orphan "4K" onto
+                  a second row at narrow widths (320px is still a real device). */}
+              <div className="grid grid-cols-4 gap-1.5">
                 {QUALITY_CHOICES.map((choice) => {
                   const active = form.preferredResolution === choice.value;
                   return (
@@ -884,10 +887,10 @@ export default function SettingsPage() {
                           preferredResolution: choice.value,
                         }));
                       }}
-                      className={`h-11 rounded-lg px-4 text-sm font-medium transition-colors ${
+                      className={`h-11 rounded-lg px-2 text-sm font-medium transition-colors ring-1 ${
                         active
-                          ? "bg-[var(--accent)] text-white"
-                          : "bg-[var(--surface-2)] text-[var(--text-secondary)] hover:bg-[var(--surface-3)]"
+                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                          : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
                       }`}
                     >
                       {choice.label}
