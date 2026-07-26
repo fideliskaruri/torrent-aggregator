@@ -169,7 +169,13 @@ export async function searchTorrents(
       : UPSTREAM_BUDGET_KEY;
     const budgetMax = options.background ? BACKGROUND_BUDGET_MAX : undefined;
     if (!rateLimit(budgetKey, budgetMax)) {
-      const stale = await getSearchCache(cacheKey, { allowStale: true });
+      // `skipCache` is a freshness contract, and automation relies on it: a
+      // grab/skip decision made on stale seeder counts and a possibly-dead
+      // magnet gets auto-sent to the download engine. Deferring to the next
+      // pass is strictly better than acting on data we were told not to trust.
+      const stale = options.skipCache
+        ? null
+        : await getSearchCache(cacheKey, { allowStale: true });
       if (stale) {
         fullResults = stale.results;
         sources = stale.sources;

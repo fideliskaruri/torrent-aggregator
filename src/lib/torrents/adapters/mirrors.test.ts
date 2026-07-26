@@ -30,6 +30,12 @@ function stubFetch(handler: (url: string) => Response) {
     handler(String(input))) as typeof fetch;
 }
 
+const JSON_HEADERS = { "content-type": "application/json" };
+
+function apiOk(body = "ok") {
+  return new Response(body, { status: 200, headers: JSON_HEADERS });
+}
+
 async function main() {
 console.log("mirrorList: env override handling…");
 
@@ -44,8 +50,18 @@ console.log("mirrorList: env override handling…");
   assert.deepEqual(mirrorList("https://mine/ , https://other//", ["https://a"]), [
     "https://mine",
     "https://other",
+    "https://a",
   ]);
 });
+
+  await check("keeps the built-in mirrors behind an override", () => {
+    // A user adding their own mirror must not lose the fallbacks — that would
+    // recreate the single-point-of-failure this module exists to fix.
+    assert.deepEqual(mirrorList("https://mine", ["https://a", "https://mine"]), [
+      "https://mine",
+      "https://a",
+    ]);
+  });
 
   await check("ignores an override that is only separators", () => {
   assert.deepEqual(mirrorList("  , ", ["https://a"]), ["https://a"]);
@@ -59,7 +75,7 @@ console.log("mirrorList: env override handling…");
     seen.push(url);
     return url.startsWith("https://dead")
       ? new Response("blocked", { status: 403 })
-      : new Response("ok", { status: 200 });
+      : apiOk();
   });
   const res = await fetchFromMirrors({
     key: "t-403",
@@ -73,7 +89,7 @@ console.log("mirrorList: env override handling…");
   await check("skips a host that fails at the network level", async () => {
   stubFetch((url) => {
     if (url.startsWith("https://unresolvable")) throw new Error("fetch failed");
-    return new Response("ok", { status: 200 });
+    return apiOk();
   });
   const res = await fetchFromMirrors({
     key: "t-net",
@@ -89,7 +105,7 @@ console.log("mirrorList: env override handling…");
     seen.push(url);
     return url.startsWith("https://dead")
       ? new Response("", { status: 500 })
-      : new Response("ok", { status: 200 });
+      : apiOk();
   });
   const args = {
     key: "t-sticky",
@@ -112,7 +128,7 @@ console.log("mirrorList: env override handling…");
     hosts: ["https://a", "https://b"],
     path: (h: string) => `${h}/q`,
   };
-  stubFetch(() => new Response("ok", { status: 200 }));
+  stubFetch(() => apiOk());
   await fetchFromMirrors(args);
 
   const seen: string[] = [];
@@ -120,7 +136,7 @@ console.log("mirrorList: env override handling…");
     seen.push(url);
     return url.startsWith("https://a")
       ? new Response("", { status: 503 })
-      : new Response("ok", { status: 200 });
+      : apiOk();
   });
   await fetchFromMirrors(args);
   seen.length = 0;
@@ -142,7 +158,7 @@ console.log("mirrorList: env override handling…");
   },
 );
 
-  await check(
+await check(
   "passes through a 4xx that means 'bad request', not 'dead host'",
   async () => {
     const seen: string[] = [];
@@ -157,6 +173,83 @@ console.log("mirrorList: env override handling…");
     });
     assert.equal(res.status, 400);
     assert.deepEqual(seen, ["https://a/q"], "a 400 must not burn every mirror");
+  },
+);
+
+await check(
+  "rejects a 200 that is a challenge page rather than the API",
+  async () => {
+    // Cloudflare's "Just a moment…" interstitial is served as HTTP 200 with an
+    // HTML body. Judging health by status alone would pin this host as the
+    // preferred one and then throw in the adapter's res.json() on every future
+    // search, with no failover ever happening — the exact failure this module
+    // was written for.
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      return url.startsWith("https://challenged")
+        ? new Response("<!DOCTYPE html><title>Just a moment...</title>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          })
+        : apiOk();
+    });
+    const res = await fetchFromMirrors({
+      key: "t-challenge",
+      hosts: ["https://challenged", "https://live"],
+      path: (h) => `${h}/q`,
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(seen, ["https://challenged/q", "https://live/q"]);
+  },
+);
+
+await check(
+  "a proven host's 404 means 'nothing for this query', not 'host down'",
+  async () => {
+    const args = {
+      key: "t-404-proven",
+      hosts: ["https://a", "https://b"],
+      path: (h: string) => `${h}/q`,
+    };
+    stubFetch(() => apiOk());
+    await fetchFromMirrors(args);
+
+    // Now the proven host answers 404. Several torrent APIs answer that way for
+    // an empty result; demoting on it would turn "this show has no episodes"
+    // into "the source is down" in the health strip.
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      return new Response("", { status: 404, headers: JSON_HEADERS });
+    });
+    const res = await fetchFromMirrors(args);
+    assert.equal(res.status, 404);
+    assert.deepEqual(
+      seen,
+      ["https://a/q"],
+      "an empty answer from a working host must not burn every mirror",
+    );
+  },
+);
+
+await check(
+  "an unproven host's 404 still means 'wrong mirror' and fails over",
+  async () => {
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      return url.startsWith("https://wrongpath")
+        ? new Response("not found", { status: 404 })
+        : apiOk();
+    });
+    const res = await fetchFromMirrors({
+      key: "t-404-unproven",
+      hosts: ["https://wrongpath", "https://live"],
+      path: (h) => `${h}/q`,
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(seen, ["https://wrongpath/q", "https://live/q"]);
   },
 );
 

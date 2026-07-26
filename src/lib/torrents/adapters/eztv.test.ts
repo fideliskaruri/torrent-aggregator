@@ -42,6 +42,18 @@ check("a title containing a digit-run is not truncated mid-word", () => {
   assert.equal(showTitleFromQuery("Stranger Things"), "Stranger Things");
 });
 
+check("dot-separated scene markers are stripped, not leaked into TMDB", () => {
+  // Separators must be normalised before the SxxEyy strip, or "S.05.E.10"
+  // survives and TMDB is asked about a title that does not exist.
+  assert.equal(showTitleFromQuery("S.W.A.T.S.05.E.10"), "S W A T");
+  assert.equal(showTitleFromQuery("The.Bear.S.03.E.01"), "The Bear");
+});
+
+check("a numeric show title survives", () => {
+  assert.equal(showTitleFromQuery("1883"), "1883");
+  assert.equal(showTitleFromQuery("86 S01E01"), "86");
+});
+
 check("an empty query stays empty rather than becoming a wildcard", () => {
   assert.equal(showTitleFromQuery("   "), "");
 });

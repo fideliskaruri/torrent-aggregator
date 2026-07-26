@@ -90,7 +90,17 @@ export function advanceCursorAfterMiss(
  */
 export const HUNT_BACKOFF_AFTER_MISSES = 4;
 const HUNT_BACKOFF_BASE_MS = 60 * 60 * 1000;
-const HUNT_BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
+/**
+ * Capped at six hours, not a day.
+ *
+ * The items that reach backoff are overwhelmingly cursors parked at SxxE01 —
+ * and the most common reason for that is a season premiere that has not aired
+ * yet, or an indexer outage. Both resolve on their own, and when they do the
+ * episode is sitting there grabbable. A 24-hour ceiling would punish exactly
+ * the case where waiting is least appropriate; six hours still collapses the
+ * request cost by an order of magnitude.
+ */
+const HUNT_BACKOFF_MAX_MS = 6 * 60 * 60 * 1000;
 
 /**
  * How long to wait before hunting an item again, given its consecutive misses.

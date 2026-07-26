@@ -1,5 +1,8 @@
 import prisma from "@/lib/prisma";
-import { searchTorrents } from "@/lib/torrents/aggregator";
+import {
+  searchTorrents,
+  SearchThrottledError,
+} from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { isViable, MIN_VIABLE_SEEDERS } from "@/lib/torrents/quality";
 
@@ -178,7 +181,10 @@ async function runUserAutomationUnlocked(
       monitored: true,
       status: { in: ["watching", "planned"] },
     },
-    orderBy: { updatedAt: "desc" },
+    // Least-recently-checked first. The background indexer budget can run out
+    // mid-pass, and in a fixed order the same tail items would be starved every
+    // single pass; this way the queue rotates on its own.
+    orderBy: { lastChecked: "asc" },
   });
 
   let config: ClientConnectionConfig | null = null;
@@ -584,6 +590,17 @@ async function runUserAutomationUnlocked(
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+
+      // Running out of indexer budget is not a failure — it is this pass
+      // deciding to wait. Recording it as one would write a "failed" grab row
+      // per over-budget item per tick forever, and make a healthy 3am run read
+      // as a broken client.
+      if (err instanceof SearchThrottledError) {
+        summary.library.checked -= 1;
+        summary.library.deferred += 1;
+        continue;
+      }
+
       if (isClientOfflineError(err) || looksOfflineMessage(message)) {
         summary.offline = true;
       }

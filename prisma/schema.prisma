@@ -54,7 +54,9 @@ model WatchListItem {
   /// Next episode automation / Download next should hunt (not rewound by off-cursor rewatch)
   cursorSeason        Int?
   cursorEpisode       Int?
-  /// Consecutive hunts that found nothing — drives season rollover
+  /// Consecutive hunts that found nothing. Drives season rollover for series,
+  /// and hunt backoff for every item (see huntBackoffMs in library/cursor.ts).
+  /// Reset to 0 by a successful grab.
   cursorMisses        Int       @default(0)
   /// First time the current cursor episode was skipped for a thin swarm.
   /// Drives the "waited long enough, take what we can get" escape hatch so a

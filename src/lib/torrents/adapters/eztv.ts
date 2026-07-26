@@ -34,12 +34,15 @@ const TMDB_BASE = "https://api.themoviedb.org/3";
 
 /** Strips episode/season/quality noise so TMDB is asked about the show. */
 export function showTitleFromQuery(query: string): string {
+  // Separators are normalised *first*. Scene names use dots for spaces, and
+  // some go further ("S.W.A.T.S.05.E.10"), so stripping SxxEyy before the dots
+  // are gone leaves the episode marker in the title TMDB is asked about.
   return query
-    .replace(/\b[Ss]\d{1,3}\s*[Ee]\d{1,4}\b.*$/, "")
-    .replace(/\b[Ss]eason\s*\d{1,3}\b.*$/i, "")
-    .replace(/\b[Ss]\d{1,3}\b.*$/, "")
-    .replace(/\b(1080p|720p|2160p|480p|complete|batch)\b.*$/i, "")
     .replace(/[._]+/g, " ")
+    .replace(/\b[Ss]\s?\d{1,3}\s*[Ee]\s?\d{1,4}\b.*$/, "")
+    .replace(/\b[Ss]eason\s*\d{1,3}\b.*$/i, "")
+    .replace(/\b[Ss]\s?\d{1,3}\b.*$/, "")
+    .replace(/\b(1080p|720p|2160p|480p|complete|batch)\b.*$/i, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
@@ -48,15 +51,34 @@ export function showTitleFromQuery(query: string): string {
 export function episodeFromQuery(
   query: string,
 ): { season: number; episode?: number } | null {
-  const se = query.match(/\b[Ss](\d{1,3})\s*[Ee](\d{1,4})\b/);
+  const normalized = query.replace(/[._]+/g, " ");
+  const se = normalized.match(/\b[Ss]\s?(\d{1,3})\s*[Ee]\s?(\d{1,4})\b/);
   if (se) {
     return { season: parseInt(se[1], 10), episode: parseInt(se[2], 10) };
   }
   const s =
-    query.match(/\b[Ss]eason\s*(\d{1,3})\b/i) ?? query.match(/\b[Ss](\d{1,3})\b/);
+    normalized.match(/\b[Ss]eason\s*(\d{1,3})\b/i) ??
+    normalized.match(/\b[Ss](\d{1,3})\b/);
   return s ? { season: parseInt(s[1], 10) } : null;
 }
 
+/** Comparable form of a title: case, punctuation and spacing all discarded. */
+function normalizeTitle(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+/**
+ * Resolved IMDb ids, memoised for the process.
+ *
+ * Only *answers* are cached — never a transient TMDB failure. Caching a 429 or
+ * a 500 as "this show has no IMDb id" would pin the show to zero EZTV results
+ * until the process restarts, which is the same "an outage wearing the costume
+ * of an empty result" bug this adapter was added to fix.
+ */
 const imdbCache = new Map<string, string | null>();
 
 async function resolveImdbId(title: string): Promise<string | null> {
@@ -79,20 +101,33 @@ async function resolveImdbId(title: string): Promise<string | null> {
     signal: AbortSignal.timeout(8_000),
     next: { revalidate: 86_400 },
   });
-  if (!searchRes.ok) return remember(null);
+  // Not remembered: a bad response is about TMDB right now, not about the show.
+  if (!searchRes.ok) return null;
   const searchJson = (await searchRes.json()) as {
-    results?: { id: number }[];
+    results?: { id: number; name?: string; original_name?: string }[];
   };
-  const showId = searchJson.results?.[0]?.id;
-  if (!showId) return remember(null);
 
-  const idsUrl = new URL(`${TMDB_BASE}/tv/${showId}/external_ids`);
+  // Taking results[0] blindly is not safe here. Every other adapter searches
+  // free text, so its noise is at least title-relevant; EZTV is queried by id,
+  // so a fuzzy TMDB match returns a *different show's* episodes under the right
+  // episode number — and the automation runner selects on episode number, then
+  // downloads. Common-word titles ("You", "It", "Alone") make that a live risk,
+  // so only an exact name match is accepted.
+  const wanted = normalizeTitle(title);
+  const show = searchJson.results?.find(
+    (r) =>
+      normalizeTitle(r.name ?? "") === wanted ||
+      normalizeTitle(r.original_name ?? "") === wanted,
+  );
+  if (!show) return remember(null);
+
+  const idsUrl = new URL(`${TMDB_BASE}/tv/${show.id}/external_ids`);
   idsUrl.searchParams.set("api_key", key);
   const idsRes = await fetch(idsUrl, {
     signal: AbortSignal.timeout(8_000),
     next: { revalidate: 86_400 },
   });
-  if (!idsRes.ok) return remember(null);
+  if (!idsRes.ok) return null;
   const idsJson = (await idsRes.json()) as { imdb_id?: string | null };
   const imdb = idsJson.imdb_id?.trim();
   // EZTV wants the bare digits: tt0182576 → 0182576.
@@ -139,18 +174,21 @@ export class EztvAdapter implements TorrentSourceAdapter {
     const matches = wanted
       ? rows.filter((row) => {
           const season = Number(row.season);
-          if (Number.isFinite(season) && season !== wanted.season) return false;
-          if (wanted.episode == null) return true;
           const episode = Number(row.episode);
+          // EZTV leaves season/episode at 0 for packs and specials. When the
+          // caller asked for a whole season rather than one episode, those are
+          // exactly what it wants — dropping them was how a "Family Guy S03"
+          // hunt whose only release is the season pack came back empty.
+          const unnumbered =
+            !Number.isFinite(season) || season === 0 || !row.season;
+          if (unnumbered) return wanted.episode == null;
+          if (season !== wanted.season) return false;
+          if (wanted.episode == null) return true;
           return Number.isFinite(episode) && episode === wanted.episode;
         })
       : rows;
 
-    // A season query that matched nothing on the season field still beats an
-    // empty source: EZTV leaves season/episode at 0 for packs and specials.
-    const rowsToUse = matches.length > 0 ? matches : wanted ? [] : rows;
-
-    return rowsToUse
+    return matches
       .slice(0, options.limit ?? 40)
       .map((row) => toResult(row))
       .filter((r): r is TorrentResult => r !== null);

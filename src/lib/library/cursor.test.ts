@@ -205,7 +205,11 @@ import {
   const huge = huntBackoffMs(500);
   assert.ok(Number.isFinite(huge), "2 ** misses must not overflow to Infinity");
   assert.equal(huge, huntBackoffMs(1000), "backoff must plateau at the cap");
-  assert.ok(huge <= 24 * 60 * 60 * 1000);
+  assert.ok(
+    huge <= 6 * 60 * 60 * 1000,
+    "a parked SxxE01 is usually an unaired premiere or an indexer outage; both" +
+      " resolve on their own, so the ceiling stays short",
+  );
 
   // Due once the wait has elapsed.
   const misses = HUNT_BACKOFF_AFTER_MISSES;
