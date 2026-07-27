@@ -67,6 +67,13 @@ export async function POST(request: Request) {
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.trunc(v) : null;
 
+  // The automatic watchdog only ever fails a source over for a *delivery* stall.
+  // A caller may instead report a *playability* failure — the swarm is healthy
+  // but the browser cannot decode this release — which the byte-delivery rule
+  // would never catch, so it also forces the switch past that rule.
+  const reason: "delivery" | "playability" =
+    body.reason === "playability" ? "playability" : "delivery";
+
   const target: PreRankTarget = {
     title,
     mediaType: typeof body.mediaType === "string" ? body.mediaType : "tv",
@@ -76,8 +83,11 @@ export async function POST(request: Request) {
   const contentKey = preRankKey(target);
 
   try {
-    const deps = buildSwarmWatchDeps(config);
-    const result = await swarmDeliveryTick(contentKey, infoHash, target, deps);
+    const deps = buildSwarmWatchDeps(config, session.user.id);
+    const result = await swarmDeliveryTick(contentKey, infoHash, target, deps, {
+      cause: reason,
+      force: reason === "playability",
+    });
     return json(200, {
       // Structured facts — the source of truth for the client.
       narration: result.narration,

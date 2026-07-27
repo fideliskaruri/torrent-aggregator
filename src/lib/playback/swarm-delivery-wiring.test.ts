@@ -17,6 +17,7 @@
 import assert from "node:assert/strict";
 
 import {
+  currentForegroundState,
   pollForegroundSwarmWatch,
   resetSwarmWatch,
   type SwarmWatchDeps,
@@ -56,6 +57,8 @@ function fakeDeps() {
   let now = 1_000_000;
   const started: string[] = [];
   const abandoned: string[] = [];
+  const carried: Array<[string, string]> = [];
+  const order: string[] = []; // effect ordering, to prove carry happens before abandon
   const deps: SwarmWatchDeps = {
     async sample() {
       now += 10_000; // 10s per poll, so 30s window is crossed after a few polls
@@ -67,14 +70,21 @@ function fakeDeps() {
       return POOL;
     },
     async startRelease(c) {
+      order.push("start");
       started.push(c.infoHash);
       return true;
     },
     async abandon(h) {
+      order.push("abandon");
       abandoned.push(h);
     },
+    async carryPosition(from, to) {
+      order.push("carry");
+      carried.push([from, to]);
+      return 2400; // 40 minutes in
+    },
   };
-  return { deps, started, abandoned };
+  return { deps, started, abandoned, carried, order };
 }
 
 /** A DB stub that resolves the foreground hash to an EngineTorrent row. */
@@ -115,6 +125,43 @@ async function run() {
     assert.ok(started.length >= 1, "a stalled foreground stream failed over to another release");
     assert.equal(started[0], hash(2), "failed over to the next-ranked untried source");
     assert.deepEqual(abandoned, [PLAYING], "the stalled source was abandoned (paused, not deleted)");
+  }
+
+  // ── Recovery reaches the player: carry position, expose the new source ──
+  {
+    resetForegroundState();
+    resetSwarmWatch();
+    const { deps, carried, order } = fakeDeps();
+
+    markForegroundActive(PLAYING);
+    for (let i = 0; i < 30; i++) {
+      const r = await pollForegroundSwarmWatch({
+        db: fakeDb(),
+        getConfig: async () => CONFIG,
+        buildDeps: () => deps,
+      });
+      if (r.active && r.watched && r.result.switched) break;
+    }
+
+    // Detection alone is not recovery — the switch has to carry through to what
+    // the player will read. The position is carried to the new source BEFORE the
+    // old one is paused, so an automatic recovery resumes mid-file, not at zero.
+    assert.deepEqual(carried, [[PLAYING, hash(2)]], "position was carried to the new source");
+    assert.ok(
+      order.indexOf("carry") < order.indexOf("abandon"),
+      "position is carried before the stalled source is abandoned",
+    );
+
+    // The status read the client polls now points at the healthy source with an
+    // honest, structured "switching" state — never a bare spinner on a dead hash.
+    const state = currentForegroundState();
+    assert.ok(state, "the foreground state is readable after a recovery");
+    assert.equal(state!.currentHash, hash(2), "the status read points the player at the new source");
+    assert.equal(state!.narration.phase, "switching", "the state is a structured switch, not a spinner");
+    if (state!.narration.phase === "switching") {
+      assert.equal(state!.narration.cause, "delivery", "an automatic recovery is a delivery failure");
+    }
+    assert.equal(state!.exhausted, false, "a successful recovery is not a terminal dead-end");
   }
 
   // ── Idle foreground cleans up and does nothing ─────────────────────────

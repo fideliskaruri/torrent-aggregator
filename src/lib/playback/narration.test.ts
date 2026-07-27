@@ -26,28 +26,46 @@ const cases: Case[] = [
     headline: "Playing",
   },
   {
-    name: "a switch names the next release",
-    state: { phase: "switching", triedCount: 1, nextName: "The Bear S01E01 720p" },
+    name: "a delivery switch names the next release",
+    state: { phase: "switching", cause: "delivery", triedCount: 1, nextName: "The Bear S01E01 720p" },
     headline: "This source stalled — trying another…",
     detail: "Switching to “The Bear S01E01 720p”.",
   },
   {
     name: "a switch without a name still reads as state",
-    state: { phase: "switching", triedCount: 2, nextName: null },
+    state: { phase: "switching", cause: "delivery", triedCount: 2, nextName: null },
     headline: "This source stalled — trying another…",
     detail: "Switching to another release.",
   },
   {
+    name: "a playability switch says the device can't play it, not that it stalled",
+    state: { phase: "switching", cause: "playability", triedCount: 1, nextName: "The Bear S01E01 720p" },
+    headline: "Your device can’t play this one — trying another…",
+    detail: "Switching to “The Bear S01E01 720p”.",
+  },
+  {
     name: "exhausted with one source uses singular copy",
-    state: { phase: "exhausted", triedCount: 1 },
+    state: { phase: "exhausted", cause: "delivery", triedCount: 1 },
     headline: "Couldn’t start this — no working source right now",
     detail: "We tried the only source we could find and none were delivering. Try again later.",
   },
   {
     name: "exhausted with several sources uses plural copy",
-    state: { phase: "exhausted", triedCount: 4 },
+    state: { phase: "exhausted", cause: "delivery", triedCount: 4 },
     headline: "Couldn’t start this — no working source right now",
     detail: "We tried all 4 sources we could find and none were delivering. Try again later.",
+  },
+  {
+    name: "exhausted for playability says nothing was playable, not that nothing delivered",
+    state: { phase: "exhausted", cause: "playability", triedCount: 3 },
+    headline: "Couldn’t play this — nothing your device supports right now",
+    detail: "We tried all 3 sources we could find and none were ones your device can play. Try again later.",
+  },
+  {
+    name: "a pinned stall is held, not switched",
+    state: { phase: "stalled-held" },
+    headline: "The source you chose has stalled",
+    detail: "It isn’t delivering right now. Pick another quality to switch, or keep waiting.",
   },
 ];
 

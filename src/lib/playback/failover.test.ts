@@ -88,6 +88,7 @@ function run() {
     assert.equal(step.session.status, "exhausted");
     if (step.narration.phase === "exhausted") {
       assert.equal(step.narration.triedCount, MAX_FAILOVER_ATTEMPTS, "reports how many were tried");
+      assert.equal(step.narration.cause, "delivery", "auto exhaustion is a delivery failure by default");
     }
   }
 
@@ -118,6 +119,22 @@ function run() {
     if (step.kind === "switch" && step.narration.phase === "switching") {
       assert.equal(step.narration.triedCount, 1, "one source tried so far");
       assert.equal(step.narration.nextName, "The Bear S01E01 release 2");
+      assert.equal(step.narration.cause, "delivery", "a stall-driven switch carries a delivery cause");
+    }
+  }
+
+  // ── The failure cause is threaded into the narration a caller passes ──
+  {
+    let session = createFailoverSession("the-bear|S1E1|play");
+    session = commitSource(session, hash(1));
+    const step = failOver(session, POOL, TARGET, MAX_FAILOVER_ATTEMPTS, "playability");
+    assert.equal(step.kind, "switch");
+    if (step.kind === "switch" && step.narration.phase === "switching") {
+      assert.equal(
+        step.narration.cause,
+        "playability",
+        "a playability-driven switch reports playability, so the UI writes the right sentence",
+      );
     }
   }
 

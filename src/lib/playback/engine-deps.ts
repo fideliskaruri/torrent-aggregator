@@ -82,7 +82,10 @@ function toSample(config: ClientConnectionConfig, infoHash: string) {
   };
 }
 
-export function buildSwarmWatchDeps(config: ClientConnectionConfig): SwarmWatchDeps {
+export function buildSwarmWatchDeps(
+  config: ClientConnectionConfig,
+  userId?: string,
+): SwarmWatchDeps {
   return {
     async sample(infoHash) {
       return toSample(config, infoHash)();
@@ -112,6 +115,17 @@ export function buildSwarmWatchDeps(config: ClientConnectionConfig): SwarmWatchD
         /* best-effort — a stalled source that will not pause is harmless */
       }
     },
+    // Position carry needs the viewer's id. The foreground poll has it (the
+    // engine row) and passes it so an automatic recovery resumes mid-file; the
+    // diagnostics route has no user context and omits it, which is fine — carry
+    // is best-effort and a switch still happens without it.
+    ...(userId
+      ? {
+          async carryPosition(fromInfoHash: string, toInfoHash: string) {
+            return carryPlaybackPosition(userId, fromInfoHash, toInfoHash);
+          },
+        }
+      : {}),
   };
 }
 
@@ -155,6 +169,25 @@ export async function carryPlaybackPosition(
     update: { positionSec: src.positionSec, durationSec: src.durationSec },
   });
   return src.positionSec;
+}
+
+/**
+ * The latest saved playback position for a source, or null if none. Used by the
+ * status read so a client re-pointing after an automatic switch knows where to
+ * resume — the same value {@link carryPlaybackPosition} wrote onto the new
+ * source before the old one was abandoned.
+ */
+export async function latestPlaybackPositionSec(
+  userId: string,
+  infoHash: string,
+  db: typeof prisma = prisma,
+): Promise<number | null> {
+  const row = await db.playbackProgress.findFirst({
+    where: { userId, infoHash: infoHash.toLowerCase() },
+    orderBy: { updatedAt: "desc" },
+    select: { positionSec: true },
+  });
+  return row?.positionSec ?? null;
 }
 
 /**

@@ -29,7 +29,7 @@
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { releaseInfoHash, selectBestRelease } from "@/lib/prewarm/prerank";
-import type { PlaybackNarration } from "./narration";
+import type { FailureCause, PlaybackNarration } from "./narration";
 
 /**
  * Maximum number of distinct sources we will commit to for one piece of
@@ -158,7 +158,12 @@ export type FailoverStep =
     };
 
 /**
- * Decide what to do when the current source is judged stalled.
+ * Decide what to do when the current source has failed.
+ *
+ * `cause` is why the current source failed — `delivery` (stalled, delivered no
+ * bytes) or `playability` (bytes fine, the browser cannot decode it). It is
+ * carried into the resulting narration so the UI can say which, and into the
+ * terminal `exhausted` state so the honest terminal sentence differs for each.
  *
  * Terminal when the attempt cap is reached or the pool holds no untried,
  * usable candidate. Otherwise returns the next candidate together with the
@@ -171,13 +176,14 @@ export function failOver(
   results: readonly TorrentResult[],
   target: PreRankTarget,
   cap: number = MAX_FAILOVER_ATTEMPTS,
+  cause: FailureCause = "delivery",
 ): FailoverStep {
   if (session.status === "exhausted" || session.tried.length >= cap) {
     const exhausted: FailoverSession = { ...session, status: "exhausted" };
     return {
       kind: "exhausted",
       session: exhausted,
-      narration: { phase: "exhausted", triedCount: session.tried.length },
+      narration: { phase: "exhausted", cause, triedCount: session.tried.length },
     };
   }
 
@@ -187,7 +193,7 @@ export function failOver(
     return {
       kind: "exhausted",
       session: exhausted,
-      narration: { phase: "exhausted", triedCount: session.tried.length },
+      narration: { phase: "exhausted", cause, triedCount: session.tried.length },
     };
   }
 
@@ -198,6 +204,7 @@ export function failOver(
     session: next,
     narration: {
       phase: "switching",
+      cause,
       triedCount: session.tried.length,
       nextName: candidate.release.title ?? null,
     },

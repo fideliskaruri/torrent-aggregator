@@ -148,6 +148,26 @@ async function run() {
     );
   }
 
+  // ── A playability failure moves off a HEALTHY swarm (forced switch) ────
+  {
+    resetSwarmWatch();
+    const h = harness("progress"); // bytes flow fine — the swarm is not the problem
+    // The byte rule would say "progressing" and never switch. But the browser
+    // cannot decode this release, so the caller forces a playability failover.
+    const r = await swarmDeliveryTick("play|S1E1", hash(1), TARGET, h.deps, {
+      force: true,
+      cause: "playability",
+    });
+    assert.equal(r.switched, true, "a forced playability failure switches despite healthy delivery");
+    assert.equal(r.currentHash, hash(2), "moved to the next release, not the undecodable one");
+    assert.equal(r.narration.phase, "switching");
+    if (r.narration.phase === "switching") {
+      assert.equal(r.narration.cause, "playability", "the switch reports a playability cause, not delivery");
+    }
+    assert.deepEqual(h.started, [hash(2)], "started the alternate release");
+    assert.deepEqual(h.abandoned, [hash(1)], "abandoned (paused) the undecodable one, kept its bytes");
+  }
+
   console.log("swarm-delivery-watchdog.test.ts: PASS");
 }
 

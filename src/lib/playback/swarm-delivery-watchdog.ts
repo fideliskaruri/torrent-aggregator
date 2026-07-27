@@ -67,7 +67,7 @@ import {
   type FailoverCandidate,
   type FailoverSession,
 } from "./failover";
-import type { PlaybackNarration } from "./narration";
+import type { FailureCause, PlaybackNarration } from "./narration";
 import { buildSwarmWatchDeps } from "./engine-deps";
 
 /** How many samples to retain per source. A handful past the window is plenty. */
@@ -86,6 +86,14 @@ export interface SwarmWatchDeps {
   startRelease(candidate: FailoverCandidate): Promise<boolean>;
   /** Abandon a source without deleting its bytes (pause). */
   abandon(infoHash: string): Promise<void>;
+  /**
+   * Carry the viewer's playback position from the old source to the new, so an
+   * automatic switch during active playback resumes where they were instead of
+   * at zero. Optional: a switch must still happen if position carry is
+   * unavailable (a manual pool, or no prior position) — recovery is the point,
+   * and resuming mid-file is a nicety on top, never a precondition for it.
+   */
+  carryPosition?(fromInfoHash: string, toInfoHash: string): Promise<number | null>;
 }
 
 export interface SwarmWatchTickResult {
@@ -105,6 +113,13 @@ interface WatchEntry {
   session: FailoverSession;
   /** Samples for the *current* source only; cleared on every switch. */
   samples: TransferSample[];
+  /**
+   * The narration produced by the most recent tick. Read by
+   * {@link currentForegroundState} so a status reader (and the client that polls
+   * it) sees the same state the watchdog last decided, without running a tick of
+   * its own. `null` until the first tick.
+   */
+  lastNarration: PlaybackNarration | null;
 }
 
 const registry = new Map<string, WatchEntry>();
@@ -132,7 +147,7 @@ function ensureEntry(contentKey: string, initialHash: string): WatchEntry {
       const oldest = registry.keys().next();
       if (!oldest.done) registry.delete(oldest.value);
     }
-    entry = { session: createFailoverSession(contentKey), samples: [] };
+    entry = { session: createFailoverSession(contentKey), samples: [], lastNarration: null };
     registry.set(contentKey, entry);
   }
   if (!entry.session.current) {
@@ -152,6 +167,27 @@ function pushSample(entry: WatchEntry, sample: TransferSample): void {
 export interface SwarmWatchTickOptions {
   stall?: StallOptions;
   cap?: number;
+  /**
+   * Why a failover on this tick would be happening. The automatic watchdog only
+   * ever triggers on a delivery stall, so this defaults to `delivery`; a caller
+   * that knows the current release is undecodable can pass `playability` so the
+   * narration says so.
+   */
+  cause?: FailureCause;
+  /**
+   * Force a failover regardless of the byte-delivery verdict. A `playability`
+   * failure is real even when bytes are flowing — the swarm is healthy, the
+   * browser simply cannot decode the file — so the stall rule would (correctly)
+   * say "progressing" and never switch. `force` lets that caller move on anyway.
+   * Never set by the automatic delivery watchdog; a pinned source is still held.
+   */
+  force?: boolean;
+}
+
+/** Record the tick's narration on the entry (for status reads), then return it. */
+function finish(entry: WatchEntry, result: SwarmWatchTickResult): SwarmWatchTickResult {
+  entry.lastNarration = result.narration;
+  return result;
 }
 
 /**
@@ -159,8 +195,9 @@ export interface SwarmWatchTickOptions {
  *
  * `initialHash` is the source the player is currently pointed at (the pre-ranked
  * pick on the first tick). On each tick we sample the current source, judge it,
- * and — only if it is genuinely stalled — fail over to the next untried
- * candidate, abandoning (pausing, not deleting) the dead one.
+ * and — only if it is genuinely stalled (or the caller forces it, e.g. a
+ * playability failure) — fail over to the next untried candidate, abandoning
+ * (pausing, not deleting) the dead one and carrying the viewer's position across.
  */
 export async function swarmDeliveryTick(
   contentKey: string,
@@ -171,15 +208,23 @@ export async function swarmDeliveryTick(
 ): Promise<SwarmWatchTickResult> {
   const entry = ensureEntry(contentKey, initialHash);
   const current = entry.session.current ?? initialHash.toLowerCase();
+  const cause: FailureCause = options.cause ?? "delivery";
 
   if (entry.session.status === "exhausted") {
-    return {
-      narration: { phase: "exhausted", triedCount: entry.session.tried.length },
+    // Terminal already: replay the exhausted narration we recorded when it
+    // happened, so the honest cause (delivery vs playability) is preserved
+    // rather than reset to a default on every subsequent poll.
+    const narration: PlaybackNarration =
+      entry.lastNarration?.phase === "exhausted"
+        ? entry.lastNarration
+        : { phase: "exhausted", cause, triedCount: entry.session.tried.length };
+    return finish(entry, {
+      narration,
       currentHash: current,
       switched: false,
       exhausted: true,
       verdict: { stalled: false, reason: "not-downloading", deliveredBytes: null, windowMs: null },
-    };
+    });
   }
 
   const sample = await deps.sample(current);
@@ -187,43 +232,44 @@ export async function swarmDeliveryTick(
 
   const verdict = evaluateStall(entry.samples, options.stall);
 
-  if (!verdict.stalled) {
-    // Not dead. "progressing" means bytes are flowing → playing; anything else
-    // ("insufficient-history", "not-downloading") is still spinning up.
+  if (!verdict.stalled && !options.force) {
+    // Not dead and not forced. "progressing" means bytes are flowing → playing;
+    // anything else ("insufficient-history", "not-downloading") is spinning up.
     const attempt = entry.session.tried.length || 1;
     const narration: PlaybackNarration =
       verdict.reason === "progressing" || verdict.reason === "complete"
         ? { phase: "playing" }
         : { phase: "starting", attempt };
-    return { narration, currentHash: current, switched: false, exhausted: false, verdict };
+    return finish(entry, { narration, currentHash: current, switched: false, exhausted: false, verdict });
   }
 
-  // Stalled. If the user explicitly pinned this source, we detect and narrate
-  // the stall but do NOT swap it away — an explicit human choice is not ours to
-  // override. The selector can offer another quality; the decision stays theirs.
+  // A failure (stalled, or a forced playability failure). If the user explicitly
+  // pinned this source, we detect and narrate it but do NOT swap it away — an
+  // explicit human choice is not ours to override. The selector can offer another
+  // quality; the decision stays theirs.
   if (entry.session.pinnedHash && entry.session.pinnedHash === current) {
-    return {
+    return finish(entry, {
       narration: { phase: "stalled-held" },
       currentHash: current,
       switched: false,
       exhausted: false,
       verdict,
-    };
+    });
   }
 
   // Otherwise, ask the failover rule for the next untried candidate.
   const results = await deps.rankedResults(target);
-  const step = failOver(entry.session, results, target, options.cap ?? MAX_FAILOVER_ATTEMPTS);
+  const step = failOver(entry.session, results, target, options.cap ?? MAX_FAILOVER_ATTEMPTS, cause);
 
   if (step.kind === "exhausted") {
     entry.session = step.session;
-    return {
+    return finish(entry, {
       narration: step.narration,
       currentHash: current,
       switched: false,
       exhausted: true,
       verdict,
-    };
+    });
   }
 
   // Switch: start the new source, then abandon the old one (keeping its bytes).
@@ -233,26 +279,37 @@ export async function swarmDeliveryTick(
     // Could not start the chosen release; do not abandon the current source or
     // mark it tried a second time. Report the attempt honestly and let the next
     // tick try again — the pool or the engine may recover.
-    return {
-      narration: { phase: "switching", triedCount: entry.session.tried.length, nextName: step.candidate.release.title ?? null },
+    return finish(entry, {
+      narration: { phase: "switching", cause, triedCount: entry.session.tried.length, nextName: step.candidate.release.title ?? null },
       currentHash: current,
       switched: false,
       exhausted: false,
       verdict,
-    };
+    });
+  }
+
+  // Carry the viewer's position to the new source BEFORE abandoning the old, so
+  // an automatic recovery resumes mid-file instead of restarting. Best-effort:
+  // recovery must not fail because a position could not be moved.
+  if (deps.carryPosition) {
+    try {
+      await deps.carryPosition(current, step.candidate.infoHash);
+    } catch {
+      /* a lost position carry must never block the recovery itself */
+    }
   }
 
   await deps.abandon(current);
   entry.session = step.session;
   entry.samples = []; // fresh evidence for the new source; do not carry the dead one's history.
 
-  return {
+  return finish(entry, {
     narration: step.narration,
     currentHash: step.candidate.infoHash,
     switched: true,
     exhausted: false,
     verdict,
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -426,7 +483,11 @@ export async function pollForegroundSwarmWatch(
       return { active: true, watched: false, result: null, reason: "no-builtin-config" };
     }
 
-    const deps = (opts.buildDeps ?? buildSwarmWatchDeps)(config);
+    // The default builder is given the viewer's id so an automatic recovery can
+    // carry their playback position to the new source. A test seam (`buildDeps`)
+    // keeps the `(config) => deps` shape and simply omits carry.
+    const build = opts.buildDeps ?? ((c: ClientConnectionConfig) => buildSwarmWatchDeps(c, row.userId));
+    const deps = build(config);
     const result = await swarmDeliveryTick(contentKey, hash, target, deps, opts.tickOptions);
     activeContentKey = contentKey;
     return { active: true, watched: true, result, contentKey };
@@ -437,6 +498,58 @@ export async function pollForegroundSwarmWatch(
     );
     return { active: true, watched: false, result: null, reason: "error" };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Status read — how a stalled swarm's recovery reaches the player
+// ---------------------------------------------------------------------------
+
+/**
+ * The current foreground playback state, for a client (or a status route) to
+ * read on a UI-latency path.
+ *
+ * WHY THIS EXISTS — recovery must reach the player
+ * ------------------------------------------------
+ * Detecting a stall and switching the engine to a healthy release server-side
+ * is only half the job: if the browser stays pointed at the dead infoHash it
+ * still shows a black screen, and the feature has not delivered. There is no
+ * server→client push in this app, so recovery reaches the player by the player
+ * polling this state and re-pointing when `currentHash` changes. `positionSec`
+ * is the resume point (the watchdog carried it to the new source before
+ * abandoning the old), so the switch resumes mid-file, not at zero.
+ *
+ * This is a pure READ of the last tick's decision — it never runs a tick, never
+ * samples, never probes. It reflects exactly what the engine's 5s poll last
+ * decided for whatever is the foreground content.
+ */
+export interface ForegroundPlaybackState {
+  contentKey: string;
+  /** The source the player should be pointed at now (may differ after a switch). */
+  currentHash: string;
+  /** The user's explicit pick, if any — exempt from automatic failover. */
+  pinnedHash: string | null;
+  /** Structured state from the last tick; the UI renders it via `describePlayback`. */
+  narration: PlaybackNarration;
+  /** True once every candidate was tried and none worked — a terminal answer. */
+  exhausted: boolean;
+}
+
+/**
+ * Read the last decided state for the content currently being watched, or null
+ * when nothing is in the foreground or it has not ticked yet.
+ */
+export function currentForegroundState(): ForegroundPlaybackState | null {
+  if (!activeContentKey) return null;
+  const entry = registry.get(activeContentKey);
+  if (!entry || !entry.session.current) return null;
+  return {
+    contentKey: activeContentKey,
+    currentHash: entry.session.current,
+    pinnedHash: entry.session.pinnedHash,
+    narration:
+      entry.lastNarration ?? { phase: "starting", attempt: entry.session.tried.length || 1 },
+    exhausted: entry.session.status === "exhausted",
+  };
 }
 
 // ---------------------------------------------------------------------------

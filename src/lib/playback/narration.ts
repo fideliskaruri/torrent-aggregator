@@ -19,6 +19,23 @@
  */
 
 /**
+ * Why a source was left, or why every source failed.
+ *
+ * The field report showed two distinct dead-ends that must not collapse into one
+ * generic error, because the honest sentence differs for each:
+ *   - `delivery`    → the swarm connected but delivered no bytes (the stall this
+ *                     watchdog detects). "This source stalled."
+ *   - `playability` → the bytes arrive fine but the browser cannot decode this
+ *                     release. "Your device can’t play this one." A healthy swarm
+ *                     does not save an undecodable file.
+ *
+ * Exhaustion (every candidate tried, none worked) is its own terminal *phase*,
+ * and it carries the dominant cause so the terminal sentence stays honest about
+ * *why* nothing worked rather than flattening to "error".
+ */
+export type FailureCause = "delivery" | "playability";
+
+/**
  * A playback state, as facts. Never a sentence.
  *
  * These are *states*, not mechanism: "stalled, switching" and "exhausted" are
@@ -30,15 +47,18 @@ export type PlaybackNarration =
   /** Bytes are flowing; playback is possible or underway. */
   | { phase: "playing" }
   /**
-   * The current source delivered nothing and we are moving to another release
-   * of the same content. `triedCount` sources have now been abandoned.
+   * The current source failed and we are moving to another release of the same
+   * content. `cause` says why we left it (delivery vs playability) so the UI can
+   * write the right sentence. `triedCount` sources have now been abandoned.
    */
-  | { phase: "switching"; triedCount: number; nextName: string | null }
+  | { phase: "switching"; cause: FailureCause; triedCount: number; nextName: string | null }
   /**
-   * Every candidate has been tried and none delivered. This is a terminal,
-   * honest answer — not a spinner. `triedCount` is how many were attempted.
+   * Every candidate has been tried and none worked. This is a terminal, honest
+   * answer — not a spinner. `cause` is the dominant reason none worked (nothing
+   * delivered vs nothing the browser could play); `triedCount` is how many were
+   * attempted.
    */
-  | { phase: "exhausted"; triedCount: number }
+  | { phase: "exhausted"; cause: FailureCause; triedCount: number }
   /**
    * The current source has stalled, but the user pinned it (chose it
    * explicitly), so we are NOT switching automatically. The selector should
@@ -73,19 +93,28 @@ export function describePlayback(state: PlaybackNarration): PlaybackCopy {
       return { headline: "Playing" };
 
     case "switching": {
-      const detail = state.nextName
+      const target = state.nextName
         ? `Switching to “${state.nextName}”.`
         : "Switching to another release.";
-      return { headline: "This source stalled — trying another…", detail };
+      const headline =
+        state.cause === "playability"
+          ? "Your device can’t play this one — trying another…"
+          : "This source stalled — trying another…";
+      return { headline, detail: target };
     }
 
     case "exhausted": {
       const n = Math.max(1, state.triedCount);
       const sources = n === 1 ? "the only source" : `all ${n} sources`;
-      return {
-        headline: "Couldn’t start this — no working source right now",
-        detail: `We tried ${sources} we could find and none were delivering. Try again later.`,
-      };
+      const detail =
+        state.cause === "playability"
+          ? `We tried ${sources} we could find and none were ones your device can play. Try again later.`
+          : `We tried ${sources} we could find and none were delivering. Try again later.`;
+      const headline =
+        state.cause === "playability"
+          ? "Couldn’t play this — nothing your device supports right now"
+          : "Couldn’t start this — no working source right now";
+      return { headline, detail };
     }
 
     case "stalled-held":
