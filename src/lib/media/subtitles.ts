@@ -21,7 +21,7 @@
  *   render. Offering them would be the same class of lie as a buffer band that
  *   does not match the buffer.
  */
-import type { ProbeStream } from "./probe";
+import type { ProbeStream } from "./probe-shape";
 
 /** Text subtitle codecs ffmpeg can transcode into WebVTT. */
 const TEXT_SUBTITLE_CODECS = new Set([

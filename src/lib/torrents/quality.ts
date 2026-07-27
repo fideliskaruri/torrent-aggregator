@@ -27,8 +27,8 @@
  */
 import type { TorrentResult } from "./types";
 import { normalizeTitle } from "@/lib/utils";
-import type { ProbeResult, ProbeStream } from "@/lib/media/probe";
-import { normalizeCodecName } from "@/lib/media/probe";
+import type { ProbeResult, ProbeStream } from "@/lib/media/probe-shape";
+import { normalizeCodecName } from "@/lib/media/probe-shape";
 import {
   DEFAULT_CAPABILITIES,
   supportsContainer,

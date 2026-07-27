@@ -52,7 +52,16 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full`}
     >
-      <body className="app-shell antialiased">
+      {/*
+        Browser extensions inject attributes onto <body> before React hydrates -
+        ColorZilla's `cz-shortcut-listen`, password managers, and similar. React
+        reports each as a hydration mismatch, which is noise we cannot fix from
+        here and which drowns out real mismatches when one appears. This
+        suppresses attribute differences on <body> itself only; children are
+        still checked normally, so an actual hydration bug in the app still
+        reports.
+      */}
+      <body className="app-shell antialiased" suppressHydrationWarning>
         <AuthSessionProvider>
           <UiPreferencesProvider>
             <KeyboardRoot>

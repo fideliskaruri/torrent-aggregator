@@ -13,12 +13,12 @@
  * deterministic and never guess — it uses only what the client reported and
  * what ffprobe found.
  */
-import type { ProbeResult, ProbeStream } from "./probe";
+import type { ProbeResult, ProbeStream } from "./probe-shape";
 import {
   videoStream,
   normalizeContainer,
   audioStreams,
-} from "./probe";
+} from "./probe-shape";
 import type { ClientCapabilities } from "./capabilities";
 import {
   supportsContainer,
