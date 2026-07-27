@@ -1,6 +1,7 @@
 import type { MediaMetadata, TorrentResult } from "@/lib/torrents/types";
 import { normalizeTitle } from "@/lib/utils";
 import { searchAniList } from "./anilist";
+import { resolveArtwork } from "./artwork";
 import { searchTmdb } from "./tmdb";
 import {
   getMemoryQueryCache,
@@ -130,7 +131,8 @@ export async function resolveMetadata(
   }
 
   // Require a minimum match quality
-  const result = bestScore >= 40 ? best : null;
+  const matched = bestScore >= 40 ? best : null;
+  const result = matched ? await withArtwork(matched) : null;
   // Negative answers are often a rate limit or a blip upstream. Remembering
   // "no artwork" for half an hour turns a five-second outage into a page of
   // grey boxes long after it has passed.
@@ -141,6 +143,36 @@ export async function resolveMetadata(
   }
 
   return result;
+}
+
+/**
+ * Fill in art the catalog that answered did not have.
+ *
+ * A record with no poster is a grey letter tile, which is what the whole app
+ * looked like while TMDB was gated on a placeholder key. The artwork resolver
+ * has keyless providers this module does not (TVmaze, iTunes) and its own
+ * cache, so asking it is cheap and only happens when something is actually
+ * missing. AniList in particular answers with a cover and no banner far more
+ * often than not, and the title-detail hero needs the banner.
+ *
+ * `resolveArtwork` never throws and never returns art it cannot vouch for, so
+ * the worst case here is the record passing through unchanged.
+ */
+async function withArtwork(meta: MediaMetadata): Promise<MediaMetadata> {
+  if (meta.posterUrl && meta.backdropUrl) return meta;
+
+  const art = await resolveArtwork({
+    title: meta.title,
+    year: meta.year ?? null,
+    mediaType: meta.mediaType,
+  });
+  if (!art.posterUrl && !art.backdropUrl) return meta;
+
+  return {
+    ...meta,
+    posterUrl: meta.posterUrl ?? art.posterUrl,
+    backdropUrl: meta.backdropUrl ?? art.backdropUrl,
+  };
 }
 
 /** One pass over both catalogs for a single candidate string. */

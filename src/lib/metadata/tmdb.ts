@@ -3,8 +3,87 @@ import type { MediaMetadata } from "@/lib/torrents/types";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p";
 
+/** Poster width. 500px is the smallest size that still looks sharp on a card. */
+const POSTER_SIZE = "w500";
+/** Backdrop width for the title-detail hero. */
+const BACKDROP_SIZE = "w1280";
+/** Cast headshot width. */
+const PROFILE_SIZE = "w185";
+/** Episode still width. */
+const STILL_SIZE = "w300";
+
+/**
+ * A key must *look* like a key.
+ *
+ * `.env` carried `TMDB_API_KEY=xx` for months. The old gate was
+ * `process.env.TMDB_API_KEY || undefined`, which treats a two-character
+ * placeholder as configured: every lookup ran, every request came back 401,
+ * `searchTmdb` threw, and `enrich` swallowed it. TMDB therefore looked
+ * configured and contributed *nothing* — movies and TV rendered as grey letter
+ * tiles for months while anime (keyless AniList) looked fine, and no error
+ * appeared anywhere.
+ *
+ * A misconfigured key must be indistinguishable from "no key at all" so the
+ * keyless fallbacks (TVmaze, iTunes) take over instead of a broken provider
+ * silently winning. A real TMDB v3 key is 32 hex characters; a v4 read token is
+ * a much longer JWT. Nothing legitimate is under ten characters.
+ */
+const MIN_KEY_LENGTH = 10;
+
+/** Values people actually leave in `.env` files. Compared case-insensitively. */
+const PLACEHOLDER_KEYS = new Set([
+  "changeme",
+  "change_me",
+  "dummy",
+  "example",
+  "fake",
+  "insert_key_here",
+  "none",
+  "null",
+  "placeholder",
+  "replace_me",
+  "secret",
+  "todo",
+  "undefined",
+  "your_api_key",
+  "your_api_key_here",
+  "your_tmdb_api_key",
+  "yourapikeyhere",
+]);
+
+/** `xx`, `xxxxxxxxxxxx`, `000000…`, `----` — one character repeated is never a key. */
+const REPEATED_CHAR = /^(.)\1*$/;
+/** `your-key-here`, `put your key here`, `<your api key>`. */
+const OBVIOUS_TEMPLATE = /\byour\b|\bhere\b|^<.*>$|\bkey\s*goes\b/i;
+
+/**
+ * True when `value` is a usable API key rather than a placeholder.
+ * Exported so tests can pin the gate down directly.
+ */
+export function isUsableTmdbKey(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const key = value.trim();
+  if (key.length < MIN_KEY_LENGTH) return false;
+  if (REPEATED_CHAR.test(key)) return false;
+  const lower = key.toLowerCase();
+  if (PLACEHOLDER_KEYS.has(lower)) return false;
+  if (OBVIOUS_TEMPLATE.test(lower)) return false;
+  return true;
+}
+
+/** The configured key, or null when absent/placeholder. Always trimmed. */
+export function tmdbApiKey(): string | null {
+  const raw = process.env.TMDB_API_KEY;
+  return isUsableTmdbKey(raw) ? (raw as string).trim() : null;
+}
+
+/** Whether TMDB can be called at all. Callers use this to skip straight to fallbacks. */
+export function hasTmdbKey(): boolean {
+  return tmdbApiKey() !== null;
+}
+
 function apiKey(): string | undefined {
-  return process.env.TMDB_API_KEY || undefined;
+  return tmdbApiKey() ?? undefined;
 }
 
 /**
@@ -65,6 +144,249 @@ export async function getTmdbById(
 }
 
 /**
+ * A search hit reduced to what artwork selection needs.
+ *
+ * `MediaMetadata` deliberately has no popularity field, but popularity is the
+ * only sane tie-break between three films genuinely called "Dune", so artwork
+ * lookups use this shape instead.
+ */
+export interface TmdbCandidate {
+  id: number;
+  mediaType: "movie" | "tv";
+  title: string;
+  year: number | null;
+  posterUrl: string | null;
+  backdropUrl: string | null;
+  /** TMDB's own popularity metric. Tie-break only — never a match signal. */
+  popularity: number;
+  voteCount: number;
+}
+
+export type TmdbSearchScope = "movie" | "tv" | "multi";
+
+/**
+ * Search one TMDB endpoint and return raw candidates for a caller to judge.
+ *
+ * Never throws and never returns a "best" answer: choosing is the caller's job
+ * (see `artwork.ts`), because the right choice depends on the requested year
+ * and media type.
+ *
+ * **`year` is a boost, not a filter.** Verified against the live API from this
+ * machine: `/search/movie?query=dune&year=2024` returns *Dune* (2021-09-15)
+ * ahead of *Dune: Part Two* (2024-02-27), plus *Anatomy of a Fall* (2023) and
+ * *The Dune* (2025). Passing the year still improves recall for obscure
+ * titles, but anything that trusts TMDB to have filtered by it will hang the
+ * wrong poster on the card.
+ */
+export async function searchTmdbCandidates(
+  scope: TmdbSearchScope,
+  query: string,
+  opts: { year?: number | null; limit?: number; timeoutMs?: number } = {},
+): Promise<TmdbCandidate[]> {
+  const key = apiKey();
+  const term = query.trim();
+  if (!key || !term) return [];
+
+  const { year, limit = 8, timeoutMs = 5000 } = opts;
+
+  const url = new URL(`${TMDB_BASE}/search/${scope}`);
+  url.searchParams.set("api_key", key);
+  url.searchParams.set("query", term);
+  url.searchParams.set("include_adult", "false");
+  url.searchParams.set("language", "en-US");
+  url.searchParams.set("page", "1");
+  if (year && scope === "movie") url.searchParams.set("year", String(year));
+  // `/search/multi` accepts no year parameter at all; sending one is ignored.
+  if (year && scope === "tv") {
+    url.searchParams.set("first_air_date_year", String(year));
+  }
+
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+
+    const json = (await res.json()) as { results?: TmdbMultiResult[] };
+    return (json.results ?? [])
+      .filter((r) => {
+        if (scope === "movie") return r.media_type !== "tv";
+        if (scope === "tv") return r.media_type !== "movie";
+        return r.media_type === "movie" || r.media_type === "tv";
+      })
+      .slice(0, limit)
+      .map((r) => toCandidate(r, scope));
+  } catch {
+    // Timeout, DNS failure, proxy interference — artwork is optional by design.
+    return [];
+  }
+}
+
+function toCandidate(r: TmdbMultiResult, scope: TmdbSearchScope): TmdbCandidate {
+  const mediaType: "movie" | "tv" =
+    r.media_type === "tv" || r.media_type === "movie"
+      ? r.media_type
+      : scope === "tv"
+        ? "tv"
+        : "movie";
+  const date = r.release_date || r.first_air_date;
+  const year = date ? parseInt(date.slice(0, 4), 10) : null;
+
+  return {
+    id: r.id,
+    mediaType,
+    title: r.title || r.name || "",
+    year: year != null && Number.isFinite(year) ? year : null,
+    posterUrl: posterUrl(r.poster_path),
+    backdropUrl: backdropUrl(r.backdrop_path),
+    popularity: typeof r.popularity === "number" ? r.popularity : 0,
+    voteCount: typeof r.vote_count === "number" ? r.vote_count : 0,
+  };
+}
+
+export function posterUrl(path: string | null | undefined): string | null {
+  return path ? `${IMG}/${POSTER_SIZE}${path}` : null;
+}
+
+export function backdropUrl(path: string | null | undefined): string | null {
+  return path ? `${IMG}/${BACKDROP_SIZE}${path}` : null;
+}
+
+/** Cast headshot. `w185` is the smallest size that survives a 2x avatar. */
+export function profileUrl(path: string | null | undefined): string | null {
+  return path ? `${IMG}/${PROFILE_SIZE}${path}` : null;
+}
+
+/** Episode still. 16:9, so `w300` is the card-sized rendition. */
+export function stillUrl(path: string | null | undefined): string | null {
+  return path ? `${IMG}/${STILL_SIZE}${path}` : null;
+}
+
+// ---------------------------------------------------------------------------
+// Detail (IMDb-grade fields)
+// ---------------------------------------------------------------------------
+
+/**
+ * Full detail for one known TMDB id, credits and certification included.
+ *
+ * One request, not four: `append_to_response` folds `credits` and the
+ * certification resource into the same round trip, which is the difference
+ * between a title page that opens and one that waits on a waterfall. Verified
+ * against the live API — `/movie/693134?append_to_response=credits,release_dates`
+ * returns 98 cast, 149 crew, `runtime: 167`, `tagline`, `vote_count: 8233` and
+ * US `PG-13` in a single 200.
+ *
+ * Never throws: a detail page without credits is fine, a detail page that 500s
+ * is not.
+ */
+export async function fetchTmdbDetail(
+  mediaType: "movie" | "tv",
+  id: number,
+  opts: { timeoutMs?: number } = {},
+): Promise<TmdbFullDetail | null> {
+  const key = apiKey();
+  if (!key || !Number.isFinite(id)) return null;
+
+  const url = new URL(`${TMDB_BASE}/${mediaType}/${id}`);
+  url.searchParams.set("api_key", key);
+  url.searchParams.set("language", "en-US");
+  url.searchParams.set(
+    "append_to_response",
+    mediaType === "movie" ? "credits,release_dates" : "credits,content_ratings",
+  );
+
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 5000),
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as TmdbFullDetail;
+  } catch {
+    return null;
+  }
+}
+
+/** Episodes of one season. Separate endpoint — TMDB does not append them. */
+export async function fetchTmdbSeason(
+  id: number,
+  seasonNumber: number,
+  opts: { timeoutMs?: number } = {},
+): Promise<TmdbSeasonDetail | null> {
+  const key = apiKey();
+  if (!key || !Number.isFinite(id) || !Number.isFinite(seasonNumber)) {
+    return null;
+  }
+
+  const url = new URL(`${TMDB_BASE}/tv/${id}/season/${seasonNumber}`);
+  url.searchParams.set("api_key", key);
+  url.searchParams.set("language", "en-US");
+
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 5000),
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as TmdbSeasonDetail;
+  } catch {
+    return null;
+  }
+}
+
+export interface TmdbCredit {
+  name?: string;
+  character?: string;
+  job?: string;
+  profile_path?: string | null;
+  order?: number;
+}
+
+export interface TmdbEpisode {
+  episode_number?: number;
+  season_number?: number;
+  name?: string;
+  overview?: string;
+  still_path?: string | null;
+  runtime?: number | null;
+  air_date?: string | null;
+  vote_average?: number;
+}
+
+export interface TmdbSeasonDetail {
+  season_number?: number;
+  name?: string;
+  episodes?: TmdbEpisode[];
+}
+
+export interface TmdbFullDetail extends TmdbDetail {
+  tagline?: string;
+  status?: string;
+  runtime?: number | null;
+  vote_count?: number;
+  episode_run_time?: number[];
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  created_by?: { name?: string }[];
+  seasons?: {
+    season_number?: number;
+    name?: string;
+    episode_count?: number;
+    air_date?: string | null;
+    poster_path?: string | null;
+  }[];
+  credits?: { cast?: TmdbCredit[]; crew?: TmdbCredit[] };
+  release_dates?: {
+    results?: {
+      iso_3166_1?: string;
+      release_dates?: { certification?: string; type?: number }[];
+    }[];
+  };
+  content_ratings?: { results?: { iso_3166_1?: string; rating?: string }[] };
+}
+
+/**
  * TMDB's static genre ids (movie + tv lists merged; ids do not collide).
  * `/search/multi` returns `genre_ids`, never genre names, so without this
  * table every search-derived record arrives with an empty genre list and
@@ -109,6 +431,8 @@ interface TmdbMultiResult {
   poster_path?: string | null;
   backdrop_path?: string | null;
   vote_average?: number;
+  vote_count?: number;
+  popularity?: number;
   release_date?: string;
   first_air_date?: string;
   genre_ids?: number[];
@@ -142,8 +466,8 @@ function mapTmdb(r: TmdbMultiResult): MediaMetadata {
     mediaType,
     externalId: String(r.id),
     title,
-    posterUrl: r.poster_path ? `${IMG}/w500${r.poster_path}` : null,
-    backdropUrl: r.backdrop_path ? `${IMG}/w1280${r.backdrop_path}` : null,
+    posterUrl: posterUrl(r.poster_path),
+    backdropUrl: backdropUrl(r.backdrop_path),
     synopsis: r.overview || null,
     rating: r.vote_average ?? null,
     year: Number.isNaN(year as number) ? null : year,
@@ -168,8 +492,8 @@ function mapTmdbDetail(
     mediaType,
     externalId: String(r.id),
     title,
-    posterUrl: r.poster_path ? `${IMG}/w500${r.poster_path}` : null,
-    backdropUrl: r.backdrop_path ? `${IMG}/w1280${r.backdrop_path}` : null,
+    posterUrl: posterUrl(r.poster_path),
+    backdropUrl: backdropUrl(r.backdrop_path),
     synopsis: r.overview || null,
     rating: r.vote_average ?? null,
     year: Number.isNaN(year as number) ? null : year,

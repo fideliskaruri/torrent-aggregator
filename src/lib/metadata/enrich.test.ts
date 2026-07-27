@@ -65,7 +65,10 @@ async function main() {
 
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.TMDB_API_KEY;
-  process.env.TMDB_API_KEY = "test-key";
+  // Must *look* like a key: `tmdb.ts` now treats a short or placeholder value
+  // as no key at all, because `.env` shipped `TMDB_API_KEY=xx` for months and
+  // the old truthiness check let it through.
+  process.env.TMDB_API_KEY = "0123456789abcdef0123456789abcdef";
   stubFetch(TMDB_SEVERANCE);
 
   try {
