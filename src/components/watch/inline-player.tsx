@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Gauge,
   Loader2,
   Maximize,
   Pause,
@@ -129,6 +130,32 @@ type StreamProblem =
 
 type PlaybackMode = "direct" | "hls";
 
+type CandidateVerdict = "good" | "weak" | "dead" | "unknown";
+type CandidatePlayability = "direct" | "transcode" | "unknown";
+
+type PlaybackCandidate = {
+  infoHash: string;
+  title: string;
+  resolution: number | null;
+  sourceLabel: "BluRay" | "WEB-DL" | "WEBRip" | "HDTV" | "Unknown";
+  sizeBytes: number | null;
+  sizeLabel: string | null;
+  codec: string | null;
+  audio: string | null;
+  playability: CandidatePlayability;
+  seeders: number;
+  isCurrent: boolean;
+  verdict: CandidateVerdict;
+};
+
+type CandidatesResponse = {
+  candidates?: PlaybackCandidate[];
+};
+
+type SwitchResponse =
+  | { ok: true; infoHash: string; positionSec: number | null }
+  | { ok: false; reason: "not-a-candidate" | "start-failed" };
+
 type AudioTracksVideo = HTMLVideoElement & {
   audioTracks?: { length: number };
   // Chrome and Edge do not implement HTMLMediaElement.audioTracks at all, so the
@@ -213,6 +240,38 @@ type PlaybackPlanResponse = {
 };
 
 export type PlanAudioTrack = PlaybackPlanResponse["plan"]["audio"][number];
+
+export function candidateVerdictLabel(verdict: CandidateVerdict): string {
+  if (verdict === "good") return "Fast";
+  if (verdict === "weak") return "Slow";
+  if (verdict === "dead") return "Not delivering";
+  return "Untested";
+}
+
+export function candidatePlayabilityLabel(playability: CandidatePlayability): string {
+  if (playability === "direct") return "Plays instantly";
+  if (playability === "transcode") return "Needs converting";
+  return "Compatibility unknown";
+}
+
+export function candidateQualityShape(candidate: PlaybackCandidate): string {
+  return [
+    candidate.resolution ? `${candidate.resolution}p` : null,
+    candidate.sourceLabel !== "Unknown" ? candidate.sourceLabel : null,
+    candidate.codec,
+    candidate.audio,
+    candidate.sizeLabel ?? (candidate.sizeBytes ? formatBytes(candidate.sizeBytes) : null),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+export function canAutoAdvanceToUpNext(
+  next: UpNextEpisodeCard | null,
+  cancelled: boolean,
+): boolean {
+  return Boolean(!cancelled && next?.infoHash && next.availability === "ready");
+}
 
 /** Label an audio track for the picker: "English · AC-3 5.1". */
 export function audioTrackLabel(track: PlanAudioTrack, index: number): string {
@@ -917,6 +976,11 @@ function InlineStreamPlayerInner({
    const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
    const [audioMenuOpen, setAudioMenuOpen] = useState(false);
    const [volumeMenuOpen, setVolumeMenuOpen] = useState(false);
+   const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+   const [qualityCandidates, setQualityCandidates] = useState<PlaybackCandidate[]>([]);
+   const [qualityLoading, setQualityLoading] = useState(false);
+   const [qualityError, setQualityError] = useState<string | null>(null);
+   const [switchingInfoHash, setSwitchingInfoHash] = useState<string | null>(null);
    const [seekHoverTime, setSeekHoverTime] = useState<number | null>(null);
    const [playPulse, setPlayPulse] = useState<"play" | "pause" | null>(null);
    const hlsRef = useRef<Hls | null>(null);
@@ -983,6 +1047,7 @@ function InlineStreamPlayerInner({
   }, [selectedFile, activeTitle]);
   const currentSeason = activeSeason ?? parsedCurrentEpisode?.season ?? null;
   const currentEpisode = activeEpisode ?? parsedCurrentEpisode?.episode ?? null;
+  const currentMediaType = currentSeason != null || currentEpisode != null ? "tv" : "movie";
   const downloadedRanges = useMemo(
     () =>
       selectedFile
@@ -1048,6 +1113,11 @@ function InlineStreamPlayerInner({
     setSourceDuration(null);
     setTimelineOffset(0);
     setBufferedRanges([]);
+    setQualityMenuOpen(false);
+    setQualityCandidates([]);
+    setQualityLoading(false);
+    setQualityError(null);
+    setSwitchingInfoHash(null);
     setPlanNonce((n) => n + 1);
     resumeConsumedRef.current = false;
     pendingSeekRef.current = 0;
@@ -1429,6 +1499,100 @@ function InlineStreamPlayerInner({
     }
   }, [upNext, activeInfoHash, loadUpNext]);
 
+  const candidateRequestBody = useCallback(
+    (chosenInfoHash?: string) => ({
+      title: activeTitle,
+      mediaType: currentMediaType,
+      season: currentSeason,
+      episode: currentEpisode,
+      currentInfoHash: activeInfoHash,
+      ...(chosenInfoHash ? { chosenInfoHash } : {}),
+    }),
+    [activeTitle, currentMediaType, currentSeason, currentEpisode, activeInfoHash],
+  );
+
+  const loadQualityCandidates = useCallback(async () => {
+    setQualityLoading(true);
+    setQualityError(null);
+    try {
+      const res = await fetch("/api/playback/candidates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(candidateRequestBody()),
+      });
+      const data = await readJson<CandidatesResponse>(res);
+      if (!res.ok) {
+        setQualityError("Could not load other releases.");
+        return;
+      }
+      setQualityCandidates(Array.isArray(data?.candidates) ? data.candidates : []);
+    } catch {
+      setQualityError("Could not load other releases.");
+    } finally {
+      setQualityLoading(false);
+    }
+  }, [candidateRequestBody]);
+
+  const chooseQualityCandidate = useCallback(
+    async (candidate: PlaybackCandidate) => {
+      if (candidate.isCurrent || candidate.infoHash.toLowerCase() === activeInfoHash.toLowerCase()) {
+        setQualityMenuOpen(false);
+        return;
+      }
+      setSwitchingInfoHash(candidate.infoHash);
+      setQualityError(null);
+      try {
+        const res = await fetch("/api/playback/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(candidateRequestBody(candidate.infoHash)),
+        });
+        const data = await readJson<SwitchResponse>(res);
+        if (!res.ok || !data?.ok) {
+          const reason = data && "reason" in data ? data.reason : null;
+          setQualityError(
+            reason === "not-a-candidate"
+              ? "That release is no longer available for this title."
+              : "That release could not be started. Current playback is unchanged.",
+          );
+          return;
+        }
+        const resumeAt =
+          typeof data.positionSec === "number" && Number.isFinite(data.positionSec)
+            ? data.positionSec
+            : currentSourceTimeRef.current;
+        setQualityMenuOpen(false);
+        setTarget({
+          infoHash: data.infoHash,
+          title: activeTitle,
+          season: currentSeason,
+          episode: currentEpisode,
+          posterUrl: activePosterUrl,
+          watchListItemId: activeWatchListItemId,
+          resumeSec: resumeAt,
+        });
+      } catch {
+        setQualityError("That release could not be started. Current playback is unchanged.");
+      } finally {
+        setSwitchingInfoHash(null);
+      }
+    },
+    [
+      activeInfoHash,
+      activeTitle,
+      currentSeason,
+      currentEpisode,
+      activePosterUrl,
+      activeWatchListItemId,
+      candidateRequestBody,
+    ],
+  );
+
+  useEffect(() => {
+    if (!qualityMenuOpen || qualityCandidates.length > 0 || qualityLoading) return;
+    void loadQualityCandidates();
+  }, [qualityMenuOpen, qualityCandidates.length, qualityLoading, loadQualityCandidates]);
+
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
     setEnded(true);
@@ -1439,7 +1603,7 @@ function InlineStreamPlayerInner({
   }, [postProgress, loadUpNext]);
 
   useEffect(() => {
-    if (!ended || autoAdvanceCancelled || !upNext?.infoHash) return;
+    if (!ended || !canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled)) return;
     if (advanceCountdown <= 0) {
       playUpNext(upNext);
       return;
@@ -1557,7 +1721,7 @@ function InlineStreamPlayerInner({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            infoHash,
+            infoHash: activeInfoHash,
             filePath,
             capabilities,
             startSec,
@@ -1734,7 +1898,14 @@ function InlineStreamPlayerInner({
   }, []);
 
   const controlsPinned =
-    !isPlaying || waiting || seeking || Boolean(preparingLabel) || subtitleMenuOpen || audioMenuOpen || volumeMenuOpen;
+    !isPlaying ||
+    waiting ||
+    seeking ||
+    Boolean(preparingLabel) ||
+    subtitleMenuOpen ||
+    audioMenuOpen ||
+    volumeMenuOpen ||
+    qualityMenuOpen;
 
   const showTheatreControls = useCallback(() => {
     setTheatreControlsVisible(true);
@@ -1761,11 +1932,16 @@ function InlineStreamPlayerInner({
     playPulseRef.current = setTimeout(() => setPlayPulse(null), 520);
   }, []);
 
+  const cancelAutoAdvance = useCallback(() => {
+    if (ended) setAutoAdvanceCancelled(true);
+  }, [ended]);
+
   /** Play/pause the underlying element. State is synced from the media events,
    *  never assumed here, so an autoplay block or a stall can't desync the icon. */
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    cancelAutoAdvance();
     if (video.paused) {
       void video.play().catch(() => {
         /* autoplay refusal keeps the paused icon, which is the truth */
@@ -1775,16 +1951,18 @@ function InlineStreamPlayerInner({
       video.pause();
       triggerPlayPulse("pause");
     }
-  }, [triggerPlayPulse]);
+  }, [cancelAutoAdvance, triggerPlayPulse]);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    cancelAutoAdvance();
     video.muted = !video.muted;
     setMuted(video.muted);
-  }, []);
+  }, [cancelAutoAdvance]);
 
   const changeVolume = useCallback((value: number) => {
+    cancelAutoAdvance();
     const next = Math.max(0, Math.min(1, value));
     const video = videoRef.current;
     if (video) {
@@ -1793,7 +1971,7 @@ function InlineStreamPlayerInner({
     }
     setVolume(next);
     setMuted(next === 0);
-  }, []);
+  }, [cancelAutoAdvance]);
 
   /**
    * Pick a subtitle track (or "" for off).
@@ -2040,6 +2218,7 @@ function InlineStreamPlayerInner({
    */
   const handleSourceSeek = useCallback(
     (sourceSec: number) => {
+      cancelAutoAdvance();
       const video = videoRef.current;
       const target = Math.max(0, sourceDuration ? Math.min(sourceSec, sourceDuration) : sourceSec);
       setCurrentSourceTime(target);
@@ -2058,7 +2237,7 @@ function InlineStreamPlayerInner({
       }
       seekToSource(target);
     },
-    [playbackMode, timelineOffset, seekToSource, sourceDuration, scheduleSeekProgress],
+    [cancelAutoAdvance, playbackMode, timelineOffset, seekToSource, sourceDuration, scheduleSeekProgress],
   );
 
   /** Nudge the playhead by `delta` seconds on the source timeline. */
@@ -2298,6 +2477,7 @@ function InlineStreamPlayerInner({
       setSubtitleMenuOpen(false);
       setAudioMenuOpen(false);
       setVolumeMenuOpen(false);
+      setQualityMenuOpen(false);
     };
     const peerCount = swarmSample?.peers ?? null;
     const rateBps = swarmSample?.downloadSpeedBps ?? null;
@@ -2423,7 +2603,7 @@ function InlineStreamPlayerInner({
           }
         `}</style>
 
-        <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-3">
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-[calc((100dvh-5rem)*16/9)] flex-col gap-3">
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <div
               data-stream-stage
@@ -2564,12 +2744,16 @@ function InlineStreamPlayerInner({
                     {terminalDetail ? <p className="text-[12px] text-white/60">{terminalDetail}</p> : null}
                     {terminalTitle ? (
                       <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                        <a
-                          href={searchHref}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQualityMenuOpen(true);
+                            showTheatreControls();
+                          }}
                           className="inline-flex h-9 items-center rounded-full bg-white px-4 text-[12px] font-semibold text-black transition hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                         >
                           Try another release
-                        </a>
+                        </button>
                         <button
                           type="button"
                           onClick={() => void copySelected()}
@@ -2633,7 +2817,7 @@ function InlineStreamPlayerInner({
                         <p className="mt-1 truncate text-sm font-semibold">{upNext.title}</p>
                         <p className="text-[12px] text-white/65">{upNext.label}</p>
                         <p className="mt-1 text-[12px] text-white/65">
-                          {upNext.infoHash && !autoAdvanceCancelled
+                          {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled)
                             ? `Playing in ${advanceCountdown}…`
                             : upNextStatusSentence(upNext.availability)}
                         </p>
@@ -2660,7 +2844,7 @@ function InlineStreamPlayerInner({
                           Fetch next
                         </button>
                       )}
-                      {upNext.infoHash && !autoAdvanceCancelled ? (
+                      {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled) ? (
                         <button
                           type="button"
                           onClick={() => setAutoAdvanceCancelled(true)}
@@ -2803,8 +2987,113 @@ function InlineStreamPlayerInner({
                     <button
                       type="button"
                       onClick={() => {
+                        setQualityMenuOpen((open) => !open);
+                        setSubtitleMenuOpen(false);
+                        setAudioMenuOpen(false);
+                      }}
+                      aria-label="Quality"
+                      aria-expanded={qualityMenuOpen}
+                      className="grid h-10 w-10 place-items-center rounded-full text-white/80 transition hover:bg-white/12 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    >
+                      <Gauge className="h-5 w-5" />
+                    </button>
+                    {qualityMenuOpen ? (
+                      <div
+                        data-quality-selector
+                        className="absolute bottom-full right-0 mb-2 max-h-[60vh] w-[28rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-white/10 bg-black/90 p-2 text-sm text-white shadow-2xl backdrop-blur"
+                      >
+                        <div className="flex items-center justify-between gap-3 px-3 py-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+                            Quality
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void loadQualityCandidates()}
+                            disabled={qualityLoading}
+                            className="text-[11px] font-medium text-white/55 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                          >
+                            Refresh
+                          </button>
+                        </div>
+                        {qualityError ? (
+                          <p className="mx-2 mb-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100">
+                            {qualityError}
+                          </p>
+                        ) : null}
+                        {qualityLoading && qualityCandidates.length === 0 ? (
+                          <p className="flex items-center gap-2 px-3 py-3 text-[13px] text-white/60">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Looking for other releases…
+                          </p>
+                        ) : null}
+                        {qualityCandidates.map((candidate) => {
+                          const switching = switchingInfoHash === candidate.infoHash;
+                          return (
+                            <button
+                              key={candidate.infoHash}
+                              type="button"
+                              disabled={Boolean(switchingInfoHash)}
+                              onClick={() => void chooseQualityCandidate(candidate)}
+                              className={cn(
+                                "flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60",
+                                candidate.isCurrent && "bg-white/10",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "mt-1 h-2.5 w-2.5 shrink-0 rounded-full",
+                                  candidate.verdict === "good" && "bg-emerald-400",
+                                  candidate.verdict === "weak" && "bg-amber-300",
+                                  candidate.verdict === "dead" && "bg-red-400",
+                                  candidate.verdict === "unknown" && "bg-sky-300",
+                                )}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-2">
+                                  <span className="truncate text-[13px] font-semibold text-white">
+                                    {candidateQualityShape(candidate) || candidate.title}
+                                  </span>
+                                  {candidate.isCurrent ? (
+                                    <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+                                      Current
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[12px] text-white/58">
+                                  <span>{candidateVerdictLabel(candidate.verdict)}</span>
+                                  <span>·</span>
+                                  <span>{candidatePlayabilityLabel(candidate.playability)}</span>
+                                  <span>·</span>
+                                  <span>{candidate.seeders} seeders</span>
+                                </span>
+                                <span className="mt-0.5 block truncate text-[11px] text-white/35">
+                                  {candidate.title}
+                                </span>
+                              </span>
+                              {switching ? (
+                                <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-white/70" />
+                              ) : candidate.isCurrent ? (
+                                <Check className="mt-1 h-4 w-4 shrink-0 text-[var(--accent)]" />
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                        {!qualityLoading && qualityCandidates.length === 0 ? (
+                          <p className="px-3 py-3 text-[13px] text-white/55">
+                            No other cached releases yet.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
                         setSubtitleMenuOpen((open) => !open);
                         setAudioMenuOpen(false);
+                        setQualityMenuOpen(false);
                       }}
                       aria-label="Subtitles"
                       aria-expanded={subtitleMenuOpen}
@@ -2853,6 +3142,7 @@ function InlineStreamPlayerInner({
                       onClick={() => {
                         setAudioMenuOpen((open) => !open);
                         setSubtitleMenuOpen(false);
+                        setQualityMenuOpen(false);
                       }}
                       aria-label="Audio"
                       aria-expanded={audioMenuOpen}
@@ -3348,7 +3638,7 @@ function InlineStreamPlayerInner({
                         Not fetched yet
                       </button>
                     )}
-                    {upNext.infoHash && !autoAdvanceCancelled ? (
+                    {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled) ? (
                       <button
                         type="button"
                         onClick={() => setAutoAdvanceCancelled(true)}
@@ -3356,7 +3646,7 @@ function InlineStreamPlayerInner({
                       >
                         Cancel autoplay ({advanceCountdown})
                       </button>
-                    ) : upNext.infoHash ? (
+                    ) : upNext.infoHash && autoAdvanceCancelled ? (
                       <span className="text-[12px] text-white/60">Autoplay cancelled.</span>
                     ) : null}
                   </div>

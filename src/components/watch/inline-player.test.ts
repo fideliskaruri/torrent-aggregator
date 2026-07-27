@@ -3,6 +3,10 @@ import {
   bufferedSourceRanges,
   bufferingLabel,
   byteRangesToSourceRanges,
+  canAutoAdvanceToUpNext,
+  candidatePlayabilityLabel,
+  candidateQualityShape,
+  candidateVerdictLabel,
   encodeStreamFilePath,
   findSidecarSubtitle,
   infoHashFromMagnet,
@@ -128,6 +132,74 @@ assert(
 assert(
   "up-next status never calls an incomplete torrent ready",
   upNextStatusSentence("downloading") === "Still downloading — you can start streaming, but it may buffer.",
+);
+assert("quality selector calls good swarms fast", candidateVerdictLabel("good") === "Fast");
+assert("quality selector keeps unknown offerable", candidateVerdictLabel("unknown") === "Untested");
+assert(
+  "quality selector does not print raw playability enums",
+  candidatePlayabilityLabel("transcode") === "Needs converting",
+);
+assert(
+  "quality selector shows picture and swarm-relevant shape",
+  candidateQualityShape({
+    infoHash: "b".repeat(40),
+    title: "Show S01E01 1080p WEB-DL DDP5.1 H.264.mkv",
+    resolution: 1080,
+    sourceLabel: "WEB-DL",
+    codec: "H.264",
+    audio: "DDP",
+    sizeBytes: 807 * 1024 ** 2,
+    sizeLabel: "807 MB",
+    seeders: 4,
+    verdict: "unknown",
+    playability: "direct",
+    isCurrent: false,
+  }) === "1080p · WEB-DL · H.264 · DDP · 807 MB",
+);
+assert(
+  "up-next autoplay only starts for a ready next release",
+  canAutoAdvanceToUpNext(
+    {
+      title: "the bear",
+      label: "S01E02",
+      season: 1,
+      episode: 2,
+      availability: "ready",
+      infoHash: "a".repeat(40),
+      progress: 1,
+    },
+    false,
+  ),
+);
+assert(
+  "up-next autoplay will not start a still-downloading next release",
+  !canAutoAdvanceToUpNext(
+    {
+      title: "the bear",
+      label: "S01E02",
+      season: 1,
+      episode: 2,
+      availability: "downloading",
+      infoHash: "a".repeat(40),
+      progress: 0.4,
+    },
+    false,
+  ),
+);
+assert(
+  "up-next autoplay respects cancellation",
+  !canAutoAdvanceToUpNext(
+    {
+      title: "the bear",
+      label: "S01E02",
+      season: 1,
+      episode: 2,
+      availability: "ready",
+      infoHash: "a".repeat(40),
+      progress: 1,
+    },
+    true,
+  ),
 );
 
 // ── Buffered band ──
