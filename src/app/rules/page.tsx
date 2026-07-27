@@ -29,6 +29,15 @@ import {
 } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import { cn } from "@/lib/utils";
+import {
+  buildRuleCreatePayload,
+  buildRuleFilterPayload,
+  bytesToMaxSizeGbInput,
+  parseRuleSources,
+  RULE_SOURCE_OPTIONS,
+  type RuleFilterFormState,
+  type RuleFormState,
+} from "@/lib/rules/form";
 
 interface Rule {
   id: string;
@@ -36,7 +45,9 @@ interface Rule {
   query: string;
   category: string;
   minSeeders: number;
+  maxSizeBytes: number | null;
   resolution: string | null;
+  sources: string | null;
   enabled: boolean;
   lastRunAt: string | null;
   lastMatchTitle: string | null;
@@ -120,12 +131,19 @@ export default function RulesPage() {
   const [retargetCategories, setRetargetCategories] = useState<
     Record<string, RuleCategoryValue>
   >({});
-  const [form, setForm] = useState({
+  const [filterEditRuleId, setFilterEditRuleId] = useState<string | null>(null);
+  const [filterEdits, setFilterEdits] = useState<
+    Record<string, RuleFilterFormState>
+  >({});
+  const [savingFilters, setSavingFilters] = useState<string | null>(null);
+  const [form, setForm] = useState<RuleFormState>({
     name: "",
     query: "",
     category: "all",
     minSeeders: "10",
     resolution: "",
+    sources: [],
+    maxSizeGb: "",
   });
   const hasUnsupportedRules = rules.some(
     (rule) => !describeRuleCategory(rule.category).supported,
@@ -137,13 +155,7 @@ export default function RulesPage() {
       const res = await fetch("/api/rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          query: form.query,
-          category: form.category,
-          minSeeders: parseInt(form.minSeeders, 10) || 10,
-          resolution: form.resolution || null,
-        }),
+        body: JSON.stringify(buildRuleCreatePayload(form)),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -156,6 +168,8 @@ export default function RulesPage() {
         category: "all",
         minSeeders: "10",
         resolution: "",
+        sources: [],
+        maxSizeGb: "",
       });
       toast.success("Rule created");
       void load();
@@ -216,6 +230,73 @@ export default function RulesPage() {
       toast.error("Could not delete rule");
     } finally {
       setRemoving(false);
+    }
+  }
+
+  function toggleSource(source: string) {
+    setForm((current) => ({
+      ...current,
+      sources: current.sources.includes(source)
+        ? current.sources.filter((value) => value !== source)
+        : [...current.sources, source],
+    }));
+  }
+
+  function filtersForRule(rule: Rule): RuleFilterFormState {
+    return (
+      filterEdits[rule.id] ?? {
+        sources: parseRuleSources(rule.sources),
+        maxSizeGb: bytesToMaxSizeGbInput(rule.maxSizeBytes),
+      }
+    );
+  }
+
+  function openFilterEditor(rule: Rule) {
+    if (filterEditRuleId === rule.id) {
+      setFilterEditRuleId(null);
+      return;
+    }
+    setFilterEdits((current) => ({
+      ...current,
+      [rule.id]: filtersForRule(rule),
+    }));
+    setFilterEditRuleId(rule.id);
+  }
+
+  function toggleRuleFilterSource(rule: Rule, source: string) {
+    const current = filtersForRule(rule);
+    setFilterEdits((edits) => ({
+      ...edits,
+      [rule.id]: {
+        ...current,
+        sources: current.sources.includes(source)
+          ? current.sources.filter((value) => value !== source)
+          : [...current.sources, source],
+      },
+    }));
+  }
+
+  async function saveRuleFilters(rule: Rule) {
+    const filters = filtersForRule(rule);
+    setSavingFilters(rule.id);
+    try {
+      const res = await fetch("/api/rules", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRuleFilterPayload(rule.id, filters)),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Could not save filters");
+        return;
+      }
+      setFilterEditRuleId(null);
+      toast.success("Rule filters saved");
+      void load();
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setSavingFilters(null);
     }
   }
 
@@ -388,6 +469,55 @@ export default function RulesPage() {
               </option>
             </select>
           </Field>
+          <Field
+            label="Search only these indexers"
+            htmlFor="rule-sources"
+            hint="Leave all unselected to search every enabled source."
+          >
+            <div
+              id="rule-sources"
+              className="flex flex-wrap gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2"
+            >
+              {RULE_SOURCE_OPTIONS.map((source) => {
+                const active = form.sources.includes(source.value);
+                return (
+                  <button
+                    key={source.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => toggleSource(source.value)}
+                    className={`rounded-full px-2.5 py-1 text-xs ring-1 transition-colors ${
+                      active
+                        ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                        : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    {source.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          <Field
+            label="Skip releases larger than"
+            htmlFor="rule-max-size-gb"
+            hint="Optional. Leave blank to allow any size."
+          >
+            <div className="flex items-center gap-2">
+              <Input
+                id="rule-max-size-gb"
+                inputMode="decimal"
+                placeholder="Any size"
+                value={form.maxSizeGb}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, maxSizeGb: e.target.value }))
+                }
+              />
+              <span className="shrink-0 text-sm text-[var(--text-tertiary)]">
+                GB
+              </span>
+            </div>
+          </Field>
         </div>
         <Button type="submit" size="sm">
           Create rule
@@ -405,6 +535,16 @@ export default function RulesPage() {
           const category = describeRuleCategory(rule.category);
           const selectedRetarget =
             retargetCategories[rule.id] ?? normalizeRuleCategory(rule.category);
+          const ruleSources = parseRuleSources(rule.sources);
+          const sourceSummary = ruleSources.length
+            ? RULE_SOURCE_OPTIONS.filter((source) =>
+                ruleSources.includes(source.value),
+              )
+                .map((source) => source.label)
+                .join(", ")
+            : "All sources";
+          const sizeSummary = bytesToMaxSizeGbInput(rule.maxSizeBytes);
+          const filterEdit = filtersForRule(rule);
           return (
             <div
               key={rule.id}
@@ -423,7 +563,91 @@ export default function RulesPage() {
                 <p className="text-xs text-[var(--text-tertiary)]">
                   “{rule.query}” · {category.label} · ≥{rule.minSeeders} seeders
                   {rule.resolution ? ` · ${rule.resolution}` : ""}
+                  {ruleSources.length ? ` · ${sourceSummary}` : ""}
+                  {sizeSummary ? ` · ≤${sizeSummary} GB` : ""}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => openFilterEditor(rule)}
+                  className="text-xs text-[var(--accent-text)] hover:underline"
+                  aria-expanded={filterEditRuleId === rule.id}
+                >
+                  {filterEditRuleId === rule.id
+                    ? "Hide filters"
+                    : "Edit source and size filters"}
+                </button>
+                {filterEditRuleId === rule.id ? (
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-xs text-[var(--text-secondary)] space-y-3">
+                    <div className="space-y-1.5">
+                      <p className="font-medium text-[var(--text)]">
+                        Search only these indexers
+                      </p>
+                      <p className="text-[11px] text-[var(--text-tertiary)]">
+                        Leave all unselected to search every enabled source.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {RULE_SOURCE_OPTIONS.map((source) => {
+                          const active = filterEdit.sources.includes(source.value);
+                          return (
+                            <button
+                              key={source.value}
+                              type="button"
+                              aria-pressed={active}
+                              onClick={() => toggleRuleFilterSource(rule, source.value)}
+                              className={`rounded-full px-2.5 py-1 text-xs ring-1 transition-colors ${
+                                active
+                                  ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                                  : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
+                              }`}
+                            >
+                              {source.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor={`rule-${rule.id}-max-size`}
+                        className="font-medium text-[var(--text)]"
+                      >
+                        Skip releases larger than
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id={`rule-${rule.id}-max-size`}
+                          inputMode="decimal"
+                          placeholder="Any size"
+                          value={filterEdit.maxSizeGb}
+                          onChange={(event) =>
+                            setFilterEdits((edits) => ({
+                              ...edits,
+                              [rule.id]: {
+                                ...filterEdit,
+                                maxSizeGb: event.target.value,
+                              },
+                            }))
+                          }
+                        />
+                        <span className="shrink-0 text-sm text-[var(--text-tertiary)]">
+                          GB
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void saveRuleFilters(rule)}
+                      disabled={savingFilters === rule.id}
+                    >
+                      {savingFilters === rule.id ? (
+                        <LoadingGlyph className="h-3.5 w-3.5" />
+                      ) : null}
+                      Save filters
+                    </Button>
+                  </div>
+                ) : null}
                 {!category.supported ? (
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-xs text-[var(--text-secondary)] space-y-2">
                     <p>
