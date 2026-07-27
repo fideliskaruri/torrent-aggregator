@@ -378,6 +378,64 @@ async function main(): Promise<void> {
       assert.equal(stored, null, "a momentary live snapshot must not be cached as a probe");
     });
 
+    // ── The guard fails CLOSED ──────────────────────────────────────────
+    // A failure to *determine* liveness must never be read as *determined
+    // absent* — because a fresh probe ends in destroyStore, and re-adding a
+    // held magnet reuses the user's real download path. So a throwing check
+    // yields `unknown` and NOTHING is added or destroyed.
+    await checkAsync("a liveness check that throws yields unknown, adds nothing", async () => {
+      const hash = sha1();
+      const wouldBeAdded = fakeTorrent();
+      let addCalls = 0;
+      const m = await probeSwarm(
+        { infoHash: hash },
+        {
+          findLive: () => {
+            throw new Error("engine unreachable — liveness cannot be determined");
+          },
+          getClient: async () => ({ add: () => wouldBeAdded, torrents: [] }),
+          addTorrent: () => {
+            addCalls += 1;
+            return wouldBeAdded;
+          },
+          windowMs: 40,
+        },
+      );
+
+      assert.equal(m.verdict, "unknown", "could-not-determine is unknown, never dead");
+      assert.equal(m.fromLiveDownload, false);
+      assert.equal(addCalls, 0, "a probe must not run when liveness is unknown");
+      assert.equal(
+        wouldBeAdded.destroyCalls,
+        0,
+        "nothing was created, so nothing — least of all a user file — is destroyed",
+      );
+    });
+
+    await checkAsync("a live torrent is found even when the input hash is uppercase", async () => {
+      const lower = sha1();
+      const upper = lower.toUpperCase();
+      const live = fakeTorrent({ numPeers: 7, downloaded: 5, downloadSpeed: 6_000_000 });
+      let addCalls = 0;
+      // The engine keys on lowercase-hex. The probe must normalise before the
+      // guard, or a live torrent looks absent — the same failure as failing open.
+      const m = await probeSwarm(
+        { infoHash: upper },
+        {
+          findLive: (h) => (h === lower ? live : null),
+          addTorrent: () => {
+            addCalls += 1;
+            return fakeTorrent();
+          },
+          windowMs: 40,
+        },
+      );
+
+      assert.equal(m.fromLiveDownload, true, "the uppercase input still matched the live torrent");
+      assert.equal(addCalls, 0, "a matched live download is never re-added");
+      assert.equal(live.destroyCalls, 0, "a matched live download is never destroyed");
+    });
+
     // ── Storage + expiry ────────────────────────────────────────────────
     await checkAsync("a stored verdict reads back, then reads unknown once expired", async () => {
       const hash = sha1();

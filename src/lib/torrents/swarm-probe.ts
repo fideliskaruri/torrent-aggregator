@@ -353,8 +353,29 @@ export async function probeSwarm(
   if (!hash) return unknownMeasurement("", requiredBps, now());
 
   // ── Guard: never probe (and therefore never destroy) a live download ──
+  //
+  // This guard is the one place in the module where a wrong answer costs data,
+  // not just a bad verdict: a fresh probe ends in `destroy({ destroyStore })`,
+  // and `builtin-engine.ts` (~line 1067) documents that re-adding the same
+  // magnet with a different savePath silently *reuses the first torrent's
+  // path*. So if we mistake a live download for "not present", our add returns
+  // a handle to the user's real download still pointed at their directory, and
+  // teardown deletes their file. Therefore the guard fails **closed**:
+  //   - `live`    → read the live figures, add/destroy nothing.
+  //   - `unknown` → we could not determine liveness; refuse to probe and return
+  //                 `unknown`. That is the honest answer and costs nothing,
+  //                 because `unknown` is already neutral in the ranking tiers.
+  //   - `absent`  → and only then may a fresh probe run.
   const live = await resolveLive(deps, hash);
-  if (live) return measureLiveDownload(hash, live, requiredBps, now());
+  if (live.kind === "live") {
+    return measureLiveDownload(hash, live.torrent, requiredBps, now());
+  }
+  if (live.kind === "unknown") {
+    // Could-not-determine is not "there is nothing there". Same `unknown` is
+    // not `dead` discipline as the verdict rule — here the stake is the user's
+    // files, so it matters even more.
+    return unknownMeasurement(hash, requiredBps, now());
+  }
 
   // ── A fresh probe ─────────────────────────────────────────────────────
   const magnetInput = input.magnet?.trim() || `magnet:?xt=urn:btih:${hash}`;
@@ -405,16 +426,37 @@ export async function probeSwarm(
   });
 }
 
+/**
+ * The result of the liveness check, as a three-way discriminated union so a
+ * *failure to determine* can never be silently read as *determined absent*.
+ * See the guard in {@link probeSwarm} for why that distinction is load-bearing.
+ */
+type LiveResolution =
+  | { kind: "live"; torrent: ProbeTorrentHandle }
+  | { kind: "absent" }
+  | { kind: "unknown" };
+
 async function resolveLive(
   deps: ProbeDeps,
   hash: string,
-): Promise<ProbeTorrentHandle | null> {
-  if (deps.findLive) return deps.findLive(hash);
+): Promise<LiveResolution> {
+  // `hash` is already normalised (`probeInfoHash` → `normalizeInfoHash`), and
+  // `findLiveBuiltinTorrent` normalises again internally, so the value handed to
+  // the engine is in the exact lowercase-hex form WebTorrent keys on. A case or
+  // format mismatch would make a live torrent look absent — the same failure
+  // with the same consequence as failing open — so it is guarded on both sides.
   try {
+    if (deps.findLive) {
+      const t = deps.findLive(hash);
+      return t ? { kind: "live", torrent: t } : { kind: "absent" };
+    }
     const engine = await import("@/lib/clients/builtin-engine");
-    return engine.findLiveBuiltinTorrent(hash) as unknown as ProbeTorrentHandle | null;
+    const t = engine.findLiveBuiltinTorrent(hash) as ProbeTorrentHandle | null;
+    return t ? { kind: "live", torrent: t } : { kind: "absent" };
   } catch {
-    return null;
+    // Could not run the check at all (import failed, engine threw). We do NOT
+    // know there is no live download — say so, and the caller refuses to probe.
+    return { kind: "unknown" };
   }
 }
 
@@ -447,6 +489,12 @@ function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
     const connectedWires = new Set<object>();
 
     let torrent: ProbeTorrentHandle | null = null;
+    // A destructive `destroyStore: true` must fire only on a handle the probe
+    // itself created — never inferred from `torrent != null`, but asserted from
+    // a flag set at the exact point of a successful add. This is belt-and-braces
+    // behind the fail-closed liveness guard: even if some future change let a
+    // non-probe handle reach here, teardown would refuse to delete its store.
+    let createdByProbe = false;
 
     const onDownload = (bytes: unknown) => {
       const n = Number(bytes);
@@ -524,9 +572,10 @@ function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
       } catch {
         /* best effort */
       }
-      if (t) {
+      if (t && createdByProbe) {
         try {
-          // destroyStore: true deletes the probe's throwaway partial data.
+          // destroyStore: true deletes the probe's throwaway partial data. Only
+          // ever reached for a handle this probe created (see `createdByProbe`).
           t.destroy({ destroyStore: true }, () => {});
         } catch {
           /* best effort — the promise has already resolved */
@@ -542,6 +591,10 @@ function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
 
     try {
       torrent = args.add(args.client, args.magnetInput, args.dest);
+      // The add returned a handle: this torrent is ours, so its store may be
+      // destroyed on teardown. Set before wiring listeners so any synchronous
+      // event cannot observe an unset flag.
+      createdByProbe = true;
       torrent.on?.("download", onDownload);
       torrent.on?.("wire", onWire as (...a: unknown[]) => void);
       torrent.on?.("error", onError);
