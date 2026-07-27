@@ -8,6 +8,8 @@ import {
   type BuiltinStreamFile,
   type BuiltinStreamTorrent,
 } from "@/lib/clients/builtin-engine";
+import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import { isWebVtt, srtToVtt } from "@/lib/media/subtitles";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,25 +40,6 @@ const prefetchedFiles = new Set<string>();
 
 function json(status: number, body: Record<string, unknown>): Response {
   return NextResponse.json(body, { status });
-}
-
-function normalizeInfoHash(raw: string): string | null {
-  const value = raw.trim();
-  if (/^[a-f0-9]{40}$/i.test(value)) return value.toLowerCase();
-  if (!/^[a-z2-7]{32}$/i.test(value)) return null;
-
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = "";
-  for (const ch of value.toUpperCase()) {
-    const n = alphabet.indexOf(ch);
-    if (n < 0) return null;
-    bits += n.toString(2).padStart(5, "0");
-  }
-  let hex = "";
-  for (let i = 0; i + 4 <= bits.length && hex.length < 40; i += 4) {
-    hex += Number.parseInt(bits.slice(i, i + 4), 2).toString(16);
-  }
-  return hex.length === 40 ? hex : null;
 }
 
 function normalizeFilePath(segments: string[] | undefined): string | null {
@@ -102,6 +85,7 @@ function contentTypeForPath(filePath: string): string {
   const ext = filePath.toLowerCase().split(".").pop() || "";
   switch (ext) {
     case "mkv":
+      return "video/x-matroska";
     case "webm":
       return "video/webm";
     case "mp4":
@@ -131,15 +115,6 @@ const MAX_SUBTITLE_BYTES = 4 * 1024 * 1024;
 function isSubtitlePath(filePath: string): boolean {
   const ext = filePath.toLowerCase().split(".").pop() || "";
   return ext === "srt" || ext === "vtt";
-}
-
-function srtToVtt(text: string): string {
-  const body = text
-    .replace(/^\uFEFF/, "")
-    .replace(/\r\n|\r/g, "\n")
-    // SubRip separates seconds from milliseconds with a comma; WebVTT uses a dot.
-    .replace(/(\d{2}:\d{2}:\d{2}),(\d{1,3})/g, "$1.$2");
-  return `WEBVTT\n\n${body}`;
 }
 
 /**
@@ -176,7 +151,7 @@ async function serveSubtitleAsVtt(
     offset += chunk.length;
   }
   const raw = new TextDecoder("utf-8").decode(merged.subarray(0, file.length));
-  const vtt = /^\s*WEBVTT/.test(raw) ? raw : srtToVtt(raw);
+  const vtt = isWebVtt(raw) ? raw : srtToVtt(raw);
   const bytes = new TextEncoder().encode(vtt);
   const headers = new Headers({
     "Content-Type": "text/vtt; charset=utf-8",

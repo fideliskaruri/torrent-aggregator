@@ -216,7 +216,7 @@ async function main() {
       assert.equal(res.status, 206);
       assert.equal(res.headers.get("content-range"), "bytes 100-199/2048");
       assert.equal(res.headers.get("content-length"), "100");
-      assert.equal(res.headers.get("content-type"), "video/webm");
+      assert.equal(res.headers.get("content-type"), "video/x-matroska");
       const body = await bodyBytes(res);
       assert.equal(body.length, 100);
       assert.equal(body[0], byteAt(100));
