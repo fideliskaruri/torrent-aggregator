@@ -10,10 +10,17 @@ import {
   encodeStreamFilePath,
   findSidecarSubtitle,
   infoHashFromMagnet,
+  interpretMediaElementError,
   isUpNextPlayableEnoughToAdvance,
+  nextViewerWaitingState,
+  nextSeekIntentAction,
+  playerControlsForMode,
+  qualitySelectorEmptyCopy,
   releaseDetailChips,
   resolveVideoFileSelection,
   selectVideoFiles,
+  shouldShowViewerBuffering,
+  terminalPlaybackCopy,
   streamStateSentence,
   streamPath,
   streamStatusMessage,
@@ -41,6 +48,33 @@ const files: StreamFile[] = [
   { path: "Show/Season 01/poster.jpg", length: 90_000, index: 3 },
   { path: "Extras\\Interview.webm", length: 300_000_000, index: 4 },
 ];
+
+const inlineControls = playerControlsForMode("inline");
+const theatreControls = playerControlsForMode("theatre");
+const fullscreenControls = playerControlsForMode("fullscreen");
+assert(
+  "inline and theatre use the same player controls",
+  JSON.stringify(inlineControls) === JSON.stringify(theatreControls),
+  `${inlineControls.join(",")} !== ${theatreControls.join(",")}`,
+);
+assert(
+  "fullscreen uses the same player controls instead of native overflow controls",
+  JSON.stringify(inlineControls) === JSON.stringify(fullscreenControls) &&
+    fullscreenControls.includes("skip-back") &&
+    fullscreenControls.includes("skip-forward") &&
+    fullscreenControls.includes("speed") &&
+    fullscreenControls.includes("subtitles") &&
+    fullscreenControls.includes("audio-settings"),
+  fullscreenControls.join(","),
+);
+assert(
+  "quality selector loading copy says it is checking cached releases",
+  qualitySelectorEmptyCopy(true, 0) === "Checking cached releases…",
+);
+assert(
+  "quality selector empty state is terminal and honest",
+  qualitySelectorEmptyCopy(false, 0) === "No other cached releases yet.",
+);
 
 const videos = selectVideoFiles(files);
 assert("selects video files only", videos.length === 3, `${videos.length}`);
@@ -186,6 +220,63 @@ assert(
     swarm: { peers: 4, downloadSpeedBps: 1_200, progress: 0.15, observedAt: 0 },
     minimumStreamBps: 500_000,
   }) === "Too slow to stream — downloading in the background.",
+);
+assert(
+  "moving active video suppresses the buffering overlay after a waiting event",
+  !shouldShowViewerBuffering({ waiting: true, activeVideoAdvancing: true }),
+);
+assert(
+  "stalled active video can show the buffering overlay",
+  shouldShowViewerBuffering({ waiting: true, activeVideoAdvancing: false }),
+);
+assert(
+  "waiting from a non-active media element does not raise viewer waiting",
+  !nextViewerWaitingState(false, "waiting", false),
+);
+assert(
+  "playing from a non-active media element does not clear active viewer waiting",
+  nextViewerWaitingState(true, "playing", false),
+);
+assert(
+  "active media progress clears viewer waiting",
+  !nextViewerWaitingState(true, "advancing", true),
+);
+assert(
+  "a refused seek is retried instead of being silently discarded",
+  nextSeekIntentAction({ targetSec: 600, actualSec: 76, attempts: 1, elapsedMs: 900 }) === "retry",
+);
+assert(
+  "a seek that lands within tolerance is settled",
+  nextSeekIntentAction({ targetSec: 600, actualSec: 599.2, attempts: 1, elapsedMs: 100 }) === "settled",
+);
+assert(
+  "seek retries are bounded",
+  nextSeekIntentAction({ targetSec: 600, actualSec: 76, attempts: 3, elapsedMs: 900 }) === "failed",
+);
+assert(
+  "media network errors are recoverable delivery failures, not browser incompatibility",
+  (() => {
+    const verdict = interpretMediaElementError({ code: 2, message: "" });
+    return verdict.recoverable && verdict.problem === null && verdict.title === "This release isn't delivering.";
+  })(),
+);
+assert(
+  "media decode errors remain browser playback failures",
+  (() => {
+    const verdict = interpretMediaElementError({ code: 3, message: "" });
+    return !verdict.recoverable && verdict.problem === "browser-error" && verdict.title === "This release won't play in the browser.";
+  })(),
+);
+assert(
+  "terminal playback detail is never the same sentence as the title",
+  (() => {
+    const copy = terminalPlaybackCopy({
+      problem: "browser-error",
+      message: "This release won't play in the browser.",
+      deliveryDetail: "no peers, almost no data",
+    });
+    return Boolean(copy.title && copy.detail && copy.title !== copy.detail);
+  })(),
 );
 assert(
   "up-next status never calls an incomplete torrent ready",
