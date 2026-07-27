@@ -730,6 +730,17 @@ check("availabilityMeta: fetchable names getting, not local readiness", () => {
   assert.notEqual(availabilityMeta("fetchable").label, "Available");
 });
 
+check("availabilityMeta: warm is playable but never labelled ready", () => {
+  const warm = availabilityMeta("warm");
+  assert.equal(warm.label, "Streaming");
+  assert.notEqual(warm.label, availabilityMeta("ready").label);
+  assert.match(
+    warm.description ?? "",
+    /partly downloaded/i,
+    "warm copy must say the torrent is still downloading",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Posters
 // ---------------------------------------------------------------------------

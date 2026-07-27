@@ -16,6 +16,7 @@ import { collapseReleasesByWork } from "./collapse";
 import {
   _readyToPlayRailFromItems as readyToPlayRailFromItems,
   readyRepresentativePreference,
+  readyToPlayTorrentCanSurface,
 } from "./rails";
 
 // Import the internal helpers we export for testing
@@ -730,6 +731,20 @@ const READY_RAIL_CASES: Array<{
     expectedStates: ["ready"],
   },
   {
+    name: "partially downloaded local row stays playable and labelled warm",
+    items: [
+      railItem({
+        id: "partial",
+        title: "Frieren",
+        subtitle: "Downloading 45%",
+        availability: "warm",
+        infoHash: "frieren12hash",
+      }),
+    ],
+    expectedTitles: ["Frieren"],
+    expectedStates: ["warm"],
+  },
+  {
     name: "engine up with no present hashes removes the rail",
     items: [
       railItem({ id: "silo", title: "Silo", availability: "fetchable" }),
@@ -757,6 +772,29 @@ for (const tc of READY_RAIL_CASES) {
     );
   });
 }
+
+check("ready-to-play candidates include partials but not indeterminate rows", () => {
+  assert.equal(
+    readyToPlayTorrentCanSurface({ progress: 1, status: "seeding" }),
+    true,
+    "complete local torrents belong in the rail",
+  );
+  assert.equal(
+    readyToPlayTorrentCanSurface({ progress: 0.23, status: "downloading" }),
+    true,
+    "partial local torrents are warm/playable, not hidden until 100%",
+  );
+  assert.equal(
+    readyToPlayTorrentCanSurface({ progress: 0, status: "downloading" }),
+    false,
+    "0% rows have no browse-layer evidence of playable bytes",
+  );
+  assert.equal(
+    readyToPlayTorrentCanSurface({ progress: 0.5, status: "error" }),
+    false,
+    "errored partials must not be offered as local playback",
+  );
+});
 
 check("ready collapse keeps a season pack ahead of a newer up-next single", () => {
   const packUpdated = new Date(Date.UTC(2024, 0, 1, 0, 0, 0));

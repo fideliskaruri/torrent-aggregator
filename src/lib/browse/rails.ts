@@ -128,8 +128,13 @@ function engineAvailability(
 // ---------------------------------------------------------------------------
 
 /**
- * Fully downloaded torrents (progress === 1), collapsed by work so a season
- * pack is one card, not 24, and two releases of one show do not duplicate.
+ * Local torrents whose bytes have started arriving, collapsed by work so a
+ * season pack is one card, not 24, and two releases of one show do not
+ * duplicate.
+ *
+ * A partial torrent is still a playable local torrent in this app: the built-in
+ * engine prioritizes the selected file's edges for streaming. Keep that state
+ * honest by surfacing it as `warm`, never by pretending it is `ready`.
  *
  * Poster enrichment goes through the one artwork resolver (see ./artwork.ts),
  * the same one the discovery rails use. A miss is still `null` and the card
@@ -137,11 +142,16 @@ function engineAvailability(
  * designed-for common case.
  */
 async function buildReadyToPlay(userId: string): Promise<Rail | null> {
-  const torrents = await prisma.engineTorrent.findMany({
-    where: { userId, progress: 1, status: { not: "removed" } },
+  const rows = await prisma.engineTorrent.findMany({
+    where: {
+      userId,
+      progress: { gt: 0 },
+      status: { notIn: ["removed", "error"] },
+    },
     orderBy: { updatedAt: "desc" },
     take: 50,
   });
+  const torrents = rows.filter(readyToPlayTorrentCanSurface);
 
   if (torrents.length === 0) return null;
 
@@ -174,7 +184,7 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       // still the source of truth for identity — it is just not what a browse
       // rail should put in front of someone.
       title: work.title,
-      subtitle: work.releaseCount > 1 ? `${work.releaseCount} files` : null,
+      subtitle: readyToPlaySubtitle(work.releaseCount, torrent.progress),
       posterUrl: art?.posterUrl ?? null,
       backdropUrl: art?.backdropUrl ?? null,
       availability: engineAvailability(userId, torrent),
@@ -192,6 +202,25 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
   return readyToPlayRailFromItems(items);
 }
 
+export function readyToPlayTorrentCanSurface(t: {
+  progress: number;
+  status: string;
+}): boolean {
+  return t.progress > 0 && t.status !== "removed" && t.status !== "error";
+}
+
+function readyToPlaySubtitle(
+  releaseCount: number,
+  progress: number,
+): string | null {
+  const parts: string[] = [];
+  if (progress > 0 && progress < 1) {
+    parts.push(`Downloading ${Math.max(1, Math.round(progress * 100))}%`);
+  }
+  if (releaseCount > 1) parts.push(`${releaseCount} files`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 /**
  * Ready-to-Play collapses a season pack and single up-next episodes into one
  * work card. Keep the pack as the playable representative: it is the row that
@@ -204,8 +233,10 @@ export function readyRepresentativePreference(name: string): boolean {
 
 function readyToPlayRailFromItems(items: RailItem[]): Rail | null {
   // `fetchable` here means the rehydrated engine definitively lacks the hash, so
-  // it is not ready. `null` means cold-start / still checking; keep the card so
-  // the rail does not vanish for content the DB says the user completed.
+  // it is not local. `warm` stays: partial local torrents are playable and the
+  // card labels them as still downloading. `null` means cold-start / still
+  // checking; keep the card so the rail does not vanish for content the DB says
+  // the user completed.
   const readyItems = items.filter((item) => item.availability !== "fetchable");
 
   if (readyItems.length === 0) return null;
