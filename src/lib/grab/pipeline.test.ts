@@ -187,6 +187,61 @@ function mockPrisma(seed: { grabJob?: Partial<MockRow>[] } = {}) {
   return { proxy, calls, store };
 }
 
+function mockPrismaWithTransactionalRollback() {
+  const calls: MockCall[] = [];
+
+  const modelProxy = (sink: MockCall[]) =>
+    new Proxy(
+      {},
+      {
+        get(_target: Record<string, unknown>, model: string) {
+          return new Proxy(
+            {},
+            {
+              get(_t2: Record<string, unknown>, op: string) {
+                return async (args: FindArgs) => {
+                  sink.push({ model, op, data: args?.data as Record<string, unknown> });
+
+                  // These rollback tests are about the transaction boundary,
+                  // not the idempotency branch. A Prisma read with no matching
+                  // row returns null/[]; returning a generic object here makes
+                  // the guard believe every hash is already active and skips
+                  // the hook whose failure is supposed to abort the commit.
+                  if (op === "findFirst" || op === "findUnique") return null;
+                  if (op === "findMany") return [];
+                  if (op === "create") {
+                    return {
+                      id: `${model}-${sink.length}`,
+                      createdAt: new Date(),
+                      ...(args?.data ?? {}),
+                    };
+                  }
+                  return {};
+                };
+              },
+            },
+          );
+        },
+      },
+    );
+
+  const rootHandler = {
+    get(_target: Record<string, unknown>, model: string) {
+      if (model === "$transaction") {
+        return async (fn: (tx: unknown) => Promise<void>) => {
+          const txCalls: MockCall[] = [];
+          await fn(modelProxy(txCalls));
+          calls.push(...txCalls);
+        };
+      }
+      return (modelProxy(calls) as Record<string, unknown>)[model];
+    },
+  };
+
+  const proxy = new Proxy({}, rootHandler);
+  return { proxy, calls };
+}
+
 function baseOpts(overrides: Partial<GrabPipelineOptions> = {}): GrabPipelineOptions {
   const { proxy } = mockPrisma();
   return {
@@ -655,67 +710,7 @@ async function main() {
   // together — leaving state exactly as before the attempt.
 
   await checkAsync("onSuccess throw rolls back GrabJob + DownloadHistory + cursor", async () => {
-    const calls: MockCall[] = [];
-    // Build a mock Prisma where $transaction actually propagates errors
-    const txHandler = {
-      get(_target: Record<string, unknown>, model: string) {
-        return new Proxy(
-          {},
-          {
-            get(_t2: Record<string, unknown>, op: string) {
-              return async (args: { data?: Record<string, unknown> }) => {
-                calls.push({ model, op, data: args?.data as Record<string, unknown> });
-                return {};
-              };
-            },
-          },
-        );
-      },
-    };
-    const rootHandler = {
-      get(_target: Record<string, unknown>, model: string) {
-        if (model === "$transaction") {
-          // Propagate errors — if the callback throws, $transaction throws
-          return async (fn: (tx: unknown) => Promise<void>) => {
-            const txCalls: MockCall[] = [];
-            const txProxy = new Proxy({}, {
-              get(_target: Record<string, unknown>, tModel: string) {
-                return new Proxy({}, {
-                  get(_t2: Record<string, unknown>, op: string) {
-                    return async (args: { data?: Record<string, unknown> }) => {
-                      txCalls.push({ model: tModel, op, data: args?.data as Record<string, unknown> });
-                      return {};
-                    };
-                  },
-                });
-              },
-            });
-            try {
-              await fn(txProxy);
-            } catch (e) {
-              // Transaction rolled back — discard all tx writes, rethrow
-              throw e;
-            }
-            // Transaction committed — merge tx writes into the main log
-            calls.push(...txCalls);
-          };
-        }
-        // Non-transactional calls (pre-send skips etc.)
-        return new Proxy(
-          {},
-          {
-            get(_t2: Record<string, unknown>, op: string) {
-              return async (args: { data?: Record<string, unknown> }) => {
-                calls.push({ model, op, data: args?.data as Record<string, unknown> });
-                return {};
-              };
-            },
-          },
-        );
-      },
-    };
-
-    const proxy = new Proxy({}, rootHandler);
+    const { proxy, calls } = mockPrismaWithTransactionalRollback();
 
     try {
       await runGrabPipeline(
@@ -744,47 +739,7 @@ async function main() {
   });
 
   await checkAsync("onFailure throw also rolls back GrabJob + DownloadHistory", async () => {
-    const calls: MockCall[] = [];
-    const rootHandler = {
-      get(_target: Record<string, unknown>, model: string) {
-        if (model === "$transaction") {
-          return async (fn: (tx: unknown) => Promise<void>) => {
-            const txCalls: MockCall[] = [];
-            const txProxy = new Proxy({}, {
-              get(_target: Record<string, unknown>, tModel: string) {
-                return new Proxy({}, {
-                  get(_t2: Record<string, unknown>, op: string) {
-                    return async (args: { data?: Record<string, unknown> }) => {
-                      txCalls.push({ model: tModel, op, data: args?.data as Record<string, unknown> });
-                      return {};
-                    };
-                  },
-                });
-              },
-            });
-            try {
-              await fn(txProxy);
-            } catch (e) {
-              throw e; // rolled back — rethrow like real Prisma
-            }
-            calls.push(...txCalls);
-          };
-        }
-        return new Proxy(
-          {},
-          {
-            get(_t2: Record<string, unknown>, op: string) {
-              return async (args: { data?: Record<string, unknown> }) => {
-                calls.push({ model, op, data: args?.data as Record<string, unknown> });
-                return {};
-              };
-            },
-          },
-        );
-      },
-    };
-
-    const proxy = new Proxy({}, rootHandler);
+    const { proxy, calls } = mockPrismaWithTransactionalRollback();
 
     try {
       await runGrabPipeline(

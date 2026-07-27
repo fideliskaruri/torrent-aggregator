@@ -93,6 +93,62 @@ const DUNE_RELEASES = [
   assert.equal(groups[0].items.length, 3);
 }
 
+// --- Site prefixes are not part of the work ---
+//
+// Some indexers glue their own hostname onto the front of every torrent they
+// return. That prefix is not a release group, a studio, or a title word; it is
+// the web page that carried the result. Leaving it in the release-derived name
+// made `www.SomeTracker.to - Inside.Out.2.2024...` key apart from the clean
+// `Inside.Out.2.2024...` print, so one film rendered as two browse cards. The
+// rule is deliberately shape-based rather than tied to that tracker: a leading
+// hostname-like token wrapped in brackets or followed by a separator is site
+// furniture, but a real dot-separated title without that prefix boundary is
+// still the title.
+{
+  const SITE_PREFIX_CASES: [string, string][] = [
+    ["www.SomeTracker.to - Inside.Out.2.2024.1080p.WEB-DL.x264", "Inside Out 2"],
+    ["SomeTracker.com - Inside.Out.2.2024.2160p.WEB-DL.HDR.x265", "Inside Out 2"],
+    ["[some-tracker.to] Inside.Out.2.2024.1080p.WEB-DL.x264", "Inside Out 2"],
+    ["(some-tracker.net) - Inside.Out.2.2024.1080p.WEB-DL.x264", "Inside Out 2"],
+    ["[ www.Torrenting.com ] - Arrival.2016.1080p.BluRay.x264", "Arrival"],
+  ];
+  for (const [raw, expected] of SITE_PREFIX_CASES) {
+    assert.equal(
+      workIdentity(raw).name,
+      expected,
+      `leading tracker hostname must be dropped from "${raw}"`,
+    );
+  }
+
+  const insideOut = groupReleasesByWork(
+    [
+      "www.SomeTracker.to - Inside.Out.2.2024.1080p.WEB-DL.x264",
+      "Inside.Out.2.2024.2160p.WEB-DL.HDR.x265",
+    ],
+    (t) => t,
+  );
+  assert.equal(
+    insideOut.length,
+    1,
+    `site-prefixed and clean Inside Out 2 prints are one film, got ${insideOut.length}: ` +
+      insideOut.map((g) => `"${g.name}"`).join(", "),
+  );
+
+  const REAL_DOTTED_TITLES: [string, string][] = [
+    ["Mr.Robot.S01E01.1080p.WEB-DL.x264", "Mr Robot"],
+    ["Dr.No.1962.1080p.BluRay.x264", "Dr No"],
+    ["Fear.com.2002.1080p.BluRay.x264", "Fear com"],
+    ["Inside.Out.2.2024.2160p.WEB-DL.HDR.x265", "Inside Out 2"],
+  ];
+  for (const [raw, expected] of REAL_DOTTED_TITLES) {
+    assert.equal(
+      workIdentity(raw).name,
+      expected,
+      `a real dot-separated title must not be eaten as a tracker prefix: "${raw}"`,
+    );
+  }
+}
+
 // --- A film's name does not keep its year ---
 // "Dune 2021" as a heading is the same film listed twice next to "Dune".
 {

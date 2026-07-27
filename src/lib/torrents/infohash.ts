@@ -41,7 +41,8 @@ export function base32ToHex(value: string): string | null {
  * Normalise a raw infoHash string (hex or base32) to 40-char lowercase hex.
  * Returns null for anything that is not a valid infoHash.
  */
-export function normalizeInfoHash(raw: string): string | null {
+export function normalizeInfoHash(raw: string | null | undefined): string | null {
+  if (!raw) return null;
   const value = raw.trim();
   if (/^[0-9a-f]{40}$/i.test(value)) return value.toLowerCase();
   if (/^[a-z2-7]{32}$/i.test(value)) return base32ToHex(value);

@@ -167,6 +167,50 @@ function stripTrailingYear(name: string, year: number | null): string {
 const QUALITY_TOKEN_RE =
   /\b(?:\d{3,4}p|4k|uhd|web-?dl|web-?rip|web|blu-?ray|bd-?rip|bd-?remux|remux|hdtv|dvd-?rip|hd-?rip|cam|ts|x26[45]|h\.?26[45]|hevc|avc|xvid|divx|hdr10\+?|hdr|dv|sdr|10bit|8bit|aac|ac3|eac3|ddp?5|dts(?:-hd)?|truehd|atmos|flac|mp3|imax|proper|repack|extended|unrated|remastered|directors?\.?cut)\b/i;
 
+const HOST_LABEL = String.raw`[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`;
+const TRACKER_TLD =
+  "com|org|net|info|to|me|tv|cc|io|is|se|su|ru|mx|xyz|site|online|club";
+const TRACKER_HOST =
+  String.raw`(?:www\.)?${HOST_LABEL}(?:\.${HOST_LABEL})*` +
+  String.raw`\.(?:${TRACKER_TLD})(?::\d{2,5})?`;
+
+const BRACKETED_TRACKER_PREFIX = new RegExp(
+  String.raw`^\s*[\[(]\s*${TRACKER_HOST}\s*[\])](?:\s*[-–—:|]+\s*)?`,
+  "i",
+);
+const BARE_TRACKER_PREFIX = new RegExp(
+  String.raw`^\s*${TRACKER_HOST}\s*[-–—:|]+\s*`,
+  "i",
+);
+
+/**
+ * Strip the indexer hostname some sites prepend to the release name.
+ *
+ * Work identity has to come from the release name, not the page that happened
+ * to list it. A tracker prefix at the front changes the stated work from
+ * `Inside Out 2` into `www SomeTracker to Inside Out 2`, so the same film keys
+ * apart from its clean copies and the browse rail renders two cards. The signal
+ * is the prefix boundary, not a particular domain: a hostname-like token is
+ * removed only when it is bracket-wrapped (`[x.y]`, `(x.net)`) or followed by a
+ * release-style separator (`x.com - Title`). A real dotted title such as
+ * `Fear.com.2002...` has no such boundary, so it survives as title text.
+ */
+function stripLeadingTrackerPrefix(title: string): string {
+  let out = title.trim();
+  if (!out) return out;
+
+  for (let i = 0; i < 3; i++) {
+    const next = out
+      .replace(BRACKETED_TRACKER_PREFIX, "")
+      .replace(BARE_TRACKER_PREFIX, "")
+      .trim();
+    if (next === out || !next) break;
+    out = next;
+  }
+
+  return out || title.trim();
+}
+
 /**
  * The name of a *film* as stated by its release.
  *
@@ -281,7 +325,8 @@ export function workIdentity(
   title: string,
   metadata?: MediaMetadata | null,
 ): WorkIdentity {
-  const episode = parseEpisode(title);
+  const releaseTitle = stripLeadingTrackerPrefix(title);
+  const episode = parseEpisode(releaseTitle);
   const isSeries =
     episode.season != null ||
     episode.episode != null ||
@@ -289,7 +334,7 @@ export function workIdentity(
     episode.isMultiSeason === true;
 
   // A film's year distinguishes it; a series' does not.
-  const year = isSeries ? null : releaseYear(title);
+  const year = isSeries ? null : releaseYear(releaseTitle);
 
   let name: string;
   if (isSeries) {
@@ -298,13 +343,14 @@ export function workIdentity(
     // so it is reused rather than reimplemented. Series names can still carry
     // a year ("Dune Prophecy (2024) S01"); it is not part of identity, so it
     // must not be part of the name either or two spellings would key apart.
-    name = showFolderName(title) || cutAtStructuralMarker(title).trim();
-    name = stripTrailingYear(name, releaseYear(title));
+    name =
+      showFolderName(releaseTitle) || cutAtStructuralMarker(releaseTitle).trim();
+    name = stripTrailingYear(name, releaseYear(releaseTitle));
   } else {
-    name = filmNameFromRelease(title, year);
+    name = filmNameFromRelease(releaseTitle, year);
   }
 
-  if (!name) name = title.trim();
+  if (!name) name = releaseTitle.trim();
 
   const normalized = normalizeForKey(name);
 
