@@ -60,7 +60,7 @@ export function TorrentCard({
 }: TorrentCardProps) {
   const { data: session } = useSession();
   const { density } = useUiPreferences();
-  const { prefs } = useDownloadPrefs();
+  const { prefs, loaded: prefsLoaded } = useDownloadPrefs();
   const compact = density === "compact";
 
   const [copied, setCopied] = useState(false);
@@ -150,10 +150,10 @@ export function TorrentCard({
 
   async function sendToClient(
     target: "primary" | "external" = "primary",
-    opts: { play?: boolean } = {},
+    opts: { play?: boolean; retention: "stream" | "keep" },
   ) {
     if (!session) {
-      toast.message(opts.play ? "Sign in to play" : "Sign in to send to your client");
+      toast.message(opts.play ? "Sign in to stream" : "Sign in to download");
       return;
     }
     setSending(true);
@@ -176,7 +176,7 @@ export function TorrentCard({
           category: manualCategory ? activeCategory : null,
           savePath: sendPath.trim() || null,
           target,
-          retention: opts.play ? "stream" : undefined,
+          retention: opts.retention,
         }),
       });
       const data = await res.json();
@@ -230,6 +230,11 @@ export function TorrentCard({
         ? "qBittorrent"
         : "my client";
   const canSendExternal = Boolean(prefs.hasExternal && prefs.externalClientType);
+  const primaryClient = prefs.clientType || "builtin";
+  const streamOnlyAvailable = prefsLoaded && primaryClient === "builtin";
+  const streamUnavailableReason = !prefsLoaded
+    ? "Checking client…"
+    : `Stream-only needs the built-in engine; ${primaryClient} downloads instead.`;
 
   async function openFolder() {
     if (!session) {
@@ -495,19 +500,24 @@ export function TorrentCard({
             )}
           </div>
 
-          {/* 3. Actions — playback first; download routing lives in overflow/advanced controls. */}
+          {/* 3. Actions — explicit intent: stream now or keep the file. */}
           <div className="torrent-actions flex shrink-0 flex-wrap items-center gap-2">
-            <div className="inline-flex h-9 sm:h-8 rounded-md overflow-hidden shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => void sendToClient("primary", { play: true })}
-                disabled={sending || !canSend}
-                data-action="play"
-                className="btn btn-primary h-full min-h-9 sm:min-h-8 rounded-none rounded-l-md px-3 text-[13px]"
+                onClick={() =>
+                  void sendToClient("primary", {
+                    play: true,
+                    retention: "stream",
+                  })
+                }
+                disabled={sending || !canSend || !streamOnlyAvailable}
+                data-action="stream"
+                className="btn btn-primary min-h-9 px-3 text-[13px]"
                 title={
-                  prefs.clientType === "builtin" || !prefs.clientType
-                    ? "Start playback with the built-in engine"
-                    : `Start through ${prefs.clientType}`
+                  streamOnlyAvailable
+                    ? "Stream now; cached bytes can be freed later"
+                    : streamUnavailableReason
                 }
               >
                 {sending ? (
@@ -515,12 +525,32 @@ export function TorrentCard({
                 ) : (
                   <Play className="h-3.5 w-3.5" />
                 )}
-                Play
+                Stream
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  void sendToClient("primary", {
+                    play: false,
+                    retention: "keep",
+                  })
+                }
+                disabled={sending || !canSend}
+                data-action="download"
+                className="btn btn-secondary min-h-9 px-3 text-[13px]"
+                title="Download and keep the file"
+              >
+                {sending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ArrowDownToLine className="h-3.5 w-3.5" />
+                )}
+                Download
               </button>
               <button
                 type="button"
                 onClick={() => setShowSendOpts((v) => !v)}
-                className="btn btn-primary h-full min-h-9 sm:min-h-8 rounded-none rounded-r-md border-l border-[rgba(26,18,8,0.35)] px-2"
+                className="btn btn-secondary min-h-9 px-2"
                 aria-expanded={showSendOpts}
                 aria-label="Advanced send options"
                 title="Category & path overrides"
@@ -533,6 +563,11 @@ export function TorrentCard({
                 />
               </button>
             </div>
+            <p className="basis-full text-[11px] leading-snug text-[var(--text-tertiary)]">
+              {streamOnlyAvailable
+                ? "Stream plays now and can be reclaimed later. Download keeps the file."
+                : streamUnavailableReason}
+            </p>
 
             {/* Magnet, Copy and "send to external client" all live in the
                 overflow menu below. Rendering them again as three visible
@@ -611,7 +646,9 @@ export function TorrentCard({
                 {canSendExternal ? (
                   <DropdownMenuItem
                     disabled={sending || !canSend}
-                    onSelect={() => void sendToClient("external")}
+                    onSelect={() =>
+                      void sendToClient("external", { retention: "keep" })
+                    }
                     data-action="send-external"
                   >
                     <ArrowDownToLine className="opacity-60" />
@@ -735,11 +772,13 @@ export function TorrentCard({
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void sendToClient("primary")}
+                      onClick={() =>
+                        void sendToClient("primary", { retention: "keep" })
+                      }
                       disabled={sending}
                       className="btn btn-primary min-h-10 px-4 sm:min-h-9"
                     >
-                      Send here
+                      Download here
                     </button>
                     <button
                       type="button"

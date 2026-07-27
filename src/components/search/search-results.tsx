@@ -193,7 +193,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         cards[idx].querySelector<HTMLElement>('[data-action="copy"]')?.click();
       } else if (e.key === "p" && !e.metaKey && !e.ctrlKey && idx >= 0) {
         e.preventDefault();
-        cards[idx].querySelector<HTMLElement>('[data-action="play"]')?.click();
+        cards[idx].querySelector<HTMLElement>('[data-action="stream"]')?.click();
       }
     }
     window.addEventListener("keydown", onKey);

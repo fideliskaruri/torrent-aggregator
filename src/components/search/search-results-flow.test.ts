@@ -42,10 +42,24 @@ check("results do not hide ranked releases behind disclosure buttons", () => {
   assert.doesNotMatch(searchResults, /Show only the best \$\{group\.label\}/);
 });
 
-check("the primary search result action is playback, not Send", () => {
-  assert.match(torrentCard, /data-action="play"/);
-  assert.match(torrentCard, /\bPlay\b/);
+check("the primary search result action is streaming, not Send", () => {
+  assert.match(torrentCard, /data-action="stream"/);
+  assert.match(torrentCard, /\bStream\b/);
   assert.doesNotMatch(torrentCard, /data-action="send"/);
+});
+
+check("search results expose explicit stream and download retention choices", () => {
+  assert.match(torrentCard, /data-action="stream"/);
+  assert.match(torrentCard, /data-action="download"/);
+  assert.match(torrentCard, /retention:\s*opts\.retention/);
+  assert.match(torrentCard, /retention:\s*"stream"/);
+  assert.match(torrentCard, /retention:\s*"keep"/);
+  assert.match(torrentCard, /Stream plays now and can be reclaimed later/);
+});
+
+check("every search send path carries an explicit retention choice", () => {
+  assert.doesNotMatch(torrentCard, /sendToClient\("external"\)/);
+  assert.doesNotMatch(torrentCard, /sendToClient\("primary"\)/);
 });
 
 check("search cards do not narrate timing, raw releases, or unlabeled health", () => {
