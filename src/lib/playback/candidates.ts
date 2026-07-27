@@ -12,6 +12,9 @@
  * is strictly worse than a 720p release with thirty live ones. This module
  * exists to make that visible: it lists each candidate *with its swarm verdict*
  * so a human can weigh resolution against whether the swarm actually delivers.
+ * It also carries a third axis — {@link PlayabilitySignal} — so the viewer can
+ * weigh resolution against whether the *browser* can even decode the release,
+ * the question the "black screen, open in VLC" dead-end proved nobody was asking.
  *
  * SINGLE DISCOVERY PATH
  * ---------------------
@@ -37,13 +40,45 @@
  * runs, before anything has been measured.
  */
 import { releaseInfoHash } from "@/lib/prewarm/prerank";
-import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
+import {
+  directPlayableFromTitle,
+  parseResolution,
+  parseSourceTier,
+  SOURCE_TIER,
+} from "@/lib/torrents/quality";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { rankedResultsFromCache } from "./engine-deps";
 
 /** A cached swarm measurement. `unknown` means unmeasured, NOT dead. */
 export type SwarmVerdict = "good" | "weak" | "dead" | "unknown";
+
+/**
+ * Whether the *browser* can play this release, guessed from its name.
+ *
+ * This is the third axis the selector needs. Ranking asks "is this the right
+ * content?"; the swarm verdict asks "will it actually deliver?"; this asks the
+ * question a black-screen-then-"open in VLC" dead-end proved nobody was asking:
+ * **"can the browser even decode it?"** A release we cannot play is worthless no
+ * matter how healthy its swarm.
+ *
+ * The decision is NOT re-implemented here. `directPlayableFromTitle` in
+ * `torrents/quality.ts` is the single seam, and it defers to the media layer's
+ * one capability model (`media/decide.ts` + `media/capabilities.ts`) — the exact
+ * engine `/api/playback/plan` uses — fed a codec/container shape inferred from
+ * the release name. So:
+ *   - `direct`    → plays natively, no server transcode (the name is clean);
+ *   - `transcode` → the name carries a known obstacle (MKV container, DTS/TrueHD
+ *                   audio, an unsupported video codec). Still *playable* — the
+ *                   server remuxes/transcodes — just not instantly and not free.
+ *   - `unknown`   → the name says too little to tell. Like `unknown` swarm
+ *                   verdicts, this is offered normally and never treated as bad.
+ *
+ * `transcode` is deliberately not "cannot play": mislabelling a transcodable
+ * release as broken would bury viable choices, the mirror of the swarm-verdict
+ * rule that `unknown` is not `dead`.
+ */
+export type PlayabilitySignal = "direct" | "transcode" | "unknown";
 
 /**
  * Reads *cached* swarm verdicts for a set of infoHashes. Must never probe — it
@@ -112,12 +147,25 @@ export interface CandidateListing {
   sizeLabel: string | null;
   codec: string | null;
   audio: string | null;
+  /**
+   * Whether the browser can decode this release, from its name. See
+   * {@link PlayabilitySignal} — `transcode` is playable-but-not-free, not broken.
+   */
+  playability: PlayabilitySignal;
   /** Advertised seeders — a claim from the indexer, which the verdict may contradict. */
   seeders: number;
   /** True for the release currently playing. */
   isCurrent: boolean;
   /** Cached swarm measurement. `unknown` when unmeasured — offered normally. */
   verdict: SwarmVerdict;
+}
+
+/** Map the media layer's direct-play hint to the selector's playability axis. */
+export function playabilityFromTitle(title: string): PlayabilitySignal {
+  const direct = directPlayableFromTitle(title);
+  if (direct === true) return "direct";
+  if (direct === false) return "transcode";
+  return "unknown";
 }
 
 /** Turn a release title into its display shape. Pure and unit-testable. */
@@ -127,6 +175,7 @@ export function describeReleaseShape(title: string): {
   sourceLabel: SourceLabel;
   codec: string | null;
   audio: string | null;
+  playability: PlayabilitySignal;
 } {
   return {
     resolution: parseResolution(title),
@@ -134,6 +183,7 @@ export function describeReleaseShape(title: string): {
     sourceLabel: sourceLabel(title),
     codec: parseCodec(title),
     audio: parseAudio(title),
+    playability: playabilityFromTitle(title),
   };
 }
 
@@ -194,6 +244,7 @@ export async function listCandidates(
       sizeLabel: release.sizeLabel ?? null,
       codec: shape.codec,
       audio: shape.audio,
+      playability: shape.playability,
       seeders: release.seeders,
       isCurrent: current !== null && infoHash === current,
       verdict: verdicts.get(infoHash) ?? "unknown",

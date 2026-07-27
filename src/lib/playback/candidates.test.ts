@@ -53,6 +53,30 @@ async function run() {
     assert.equal(w.audio, "AAC");
   }
 
+  // ── Playability is the third axis, from the media layer's one capability model ─
+  {
+    // Clean MP4/H.264/AAC → the browser plays it natively, no transcode.
+    assert.equal(
+      describeReleaseShape("The Bear S01E01 720p WEB-DL H.264 AAC.mp4").playability,
+      "direct",
+      "a clean mp4/h264/aac release is direct-playable",
+    );
+    // An MKV container is a hard obstacle for MSE even with fine codecs inside →
+    // playable, but only via server transcode/remux, never instantly.
+    assert.equal(
+      describeReleaseShape("The Bear S01E01 1080p BluRay x265 HEVC DTS-HD.mkv").playability,
+      "transcode",
+      "an mkv/DTS release needs transcode — offered, but flagged not-instant",
+    );
+    // A bare name says nothing about codec or container → unknown, offered like
+    // any other (unknown is not "cannot play", exactly as unknown swarm ≠ dead).
+    assert.equal(
+      describeReleaseShape("The Bear S01E01").playability,
+      "unknown",
+      "a name with no codec/container evidence is unknown, not broken",
+    );
+  }
+
   // ── unknown is NOT dead: an unmeasured release is listed normally ──────
   {
     const pool = [
@@ -104,6 +128,10 @@ async function run() {
     assert.equal(out[1].isCurrent, false);
     assert.equal(out[0].resolution, 1080, "annotated with resolution");
     assert.equal(out[1].resolution, 720);
+    assert.ok(
+      out.every((c) => c.playability === "direct" || c.playability === "transcode" || c.playability === "unknown"),
+      "every listing carries a playability signal alongside its swarm verdict",
+    );
   }
 
   // ── Releases with no infoHash are dropped; duplicates collapse ─────────
