@@ -97,3 +97,9 @@ fix-server.log
 
 # Generated media fixtures for the playback e2e harness
 .media-e2e/
+
+# Test-harness artefacts (regenerated every run; never committed)
+/.e2e-instant-play/
+/instant-*.log
+/qa-*.log
+/prod-server.log
