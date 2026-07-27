@@ -11,4 +11,10 @@ export async function register() {
     "@/lib/automation/scheduler"
   );
   startAutomationScheduler();
+  // Speculative swarm pre-probing was reachable only from a route action that
+  // nothing ever sends; arm it on its own timer so it genuinely runs.
+  const { startPreProbeScheduler } = await import(
+    "@/lib/prewarm/preprobe-scheduler"
+  );
+  startPreProbeScheduler();
 }
