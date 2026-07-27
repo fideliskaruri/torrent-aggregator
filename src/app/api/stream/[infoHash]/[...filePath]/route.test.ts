@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { ClientConnectionConfig } from "@/lib/clients";
 import type {
   BuiltinStreamFile,
   BuiltinStreamLookup,
   BuiltinStreamTorrent,
 } from "@/lib/clients/builtin-engine";
+import { openVerifiedDiskStream } from "@/lib/clients/disk-fastpath";
 import {
   OPEN_ENDED_RANGE_CAP_BYTES,
   handleStreamFileRequest,
@@ -28,6 +31,11 @@ class FakeTorrent extends EventEmitter {
   downloadSpeed = 0;
   numPeers = 0;
   files: BuiltinStreamFile[] = [];
+  path?: string;
+  pieceLength?: number;
+  pieces?: unknown[];
+  ready?: boolean;
+  bitfield?: { get: (index: number) => boolean };
 }
 
 function byteAt(offset: number): number {
@@ -128,6 +136,46 @@ function makeStalledFile(
   };
 }
 
+async function makeDiskBackedTorrent(opts: {
+  filePath?: string;
+  length: number;
+  pieceLength: number;
+  fileOffset?: number;
+  verifiedPieces: number[];
+}): Promise<{
+  root: string;
+  torrent: FakeTorrent;
+  file: BuiltinStreamFile;
+  cleanup: () => Promise<void>;
+}> {
+  const root = await fs.mkdtemp(path.join(process.cwd(), ".test-disk-fastpath-"));
+  const rel = opts.filePath ?? "Folder/Movie.mkv";
+  const fullPath = path.join(root, ...rel.split("/"));
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  const bytes = new Uint8Array(opts.length);
+  for (let i = 0; i < bytes.length; i += 1) bytes[i] = byteAt(i);
+  await fs.writeFile(fullPath, bytes);
+
+  const torrent = new FakeTorrent();
+  const totalLength = (opts.fileOffset ?? 0) + opts.length;
+  const pieceCount = Math.ceil(totalLength / opts.pieceLength);
+  const verified = new Set(opts.verifiedPieces);
+  torrent.path = root;
+  torrent.pieceLength = opts.pieceLength;
+  torrent.pieces = Array.from({ length: pieceCount }, () => ({}));
+  torrent.ready = true;
+  torrent.bitfield = { get: (index) => verified.has(index) };
+
+  const file = makeFile(rel, opts.length) as BuiltinStreamFile & { offset?: number };
+  file.offset = opts.fileOffset ?? 0;
+  return {
+    root,
+    torrent,
+    file,
+    cleanup: () => fs.rm(root, { recursive: true, force: true }),
+  };
+}
+
 function depsFor(
   torrent: FakeTorrent,
   file: BuiltinStreamFile,
@@ -164,6 +212,10 @@ async function requestFile(
 
 async function bodyBytes(res: Response): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer());
+}
+
+function responseHeaderEntries(res: Response): Record<string, string> {
+  return Object.fromEntries(Array.from(res.headers.entries()).sort());
 }
 
 async function check(name: string, fn: () => void | Promise<void>) {
@@ -408,6 +460,185 @@ async function main() {
       );
       assert.equal(res.headers.get("content-length"), "100");
       assert.equal(new Uint8Array(await res.arrayBuffer()).length, 100);
+    });
+
+    await check("range playback tells the engine which file and offset are foreground", async () => {
+      resetStreamPrefetchForTests();
+      const torrent = new FakeTorrent();
+      const file = makeFile("Folder/Movie.mkv", 2048);
+      const calls: Array<{ filePath: string; seekOffset: number | undefined }> = [];
+      const res = await withTimeout(
+        handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=512-1023" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          {
+            ...depsFor(torrent, file),
+            prioritizeFile(_torrent, foregroundFile, opts) {
+              calls.push({
+                filePath: foregroundFile.path,
+                seekOffset: opts?.seekOffset,
+              });
+            },
+          },
+        ),
+        2000,
+      );
+      assert.equal(res.status, 206);
+      assert.deepEqual(calls, [{ filePath: "Folder/Movie.mkv", seekOffset: 512 }]);
+    });
+
+    await check("a verified range is served from disk without WebTorrent priority", async () => {
+      resetStreamPrefetchForTests();
+      const disk = await makeDiskBackedTorrent({
+        length: 2048,
+        pieceLength: 1024,
+        verifiedPieces: [0, 1],
+      });
+      try {
+        disk.file.stream = () => {
+          throw new Error("disk fast path should not touch WebTorrent stream");
+        };
+        let priorities = 0;
+        const closes: string[] = [];
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=0-0" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          {
+            ...depsFor(disk.torrent, disk.file),
+            prioritizeFile() {
+              priorities += 1;
+            },
+            openDiskStream(torrent, file, range) {
+              return openVerifiedDiskStream(torrent, file, range, {
+                onClose(reason) {
+                  closes.push(reason);
+                },
+              });
+            },
+          },
+        );
+        assert.equal(res.status, 206);
+        assert.equal(res.headers.get("content-range"), "bytes 0-0/2048");
+        assert.equal(res.headers.get("content-length"), "1");
+        assert.equal((await bodyBytes(res)).length, 1);
+        await waitFor(() => closes.length === 1);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.equal(closes.length, 1, `handle closed more than once: ${closes}`);
+        assert.equal(priorities, 0, "complete disk bytes need no swarm priority");
+      } finally {
+        await disk.cleanup();
+      }
+    });
+
+    await check("disk and swarm paths return byte-identical range headers", async () => {
+      resetStreamPrefetchForTests();
+      const swarm = await requestFile(
+        { range: "bytes=100-199" },
+        makeFile("Folder/Movie.mkv", 2048),
+      );
+      const disk = await makeDiskBackedTorrent({
+        length: 2048,
+        pieceLength: 1024,
+        verifiedPieces: [0, 1],
+      });
+      try {
+        disk.file.stream = () => {
+          throw new Error("disk fast path should not touch WebTorrent stream");
+        };
+        const fast = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=100-199" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          depsFor(disk.torrent, disk.file),
+        );
+        assert.equal(fast.status, swarm.status);
+        assert.deepEqual(responseHeaderEntries(fast), responseHeaderEntries(swarm));
+        const body = await bodyBytes(fast);
+        assert.equal(body.length, 100);
+        assert.equal(body[0], byteAt(100));
+        assert.equal(body[99], byteAt(199));
+      } finally {
+        await disk.cleanup();
+      }
+    });
+
+    await check("cancelling a fast-path response closes the disk handle once", async () => {
+      resetStreamPrefetchForTests();
+      const disk = await makeDiskBackedTorrent({
+        length: 512 * 1024,
+        pieceLength: 64 * 1024,
+        verifiedPieces: Array.from({ length: 8 }, (_, i) => i),
+      });
+      try {
+        const closes: string[] = [];
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=0-524287" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          {
+            ...depsFor(disk.torrent, disk.file),
+            openDiskStream(torrent, file, range) {
+              return openVerifiedDiskStream(torrent, file, range, {
+                onClose(reason) {
+                  closes.push(reason);
+                },
+              });
+            },
+          },
+        );
+        const reader = res.body?.getReader();
+        assert.ok(reader, "fast path response should have a body");
+        const first = await reader.read();
+        assert.equal(first.done, false);
+        await reader.cancel("viewer seek");
+        await waitFor(() => closes.length === 1);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.equal(closes.length, 1, `handle closed more than once: ${closes}`);
+      } finally {
+        await disk.cleanup();
+      }
+    });
+
+    await check("a range crossing an unverified piece falls back to WebTorrent", async () => {
+      resetStreamPrefetchForTests();
+      const disk = await makeDiskBackedTorrent({
+        length: 2048,
+        pieceLength: 1024,
+        verifiedPieces: [0],
+      });
+      try {
+        let streams = 0;
+        const original = disk.file.stream;
+        disk.file.stream = (opts) => {
+          streams += 1;
+          return original.call(disk.file, opts);
+        };
+        let priorities = 0;
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=900-1100" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          {
+            ...depsFor(disk.torrent, disk.file),
+            prioritizeFile() {
+              priorities += 1;
+            },
+          },
+        );
+        assert.equal(res.status, 206);
+        assert.equal((await bodyBytes(res)).length, 201);
+        assert.equal(streams, 1);
+        assert.equal(priorities, 1);
+      } finally {
+        await disk.cleanup();
+      }
     });
 
     await check("a mid-stream stall ends the response instead of hanging", async () => {

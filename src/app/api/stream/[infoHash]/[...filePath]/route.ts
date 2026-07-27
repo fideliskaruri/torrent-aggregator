@@ -5,9 +5,15 @@ import { getUserClientConfig, type ClientConnectionConfig } from "@/lib/clients"
 import {
   findBuiltinTorrentFile,
   prefetchBuiltinFileEdges,
+  prioritizeBuiltinStreamFile,
+  resetBuiltinStreamPriorityForTests,
   type BuiltinStreamFile,
   type BuiltinStreamTorrent,
 } from "@/lib/clients/builtin-engine";
+import {
+  openVerifiedDiskStream,
+  readVerifiedDiskFile,
+} from "@/lib/clients/disk-fastpath";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { isWebVtt, srtToVtt } from "@/lib/media/subtitles";
 import { markForegroundActive } from "@/lib/prewarm/foreground";
@@ -34,10 +40,10 @@ type StreamDeps = {
   getConfig?: () => Promise<ClientConnectionConfig | null>;
   findFile?: typeof findBuiltinTorrentFile;
   prefetchEdges?: typeof prefetchBuiltinFileEdges;
+  prioritizeFile?: typeof prioritizeBuiltinStreamFile;
+  openDiskStream?: typeof openVerifiedDiskStream;
   stallTimeoutMs?: number;
 };
-
-const prefetchedFiles = new Set<string>();
 
 function json(status: number, body: Record<string, unknown>): Response {
   return NextResponse.json(body, { status });
@@ -124,32 +130,38 @@ function isSubtitlePath(filePath: string): boolean {
  * serving raw SubRip makes the browser reject the cues with no visible error.
  */
 async function serveSubtitleAsVtt(
+  torrent: BuiltinStreamTorrent,
   file: BuiltinStreamFile,
   method: string,
-): Promise<Response | null> {
+): Promise<{ response: Response; source: "disk" | "swarm" } | null> {
   if (file.length > MAX_SUBTITLE_BYTES) return null;
-  const reader = file.stream({ start: 0, end: Math.max(file.length - 1, 1) }).getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const next = await reader.read();
-      if (next.done) break;
-      chunks.push(next.value);
-      total += next.value.length;
-      if (total > MAX_SUBTITLE_BYTES) return null;
+  let merged = await readVerifiedDiskFile(torrent, file, MAX_SUBTITLE_BYTES);
+  let source: "disk" | "swarm" = "disk";
+  if (!merged) {
+    source = "swarm";
+    const reader = file.stream({ start: 0, end: Math.max(file.length - 1, 1) }).getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        chunks.push(next.value);
+        total += next.value.length;
+        if (total > MAX_SUBTITLE_BYTES) return null;
+      }
+    } catch {
+      return null;
+    } finally {
+      reader.cancel().catch(() => undefined);
     }
-  } catch {
-    return null;
-  } finally {
-    reader.cancel().catch(() => undefined);
-  }
 
-  const merged = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.length;
+    merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
   }
   const raw = new TextDecoder("utf-8").decode(merged.subarray(0, file.length));
   const vtt = isWebVtt(raw) ? raw : srtToVtt(raw);
@@ -160,7 +172,10 @@ async function serveSubtitleAsVtt(
     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
     "Accept-Ranges": "none",
   });
-  return new Response(method === "HEAD" ? null : bytes, { status: 200, headers });
+  return {
+    response: new Response(method === "HEAD" ? null : bytes, { status: 200, headers }),
+    source,
+  };
 }
 
 function torrentPeers(torrent?: BuiltinStreamTorrent): number | null {
@@ -382,34 +397,39 @@ function prependFirstChunkStream(
   });
 }
 
-function triggerFirstPrefetch(
+function triggerStreamPriority(
   infoHash: string,
   filePath: string,
   torrent: BuiltinStreamTorrent,
   file: BuiltinStreamFile,
+  seekOffset: number,
   prefetchEdges: typeof prefetchBuiltinFileEdges,
+  prioritizeFile: typeof prioritizeBuiltinStreamFile,
 ) {
-  const key = `${infoHash}/${filePath}`;
-  if (prefetchedFiles.has(key)) return;
-  prefetchedFiles.add(key);
-  void prefetchEdges(torrent, file).catch((err) => {
-    // A stalled prefetch is exactly the cold-torrent case this exists to fix, so
-    // release the key and let the next Play retry once peers show up.
-    prefetchedFiles.delete(key);
-    console.warn(
-      "[stream]",
-      JSON.stringify({
-        infoHash,
-        file: filePath,
-        outcome: "prefetch_failed",
-        message: err instanceof Error ? err.message : String(err),
-      }),
-    );
+  prioritizeFile(torrent, file, {
+    seekOffset,
+    prefetchEdges,
+    onPrefetchError(err) {
+      // A stalled prefetch is exactly the cold-torrent case this exists to fix,
+      // so let the engine release its prefetch key and let the next Play retry
+      // once peers show up.
+      console.warn(
+        "[stream]",
+        JSON.stringify({
+          infoHash,
+          file: filePath,
+          outcome: "prefetch_failed",
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    },
   });
 }
 
 export function resetStreamPrefetchForTests() {
-  prefetchedFiles.clear();
+  // Kept for older stream-route tests. The prefetch de-dupe now lives beside the
+  // WebTorrent priority state so non-route callers get the same cheap no-op.
+  resetBuiltinStreamPriorityForTests();
 }
 
 export async function handleStreamFileRequest(
@@ -490,7 +510,11 @@ export async function handleStreamFileRequest(
   }
 
   if (isSubtitlePath(filePath)) {
-    const subtitle = await serveSubtitleAsVtt(lookup.file, request.method);
+    const subtitle = await serveSubtitleAsVtt(
+      lookup.torrent,
+      lookup.file,
+      request.method,
+    );
     if (subtitle) {
       // A subtitle body is not video, but it is still playback: the viewer chose
       // timed text for this torrent, and extracting or serving it can touch the
@@ -502,9 +526,9 @@ export async function handleStreamFileRequest(
         file: filePath,
         range: request.headers.get("range"),
         torrent: lookup.torrent,
-        outcome: "subtitle",
+        outcome: subtitle.source === "disk" ? "subtitle_disk" : "subtitle",
       });
-      return subtitle;
+      return subtitle.response;
     }
   }
 
@@ -538,12 +562,37 @@ export async function handleStreamFileRequest(
     return new Response(null, { status: range.status, headers });
   }
 
-  triggerFirstPrefetch(
+  const disk = await (deps.openDiskStream ?? openVerifiedDiskStream)(
+    lookup.torrent,
+    lookup.file,
+    range,
+  );
+  if (disk) {
+    markForegroundActive(infoHash);
+    logStreamRequest({
+      infoHash,
+      file: filePath,
+      range: request.headers.get("range"),
+      torrent: lookup.torrent,
+      outcome: range.status === 206 ? "partial_disk" : "ok_disk",
+    });
+    // The stall guard below is for a live WebTorrent iterator that can park on a
+    // future `verified` event forever when the swarm dries up. A local file read
+    // does not wait for future pieces; if Windows or the disk rejects the open we
+    // never enter this branch, and once the OS has accepted the handle a read
+    // failure should surface as a real response error rather than be hidden as a
+    // swarm stall.
+    return new Response(disk.body, { status: range.status, headers });
+  }
+
+  triggerStreamPriority(
     infoHash,
     filePath,
     lookup.torrent,
     lookup.file,
+    range.start,
     deps.prefetchEdges ?? prefetchBuiltinFileEdges,
+    deps.prioritizeFile ?? prioritizeBuiltinStreamFile,
   );
 
   const stallTimeoutMs = deps.stallTimeoutMs ?? STREAM_STALL_TIMEOUT_MS;
