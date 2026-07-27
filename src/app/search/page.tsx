@@ -1,17 +1,29 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Film, Gamepad2, Music2, Tv } from "lucide-react";
 import { SearchBar } from "@/components/search/search-bar";
 import { SearchResults } from "@/components/search/search-results";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { SEARCH_HREF } from "@/lib/navigation";
+import { browseWorkDisplay } from "@/lib/browse/collapse";
 
 const CATEGORY_BY_MEDIA_TYPE: Record<string, string> = {
   anime: "anime",
   movie: "movies",
   tv: "tv",
+};
+
+type ShortcutSection = {
+  id: string;
+  title: string;
+  items: SearchShortcut[];
+};
+
+type SearchShortcut = {
+  id: string;
+  label: string;
+  category: string;
 };
 
 /**
@@ -23,32 +35,91 @@ const CATEGORY_BY_MEDIA_TYPE: Record<string, string> = {
  * right now" is your own library, so that is what it reads. Empty library means
  * the row is not rendered at all.
  */
-async function recentLibraryShortcuts() {
+async function personalSearchShortcuts(): Promise<ShortcutSection[]> {
   try {
     const session = await auth();
-    const items = await prisma.watchListItem.findMany({
-      where: { userId: session.user.id, status: { in: ["watching", "planned"] } },
-      orderBy: { updatedAt: "desc" },
-      take: 6,
-      select: { id: true, title: true, mediaType: true },
-    });
-    return items.map((item) => ({
-      id: item.id,
-      label: item.title,
-      category: CATEGORY_BY_MEDIA_TYPE[item.mediaType] ?? "all",
-    }));
+    const [libraryRows, progressRows] = await Promise.all([
+      prisma.watchListItem.findMany({
+        where: {
+          userId: session.user.id,
+          status: { in: ["watching", "planned"] },
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 8,
+        select: { id: true, title: true, mediaType: true },
+      }),
+      prisma.playbackProgress.findMany({
+        where: { userId: session.user.id, completedAt: null },
+        orderBy: { updatedAt: "desc" },
+        take: 8,
+        select: { id: true, title: true, infoHash: true },
+      }),
+    ]);
+
+    const hashes = [
+      ...new Set(progressRows.map((row) => row.infoHash.trim().toLowerCase())),
+    ];
+    const engineRows =
+      hashes.length > 0
+        ? await prisma.engineTorrent.findMany({
+            where: { userId: session.user.id, hash: { in: hashes } },
+            select: { hash: true, name: true },
+          })
+        : [];
+    const torrentNameByHash = new Map(
+      engineRows.map((row) => [row.hash.trim().toLowerCase(), row.name]),
+    );
+
+    const seen = new Set<string>();
+    const fromLibrary = libraryRows
+      .map((item) =>
+        shortcut(item.id, item.title, CATEGORY_BY_MEDIA_TYPE[item.mediaType], seen),
+      )
+      .filter((item): item is SearchShortcut => item !== null)
+      .slice(0, 6);
+
+    const continueWatching = progressRows
+      .map((row) => {
+        const releaseName =
+          torrentNameByHash.get(row.infoHash.trim().toLowerCase()) ?? row.title;
+        return shortcut(
+          row.id,
+          browseWorkDisplay(releaseName).title,
+          undefined,
+          seen,
+        );
+      })
+      .filter((item): item is SearchShortcut => item !== null)
+      .slice(0, 6);
+
+    return [
+      { id: "continue-watching", title: "Continue watching", items: continueWatching },
+      { id: "library", title: "From your library", items: fromLibrary },
+    ].filter((section) => section.items.length > 0);
   } catch {
     // The search page must still render if the DB is unreachable.
     return [];
   }
 }
 
-const STARTERS = [
-  { href: `${SEARCH_HREF}?q=anime&category=anime`, icon: Tv, label: "Anime", hint: "Nyaa-first" },
-  { href: `${SEARCH_HREF}?q=2024&category=movies`, icon: Film, label: "Movies", hint: "YTS + TPB" },
-  { href: `${SEARCH_HREF}?q=flac&category=music`, icon: Music2, label: "Music", hint: "Lossless & more" },
-  { href: `${SEARCH_HREF}?q=pc&category=games`, icon: Gamepad2, label: "Games", hint: "PC releases" },
-] as const;
+function shortcut(
+  id: string,
+  title: string,
+  category: string | undefined,
+  seen: Set<string>,
+): SearchShortcut | null {
+  const label = title.trim();
+  const key = label.toLowerCase().replace(/\s+/g, " ");
+  if (!label || seen.has(key)) return null;
+  seen.add(key);
+  return { id, label, category: category ?? "all" };
+}
+
+function shortcutHref(item: SearchShortcut): string {
+  const params = new URLSearchParams({ q: item.label });
+  if (item.category !== "all") params.set("category", item.category);
+  return `${SEARCH_HREF}?${params.toString()}`;
+}
 
 interface SearchPageProps {
   searchParams: Promise<{ q?: string; category?: string }>;
@@ -63,7 +134,7 @@ export async function generateMetadata({
     ? { title: q, description: `Results for ${q}` }
     : {
         title: "Search",
-        description: "Search multi-source indexers, monitor, grab, download.",
+        description: "Search for a title to watch.",
       };
 }
 
@@ -81,7 +152,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const q = params.q?.trim() ?? "";
   const category = params.category ?? "all";
   const hasQuery = Boolean(q);
-  const shortcuts = hasQuery ? [] : await recentLibraryShortcuts();
+  const shortcutSections = hasQuery ? [] : await personalSearchShortcuts();
 
   return (
     <div className="container-app min-w-0">
@@ -113,72 +184,40 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           </Suspense>
         </section>
       ) : (
-        <section className="min-w-0 max-w-2xl pb-16 pt-10 sm:pt-14">
-          <p className="mb-4 text-[12px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-            Every indexer, one query
-          </p>
-          <h1 className="text-display mb-4">
-            Search.
-            <br />
-            <span className="text-[var(--text-secondary)]">
-              Monitor. Grab. Download.
-            </span>
+        <section className="min-w-0 max-w-2xl pb-16 pt-8 sm:pt-10">
+          <h1 className="mb-4 text-[18px] font-medium text-[var(--text)]">
+            Search
           </h1>
-          <p className="text-body mb-6 max-w-md">
-            Results are ranked by how close each release is to what you asked
-            for — nothing is dropped for being 720p or new to the swarm.
-          </p>
 
-          <SearchBar size="hero" />
+          <SearchBar size="hero" autoFocus />
 
-          {shortcuts.length > 0 ? (
-            <div className="mt-6">
-              <p className="text-[12px] text-[var(--text-tertiary)]">
-                From your library
-              </p>
-              {/* A label inline with padded chips left a ragged edge on every
-                  wrapped line, and unbordered text gave no hint these are
-                  links. Label above, real chips below. */}
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                {shortcuts.map((t) => (
-                  <Link
-                    key={t.id}
-                    href={`${SEARCH_HREF}?q=${encodeURIComponent(t.label)}&category=${t.category}`}
-                    className="rounded-full border border-[var(--border)] bg-[var(--bg-muted)]/60 px-2.5 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent-text)]"
-                  >
-                    {t.label}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-10 border-t border-[var(--border)] pt-8">
-            <h2 className="mb-4 text-[13px] font-medium text-[var(--text-secondary)]">
-              Start somewhere
-            </h2>
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-              {STARTERS.map(({ href, icon: Icon, label, hint }) => (
-                <Link
-                  key={label}
-                  href={href}
-                  className="surface-interactive group flex items-center gap-3 p-3.5"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--bg-muted)] text-[var(--text-secondary)] transition-colors group-hover:text-[var(--accent-text)]">
-                    <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                  </span>
-                  <span>
-                    <span className="block text-[13px] font-medium text-[var(--text)]">
-                      {label}
-                    </span>
-                    <span className="block text-[11px] text-[var(--text-tertiary)]">
-                      {hint}
-                    </span>
-                  </span>
-                </Link>
+          {shortcutSections.length > 0 ? (
+            <div className="mt-7 space-y-5">
+              {shortcutSections.map((section) => (
+                <div key={section.id}>
+                  <p className="text-[12px] text-[var(--text-tertiary)]">
+                    {section.title}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {section.items.map((item) => (
+                      <Link
+                        key={item.id}
+                        href={shortcutHref(item)}
+                        className="rounded-full border border-[var(--border)] bg-[var(--bg-muted)]/60 px-2.5 py-1 text-[12px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent-text)]"
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
+          ) : (
+            <p className="mt-5 max-w-md text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+              No library or viewing history yet. Search for a title to get
+              started.
+            </p>
+          )}
         </section>
       )}
     </div>
