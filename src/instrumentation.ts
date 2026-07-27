@@ -17,4 +17,10 @@ export async function register() {
     "@/lib/prewarm/preprobe-scheduler"
   );
   startPreProbeScheduler();
+  // Stream-only retention is otherwise just a manual Settings button. Arm the
+  // proven fail-closed sweep on its own timer, alongside pre-probing.
+  const { startRetentionSweepScheduler } = await import(
+    "@/lib/library/retention-sweep-scheduler"
+  );
+  startRetentionSweepScheduler();
 }
