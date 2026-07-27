@@ -1,11 +1,17 @@
 /**
- * POST /api/playback/failover
+ * POST /api/playback/failover — MANUAL OVERRIDE
  *
- * The play-time watchdog tick. The client polls this while a source is starting
- * or playing; the server samples the live transfer, judges it against the stall
- * rule, and — only when the source is genuinely dead — fails over to the next
- * untried release of the same content, abandoning (pausing, not deleting) the
- * stalled one.
+ * The primary trigger for the swarm-delivery watchdog is server-side: the
+ * engine's foreground poll (`pollForegroundSwarmWatch` in
+ * `swarm-delivery-watchdog.ts`) drives a tick every 5s for whatever is the
+ * foreground stream, with no client involvement. This route is a *manual
+ * override* on the same seam — a way to force one watchdog tick for a specific
+ * source, useful for diagnostics or a client that wants to nudge a switch. It is
+ * deliberately not the only way in, so nothing breaks if a client never calls it.
+ *
+ * It samples the live transfer, judges it against the stall rule, and — only
+ * when the source is genuinely dead — fails over to the next untried release of
+ * the same content, abandoning (pausing, not deleting) the stalled one.
  *
  * The response is **structured playback state** plus its rendered copy from the
  * single presentation seam. The engine never writes the words; `describePlayback`
@@ -20,8 +26,8 @@ import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { preRankKey } from "@/lib/prewarm/prerank";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { describePlayback } from "@/lib/playback/narration";
-import { buildWatchdogDeps } from "@/lib/playback/engine-deps";
-import { watchdogTick } from "@/lib/playback/watchdog";
+import { buildSwarmWatchDeps } from "@/lib/playback/engine-deps";
+import { swarmDeliveryTick } from "@/lib/playback/swarm-delivery-watchdog";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,8 +76,8 @@ export async function POST(request: Request) {
   const contentKey = preRankKey(target);
 
   try {
-    const deps = buildWatchdogDeps(config);
-    const result = await watchdogTick(contentKey, infoHash, target, deps);
+    const deps = buildSwarmWatchDeps(config);
+    const result = await swarmDeliveryTick(contentKey, infoHash, target, deps);
     return json(200, {
       // Structured facts — the source of truth for the client.
       narration: result.narration,

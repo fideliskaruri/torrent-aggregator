@@ -1,10 +1,22 @@
 /**
- * Real {@link WatchdogDeps} backed by the built-in engine and `SearchCache`.
+ * Real {@link SwarmWatchDeps} backed by the built-in engine and `SearchCache`.
  *
- * This is the adapter seam: it turns the watchdog's four injected effects into
- * concrete engine calls, and nothing here makes a decision — the rules live in
- * `stall.ts` and `failover.ts`. Keeping it separate from the API route keeps the
- * route a thin HTTP shell and keeps this file free of `Request`/`Response`.
+ * WHY THIS FILE EXISTS (do not inline it)
+ * ---------------------------------------
+ * This is the *single* place the swarm-delivery watchdog touches live engine
+ * I/O — reading a torrent's transfer, looking up the cached ranked pool,
+ * starting a release, pausing one. It has two consumers: the foreground poll in
+ * `swarm-delivery-watchdog.ts` (the production trigger) and the manual override
+ * route (`/api/playback/failover`). Both build their effects here, so there is
+ * exactly one adapter to keep correct and exactly one thing to stub in tests —
+ * `swarmDeliveryTick` and `pollForegroundSwarmWatch` take `SwarmWatchDeps`/
+ * `buildDeps` as injected parameters, so the decision flow is exercised with
+ * fakes and never needs a real WebTorrent swarm. That testability is the whole
+ * justification: without this seam every test would need a live engine.
+ *
+ * Nothing here makes a decision — the rules live in `stall.ts` and
+ * `failover.ts`. Keeping it separate from the API route also keeps the route a
+ * thin HTTP shell and keeps this file free of `Request`/`Response`.
  */
 import prisma from "@/lib/prisma";
 import { builtinClient } from "@/lib/clients/builtin-engine";
@@ -14,7 +26,7 @@ import { normalizeTitle } from "@/lib/utils";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import type { TransferSample } from "./stall";
-import type { WatchdogDeps } from "./watchdog";
+import type { SwarmWatchDeps } from "./swarm-delivery-watchdog";
 import type { FailoverCandidate } from "./failover";
 
 /**
@@ -70,7 +82,7 @@ function toSample(config: ClientConnectionConfig, infoHash: string) {
   };
 }
 
-export function buildWatchdogDeps(config: ClientConnectionConfig): WatchdogDeps {
+export function buildSwarmWatchDeps(config: ClientConnectionConfig): SwarmWatchDeps {
   return {
     async sample(infoHash) {
       return toSample(config, infoHash)();

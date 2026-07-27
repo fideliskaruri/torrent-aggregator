@@ -696,6 +696,14 @@ function startUploadThrottleLoop(client: WebTorrentLike): void {
   applyForegroundUploadThrottle(client, foregroundActive());
   s.uploadThrottleTimer = setInterval(() => {
     applyForegroundUploadThrottle(client, foregroundActive());
+    // Same 5s beat drives the swarm-delivery watchdog: when a torrent is the
+    // foreground stream, sample it and fail over if it has stalled. Loaded
+    // dynamically so the watchdog (which imports this engine for its effects)
+    // does not create a static import cycle, and kept fire-and-forget — a
+    // failover nicety must never take the engine's timer down.
+    void import("@/lib/playback/swarm-delivery-watchdog")
+      .then((m) => m.pollForegroundSwarmWatch())
+      .catch(() => {});
   }, UPLOAD_THROTTLE_POLL_MS);
   s.uploadThrottleTimer.unref?.();
 }

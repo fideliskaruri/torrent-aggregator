@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { resetWatchdog, watchdogTick, type WatchdogDeps } from "./watchdog";
+import { resetSwarmWatch, swarmDeliveryTick, type SwarmWatchDeps } from "./swarm-delivery-watchdog";
 import { MAX_FAILOVER_ATTEMPTS } from "./failover";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
@@ -29,7 +29,7 @@ function release(n: number, seeders: number): TorrentResult {
 const POOL = [release(1, 28), release(2, 3), release(3, 4), release(4, 1)];
 
 interface Harness {
-  deps: WatchdogDeps;
+  deps: SwarmWatchDeps;
   started: string[];
   abandoned: string[];
   events: string[];
@@ -42,7 +42,7 @@ function harness(mode: "frozen" | "progress"): Harness {
   const started: string[] = [];
   const abandoned: string[] = [];
   const events: string[] = [];
-  const deps: WatchdogDeps = {
+  const deps: SwarmWatchDeps = {
     async sample() {
       now += 10_000; // 10s per poll
       if (mode === "progress") {
@@ -70,13 +70,13 @@ function harness(mode: "frozen" | "progress"): Harness {
 async function run() {
   // ── A frozen swarm fails over down the pool, then reports exhausted ────
   {
-    resetWatchdog();
+    resetSwarmWatch();
     const h = harness("frozen");
     let current = hash(1);
     let exhausted = false;
     let switches = 0;
     for (let i = 0; i < 60 && !exhausted; i++) {
-      const r = await watchdogTick(KEY, current, TARGET, h.deps);
+      const r = await swarmDeliveryTick(KEY, current, TARGET, h.deps);
       current = r.currentHash;
       if (r.switched) switches += 1;
       exhausted = r.exhausted;
@@ -108,12 +108,12 @@ async function run() {
 
   // ── A slow-but-progressing swarm is never abandoned ───────────────────
   {
-    resetWatchdog();
+    resetSwarmWatch();
     const h = harness("progress");
     let current = hash(1);
     let sawPlaying = false;
     for (let i = 0; i < 20; i++) {
-      const r = await watchdogTick("slow|S1E1", current, TARGET, h.deps);
+      const r = await swarmDeliveryTick("slow|S1E1", current, TARGET, h.deps);
       current = r.currentHash;
       assert.equal(r.switched, false, `tick ${i}: must not switch a working download`);
       assert.equal(r.exhausted, false, `tick ${i}: must not give up on a working download`);
@@ -127,7 +127,7 @@ async function run() {
 
   // ── Attempt cap is honored even if the pool were bottomless ────────────
   {
-    resetWatchdog();
+    resetSwarmWatch();
     const big = Array.from({ length: 12 }, (_, i) => release(i + 1, 20 - i));
     const h = harness("frozen");
     // Point rankedResults at the big pool.
@@ -136,7 +136,7 @@ async function run() {
     let current = hash(1);
     let exhausted = false;
     for (let i = 0; i < 80 && !exhausted; i++) {
-      const r = await watchdogTick("cap|S1E1", current, TARGET, h.deps);
+      const r = await swarmDeliveryTick("cap|S1E1", current, TARGET, h.deps);
       current = r.currentHash;
       exhausted = r.exhausted;
     }
@@ -148,11 +148,11 @@ async function run() {
     );
   }
 
-  console.log("watchdog.test.ts: PASS");
+  console.log("swarm-delivery-watchdog.test.ts: PASS");
 }
 
 run().catch((err) => {
-  console.error("watchdog.test.ts: FAIL");
+  console.error("swarm-delivery-watchdog.test.ts: FAIL");
   console.error(err);
   process.exit(1);
 });
