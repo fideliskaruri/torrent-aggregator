@@ -544,6 +544,18 @@ function selectPieceRange(
   }
 }
 
+function markCriticalPieceRange(
+  torrent: BuiltinStreamTorrent,
+  range: { start: number; end: number } | null,
+): void {
+  if (!range) return;
+  try {
+    (torrent as WtTorrent).critical?.(range.start, range.end);
+  } catch {
+    /* best-effort */
+  }
+}
+
 function deselectStreamPieceRange(
   torrent: BuiltinStreamTorrent,
   range: { start: number; end: number } | null,
@@ -649,16 +661,15 @@ export function prioritizeBuiltinStreamFile(
   }
   prioritizedStreamFiles.set(torrent, { key, headRange: head, tailRange: tail, seekRange: seek });
 
-  if (head) selectPieceRange(torrent, head, SEEK_FILE_PRIORITY);
+  if (head) {
+    selectPieceRange(torrent, head, SEEK_FILE_PRIORITY);
+    markCriticalPieceRange(torrent, head);
+  }
   if (tail && !samePieceRange(tail, head)) selectPieceRange(torrent, tail, SEEK_FILE_PRIORITY);
 
   if (seek) {
     selectPieceRange(torrent, seek, SEEK_FILE_PRIORITY);
-    try {
-      (torrent as WtTorrent).critical?.(seek.start, seek.end);
-    } catch {
-      /* best-effort */
-    }
+    markCriticalPieceRange(torrent, seek);
   }
 
   // The byte route marks the foreground timestamp after the first chunk proves
@@ -1550,6 +1561,9 @@ async function drainBuiltinFileRange(
  * Pull the file's first and last bytes into WebTorrent's piece selector.
  * Chromium usually probes the tail first for MP4 `moov` / MKV `Cues`; without
  * this a barely-started large file can appear to spin forever.
+ *
+ * Drain the head before the tail so the Cues prefetch cannot compete with the
+ * bytes needed for the first frame.
  */
 export async function prefetchBuiltinFileEdges(
   torrent: BuiltinStreamTorrent,
@@ -1563,19 +1577,15 @@ export async function prefetchBuiltinFileEdges(
   const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs ?? 15_000));
   const lastByte = Math.max(0, file.length - 1);
   const headEnd = Math.min(lastByte, bytes - 1);
-  const ranges = [{ start: 0, end: headEnd }];
+  await drainBuiltinFileRange(torrent, file, { start: 0, end: headEnd }, timeoutMs);
   if (file.length > bytes) {
-    ranges.push({ start: Math.max(0, file.length - bytes), end: lastByte });
+    await drainBuiltinFileRange(
+      torrent,
+      file,
+      { start: Math.max(0, file.length - bytes), end: lastByte },
+      timeoutMs,
+    );
   }
-  await Promise.allSettled(
-    ranges.map((range) => drainBuiltinFileRange(torrent, file, range, timeoutMs)),
-  ).then((settled) => {
-    // Surface a stalled edge drain instead of swallowing it: the caller uses the
-    // rejection to allow a later retry, and a stalled prefetch means the edge
-    // bytes were never actually pulled.
-    const failed = settled.find((s) => s.status === "rejected");
-    if (failed && failed.status === "rejected") throw failed.reason;
-  });
 }
 
 /** Destroy a live torrent; rejects with a clear message if handle is invalid. */

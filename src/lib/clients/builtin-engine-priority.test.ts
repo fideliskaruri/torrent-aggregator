@@ -4,6 +4,7 @@ import type {
   BuiltinStreamTorrent,
 } from "./builtin-engine";
 import {
+  prefetchBuiltinFileEdges,
   prioritizeBuiltinStreamFile,
   resetBuiltinStreamPriorityForTests,
 } from "./builtin-engine";
@@ -128,6 +129,7 @@ async function main() {
       { start: 40, end: 41, priority: 3, stream: true },
       { start: 48, end: 49, priority: 3, stream: true },
     ]);
+    assert.deepEqual(torrent.criticalCalls, [{ start: 40, end: 41 }]);
   });
 
   await check("repeat calls for the same file are a no-op", () => {
@@ -217,7 +219,10 @@ async function main() {
       { start: 40, end: 60, priority: 3, stream: true },
       { start: 48, end: 60, priority: 3, stream: true },
     ]);
-    assert.deepEqual(torrent.criticalCalls, [{ start: 48, end: 60 }]);
+    assert.deepEqual(torrent.criticalCalls, [
+      { start: 40, end: 60 },
+      { start: 48, end: 60 },
+    ]);
   });
 
   await check("head priority is bounded instead of selecting the whole episode", () => {
@@ -257,6 +262,59 @@ async function main() {
       ],
       "S01E03 must prioritise S01E03's tail pieces, not the torrent tail or a sibling",
     );
+  });
+
+  await check("edge prefetch defers tail drain until head drain finishes", async () => {
+    const started: Array<{ start: number; end: number }> = [];
+    const releases: Array<() => void> = [];
+    const file = {
+      name: "Show/S01E03.mkv",
+      path: "Show/S01E03.mkv",
+      length: 30,
+      stream(range: { start: number; end: number }) {
+        started.push(range);
+        return new ReadableStream<Uint8Array>({
+          start(controller) {
+            releases.push(() => controller.close());
+          },
+        });
+      },
+    } as BuiltinStreamFile;
+    const torrent = { emit() {} } as unknown as BuiltinStreamTorrent;
+
+    const prefetch = prefetchBuiltinFileEdges(torrent, file, { bytes: 10, timeoutMs: 1_000 });
+    await Promise.resolve();
+    assert.deepEqual(started, [{ start: 0, end: 9 }]);
+
+    releases.shift()?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(started, [
+      { start: 0, end: 9 },
+      { start: 20, end: 29 },
+    ]);
+
+    releases.shift()?.();
+    await prefetch;
+  });
+
+  await check("failed edge prefetch is retried on a later priority call", async () => {
+    const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
+    const torrent = fakeTorrent([ep5]);
+    let attempts = 0;
+    const opts = {
+      prefetchEdges: async () => {
+        attempts += 1;
+        throw new Error("prefetch stalled");
+      },
+    };
+
+    prioritizeBuiltinStreamFile(torrent, ep5, opts);
+    await Promise.resolve();
+    await Promise.resolve();
+    prioritizeBuiltinStreamFile(torrent, ep5, opts);
+    await Promise.resolve();
+
+    assert.equal(attempts, 2);
   });
 }
 
