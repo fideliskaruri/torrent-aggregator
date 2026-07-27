@@ -46,6 +46,7 @@ import { titleHrefForName } from "@/components/title/work-key";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
+import { startVisiblePoller } from "./polling";
 
 interface ClientTorrent {
   hash: string;
@@ -305,38 +306,11 @@ export default function ClientPage() {
   // pure load on the engine for no one's benefit, so it pauses when hidden and
   // refreshes immediately on return.
   useEffect(() => {
-    if (pendingDelete) return;
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
-
-    const schedule = () => {
-      if (stopped) return;
-      timer = setTimeout(tick, offline ? 20_000 : 5_000);
-    };
-
-    const tick = async () => {
-      if (stopped) return;
-      if (document.visibilityState === "visible") {
-        await load({ quiet: true });
-      }
-      schedule();
-    };
-
-    const onVisible = () => {
-      if (document.visibilityState !== "visible" || stopped) return;
-      // Whatever is on screen is as old as the time spent hidden.
-      clearTimeout(timer);
-      void tick();
-    };
-
-    schedule();
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      stopped = true;
-      clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
+    return startVisiblePoller({
+      poll: () => load({ quiet: true }),
+      intervalMs: () => (offline ? 20_000 : 5_000),
+      isPaused: () => Boolean(pendingDelete),
+    });
   }, [offline, load, pendingDelete]);
 
   const filtered = useMemo(() => {
