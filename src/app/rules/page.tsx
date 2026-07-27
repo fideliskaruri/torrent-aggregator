@@ -46,6 +46,54 @@ export const RULE_CATEGORY_OPTIONS = [
   { value: "tv", label: "TV" },
 ] as const;
 
+type RuleCategoryValue = (typeof RULE_CATEGORY_OPTIONS)[number]["value"];
+
+const RULE_CATEGORY_VALUES = new Set<string>(
+  RULE_CATEGORY_OPTIONS.map((option) => option.value),
+);
+
+export function normalizeRuleCategory(
+  category: string | null | undefined,
+): RuleCategoryValue {
+  return RULE_CATEGORY_VALUES.has(category ?? "")
+    ? (category as RuleCategoryValue)
+    : "all";
+}
+
+export function describeRuleCategory(category: string | null | undefined) {
+  const option = RULE_CATEGORY_OPTIONS.find((entry) => entry.value === category);
+  if (!option) {
+    const stored = category?.trim() || "unknown";
+    return {
+      supported: false,
+      value: normalizeRuleCategory(category),
+      label: `Unsupported: ${stored}`,
+      stored,
+    };
+  }
+  return {
+    supported: true,
+    value: option.value,
+    label: option.label,
+    stored: option.value,
+  };
+}
+
+export function buildRuleTogglePayload(
+  id: string,
+  enabled: boolean,
+  _storedCategory?: string | null,
+) {
+  return { id, enabled };
+}
+
+export function buildRuleRetargetPayload(
+  id: string,
+  category: string | null | undefined,
+) {
+  return { id, category: normalizeRuleCategory(category) };
+}
+
 export default function RulesPage() {
   const {
     data: rulesData,
@@ -60,6 +108,10 @@ export default function RulesPage() {
   const [runLog, setRunLog] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Rule | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [retargeting, setRetargeting] = useState<string | null>(null);
+  const [retargetCategories, setRetargetCategories] = useState<
+    Record<string, RuleCategoryValue>
+  >({});
   const [form, setForm] = useState({
     name: "",
     query: "",
@@ -67,6 +119,9 @@ export default function RulesPage() {
     minSeeders: "10",
     resolution: "",
   });
+  const hasUnsupportedRules = rules.some(
+    (rule) => !describeRuleCategory(rule.category).supported,
+  );
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -105,9 +160,38 @@ export default function RulesPage() {
     await fetch("/api/rules", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, enabled }),
+      body: JSON.stringify(buildRuleTogglePayload(id, enabled)),
     });
     void load();
+  }
+
+  async function retarget(rule: Rule) {
+    const nextCategory =
+      retargetCategories[rule.id] ?? normalizeRuleCategory(rule.category);
+    setRetargeting(rule.id);
+    try {
+      const res = await fetch("/api/rules", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRuleRetargetPayload(rule.id, nextCategory)),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Could not retarget rule");
+        return;
+      }
+      setRetargetCategories((current) => {
+        const next = { ...current };
+        delete next[rule.id];
+        return next;
+      });
+      toast.success("Rule retargeted");
+      void load();
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setRetargeting(null);
+    }
   }
 
   async function confirmRemove() {
@@ -128,6 +212,17 @@ export default function RulesPage() {
   }
 
   async function runAll() {
+    if (hasUnsupportedRules) {
+      const blocked = rules
+        .filter((rule) => !describeRuleCategory(rule.category).supported)
+        .map((rule) => `• ${rule.name}: ${describeRuleCategory(rule.category).label}`)
+        .join("\n");
+      const message =
+        "Retarget or delete unsupported legacy rules before running automation.";
+      setRunLog(`${message}\n${blocked}`);
+      toast.warning(message);
+      return;
+    }
     setRunning(true);
     setRunLog(null);
     try {
@@ -183,6 +278,11 @@ export default function RulesPage() {
             size="sm"
             onClick={() => void runAll()}
             disabled={running || !rules.length}
+            title={
+              hasUnsupportedRules
+                ? "Retarget or delete unsupported legacy rules before running"
+                : undefined
+            }
           >
             {running ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -297,55 +397,108 @@ export default function RulesPage() {
       ) : null}
 
       <div className="space-y-2">
-        {rules.map((rule) => (
-          <div
-            key={rule.id}
-            className="surface p-4 flex flex-wrap items-start gap-3"
-          >
-            <div className="flex-1 min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="font-medium text-[var(--text)]">{rule.name}</p>
-                <Badge variant={rule.enabled ? "accent" : "secondary"}>
-                  {rule.enabled ? "Enabled" : "Disabled"}
-                </Badge>
-              </div>
-              <p className="text-xs text-[var(--text-tertiary)]">
-                “{rule.query}” · {rule.category} · ≥{rule.minSeeders} seeders
-                {rule.resolution ? ` · ${rule.resolution}` : ""}
-              </p>
-              {rule.lastMatchTitle ? (
-                <p className="text-xs text-[var(--accent-text)] line-clamp-1">
-                  Last match: {rule.lastMatchTitle}
-                </p>
-              ) : null}
-              <p className="text-[11px] text-[var(--text-tertiary)]">
-                {rule.matchCount} sends
-                {rule.lastRunAt
-                  ? ` · last run ${new Date(rule.lastRunAt).toLocaleString()}`
-                  : ""}
-              </p>
-            </div>
-            <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
-              <Checkbox
-                checked={rule.enabled}
-                onCheckedChange={(checked) =>
-                  void toggle(rule.id, checked === true)
-                }
-              />
-              Enabled
-            </label>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setPendingRemove(rule)}
-              aria-label="Delete rule"
-              className="text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+        {rules.map((rule) => {
+          const category = describeRuleCategory(rule.category);
+          const selectedRetarget =
+            retargetCategories[rule.id] ?? normalizeRuleCategory(rule.category);
+          return (
+            <div
+              key={rule.id}
+              className="surface p-4 flex flex-wrap items-start gap-3"
             >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        ))}
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-medium text-[var(--text)]">{rule.name}</p>
+                  <Badge variant={rule.enabled ? "accent" : "secondary"}>
+                    {rule.enabled ? "Enabled" : "Disabled"}
+                  </Badge>
+                  {!category.supported ? (
+                    <Badge variant="secondary">Unsupported category</Badge>
+                  ) : null}
+                </div>
+                <p className="text-xs text-[var(--text-tertiary)]">
+                  “{rule.query}” · {category.label} · ≥{rule.minSeeders} seeders
+                  {rule.resolution ? ` · ${rule.resolution}` : ""}
+                </p>
+                {!category.supported ? (
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-xs text-[var(--text-secondary)] space-y-2">
+                    <p>
+                      This legacy rule targets “{category.stored}”, which
+                      TorrentFlow cannot browse or play. It is blocked from Run
+                      now until you retarget it to video or delete it.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        className={selectClass}
+                        value={selectedRetarget}
+                        onChange={(event) =>
+                          setRetargetCategories((current) => ({
+                            ...current,
+                            [rule.id]: normalizeRuleCategory(event.target.value),
+                          }))
+                        }
+                        aria-label={`Retarget ${rule.name}`}
+                      >
+                        {RULE_CATEGORY_OPTIONS.map((option) => (
+                          <option
+                            key={option.value}
+                            value={option.value}
+                            className="bg-[var(--bg-elevated)]"
+                          >
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void retarget(rule)}
+                        disabled={retargeting === rule.id}
+                      >
+                        {retargeting === rule.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : null}
+                        Retarget
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+                {rule.lastMatchTitle ? (
+                  <p className="text-xs text-[var(--accent-text)] line-clamp-1">
+                    Last match: {rule.lastMatchTitle}
+                  </p>
+                ) : null}
+                <p className="text-[11px] text-[var(--text-tertiary)]">
+                  {rule.matchCount} sends
+                  {rule.lastRunAt
+                    ? ` · last run ${new Date(rule.lastRunAt).toLocaleString()}`
+                    : ""}
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
+                <Checkbox
+                  checked={rule.enabled}
+                  disabled={!category.supported}
+                  onCheckedChange={(checked) =>
+                    void toggle(rule.id, checked === true)
+                  }
+                />
+                Enabled
+              </label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setPendingRemove(rule)}
+                aria-label="Delete rule"
+                className="text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
         {error ? (
           <TfErrorState
             title="Could not load rules"
