@@ -105,6 +105,13 @@ const ONE_CARD_CASES: Array<{ name: string; releases: string[] }> = [
       "www.UIndex.org - Rick and Morty S01E02 1080p WEB-DL x264",
     ],
   },
+  {
+    name: "two qualities of one numbered show",
+    releases: [
+      "Instant Harness 4242.S01E02.1080p.WEB-DL-GROUPA.mp4",
+      "Instant Harness 4242.S01E02.2160p.WEB-DL-GROUPB.mp4",
+    ],
+  },
 ];
 
 for (const tc of ONE_CARD_CASES) {
@@ -307,6 +314,18 @@ check("episode-only release names do not become visible card titles", () => {
     collapsed[0].title,
     "Unknown title",
     "an episode code is not a work name; falling back to it recreates the Continue Watching bug",
+  );
+});
+
+check("numbered series names keep their number in the work key and title", () => {
+  const collapsed = collapseReleasesByWork([
+    release("Instant Harness 4242.S01E02.1080p.WEB-DL-GROUPA.mp4", 1),
+    release("Instant Harness 4343.S01E02.1080p.WEB-DL-GROUPA.mp4", 2),
+  ]);
+  assert.deepEqual(
+    collapsed.map((work) => work.title),
+    ["Instant Harness 4242", "Instant Harness 4343"],
+    "a numeric token before an explicit season/episode marker is part of the show, not an absolute episode residue",
   );
 });
 
