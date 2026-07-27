@@ -162,6 +162,44 @@ async function main() {
     assert.deepEqual(body.files[1]?.downloadedRanges, []);
   });
 
+  await checkAsync("an incomplete multi-file pack still exposes every playable file", async () => {
+    const res = await handleStreamIndexRequest(
+      { infoHash: "a".repeat(40) },
+      {
+        getConfig: async () => CONFIG,
+        findFile: (async () => ({
+          status: "ok" as const,
+          torrent: {
+            files: [
+              { path: "Pack\\Episode 01.mkv", length: 100 },
+              { path: "Pack\\Episode 02.mkv", length: 200 },
+              { path: "Pack\\Episode 03.mkv", length: 300 },
+            ],
+            numPeers: 1,
+            progress: 0.12,
+            downloadSpeed: 1024,
+          },
+          file: { path: "Pack\\Episode 01.mkv", length: 100 },
+        })) as never,
+        quiet: true,
+      },
+    );
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      files: Array<{ path: string; length: number; downloadedRanges?: unknown[] }>;
+      swarm?: { progress: number | null };
+    };
+    assert.deepEqual(
+      body.files.map((f) => [f.path, f.length]),
+      [
+        ["Pack/Episode 01.mkv", 100],
+        ["Pack/Episode 02.mkv", 200],
+        ["Pack/Episode 03.mkv", 300],
+      ],
+    );
+    assert.equal(body.swarm?.progress, 0.12);
+  });
+
   console.log("\n── Stream manifest downloaded ranges ──");
 
   const rangeCases: Array<{

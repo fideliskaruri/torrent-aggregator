@@ -28,6 +28,34 @@ type FileWithDiskState = BuiltinStreamFile & {
   offset?: number;
 };
 
+type PieceDiskFingerprint = {
+  path: string;
+  size: number;
+  mtimeMs: number;
+};
+
+type PieceDiskSegment = {
+  path: string;
+  position: number;
+  length: number;
+  outOffset: number;
+  fingerprint: PieceDiskFingerprint;
+};
+
+type VerifiedPieceCacheEntry = {
+  fingerprints: PieceDiskFingerprint[];
+};
+
+const VERIFIED_PIECE_CACHE_LIMIT_PER_TORRENT = 4096;
+const verifiedPieceCache = new WeakMap<object, Map<string, VerifiedPieceCacheEntry>>();
+const verifiedPieceCacheStats = {
+  hits: 0,
+  misses: 0,
+  stores: 0,
+  invalidations: 0,
+  evictions: 0,
+};
+
 export type DiskFastPathStream = {
   body: ReadableStream<Uint8Array>;
   path: string;
@@ -55,6 +83,98 @@ function safeDiskPath(
   const between = path.relative(rootPath, filePath);
   if (!between || between.startsWith("..") || path.isAbsolute(between)) return null;
   return filePath;
+}
+
+function cacheKey(torrent: TorrentWithDiskState, piece: number): string | null {
+  const hash =
+    typeof torrent.infoHash === "string" ? torrent.infoHash.trim().toLowerCase() : "";
+  return hash ? `${hash}:${piece}` : null;
+}
+
+function fingerprintsEqual(
+  a: PieceDiskFingerprint[],
+  b: PieceDiskFingerprint[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (
+      a[i].path !== b[i].path ||
+      a[i].size !== b[i].size ||
+      a[i].mtimeMs !== b[i].mtimeMs
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function cachedPositiveVerification(
+  torrent: TorrentWithDiskState,
+  piece: number,
+  fingerprints: PieceDiskFingerprint[],
+): boolean {
+  const key = cacheKey(torrent, piece);
+  if (!key) return false;
+  const cache = verifiedPieceCache.get(torrent);
+  if (!cache) {
+    verifiedPieceCacheStats.misses += 1;
+    return false;
+  }
+  const entry = cache.get(key);
+  if (!entry) {
+    verifiedPieceCacheStats.misses += 1;
+    return false;
+  }
+  if (!fingerprintsEqual(entry.fingerprints, fingerprints)) {
+    cache.delete(key);
+    verifiedPieceCacheStats.invalidations += 1;
+    verifiedPieceCacheStats.misses += 1;
+    return false;
+  }
+  cache.delete(key);
+  cache.set(key, entry);
+  verifiedPieceCacheStats.hits += 1;
+  return true;
+}
+
+function cachePositiveVerification(
+  torrent: TorrentWithDiskState,
+  piece: number,
+  fingerprints: PieceDiskFingerprint[],
+): void {
+  const key = cacheKey(torrent, piece);
+  if (!key) return;
+  let cache = verifiedPieceCache.get(torrent);
+  if (!cache) {
+    cache = new Map();
+    verifiedPieceCache.set(torrent, cache);
+  }
+  cache.set(key, { fingerprints });
+  verifiedPieceCacheStats.stores += 1;
+  while (cache.size > VERIFIED_PIECE_CACHE_LIMIT_PER_TORRENT) {
+    const oldest = cache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    cache.delete(oldest);
+    verifiedPieceCacheStats.evictions += 1;
+  }
+}
+
+export function resetDiskFastPathVerificationCacheForTests(): void {
+  verifiedPieceCacheStats.hits = 0;
+  verifiedPieceCacheStats.misses = 0;
+  verifiedPieceCacheStats.stores = 0;
+  verifiedPieceCacheStats.invalidations = 0;
+  verifiedPieceCacheStats.evictions = 0;
+}
+
+export function diskFastPathVerificationCacheStatsForTests(): Readonly<{
+  hits: number;
+  misses: number;
+  stores: number;
+  invalidations: number;
+  evictions: number;
+}> {
+  return { ...verifiedPieceCacheStats };
 }
 
 export function torrentPieceRangeForFileRange(
@@ -135,18 +255,30 @@ async function verifyTorrentRangeFromDisk(
   for (let piece = pieceRange.start; piece <= pieceRange.end; piece += 1) {
     const expected = hashes[piece];
     if (typeof expected !== "string" || !/^[a-f0-9]{40}$/i.test(expected)) return false;
-    const bytes = await readTorrentPieceFromDisk(t, piece);
+    const plan = await torrentPieceDiskPlan(t, piece);
+    if (!plan) return false;
+    if (cachedPositiveVerification(t, piece, plan.fingerprints)) continue;
+    const bytes = await readTorrentPieceFromDisk(plan);
     if (!bytes) return false;
+    const afterRead = await torrentPieceDiskPlan(t, piece);
+    if (!afterRead || !fingerprintsEqual(plan.fingerprints, afterRead.fingerprints)) {
+      return false;
+    }
     const actual = createHash("sha1").update(bytes).digest("hex");
     if (actual.toLowerCase() !== expected.toLowerCase()) return false;
+    cachePositiveVerification(t, piece, afterRead.fingerprints);
   }
   return true;
 }
 
-async function readTorrentPieceFromDisk(
+async function torrentPieceDiskPlan(
   torrent: TorrentWithDiskState,
   piece: number,
-): Promise<Uint8Array | null> {
+): Promise<{
+  expectedLength: number;
+  fingerprints: PieceDiskFingerprint[];
+  segments: PieceDiskSegment[];
+} | null> {
   const pieceLength = finiteWholeNumber(torrent.pieceLength);
   const torrentLength = finiteWholeNumber(torrent.length);
   if (!pieceLength || torrentLength == null) return null;
@@ -165,8 +297,9 @@ async function readTorrentPieceFromDisk(
         (a, b) => (finiteWholeNumber(a.offset) ?? 0) - (finiteWholeNumber(b.offset) ?? 0),
       )
     : [];
-  const out = new Uint8Array(expectedLength);
-  let written = 0;
+  const segments: PieceDiskSegment[] = [];
+  const fingerprints: PieceDiskFingerprint[] = [];
+  let covered = pieceStart;
 
   for (const f of files) {
     const fileOffset = finiteWholeNumber(f.offset);
@@ -177,29 +310,59 @@ async function readTorrentPieceFromDisk(
 
     const diskPath = safeDiskPath(torrent, f);
     if (!diskPath) return null;
+    try {
+      const s = await stat(diskPath);
+      if (!s.isFile() || s.size !== f.length) return null;
+      const overlapStart = Math.max(pieceStart, fileStart);
+      const overlapEnd = Math.min(pieceEnd, fileEnd);
+      if (overlapStart !== covered) return null;
+      const startInFile = overlapStart - fileStart;
+      const length = Math.min(pieceEnd, fileEnd) - Math.max(pieceStart, fileStart) + 1;
+      const fingerprint = {
+        path: diskPath,
+        size: s.size,
+        mtimeMs: s.mtimeMs,
+      };
+      fingerprints.push(fingerprint);
+      segments.push({
+        path: diskPath,
+        position: startInFile,
+        length,
+        outOffset: overlapStart - pieceStart,
+        fingerprint,
+      });
+      covered = overlapEnd + 1;
+    } catch {
+      return null;
+    }
+  }
+
+  return covered === pieceEnd + 1 ? { expectedLength, fingerprints, segments } : null;
+}
+
+async function readTorrentPieceFromDisk(plan: {
+  expectedLength: number;
+  segments: PieceDiskSegment[];
+}): Promise<Uint8Array | null> {
+  const out = new Uint8Array(plan.expectedLength);
+  for (const segment of plan.segments) {
     let handle: FileHandle | null = null;
     try {
-      handle = await open(diskPath, "r");
-      const s = await handle.stat();
-      if (!s.isFile() || s.size !== f.length) return null;
-      const startInFile = Math.max(pieceStart, fileStart) - fileStart;
-      const length = Math.min(pieceEnd, fileEnd) - Math.max(pieceStart, fileStart) + 1;
+      handle = await open(segment.path, "r");
       const { bytesRead } = await handle.read(
         out,
-        written,
-        length,
-        startInFile,
+        segment.outOffset,
+        segment.length,
+        segment.position,
       );
-      if (bytesRead !== length) return null;
-      written += bytesRead;
+      if (bytesRead !== segment.length) return null;
     } catch {
       return null;
     } finally {
       await handle?.close().catch(() => undefined);
     }
   }
-
-  return written === expectedLength ? out : null;
+  return out;
 }
 
 export async function openVerifiedDiskStream(
