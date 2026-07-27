@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/components/providers/session-provider";
 import { toast } from "sonner";
@@ -45,6 +45,11 @@ import {
 import {
   titleHrefForName,
 } from "@/components/title/work-key";
+import {
+  automationStateCopy,
+  libraryItemState,
+  libraryPageSummary,
+} from "@/components/library/library-state";
 
 interface WatchItem {
   id: string;
@@ -125,6 +130,7 @@ export default function WatchlistPage() {
   const [pendingRemove, setPendingRemove] = useState<WatchItem | null>(null);
   const [removing, setRemoving] = useState(false);
   const [lastAuto, setLastAuto] = useState<LastAutoSummary | null>(null);
+  const automationStateId = useId();
   // The library mixes TMDb and AniList CDNs; a dead URL must fall back to the
   // same letter tile a missing URL gets, not paint nothing.
   const [brokenPosters, setBrokenPosters] = useState<Set<string>>(new Set());
@@ -196,7 +202,7 @@ export default function WatchlistPage() {
           prev.map((i) => (i.id === id ? { ...i, ...data.item } : i)),
         );
         toast.success(
-          `Monitoring from S${String(fromSeason).padStart(2, "0")}E${String(fromEpisode).padStart(2, "0")}`,
+          `Starting at S${String(fromSeason).padStart(2, "0")}E${String(fromEpisode).padStart(2, "0")}`,
         );
       }
     } else {
@@ -276,7 +282,7 @@ export default function WatchlistPage() {
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, monitored: next } : i)),
       );
-      toast.success(next ? "Monitoring on" : "Monitoring off");
+      toast.success(next ? "Automatic checks on" : "Automatic checks off");
     } else {
       toast.error("Could not update monitoring");
     }
@@ -393,8 +399,6 @@ export default function WatchlistPage() {
   const filtered =
     filter === "all" ? items : items.filter((i) => i.status === filter);
 
-  const monitoredCount = items.filter((i) => i.monitored !== false).length;
-
   const filterChips: { id: string; label: string }[] = [
     { id: "all", label: "All" },
     ...STATUSES.map((s) => ({
@@ -407,55 +411,43 @@ export default function WatchlistPage() {
     <div className="container-app py-6 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
         title="Library"
-        description={`${items.length} shows · ${monitoredCount} monitored`}
+        description={libraryPageSummary(items)}
         actions={
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void runAutomation()}
-            disabled={runningAuto || !items.length}
-            title="Hunt next episode for each monitored show (from cursor)"
-          >
-            {runningAuto ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Radar className="h-3.5 w-3.5" />
-            )}
-            Run automation
-          </Button>
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void runAutomation()}
+              disabled={runningAuto || !items.length}
+              aria-describedby={automationStateId}
+            >
+              {runningAuto ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Radar className="h-3.5 w-3.5" />
+              )}
+              Check now
+            </Button>
+            <p
+              id={automationStateId}
+              className="max-w-[16rem] text-left text-[11px] leading-snug text-[var(--text-tertiary)] sm:text-right"
+            >
+              {automationStateCopy(autoIntervalMinutes)}
+              {autoIntervalMinutes === 0 ? (
+                <>
+                  {" "}
+                  <Link
+                    href="/settings"
+                    className="text-[var(--accent-text)] underline underline-offset-2"
+                  >
+                    Turn on
+                  </Link>
+                </>
+              ) : null}
+            </p>
+          </div>
         }
       />
-
-      <p className="text-[12px] text-[var(--text-tertiary)] leading-relaxed max-w-2xl">
-        Each show tracks a{" "}
-        <span className="text-[var(--text-secondary)]">next episode</span>.{" "}
-        <span className="text-[var(--text-secondary)]">Run automation</span> or{" "}
-        <span className="text-[var(--text-secondary)]">Download next</span>{" "}
-        gets that one episode and advances the cursor — not the whole series at
-        once.{" "}
-        {autoIntervalMinutes === null ? null : autoIntervalMinutes > 0 ? (
-          <span className="text-[var(--text-secondary)]">
-            The server also checks on its own every{" "}
-            {autoIntervalMinutes < 60
-              ? `${autoIntervalMinutes} minutes`
-              : autoIntervalMinutes === 60
-                ? "hour"
-                : `${autoIntervalMinutes / 60} hours`}
-            .
-          </span>
-        ) : (
-          <>
-            Nothing runs on a timer —{" "}
-            <Link
-              href="/settings"
-              className="text-[var(--accent-text)] underline underline-offset-2"
-            >
-              turn on automatic checks
-            </Link>{" "}
-            to have episodes fetched while you are away.
-          </>
-        )}
-      </p>
 
       {lastAuto ? (
         <div className="surface px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
@@ -514,7 +506,7 @@ export default function WatchlistPage() {
           description={
             items.length
               ? "Try another status filter."
-              : "Search a show, Add to library, pick start season, then Run automation."
+              : "Search a show, add it to your library, then check for the next episode."
           }
           actionLabel={items.length ? undefined : "Search shows"}
           actionHref={items.length ? undefined : "/"}
@@ -526,16 +518,15 @@ export default function WatchlistPage() {
         <div className="grid sm:grid-cols-2 gap-3">
           {filtered.map((item) => {
             const isSeries = isSeriesMediaType(item.mediaType);
-            const nextLabel =
-              item.cursorSeason != null && item.cursorEpisode != null
-                ? `S${String(item.cursorSeason).padStart(2, "0")}E${String(item.cursorEpisode).padStart(2, "0")}`
-                : item.nextEpisodeHint
-                    ?.replace(item.title, "")
-                    .trim() || null;
             // A watchlist row is a monitored series unless we know otherwise,
             // so "tv" is the right fallback here — the same one the hunt uses.
             const searchCat = searchCategoryForMediaType(item.mediaType) ?? "tv";
             const latestInfoHash = infoHashFromMagnet(item.latestReleaseMagnet);
+            const itemState = libraryItemState(item, {
+              sending: sendingId === item.id,
+              canStream: isBuiltinClient && Boolean(latestInfoHash),
+            });
+            const nextLabel = itemState.nextLabel;
             // A library row is a title you asked for, so it opens the page
             // about that title — the same destination its poster on the home
             // board has. Without this the card was inert: every control on it
@@ -627,7 +618,7 @@ export default function WatchlistPage() {
                           <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
                             {item.mediaType}
                             {item.monitored !== false
-                              ? " · monitoring"
+                              ? " · automatic checks on"
                               : " · paused"}
                           </p>
                         </Link>
@@ -639,7 +630,7 @@ export default function WatchlistPage() {
                           <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
                             {item.mediaType}
                             {item.monitored !== false
-                              ? " · monitoring"
+                              ? " · automatic checks on"
                               : " · paused"}
                           </p>
                         </>
@@ -660,22 +651,15 @@ export default function WatchlistPage() {
                   {/* One clear “what happens next” block */}
                   {isSeries ? (
                     <div className="rounded-md border border-[var(--border)] bg-[var(--bg-muted)]/50 px-3 py-2.5 space-y-1">
-                      <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-                        Automation downloads{" "}
-                        <strong className="text-[var(--text-secondary)] font-medium">
-                          one episode at a time
-                        </strong>
-                        , in order — not the whole series.
+                      <p className="text-[13px] font-medium text-[var(--text)]">
+                        {itemState.label}
                       </p>
-                      <p className="text-[13px] text-[var(--text)]">
-                        Next up:{" "}
-                        <span className="font-semibold text-[var(--accent-text)] tabular-nums">
-                          {nextLabel || "not set"}
-                        </span>
+                      <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                        {itemState.detail}
                       </p>
                       {item.lastEpisode ? (
                         <p className="text-[11px] text-[var(--text-tertiary)]">
-                          Last downloaded:{" "}
+                          Previous:{" "}
                           <span className="text-[var(--text-secondary)] tabular-nums">
                             {item.lastEpisode}
                           </span>
@@ -695,9 +679,14 @@ export default function WatchlistPage() {
                       ) : null}
                     </div>
                   ) : (
-                    <p className="text-[12px] text-[var(--text-tertiary)]">
-                      Movie — automation looks for a release of this title.
-                    </p>
+                    <div className="rounded-md border border-[var(--border)] bg-[var(--bg-muted)]/50 px-3 py-2.5 space-y-1">
+                      <p className="text-[13px] font-medium text-[var(--text)]">
+                        {itemState.label}
+                      </p>
+                      <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                        {itemState.detail}
+                      </p>
+                    </div>
                   )}
 
                   {/* Primary actions only */}
@@ -727,10 +716,16 @@ export default function WatchlistPage() {
                       type="button"
                       variant={item.monitored !== false ? "secondary" : "ghost"}
                       size="sm"
+                      aria-pressed={item.monitored !== false}
+                      aria-label={
+                        item.monitored !== false
+                          ? `Turn automatic checks off for ${item.title}`
+                          : `Turn automatic checks on for ${item.title}`
+                      }
                       onClick={() => void toggleMonitored(item)}
                     >
                       <Radar className="h-3.5 w-3.5" />
-                      {item.monitored !== false ? "On" : "Off"}
+                      {item.monitored !== false ? "Auto on" : "Auto off"}
                     </Button>
 
                     <Button asChild variant="ghost" size="sm">

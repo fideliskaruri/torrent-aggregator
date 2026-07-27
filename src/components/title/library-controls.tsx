@@ -130,7 +130,9 @@ export function LibraryControls({
               ) : (
                 <BellOff aria-hidden />
               )}
-              {library.monitored ? "Turn monitoring off" : "Turn monitoring on"}
+              {library.monitored
+                ? "Turn automatic checks off"
+                : "Turn automatic checks on"}
             </Button>
             {!library.monitored ? (
               <p
