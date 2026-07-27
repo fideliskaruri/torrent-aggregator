@@ -27,7 +27,10 @@ import {
   vodCacheDir,
   VOD_DIR_NAME,
   MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
+  recordWholeFileConversionReady,
   shouldRetryWholeFileConversion,
+  shouldCountWholeFileConversionAttempt,
+  sourceFingerprintChanged,
 } from "./vod-runtime";
 import { localPathCandidates } from "./local-file";
 import { chooseStrategy, keyframeAlignedSegments, VOD_SEGMENT_SECONDS } from "./vod";
@@ -268,44 +271,117 @@ console.log("\nwhole-file retry cap");
 
 const retryCases: Array<{
   name: string;
-  strategy: "whole-file" | "vod-segments";
-  status: "preparing" | "ready" | "error";
-  attempts: number;
-  expect: boolean;
+  entry: {
+    strategy: "whole-file" | "vod-segments";
+    status: "preparing" | "ready" | "error";
+    conversionAttempts: number;
+  };
+  expectRetry: boolean;
 }> = [
   {
     name: "a first whole-file failure may be retried",
-    strategy: "whole-file",
-    status: "error",
-    attempts: 1,
-    expect: true,
+    entry: { strategy: "whole-file", status: "error", conversionAttempts: 1 },
+    expectRetry: true,
   },
   {
     name: "the final whole-file failure is terminal",
-    strategy: "whole-file",
-    status: "error",
-    attempts: MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
-    expect: false,
+    entry: {
+      strategy: "whole-file",
+      status: "error",
+      conversionAttempts: MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
+    },
+    expectRetry: false,
   },
   {
     name: "segment VOD errors are not governed by the whole-file cap",
-    strategy: "vod-segments",
-    status: "error",
-    attempts: MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
-    expect: true,
+    entry: {
+      strategy: "vod-segments",
+      status: "error",
+      conversionAttempts: MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
+    },
+    expectRetry: true,
   },
 ];
 
 for (const testCase of retryCases) {
   check(testCase.name, () => {
+    assert.equal(shouldRetryWholeFileConversion(testCase.entry), testCase.expectRetry);
+  });
+}
+
+const attemptChargeCases: Array<{
+  name: string;
+  reason: "launcher-resolution-failed" | "spawn-failed" | "process-started";
+  expect: boolean;
+}> = [
+  {
+    name: "a missing ffmpeg binary is environment, not evidence about this file",
+    reason: "launcher-resolution-failed",
+    expect: false,
+  },
+  {
+    name: "a spawn failure before ffmpeg starts is environment, not evidence about this file",
+    reason: "spawn-failed",
+    expect: false,
+  },
+  {
+    name: "once ffmpeg starts, a failure counts against this file",
+    reason: "process-started",
+    expect: true,
+  },
+];
+
+for (const testCase of attemptChargeCases) {
+  check(testCase.name, () => {
     assert.equal(
-      shouldRetryWholeFileConversion({
-        strategy: testCase.strategy,
-        status: testCase.status,
-        conversionAttempts: testCase.attempts,
-      }),
+      shouldCountWholeFileConversionAttempt(testCase.reason),
       testCase.expect,
     );
+  });
+}
+
+check("a successful conversion clears the failed-run evidence before persistence", () => {
+  const entry = { conversionAttempts: 2, error: "whole-file conversion attempt 2 failed" };
+  recordWholeFileConversionReady(entry);
+  assert.equal(entry.conversionAttempts, 0);
+  assert.equal(entry.error, null);
+});
+
+const sourceChangeCases: Array<{
+  name: string;
+  stored: { sourceSizeBytes: number | null; sourceMtimeMs: number | null };
+  current: { sourceSizeBytes: number | null; sourceMtimeMs: number | null };
+  expect: boolean;
+}> = [
+  {
+    name: "same source keeps the terminal evidence",
+    stored: { sourceSizeBytes: 100, sourceMtimeMs: 200 },
+    current: { sourceSizeBytes: 100, sourceMtimeMs: 200 },
+    expect: false,
+  },
+  {
+    name: "a repaired source with a new size gets a fresh conversion budget",
+    stored: { sourceSizeBytes: 100, sourceMtimeMs: 200 },
+    current: { sourceSizeBytes: 101, sourceMtimeMs: 200 },
+    expect: true,
+  },
+  {
+    name: "a replaced source with a new mtime gets a fresh conversion budget",
+    stored: { sourceSizeBytes: 100, sourceMtimeMs: 200 },
+    current: { sourceSizeBytes: 100, sourceMtimeMs: 201 },
+    expect: true,
+  },
+  {
+    name: "old cache entries without a source fingerprint are not invalidated blindly",
+    stored: { sourceSizeBytes: null, sourceMtimeMs: null },
+    current: { sourceSizeBytes: 100, sourceMtimeMs: 200 },
+    expect: false,
+  },
+];
+
+for (const testCase of sourceChangeCases) {
+  check(testCase.name, () => {
+    assert.equal(sourceFingerprintChanged(testCase.stored, testCase.current), testCase.expect);
   });
 }
 

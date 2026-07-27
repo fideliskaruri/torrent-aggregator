@@ -97,6 +97,8 @@ export type VodEntry = {
   status: VodEntryStatus;
   error: string | null;
   conversionAttempts: number;
+  sourceSizeBytes: number | null;
+  sourceMtimeMs: number | null;
   createdAt: number;
   readyAt: number | null;
   lastUsedAt: number;
@@ -131,6 +133,58 @@ export function vodId(input: {
 }): string {
   const material = `${input.infoHash}|${input.filePath}|a${input.audioStreamIndex ?? "none"}|${input.rung}`;
   return crypto.createHash("sha1").update(material).digest("hex").slice(0, 20);
+}
+
+export type WholeFileConversionAttemptReason =
+  | "launcher-resolution-failed"
+  | "spawn-failed"
+  | "process-started";
+
+/**
+ * The retry cap is evidence about a particular source file, not about the
+ * machine. Resolving or launching ffmpeg can fail because the install is broken;
+ * that applies to every file equally and must not spend this entry's budget.
+ * Once ffmpeg has actually started against this input, any crash or bad output
+ * is evidence about this file and is counted before the run can loop.
+ */
+export function shouldCountWholeFileConversionAttempt(
+  reason: WholeFileConversionAttemptReason,
+): boolean {
+  return reason === "process-started";
+}
+
+export function recordWholeFileConversionReady(entry: {
+  conversionAttempts: number;
+  error: string | null;
+}): void {
+  entry.conversionAttempts = 0;
+  entry.error = null;
+}
+
+export type SourceFingerprint = {
+  sourceSizeBytes: number | null;
+  sourceMtimeMs: number | null;
+};
+
+export function sourceFingerprintChanged(
+  stored: SourceFingerprint,
+  current: SourceFingerprint,
+): boolean {
+  if (stored.sourceSizeBytes == null || stored.sourceMtimeMs == null) return false;
+  if (current.sourceSizeBytes == null || current.sourceMtimeMs == null) return false;
+  return (
+    stored.sourceSizeBytes !== current.sourceSizeBytes ||
+    stored.sourceMtimeMs !== current.sourceMtimeMs
+  );
+}
+
+function readSourceFingerprint(sourcePath: string): SourceFingerprint {
+  try {
+    const stat = fs.statSync(sourcePath);
+    return { sourceSizeBytes: stat.size, sourceMtimeMs: stat.mtimeMs };
+  } catch {
+    return { sourceSizeBytes: null, sourceMtimeMs: null };
+  }
 }
 
 // ── Process lifetime ──
@@ -179,6 +233,8 @@ function writeMeta(entry: VodEntry): void {
     segments: entry.segments,
     error: entry.error,
     conversionAttempts: entry.conversionAttempts,
+    sourceSizeBytes: entry.sourceSizeBytes,
+    sourceMtimeMs: entry.sourceMtimeMs,
     createdAt: entry.createdAt,
   };
   try {
@@ -218,6 +274,14 @@ function readMeta(dir: string): PersistedMeta | null {
         typeof meta.conversionAttempts === "number" && Number.isFinite(meta.conversionAttempts)
           ? Math.max(0, Math.trunc(meta.conversionAttempts))
           : 0,
+      sourceSizeBytes:
+        typeof meta.sourceSizeBytes === "number" && Number.isFinite(meta.sourceSizeBytes)
+          ? meta.sourceSizeBytes
+          : null,
+      sourceMtimeMs:
+        typeof meta.sourceMtimeMs === "number" && Number.isFinite(meta.sourceMtimeMs)
+          ? meta.sourceMtimeMs
+          : null,
       createdAt: typeof meta.createdAt === "number" ? meta.createdAt : Date.now(),
     };
   } catch {
@@ -228,6 +292,7 @@ function readMeta(dir: string): PersistedMeta | null {
 function markReady(entry: VodEntry): void {
   entry.status = "ready";
   entry.readyAt = Date.now();
+  recordWholeFileConversionReady(entry);
   try {
     fs.writeFileSync(
       path.join(entry.dir, READY_FILE),
@@ -401,6 +466,12 @@ export function prepareVod(input: PrepareInput): VodEntry {
   const existing = entries.get(id);
   if (existing) {
     existing.lastUsedAt = Date.now();
+    const current = readSourceFingerprint(existing.sourcePath);
+    if (sourceFingerprintChanged(existing, current)) {
+      resetForChangedSource(existing, current);
+      restart(existing);
+      return existing;
+    }
     if (existing.status === "error") restart(existing);
     return existing;
   }
@@ -414,6 +485,7 @@ export function prepareVod(input: PrepareInput): VodEntry {
 
   const dir = path.join(vodCacheDir(), id);
   fs.mkdirSync(dir, { recursive: true });
+  const source = readSourceFingerprint(input.sourcePath);
 
   const entry: VodEntry = {
     id,
@@ -431,6 +503,8 @@ export function prepareVod(input: PrepareInput): VodEntry {
     status: "preparing",
     error: null,
     conversionAttempts: 0,
+    sourceSizeBytes: source.sourceSizeBytes,
+    sourceMtimeMs: source.sourceMtimeMs,
     createdAt: Date.now(),
     readyAt: null,
     lastUsedAt: Date.now(),
@@ -453,6 +527,37 @@ export function shouldRetryWholeFileConversion(entry: {
     entry.status !== "error" ||
     entry.conversionAttempts < MAX_WHOLE_FILE_CONVERSION_ATTEMPTS
   );
+}
+
+function resetForChangedSource(entry: VodEntry, current: SourceFingerprint): void {
+  entry.error = null;
+  entry.conversionAttempts = 0;
+  entry.sourceSizeBytes = current.sourceSizeBytes;
+  entry.sourceMtimeMs = current.sourceMtimeMs;
+  entry.status = "preparing";
+  entry.readyAt = null;
+  entry.segments = [];
+
+  // A repaired/re-downloaded file at the same path is no longer the source that
+  // produced this cache entry. Reset the evidence and remove derived media so a
+  // stale terminal failure (or stale ready playlist) is not a permanent dead end.
+  for (const name of [READY_FILE, WHOLE_FILE_PLAYLIST, WHOLE_FILE_DATA, INIT_FILE, KEYFRAMES_FILE]) {
+    try {
+      fs.rmSync(path.join(entry.dir, name), { force: true });
+    } catch {
+      /* best-effort cache invalidation */
+    }
+  }
+  try {
+    for (const name of fs.readdirSync(entry.dir)) {
+      if (/^seg\d{5}\.m4s$/.test(name) || name.endsWith(".part")) {
+        fs.rmSync(path.join(entry.dir, name), { force: true });
+      }
+    }
+  } catch {
+    /* no directory or raced with cleanup */
+  }
+  writeMeta(entry);
 }
 
 function restart(entry: VodEntry): void {
@@ -481,6 +586,11 @@ export function getVodEntry(id: string): VodEntry | null {
   const live = entries.get(id);
   if (live) {
     live.lastUsedAt = Date.now();
+    const current = readSourceFingerprint(live.sourcePath);
+    if (sourceFingerprintChanged(live, current)) {
+      resetForChangedSource(live, current);
+      restart(live);
+    }
     return live;
   }
 
@@ -498,6 +608,22 @@ export function getVodEntry(id: string): VodEntry | null {
     lastUsedAt: Date.now(),
   };
   entries.set(id, entry);
+
+  const currentSource = readSourceFingerprint(entry.sourcePath);
+  if (sourceFingerprintChanged(entry, currentSource)) {
+    resetForChangedSource(entry, currentSource);
+  } else if (entry.sourceSizeBytes == null && currentSource.sourceSizeBytes != null) {
+    // Old cache entries predate source fingerprints. Remember the current
+    // source as the baseline without invalidating a ready conversion blindly.
+    entry.sourceSizeBytes = currentSource.sourceSizeBytes;
+    entry.sourceMtimeMs = currentSource.sourceMtimeMs;
+    writeMeta(entry);
+  }
+
+  if (entry.status === "ready" && entry.error) {
+    recordWholeFileConversionReady(entry);
+    writeMeta(entry);
+  }
 
   // A conversion interrupted by a restart left a partial playlist behind; the
   // honest answer is to run it again rather than serve a truncated film.
@@ -571,10 +697,14 @@ function pumpConversions(): void {
 }
 
 function runConversion(entry: VodEntry): void {
-  entry.conversionAttempts += 1;
-  writeMeta(entry);
+  const failEnvironment = (message: string) => {
+    entry.status = "error";
+    entry.error = `whole-file conversion unavailable: ${message}`;
+    writeMeta(entry);
+    console.warn(`[vod] ${entry.id} unavailable: ${entry.error}`);
+  };
 
-  const fail = (message: string) => {
+  const failAfterStart = (message: string) => {
     entry.status = "error";
     entry.error =
       entry.conversionAttempts >= MAX_WHOLE_FILE_CONVERSION_ATTEMPTS
@@ -588,7 +718,7 @@ function runConversion(entry: VodEntry): void {
   try {
     ffmpegPath = resolveFfmpegPath();
   } catch (err) {
-    fail(err instanceof Error ? err.message : String(err));
+    failEnvironment(err instanceof Error ? err.message : String(err));
     pumpConversions();
     return;
   }
@@ -607,19 +737,31 @@ function runConversion(entry: VodEntry): void {
     });
   } catch (err) {
     runningConversions -= 1;
-    fail(err instanceof Error ? err.message : String(err));
+    failEnvironment(err instanceof Error ? err.message : String(err));
     pumpConversions();
     return;
   }
 
   liveProcesses.add(proc);
+  let counted = false;
+  let settled = false;
   let stderr = "";
   proc.stderr?.on("data", (chunk: Buffer) => {
     stderr += chunk.toString();
     if (stderr.length > 8192) stderr = stderr.slice(-8192);
   });
 
+  proc.once("spawn", () => {
+    if (shouldCountWholeFileConversionAttempt("process-started")) {
+      entry.conversionAttempts += 1;
+      counted = true;
+      writeMeta(entry);
+    }
+  });
+
   const finish = (ok: boolean, message: string) => {
+    if (settled) return;
+    settled = true;
     liveProcesses.delete(proc);
     runningConversions -= 1;
     if (ok && playlistIsComplete(entry) && fs.existsSync(path.join(entry.dir, WHOLE_FILE_DATA))) {
@@ -628,7 +770,11 @@ function runConversion(entry: VodEntry): void {
       console.info(`[vod] ${entry.id} ready in ${Date.now() - startedAt}ms`);
     } else {
       const base = message || "conversion produced no playable output";
-      fail(base);
+      if (counted) {
+        failAfterStart(base);
+      } else {
+        failEnvironment(base);
+      }
     }
     pumpConversions();
   };
