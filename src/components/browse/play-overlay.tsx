@@ -86,10 +86,6 @@ export function PlayOverlay({
 
     document.addEventListener("keydown", onKey, true);
 
-    const toggle = dialog?.querySelector<HTMLButtonElement>(
-      "[data-stream-play-toggle]",
-    );
-    void toggle;
     focusables()[0]?.focus();
 
     return () => {
@@ -97,7 +93,7 @@ export function PlayOverlay({
       root.style.overflow = previousOverflow;
       if (restoreTo && document.contains(restoreTo)) restoreTo.focus();
     };
-  }, [onClose, infoHash]);
+  }, [onClose]);
 
   return (
     <div
