@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
-import { resolveSeasonPlan, seasonSearchQuery } from "./season-acquire";
+import { resolveSeasonPlan, acquireSeason, seasonSearchQuery } from "./season-acquire";
 import type { TorrentResult } from "@/lib/torrents/types";
 
 let failures = 0;
@@ -127,6 +127,62 @@ async function main(): Promise<void> {
     assert.equal(calls, 2, "must not exceed maxProbes");
     assert.equal(res.probed.length, 2);
   });
+
+  await checkAsync(
+    "an inferred short pack is reconciled against its files and the gap is filled",
+    async () => {
+      // RED check: skipping the post-send `packFilesOf` reconciliation leaves the
+      // bare-`S01` pack's inferred covers [1,2,3] intact, so no gap single for E3
+      // is ever sent and the plan reports a confirmed full season it never had.
+      const pack = result({
+        title: "The Show S01 COMPLETE 1080p",
+        episode: { isSeasonPack: true } as TorrentResult["episode"],
+      });
+      const e3 = result({
+        title: "The Show S01E03 1080p",
+        episode: { isSeasonPack: false, season: 1, episode: 3 } as TorrentResult["episode"],
+      });
+      const packHash = pack.infoHash!.toLowerCase();
+      const sentTitles: string[] = [];
+      const userId = `u_${randomUUID()}`;
+      await prisma.user.create({ data: { id: userId } });
+      let res;
+      try {
+        res = await acquireSeason(
+          { userId, title: "The Show", mediaType: "tv", season: 1, episodes: [1, 2, 3] },
+          {
+            _releases: [pack, e3],
+            _foregroundActive: () => true, // no probing; unknown pack stays takeable
+            _findLive: () => null,
+            // The pack's real files hold only E01+E02 — the name lied about E03.
+            _packFilesOf: (h) =>
+              h === packHash
+                ? ["The.Show.S01E01.1080p.mkv", "The.Show.S01E02.1080p.mkv"]
+                : null,
+            _sendFn: (async (_cfg: unknown, req: { name?: string }) => {
+              sentTitles.push(req.name ?? "");
+              return { ok: true, message: "queued" };
+            }) as never,
+          },
+        );
+      } finally {
+        // Best-effort cleanup of the rows acquireSeason wrote for this user.
+        await prisma.grabJob.deleteMany({ where: { userId } }).catch(() => {});
+        await prisma.downloadHistory.deleteMany({ where: { userId } }).catch(() => {});
+        await prisma.clientSettings.deleteMany({ where: { userId } }).catch(() => {});
+        await prisma.user.delete({ where: { id: userId } }).catch(() => {});
+      }
+
+      assert.ok(
+        sentTitles.some((t) => t.includes("S01E03")),
+        "the gap episode E03 must be fetched as a single once the pack is found short",
+      );
+      assert.deepEqual(res.acquired, [1, 2, 3], "reconciled coverage credits E1+E2 (pack) and E3 (single)");
+      // The pack's coverage is now confirmed against its file list, so the
+      // whole-season claim is honest fact, not a name inference.
+      assert.equal(res.coverageConfirmed, true, "reconciled coverage is confirmed, not inferred");
+    },
+  );
 
   console.log(
     failures === 0

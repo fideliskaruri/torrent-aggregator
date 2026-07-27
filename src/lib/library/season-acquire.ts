@@ -42,7 +42,7 @@ import {
   probeAndRecord,
   type SwarmVerdict,
 } from "@/lib/torrents/swarm-probe";
-import { planSeason, type PackChoice, type SeasonPlan, type SingleChoice } from "@/lib/torrents/season-plan";
+import { planSeason, episodesFromFilenames, type PackChoice, type SeasonPlan, type SingleChoice } from "@/lib/torrents/season-plan";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 
@@ -95,6 +95,12 @@ export interface ResolveSeasonResult {
   releases: TorrentResult[];
   /** Info-hashes freshly probed while resolving. */
   probed: string[];
+  /**
+   * The verdict lookup used to build the plan. Exposed so the executor can
+   * re-run the pure planner during reconciliation (feeding it the pack's real
+   * file list) without a second search or verdict load.
+   */
+  verdictOf: (r: TorrentResult) => SwarmVerdict;
 }
 
 /**
@@ -174,7 +180,7 @@ export async function resolveSeasonPlan(
     verdictOf,
   });
 
-  return { plan, releases: usable, probed };
+  return { plan, releases: usable, probed, verdictOf };
 }
 
 export interface SeasonItemResult {
@@ -194,6 +200,13 @@ export interface AcquireSeasonResult {
   acquired: number[];
   /** Honest end-state summary, e.g. "8 of 10 episodes". */
   coverageLabel: string;
+  /**
+   * True only when no chosen pack's coverage is a bare-name inference — i.e.
+   * every episode we claim is either an explicit-range/reconciled pack or a
+   * per-episode single. A prediction is not a guarantee: this is `false` when we
+   * had to trust a pack's name because its file list never resolved.
+   */
+  coverageConfirmed: boolean;
 }
 
 export interface AcquireSeasonOptions extends ResolveSeasonOptions {
@@ -201,6 +214,31 @@ export interface AcquireSeasonOptions extends ResolveSeasonOptions {
   watchListItemId?: string | null;
   /** Test seam — override the send function. */
   _sendFn?: typeof import("@/lib/clients").sendToClient;
+  /**
+   * Test seam — read the real file paths of an added pack by info-hash.
+   * Defaults to the live builtin torrent's file list, which is authoritative
+   * and beats the release name every time.
+   */
+  _packFilesOf?: (hash: string) => string[] | null;
+}
+
+/**
+ * Read the real file paths of a live pack torrent. The engine populates
+ * `.files` once metadata resolves (the builtin send waits for it), so after a
+ * successful pack add this reflects what the swarm actually holds — the one
+ * field that outranks the release name. Returns null when the torrent is not
+ * live or its metadata has not resolved yet, in which case the caller keeps the
+ * honest name-inferred coverage rather than fabricating a confirmation.
+ */
+function livePackFiles(hash: string): string[] | null {
+  const t = findLiveBuiltinTorrent(hash) as
+    | { files?: Array<{ path?: string; name?: string }> }
+    | null
+    | undefined;
+  const files = t?.files;
+  if (!Array.isArray(files) || files.length === 0) return null;
+  const paths = files.map((f) => f.path || f.name || "").filter(Boolean);
+  return paths.length > 0 ? paths : null;
 }
 
 /**
@@ -218,7 +256,9 @@ export async function acquireSeason(
   opts: AcquireSeasonOptions = {},
 ): Promise<AcquireSeasonResult> {
   const db = opts.db ?? prisma;
-  const { plan } = await resolveSeasonPlan(target, opts);
+  const { plan: initialPlan, releases, verdictOf } = await resolveSeasonPlan(target, opts);
+  let plan = initialPlan;
+  const packFilesOf = opts._packFilesOf ?? livePackFiles;
 
   const config = await getUserClientConfig(target.userId);
   if (!config) {
@@ -227,6 +267,7 @@ export async function acquireSeason(
       items: [],
       acquired: [],
       coverageLabel: plan.coverageLabel,
+      coverageConfirmed: plan.coverageConfirmed,
     };
   }
 
@@ -240,7 +281,7 @@ export async function acquireSeason(
     kind: "pack" | "single",
     episode: number | undefined,
     coversEpisodes: number[],
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     const res = await runGrabPipeline({
       userId: target.userId,
       // The pipeline searches; we hand it exactly the chosen release so it
@@ -316,12 +357,43 @@ export async function acquireSeason(
 
     if (res.status === "sent" || res.status === "already_active") {
       for (const e of coversEpisodes) acquired.add(e);
+      return true;
     }
+    return false;
   };
 
+  // ── Send the pack first, then reconcile ───────────────────────────────────
+  // A pack's covers may be *inferred* from a bare `S01` name (no episode range),
+  // which is a claim, not a fact — the same untrusted-string problem the swarm
+  // probe exists to resist, one field over. Once the pack is added, its real
+  // file list becomes knowable and beats the name every time: reconcile the
+  // inferred coverage against the actual files, then let the pure planner
+  // re-derive the gap singles so a short pack fills the gap instead of lying
+  // about it. Only reconcile an inferred pack that actually sent and whose files
+  // resolved; otherwise the honest name-inferred plan (coverageConfirmed:false)
+  // stands.
   if (plan.pack) {
     const p: PackChoice = plan.pack;
-    await send(p.release, p.verdict, "pack", undefined, p.covers);
+    const packSent = await send(p.release, p.verdict, "pack", undefined, p.covers);
+    if (packSent && p.coverageBasis === "inferred") {
+      const hash = releaseInfoHash(p.release);
+      const files = hash ? packFilesOf(hash) : null;
+      if (hash && files && files.length > 0) {
+        const verified = episodesFromFilenames(files, target.season);
+        const reconciled = planSeason({
+          season: target.season,
+          wanted: target.episodes,
+          releases,
+          verdictOf,
+          packContents: (r) => (releaseInfoHash(r) === hash ? verified : null),
+        });
+        plan = reconciled;
+        // The pack really covers only its verified episodes; drop any phantom
+        // episodes credited from the inferred covers so `acquired` stays honest.
+        acquired.clear();
+        for (const e of verified) if (target.episodes.includes(e)) acquired.add(e);
+      }
+    }
   }
   for (const s of plan.singles as SingleChoice[]) {
     await send(s.release, s.verdict, "single", s.episode, [s.episode]);
@@ -333,5 +405,6 @@ export async function acquireSeason(
     items,
     acquired: acquiredList,
     coverageLabel: `${acquiredList.length} of ${plan.wanted.length} episodes`,
+    coverageConfirmed: plan.coverageConfirmed,
   };
 }

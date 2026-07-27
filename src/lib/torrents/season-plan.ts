@@ -90,6 +90,36 @@ function isUsable(r: TorrentResult): boolean {
 }
 
 /**
+ * Episode numbers a season pack actually contains, read from its torrent file
+ * list. This is the authoritative reconciliation input: the file list beats the
+ * name every time, so once a pack's metadata resolves we count the real files
+ * for the wanted season rather than trusting the release title.
+ *
+ * A file counts only when it parses to the wanted season (or carries no season
+ * marker at all, which for a single-season pack is the common `E05.mkv` case)
+ * and to an episode number. Sample/extra files that parse to nothing are
+ * ignored, so a pack padded with `sample.mkv` is not credited a phantom
+ * episode. Returns sorted, de-duplicated episode numbers.
+ */
+export function episodesFromFilenames(
+  filenames: readonly string[],
+  season: number,
+): number[] {
+  const found = new Set<number>();
+  for (const raw of filenames) {
+    const name = raw.split(/[\\/]/).pop() ?? raw;
+    const ep = parseEpisode(name);
+    if (ep.isSeasonPack || ep.episode == null) continue;
+    // A per-episode file inside a single-season pack often omits the season
+    // ("E05.mkv"); accept it as this season. When it names a season, it must
+    // match.
+    if (ep.season != null && ep.season !== season) continue;
+    found.add(ep.episode);
+  }
+  return [...found].sort((a, b) => a - b);
+}
+
+/**
  * Episode range advertised *inside* a pack title, e.g. `S01E01-E08`,
  * `S01 E01-08`, `Episodes 1-8`. This is the coverage-bookkeeping core and the
  * place bugs will live.
@@ -139,6 +169,27 @@ function titleSeason(title: string): number | null {
 
 export type PackFit = "single-season" | "range" | "multi-season" | "complete";
 
+/**
+ * How much to trust a pack's `covers` set. This is the spine of the honesty
+ * fix: a season pack's contents are *inferred from its name* until the torrent
+ * metadata resolves, and a release name is the least trustworthy field we have
+ * — the same untrusted string `parseEpisode` already defends against. Telling
+ * the user "9 of 9 episodes" off a bare `Severance S01` that we never opened is
+ * the advertised-vs-delivered lie this whole subsystem exists to resist, one
+ * level up: there the advertised number was seeders, here it is an episode
+ * count. `unknown` is not `dead`, and it is also not `confirmed`.
+ *
+ *   - `confirmed` — reconciled against the torrent's actual file list. The file
+ *     list is authoritative and beats the name every time.
+ *   - `asserted`  — the name *explicitly enumerates* these episodes (an
+ *     `S01E01-E08` range). Still a name claim, but an explicit one, so it is
+ *     honest to report it as asserted.
+ *   - `inferred`  — defaulted from a bare `S01` / `Season 1` / complete pack
+ *     that names no episodes at all; we assumed it holds every wanted episode.
+ *     This is the untrustworthy case and must never be reported as fact.
+ */
+export type CoverageBasis = "confirmed" | "asserted" | "inferred";
+
 export interface SeasonRelease {
   release: TorrentResult;
   verdict: SwarmVerdict;
@@ -148,6 +199,8 @@ export interface PackChoice extends SeasonRelease {
   /** Wanted episodes this pack covers. */
   covers: number[];
   fit: PackFit;
+  /** Whether {@link covers} is confirmed, name-asserted, or merely inferred. */
+  coverageBasis: CoverageBasis;
 }
 
 export interface SingleChoice extends SeasonRelease {
@@ -168,6 +221,14 @@ export interface SeasonPlan {
   missing: number[];
   /** Human-facing coverage summary, e.g. "8 of 10 episodes". */
   coverageLabel: string;
+  /**
+   * True only when the coverage report can be trusted as fact: no episode in it
+   * rests on an `inferred` pack. A name-asserted range and a file-confirmed
+   * pack both count as trustworthy; a bare-`S01` pack we never opened does not.
+   * `wt-title` owns the wording ("covers" vs "should cover"); this is the fact
+   * it words.
+   */
+  coverageConfirmed: boolean;
   /** Why this plan looks the way it does — for the UI and for debugging. */
   reason: string;
 }
@@ -178,6 +239,7 @@ interface ClassifiedPack {
   verdict: SwarmVerdict;
   covers: number[];
   fit: PackFit;
+  coverageBasis: CoverageBasis;
 }
 
 interface ClassifiedSingle {
@@ -209,6 +271,12 @@ function fitRank(fit: PackFit): number {
  * Classify a usable release against the wanted season into a pack (with the
  * wanted episodes it covers) or a single episode. Returns `null` for anything
  * that is neither — a different season, an unparseable title.
+ *
+ * `packContents` is the reconciliation seam: given a pack it returns the
+ * episode numbers actually present in the torrent's file list, or `null` when
+ * that is not (yet) known. When it resolves, the file list is authoritative and
+ * the coverage is `confirmed`; when it does not, a bare season pack's coverage
+ * is `inferred`, never reported as fact.
  */
 function classify(
   release: TorrentResult,
@@ -216,6 +284,7 @@ function classify(
   season: number,
   wantedSet: Set<number>,
   verdict: SwarmVerdict,
+  packContents: (r: TorrentResult) => number[] | null,
 ): ClassifiedPack | ClassifiedSingle | null {
   const wanted = [...wantedSet];
   const ts = titleSeason(release.title);
@@ -227,9 +296,19 @@ function classify(
     // ours. A range with no season marker at all is assumed to be this season,
     // because the caller scoped the search to this show + season.
     if (ts == null || ts === season) {
-      const covers = wanted.filter((e) => e >= range.from && e <= range.to);
-      if (covers.length > 0) {
-        return { release, index, verdict, covers, fit: "range" };
+      // File contents beat the name even for a range. Only when they are
+      // unknown do we fall back to the (explicitly asserted) name range.
+      const files = packContents(release);
+      if (files) {
+        const covers = wanted.filter((e) => files.includes(e));
+        if (covers.length > 0) {
+          return { release, index, verdict, covers, fit: "range", coverageBasis: "confirmed" };
+        }
+      } else {
+        const covers = wanted.filter((e) => e >= range.from && e <= range.to);
+        if (covers.length > 0) {
+          return { release, index, verdict, covers, fit: "range", coverageBasis: "asserted" };
+        }
       }
     }
   }
@@ -249,9 +328,16 @@ function classify(
           : coverage.kind === "multi"
             ? "multi-season"
             : "single-season";
-      // A pack of the season contains every episode of it, so it covers all
-      // wanted episodes of this season.
-      return { release, index, verdict, covers: wanted.slice(), fit };
+      // The file list, when known, is authoritative — a bare `S01` might in
+      // fact be a 6-of-9 partial that someone labelled a full season.
+      const files = packContents(release);
+      if (files) {
+        const covers = wanted.filter((e) => files.includes(e));
+        return { release, index, verdict, covers, fit, coverageBasis: "confirmed" };
+      }
+      // No file list yet: the name claims every episode of this season, but
+      // that is an inference, not a fact.
+      return { release, index, verdict, covers: wanted.slice(), fit, coverageBasis: "inferred" };
     }
     // A pack that exists but does not cover this season is not ours.
     return null;
@@ -302,14 +388,20 @@ function pad(n: number): string {
  * @param releases   Candidate releases, already ordered best-first by the
  *                   ranker (`rankResults`). Input order is the tiebreak.
  * @param verdictOf  Pure verdict lookup; unmeasured releases read `unknown`.
+ * @param packContents Reconciliation seam: file-verified episode numbers for a
+ *                   pack, or `null` when the torrent metadata is not resolved.
+ *                   Omitted entirely on the first (name-only) pass, supplied on
+ *                   the reconciliation pass once a pack's files are known.
  */
 export function planSeason(input: {
   season: number;
   wanted: readonly number[];
   releases: readonly TorrentResult[];
   verdictOf: (r: TorrentResult) => SwarmVerdict;
+  packContents?: (r: TorrentResult) => number[] | null;
 }): SeasonPlan {
   const season = input.season;
+  const packContents = input.packContents ?? (() => null);
   const wanted = [...new Set(input.wanted.map((e) => Math.trunc(e)))]
     .filter((e) => e >= 1)
     .sort((a, b) => a - b);
@@ -323,6 +415,7 @@ export function planSeason(input: {
     covered: [],
     missing: wanted.slice(),
     coverageLabel: `0 of ${wanted.length} episodes`,
+    coverageConfirmed: true,
     reason,
   });
 
@@ -334,7 +427,7 @@ export function planSeason(input: {
   const singles: ClassifiedSingle[] = [];
   input.releases.forEach((release, index) => {
     if (!isUsable(release)) return;
-    const c = classify(release, index, season, wantedSet, input.verdictOf(release));
+    const c = classify(release, index, season, wantedSet, input.verdictOf(release), packContents);
     if (!c) return;
     if (isPack(c)) packs.push(c);
     else singles.push(c);
@@ -422,12 +515,18 @@ export function planSeason(input: {
         verdict: chosenPack.verdict,
         covers: chosenPack.covers.filter((e) => wantedSet.has(e)).sort((a, b) => a - b),
         fit: chosenPack.fit,
+        coverageBasis: chosenPack.coverageBasis,
       }
     : null;
 
   const singleChoices: SingleChoice[] = chosenSingles
     .sort((a, b) => a.episode - b.episode)
     .map((s) => ({ release: s.release, verdict: s.verdict, episode: s.episode }));
+
+  // Coverage is trustworthy unless a chosen pack's coverage is merely inferred
+  // from a bare season name. Singles are episode-explicit; an asserted range or
+  // a file-confirmed pack is trustworthy; only `inferred` overclaims.
+  const coverageConfirmed = packChoice?.coverageBasis !== "inferred";
 
   return {
     season,
@@ -437,6 +536,7 @@ export function planSeason(input: {
     covered: coveredList,
     missing,
     coverageLabel: `${coveredList.length} of ${wanted.length} episodes`,
+    coverageConfirmed,
     reason: buildReason(packChoice, singleChoices, missing, season),
   };
 }
@@ -450,11 +550,16 @@ function buildReason(
   const parts: string[] = [];
   if (pack) {
     const verb = pack.verdict === "good" ? "measured good" : `verdict ${pack.verdict}`;
+    // "should cover" for an unopened bare-season pack, "covers" once the name
+    // enumerates it or the file list confirms it — the report must not present
+    // an inference as a fact.
+    const claim = pack.coverageBasis === "inferred" ? "should cover" : "covers";
     if (singles.length === 0 && missing.length === 0) {
-      parts.push(`Season ${season} pack (${verb}) covers the whole season`);
+      const scope = pack.coverageBasis === "inferred" ? "the whole season (unconfirmed)" : "the whole season";
+      parts.push(`Season ${season} pack (${verb}) ${claim} ${scope}`);
     } else {
       parts.push(
-        `Season ${season} pack (${verb}) covers ${pack.covers.length} episode(s)`,
+        `Season ${season} pack (${verb}) ${claim} ${pack.covers.length} episode(s)`,
       );
     }
   } else if (singles.length > 0) {

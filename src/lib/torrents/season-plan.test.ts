@@ -10,7 +10,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { planSeason, packEpisodeRange } from "./season-plan";
+import { planSeason, packEpisodeRange, episodesFromFilenames } from "./season-plan";
 import type { SwarmVerdict } from "./swarm-probe";
 import type { TorrentResult } from "./types";
 
@@ -294,6 +294,114 @@ function main(): void {
     });
     assert.equal(plan.pack, null);
     assert.deepEqual(plan.missing, [1, 2]);
+  });
+
+  // ── Honesty: asserted vs inferred vs confirmed coverage ───────────────────
+  check("a bare S01 pack reports coverage as inferred, not confirmed", () => {
+    // RED check: this is the reported defect. A bare `S01` names no episodes,
+    // so claiming it covers 1..9 is an inference. coverageConfirmed must be
+    // false and the basis `inferred`, or "9 of 9" is a confident lie.
+    const pack = result({ title: "Severance S01 1080p ATVP WEB-DL", seeders: 20 });
+    const plan = planSeason({
+      season: 1,
+      wanted: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      releases: [pack],
+      verdictOf: () => "unknown",
+    });
+    assert.ok(plan.pack);
+    assert.equal(plan.pack!.coverageBasis, "inferred");
+    assert.equal(plan.coverageConfirmed, false);
+  });
+
+  check("an explicit S01E01-E08 range is asserted and reportable as fact", () => {
+    const pack = result({ title: "The Show S01E01-E08 1080p WEB", seeders: 25 });
+    const plan = planSeason({
+      season: 1,
+      wanted: [1, 2, 3, 4, 5, 6, 7, 8],
+      releases: [pack],
+      verdictOf: () => "unknown",
+    });
+    assert.equal(plan.pack!.coverageBasis, "asserted");
+    assert.equal(plan.coverageConfirmed, true);
+  });
+
+  check("reconciling a short bare-S01 pack fills the gap instead of lying", () => {
+    // The heart of the fix. A bare `S01` pack claims 1..9 by name, but its file
+    // list holds only 1..6. With the file list supplied, coverage is confirmed
+    // to 1..6 and the missing 7..9 are filled by singles — never reported
+    // covered when they are not.
+    const pack = result({ title: "Severance S01 1080p ATVP WEB-DL", seeders: 20 });
+    const e7 = result({ title: "Severance S01E07 1080p", seeders: 12 });
+    const e8 = result({ title: "Severance S01E08 1080p", seeders: 12 });
+    const e9 = result({ title: "Severance S01E09 1080p", seeders: 12 });
+    const plan = planSeason({
+      season: 1,
+      wanted: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      releases: [pack, e7, e8, e9],
+      verdictOf: () => "unknown",
+      // File list beats the name: this pack really holds only E01-E06.
+      packContents: (r) =>
+        r.title === "Severance S01 1080p ATVP WEB-DL" ? [1, 2, 3, 4, 5, 6] : null,
+    });
+    assert.ok(plan.pack);
+    assert.equal(plan.pack!.coverageBasis, "confirmed");
+    assert.deepEqual(plan.pack!.covers, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(
+      plan.singles.map((s) => s.episode),
+      [7, 8, 9],
+    );
+    assert.deepEqual(plan.covered, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert.deepEqual(plan.missing, []);
+    assert.equal(plan.coverageConfirmed, true);
+  });
+
+  check("a confirmed-short pack with no gap singles reports the gap honestly", () => {
+    // RED check: if a short confirmed pack still claimed 1..9, this would read
+    // "9 of 9" with no releases for 7..9 — the exact lie. Confirmed coverage
+    // must shrink and the gap must surface as missing.
+    const pack = result({ title: "Severance S01 1080p ATVP WEB-DL", seeders: 20 });
+    const plan = planSeason({
+      season: 1,
+      wanted: [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      releases: [pack],
+      verdictOf: () => "unknown",
+      packContents: () => [1, 2, 3, 4, 5, 6],
+    });
+    assert.deepEqual(plan.pack!.covers, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(plan.missing, [7, 8, 9]);
+    assert.equal(plan.coverageLabel, "6 of 9 episodes");
+    assert.equal(plan.coverageConfirmed, true);
+  });
+
+  check("a file list confirming the full season reports it as confirmed fact", () => {
+    const pack = result({ title: "Severance S01 1080p ATVP WEB-DL", seeders: 20 });
+    const plan = planSeason({
+      season: 1,
+      wanted: [1, 2, 3],
+      releases: [pack],
+      verdictOf: () => "unknown",
+      packContents: () => [1, 2, 3],
+    });
+    assert.equal(plan.pack!.coverageBasis, "confirmed");
+    assert.deepEqual(plan.covered, [1, 2, 3]);
+    assert.equal(plan.coverageConfirmed, true);
+  });
+
+  // ── episodesFromFilenames — the reconciliation reader ─────────────────────
+  check("episodesFromFilenames reads real episodes and ignores samples", () => {
+    const eps = episodesFromFilenames(
+      [
+        "Severance/Severance.S01E01.1080p.mkv",
+        "Severance/Severance.S01E02.1080p.mkv",
+        "Severance/E03.mkv",
+        "Severance/sample.mkv",
+        "Severance/Severance.S02E05.mkv",
+      ],
+      1,
+    );
+    // E01, E02 (S01), E03 (no season marker → this season). S02E05 excluded;
+    // sample.mkv parses to nothing.
+    assert.deepEqual(eps, [1, 2, 3]);
   });
 
   console.log(
