@@ -163,6 +163,11 @@ async function fakeSend(
   _cfg: ClientConnectionConfig,
   payload: AddTorrentPayload,
 ): Promise<{ ok: boolean; message: string }> {
+  assert.equal(
+    (payload as AddTorrentPayload & { connectOnly?: boolean }).connectOnly,
+    true,
+    "prewarm must connect peers only, not select/download pieces",
+  );
   const hash = /btih:([0-9a-fA-F]{40})/.exec(payload.magnet ?? "")?.[1]?.toLowerCase();
   if (!hash) return { ok: false, message: "no hash in magnet" };
   sent.push(hash);
@@ -522,24 +527,91 @@ async function main(): Promise<void> {
     });
 
     resetPrewarmRuntimeState();
-    await checkAsync("only one speculative torrent may fetch at a time", async () => {
+    await checkAsync("a watched prewarm is not deleted when the prediction changes", async () => {
       sent = [];
-      // Put the earlier pre-warm back to fetching — that is the state the cap
-      // is meant to notice.
+      const deleted: string[] = [];
+      const watchedReplacement = result({ title: `${SHOW} S01E09 1080p WEB-DL`, seeders: 121 });
+      await seedSearchCache({ ...target, episode: 9 }, [watchedReplacement]);
+      await prisma.engineTorrent.updateMany({
+        where: { userId, hash: outcome.infoHash! },
+        data: { progress: 0.1, status: "downloading", origin: PREWARM_ORIGIN },
+      });
+      await prisma.playbackProgress.upsert({
+        where: {
+          userId_infoHash_filePath: {
+            userId,
+            infoHash: outcome.infoHash!,
+            filePath: "S01E04.mkv",
+          },
+        },
+        create: {
+          userId,
+          infoHash: outcome.infoHash!,
+          filePath: "S01E04.mkv",
+          positionSec: 30,
+          durationSec: 1400,
+          title: "watched prewarm",
+        },
+        update: { positionSec: 30 },
+      });
+      const replaced = await prewarmNextEpisode({
+        userId,
+        next: { ...next, episode: 9 },
+        _config: config,
+        _sendFn: fakeSend,
+        _foregroundProgress: 1,
+        db: prisma,
+        force: true,
+        protectHashes: [outcome.infoHash!],
+        _deleteFn: async (_cfg, hash) => {
+          deleted.push(hash);
+          return { ok: true, message: "removed" };
+        },
+      });
+      assert.equal(replaced.reason, "at-concurrency-cap");
+      assert.deepEqual(sent, [], "new prewarm must not start while the watched one is active");
+      assert.deepEqual(deleted, [], "watched/playing prewarm must not be deleted");
+      const old = await prisma.engineTorrent.findFirst({
+        where: { userId, hash: outcome.infoHash! },
+      });
+      assert.ok(old, "the watched prewarm row must survive");
+      await prisma.playbackProgress.deleteMany({
+        where: { userId, infoHash: outcome.infoHash! },
+      });
+    });
+
+    resetPrewarmRuntimeState();
+    await checkAsync("a changed prediction is refused while one prewarm is active", async () => {
+      sent = [];
+      const deleted: string[] = [];
+      const replacement = result({ title: `${SHOW} S01E08 1080p WEB-DL`, seeders: 120 });
+      await seedSearchCache({ ...target, episode: 8 }, [replacement]);
+      // Put the earlier pre-warm back to fetching. The cap is an admission
+      // decision: do not start a second pre-warm, and do not delete the first.
       await prisma.engineTorrent.updateMany({
         where: { userId, hash: outcome.infoHash! },
         data: { progress: 0.1, status: "downloading" },
       });
-      const capped = await prewarmNextEpisode({
+      const replaced = await prewarmNextEpisode({
         userId,
         next: { ...next, episode: 8 },
         _config: config,
         _sendFn: fakeSend,
         _foregroundProgress: 1,
         db: prisma,
+        force: true,
+        _deleteFn: async (_cfg, hash) => {
+          deleted.push(hash);
+          return { ok: true, message: "removed" };
+        },
       });
-      assert.equal(capped.reason, "at-concurrency-cap");
-      assert.deepEqual(sent, []);
+      assert.equal(replaced.reason, "at-concurrency-cap");
+      assert.deepEqual(sent, [], "no second prewarm should be sent while one is active");
+      assert.deepEqual(deleted, [], "admission cap must not delete to make room");
+      const old = await prisma.engineTorrent.findFirst({
+        where: { userId, hash: outcome.infoHash! },
+      });
+      assert.ok(old, "the active prediction must survive");
     });
 
     // ── Clients we cannot label ────────────────────────────────────────

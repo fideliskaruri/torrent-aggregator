@@ -9,7 +9,7 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import type { TorrentResult, TorrentSourceId } from "@/lib/torrents/types";
-import type { ClientConnectionConfig } from "@/lib/clients/types";
+import type { AddTorrentPayload, ClientConnectionConfig } from "@/lib/clients/types";
 
 /**
  * The Prisma transaction client passed into post-send hooks.
@@ -190,6 +190,8 @@ export type GrabPipelineOptions = {
    * "Auto-rule: Weekly anime". Defaults to a label derived from grabJobKind.
    */
   downloadHistoryPrefix?: string;
+  /** Extra payload fields for the client send (e.g. built-in connect-only prewarm). */
+  addPayload?: Partial<AddTorrentPayload>;
   /**
    * Human-readable message when selectCandidate returns null.
    * Defaults to a generic "No matching release in N results" / "No matching

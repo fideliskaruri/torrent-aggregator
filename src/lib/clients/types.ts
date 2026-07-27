@@ -61,6 +61,12 @@ export interface AddTorrentPayload {
   magnet?: string;
   torrentUrl?: string;
   name?: string;
+  /**
+   * Built-in engine only: announce/connect and keep peers warm, but start with
+   * no selected pieces. Used for next-episode prewarm so speculation does not
+   * download content before the user asks.
+   */
+  connectOnly?: boolean;
   /** Override category for this send */
   category?: string | null;
   /** Override download folder for this send */

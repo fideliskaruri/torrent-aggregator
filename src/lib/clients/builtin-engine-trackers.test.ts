@@ -17,7 +17,13 @@ import {
 
 type Added = {
   input: string | Uint8Array;
-  opts: { path?: string; announce?: string[]; strategy?: string; storeCacheSlots?: number };
+  opts: {
+    path?: string;
+    announce?: string[];
+    strategy?: string;
+    storeCacheSlots?: number;
+    deselect?: boolean;
+  };
 };
 
 function fakeClient() {
@@ -26,7 +32,7 @@ function fakeClient() {
     calls,
     add(
       input: string | Uint8Array,
-      opts?: { path?: string; announce?: string[]; strategy?: string; storeCacheSlots?: number },
+      opts?: Added["opts"],
     ) {
       calls.push({ input, opts: opts ?? {} });
       return { on() {} } as never;
@@ -132,6 +138,18 @@ for (const tracker of [
     ".torrent and other non-magnet inputs gain the same fallback announce list",
   );
   assert.equal(client.calls[0].opts.storeCacheSlots, 200, "playback keeps a larger piece cache");
+}
+
+{
+  const client = fakeClient();
+  addTorrentWithEngineDefaults(
+    client,
+    "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+    "D:\\downloads",
+    undefined,
+    { deselect: true },
+  );
+  assert.equal(client.calls[0].opts.deselect, true, "prewarm starts with no selected pieces");
 }
 
 {

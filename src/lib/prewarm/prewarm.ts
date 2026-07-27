@@ -27,13 +27,12 @@
  *
  * BANDWIDTH — FOREGROUND PLAYBACK WINS
  * ------------------------------------
- * The built-in engine exposes no per-torrent bandwidth *priority*, but it does
- * not need one: `foreground.ts` suspends every speculative torrent outright
- * (`deselect()` + `pause()`) for as long as the user is being served bytes, and
- * resumes them once playback has been idle for the grace period. That is a
- * stronger guarantee than any weighting, and it is reconciled on every progress
- * ping — so it also parks a pre-warm that was *already running* when the user
- * pressed play, which the admission gates below cannot do.
+ * The built-in engine exposes no per-torrent bandwidth *priority*, so
+ * connection-only prewarms stay connected but deselected while the user is being
+ * served bytes. That preserves peer handshakes for "Next" without requesting
+ * speculative pieces, and it is reconciled on every progress ping — so it also
+ * parks a pre-warm that was *already running* when the user pressed play, which
+ * the admission gates below cannot do.
  *
  * The admission gates remain, because not starting is cheaper than starting and
  * parking:
@@ -389,8 +388,9 @@ async function runPrewarm(
     );
   }
 
-  // Foreground first. A pre-warm may not start while the user is being served
-  // bytes, and anything already running is parked by `syncPrewarmSuspension`.
+  // Foreground first. Connection-only prewarms keep their peer handshakes, but
+  // starting a new search/add while playback is active is still avoidable work
+  // on the hot path.
   const suspension = await syncPrewarmSuspension({
     userId: opts.userId,
     db,
@@ -432,7 +432,7 @@ async function runPrewarm(
     return outcome(
       "skipped",
       "at-concurrency-cap",
-      `${active} pre-warm(s) already fetching`,
+      `${active} pre-warm(s) already active`,
       base,
     );
   }
@@ -479,6 +479,7 @@ async function runPrewarm(
         infoHash: preRankedHash,
       });
     }
+
   }
 
   // ── Grab through the one shared pipeline ─────────────────────────────
@@ -508,6 +509,7 @@ async function runPrewarm(
     search,
     config,
     fallbackTitle: `${next.title} ${label}`,
+    addPayload: { connectOnly: true },
     grabJobKind: PREWARM_GRAB_KIND,
     externalId: next.watchListItemId,
     downloadHistoryPrefix: `Pre-warm ${label}`,

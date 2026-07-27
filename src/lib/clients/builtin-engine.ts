@@ -176,6 +176,7 @@ type BuiltinAddOptions = {
   path?: string;
   bitfield?: Uint8Array;
   storeCacheSlots: number;
+  deselect?: boolean;
 };
 
 /** Public trackers that widen thin public swarms without replacing release trackers. */
@@ -196,6 +197,7 @@ const ADD_OPTIONS: BuiltinAddOptions = {
 };
 
 export const builtinAddOptions = ADD_OPTIONS;
+export const PREWARM_PEER_CAP = 20;
 
 function normalizeAnnounceUrl(value: string): string {
   try {
@@ -314,6 +316,28 @@ function addOptionsForInput(
       ? fallbackTrackersMissingFromMagnet(input)
       : [...PUBLIC_TRACKERS];
   return { ...ADD_OPTIONS, ...overrides, announce: uniqueTrackers(announce), path: dest };
+}
+
+function enforcePrewarmPeerCap(torrent: WtTorrent, cap = PREWARM_PEER_CAP): void {
+  if (!Number.isFinite(cap) || cap <= 0) return;
+  const trim = () => {
+    const wires = readProp(() => torrent.wires, []);
+    if (Array.isArray(wires) && wires.length > cap) {
+      for (const wire of wires.slice(cap)) {
+        try {
+          wire.destroy?.();
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  };
+  try {
+    torrent.on("wire", trim);
+  } catch {
+    /* best-effort */
+  }
+  trim();
 }
 
 export function addTorrentWithEngineDefaults(
@@ -1927,7 +1951,12 @@ export class BuiltinClient implements TorrentClientAdapter {
             };
           }
           // Resume / re-select files — "already added" was leaving stalled torrents idle
-          ensureDownloading(existing);
+          if (payload.connectOnly) {
+            deselectAllFiles(existing);
+            enforcePrewarmPeerCap(existing);
+          } else {
+            ensureDownloading(existing);
+          }
           state().meta.set(hash, {
             savePath: dest,
             category: payload.category ?? undefined,
@@ -1997,7 +2026,8 @@ export class BuiltinClient implements TorrentClientAdapter {
           settled = true;
           clearTimeout(timer);
           resolve(ready);
-        });
+        }, payload.connectOnly ? { deselect: true } : {});
+        if (payload.connectOnly) enforcePrewarmPeerCap(t);
         holder.t = t;
         t.on("error", (err: unknown) => {
           if (settled) return;
@@ -2008,8 +2038,14 @@ export class BuiltinClient implements TorrentClientAdapter {
         });
       });
 
-      // Metadata ready — force piece selection + resume so transfer actually starts
-      ensureDownloading(torrent);
+      // Metadata ready — a normal send selects pieces; connect-only prewarm
+      // deliberately announces and handshakes without downloading content.
+      if (payload.connectOnly) {
+        deselectAllFiles(torrent);
+        enforcePrewarmPeerCap(torrent);
+      } else {
+        ensureDownloading(torrent);
+      }
 
       const hash = (torrent.infoHash || existingHash || "").toLowerCase();
       if (!hash) {

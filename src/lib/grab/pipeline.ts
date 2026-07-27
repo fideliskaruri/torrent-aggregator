@@ -112,6 +112,7 @@ export async function runGrabPipeline(
     fallbackTitle,
     grabJobKind,
     externalId,
+    addPayload,
     onSuccess,
     onFailure,
     onNoCandidate,
@@ -256,6 +257,7 @@ export async function runGrabPipeline(
       name: candidate.title,
       category: target.category,
       savePath: target.savePath,
+      ...addPayload,
     });
   } catch (err) {
     const formatted = formatClientError(err, config.clientType);

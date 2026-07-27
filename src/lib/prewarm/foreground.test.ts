@@ -7,18 +7,18 @@
  * is what let a stutter-during-playback bug sit in the plan as "mitigated" for
  * this long. This proves the causal chain end to end:
  *
- *     a pre-warm is running
+ *     a pre-warm is connected
  *       → a foreground stream starts
- *         → `pause()` was ACTUALLY called on the pre-warm
+ *         → `deselect()` was ACTUALLY called on the pre-warm
  *           → and NOT on the user's torrent
  *     → the stream ends / the grace period expires
- *       → `resume()` was ACTUALLY called on the pre-warm
+ *       → no files are re-selected; playback will select the exact next file
  *
  * Both halves matter and each can pass for the wrong reason. A test that only
- * asserts "suspended" passes trivially if the code suspends unconditionally and
- * never resumes — which would silently disable pre-warming forever, the exact
- * leaked-flag failure this module is designed against. So the resume half is
- * asserted just as hard, and both halves were sabotage-proven.
+ * asserts "suspended" passes trivially if the code parks unconditionally and
+ * never clears its marker — which would silently disable pre-warming forever,
+ * the exact leaked-flag failure this module is designed against. So the idle
+ * cleanup half is asserted just as hard, and both halves were sabotage-proven.
  *
  * WHY A FAKE CLIENT BUT A REAL DATABASE
  * -------------------------------------
@@ -321,7 +321,7 @@ async function main(): Promise<void> {
     // ── THE CAUSAL CHAIN ────────────────────────────────────────────────
     await checkAsync(
       "CAUSAL: a running pre-warm is actually suspended when a stream starts, " +
-        "and actually resumed when it ends",
+        "and its parked marker clears when it ends",
       async () => {
         resetForegroundState();
         await seed([
@@ -335,7 +335,7 @@ async function main(): Promise<void> {
         // 1. Pre-warm running, nobody watching anything.
         const idle = await syncPrewarmSuspension({ userId });
         assert.equal(idle.foreground, false, "nothing is streaming yet");
-        assert.equal(pre.pauseCalls, 0, "a pre-warm must run freely when nobody is watching");
+        assert.equal(pre.deselectCalls, 0, "a pre-warm must keep peers warm when nobody is watching");
         assert.equal(pre.paused, false);
 
         // 2. The user presses play. Bytes start moving on the user torrent.
@@ -343,12 +343,8 @@ async function main(): Promise<void> {
         const during = await syncPrewarmSuspension({ userId });
 
         assert.equal(during.foreground, true, "a streaming user torrent is the foreground");
-        assert.equal(
-          pre.pauseCalls,
-          1,
-          `the pre-warm must actually be paused, got ${pre.pauseCalls} pause() calls`,
-        );
-        assert.equal(pre.paused, true, "the pre-warm must be left in the paused state");
+        assert.equal(pre.pauseCalls, 0, "connection-only prewarm must not drop peer handshakes");
+        assert.equal(pre.paused, false, "connection-only prewarm must stay unpaused");
         assert.equal(
           pre.deselectCalls,
           2,
@@ -374,18 +370,10 @@ async function main(): Promise<void> {
         });
 
         assert.equal(after.foreground, false, "playback stopped, so the foreground is over");
-        assert.equal(
-          pre.resumeCalls,
-          1,
-          `the pre-warm must actually be resumed, got ${pre.resumeCalls} resume() calls`,
-        );
-        assert.equal(pre.paused, false, "the pre-warm must be left running again");
-        assert.equal(
-          pre.selectCalls,
-          2,
-          "every file must be re-selected or the torrent resumes without asking for pieces",
-        );
-        assert.deepEqual(after.resumed, [pre.infoHash]);
+        assert.equal(pre.resumeCalls, 0, "we never paused the prewarm");
+        assert.equal(pre.paused, false, "the pre-warm must keep its peer connections");
+        assert.equal(pre.selectCalls, 0, "idle must not speculatively select/download files");
+        assert.deepEqual(after.resumed, []);
         assert.deepEqual(after.parked, [], "nothing may be left parked once playback ends");
 
         assert.equal(user.resumeCalls, 0, "the user torrent was never paused, so never resume it");
@@ -422,7 +410,8 @@ async function main(): Promise<void> {
 
         const during = await syncPrewarmSuspension({ userId });
         assert.equal(during.foreground, true);
-        assert.equal(pre.paused, true, "the pre-warm must be parked on the first byte");
+        assert.equal(pre.deselectCalls, 1, "the pre-warm must stop requesting pieces on the first byte");
+        assert.equal(pre.paused, false, "the pre-warm must keep its peer handshakes");
       },
     );
 
@@ -446,7 +435,8 @@ async function main(): Promise<void> {
 
           const during = await syncPrewarmSuspension({ userId });
           assert.equal(during.foreground, true, `${c.name}: ${c.message}`);
-          assert.equal(pre.paused, true, `${c.name}: the pre-warm kept competing`);
+          assert.equal(pre.deselectCalls, 1, `${c.name}: the pre-warm kept requesting pieces`);
+          assert.equal(pre.paused, false, `${c.name}: the pre-warm dropped peer handshakes`);
           assert.equal(user.pauseCalls, 0, `${c.name}: the user torrent was paused`);
         },
       );
@@ -506,7 +496,8 @@ async function main(): Promise<void> {
         0,
         "an unrecognised torrent must be treated as the user's, not as ours to pause",
       );
-      assert.equal(pre.paused, true, "an unknown moving torrent still counts as foreground");
+      assert.equal(pre.deselectCalls, 1, "an unknown moving torrent still counts as foreground");
+      assert.equal(pre.paused, false, "prewarm peers should stay connected");
     });
 
     // ── only un-pause what we paused ────────────────────────────────────
@@ -535,7 +526,7 @@ async function main(): Promise<void> {
       for (let i = 0; i < 4; i += 1) {
         await syncPrewarmSuspension({ userId, _foregroundActive: true });
       }
-      assert.equal(pre.pauseCalls, 1, "a paused torrent must not be paused again every ping");
+      assert.equal(pre.deselectCalls, 1, "a prewarm must not be deselected again every ping");
     });
 
     // ── the leak case, stated as its own assertion ──────────────────────
@@ -552,7 +543,8 @@ async function main(): Promise<void> {
         markForegroundActive(hashFor("stream-that-died"));
         const during = await syncPrewarmSuspension({ userId });
         assert.equal(during.foreground, true);
-        assert.equal(pre.paused, true);
+        assert.equal(pre.deselectCalls, 1);
+        assert.equal(pre.paused, false);
 
         // Time passes. No cleanup. No further beacons.
         const after = await syncPrewarmSuspension({
@@ -565,9 +557,9 @@ async function main(): Promise<void> {
           "a dead stream must not hold the foreground flag open",
         );
         assert.equal(
-          pre.paused,
-          false,
-          "pre-warming was left disabled forever — the exact silent failure this guards",
+          pre.selectCalls,
+          0,
+          "idle must not start downloading speculative content",
         );
         assert.deepEqual(after.parked, []);
       },
@@ -583,22 +575,20 @@ async function main(): Promise<void> {
       assert.deepEqual(result.suspended, []);
     });
 
-    await checkAsync("a torrent whose pause() throws does not abort the sweep", async () => {
+    await checkAsync("a torrent whose deselect() throws does not abort the sweep", async () => {
       resetForegroundState();
       await seed([
         { tag: "pre-bad", origin: PREWARM_ORIGIN },
         { tag: "pre-good", origin: PREWARM_ORIGIN },
       ]);
       const bad = new FakeTorrent("pre-bad");
-      bad.pause = () => {
-        throw new Error("engine exploded");
-      };
+      bad.files[0].deselect = () => { throw new Error("engine exploded"); };
       const good = new FakeTorrent("pre-good");
       installEngine([bad, good]);
 
       const result = await syncPrewarmSuspension({ userId, _foregroundActive: true });
       assert.equal(
-        good.paused,
+        good.deselectCalls > 0,
         true,
         "one broken torrent must not stop the others being parked",
       );
@@ -664,12 +654,12 @@ async function main(): Promise<void> {
         });
 
         assert.equal(
-          pre.pauseCalls,
+          pre.deselectCalls,
           1,
           "a progress ping did not reach the suspension path — the feature is " +
             "unwired and would never fire in production",
         );
-        assert.equal(pre.paused, true);
+        assert.equal(pre.paused, false);
         assert.equal(user.pauseCalls, 0, "the torrent being watched was paused");
       },
     );

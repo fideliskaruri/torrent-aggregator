@@ -10,9 +10,10 @@
  * and the user sees a stutter in the scene they are watching. A stutter reads
  * as "this app is broken", not as "a prefetch is running".
  *
- * WebTorrent has no per-torrent bandwidth priority. It does not need one: it
- * has `pause()`/`resume()` and per-file `deselect()`/`select()`, and "stop
- * asking for pieces entirely" is a stronger guarantee than any weighting.
+ * WebTorrent has no per-torrent bandwidth priority. The current pre-warm mode
+ * therefore keeps speculative torrents connected but deselected: trackers,
+ * handshakes and unchokes stay warm for "Next", while no content is requested
+ * until playback actually selects a file.
  *
  * WHICH SEAM, AND WHY THIS ONE
  * ----------------------------
@@ -52,8 +53,8 @@
  * own. There is no cleanup path to forget, so there is no way to end up with
  * pre-warming silently disabled forever — the failure mode of a leaked boolean.
  *
- * `resumePrewarms()` is likewise idempotent and safe to call when nothing is
- * suspended.
+ * Clearing the parked marker is likewise idempotent and safe to do when
+ * nothing is parked.
  */
 import prisma from "@/lib/prisma";
 import { PREWARM_ORIGIN } from "./types";
@@ -77,12 +78,9 @@ type WtFileLike = {
 
 type WtTorrentLike = {
   infoHash: string;
-  paused?: boolean;
   downloadSpeed?: number;
   done?: boolean;
   files?: Array<WtFileLike>;
-  pause?: () => void;
-  resume?: () => void;
   on?: (ev: string, fn: (...args: unknown[]) => void) => void;
   listenerCount?: (ev: string) => number;
 };
@@ -96,7 +94,7 @@ type ForegroundState = {
   lastSeenAt: number;
   /** infoHash of whatever was last seen in the foreground, for reporting. */
   lastHash: string | null;
-  /** Hashes this module paused, so it only ever resumes its own work. */
+  /** Hashes this module deselected while foreground playback was active. */
   suspended: Set<string>;
 };
 
@@ -215,9 +213,9 @@ function watchForeground(prewarms: ReadonlySet<string>): void {
 export interface SuspensionResult {
   /** True while the user is being served bytes. */
   foreground: boolean;
-  /** Hashes paused by this call. */
+  /** Hashes deselected by this call. */
   suspended: string[];
-  /** Hashes resumed by this call. */
+  /** Kept for diagnostics compatibility; connection-only prewarms do not resume. */
   resumed: string[];
   /** Hashes currently parked by this module. */
   parked: string[];
@@ -226,12 +224,7 @@ export interface SuspensionResult {
 }
 
 /**
- * Stops a pre-warm from asking for any more pieces.
- *
- * `deselect()` first so no new piece requests are queued, then `pause()` to
- * stop the wires. Doing only one of the two leaves the torrent still competing:
- * a paused torrent keeps its selections, and a deselected torrent keeps its
- * peers.
+ * Stops a pre-warm from asking for pieces while keeping its peers warm.
  */
 function suspendTorrent(t: WtTorrentLike): boolean {
   let acted = false;
@@ -240,36 +233,7 @@ function suspendTorrent(t: WtTorrentLike): boolean {
       f.deselect?.();
       acted = true;
     } catch {
-      // Best effort — pause below is the part that matters.
-    }
-  }
-  try {
-    if (!t.paused) {
-      t.pause?.();
-      acted = true;
-    }
-  } catch {
-    return acted;
-  }
-  return acted;
-}
-
-function resumeTorrent(t: WtTorrentLike): boolean {
-  let acted = false;
-  try {
-    if (t.paused) {
-      t.resume?.();
-      acted = true;
-    }
-  } catch {
-    return acted;
-  }
-  for (const f of t.files ?? []) {
-    try {
-      f.select?.();
-      acted = true;
-    } catch {
-      // Best effort.
+      // Best effort — another file may still be deselected.
     }
   }
   return acted;
@@ -286,8 +250,8 @@ export interface SyncOptions {
 /**
  * Brings pre-warm torrents into line with what the user is doing.
  *
- * Foreground active  → every pre-warm is paused and deselected.
- * Foreground idle    → every pre-warm *this module paused* is resumed.
+ * Foreground active  → every pre-warm is deselected but left connected.
+ * Foreground idle    → clear our parked marker; do not re-select pieces.
  *
  * Never throws: this runs from a progress ping on the playback hot path, and a
  * pre-warm is a background nicety that may never take anything down with it.
@@ -340,14 +304,14 @@ export async function syncPrewarmSuspension(
     if (!prewarms.has(hash)) continue;
 
     if (active) {
-      if (suspendTorrent(t)) {
+      if (!s.suspended.has(hash) && suspendTorrent(t)) {
         s.suspended.add(hash);
         suspended.push(hash);
       }
     } else if (s.suspended.has(hash)) {
-      // Only ever un-pause what *we* paused. A torrent the user paused by hand
-      // must stay paused.
-      if (resumeTorrent(t)) resumed.push(hash);
+      // Connection-only prewarms were never paused, and idle must not re-select
+      // files. The eventual stream request selects the exact pieces the user
+      // actually asked for.
       s.suspended.delete(hash);
     }
   }
