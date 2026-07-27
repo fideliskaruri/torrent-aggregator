@@ -24,6 +24,7 @@ import {
   waitForSessionFile,
   installSessionCleanup,
 } from "@/lib/media/session";
+import { markForegroundActive } from "@/lib/prewarm/foreground";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -83,6 +84,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const isManifest = filename.endsWith(".m3u8");
+  if (request.method !== "HEAD") markForegroundActive(session.infoHash);
   return serveFileRange(resolved, filename, request.headers.get("range"), {
     cacheControl: isManifest
       ? "no-cache, no-store, must-revalidate" // an EVENT playlist grows; never cache it

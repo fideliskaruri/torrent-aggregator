@@ -29,6 +29,7 @@ import {
   type VodEntry,
 } from "@/lib/media/vod-runtime";
 import { trimVodPlaylist, WHOLE_FILE_DATA, WHOLE_FILE_PLAYLIST } from "@/lib/media/vod";
+import { markForegroundActive } from "@/lib/prewarm/foreground";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -137,6 +138,7 @@ export async function GET(request: Request, context: RouteContext) {
         return json(404, { error: "Playlist missing" });
       }
       const { text } = trimVodPlaylist(raw, from);
+      if (request.method !== "HEAD") markForegroundActive(entry.infoHash);
       return new Response(request.method === "HEAD" ? null : text, {
         status: 200,
         headers: {
@@ -150,6 +152,7 @@ export async function GET(request: Request, context: RouteContext) {
   // Everything served here is immutable once written: a VOD playlist never
   // changes, and neither does a produced segment. That is what makes scrubbing
   // back through already-watched material free.
+  if (request.method !== "HEAD") markForegroundActive(entry.infoHash);
   return serveFileRange(located.absolutePath, filename, request.headers.get("range"), {
     cacheControl: "private, max-age=31536000, immutable",
     bodyless: request.method === "HEAD",

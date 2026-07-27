@@ -10,6 +10,7 @@ import {
 } from "@/lib/clients/builtin-engine";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { isWebVtt, srtToVtt } from "@/lib/media/subtitles";
+import { markForegroundActive } from "@/lib/prewarm/foreground";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -491,6 +492,11 @@ export async function handleStreamFileRequest(
   if (isSubtitlePath(filePath)) {
     const subtitle = await serveSubtitleAsVtt(lookup.file, request.method);
     if (subtitle) {
+      // A subtitle body is not video, but it is still playback: the viewer chose
+      // timed text for this torrent, and extracting or serving it can touch the
+      // same disk and swarm the video needs. Listing subtitles stays invisible;
+      // serving actual subtitle bytes keeps speculative work parked.
+      if (request.method !== "HEAD") markForegroundActive(infoHash);
       logStreamRequest({
         infoHash,
         file: filePath,
@@ -577,6 +583,7 @@ export async function handleStreamFileRequest(
     });
   }
 
+  markForegroundActive(infoHash);
   logStreamRequest({
     infoHash,
     file: filePath,

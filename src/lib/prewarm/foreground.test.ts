@@ -46,6 +46,12 @@ import {
   syncPrewarmSuspension,
 } from "./foreground";
 import { PREWARM_ORIGIN, USER_ORIGIN } from "./types";
+import type {
+  BuiltinStreamFile,
+  BuiltinStreamLookup,
+  BuiltinStreamTorrent,
+} from "@/lib/clients/builtin-engine";
+import type { ClientConnectionConfig } from "@/lib/clients";
 
 let failures = 0;
 
@@ -71,6 +77,31 @@ async function checkAsync(name: string, fn: () => Promise<void>) {
 
 const userId = `prewarm-fg-${randomUUID()}`;
 
+const builtinConfig: ClientConnectionConfig = {
+  clientType: "builtin",
+  host: "",
+  userId,
+};
+
+const streamedForegroundCases = [
+  {
+    name: "complete file",
+    speed: 0,
+    progress: 1,
+    message:
+      "a completed file serves from disk/cache with no download counter, but " +
+      "the viewer is still actively being fed bytes",
+  },
+  {
+    name: "starved stream",
+    speed: FOREGROUND_MIN_SPEED_BPS - 1,
+    progress: 0.4,
+    message:
+      "a stream below the foreground speed threshold is the stream that most " +
+      "needs pre-warms to get out of the way",
+  },
+];
+
 function hashFor(tag: string): string {
   return createHash("sha1").update(tag).digest("hex");
 }
@@ -86,6 +117,7 @@ class FakeTorrent {
   infoHash: string;
   paused = false;
   downloadSpeed = 0;
+  progress = 0.25;
   pauseCalls = 0;
   resumeCalls = 0;
   deselectCalls = 0;
@@ -131,6 +163,57 @@ class FakeTorrent {
   emitDownload() {
     for (const fn of this.listeners.get("download") ?? []) fn(16384);
   }
+}
+
+function makeStreamFile(path: string, length: number): BuiltinStreamFile {
+  return {
+    name: path.split("/").pop() || path,
+    path,
+    length,
+    stream(opts = {}) {
+      const start = opts.start ?? 0;
+      const end = Math.min(opts.end ?? length - 1, length - 1);
+      let offset = start;
+      return new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (offset > end) {
+            controller.close();
+            return;
+          }
+          const size = Math.min(1024, end - offset + 1);
+          offset += size;
+          controller.enqueue(new Uint8Array(size));
+        },
+      });
+    },
+  };
+}
+
+async function serveBytesThroughStreamRoute(
+  userTorrent: FakeTorrent,
+): Promise<Response> {
+  const { handleStreamFileRequest, resetStreamPrefetchForTests } = await import(
+    "@/app/api/stream/[infoHash]/[...filePath]/route"
+  );
+  resetStreamPrefetchForTests();
+  const file = makeStreamFile("Show/Episode.mkv", 4096);
+  userTorrent.files = [file as unknown as { select: () => void; deselect: () => void }];
+  const lookup: BuiltinStreamLookup = {
+    status: "found",
+    torrent: userTorrent as unknown as BuiltinStreamTorrent,
+    file,
+  };
+  return handleStreamFileRequest(
+    new Request(`http://localhost/api/stream/${userTorrent.infoHash}/Show/Episode.mkv`, {
+      headers: { range: "bytes=0-1023" },
+    }),
+    { infoHash: userTorrent.infoHash, filePath: ["Show", "Episode.mkv"] },
+    {
+      getConfig: async () => builtinConfig,
+      findFile: async () => lookup,
+      prefetchEdges: async () => undefined,
+    },
+  );
 }
 
 const g = globalThis as unknown as {
@@ -342,6 +425,32 @@ async function main(): Promise<void> {
         assert.equal(pre.paused, true, "the pre-warm must be parked on the first byte");
       },
     );
+
+    for (const c of streamedForegroundCases) {
+      await checkAsync(
+        `WIRING: streamed bytes are foreground for a ${c.name}`,
+        async () => {
+          resetForegroundState();
+          await seed([
+            { tag: `user-${c.name}`, origin: USER_ORIGIN },
+            { tag: `pre-${c.name}`, origin: PREWARM_ORIGIN },
+          ]);
+          const user = new FakeTorrent(`user-${c.name}`, { speed: c.speed });
+          user.progress = c.progress;
+          const pre = new FakeTorrent(`pre-${c.name}`, { speed: 5_000_000 });
+          installEngine([user, pre]);
+
+          const res = await serveBytesThroughStreamRoute(user);
+          assert.equal(res.status, 206, c.name);
+          assert.equal((await res.arrayBuffer()).byteLength, 1024, c.name);
+
+          const during = await syncPrewarmSuspension({ userId });
+          assert.equal(during.foreground, true, `${c.name}: ${c.message}`);
+          assert.equal(pre.paused, true, `${c.name}: the pre-warm kept competing`);
+          assert.equal(user.pauseCalls, 0, `${c.name}: the user torrent was paused`);
+        },
+      );
+    }
 
     await checkAsync("listeners are not stacked when the module is re-entered", async () => {
       resetForegroundState();

@@ -47,6 +47,7 @@ import {
   readCachedSubtitle,
 } from "@/lib/media/extract-subtitles";
 import prisma from "@/lib/prisma";
+import { markForegroundActive } from "@/lib/prewarm/foreground";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -243,8 +244,16 @@ async function serveTrack(input: {
   if (!parsed) return json(400, { error: "Unknown subtitle track" });
   const rebase = (vtt: string) => shiftVttCues(vtt, -offsetSec);
 
+  // Subtitle bytes deliberately count as foreground. They are not video bytes,
+  // but they are served only because a human is watching this torrent, and the
+  // work behind them can touch the same torrent, disk and ffmpeg budget as the
+  // picture. The track-list endpoint above does not mark foreground; this body
+  // endpoint does.
   const cached = readCachedSubtitle(infoHash, filePath, trackId);
-  if (cached) return vttResponse(rebase(cached), request.method);
+  if (cached) {
+    if (request.method !== "HEAD") markForegroundActive(infoHash);
+    return vttResponse(rebase(cached), request.method);
+  }
 
   if (parsed.kind === "sidecar") {
     // Only a file this video actually owns may be served — the track id comes
@@ -275,6 +284,7 @@ async function serveTrack(input: {
       });
     }
     cacheSidecarVtt(infoHash, filePath, trackId, converted.vtt);
+    if (request.method !== "HEAD") markForegroundActive(infoHash);
     return vttResponse(rebase(converted.vtt), request.method);
   }
 
@@ -313,6 +323,7 @@ async function serveTrack(input: {
       message: outcome.message,
     });
   }
+  if (request.method !== "HEAD") markForegroundActive(infoHash);
   return vttResponse(rebase(outcome.vtt), request.method);
 }
 

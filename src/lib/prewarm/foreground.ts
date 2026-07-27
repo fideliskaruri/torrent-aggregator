@@ -16,25 +16,27 @@
  *
  * WHICH SEAM, AND WHY THIS ONE
  * ----------------------------
- * The truly honest signal is the stream route (`src/app/api/stream/**`) — it is
- * literally the bytes going to the player. That route is owned by another agent
- * and is being edited concurrently, so this module does not touch it. Instead:
+ * The truly honest signal is the stream route (`src/app/api/stream/**`) and the
+ * playback routes that serve HLS/VOD/subtitle bodies — they are literally the
+ * bytes going to the player. That hook is intentionally tiny:
  *
- *   1. PRIMARY — engine byte movement. This module reads the engine singleton
+ *   1. PRIMARY — `markForegroundActive(infoHash)`. A one-line beacon from the
+ *      byte-serving route:
+ *
+ *          import { markForegroundActive } from "@/lib/prewarm/foreground";
+ *          markForegroundActive(infoHash);   // on each served media request
+ *
+ *      This catches the two cases counters cannot: a fully downloaded file that
+ *      moves zero torrent bytes while ffmpeg remuxes it, and a starving stream
+ *      whose averaged speed is below the threshold precisely because it needs
+ *      the speculative downloads to get out of the way.
+ *
+ *   2. BACKSTOP — engine byte movement. This module reads the engine singleton
  *      (`globalThis.__tfBuiltinEngine`) directly and treats *any non-pre-warm
  *      torrent that is currently moving bytes* as foreground. That is direct
  *      evidence that the swarm is being worked for something the user asked
  *      for, it needs nothing from anybody else's file, and it cannot break
  *      playback because it only ever reads counters and attaches a listener.
- *
- *   2. BEACON — `markForegroundActive(infoHash)`. An explicit, one-line hook
- *      for whoever owns the stream route:
- *
- *          import { markForegroundActive } from "@/lib/prewarm/foreground";
- *          markForegroundActive(infoHash);   // on each range request
- *
- *      Until that call exists, (1) carries the feature on its own. This is
- *      stated plainly rather than left as a hook nobody calls.
  *
  * A playback-progress row is deliberately NOT the primary signal. It is a
  * weaker proxy — it keeps ticking while the player is paused — and today
