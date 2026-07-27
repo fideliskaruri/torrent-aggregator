@@ -231,10 +231,10 @@ export function TorrentCard({
         : "my client";
   const canSendExternal = Boolean(prefs.hasExternal && prefs.externalClientType);
   const primaryClient = prefs.clientType || "builtin";
-  const streamOnlyAvailable = prefsLoaded && primaryClient === "builtin";
-  const streamUnavailableReason = !prefsLoaded
-    ? "Checking client…"
-    : `Stream-only needs the built-in engine; ${primaryClient} downloads instead.`;
+  const streamOnlyAvailable = primaryClient === "builtin";
+  const streamUnavailableReason = prefsLoaded
+    ? `Stream-only needs the built-in engine; ${primaryClient} downloads instead.`
+    : "Stream now; cached bytes can be freed later";
 
   async function openFolder() {
     if (!session) {
@@ -562,15 +562,96 @@ export function TorrentCard({
                   )}
                 />
               </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-9 sm:h-8 px-2 text-[12px] text-[var(--text-tertiary)]"
+                    aria-label="More actions"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                    More
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  {torrent.magnet && (
+                    <DropdownMenuItem asChild>
+                      <a href={torrent.magnet} data-action="magnet-menu">
+                        <Magnet className="opacity-60" />
+                        Open magnet
+                      </a>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    disabled={!torrent.magnet}
+                    onSelect={() => void copyMagnet()}
+                  >
+                    {copied ? (
+                      <Check className="opacity-60" />
+                    ) : (
+                      <Copy className="opacity-60" />
+                    )}
+                    {copied ? "Copied" : "Copy magnet"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={opening || !effectivePath}
+                    onSelect={() => void openFolder()}
+                  >
+                    {opening ? (
+                      <Loader2 className="opacity-60 animate-spin" />
+                    ) : (
+                      <FolderSearch className="opacity-60" />
+                    )}
+                    Open folder
+                  </DropdownMenuItem>
+                  {meta && (
+                    <DropdownMenuItem
+                      disabled={saving || saved}
+                      onSelect={() => openAddToLibrary()}
+                    >
+                      {saved ? (
+                        <BookmarkCheck className="opacity-60" />
+                      ) : (
+                        <Bookmark className="opacity-60" />
+                      )}
+                      {saved ? "In library" : "Add to library…"}
+                    </DropdownMenuItem>
+                  )}
+                  {canSendExternal ? (
+                    <DropdownMenuItem
+                      disabled={sending || !canSend}
+                      onSelect={() =>
+                        void sendToClient("external", { retention: "keep" })
+                      }
+                      data-action="send-external"
+                    >
+                      <ArrowDownToLine className="opacity-60" />
+                      Send to {externalLabel}
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setShowSendOpts(true)}>
+                    <Sparkles className="opacity-60" />
+                    Category & path…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={torrent.sourceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <ExternalLink className="opacity-60" />
+                      View on {torrent.source}
+                    </a>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-            <p className="basis-full text-[11px] leading-snug text-[var(--text-tertiary)]">
-              {streamOnlyAvailable
-                ? "Stream plays now and can be reclaimed later. Download keeps the file."
-                : streamUnavailableReason}
-            </p>
 
-            {/* Magnet, Copy and "send to external client" all live in the
-                overflow menu below. Rendering them again as three visible
+            {/* Magnet, Copy and "send to external client" live in the overflow
+                menu in the button row. Rendering them again as three visible
                 buttons put five controls on every row for one decision the
                 user actually makes — and 100 buttons on a 20-row page. */}
 
@@ -587,91 +668,6 @@ export function TorrentCard({
               </a>
             )}
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 sm:h-8 sm:w-8 text-[var(--text-tertiary)]"
-                  aria-label="More actions"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {torrent.magnet && (
-                  <DropdownMenuItem asChild>
-                    <a href={torrent.magnet} data-action="magnet-menu">
-                      <Magnet className="opacity-60" />
-                      Open magnet
-                    </a>
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  disabled={!torrent.magnet}
-                  onSelect={() => void copyMagnet()}
-                >
-                  {copied ? (
-                    <Check className="opacity-60" />
-                  ) : (
-                    <Copy className="opacity-60" />
-                  )}
-                  {copied ? "Copied" : "Copy magnet"}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={opening || !effectivePath}
-                  onSelect={() => void openFolder()}
-                >
-                  {opening ? (
-                    <Loader2 className="opacity-60 animate-spin" />
-                  ) : (
-                    <FolderSearch className="opacity-60" />
-                  )}
-                  Open folder
-                </DropdownMenuItem>
-                {meta && (
-                  <DropdownMenuItem
-                    disabled={saving || saved}
-                    onSelect={() => openAddToLibrary()}
-                  >
-                    {saved ? (
-                      <BookmarkCheck className="opacity-60" />
-                    ) : (
-                      <Bookmark className="opacity-60" />
-                    )}
-                    {saved ? "In library" : "Add to library…"}
-                  </DropdownMenuItem>
-                )}
-                {canSendExternal ? (
-                  <DropdownMenuItem
-                    disabled={sending || !canSend}
-                    onSelect={() =>
-                      void sendToClient("external", { retention: "keep" })
-                    }
-                    data-action="send-external"
-                  >
-                    <ArrowDownToLine className="opacity-60" />
-                    Send to {externalLabel}
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setShowSendOpts(true)}>
-                  <Sparkles className="opacity-60" />
-                  Category & path…
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <a
-                    href={torrent.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="opacity-60" />
-                    View on {torrent.source}
-                  </a>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
           </div>
 

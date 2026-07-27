@@ -54,7 +54,13 @@ check("search results expose explicit stream and download retention choices", ()
   assert.match(torrentCard, /retention:\s*opts\.retention/);
   assert.match(torrentCard, /retention:\s*"stream"/);
   assert.match(torrentCard, /retention:\s*"keep"/);
-  assert.match(torrentCard, /Stream plays now and can be reclaimed later/);
+  assert.match(searchResults, /Stream plays now and can be reclaimed later/);
+  assert.doesNotMatch(torrentCard, /Stream plays now and can be reclaimed later/);
+});
+
+check("overflow actions stay in the button row, not as a stray ellipsis line", () => {
+  assert.doesNotMatch(torrentCard, /<\/p>[\s\S]*<DropdownMenu>/);
+  assert.match(torrentCard, />\s*More\s*</);
 });
 
 check("every search send path carries an explicit retention choice", () => {

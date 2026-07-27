@@ -494,6 +494,15 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
           </div>
         </div>
 
+        {data?.results.length ? (
+          <p
+            className="text-[12px] leading-relaxed text-[var(--text-tertiary)]"
+            data-retention-help
+          >
+            Stream plays now and can be reclaimed later. Download keeps the file.
+          </p>
+        ) : null}
+
         {/* Sources + filters — collapsed by default (mobile-friendly) */}
         {showFilters && (
           <div className="surface p-2 sm:p-2.5 space-y-2.5">
