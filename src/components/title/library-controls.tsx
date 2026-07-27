@@ -11,7 +11,7 @@
  * server-side and handed down whole — the client never invents a catalog id,
  * because an id it made up is an id automation will later fail to match.
  */
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Bell, BellOff, Check, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TitleLibraryState } from "./types";
@@ -32,6 +32,7 @@ export function LibraryControls({
 }: LibraryControlsProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const monitoringDescriptionId = useId();
 
   async function send(request: () => Promise<Response>, failure: string) {
     setPhase("pending");
@@ -111,36 +112,43 @@ export function LibraryControls({
         )}
 
         {library.inLibrary && library.watchListItemId ? (
-          <Button
-            type="button"
-            size="lg"
-            variant="secondary"
-            data-monitor-toggle
-            aria-pressed={library.monitored}
-            disabled={busy}
-            onClick={() => setMonitored(!library.monitored)}
-          >
-            {busy ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : library.monitored ? (
-              <Bell aria-hidden />
-            ) : (
-              <BellOff aria-hidden />
-            )}
-            {library.monitored ? "Monitoring on" : "Monitoring off"}
-          </Button>
+          <div className="flex flex-col items-start gap-1.5">
+            <Button
+              type="button"
+              size="lg"
+              variant={library.monitored ? "secondary" : "default"}
+              data-monitor-toggle
+              aria-pressed={library.monitored}
+              aria-describedby={!library.monitored ? monitoringDescriptionId : undefined}
+              disabled={busy}
+              onClick={() => setMonitored(!library.monitored)}
+            >
+              {busy ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : library.monitored ? (
+                <Bell aria-hidden />
+              ) : (
+                <BellOff aria-hidden />
+              )}
+              {library.monitored ? "Turn monitoring off" : "Turn monitoring on"}
+            </Button>
+            {!library.monitored ? (
+              <p
+                id={monitoringDescriptionId}
+                className="max-w-[24rem] text-left text-[12px] text-[var(--text-tertiary)]"
+              >
+                {isSeries
+                  ? "New episodes are fetched as they appear."
+                  : "This is fetched as soon as a release shows up."}
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
       {phase === "error" && message ? (
         <p role="alert" className="mt-2 text-[12px] text-[var(--danger)]">
           {message}
-        </p>
-      ) : library.inLibrary && !library.monitored ? (
-        <p className="mt-2 text-[12px] text-[var(--text-tertiary)]">
-          {isSeries
-            ? "Turn monitoring on and new episodes are fetched as they appear."
-            : "Turn monitoring on and this is fetched as soon as a release shows up."}
         </p>
       ) : null}
     </div>
