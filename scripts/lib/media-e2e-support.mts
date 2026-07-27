@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-import { parseProbeOutput, type ProbeResult } from "../../src/lib/media/probe";
+import { parseProbeOutput, type ProbeResult } from "../../src/lib/media/probe-shape.js";
 import { DEFAULT_CAPABILITIES, type ClientCapabilities } from "../../src/lib/media/capabilities";
 
 const require = createRequire(import.meta.url);
