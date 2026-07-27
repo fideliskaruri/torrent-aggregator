@@ -342,3 +342,126 @@ export async function pollForegroundSwarmWatch(
     return { active: true, watched: false, result: null, reason: "error" };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Poll health — silence must mean "working", never "broken"
+// ---------------------------------------------------------------------------
+
+/**
+ * The engine drives {@link pollForegroundSwarmWatch} fire-and-forget on its
+ * throttle timer: a failover bug must never stop that timer. But an *empty*
+ * catch is a live hole — if the poll fails on every tick the watchdog is dead
+ * and nothing anywhere says so, and the symptom ("no stalls detected") is
+ * indistinguishable from the feature working. That is exactly the class of
+ * failure this whole feature exists to catch, so it must not itself fail silent.
+ *
+ * The rule: swallow the error (never propagate), but make it observable. Log the
+ * first failure loudly (stall detection is DOWN), then rate-limit repeats to one
+ * line per {@link POLL_FAILURE_LOG_THROTTLE_MS} so a permanently-broken watchdog
+ * neither spams the log nor disappears from it, and log the transition back to
+ * healthy so an operator can see it recover. Silence means working.
+ */
+export const POLL_FAILURE_LOG_THROTTLE_MS = 60_000;
+
+interface PollHealth {
+  consecutiveFailures: number;
+  lastReportedAt: number;
+}
+
+let pollHealth: PollHealth = { consecutiveFailures: 0, lastReportedAt: 0 };
+
+/** Test seam — reset the poll-health bookkeeping. */
+export function resetSwarmWatchPollHealth(): void {
+  pollHealth = { consecutiveFailures: 0, lastReportedAt: 0 };
+}
+
+/** Diagnostics: consecutive poll failures seen so far (0 when healthy). */
+export function swarmWatchConsecutiveFailures(): number {
+  return pollHealth.consecutiveFailures;
+}
+
+export interface PollHealthDeps {
+  now?: number;
+  log?: (message: string, error?: unknown) => void;
+}
+
+export type PollHealthTransition =
+  | "healthy"
+  | "failing" // first failure of a run
+  | "failing-throttled" // still failing, logged after the throttle window
+  | "failing-silent" // still failing, within the throttle window (not logged)
+  | "recovered";
+
+/**
+ * Record the outcome of one poll and report failures observably.
+ *
+ * Returns whether it logged and which transition it saw, so a test can assert
+ * on the reporting without scraping console output.
+ */
+export function recordSwarmWatchPollOutcome(
+  ok: boolean,
+  error?: unknown,
+  deps: PollHealthDeps = {},
+): { logged: boolean; transition: PollHealthTransition } {
+  const now = deps.now ?? Date.now();
+  const log =
+    deps.log ??
+    ((message: string, err?: unknown) =>
+      err === undefined ? console.error(message) : console.error(message, err));
+
+  if (ok) {
+    if (pollHealth.consecutiveFailures > 0) {
+      const failures = pollHealth.consecutiveFailures;
+      pollHealth = { consecutiveFailures: 0, lastReportedAt: 0 };
+      log(`[swarm-watch] poll recovered after ${failures} consecutive failure(s); stall detection is back up`);
+      return { logged: true, transition: "recovered" };
+    }
+    return { logged: false, transition: "healthy" };
+  }
+
+  const wasFailing = pollHealth.consecutiveFailures > 0;
+  pollHealth.consecutiveFailures += 1;
+
+  if (!wasFailing) {
+    pollHealth.lastReportedAt = now;
+    log("[swarm-watch] foreground poll failing — stall detection is DOWN", error);
+    return { logged: true, transition: "failing" };
+  }
+
+  if (now - pollHealth.lastReportedAt >= POLL_FAILURE_LOG_THROTTLE_MS) {
+    pollHealth.lastReportedAt = now;
+    log(
+      `[swarm-watch] foreground poll still failing (${pollHealth.consecutiveFailures} consecutive) — stall detection remains DOWN`,
+      error,
+    );
+    return { logged: true, transition: "failing-throttled" };
+  }
+
+  return { logged: false, transition: "failing-silent" };
+}
+
+/**
+ * One watchdog beat, as the engine timer calls it: run the foreground poll and
+ * report its health. **Never throws and never rejects** — that is the property
+ * that keeps the engine's throttle timer alive — while routing every failure
+ * (a thrown poll, or an internal `error` verdict) through
+ * {@link recordSwarmWatchPollOutcome} so a dead watchdog cannot hide.
+ *
+ * `poll` is injectable so a test can drive a throwing tick without a live engine.
+ */
+export async function driveForegroundSwarmWatch(
+  poll: () => Promise<Pick<ForegroundPollResult, "active"> & { reason?: string }> = () =>
+    pollForegroundSwarmWatch(),
+  deps: PollHealthDeps = {},
+): Promise<void> {
+  try {
+    const result = await poll();
+    // An `error` reason is the internal catch firing — a genuine failure — while
+    // every other outcome (idle, no row, no config, watched) is normal running.
+    const ok = !("reason" in result) || result.reason !== "error";
+    recordSwarmWatchPollOutcome(ok, ok ? undefined : new Error("poll returned error verdict"), deps);
+  } catch (err) {
+    recordSwarmWatchPollOutcome(false, err, deps);
+  }
+}
+

@@ -699,11 +699,18 @@ function startUploadThrottleLoop(client: WebTorrentLike): void {
     // Same 5s beat drives the swarm-delivery watchdog: when a torrent is the
     // foreground stream, sample it and fail over if it has stalled. Loaded
     // dynamically so the watchdog (which imports this engine for its effects)
-    // does not create a static import cycle, and kept fire-and-forget — a
-    // failover nicety must never take the engine's timer down.
+    // does not create a static import cycle. `driveForegroundSwarmWatch` never
+    // throws and reports its own failures observably, so this stays fire-and-
+    // forget without an empty catch hiding a dead watchdog; the remaining catch
+    // only fires if the module itself fails to load, which is loud on purpose.
     void import("@/lib/playback/swarm-delivery-watchdog")
-      .then((m) => m.pollForegroundSwarmWatch())
-      .catch(() => {});
+      .then((m) => m.driveForegroundSwarmWatch())
+      .catch((err) =>
+        console.error(
+          "[swarm-watch] watchdog module failed to load; stall detection is down:",
+          err instanceof Error ? err.message : String(err),
+        ),
+      );
   }, UPLOAD_THROTTLE_POLL_MS);
   s.uploadThrottleTimer.unref?.();
 }
