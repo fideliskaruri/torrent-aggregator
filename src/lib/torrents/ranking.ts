@@ -5,6 +5,7 @@ import { stripTrailingJunkNumber, releaseYear } from "./work-identity";
 import {
   compareReleases,
   describeRelease,
+  directPlayableRank,
   parseResolution,
   resolutionAffinity,
   DEFAULT_TARGET_RESOLUTION,
@@ -43,10 +44,11 @@ function affinityRank(affinity: number, steps: number[]): number {
 function encodeScore(d: ReleaseRank, steps: number[]): number {
   const good = 2 - ((d.junk ? 1 : 0) + (d.implausible ? 1 : 0));
   return (
-    d.relevance * 100_000 +
-    good * 10_000 +
-    (d.viable ? 1 : 0) * 1_000 +
-    affinityRank(d.affinity, steps) * 100 +
+    d.relevance * 1_000_000 +
+    good * 100_000 +
+    (d.viable ? 1 : 0) * 10_000 +
+    affinityRank(d.affinity, steps) * 1_000 +
+    directPlayableRank(d.directPlayable) * 100 +
     Math.min(d.seeders, 9) * 10 +
     d.recency
   );

@@ -202,6 +202,75 @@ check("below-target degrades gracefully; above-target sinks below all of it", ()
   }
 });
 
+console.log("\n--- direct-play hint: cheaper playback wins only inside a quality tie ---");
+
+const DIRECT_PLAY_CASES: Array<{
+  name: string;
+  items: TorrentResult[];
+  expectedOrder: string[];
+  expectedSignals?: Array<[string, boolean | null]>;
+}> = [
+  {
+    name: "direct-playable MP4 beats a same-quality MKV/HEVC release",
+    items: [
+      rel({ id: "transcode", title: "Show S01E01 1080p WEB-DL HEVC DDP5.1.mkv", seeders: 50 }),
+      rel({ id: "direct", title: "Show S01E01 1080p WEB-DL H.264 AAC.mp4", seeders: 50 }),
+    ],
+    expectedOrder: ["direct", "transcode"],
+    expectedSignals: [["direct", true], ["transcode", false]],
+  },
+  {
+    name: "quality still beats direct-playability when the quality gap is real",
+    items: [
+      rel({ id: "direct-sd", title: "Show S01E01 720p WEB-DL H.264 AAC.mp4", seeders: 50 }),
+      rel({ id: "transcode-hd", title: "Show S01E01 1080p WEB-DL HEVC DTS.mkv", seeders: 50 }),
+    ],
+    expectedOrder: ["transcode-hd", "direct-sd"],
+    expectedSignals: [["direct-sd", true], ["transcode-hd", false]],
+  },
+  {
+    name: "unknown codec/container is neutral, not the same as known-bad",
+    items: [
+      rel({ id: "known-bad", title: "Show S01E01 1080p WEB-DL HEVC DDP5.1.mkv", seeders: 50 }),
+      rel({ id: "unknown", title: "Show S01E01 1080p WEB-DL", seeders: 50 }),
+      rel({ id: "direct", title: "Show S01E01 1080p WEB-DL x264 AAC.mp4", seeders: 50 }),
+    ],
+    expectedOrder: ["direct", "unknown", "known-bad"],
+    expectedSignals: [["direct", true], ["unknown", null], ["known-bad", false]],
+  },
+  {
+    name: "direct-playability never filters anything out",
+    items: [
+      rel({ id: "direct", title: "Show S01E01 1080p WEB-DL H264 AAC.mp4", seeders: 50 }),
+      rel({ id: "unknown", title: "Show S01E01 1080p WEB-DL", seeders: 50 }),
+      rel({ id: "mkv", title: "Show S01E01 1080p WEB-DL H264 AAC.mkv", seeders: 50 }),
+      rel({ id: "hevc", title: "Show S01E01 1080p WEB-DL x265 TrueHD.mkv", seeders: 50 }),
+    ],
+    expectedOrder: ["direct", "unknown", "mkv", "hevc"],
+    expectedSignals: [["direct", true], ["unknown", null], ["mkv", false], ["hevc", false]],
+  },
+];
+
+for (const c of DIRECT_PLAY_CASES) {
+  check(c.name, () => {
+    const ranked = rankResults(c.items, "Show");
+    assert.equal(ranked.length, c.items.length, "direct-play tiebreak must not drop candidates");
+    assert.deepEqual(new Set(ranked.map((r) => r.id)), new Set(c.items.map((r) => r.id)));
+    assert.deepEqual(ranked.map((r) => r.id), c.expectedOrder);
+    for (let i = 1; i < ranked.length; i++) {
+      assert.ok(
+        (ranked[i]!.score ?? 0) <= (ranked[i - 1]!.score ?? 0),
+        `score disagrees with direct-play order at ${ranked[i - 1]!.id} → ${ranked[i]!.id}`,
+      );
+    }
+    for (const [id, expected] of c.expectedSignals ?? []) {
+      const item = c.items.find((r) => r.id === id);
+      assert.ok(item, `missing fixture ${id}`);
+      assert.equal(describeRelease(item, "Show").directPlayable, expected, id);
+    }
+  });
+}
+
 console.log("\n--- junk sources: worse than any resolution is good ---");
 
 check("2160p HDCAM never beats 480p WEB-DL, at any seeder ratio", () => {

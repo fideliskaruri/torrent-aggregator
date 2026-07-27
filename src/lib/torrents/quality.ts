@@ -27,6 +27,13 @@
  */
 import type { TorrentResult } from "./types";
 import { normalizeTitle } from "@/lib/utils";
+import type { ProbeResult, ProbeStream } from "@/lib/media/probe";
+import { normalizeCodecName } from "@/lib/media/probe";
+import {
+  DEFAULT_CAPABILITIES,
+  supportsContainer,
+} from "@/lib/media/capabilities";
+import { decidePlayback } from "@/lib/media/decide";
 
 /**
  * Resolution patterns, most specific first.
@@ -304,6 +311,142 @@ export function recencyBucket(publishedAt: string | null | undefined): number {
 }
 
 /**
+ * Best-effort direct-play hint from a release name.
+ *
+ * This is deliberately weaker than the playback planner. At search time there is
+ * no ffprobe result, only the title line an indexer returned, so the parser below
+ * is allowed to say "unknown" and should do that often. The bug this fixes was a
+ * same-quality `HEVC DDP5.1.mkv` beating `H.264 AAC.mp4` on seeders, then making
+ * the expensive transcode/remux ladder dig us out of a choice the ranker could
+ * have avoided. The opposite bug would be worse: pretending an unlabelled file is
+ * bad and burying it below known releases even though the name simply omitted the
+ * codec.
+ *
+ * The codec/container support decision is still owned by `media/decide.ts` and
+ * `media/capabilities.ts`. This function only maps common release-name tokens to
+ * the same canonical codec/container words ffprobe would have produced, then asks
+ * the real decision engine what rung that inferred file would land on under the
+ * conservative default browser profile. `true` means "likely direct", `false`
+ * means "the name contains a known obstacle", and `null` means "not enough
+ * evidence either way".
+ */
+export function directPlayableFromTitle(title: string): boolean | null {
+  const container = inferReleaseContainer(title);
+  const videoCodec = inferVideoCodec(title);
+  const audioCodec = inferAudioCodec(title);
+
+  if (!container && !videoCodec && !audioCodec) return null;
+
+  // Container evidence is strong. An `.mkv` suffix is not "maybe"; Edge rejects
+  // Matroska under MSE even when the codecs inside are H.264/AAC.
+  if (container && !supportsContainer(DEFAULT_CAPABILITIES, container)) {
+    return false;
+  }
+
+  // With no container token, only known-bad codecs can teach us anything. A
+  // missing `.mp4`/`.mkv` suffix keeps otherwise-safe codecs neutral rather than
+  // awarding direct play on a guess.
+  if (!container) {
+    if (!videoCodec && !audioCodec) return null;
+    const speculative = inferredProbe("mp4", videoCodec, audioCodec);
+    return decidePlayback(speculative, DEFAULT_CAPABILITIES).rung === "direct"
+      ? null
+      : false;
+  }
+
+  // A safe container alone, or a safe container plus only one stream token, is
+  // still not enough to claim direct play. The unmentioned stream might be DTS,
+  // TrueHD, HEVC, or anything else the browser cannot handle.
+  if (!videoCodec || !audioCodec) {
+    const partial = inferredProbe(container, videoCodec, audioCodec);
+    return decidePlayback(partial, DEFAULT_CAPABILITIES).rung === "direct"
+      ? null
+      : false;
+  }
+
+  return decidePlayback(
+    inferredProbe(container, videoCodec, audioCodec),
+    DEFAULT_CAPABILITIES,
+  ).rung === "direct";
+}
+
+export function directPlayableRank(value: boolean | null): number {
+  if (value === true) return 2;
+  if (value === null) return 1;
+  return 0;
+}
+
+function inferReleaseContainer(title: string): string | null {
+  const lower = title.toLowerCase();
+  const spaced = lower.replace(/[._-]/g, " ");
+  if (/\.(?:mkv)(?:\b|$)/i.test(lower) || /\bmkv\b/i.test(spaced)) return "matroska";
+  if (/\.(?:mp4|m4v|mov)(?:\b|$)/i.test(lower) || /\b(?:mp4|m4v|mov)\b/i.test(spaced)) return "mp4";
+  if (/\.(?:webm)(?:\b|$)/i.test(lower) || /\bwebm\b/i.test(spaced)) return "webm";
+  if (/\.(?:avi)(?:\b|$)/i.test(lower) || /\bavi\b/i.test(spaced)) return "avi";
+  return null;
+}
+
+function inferVideoCodec(title: string): string | null {
+  const t = title.replace(/[._-]/g, " ");
+  if (/\b(?:hevc|x265|h\s*265|hvc1|hev1)\b/i.test(t)) return normalizeCodecName("hevc");
+  if (/\b(?:h\s*264|x264|avc1?|avc)\b/i.test(t)) return normalizeCodecName("h264");
+  if (/\bav1\b/i.test(t)) return normalizeCodecName("av1");
+  if (/\bvp9\b/i.test(t)) return normalizeCodecName("vp9");
+  if (/\bvp8\b/i.test(t)) return normalizeCodecName("vp8");
+  if (/\b(?:vc\s*1|vc1)\b/i.test(t)) return normalizeCodecName("vc1");
+  if (/\b(?:xvid|divx)\b/i.test(t)) return normalizeCodecName("mpeg4");
+  return null;
+}
+
+function inferAudioCodec(title: string): string | null {
+  const t = title.replace(/[._-]/g, " ");
+  if (/\b(?:true\s*hd|truehd|mlp)\b/i.test(t)) return normalizeCodecName("truehd");
+  if (/\bdts(?:\s*(?:hd|ma|x))?\b/i.test(t)) return normalizeCodecName("dts");
+  if (/\b(?:e\s*ac\s*3|eac3|ec\s*3|ddp|dd\+|dolby\s*digital\s*plus)\b/i.test(t)) return normalizeCodecName("eac3");
+  if (/\b(?:ac\s*3|ac3|dd|dolby\s*digital)\b/i.test(t)) return normalizeCodecName("ac3");
+  if (/\baac\d?(?:\s*\d)?\b|\bmp4a\b/i.test(t)) return normalizeCodecName("aac");
+  if (/\bflac\b/i.test(t)) return normalizeCodecName("flac");
+  if (/\bopus\b/i.test(t)) return normalizeCodecName("opus");
+  if (/\bmp3\b/i.test(t)) return normalizeCodecName("mp3");
+  return null;
+}
+
+function inferredProbe(
+  container: string,
+  videoCodec: string | null,
+  audioCodec: string | null,
+): ProbeResult {
+  const streams: ProbeStream[] = [];
+  if (videoCodec) streams.push(inferredStream(streams.length, "video", videoCodec));
+  if (audioCodec) streams.push(inferredStream(streams.length, "audio", audioCodec));
+  return { container, duration: null, streams };
+}
+
+function inferredStream(
+  index: number,
+  codecType: "video" | "audio",
+  codec: string,
+): ProbeStream {
+  return {
+    index,
+    codecType,
+    codec,
+    profile: null,
+    pixFmt: null,
+    width: null,
+    height: null,
+    colorTransfer: null,
+    colorPrimaries: null,
+    channels: null,
+    channelLayout: null,
+    language: null,
+    title: null,
+    bitRate: null,
+    sampleRate: null,
+  };
+}
+
+/**
  * Episode selectors that automation appends to a query.
  *
  * `resolveHuntCursor` builds `"One Piece S01E05"`, but the primary anime
@@ -384,6 +527,12 @@ export type ReleaseRank = {
   seeders: number;
   recency: number;
   sizeBytes: number;
+  /**
+   * Inferred from release-name tokens only: true = likely direct, false = known
+   * remux/transcode obstacle, null = the name does not say enough. Null sorts
+   * between the two so unknown is not punished as if it were HEVC/DTS/MKV.
+   */
+  directPlayable: boolean | null;
 };
 
 export function describeRelease(
@@ -402,6 +551,7 @@ export function describeRelease(
     seeders: seedersBucket(r.seeders),
     recency: recencyBucket(r.publishedAt),
     sizeBytes: r.sizeBytes ?? 0,
+    directPlayable: directPlayableFromTitle(r.title),
   };
 }
 
@@ -418,8 +568,11 @@ export function describeRelease(
  *  4. **resolution** — the reported bug. Compared as affinity to the user's
  *     target, above seeders, so no swarm size can ever buy a quality change in
  *     either direction. Unknown resolution ranks below every known one.
- *  5. **seeders**, bucketed by order of magnitude.
- *  6. **recency**, then **size** as final tiebreaks.
+ *  5. **direct-play hint** — only inside the same quality bucket. A likely
+ *     H.264/AAC MP4 beats a known MKV/HEVC/DTS obstacle, but unknown sits between
+ *     them instead of being treated as bad.
+ *  6. **seeders**, bucketed by order of magnitude.
+ *  7. **recency**, then **size** as final tiebreaks.
  *
  * Returns on the first non-zero comparison; nothing is summed, so no term can
  * ever compensate for another.
@@ -436,6 +589,10 @@ export function compareReleases(a: ReleaseRank, b: ReleaseRank): number {
   if (a.viable !== b.viable) return a.viable ? -1 : 1;
 
   if (a.affinity !== b.affinity) return b.affinity - a.affinity;
+
+  const aDirect = directPlayableRank(a.directPlayable);
+  const bDirect = directPlayableRank(b.directPlayable);
+  if (aDirect !== bDirect) return bDirect - aDirect;
 
   if (a.seeders !== b.seeders) return b.seeders - a.seeders;
   if (a.recency !== b.recency) return b.recency - a.recency;
