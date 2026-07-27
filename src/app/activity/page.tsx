@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { Loader2, Radar } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
+import { TfErrorState } from "@/components/tf/error-state";
+import { TfWorkThumb } from "@/components/tf/work-thumb";
+import { useApiQuery } from "@/hooks/use-api-query";
+import { useReleaseArtwork } from "@/hooks/use-release-artwork";
+import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 
 interface ActivityItem {
   id: string;
@@ -42,35 +47,22 @@ function statusVariant(
 }
 
 export default function ActivityPage() {
-  const [items, setItems] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, loading, error, refetch } = useApiQuery<ActivityItem[]>(
+    "/api/activity",
+    { select: (json) => (json as { items?: ActivityItem[] }).items ?? [] },
+  );
+  // `data ?? []` is a fresh array on every render, which would make the memo
+  // below — and therefore the artwork lookup — recompute forever.
+  const items = useMemo(() => data ?? [], [data]);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/activity");
-        if (res.status === 401) {
-          if (!cancelled) setItems([]);
-          return;
-        }
-        const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok) throw new Error(data.error || "Failed to load");
-        setItems(data.items ?? []);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // One lookup per work, not per row: the log lists a grab and a send for the
+  // same episode, and a show usually appears several times over.
+  const artwork = useReleaseArtwork(
+    useMemo(
+      () => items.map((item) => ({ name: item.title, category: item.category })),
+      [items],
+    ),
+  );
 
   if (loading) {
     return (
@@ -110,10 +102,16 @@ export default function ActivityPage() {
       />
 
       {error ? (
-        <div className="surface p-4 text-sm text-[var(--danger)]">{error}</div>
-      ) : null}
-
-      {!items.length ? (
+        // Not an error banner *above* the empty state: that combination told
+        // the user both "this failed" and "you have no activity, go add
+        // titles" — and the second is advice we cannot stand behind, because
+        // we never found out whether they have activity or not.
+        <TfErrorState
+          title="Could not load activity"
+          message={error}
+          onRetry={refetch}
+        />
+      ) : !items.length ? (
         <TfEmptyState
           icon={Radar}
           title="No activity yet"
@@ -130,6 +128,14 @@ export default function ActivityPage() {
               data-activity-type={item.type}
               data-activity-status={item.status}
             >
+              <TfWorkThumb
+                title={item.title}
+                posterUrl={
+                  artwork[artworkQueryForRelease(item.title, item.category).key]
+                    ?.posterUrl
+                }
+                sizePx={38}
+              />
               <div className="flex-1 min-w-0 space-y-1">
                 <p className="text-sm text-[var(--text)] line-clamp-2">
                   {item.title}

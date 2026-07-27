@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/components/providers/session-provider";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SEARCH_HREF } from "@/lib/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -29,12 +30,21 @@ import {
 } from "@/components/ui/alert-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
+import { TfErrorState } from "@/components/tf/error-state";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { RecommendationRailSection } from "@/components/tf/recommendation-rail";
 import {
   infoHashFromMagnet,
   InlineStreamPlayer,
 } from "@/components/watch/inline-player";
 import { useDownloadPrefs } from "@/hooks/use-download-prefs";
+import {
+  isSeriesMediaType,
+  searchCategoryForMediaType,
+} from "@/lib/metadata/media-type";
+import {
+  titleHrefForName,
+} from "@/components/title/work-key";
 
 interface WatchItem {
   id: string;
@@ -57,6 +67,19 @@ interface WatchItem {
   latestReleaseMagnet: string | null;
   nextEpisodeHint: string | null;
   updatedAt: string;
+}
+
+/**
+ * Where a library row opens.
+ *
+ * The same funnel every other card surface uses, so a library row and the same
+ * work's poster on the home board land on one page rather than two.
+ */
+function libraryTitleHref(item: WatchItem): string | null {
+  return titleHrefForName(item.title, {
+    mediaType: item.mediaType,
+    season: item.cursorSeason ?? item.fromSeason ?? null,
+  });
 }
 
 /** Last automation run summary (client-only, not source of truth — Activity is). */
@@ -96,9 +119,7 @@ export default function WatchlistPage() {
   const { data: session } = useSession();
   const { prefs, loaded: prefsLoaded } = useDownloadPrefs();
   const [items, setItems] = useState<WatchItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [runningAuto, setRunningAuto] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<WatchItem | null>(null);
@@ -113,50 +134,31 @@ export default function WatchlistPage() {
     : null;
   const isBuiltinClient = !prefs.clientType || prefs.clientType === "builtin";
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/watchlist");
-      if (res.status === 401) {
-        setItems([]);
-        return;
-      }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load");
-      setItems(data.items ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * One request, one set of states. This page previously ran the *same* fetch
+   * twice — a `load` callback and a near-identical mount effect — and both
+   * copies narrowed a failure into an empty list: the error banner rendered,
+   * and the "No items yet" empty state rendered directly beneath it, telling
+   * the user to go add something when in fact their library merely could not
+   * be read. See `useApiQuery`'s own header for why that is the worst failure
+   * a data panel can have.
+   */
+  const {
+    data: watchlist,
+    loading,
+    error,
+    refetch: load,
+  } = useApiQuery<{ items?: WatchItem[] }>("/api/watchlist");
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/watchlist");
-        if (res.status === 401) {
-          if (!cancelled) setItems([]);
-          return;
-        }
-        const data = await res.json();
-        if (cancelled) return;
-        if (!res.ok) throw new Error(data.error || "Failed to load");
-        setItems(data.items ?? []);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Adjusting state from a prop/query during render is React's documented
+  // alternative to a sync effect: the rows are server-owned, but this page
+  // also edits them locally (status, monitoring, removal) and must not lose
+  // those edits or wait an extra commit for a reload to appear.
+  const [syncedFrom, setSyncedFrom] = useState<typeof watchlist>(null);
+  if (watchlist !== syncedFrom) {
+    setSyncedFrom(watchlist);
+    setItems(watchlist?.items ?? []);
+  }
 
   useEffect(() => {
     // sessionStorage is an external store; syncing it on mount belongs in an effect.
@@ -310,7 +312,7 @@ export default function WatchlistPage() {
             description: detail,
           });
         }
-        await load();
+        load();
       } else if (data.offline || res.status === 503) {
         toast.warning(data.message || "Torrent client offline");
       } else {
@@ -500,10 +502,12 @@ export default function WatchlistPage() {
       </div>
 
       {error ? (
-        <div className="surface p-4 text-sm text-[var(--danger)]">{error}</div>
-      ) : null}
-
-      {!filtered.length ? (
+        <TfErrorState
+          title="Could not load your library"
+          message={error}
+          onRetry={load}
+        />
+      ) : !filtered.length ? (
         <TfEmptyState
           icon={Search}
           title={items.length ? "No items match this filter" : "No items yet"}
@@ -521,21 +525,23 @@ export default function WatchlistPage() {
         // void beside a taller series card.
         <div className="grid sm:grid-cols-2 gap-3">
           {filtered.map((item) => {
-            const isSeries =
-              item.mediaType === "tv" || item.mediaType === "anime";
+            const isSeries = isSeriesMediaType(item.mediaType);
             const nextLabel =
               item.cursorSeason != null && item.cursorEpisode != null
                 ? `S${String(item.cursorSeason).padStart(2, "0")}E${String(item.cursorEpisode).padStart(2, "0")}`
                 : item.nextEpisodeHint
                     ?.replace(item.title, "")
                     .trim() || null;
-            const searchCat =
-              item.mediaType === "anime"
-                ? "anime"
-                : item.mediaType === "movie"
-                  ? "movies"
-                  : "tv";
+            // A watchlist row is a monitored series unless we know otherwise,
+            // so "tv" is the right fallback here — the same one the hunt uses.
+            const searchCat = searchCategoryForMediaType(item.mediaType) ?? "tv";
             const latestInfoHash = infoHashFromMagnet(item.latestReleaseMagnet);
+            // A library row is a title you asked for, so it opens the page
+            // about that title — the same destination its poster on the home
+            // board has. Without this the card was inert: every control on it
+            // was a side action (remove, monitor, search) and nothing opened
+            // the thing itself.
+            const titleHref = libraryTitleHref(item);
 
             return (
               <article
@@ -548,18 +554,36 @@ export default function WatchlistPage() {
                     itself (h-full / min-h) left a grey strip under every real
                     poster, because a stretch-sized flex parent gives `height:
                     100%` nothing to resolve against — and it let AniList's
-                    460x649 covers render shorter than TMDb's 2:3 ones. */}
+                    460x649 covers render shorter than TMDb's 2:3 ones.
+
+                    Filling that strip with `object-cover` was worse than the
+                    strip: a card is roughly twice as tall as a 2:3 poster is
+                    at this width, so every cover lost a third of itself — at
+                    390px *Severance* read "everan" and *Frieren* read "IERI".
+                    So the poster is now contained, never cropped, and the
+                    column behind it is a blurred blow-up of the same image.
+                    Same URL, so it is one request, and the card reads as
+                    designed rather than as a broken crop. */}
                 <div className="relative w-[4.75rem] sm:w-[5.5rem] shrink-0 self-stretch min-h-[7.25rem] overflow-hidden bg-[var(--bg-muted)]">
                   {item.posterUrl && !brokenPosters.has(item.id) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.posterUrl}
-                      alt=""
-                      onError={() =>
-                        setBrokenPosters((prev) => new Set(prev).add(item.id))
-                      }
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.posterUrl}
+                        alt=""
+                        aria-hidden
+                        className="absolute inset-0 h-full w-full scale-125 object-cover opacity-45 blur-lg"
+                      />
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={item.posterUrl}
+                        alt=""
+                        onError={() =>
+                          setBrokenPosters((prev) => new Set(prev).add(item.id))
+                        }
+                        className="absolute inset-0 h-full w-full object-contain"
+                      />
+                    </>
                   ) : (
                     <div
                       className="absolute inset-0 flex items-center justify-center px-1"
@@ -577,19 +601,49 @@ export default function WatchlistPage() {
                       </span>
                     </div>
                   )}
+                  {titleHref ? (
+                    <Link
+                      href={titleHref}
+                      data-library-card-link
+                      aria-label={`Open ${item.title}`}
+                      className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]"
+                    />
+                  ) : null}
                 </div>
 
                 <div className="flex flex-1 flex-col gap-2.5 p-3.5 min-w-0">
                   {/* Title + remove */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2">
-                        {item.title}
-                      </h2>
-                      <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
-                        {item.mediaType}
-                        {item.monitored !== false ? " · monitoring" : " · paused"}
-                      </p>
+                      {titleHref ? (
+                        <Link
+                          href={titleHref}
+                          data-library-card-link
+                          className="block min-w-0 rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                        >
+                          <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]">
+                            {item.title}
+                          </h2>
+                          <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
+                            {item.mediaType}
+                            {item.monitored !== false
+                              ? " · monitoring"
+                              : " · paused"}
+                          </p>
+                        </Link>
+                      ) : (
+                        <>
+                          <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2">
+                            {item.title}
+                          </h2>
+                          <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
+                            {item.mediaType}
+                            {item.monitored !== false
+                              ? " · monitoring"
+                              : " · paused"}
+                          </p>
+                        </>
+                      )}
                     </div>
                     <Button
                       type="button"
@@ -681,7 +735,7 @@ export default function WatchlistPage() {
 
                     <Button asChild variant="ghost" size="sm">
                       <Link
-                        href={`/?q=${encodeURIComponent(
+                        href={`${SEARCH_HREF}?q=${encodeURIComponent(
                           item.nextEpisodeHint || item.title,
                         )}&category=${searchCat}`}
                       >

@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { TfPageHeader } from "@/components/tf/page-header";
+import { TfErrorState } from "@/components/tf/error-state";
 import { cn } from "@/lib/utils";
 
 interface ClientForm {
@@ -160,6 +161,7 @@ export default function SettingsPage() {
   const [form, setForm] = useState<ClientForm>(EMPTY_FORM);
   const [hasPassword, setHasPassword] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const [openingPath, setOpeningPath] = useState<string | null>(null);
@@ -213,6 +215,18 @@ export default function SettingsPage() {
     async function load() {
       try {
         const res = await fetch("/api/settings/client");
+        if (!res.ok) {
+          // Prefer the API's own explanation over a bare status code; it is
+          // the only part of a failure the user can act on.
+          let detail = "";
+          try {
+            const body = (await res.json()) as { error?: unknown };
+            if (typeof body?.error === "string") detail = body.error;
+          } catch {
+            // Non-JSON error body. The status line is all we have.
+          }
+          throw new Error(detail || `Request failed (${res.status})`);
+        }
         const raw = await res.text();
         if (!raw.trim()) return;
         const data = JSON.parse(raw) as {
@@ -261,6 +275,16 @@ export default function SettingsPage() {
             ...f,
             categories: data.defaults!.categories ?? f.categories,
           }));
+        }
+      } catch (err) {
+        // Without this the form would render its *defaults* as though they
+        // were the saved settings, and the next Save would quietly overwrite
+        // a working client config with them. Refusing to show the form is the
+        // only safe answer: we cannot let the user edit values we never read.
+        if (!cancelled) {
+          setLoadError(
+            err instanceof Error ? err.message : "Could not load settings",
+          );
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -529,6 +553,18 @@ export default function SettingsPage() {
     );
   }
 
+
+  if (loadError) {
+    return (
+      <div className="container-app max-w-2xl py-6 sm:py-8 min-w-0">
+        <TfErrorState
+          title="Could not load your settings"
+          message={`${loadError} — the form stays hidden so a save cannot overwrite settings we never managed to read.`}
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="container-app max-w-2xl py-6 sm:py-8 space-y-5 pb-28 min-w-0">

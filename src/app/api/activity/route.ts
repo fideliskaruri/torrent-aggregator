@@ -1,23 +1,15 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import {
+  infoHashFromMagnet,
+  deduplicateActivity,
+  type ActivityItem,
+} from "@/lib/activity/dedup";
 
 export const dynamic = "force-dynamic";
 
-export type ActivityItem = {
-  id: string;
-  type: "grab" | "history";
-  title: string;
-  status: string;
-  message: string | null;
-  source: string | null;
-  kind: string | null;
-  query: string | null;
-  magnet: string | null;
-  savePath: string | null;
-  category: string | null;
-  createdAt: string;
-};
+export type { ActivityItem };
 
 export async function GET() {
   try {
@@ -54,6 +46,7 @@ export async function GET() {
       kind: j.kind,
       query: j.query,
       magnet: j.magnet,
+      infoHash: j.infoHash ?? infoHashFromMagnet(j.magnet),
       savePath: j.savePath,
       category: j.category,
       createdAt: j.createdAt.toISOString(),
@@ -69,30 +62,18 @@ export async function GET() {
       kind: null,
       query: null,
       magnet: h.magnet,
+      infoHash: h.infoHash ?? infoHashFromMagnet(h.magnet),
       savePath: null,
       category: null,
       createdAt: h.createdAt.toISOString(),
     }));
 
-    // Merge by time; prefer grab jobs when near-duplicate of history (same magnet + second)
     const merged = [...grabItems, ...historyItems].sort(
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
-    // De-dupe: drop history entries that share magnet+status with a grab within 2 minutes
-    const seen = new Set<string>();
-    const items: ActivityItem[] = [];
-    for (const item of merged) {
-      const key =
-        item.magnet && item.magnet.length > 20
-          ? `${item.magnet.slice(0, 80)}|${item.status}`
-          : null;
-      if (key && item.type === "history" && seen.has(key)) continue;
-      if (key && item.type === "grab") seen.add(key);
-      items.push(item);
-      if (items.length >= 50) break;
-    }
+    const items = deduplicateActivity(merged, 50);
 
     return NextResponse.json({ items, count: items.length });
   } catch (err) {

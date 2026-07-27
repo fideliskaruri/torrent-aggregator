@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Play, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
+import { TfErrorState } from "@/components/tf/error-state";
+import { useApiQuery } from "@/hooks/use-api-query";
 
 interface Rule {
   id: string;
@@ -38,8 +40,15 @@ const selectClass =
   "flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
 
 export default function RulesPage() {
-  const [rules, setRules] = useState<Rule[]>([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    data: rulesData,
+    loading,
+    error,
+    refetch: load,
+  } = useApiQuery<Rule[]>("/api/rules", {
+    select: (json) => (json as { rules?: Rule[] }).rules ?? [],
+  });
+  const rules = rulesData ?? [];
   const [running, setRunning] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Rule | null>(null);
@@ -51,41 +60,6 @@ export default function RulesPage() {
     minSeeders: "10",
     resolution: "",
   });
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/rules");
-      if (res.status === 401) {
-        setRules([]);
-        return;
-      }
-      const data = await res.json();
-      setRules(data.rules ?? []);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/rules");
-        if (res.status === 401) {
-          if (!cancelled) setRules([]);
-          return;
-        }
-        const data = await res.json();
-        if (!cancelled) setRules(data.rules ?? []);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -357,7 +331,13 @@ export default function RulesPage() {
             </Button>
           </div>
         ))}
-        {!rules.length ? (
+        {error ? (
+          <TfErrorState
+            title="Could not load rules"
+            message={error}
+            onRetry={load}
+          />
+        ) : !rules.length ? (
           <TfEmptyState
             icon={Zap}
             title="No rules yet"

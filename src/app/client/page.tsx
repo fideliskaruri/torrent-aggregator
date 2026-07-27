@@ -41,6 +41,10 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfStatStrip } from "@/components/tf/stat-strip";
 import { TfPathChip } from "@/components/tf/path-chip";
+import { TfWorkThumb } from "@/components/tf/work-thumb";
+import { titleHrefForName } from "@/components/title/work-key";
+import { useReleaseArtwork } from "@/hooks/use-release-artwork";
+import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
 
 interface ClientTorrent {
@@ -347,6 +351,12 @@ export default function ClientPage() {
       return true;
     });
   }, [torrents, filter, statusFilter]);
+
+  // Artwork is looked up for the whole table at once, keyed by work — the poll
+  // runs every five seconds and three episodes of one show are one lookup.
+  // Deliberately driven by `torrents`, not `filtered`: typing in the filter box
+  // must not re-ask for what is already known.
+  const artwork = useReleaseArtwork(torrents);
 
   // Keyboard: Escape clears selection; Delete opens confirm; Ctrl/Cmd-A select all
   useEffect(() => {
@@ -768,6 +778,13 @@ export default function ClientPage() {
             </div>
           ) : null}
 
+          {/*
+            No `!error` guard is needed here: this whole branch is the `else`
+            of the error ternary above, so an errored page never reaches the
+            empty state. Verified by `npm run test:errors`, which forces
+            /api/client/torrents to 500 and asserts "No torrents yet" stays
+            hidden — keep that structure if this section is ever flattened.
+          */}
           {!torrents.length && !loading ? (
             <TfEmptyState
               icon={HardDriveDownload}
@@ -816,11 +833,19 @@ export default function ClientPage() {
                 {filtered.map((t) => {
                   const pct = Math.min(100, Math.round(t.progress * 1000) / 10);
                   const isSelected = selected.has(t.hash);
+                  const art = artwork[artworkQueryForRelease(t.name, t.category).key];
                   const barTone = isSeeding(t.state)
                     ? "bg-[var(--success)]"
                     : isPaused(t.state)
                       ? "bg-[var(--text-tertiary)]"
                       : "bg-[var(--primary)]";
+                  // A transfer is still a work. The row's own click toggles
+                  // selection and already ignores anything inside an `<a>`, so
+                  // the poster and the name can open the title page without
+                  // fighting the multi-select.
+                  const titleHref = titleHrefForName(t.name, {
+                    mediaType: t.category,
+                  });
                   return (
                     <div
                       key={t.hash}
@@ -855,12 +880,43 @@ export default function ClientPage() {
                           className="shrink-0"
                         />
                         <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex items-start gap-2">
-                            <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug">
-                              {t.name}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5">
+                          <div className="flex items-start gap-2.5">
+                            {titleHref ? (
+                              <Link
+                                href={titleHref}
+                                tabIndex={-1}
+                                aria-hidden
+                                className="shrink-0"
+                              >
+                                <TfWorkThumb
+                                  title={t.name}
+                                  posterUrl={art?.posterUrl}
+                                  sizePx={40}
+                                />
+                              </Link>
+                            ) : (
+                              <TfWorkThumb
+                                title={t.name}
+                                posterUrl={art?.posterUrl}
+                                sizePx={40}
+                              />
+                            )}
+                            <div className="min-w-0 flex-1 space-y-1">
+                              {titleHref ? (
+                                <Link
+                                  href={titleHref}
+                                  className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                                >
+                                  <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
+                                    {t.name}
+                                  </p>
+                                </Link>
+                              ) : (
+                                <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug">
+                                  {t.name}
+                                </p>
+                              )}
+                              <div className="flex flex-wrap items-center gap-1.5">
                             <Badge
                               variant={
                                 isSeeding(t.state)
@@ -890,6 +946,8 @@ export default function ClientPage() {
                                 onOpen={() => void openDownloadFolder(t)}
                               />
                             ) : null}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>

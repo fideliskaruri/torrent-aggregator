@@ -13,6 +13,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const items = await prisma.watchListItem.findMany({
     where: { userId: session.user.id },

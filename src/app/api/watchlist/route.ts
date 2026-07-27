@@ -7,6 +7,7 @@ import {
   resolveHuntCursor,
 } from "@/lib/library/cursor";
 import { resolveMetadata } from "@/lib/metadata/enrich";
+import { isSeriesMediaType } from "@/lib/metadata/media-type";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const isSeries = body.mediaType === "tv" || body.mediaType === "anime";
+  const isSeries = isSeriesMediaType(body.mediaType);
   let fromSeason: number | null = null;
   let fromEpisode: number | null = null;
   let cursorSeason: number | null = null;

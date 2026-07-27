@@ -5,11 +5,12 @@
  * Does not compete with Activity for “what ran”; use Activity for GrabJobs,
  * skips, failures, and save paths. Linked from Activity as “Download log”.
  */
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { ArrowRight, History, Loader2, Trash2 } from "lucide-react";
 import { formatRelativeTime } from "@/lib/utils";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -24,6 +25,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
+import { TfErrorState } from "@/components/tf/error-state";
+import { TfWorkThumb } from "@/components/tf/work-thumb";
+import { titleHrefForName } from "@/components/title/work-key";
+import { useReleaseArtwork } from "@/hooks/use-release-artwork";
+import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 
 interface HistoryItem {
   id: string;
@@ -36,39 +42,40 @@ interface HistoryItem {
 }
 
 export default function HistoryPage() {
-  const [items, setItems] = useState<HistoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [pendingClear, setPendingClear] = useState(false);
   const [pendingRemove, setPendingRemove] = useState<HistoryItem | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch("/api/history");
-        if (res.status === 401) {
-          if (!cancelled) setItems([]);
-          return;
-        }
-        const data = await res.json();
-        if (!cancelled) setItems(data.items ?? []);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data, loading, error, refetch } = useApiQuery<HistoryItem[]>(
+    "/api/history",
+    {
+      select: (json) => (json as { items?: HistoryItem[] })?.items ?? [],
+    },
+  );
+
+  // Rendered straight from the query rather than mirrored into local state.
+  // A mirror has to be resynced from an effect on every refetch, and it lets
+  // the screen disagree with the server: the delete handlers below used to
+  // drop the row optimistically without checking the response, so a failed
+  // delete still showed "Entry removed" and the row only came back on reload.
+  // `data ?? []` is a fresh array on every render, which would make the memo
+  // below — and therefore the artwork lookup — recompute forever.
+  const items = useMemo(() => data ?? [], [data]);
+
+  // The log has no category column, so the media type is whatever the release
+  // name gives away — that is enough to route the lookup at the right provider.
+  const artwork = useReleaseArtwork(
+    useMemo(() => items.map((item) => ({ name: item.title })), [items]),
+  );
 
   async function confirmClearAll() {
     setBusy(true);
     try {
-      await fetch("/api/history", { method: "DELETE" });
-      setItems([]);
+      const res = await fetch("/api/history", { method: "DELETE" });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
       setPendingClear(false);
       toast.success("Download log cleared");
+      refetch();
     } catch {
       toast.error("Could not clear download log");
     } finally {
@@ -80,12 +87,14 @@ export default function HistoryPage() {
     if (!pendingRemove) return;
     setBusy(true);
     try {
-      await fetch(`/api/history?id=${encodeURIComponent(pendingRemove.id)}`, {
-        method: "DELETE",
-      });
-      setItems((prev) => prev.filter((i) => i.id !== pendingRemove.id));
+      const res = await fetch(
+        `/api/history?id=${encodeURIComponent(pendingRemove.id)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
       setPendingRemove(null);
       toast.success("Entry removed");
+      refetch();
     } catch {
       toast.error("Could not remove entry");
     } finally {
@@ -107,7 +116,11 @@ export default function HistoryPage() {
     <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
         title="Download log"
-        description={`${items.length} past sends · subset of Activity`}
+        description={
+          error
+            ? "Could not be loaded"
+            : `${items.length} past sends · subset of Activity`
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link
@@ -143,7 +156,13 @@ export default function HistoryPage() {
         .
       </p>
 
-      {!items.length ? (
+      {error ? (
+        <TfErrorState
+          title="Could not load your download log"
+          message={error}
+          onRetry={refetch}
+        />
+      ) : !items.length ? (
         <TfEmptyState
           icon={History}
           title="No downloads logged"
@@ -153,15 +172,49 @@ export default function HistoryPage() {
         />
       ) : (
         <ul className="space-y-2">
-          {items.map((item) => (
+          {items.map((item) => {
+            const titleHref = titleHrefForName(item.title);
+            const thumb = (
+              <TfWorkThumb
+                title={item.title}
+                posterUrl={
+                  artwork[artworkQueryForRelease(item.title).key]?.posterUrl
+                }
+                sizePx={38}
+              />
+            );
+            return (
             <li
               key={item.id}
               className="surface px-3.5 py-3 flex items-start gap-3"
             >
+              {titleHref ? (
+                <Link
+                  href={titleHref}
+                  tabIndex={-1}
+                  aria-hidden
+                  className="shrink-0"
+                >
+                  {thumb}
+                </Link>
+              ) : (
+                thumb
+              )}
               <div className="flex-1 min-w-0 space-y-1">
-                <p className="text-sm text-[var(--text)] line-clamp-2">
-                  {item.title}
-                </p>
+                {titleHref ? (
+                  <Link
+                    href={titleHref}
+                    className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                  >
+                    <p className="text-sm text-[var(--text)] line-clamp-2 hover:text-[var(--accent-text)]">
+                      {item.title}
+                    </p>
+                  </Link>
+                ) : (
+                  <p className="text-sm text-[var(--text)] line-clamp-2">
+                    {item.title}
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
                   <Badge
                     variant={
@@ -221,7 +274,8 @@ export default function HistoryPage() {
                 <Trash2 className="h-4 w-4" />
               </Button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 
@@ -231,7 +285,7 @@ export default function HistoryPage() {
             <AlertDialogTitle>Clear download log?</AlertDialogTitle>
             <AlertDialogDescription>
               This removes all {items.length} log entries. It does not affect
-              torrents already in your client or automation GrabJobs on Activity.
+              active downloads or automation GrabJobs on Activity.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
