@@ -63,10 +63,18 @@ export interface FailoverSession {
   tried: string[];
   current: string | null;
   status: "active" | "exhausted";
+  /**
+   * A source the **user** explicitly chose from the quality selector. While a
+   * source is pinned the automatic watchdog will detect a stall and narrate it,
+   * but must never silently swap it away — an explicit human choice is not the
+   * watchdog's to override. Cleared only by another manual choice or by playback
+   * ending. `null` when the current source was picked by the ranker/auto-failover.
+   */
+  pinnedHash: string | null;
 }
 
 export function createFailoverSession(contentKey: string): FailoverSession {
-  return { contentKey, tried: [], current: null, status: "active" };
+  return { contentKey, tried: [], current: null, status: "active", pinnedHash: null };
 }
 
 /**
@@ -82,6 +90,24 @@ export function commitSource(
     ? session.tried
     : [...session.tried, hash];
   return { ...session, tried, current: hash };
+}
+
+/**
+ * Commit to a source the user explicitly chose, and PIN it.
+ *
+ * Pinning is the load-bearing half of the manual switch: nothing is more
+ * alienating than a UI that argues with a decision the user just made, so an
+ * explicit choice is exempted from automatic failover for the rest of the
+ * session. The watchdog still *detects* a stall on a pinned source and narrates
+ * it (so the selector can say "this stalled — pick another?"), it just does not
+ * perform the swap itself. The user keeps the wheel.
+ */
+export function pinSource(
+  session: FailoverSession,
+  infoHash: string,
+): FailoverSession {
+  const committed = commitSource(session, infoHash);
+  return { ...committed, pinnedHash: infoHash.toLowerCase() };
 }
 
 /**

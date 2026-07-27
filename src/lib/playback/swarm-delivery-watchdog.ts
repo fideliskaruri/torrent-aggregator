@@ -54,7 +54,7 @@ import { getUserClientConfig } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { foregroundActive, foregroundHash } from "@/lib/prewarm/foreground";
 import { parseEpisode } from "@/lib/torrents/episodes";
-import { preRankKey } from "@/lib/prewarm/prerank";
+import { preRankKey, releaseInfoHash } from "@/lib/prewarm/prerank";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { evaluateStall, type StallOptions, type StallVerdict, type TransferSample } from "./stall";
@@ -62,6 +62,7 @@ import {
   commitSource,
   createFailoverSession,
   failOver,
+  pinSource,
   MAX_FAILOVER_ATTEMPTS,
   type FailoverCandidate,
   type FailoverSession,
@@ -197,7 +198,20 @@ export async function swarmDeliveryTick(
     return { narration, currentHash: current, switched: false, exhausted: false, verdict };
   }
 
-  // Stalled. Ask the failover rule for the next untried candidate.
+  // Stalled. If the user explicitly pinned this source, we detect and narrate
+  // the stall but do NOT swap it away — an explicit human choice is not ours to
+  // override. The selector can offer another quality; the decision stays theirs.
+  if (entry.session.pinnedHash && entry.session.pinnedHash === current) {
+    return {
+      narration: { phase: "stalled-held" },
+      currentHash: current,
+      switched: false,
+      exhausted: false,
+      verdict,
+    };
+  }
+
+  // Otherwise, ask the failover rule for the next untried candidate.
   const results = await deps.rankedResults(target);
   const step = failOver(entry.session, results, target, options.cap ?? MAX_FAILOVER_ATTEMPTS);
 
@@ -239,6 +253,88 @@ export async function swarmDeliveryTick(
     exhausted: false,
     verdict,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Manual switch — the viewer picks a release from the quality selector
+// ---------------------------------------------------------------------------
+
+/**
+ * Effects a manual switch needs. `startRelease`/`abandon` are the *same* engine
+ * swap path {@link failOver} takes — a manual switch is not a second mechanism,
+ * only a different chooser. `carryPosition` moves the viewer's playback position
+ * from the old source to the new so the switch resumes where they were.
+ */
+export interface ManualSwitchDeps {
+  rankedResults(target: PreRankTarget): Promise<readonly TorrentResult[]>;
+  startRelease(candidate: FailoverCandidate): Promise<boolean>;
+  abandon(infoHash: string): Promise<void>;
+  /** Carry position from the old to the new source. Returns resumed seconds, or null. */
+  carryPosition(fromInfoHash: string, toInfoHash: string): Promise<number | null>;
+}
+
+export type ManualSwitchResult =
+  | { ok: false; reason: "not-a-candidate" | "start-failed" }
+  | { ok: true; infoHash: string; positionSec: number | null; narration: PlaybackNarration };
+
+/**
+ * Switch to a release the viewer explicitly chose, and pin it.
+ *
+ * Operates on the same session registry the auto-watchdog reads, so pinning here
+ * genuinely stops the watchdog swapping this source away (see {@link pinSource}).
+ * Two rules a human watching cares about more than the machine does:
+ *
+ *  - **Preserve position.** Position is carried from the old source to the new
+ *    *before* the old one is touched, and returned so the player resumes at the
+ *    same offset — 40 minutes in stays 40 minutes in, never 0.
+ *  - **Keep the bytes.** The old source is paused, never deleted, so trying 720p
+ *    and switching back to 1080p does not throw the 1080p partial away. Manual
+ *    switching is freely reversible.
+ *
+ * The chosen release must be a real candidate in the shared ranked pool — a
+ * pick that cannot be resolved to a known release is rejected rather than
+ * fabricated.
+ */
+export async function manualSwitchTo(
+  contentKey: string,
+  currentHash: string,
+  chosenInfoHash: string,
+  target: PreRankTarget,
+  deps: ManualSwitchDeps,
+): Promise<ManualSwitchResult> {
+  const entry = ensureEntry(contentKey, currentHash);
+  const chosen = chosenInfoHash.toLowerCase();
+  const current = entry.session.current ?? currentHash.toLowerCase();
+
+  const results = await deps.rankedResults(target);
+  const match = results.find((r) => releaseInfoHash(r) === chosen);
+  if (!match) return { ok: false, reason: "not-a-candidate" };
+
+  if (chosen === current) {
+    // Re-pinning the source already playing: nothing to start or abandon, just
+    // record the explicit choice so the watchdog stops second-guessing it.
+    entry.session = pinSource(entry.session, chosen);
+    entry.samples = [];
+    return { ok: true, infoHash: chosen, positionSec: null, narration: { phase: "playing" } };
+  }
+
+  const candidate: FailoverCandidate = { release: match, infoHash: chosen };
+  const started = await deps.startRelease(candidate);
+  if (!started) return { ok: false, reason: "start-failed" };
+
+  // Carry position first, so the read cannot race the pause below.
+  let positionSec: number | null = null;
+  try {
+    positionSec = await deps.carryPosition(current, chosen);
+  } catch {
+    positionSec = null; // best-effort — a lost carry must not fail the switch
+  }
+
+  await deps.abandon(current); // pause, never delete — reversible routing
+  entry.session = pinSource(entry.session, chosen);
+  entry.samples = []; // fresh evidence for the new source
+
+  return { ok: true, infoHash: chosen, positionSec, narration: { phase: "starting", attempt: 1 } };
 }
 
 // ---------------------------------------------------------------------------

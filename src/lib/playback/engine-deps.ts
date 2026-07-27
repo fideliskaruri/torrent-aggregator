@@ -26,7 +26,7 @@ import { normalizeTitle } from "@/lib/utils";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import type { TransferSample } from "./stall";
-import type { SwarmWatchDeps } from "./swarm-delivery-watchdog";
+import type { SwarmWatchDeps, ManualSwitchDeps } from "./swarm-delivery-watchdog";
 import type { FailoverCandidate } from "./failover";
 
 /**
@@ -111,6 +111,68 @@ export function buildSwarmWatchDeps(config: ClientConnectionConfig): SwarmWatchD
       } catch {
         /* best-effort — a stalled source that will not pause is harmless */
       }
+    },
+  };
+}
+
+/**
+ * Move a viewer's playback position from one source to another.
+ *
+ * The new release's file path is unknown until it has metadata, so the carried
+ * row is keyed on the *source* file path as a seed; the client corrects it on
+ * its first real progress write against the new stream. The authoritative value
+ * for the immediate resume is the returned `positionSec`, which the switch hands
+ * back to the player. Returns null when the old source had no saved position.
+ */
+export async function carryPlaybackPosition(
+  userId: string,
+  fromInfoHash: string,
+  toInfoHash: string,
+  db: typeof prisma = prisma,
+): Promise<number | null> {
+  const from = fromInfoHash.toLowerCase();
+  const to = toInfoHash.toLowerCase();
+  const src = await db.playbackProgress.findFirst({
+    where: { userId, infoHash: from },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (!src) return null;
+
+  await db.playbackProgress.upsert({
+    where: { userId_infoHash_filePath: { userId, infoHash: to, filePath: src.filePath } },
+    create: {
+      userId,
+      infoHash: to,
+      filePath: src.filePath,
+      positionSec: src.positionSec,
+      durationSec: src.durationSec,
+      title: src.title,
+      season: src.season,
+      episode: src.episode,
+      posterUrl: src.posterUrl,
+      watchListItemId: src.watchListItemId,
+    },
+    update: { positionSec: src.positionSec, durationSec: src.durationSec },
+  });
+  return src.positionSec;
+}
+
+/**
+ * Engine-backed effects for a manual switch. Reuses the exact `startRelease`/
+ * `abandon` path {@link buildSwarmWatchDeps} uses — a manual switch is the same
+ * swap chosen by a human instead of the ranker — and adds position carry.
+ */
+export function buildManualSwitchDeps(
+  config: ClientConnectionConfig,
+  userId: string,
+): ManualSwitchDeps {
+  const base = buildSwarmWatchDeps(config);
+  return {
+    rankedResults: base.rankedResults,
+    startRelease: base.startRelease,
+    abandon: base.abandon,
+    async carryPosition(fromInfoHash, toInfoHash) {
+      return carryPlaybackPosition(userId, fromInfoHash, toInfoHash);
     },
   };
 }

@@ -38,7 +38,13 @@ export type PlaybackNarration =
    * Every candidate has been tried and none delivered. This is a terminal,
    * honest answer — not a spinner. `triedCount` is how many were attempted.
    */
-  | { phase: "exhausted"; triedCount: number };
+  | { phase: "exhausted"; triedCount: number }
+  /**
+   * The current source has stalled, but the user pinned it (chose it
+   * explicitly), so we are NOT switching automatically. The selector should
+   * offer the choice; we do not take it away.
+   */
+  | { phase: "stalled-held" };
 
 /** The words a viewer sees. `detail` is optional supporting copy. */
 export interface PlaybackCopy {
@@ -81,5 +87,11 @@ export function describePlayback(state: PlaybackNarration): PlaybackCopy {
         detail: `We tried ${sources} we could find and none were delivering. Try again later.`,
       };
     }
+
+    case "stalled-held":
+      return {
+        headline: "The source you chose has stalled",
+        detail: "It isn’t delivering right now. Pick another quality to switch, or keep waiting.",
+      };
   }
 }
