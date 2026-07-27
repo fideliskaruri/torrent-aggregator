@@ -158,7 +158,7 @@ export async function handleStreamIndexRequest(
   logStreamIndex({ infoHash, torrent: lookup.torrent, outcome: "ok" });
   return NextResponse.json({
     files: (lookup.torrent.files ?? []).map((file, index) => ({
-      path: file.path,
+      path: manifestPath(file.path),
       length: file.length,
       index,
     })),
@@ -167,10 +167,38 @@ export async function handleStreamIndexRequest(
   });
 }
 
+/**
+ * A torrent path, in the one separator every consumer of this manifest expects.
+ *
+ * BEP-3 defines a file's path as a *list* of components; the separator is a
+ * presentation choice made when they are joined. WebTorrent joins them with the
+ * host platform's separator, so on Windows this manifest was emitting
+ *
+ *     www.UIndex.org - Rick and Morty S01E02 …-Kitsune\Rick and Morty S01E02 ….mkv
+ *
+ * with a backslash in the middle. The stream route addresses files by URL path
+ * segments, so any consumer that does the obvious and correct thing —
+ * `path.split("/")` — gets a single segment containing a literal backslash,
+ * builds `…%5CRick%20and%20Morty…`, and receives a 404. I hit exactly that
+ * writing `scripts/media-stream-bitrate.mts`, on a file that plays perfectly in
+ * the app.
+ *
+ * The player survives it only because `encodeStreamFilePath` happens to strip
+ * backslashes on the way in. That is a defence in the wrong place: it makes
+ * every future consumer responsible for remembering a Windows detail that the
+ * torrent format does not have. It also stopped being a rare case the moment
+ * this app started preferring season packs, because a pack is by definition a
+ * multi-file torrent and every one of its paths carries a separator.
+ *
+ * So normalise at the source and let the player keep its defence.
+ */
+function manifestPath(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
+}
+
 type RouteContext = {
   params: RouteParams | Promise<RouteParams>;
 };
-
 export async function GET(request: Request, context: RouteContext) {
   const quiet = new URL(request.url).searchParams.get("poll") === "1";
   return handleStreamIndexRequest(await context.params, { quiet });
