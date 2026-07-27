@@ -820,6 +820,10 @@ function InlineStreamPlayerInner({
   const activeEpisode = target.episode;
   const activePosterUrl = target.posterUrl;
   const activeWatchListItemId = target.watchListItemId;
+  const searchHref = useMemo(
+    () => `/search?q=${encodeURIComponent(activeTitle.trim() || title)}`,
+    [activeTitle, title],
+  );
   // Theatre is entered by an explicit "play this", so it starts open. The old
   // route into this state was an effect in the overlay that reached into the
   // player's DOM and clicked its toggle for it; a component that has to be
@@ -2382,7 +2386,11 @@ function InlineStreamPlayerInner({
               className="relative mx-auto flex aspect-video w-full max-h-[calc(100dvh-13rem)] min-h-[240px] items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
             >
               <div className="flex flex-col items-center gap-3 px-6 text-center text-white/75">
-                <Loader2 className="h-7 w-7 animate-spin text-white/80" />
+                {message ? (
+                  <X className="h-7 w-7 text-white/70" />
+                ) : (
+                  <Loader2 className="h-7 w-7 animate-spin text-white/80" />
+                )}
                 <p className="text-sm font-medium text-white">
                   {message
                     ? "Playback cannot start yet."
@@ -2393,6 +2401,28 @@ function InlineStreamPlayerInner({
                       : "Pick a video file to start playback."}
                 </p>
                 {message ? <p className="max-w-md text-[12px] text-white/55">{message}</p> : null}
+                {message ? (
+                  problem === "missing" ? (
+                    <a
+                      href={searchHref}
+                      className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
+                    >
+                      Find a release
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMessage(null);
+                        setProblem(null);
+                        void loadManifest();
+                      }}
+                      className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
+                    >
+                      Try again
+                    </button>
+                  )
+                ) : null}
               </div>
             </div>
           ) : null}
