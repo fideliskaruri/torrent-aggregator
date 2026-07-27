@@ -46,6 +46,8 @@ import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { titleHrefForName } from "@/components/title/work-key";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
+import { parseEpisode } from "@/lib/torrents/episodes";
+import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { startVisiblePoller } from "./polling";
 
@@ -74,6 +76,10 @@ type StreamManifestFile = {
 };
 
 type StatusFilter = "all" | "active" | "downloading" | "seeding" | "paused";
+type ReleaseDisplayFacts = {
+  title: string;
+  chips: string[];
+};
 
 /**
  * Both engines report qBittorrent's state vocabulary, which is precise but not
@@ -121,6 +127,41 @@ function isSeeding(state: string) {
 }
 function isPaused(state: string) {
   return /paused|stopped|error|missing/i.test(state);
+}
+
+const CONTAINER_EXT = /\.(mkv|mp4|avi|m4v|mov|ts|webm|wmv|flv|mpg|mpeg)$/i;
+const BRACKET_GROUP = /^\s*(?:\[[^\]]{2,40}\]\s*)+/;
+
+function resolutionChip(raw: string): string | null {
+  const resolution = parseResolution(raw);
+  return resolution ? `${resolution}p` : null;
+}
+
+function sourceTierChip(raw: string): string | null {
+  const tier = parseSourceTier(raw);
+  if (tier === SOURCE_TIER.WEBDL) return "WEB-DL";
+  if (tier === SOURCE_TIER.HDTV) return "HDTV";
+  if (tier === SOURCE_TIER.BLURAY) return "Blu-ray";
+  return null;
+}
+
+function releaseDisplayFacts(
+  torrent: ClientTorrent,
+  query = artworkQueryForRelease(torrent.name, torrent.category),
+): ReleaseDisplayFacts {
+  const fallback = torrent.name
+    .replace(CONTAINER_EXT, "")
+    .replace(BRACKET_GROUP, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const title = query.title || fallback || torrent.name;
+  const chips = [
+    parseEpisode(torrent.name).label,
+    resolutionChip(torrent.name),
+    sourceTierChip(torrent.name),
+  ].filter((chip): chip is string => Boolean(chip));
+
+  return { title, chips };
 }
 
 export default function ClientPage() {
@@ -328,7 +369,15 @@ export default function ClientPage() {
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return torrents.filter((t) => {
-      if (q && !t.name.toLowerCase().includes(q)) return false;
+      const display = releaseDisplayFacts(t);
+      if (
+        q &&
+        !t.name.toLowerCase().includes(q) &&
+        !display.title.toLowerCase().includes(q) &&
+        !display.chips.some((chip) => chip.toLowerCase().includes(q))
+      ) {
+        return false;
+      }
       if (statusFilter === "downloading") return isDownloading(t.state);
       if (statusFilter === "seeding") return isSeeding(t.state);
       if (statusFilter === "paused") return isPaused(t.state);
@@ -847,7 +896,9 @@ export default function ClientPage() {
                 {filtered.map((t) => {
                   const pct = Math.min(100, Math.round(t.progress * 1000) / 10);
                   const isSelected = selected.has(t.hash);
-                  const art = artwork[artworkQueryForRelease(t.name, t.category).key];
+                  const query = artworkQueryForRelease(t.name, t.category);
+                  const display = releaseDisplayFacts(t, query);
+                  const art = artwork[query.key];
                   const barTone = isSeeding(t.state)
                     ? "bg-[var(--success)]"
                     : isPaused(t.state)
@@ -876,8 +927,6 @@ export default function ClientPage() {
                           e.target instanceof HTMLElement &&
                           (e.target.closest("button") ||
                             e.target.closest("select") ||
-                            e.target.closest("video") ||
-                            e.target.closest("[data-inline-player]") ||
                             e.target.closest('[role="checkbox"]') ||
                             e.target.closest("a"))
                         ) {
@@ -890,11 +939,11 @@ export default function ClientPage() {
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => toggleSelect(t.hash, true)}
-                          aria-label={`Select ${t.name}`}
+                          aria-label={`Select ${display.title}`}
                           className="shrink-0"
                         />
                         <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex items-start gap-2.5">
+                          <div className="flex items-start gap-2.5" title={t.name}>
                             {titleHref ? (
                               <Link
                                 href={titleHref}
@@ -903,14 +952,14 @@ export default function ClientPage() {
                                 className="shrink-0"
                               >
                                 <TfWorkThumb
-                                  title={t.name}
+                                  title={display.title}
                                   posterUrl={art?.posterUrl}
                                   sizePx={40}
                                 />
                               </Link>
                             ) : (
                               <TfWorkThumb
-                                title={t.name}
+                                title={display.title}
                                 posterUrl={art?.posterUrl}
                                 sizePx={40}
                               />
@@ -922,12 +971,12 @@ export default function ClientPage() {
                                   className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                                 >
                                   <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
-                                    {t.name}
+                                    {display.title}
                                   </p>
                                 </Link>
                               ) : (
                                 <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug">
-                                  {t.name}
+                                  {display.title}
                                 </p>
                               )}
                               <div className="flex flex-wrap items-center gap-1.5">
@@ -945,6 +994,11 @@ export default function ClientPage() {
                             {t.category ? (
                               <Badge variant="outline">{t.category}</Badge>
                             ) : null}
+                            {display.chips.map((chip) => (
+                              <Badge key={chip} variant="outline">
+                                {chip}
+                              </Badge>
+                            ))}
                             <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
                               {formatBytes(t.sizeBytes)}
                               {t.peers != null && !isBusy(t.state)
@@ -1002,30 +1056,16 @@ export default function ClientPage() {
                             type="button"
                             variant="secondary"
                             size="sm"
-                            onClick={() => setPlaying({ infoHash: t.hash, title: t.name })}
-                            aria-label={`Play ${t.name}`}
+                            onClick={() =>
+                              setPlaying({ infoHash: t.hash, title: display.title })
+                            }
+                            aria-label={`Play ${display.title}`}
                             data-client-play
                           >
                             <Play className="h-3.5 w-3.5" />
                             Play
                           </Button>
                         ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => void openDownloadFolder(t)}
-                          disabled={openingHash === t.hash}
-                          title="Open download folder"
-                          data-open-folder
-                          aria-label="Open download folder"
-                        >
-                          {openingHash === t.hash ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <FolderOpen className="h-4 w-4" />
-                          )}
-                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -1051,6 +1091,19 @@ export default function ClientPage() {
                                 <DropdownMenuSeparator />
                               </>
                             ) : null}
+                            <DropdownMenuItem
+                              onClick={() => void openDownloadFolder(t)}
+                              disabled={openingHash === t.hash}
+                              data-open-folder
+                            >
+                              {openingHash === t.hash ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <FolderOpen />
+                              )}
+                              Open folder
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => void action("pause", t.hash)}
                             >
