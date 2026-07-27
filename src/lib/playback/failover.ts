@@ -29,6 +29,7 @@
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { releaseInfoHash, selectBestRelease } from "@/lib/prewarm/prerank";
+import type { SwarmVerdict } from "./candidates";
 import type {
   FailureCause,
   PlaybackActionOutcome,
@@ -116,6 +117,48 @@ export function pinSource(
 }
 
 /**
+ * Prefer candidates the probe has **not** measured `dead`.
+ *
+ * WHY THIS EXISTS — the recurring defect this fixes
+ * -------------------------------------------------
+ * The swarm verdict (`good | weak | dead | unknown`) is authoritative truth the
+ * measurement agent already computed, cached (6h TTL) and even shows in the
+ * quality selector — yet the failover picker used to consult only the ranker and
+ * never this verdict. So a stall could fail over straight onto a release the
+ * probe had already watched deliver nothing, burning one of our few
+ * {@link MAX_FAILOVER_ATTEMPTS} on a known-dead swarm. That is exactly the
+ * "truth computed, passed along, then not consulted at the decision" bug class.
+ *
+ * The rule is a *preference*, never a hiding filter:
+ *   - `unknown` is not `dead` — an unmeasured release is offered normally
+ *     (mirrors the invariant that runs through candidates.ts / availability.ts);
+ *   - `dead` is only DEPRIORITIZED: if every untried candidate is measured dead
+ *     we still return the pool unchanged so the ranker can pick one, because a
+ *     6h-old `dead` measurement may be stale and trying a stale-dead swarm is
+ *     still better than giving up while candidates remain;
+ *   - absent a verdict map (no reader wired, or a read failed) the pool is
+ *     returned untouched, so behaviour is identical to before measurement
+ *     existed. A missing measurement can never make a release *less* selectable.
+ *
+ * Pure and unit-testable: a function over releases + a verdict map, no I/O.
+ */
+export function preferLiveCandidates(
+  untried: readonly TorrentResult[],
+  verdicts?: ReadonlyMap<string, SwarmVerdict> | null,
+): readonly TorrentResult[] {
+  if (!verdicts || verdicts.size === 0) return untried;
+  const live = untried.filter((r) => {
+    const hash = releaseInfoHash(r);
+    // An unkeyable release has no measurement to consult; leave it in and let
+    // selectBestRelease drop it, exactly as it does today.
+    return hash === null || verdicts.get(hash) !== "dead";
+  });
+  // Deprioritize, never hide: fall back to the full pool if excluding dead ones
+  // would leave nothing to try.
+  return live.length > 0 ? live : untried;
+}
+
+/**
  * The next-best release we have **not** already tried, or `null` if none.
  *
  * Filters the already-tried infoHashes out of the ranked pool, then hands the
@@ -128,6 +171,7 @@ export function chooseNextRelease(
   results: readonly TorrentResult[],
   target: PreRankTarget,
   triedHashes: readonly string[],
+  verdicts?: ReadonlyMap<string, SwarmVerdict> | null,
 ): FailoverCandidate | null {
   const tried = new Set(triedHashes.map((h) => h.toLowerCase()));
   const untried = results.filter((r) => {
@@ -135,7 +179,12 @@ export function chooseNextRelease(
     return hash !== null && !tried.has(hash);
   });
 
-  const release = selectBestRelease(untried, target);
+  // Consult the cached swarm verdict before the ranker: never spend a scarce
+  // failover attempt on a release the probe already measured dead when a live
+  // one is available. `unknown` is not `dead`; see preferLiveCandidates.
+  const preferred = preferLiveCandidates(untried, verdicts);
+
+  const release = selectBestRelease(preferred, target);
   if (!release) return null;
 
   const infoHash = releaseInfoHash(release);
@@ -223,6 +272,12 @@ export type FailoverStep =
  * session that has already committed to it — the caller starts the download and
  * abandons the old one. Never selects a source already in `tried`, and the
  * returned narration is structured facts only.
+ *
+ * `verdicts` are cached swarm measurements (never probed here — this can run on
+ * a UI-latency path). When supplied, a measured-`dead` release is deprioritized
+ * so we do not fail over onto a swarm already known to deliver nothing; see
+ * {@link preferLiveCandidates}. Omitted/empty means "no measurements", which is
+ * exactly the pre-measurement behaviour.
  */
 export function failOver(
   session: FailoverSession,
@@ -230,6 +285,7 @@ export function failOver(
   target: PreRankTarget,
   cap: number = MAX_FAILOVER_ATTEMPTS,
   cause: FailureCause = "delivery",
+  verdicts?: ReadonlyMap<string, SwarmVerdict> | null,
 ): FailoverStep {
   if (session.status === "exhausted" || session.tried.length >= cap) {
     const exhausted: FailoverSession = { ...session, status: "exhausted" };
@@ -245,7 +301,7 @@ export function failOver(
     };
   }
 
-  const candidate = chooseNextRelease(results, target, session.tried);
+  const candidate = chooseNextRelease(results, target, session.tried, verdicts);
   if (!candidate) {
     const exhausted: FailoverSession = { ...session, status: "exhausted" };
     return {

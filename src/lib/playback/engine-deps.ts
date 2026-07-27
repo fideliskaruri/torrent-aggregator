@@ -23,6 +23,7 @@ import { builtinClient } from "@/lib/clients/builtin-engine";
 import { listClientTorrents } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { normalizeTitle } from "@/lib/utils";
+import { loadSwarmVerdicts } from "@/lib/torrents/swarm-probe";
 import type { ClientTorrent, SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import type { TransferSample } from "./stall";
@@ -121,6 +122,13 @@ export function buildSwarmWatchDeps(
       } catch {
         /* best-effort — a stalled source that will not pause is harmless */
       }
+    },
+    // Cached swarm verdicts, so a failover skips releases already measured dead
+    // rather than burning an attempt on one. Read-only (the probe runs on its
+    // own schedule); a DB failure inside surfaces as "no verdicts", which the
+    // picker treats as rank-only — never as "dead".
+    async readVerdicts(infoHashes) {
+      return loadSwarmVerdicts(infoHashes);
     },
     // Position carry needs the viewer's id. The foreground poll has it (the
     // engine row) and passes it so an automatic recovery resumes mid-file; the

@@ -70,6 +70,7 @@ import {
   type FailoverSession,
 } from "./failover";
 import { waitOutcome, type FailureCause, type PlaybackNarration } from "./narration";
+import type { SwarmVerdict, SwarmVerdictReader } from "./candidates";
 import { buildSwarmWatchDeps } from "./engine-deps";
 
 /** How many samples to retain per source. A handful past the window is plenty. */
@@ -98,6 +99,14 @@ export interface SwarmWatchDeps {
    * and resuming mid-file is a nicety on top, never a precondition for it.
    */
   carryPosition?(fromInfoHash: string, toInfoHash: string): Promise<number | null>;
+  /**
+   * Read *cached* swarm verdicts for a set of infoHashes (never probes — this
+   * runs on the engine poll). When wired, the failover picker skips a release
+   * the probe already measured `dead` instead of burning an attempt on it; see
+   * {@link preferLiveCandidates}. Optional: absent, failover is by rank alone,
+   * exactly as before measurement existed.
+   */
+  readVerdicts?: SwarmVerdictReader;
 }
 
 export interface SwarmWatchTickResult {
@@ -307,7 +316,24 @@ export async function swarmDeliveryTick(
 
   // Otherwise, ask the failover rule for the next untried candidate.
   const results = await deps.rankedResults(target);
-  const step = failOver(entry.session, results, target, options.cap ?? MAX_FAILOVER_ATTEMPTS, cause);
+
+  // Consult cached swarm verdicts so we do not fail over onto a release the
+  // probe already measured dead. Best-effort and cached-only: a verdict read
+  // must never block or delay a failover, so any failure falls back to
+  // rank-only selection (identical to before measurement existed).
+  let verdicts: ReadonlyMap<string, SwarmVerdict> | null = null;
+  if (deps.readVerdicts) {
+    try {
+      const hashes = results
+        .map((r) => releaseInfoHash(r))
+        .filter((h): h is string => h !== null);
+      verdicts = await deps.readVerdicts(hashes);
+    } catch {
+      verdicts = null;
+    }
+  }
+
+  const step = failOver(entry.session, results, target, options.cap ?? MAX_FAILOVER_ATTEMPTS, cause, verdicts);
 
   if (step.kind === "exhausted") {
     entry.session = step.session;
