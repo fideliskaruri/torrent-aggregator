@@ -182,11 +182,15 @@ model EngineTorrent {
   hash      String
   name      String
   magnet    String?
+  torrentUrl String?
   savePath  String?
   category  String?
   status    String   @default("downloading") // downloading | seeding | paused | error | removed
   progress  Float    @default(0)
   sizeBytes BigInt   @default(0)
+  verifiedBitfield String?
+  verifiedFilesJson String?
+  verifiedAt DateTime?
   error     String?
   /// Who asked for this: "user" (explicit grab/kept) | "stream" (ephemeral
   /// playback cache) | "prewarm" (speculative). Only cache origins may be

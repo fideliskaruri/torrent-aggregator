@@ -10,13 +10,14 @@ import {
   configureBuiltinClientListeningWaitForTests,
   PUBLIC_TRACKERS,
   rehydrateFailureDataForTests,
+  selectBuiltinAddUriForTests,
   waitForClientListeningForTests,
   withPublicTrackers,
 } from "./builtin-engine";
 
 type Added = {
   input: string | Uint8Array;
-  opts: { path?: string; announce?: string[]; strategy?: string };
+  opts: { path?: string; announce?: string[]; strategy?: string; storeCacheSlots?: number };
 };
 
 function fakeClient() {
@@ -25,7 +26,7 @@ function fakeClient() {
     calls,
     add(
       input: string | Uint8Array,
-      opts?: { path?: string; announce?: string[]; strategy?: string },
+      opts?: { path?: string; announce?: string[]; strategy?: string; storeCacheSlots?: number },
     ) {
       calls.push({ input, opts: opts ?? {} });
       return { on() {} } as never;
@@ -130,6 +131,7 @@ for (const tracker of [
     PUBLIC_TRACKERS,
     ".torrent and other non-magnet inputs gain the same fallback announce list",
   );
+  assert.equal(client.calls[0].opts.storeCacheSlots, 200, "playback keeps a larger piece cache");
 }
 
 {
@@ -137,6 +139,25 @@ for (const tracker of [
     builtinAddOptions.announce,
     PUBLIC_TRACKERS,
     "the exported probe options and engine options must agree on trackers",
+  );
+  assert.equal(builtinAddOptions.storeCacheSlots, 200);
+}
+
+{
+  assert.equal(
+    selectBuiltinAddUriForTests({
+      magnet: "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+      torrentUrl: "https://example.test/release.torrent",
+    }),
+    "https://example.test/release.torrent",
+    ".torrent metadata is preferred when both inputs are available",
+  );
+  assert.equal(
+    selectBuiltinAddUriForTests({
+      magnet: "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+    }),
+    "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+    "magnet remains the fallback when no .torrent URL is available",
   );
 }
 

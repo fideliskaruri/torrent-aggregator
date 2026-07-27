@@ -75,6 +75,7 @@ type WtTorrent = {
   path: string;
   magnetURI?: string;
   pieces?: Array<unknown>;
+  bitfield?: { buffer?: Uint8Array; get?: (index: number) => boolean };
   files?: Array<WtFile>;
   select?: (start: number, end: number, priority?: number) => void;
   deselect?: (start: number, end: number) => void;
@@ -173,6 +174,8 @@ type BuiltinAddOptions = {
   strategy: "sequential";
   announce: string[];
   path?: string;
+  bitfield?: Uint8Array;
+  storeCacheSlots: number;
 };
 
 /** Public trackers that widen thin public swarms without replacing release trackers. */
@@ -189,6 +192,7 @@ export const PUBLIC_TRACKERS = [
 const ADD_OPTIONS: BuiltinAddOptions = {
   strategy: "sequential",
   announce: [...PUBLIC_TRACKERS],
+  storeCacheSlots: 200,
 };
 
 export const builtinAddOptions = ADD_OPTIONS;
@@ -303,12 +307,13 @@ export function withPublicTrackers(uri: string): string {
 function addOptionsForInput(
   input: string | Uint8Array,
   dest: string,
+  overrides: Partial<BuiltinAddOptions> = {},
 ): BuiltinAddOptions {
   const announce =
     typeof input === "string"
       ? fallbackTrackersMissingFromMagnet(input)
       : [...PUBLIC_TRACKERS];
-  return { ...ADD_OPTIONS, announce: uniqueTrackers(announce), path: dest };
+  return { ...ADD_OPTIONS, ...overrides, announce: uniqueTrackers(announce), path: dest };
 }
 
 export function addTorrentWithEngineDefaults(
@@ -316,8 +321,9 @@ export function addTorrentWithEngineDefaults(
   input: string | Uint8Array,
   dest: string,
   cb?: (t: WtTorrent) => void,
+  opts: Partial<BuiltinAddOptions> = {},
 ): WtTorrent {
-  return client.add(input, addOptionsForInput(input, dest), cb);
+  return client.add(input, addOptionsForInput(input, dest, opts), cb);
 }
 
 export const FOREGROUND_UPLOAD_LIMIT_BPS = 64 * 1024;
@@ -721,6 +727,12 @@ function applyPersistedStatus(t: WtTorrent, status: string | null | undefined): 
 
 const REHYDRATE_METADATA_TIMEOUT_MS = 90_000;
 
+type PersistedFileFingerprint = {
+  path: string;
+  size: number;
+  mtimeMs: number;
+};
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -753,8 +765,9 @@ function scheduleRehydrateReadyPersist(
   row: EngineTorrentRehydrateRow,
   t: WtTorrent,
 ): void {
-  void prisma.engineTorrent
-    .updateMany({
+  void (async () => {
+    const verified = await persistedVerifiedState(t);
+    await prisma.engineTorrent.updateMany({
       where: { id: row.id },
       data: {
         error: null,
@@ -769,8 +782,16 @@ function scheduleRehydrateReadyPersist(
               ? "seeding"
               : "downloading",
         name: readProp(() => t.name, "") || row.name,
+        ...(verified
+          ? {
+              verifiedBitfield: verified.verifiedBitfield,
+              verifiedFilesJson: verified.verifiedFilesJson,
+              verifiedAt: new Date(),
+            }
+          : {}),
       },
-    })
+    });
+  })()
     .catch(() => {
       /* best-effort */
     });
@@ -790,9 +811,12 @@ type EngineTorrentRehydrateRow = {
   hash: string;
   name: string;
   magnet: string | null;
+  torrentUrl: string | null;
   savePath: string | null;
   category: string | null;
   status: string;
+  verifiedBitfield: string | null;
+  verifiedFilesJson: string | null;
 };
 
 type EngineState = {
@@ -1075,16 +1099,106 @@ function magnetForPersist(
   return null;
 }
 
+export function selectBuiltinAddUriForTests(payload: AddTorrentPayload): string | null {
+  return payload.torrentUrl?.trim() || payload.magnet?.trim() || null;
+}
+
+function torrentFileDiskPath(torrent: WtTorrent, file: WtFile): string | null {
+  const root = readProp(() => torrent.path, "").trim();
+  const rel = (file.path || file.name || "").replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!root || !rel) return null;
+  const rootPath = path.resolve(root);
+  const filePath = path.resolve(rootPath, ...rel.split("/").filter(Boolean));
+  const between = path.relative(rootPath, filePath);
+  if (!between || between.startsWith("..") || path.isAbsolute(between)) return null;
+  return filePath;
+}
+
+async function collectTorrentFileFingerprints(
+  torrent: WtTorrent,
+): Promise<PersistedFileFingerprint[] | null> {
+  const files = readProp(() => torrent.files, undefined);
+  if (!Array.isArray(files) || files.length === 0) return null;
+  const out: PersistedFileFingerprint[] = [];
+  for (const file of files) {
+    const filePath = torrentFileDiskPath(torrent, file);
+    if (!filePath) return null;
+    try {
+      const s = await fs.promises.stat(filePath);
+      if (!s.isFile() || s.size !== file.length) return null;
+      out.push({ path: filePath, size: s.size, mtimeMs: s.mtimeMs });
+    } catch {
+      return null;
+    }
+  }
+  return out;
+}
+
+function bitfieldBase64(torrent: WtTorrent): string | null {
+  const pieces = readProp(() => torrent.pieces, undefined);
+  const buffer = readProp(() => torrent.bitfield?.buffer, undefined);
+  if (!Array.isArray(pieces) || pieces.length === 0 || !(buffer instanceof Uint8Array)) {
+    return null;
+  }
+  const bytes = Math.ceil(pieces.length / 8);
+  if (buffer.length < bytes) return null;
+  return Buffer.from(buffer.slice(0, bytes)).toString("base64");
+}
+
+async function persistedVerifiedState(torrent: WtTorrent): Promise<{
+  verifiedBitfield: string;
+  verifiedFilesJson: string;
+} | null> {
+  if (!readProp(() => torrent.ready, false)) return null;
+  const verifiedBitfield = bitfieldBase64(torrent);
+  if (!verifiedBitfield) return null;
+  const files = await collectTorrentFileFingerprints(torrent);
+  if (!files) return null;
+  return { verifiedBitfield, verifiedFilesJson: JSON.stringify(files) };
+}
+
+async function startupBitfieldForRow(
+  row: Pick<EngineTorrentRehydrateRow, "verifiedBitfield" | "verifiedFilesJson">,
+): Promise<Uint8Array | null> {
+  if (!row.verifiedBitfield || !row.verifiedFilesJson) return null;
+  let files: PersistedFileFingerprint[];
+  try {
+    files = JSON.parse(row.verifiedFilesJson) as PersistedFileFingerprint[];
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(files) || files.length === 0) return null;
+  for (const f of files) {
+    if (!f || typeof f.path !== "string" || typeof f.size !== "number" || typeof f.mtimeMs !== "number") {
+      return null;
+    }
+    try {
+      const s = await fs.promises.stat(f.path);
+      if (!s.isFile() || s.size !== f.size || s.mtimeMs !== f.mtimeMs) return null;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const bytes = Buffer.from(row.verifiedBitfield, "base64");
+    return bytes.length > 0 ? new Uint8Array(bytes) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function upsertEngineTorrent(opts: {
   userId: string;
   hash: string;
   name: string;
   magnet: string | null;
+  torrentUrl?: string | null;
   savePath: string;
   category?: string | null;
   status?: string;
   progress?: number;
   sizeBytes?: number;
+  torrent?: WtTorrent | null;
 }): Promise<void> {
   if (!opts.hash || typeof opts.hash !== "string") {
     console.warn("[builtin-engine] upsertEngineTorrent missing hash", opts.name);
@@ -1092,6 +1206,7 @@ async function upsertEngineTorrent(opts: {
   }
   const hash = opts.hash.toLowerCase();
   try {
+    const verified = opts.torrent ? await persistedVerifiedState(opts.torrent) : null;
     await prisma.engineTorrent.upsert({
       where: {
         userId_hash: { userId: opts.userId, hash },
@@ -1101,20 +1216,32 @@ async function upsertEngineTorrent(opts: {
         hash,
         name: opts.name,
         magnet: opts.magnet,
+        torrentUrl: opts.torrentUrl ?? null,
         savePath: opts.savePath,
         category: opts.category ?? null,
         status: opts.status ?? "downloading",
         progress: opts.progress ?? 0,
         sizeBytes: BigInt(Math.max(0, Math.floor(opts.sizeBytes ?? 0))),
+        verifiedBitfield: verified?.verifiedBitfield ?? null,
+        verifiedFilesJson: verified?.verifiedFilesJson ?? null,
+        verifiedAt: verified ? new Date() : null,
       },
       update: {
         name: opts.name,
         magnet: opts.magnet ?? undefined,
+        torrentUrl: opts.torrentUrl ?? null,
         savePath: opts.savePath,
         category: opts.category ?? null,
         status: opts.status ?? "downloading",
         progress: opts.progress ?? 0,
         sizeBytes: BigInt(Math.max(0, Math.floor(opts.sizeBytes ?? 0))),
+        ...(verified
+          ? {
+              verifiedBitfield: verified.verifiedBitfield,
+              verifiedFilesJson: verified.verifiedFilesJson,
+              verifiedAt: new Date(),
+            }
+          : {}),
         error: null,
       },
     });
@@ -1149,12 +1276,13 @@ async function rehydrateFromDb(
         where: {
           ...(userId?.trim() ? { userId: userId.trim() } : {}),
           status: { notIn: ["removed", "error"] },
-          magnet: { not: null },
+          OR: [{ magnet: { not: null } }, { torrentUrl: { not: null } }],
         },
       });
 
       for (const row of rows) {
-        if (!row.magnet) continue;
+        const addUri = row.torrentUrl?.trim() || row.magnet?.trim();
+        if (!addUri) continue;
         if (!row.hash) continue;
         const hash = row.hash.toLowerCase();
         try {
@@ -1188,7 +1316,14 @@ async function rehydrateFromDb(
             userId: row.userId,
           });
 
-          const t = addTorrentWithEngineDefaults(client, row.magnet, dest);
+          const startupBitfield = await startupBitfieldForRow(row);
+          const t = addTorrentWithEngineDefaults(
+            client,
+            addUri,
+            dest,
+            undefined,
+            startupBitfield ? { bitfield: startupBitfield } : {},
+          );
           let settled = false;
           const fail = (err: unknown) => {
             if (settled) return;
@@ -1640,8 +1775,9 @@ function scheduleProgressPersist(
   if (!userId?.trim()) return;
   const hash = t.infoHash?.toLowerCase?.();
   if (!hash) return;
-  void prisma.engineTorrent
-    .updateMany({
+  void (async () => {
+    const verified = await persistedVerifiedState(t);
+    await prisma.engineTorrent.updateMany({
       where: { userId: userId.trim(), hash },
       data: {
         progress: readProp(() => t.progress, 0),
@@ -1650,8 +1786,16 @@ function scheduleProgressPersist(
         ),
         status,
         name: readProp(() => t.name, "") || undefined,
+        ...(verified
+          ? {
+              verifiedBitfield: verified.verifiedBitfield,
+              verifiedFilesJson: verified.verifiedFilesJson,
+              verifiedAt: new Date(),
+            }
+          : {}),
       },
-    })
+    });
+  })()
     .catch(() => {
       /* best-effort */
     });
@@ -1745,7 +1889,7 @@ export class BuiltinClient implements TorrentClientAdapter {
     config: ClientConnectionConfig,
     payload: AddTorrentPayload,
   ): Promise<AddTorrentResult> {
-    const uri = payload.magnet || payload.torrentUrl;
+    const uri = selectBuiltinAddUriForTests(payload);
     if (!uri) {
       return { ok: false, message: "No magnet or torrent URL provided" };
     }
@@ -1764,7 +1908,10 @@ export class BuiltinClient implements TorrentClientAdapter {
       fs.mkdirSync(dest, { recursive: true });
 
       const addUri = uri.trim();
-      const existingHash = extractInfoHash(addUri) || extractInfoHash(uri);
+      const existingHash =
+        extractInfoHash(payload.magnet || "") ||
+        extractInfoHash(payload.torrentUrl || "") ||
+        extractInfoHash(addUri);
       if (existingHash) {
         const existing = findTorrent(client, existingHash);
         if (existing) {
@@ -1793,11 +1940,13 @@ export class BuiltinClient implements TorrentClientAdapter {
               hash,
               name: payload.name || existing.name || hash,
               magnet: magnetForPersist(payload, addUri, existing),
+              torrentUrl: payload.torrentUrl?.trim() || null,
               savePath: dest,
               category: payload.category,
               status: isComplete(existing) ? "seeding" : "downloading",
               progress: readProp(() => existing.progress, 0),
               sizeBytes: readProp(() => existing.length, 0),
+              torrent: existing,
             });
           }
           const peers = readProp(() => existing.numPeers, 0);
@@ -1885,11 +2034,13 @@ export class BuiltinClient implements TorrentClientAdapter {
           hash,
           name: payload.name || torrent.name || hash,
           magnet: magnetForPersist(payload, addUri, torrent),
+          torrentUrl: payload.torrentUrl?.trim() || null,
           savePath: dest,
           category: payload.category,
           status: isComplete(torrent) ? "seeding" : "downloading",
           progress: readProp(() => torrent.progress, 0),
           sizeBytes: readProp(() => torrent.length, 0),
+          torrent,
         });
       }
 
@@ -2002,14 +2153,22 @@ export class BuiltinClient implements TorrentClientAdapter {
         for (const row of rows) {
           const h = row.hash.toLowerCase();
           if (seen.has(h)) continue;
-          // Kick re-add if we have a magnet
-          if (row.status !== "error" && row.magnet?.trim()) {
+          // Kick re-add if we have either saved metadata URL or a magnet.
+          const addUri = row.torrentUrl?.trim() || row.magnet?.trim();
+          if (row.status !== "error" && addUri) {
             const dest =
               row.savePath?.trim() || defaultDownloadRoot(config);
             try {
               if (!findTorrent(client, h)) {
                 repairExistingLayout(dest, row.name);
-                const t = addTorrentWithEngineDefaults(client, row.magnet, dest);
+                const startupBitfield = await startupBitfieldForRow(row);
+                const t = addTorrentWithEngineDefaults(
+                  client,
+                  addUri,
+                  dest,
+                  undefined,
+                  startupBitfield ? { bitfield: startupBitfield } : {},
+                );
                 t.on("ready", () => {
                   applyPersistedStatus(t, row.status);
                   scheduleRehydrateReadyPersist(row, t);
