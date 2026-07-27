@@ -26,6 +26,8 @@ import {
   vodId,
   vodCacheDir,
   VOD_DIR_NAME,
+  MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
+  shouldRetryWholeFileConversion,
 } from "./vod-runtime";
 import { localPathCandidates } from "./local-file";
 import { chooseStrategy, keyframeAlignedSegments, VOD_SEGMENT_SECONDS } from "./vod";
@@ -256,6 +258,53 @@ for (const testCase of routingCases) {
       decision.strategy === "vod-segments",
       testCase.needsKeyframes,
       "only the on-demand segment path needs a keyframe index",
+    );
+  });
+}
+
+// ── Whole-file retry cap ──
+
+console.log("\nwhole-file retry cap");
+
+const retryCases: Array<{
+  name: string;
+  strategy: "whole-file" | "vod-segments";
+  status: "preparing" | "ready" | "error";
+  attempts: number;
+  expect: boolean;
+}> = [
+  {
+    name: "a first whole-file failure may be retried",
+    strategy: "whole-file",
+    status: "error",
+    attempts: 1,
+    expect: true,
+  },
+  {
+    name: "the final whole-file failure is terminal",
+    strategy: "whole-file",
+    status: "error",
+    attempts: MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
+    expect: false,
+  },
+  {
+    name: "segment VOD errors are not governed by the whole-file cap",
+    strategy: "vod-segments",
+    status: "error",
+    attempts: MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
+    expect: true,
+  },
+];
+
+for (const testCase of retryCases) {
+  check(testCase.name, () => {
+    assert.equal(
+      shouldRetryWholeFileConversion({
+        strategy: testCase.strategy,
+        status: testCase.status,
+        conversionAttempts: testCase.attempts,
+      }),
+      testCase.expect,
     );
   });
 }

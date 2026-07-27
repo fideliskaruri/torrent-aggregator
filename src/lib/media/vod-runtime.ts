@@ -59,6 +59,9 @@ const CACHE_BUDGET_BYTES = 40 * 1024 * 1024 * 1024;
 /** Whole-file conversions are disk-bound; more than one at a time is slower. */
 const MAX_CONCURRENT_CONVERSIONS = 1;
 
+/** A completed file that cannot be converted after this many tries is terminal. */
+export const MAX_WHOLE_FILE_CONVERSION_ATTEMPTS = 3;
+
 /** A scrub asks for several segments at once; a few in parallel, not all. */
 const MAX_CONCURRENT_SEGMENTS = 3;
 
@@ -93,12 +96,13 @@ export type VodEntry = {
   segments: VodSegment[];
   status: VodEntryStatus;
   error: string | null;
+  conversionAttempts: number;
   createdAt: number;
   readyAt: number | null;
   lastUsedAt: number;
 };
 
-type PersistedMeta = Omit<VodEntry, "dir" | "status" | "error" | "readyAt" | "lastUsedAt">;
+type PersistedMeta = Omit<VodEntry, "dir" | "status" | "readyAt" | "lastUsedAt">;
 
 const entries = new Map<string, VodEntry>();
 const liveProcesses = new Set<ChildProcess>();
@@ -173,6 +177,8 @@ function writeMeta(entry: VodEntry): void {
     duration: entry.duration,
     plan: entry.plan,
     segments: entry.segments,
+    error: entry.error,
+    conversionAttempts: entry.conversionAttempts,
     createdAt: entry.createdAt,
   };
   try {
@@ -207,6 +213,11 @@ function readMeta(dir: string): PersistedMeta | null {
       duration: meta.duration,
       plan: meta.plan,
       segments: Array.isArray(meta.segments) ? meta.segments : [],
+      error: typeof meta.error === "string" ? meta.error : null,
+      conversionAttempts:
+        typeof meta.conversionAttempts === "number" && Number.isFinite(meta.conversionAttempts)
+          ? Math.max(0, Math.trunc(meta.conversionAttempts))
+          : 0,
       createdAt: typeof meta.createdAt === "number" ? meta.createdAt : Date.now(),
     };
   } catch {
@@ -419,6 +430,7 @@ export function prepareVod(input: PrepareInput): VodEntry {
     segments: [],
     status: "preparing",
     error: null,
+    conversionAttempts: 0,
     createdAt: Date.now(),
     readyAt: null,
     lastUsedAt: Date.now(),
@@ -431,7 +443,20 @@ export function prepareVod(input: PrepareInput): VodEntry {
   return entry;
 }
 
+export function shouldRetryWholeFileConversion(entry: {
+  strategy: VodEntry["strategy"];
+  status: VodEntryStatus;
+  conversionAttempts: number;
+}): boolean {
+  return (
+    entry.strategy !== "whole-file" ||
+    entry.status !== "error" ||
+    entry.conversionAttempts < MAX_WHOLE_FILE_CONVERSION_ATTEMPTS
+  );
+}
+
 function restart(entry: VodEntry): void {
+  if (!shouldRetryWholeFileConversion(entry)) return;
   entry.error = null;
   entry.status = "preparing";
   if (entry.strategy === "whole-file") {
@@ -467,7 +492,8 @@ export function getVodEntry(id: string): VodEntry | null {
     ...meta,
     dir,
     status: isReadyOnDisk(dir) && playlistIsCompleteIn(dir) ? "ready" : "preparing",
-    error: null,
+    error: meta.error,
+    conversionAttempts: meta.conversionAttempts,
     readyAt: null,
     lastUsedAt: Date.now(),
   };
@@ -475,7 +501,10 @@ export function getVodEntry(id: string): VodEntry | null {
 
   // A conversion interrupted by a restart left a partial playlist behind; the
   // honest answer is to run it again rather than serve a truncated film.
-  if (entry.strategy === "whole-file" && entry.status !== "ready") restart(entry);
+  if (entry.strategy === "whole-file" && entry.status !== "ready") {
+    entry.status = entry.error ? "error" : "preparing";
+    restart(entry);
+  }
   // A segment entry is only usable if its boundaries survived — an entry
   // persisted before its keyframe probe finished has none, and serving its
   // playlist would 404 every segment.
@@ -542,12 +571,25 @@ function pumpConversions(): void {
 }
 
 function runConversion(entry: VodEntry): void {
+  entry.conversionAttempts += 1;
+  writeMeta(entry);
+
+  const fail = (message: string) => {
+    entry.status = "error";
+    entry.error =
+      entry.conversionAttempts >= MAX_WHOLE_FILE_CONVERSION_ATTEMPTS
+        ? `whole-file conversion failed after ${entry.conversionAttempts} attempts: ${message}`
+        : `whole-file conversion attempt ${entry.conversionAttempts} failed: ${message}`;
+    writeMeta(entry);
+    console.warn(`[vod] ${entry.id} failed: ${entry.error}`);
+  };
+
   let ffmpegPath: string;
   try {
     ffmpegPath = resolveFfmpegPath();
   } catch (err) {
-    entry.status = "error";
-    entry.error = err instanceof Error ? err.message : String(err);
+    fail(err instanceof Error ? err.message : String(err));
+    pumpConversions();
     return;
   }
 
@@ -565,8 +607,7 @@ function runConversion(entry: VodEntry): void {
     });
   } catch (err) {
     runningConversions -= 1;
-    entry.status = "error";
-    entry.error = err instanceof Error ? err.message : String(err);
+    fail(err instanceof Error ? err.message : String(err));
     pumpConversions();
     return;
   }
@@ -583,11 +624,11 @@ function runConversion(entry: VodEntry): void {
     runningConversions -= 1;
     if (ok && playlistIsComplete(entry) && fs.existsSync(path.join(entry.dir, WHOLE_FILE_DATA))) {
       markReady(entry);
+      writeMeta(entry);
       console.info(`[vod] ${entry.id} ready in ${Date.now() - startedAt}ms`);
     } else {
-      entry.status = "error";
-      entry.error = message || "conversion produced no playable output";
-      console.warn(`[vod] ${entry.id} failed: ${entry.error}`);
+      const base = message || "conversion produced no playable output";
+      fail(base);
     }
     pumpConversions();
   };

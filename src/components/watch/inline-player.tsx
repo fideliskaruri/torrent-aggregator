@@ -1347,6 +1347,12 @@ export function InlineStreamPlayer({
         setStrategy(planData.strategy ?? null);
         setStrategyReason(planData.strategyReason ?? null);
         setPlaybackRung(planData.plan.rung);
+        if (/whole-file.*failed after/i.test(planData.strategyReason ?? "")) {
+          setProblem("generic");
+          setMessage(
+            `Optimized local playback failed: ${planData.strategyReason}. Playing through the fallback stream instead.`,
+          );
+        }
 
         if (canPlayNatively(planData.plan.rung, planData.playUrl)) {
           /**
