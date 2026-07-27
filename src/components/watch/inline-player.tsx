@@ -11,7 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { Check, Copy, Loader2, Maximize, Pause, Play, Volume2, VolumeX, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Loader2, Maximize, Pause, Play, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
@@ -1376,6 +1376,30 @@ function InlineStreamPlayerInner({
     [upNext, currentSeason, currentEpisode, activeWatchListItemId, activePosterUrl],
   );
 
+  const fetchUpNext = useCallback(async () => {
+    if (!upNext || upNext.infoHash) return;
+    setUpNextLoading(true);
+    try {
+      await fetch("/api/prewarm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "trigger",
+          next: {
+            title: upNext.title,
+            season: upNext.season,
+            episode: upNext.episode,
+            source: "playing-episode",
+          },
+          protectHashes: [activeInfoHash],
+        }),
+      }).catch(() => null);
+      await loadUpNext();
+    } finally {
+      setUpNextLoading(false);
+    }
+  }, [upNext, activeInfoHash, loadUpNext]);
+
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
     setEnded(true);
@@ -2103,9 +2127,96 @@ function InlineStreamPlayerInner({
     [reportNoAudio, playbackMode],
   );
 
+  const compactSelectClass = cn(
+    "h-8 min-w-0 appearance-none truncate py-1 pl-3 pr-8 text-[11px] outline-none transition focus-visible:ring-2",
+    theatre
+      ? "w-40 rounded-full border border-white/15 bg-white/10 text-white focus-visible:ring-white/25"
+      : "input-field flex-1 px-1.5 focus-visible:ring-[var(--accent-dim)]",
+  );
+  const selectChevron = (
+    <ChevronDown
+      aria-hidden
+      className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-current opacity-60"
+    />
+  );
+  const audioControl =
+    audioTracks.length > 1 ? (
+      <label
+        className={cn(
+          "flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
+          theatre && "text-white/70",
+        )}
+      >
+        <span>Audio</span>
+        <span className="relative min-w-0">
+          <select
+            className={compactSelectClass}
+            value={audioStreamIndex ?? ""}
+            data-stream-audio-select
+            onChange={(e) => {
+              // Restart at the current position so switching language
+              // doesn't throw the viewer back to the beginning.
+              pendingSeekRef.current = currentSourceTime;
+              setAudioStreamIndex(Number(e.target.value));
+            }}
+          >
+            {audioTracks.map((track, i) => (
+              <option
+                key={track.streamIndex}
+                value={track.streamIndex}
+                className="bg-[var(--bg-elevated)]"
+              >
+                {audioTrackLabel(track, i)}
+              </option>
+            ))}
+          </select>
+          {selectChevron}
+        </span>
+      </label>
+    ) : null;
+  const subtitleControl =
+    subtitleTracks.length > 0 ? (
+      <label
+        className={cn(
+          "flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
+          theatre && "text-white/70",
+        )}
+      >
+        <span>Subtitles</span>
+        <span className="relative min-w-0">
+          <select
+            className={compactSelectClass}
+            value={subtitleTrackId}
+            data-stream-subtitle-select
+            aria-label="Subtitles"
+            onChange={(e) => selectSubtitleTrack(e.target.value)}
+          >
+            <option value="" className="bg-[var(--bg-elevated)]">Off</option>
+            {subtitleTracks.map((track) => (
+              // A track that cannot become WebVTT is shown, because hiding it
+              // would make the release look like it has no subtitles at all.
+              <option
+                key={track.id}
+                value={track.id}
+                disabled={!track.src}
+                className="bg-[var(--bg-elevated)]"
+              >
+                {track.label}
+              </option>
+            ))}
+          </select>
+          {selectChevron}
+        </span>
+      </label>
+    ) : null;
+
   return (
     <div
-      className={cn("w-full space-y-2", theatre && "space-y-0", className)}
+      className={cn(
+        "w-full space-y-2",
+        theatre && "flex h-full min-h-0 items-center justify-center px-4 py-14 sm:px-6",
+        className,
+      )}
       data-inline-player
       data-player-chrome={chrome}
       data-infohash={activeInfoHash}
@@ -2147,7 +2258,7 @@ function InlineStreamPlayerInner({
           className={cn(
             "space-y-2",
             theatre
-              ? "bg-transparent"
+              ? "mx-auto flex h-full w-full max-w-6xl flex-col justify-center gap-3 bg-transparent"
               : "rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2.5 motion-safe:animate-[inline-player-expand_140ms_ease-out]",
           )}
         >
@@ -2207,7 +2318,7 @@ function InlineStreamPlayerInner({
             }
           `}</style>
 
-          {manifestLoading ? (
+          {!theatre && manifestLoading ? (
             <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Resolving files…
@@ -2233,7 +2344,7 @@ function InlineStreamPlayerInner({
             </label>
           ) : null}
 
-          {message ? (
+          {!theatre && message ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
               {problem === "browser-error" || problem === "no-audio" ? (
                 <X className="h-3.5 w-3.5 text-[var(--danger)]" />
@@ -2251,23 +2362,51 @@ function InlineStreamPlayerInner({
             </div>
           ) : null}
 
-          {checkingStream ? (
+          {!theatre && checkingStream ? (
             <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {stateSentence}
             </p>
           ) : null}
 
-          {preparingLabel && !checkingStream ? (
+          {!theatre && preparingLabel && !checkingStream ? (
             <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {stateSentence}
             </p>
+          ) : null}
+
+          {theatre && !playableSrc ? (
+            <div
+              data-stream-stage
+              className="relative mx-auto flex aspect-video w-full max-h-[calc(100dvh-13rem)] min-h-[240px] items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+            >
+              <div className="flex flex-col items-center gap-3 px-6 text-center text-white/75">
+                <Loader2 className="h-7 w-7 animate-spin text-white/80" />
+                <p className="text-sm font-medium text-white">
+                  {message
+                    ? "Playback cannot start yet."
+                    : manifestLoading
+                    ? "Resolving files…"
+                    : checkingStream || preparingLabel
+                      ? stateSentence
+                      : "Pick a video file to start playback."}
+                </p>
+                {message ? <p className="max-w-md text-[12px] text-white/55">{message}</p> : null}
+              </div>
+            </div>
           ) : null}
 
           {playableSrc && selectedFile ? (
-            <div className="space-y-1.5">
-              <div className="relative">
+            <div className={cn("space-y-1.5", theatre && "flex min-h-0 flex-col gap-2")}>
+              <div
+                data-stream-stage
+                className={cn(
+                  "relative",
+                  theatre &&
+                    "mx-auto flex aspect-video w-full max-h-[calc(100dvh-13rem)] items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_24px_80px_rgba(0,0,0,0.55)]",
+                )}
+              >
               {playbackMode === "hls" ? (
                 <video
                   data-stream-video
@@ -2276,7 +2415,7 @@ function InlineStreamPlayerInner({
                   preload="auto"
                   className={cn(
                     "w-full bg-black",
-                    theatre ? "max-h-[100dvh] object-contain" : "rounded-md",
+                    theatre ? "h-full object-contain" : "rounded-md",
                   )}
                   title={activeTitle}
                   onClick={togglePlay}
@@ -2331,7 +2470,7 @@ function InlineStreamPlayerInner({
                   preload="metadata"
                   className={cn(
                     "w-full bg-black",
-                    theatre ? "max-h-[100dvh] object-contain" : "rounded-md",
+                    theatre ? "h-full object-contain" : "rounded-md",
                   )}
                   src={playableSrc}
                   title={activeTitle}
@@ -2496,7 +2635,14 @@ function InlineStreamPlayerInner({
                 </div>
               ) : null}
               {playbackMode === "hls" ? (
-                <div data-stream-transport-row className="flex items-center gap-2">
+                <div
+                  data-stream-transport-row
+                  className={cn(
+                    "flex items-center gap-2",
+                    theatre &&
+                      "mx-auto w-full max-w-6xl flex-wrap rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-[var(--shadow-md)] backdrop-blur",
+                  )}
+                >
                   <button
                     type="button"
                     data-stream-transport
@@ -2512,10 +2658,7 @@ function InlineStreamPlayerInner({
                   </button>
                   {sourceDuration && sourceDuration > 0 ? (
                     <>
-                      <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
-                        {formatClock(currentSourceTime)}
-                      </span>
-                      <span className="relative flex min-w-0 flex-1 items-center">
+                      <span className="relative flex min-w-[180px] flex-1 items-center">
                         <span
                           aria-hidden="true"
                           className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--border)]"
@@ -2554,8 +2697,13 @@ function InlineStreamPlayerInner({
                           onTouchEnd={(e) => handleSourceSeek(Number(e.currentTarget.value))}
                         />
                       </span>
-                      <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
-                        {formatClock(sourceDuration)}
+                      <span
+                        className={cn(
+                          "text-[11px] text-[var(--text-tertiary)] tabular-nums",
+                          theatre && "text-white/70",
+                        )}
+                      >
+                        {formatClock(currentSourceTime)} / {formatClock(sourceDuration)}
                       </span>
                     </>
                   ) : (
@@ -2563,6 +2711,8 @@ function InlineStreamPlayerInner({
                       Live position
                     </span>
                   )}
+                  {theatre ? audioControl : null}
+                  {theatre ? subtitleControl : null}
                   <button
                     type="button"
                     onClick={toggleMute}
@@ -2586,60 +2736,8 @@ function InlineStreamPlayerInner({
                   That position is not downloaded yet — playback will wait for torrent pieces.
                 </p>
               ) : null}
-              {audioTracks.length > 1 ? (
-                <label className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]">
-                  <span>Audio</span>
-                  <select
-                    className="input-field min-w-0 flex-1 truncate px-1.5 py-1 text-[11px]"
-                    value={audioStreamIndex ?? ""}
-                    data-stream-audio-select
-                    onChange={(e) => {
-                      // Restart at the current position so switching language
-                      // doesn't throw the viewer back to the beginning.
-                      pendingSeekRef.current = currentSourceTime;
-                      setAudioStreamIndex(Number(e.target.value));
-                    }}
-                  >
-                    {audioTracks.map((track, i) => (
-                      <option
-                        key={track.streamIndex}
-                        value={track.streamIndex}
-                        className="bg-[var(--bg-elevated)]"
-                      >
-                        {audioTrackLabel(track, i)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              {subtitleTracks.length > 0 ? (
-                <label className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]">
-                  <span>Subtitles</span>
-                  <select
-                    className="input-field min-w-0 flex-1 truncate px-1.5 py-1 text-[11px]"
-                    value={subtitleTrackId}
-                    data-stream-subtitle-select
-                    aria-label="Subtitles"
-                    onChange={(e) => selectSubtitleTrack(e.target.value)}
-                  >
-                    <option value="" className="bg-[var(--bg-elevated)]">Off</option>
-                    {subtitleTracks.map((track) => (
-                      // A track that cannot become WebVTT is shown, because
-                      // hiding it would make the release look like it has no
-                      // subtitles at all — but it is not selectable, because
-                      // selecting it could only ever render nothing.
-                      <option
-                        key={track.id}
-                        value={track.id}
-                        disabled={!track.src}
-                        className="bg-[var(--bg-elevated)]"
-                      >
-                        {track.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
+              {!theatre || playbackMode !== "hls" ? audioControl : null}
+              {!theatre || playbackMode !== "hls" ? subtitleControl : null}
               {subtitleStatus === "extracting" || subtitleStatus === "loading" ? (
                 <p
                   data-stream-subtitle-status={subtitleStatus}
@@ -2659,26 +2757,61 @@ function InlineStreamPlayerInner({
                   {subtitleNote}
                 </p>
               ) : null}
-              <div className="flex flex-wrap items-center gap-2">
-                <SwarmChip
-                  infoHash={activeInfoHash}
-                  active={Boolean(playableSrc)}
-                  minimumStreamBps={minimumStreamBps}
-                  onSample={setSwarmSample}
-                  fetchSample={fetchPlayerSample}
-                />
-                <p className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-tertiary)]">
-                  {releaseChips.length > 0
-                    ? releaseChips.join(" · ")
-                    : formatBytes(selectedFile.length)}
-                </p>
+              <div
+                className={cn(
+                  "flex flex-wrap items-center gap-2",
+                  theatre &&
+                    "mx-auto w-full max-w-6xl justify-between rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-white/70",
+                )}
+              >
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <SwarmChip
+                    infoHash={activeInfoHash}
+                    active={Boolean(playableSrc)}
+                    minimumStreamBps={minimumStreamBps}
+                    onSample={setSwarmSample}
+                    fetchSample={fetchPlayerSample}
+                  />
+                  <p className={cn("min-w-0 flex-1 truncate text-[11px] text-[var(--text-tertiary)]", theatre && "text-white/60")}>
+                    {releaseChips.length > 0
+                      ? releaseChips.join(" · ")
+                      : formatBytes(selectedFile.length)}
+                  </p>
+                </div>
+                {upNext ? (
+                  <div
+                    data-up-next-status
+                    className={cn(
+                      "flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
+                      theatre && "text-white/70",
+                    )}
+                  >
+                    <span className="min-w-0 truncate">
+                      Next: {upNext.title} {upNext.label} — {upNextStatusSentence(upNext.availability)}
+                    </span>
+                    {upNext.infoHash ? (
+                      <button
+                        type="button"
+                        onClick={() => playUpNext(upNext)}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-semibold text-black"
+                      >
+                        <Play className="h-3 w-3 fill-current" />
+                        Play
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void fetchUpNext()}
+                        disabled={upNextLoading}
+                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-white/15 px-2.5 text-[11px] font-medium text-white/80 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {upNextLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                        Fetch next
+                      </button>
+                    )}
+                  </div>
+                ) : null}
               </div>
-              {upNext ? (
-                <p data-up-next-status className="text-[11px] text-[var(--text-tertiary)]">
-                  Next: {upNext.title} {upNext.label} —{" "}
-                  {upNextStatusSentence(upNext.availability)}
-                </p>
-              ) : null}
               {waiting ? (
                 <p className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
                   {stateSentence}
