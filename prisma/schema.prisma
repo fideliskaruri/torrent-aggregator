@@ -249,6 +249,11 @@ model DownloadHistory {
   source     String?
   status     String // sent | failed
   message    String?
+  context    String?
+  category   String?
+  savePath   String?
+  clientType String?
+  sendKind   String?
   createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

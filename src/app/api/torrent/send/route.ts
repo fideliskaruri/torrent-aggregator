@@ -10,6 +10,7 @@ import { formatClientError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import type { MediaMetadata } from "@/lib/torrents/types";
+import { historyMessageFromFacts } from "@/lib/activity/history";
 import {
   existingRetentionOrigin,
   markTorrentStreamOnly,
@@ -256,15 +257,11 @@ export async function POST(request: NextRequest) {
         infoHash: body.infoHash,
         source: body.source,
         status: result.ok ? "sent" : "failed",
-        message: [
-          result.message,
-          `via=${config.clientType}`,
-          `kind=${smart.kind}`,
-          cat ? `cat=${cat}` : null,
-          savePath ? `path=${savePath}` : null,
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        message: historyMessageFromFacts({ message: result.message }),
+        category: cat ?? null,
+        savePath: savePath ?? null,
+        clientType: config.clientType,
+        sendKind: smart.kind,
       },
     });
 
