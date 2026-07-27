@@ -248,13 +248,29 @@ async function startDevServer(expectHashes: string[]): Promise<DevServer> {
     },
   );
 
+  // The filters below keep the console readable, but everything the server says
+  // is also written verbatim to a log file. A dev server that dies mid-run
+  // otherwise leaves no trace at all: the harness just starts reporting
+  // ERR_CONNECTION_REFUSED, which looks like a client problem rather than a
+  // crashed server.
+  const serverLog = path.join(repoRoot, "instant-devserver.log");
+  fs.writeFileSync(serverLog, "");
+  const record = (text: string) => fs.appendFileSync(serverLog, text);
+
   child.stdout?.on("data", (b: Buffer) => {
     const text = b.toString();
+    record(text);
     if (/ready|error|Local:/i.test(text)) process.stdout.write(`  [next] ${text}`);
   });
   child.stderr?.on("data", (b: Buffer) => {
     const text = b.toString();
+    record(text);
     if (/error|EADDRINUSE|Another next/i.test(text)) process.stdout.write(`  [next] ${text}`);
+  });
+  child.on("exit", (code, signal) => {
+    const note = `next dev exited: code=${code} signal=${signal}\n`;
+    record(note);
+    process.stdout.write(`  [next] ${note}`);
   });
 
   const deadline = Date.now() + 420_000;
