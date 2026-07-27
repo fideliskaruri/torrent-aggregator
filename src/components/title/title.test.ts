@@ -32,6 +32,7 @@ import {
   resolvePrimaryAction,
   titleActionLabel,
 } from "./title-actions";
+import { titleFacts } from "./title-facts";
 import {
   formatAirDate,
   formatRuntime,
@@ -310,7 +311,7 @@ const ACTION_CASES: {
     availability: "ready",
     infoHash: "abc123",
     expectKind: "play",
-    expectLabel: "Watch",
+    expectLabel: "Play",
   },
   {
     name: "ready with progress resumes",
@@ -325,35 +326,35 @@ const ACTION_CASES: {
     availability: "warm",
     infoHash: "abc123",
     expectKind: "play",
-    expectLabel: "Watch",
+    expectLabel: "Play",
   },
   {
     name: "ready with no hash never offers Play",
     availability: "ready",
     infoHash: null,
     expectKind: "stream",
-    expectLabel: "Watch",
+    expectLabel: "Play",
   },
   {
-    name: "fetchable plays — a seeded release exists, so the click is Watch",
+    name: "fetchable plays — a seeded release exists, so the click is Play",
     availability: "fetchable",
     infoHash: null,
     expectKind: "stream",
-    expectLabel: "Watch",
+    expectLabel: "Play",
   },
   {
     name: "unavailable still gets — it looks again",
     availability: "unavailable",
     infoHash: null,
     expectKind: "get",
-    expectLabel: "Download",
+    expectLabel: "Get",
   },
   {
     name: "null is not unavailable, and is not a dead end",
     availability: null,
     infoHash: null,
     expectKind: "stream",
-    expectLabel: "Watch",
+    expectLabel: "Play",
   },
 ];
 
@@ -395,7 +396,7 @@ check("resolvePlayableAction: never returns a navigation action", () => {
 check("resolvePlayableAction: a play action is never issued without a hash", () => {
   // The whole point of the `stream` kind is that "we cannot address this yet"
   // and "the viewer must go away and come back" are different statements. The
-  // first is allowed to say Watch; neither is allowed to produce a `play`,
+  // first is allowed to say Play; neither is allowed to produce a `play`,
   // because `play` opens the player immediately and would open it on nothing.
   const states: (AvailabilityState | null)[] = [
     null,
@@ -439,17 +440,29 @@ check("null is not unavailable: both stay actionable, and they differ", () => {
   });
   // Both are actionable — neither is a dead end. But they are no longer the
   // same button: not having looked is one search away from playing, whereas
-  // having looked and found nothing is not, and offering Watch there would
+  // having looked and found nothing is not, and offering Play there would
   // dead-end on the one state where we hold evidence that it would.
   assert.equal(unchecked.kind, "stream");
-  assert.equal(unchecked.label, "Watch");
+  assert.equal(unchecked.label, "Play");
   assert.equal(dead.kind, "get");
-  assert.equal(dead.label, "Download");
+  assert.equal(dead.label, "Get");
 });
 
 // ---------------------------------------------------------------------------
 // The primary action
 // ---------------------------------------------------------------------------
+
+check("titleFacts: joins metadata with a spoken separator and product rating order", () => {
+  const out = titleFacts({
+    year: 2013,
+    mediaType: "tv",
+    rating: 8.7,
+    isSeries: true,
+    seasonCount: 9,
+  });
+  assert.equal(out, "2013 · Series · ★ 8.7 · 9 seasons");
+  assert.doesNotMatch(out, /Series8\.7|rating/);
+});
 
 function episode(over: Partial<TitleEpisode> = {}): TitleEpisode {
   return {
@@ -580,10 +593,10 @@ check("primary action: a series action names an episode", () => {
   assert.equal(action.episode, 7);
 });
 
-check("primary action: a series keeps its Watch when it needs an episode", () => {
+check("primary action: a series keeps its Play when it needs an episode", () => {
   // The title-level lookup cannot name an episode, so a series falls through
   // to the cursor to find one. That detour used to flatten every state into a
-  // Download — a fetchable series lost its Watch on the way through purely
+  // Get — a fetchable series lost its Play on the way through purely
   // because it needed an episode number attached.
   const action = resolvePrimaryAction(
     payload({
@@ -598,12 +611,12 @@ check("primary action: a series keeps its Watch when it needs an episode", () =>
     }),
   );
   assert.equal(action.kind, "stream");
-  assert.equal(action.label, "Watch");
+  assert.equal(action.label, "Play");
   assert.equal(action.season, 2);
   assert.equal(action.episode, 7);
 });
 
-check("primary action: an unavailable series still degrades to Download", () => {
+check("primary action: an unavailable series still degrades to Get", () => {
   const action = resolvePrimaryAction(
     payload({
       availability: "unavailable",
@@ -726,23 +739,18 @@ check("resolveEpisodeAction: a partly-watched episode resumes", () => {
 // Labels
 // ---------------------------------------------------------------------------
 
-check("titleActionLabel: a grab keeps telling the truth after it lands", () => {
+check("titleActionLabel: primary slot keeps the action word while status moves below", () => {
   const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
-  assert.equal(titleActionLabel(get, "idle"), "Download");
-  assert.equal(titleActionLabel(get, "pending"), "Starting…");
-  assert.equal(titleActionLabel(get, "done"), "Downloading");
+  assert.equal(titleActionLabel(get, "idle"), "Get");
+  assert.equal(titleActionLabel(get, "pending"), "Get");
+  assert.equal(titleActionLabel(get, "done"), "Get");
   assert.equal(titleActionLabel(get, "error"), "Try again");
-  // A control that still says "Download" after a successful grab invites a
-  // second, duplicate grab.
-  assert.notEqual(titleActionLabel(get, "done"), titleActionLabel(get, "idle"));
 });
 
-check("titleActionLabel: a stream says what it is doing while it looks", () => {
+check("titleActionLabel: a stream stays a Play action while it looks", () => {
   const stream = resolvePlayableAction({ availability: "fetchable", infoHash: null });
-  assert.equal(titleActionLabel(stream, "idle"), "Watch");
-  // The gap between the press and the first frame is a search, not playback,
-  // and tens of seconds of an unchanged button reads as a dead control.
-  assert.notEqual(titleActionLabel(stream, "pending"), "Watch");
+  assert.equal(titleActionLabel(stream, "idle"), "Play");
+  assert.equal(titleActionLabel(stream, "pending"), "Play");
   assert.equal(titleActionLabel(stream, "error"), "Try again");
   for (const status of ["idle", "pending", "done", "error"] as const) {
     assert.ok(!/search/i.test(titleActionLabel(stream, status)));

@@ -4,23 +4,23 @@
  *
  * The product complaint this answers: clicking a title used to land you in a
  * table of release names. So the primary control here is never navigation. It
- * is **Watch**, **Resume**, or **Download**, and nothing else — a search link
+ * is **Play**, **Resume**, or **Get**, and nothing else — a search link
  * may exist on the page, but only as a discreet way to override a decision the
  * app has already made for you.
  *
  * The label says what the click does and nothing explains it underneath: a
- * button reading Download does not need a sentence telling you it downloads.
+ * button reading Get does not need a sentence telling you it downloads.
  *
  * Two rules carry over from the browse card and are not negotiable:
  *
- *  1. **Never offer Watch for something that will not play.** A `ready` claim
+ *  1. **Never offer Play for something that will not play.** A `ready` claim
  *     with no info hash is nothing the player can open, so it degrades — but
- *     to a *stream* Watch, which searches and sends before opening the player,
+ *     to a *stream* Play, which searches and sends before opening the player,
  *     rather than to a button that dead-ends.
  *  2. **`null` is not `unavailable`.** Nobody having searched is not the same
- *     as having searched and found nothing. Unchecked gets Watch: the click
+ *     as having searched and found nothing. Unchecked gets Play: the click
  *     runs the search it is waiting for and plays the result. Only a state we
- *     have positive evidence about — `unavailable` — degrades to Download.
+ *     have positive evidence about — `unavailable` — degrades to Get.
  *
  * Pure and DOM-free on purpose: `title.test.ts` drives it as a table.
  */
@@ -34,7 +34,7 @@ import type { TitleDetailPayload, TitleEpisode } from "./types";
 /** Opens the player on a file we actually hold. */
 export interface PlayTitleAction {
   kind: "play";
-  label: "Watch" | "Resume";
+  label: "Play" | "Resume";
   infoHash: string;
   filePath: string | null;
   resumePositionSec: number | null;
@@ -45,7 +45,7 @@ export interface PlayTitleAction {
 /** Searches and sends, in one click. Never navigates to a release table. */
 export interface GetTitleAction {
   kind: "get";
-  label: "Download";
+  label: "Get";
   season: number | null;
   episode: number | null;
 }
@@ -54,7 +54,7 @@ export interface GetTitleAction {
  * Grab it, then open the player on what was grabbed.
  *
  * The product rule is "click and it plays". Anything we do not already hold
- * used to answer that with a Download button, which asks the viewer to leave
+ * used to answer that with a Get button, which asks the viewer to leave
  * and come back — the one thing this redesign exists to stop.
  *
  * Nothing new is needed to honour it. The engine already adds every torrent
@@ -68,13 +68,13 @@ export interface GetTitleAction {
  * This is a *distinct kind* rather than a flag on `play`, because the two have
  * different failure modes and must not share a code path. `play` opens
  * something we hold and can only fail to render. `stream` performs a search and
- * a send first, either of which can find nothing — and a Watch press that finds
+ * a send first, either of which can find nothing — and a Play press that finds
  * nothing must say so, never open a black player and let the viewer conclude
  * the app is broken.
  */
 export interface StreamTitleAction {
   kind: "stream";
-  label: "Watch";
+  label: "Play";
   season: number | null;
   episode: number | null;
 }
@@ -92,9 +92,9 @@ export type TitleAction = PlayTitleAction | GetTitleAction | StreamTitleAction;
  * `fetchable` means we have searched and a seeded release exists. That is not
  * "come back later", it is "press play"; it moves to `stream`.
  *
- * `unavailable` is the one state that stays a Download. We searched and found
- * nothing, so offering Watch would dead-end — and rule 1 above says we never
- * offer Watch for something that will not play. Download is honest: it retries
+ * `unavailable` is the one state that stays a Get. We searched and found
+ * nothing, so offering Play would dead-end — and rule 1 above says we never
+ * offer Play for something that will not play. Get is honest: it retries
  * the search and reports plainly when there is still nothing.
  */
 const STATE_POLICY: Record<AvailabilityState, "local" | "stream" | "remote"> = {
@@ -118,11 +118,11 @@ export interface Playable {
  * The single action offered for one playable thing.
  *
  * Ordering matters:
- *  1. Local *and* addressable → Watch/Resume, straight into the player.
- *  2. Positively unavailable → Download. The only state where we hold evidence
- *     that pressing Watch would dead-end.
+ *  1. Local *and* addressable → Play/Resume, straight into the player.
+ *  2. Positively unavailable → Get. The only state where we hold evidence
+ *     that pressing Play would dead-end.
  *  3. Everything else — fetchable, unchecked, or a local claim with no info
- *     hash — → Watch, via a grab. Not knowing is not a reason to make the
+ *     hash — → Play, via a grab. Not knowing is not a reason to make the
  *     viewer do the work.
  */
 export function resolvePlayableAction(item: Playable): TitleAction {
@@ -140,7 +140,7 @@ export function resolvePlayableAction(item: Playable): TitleAction {
     const resume = item.resumePositionSec ?? 0;
     return {
       kind: "play",
-      label: resume > 0 ? "Resume" : "Watch",
+      label: resume > 0 ? "Resume" : "Play",
       infoHash,
       filePath: item.filePath ?? null,
       resumePositionSec: item.resumePositionSec ?? null,
@@ -152,7 +152,7 @@ export function resolvePlayableAction(item: Playable): TitleAction {
   if (policy === "remote") {
     return {
       kind: "get",
-      label: "Download",
+      label: "Get",
       season,
       episode,
     };
@@ -160,7 +160,7 @@ export function resolvePlayableAction(item: Playable): TitleAction {
 
   return {
     kind: "stream",
-    label: "Watch",
+    label: "Play",
     season,
     episode,
   };
@@ -221,19 +221,19 @@ export function resolvePrimaryAction(payload: TitleDetailPayload): TitleAction {
   // A series-level action has to name an episode; the title-level lookup could
   // not, because it was asked about the work. Keep whichever kind the state
   // earned and only fill in the target — a `fetchable` series must not lose its
-  // Watch on the way through here just because it needed an episode number.
+  // Play on the way through here just because it needed an episode number.
   if (payload.isSeries) {
     const target = nextUpTarget(payload);
     return titleLevel.kind === "stream"
       ? {
           kind: "stream",
-          label: "Watch",
+          label: "Play",
           season: target.season,
           episode: target.episode,
         }
       : {
           kind: "get",
-          label: "Download",
+          label: "Get",
           season: target.season,
           episode: target.episode,
         };
@@ -291,9 +291,8 @@ export type TitleActionStatus = "idle" | "pending" | "done" | "error";
 /**
  * The button text for an action in a given status.
  *
- * A grab takes tens of seconds and then hands off to the client, so the
- * control has to keep telling the truth the whole way through: one that still
- * says "Download" after a successful grab invites a second, duplicate grab.
+ * Status is rendered beside the progress row. The primary slot keeps saying
+ * what a press does, so it never becomes an unclickable state readout.
  */
 export function titleActionLabel(
   action: TitleAction,
@@ -301,21 +300,13 @@ export function titleActionLabel(
 ): string {
   switch (action.kind) {
     case "play":
-      if (status === "pending") return "Opening…";
       if (status === "error") return "Try again";
       return action.label;
     case "stream":
-      // A grab takes tens of seconds before the first frame, and silence for
-      // that long reads as a dead button. "Finding a copy…" is what is
-      // actually happening — the search, not the playback — and saying so is
-      // what stops a second press starting a second grab.
-      if (status === "pending") return "Finding a copy…";
       if (status === "error") return "Try again";
       return action.label;
     case "get":
-      if (status === "pending") return "Starting…";
       if (status === "error") return "Try again";
-      if (status === "done") return "Downloading";
       return action.label;
     default:
       return assertNeverAction(action);

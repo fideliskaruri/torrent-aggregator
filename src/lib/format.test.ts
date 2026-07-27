@@ -8,7 +8,7 @@
  * That string shipped straight to the Client page.
  */
 import assert from "node:assert/strict";
-import { formatBytes, formatDuration } from "@/lib/utils";
+import { factsLine, formatBytes, formatDuration } from "@/lib/utils";
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -114,6 +114,23 @@ check("at most two units, so the metadata line cannot grow unbounded", () => {
 for (const bad of [null, undefined, NaN, -1, Infinity]) {
   check(`duration ${String(bad)} → em dash`, () => {
     assert.equal(formatDuration(bad as number), "—");
+  });
+}
+
+console.log("factsLine…");
+
+const FACT_LINE_CASES: Array<[Array<string | null | undefined | false>, string]> = [
+  [["2013", "Series", "★ 8.7", "9 seasons"], "2013 · Series · ★ 8.7 · 9 seasons"],
+  [["S01E01", null, "12% watched"], "S01E01 · 12% watched"],
+  [[undefined, "", false, "1 release"], "1 release"],
+];
+
+for (const [input, expected] of FACT_LINE_CASES) {
+  check(`factsLine(${JSON.stringify(input)})`, () => {
+    assert.equal(factsLine(input), expected);
+    if (expected.includes(" · ")) {
+      assert.match(factsLine(input), / · /);
+    }
   });
 }
 

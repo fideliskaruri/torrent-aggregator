@@ -9,8 +9,8 @@
  * release names, seeders and magnet links. Netflix is *see art → click → a
  * page about the title → press play*, and that page did not exist here.
  *
- * So the whole layout is built around one control. It is **Watch**, **Resume**
- * or **Download** — never "Search". Downloading is one press, performed by the
+ * So the whole layout is built around one control. It is **Play**, **Resume**
+ * or **Get** — never "Search". Getting is one press, performed by the
  * server, and does not navigate anywhere. The release table survives exactly
  * once, as a discreet "Choose a different release" link at the bottom of the
  * facts column: power features move one level deeper, they are not deleted.
@@ -18,7 +18,7 @@
  * Three things about the states on this page:
  *
  *  - `availability: null` means *nobody has checked*, and renders as an
- *    ordinary clickable Download. It is not a disabled control and it is not
+ *    ordinary clickable Get. It is not a disabled control and it is not
  *    `unavailable`.
  *  - Play is offered only when a live local torrent backs it. A progress row
  *    for a deleted download is not evidence of a file (the server already
@@ -35,6 +35,7 @@ import { PosterImage } from "@/components/browse/poster-image";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { posterTint } from "@/components/browse/poster";
 import {
+  clampFraction,
   cleanDisplayTitle,
   progressPercent,
 } from "@/components/browse/availability";
@@ -42,12 +43,12 @@ import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { isSeriesMediaType, normalizeMediaType } from "@/lib/metadata/media-type";
 import { cn } from "@/lib/utils";
 import { EpisodeList, episodeActionKey } from "./episode-list";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons } from "./merge-extras";
 import { MoreLikeThis } from "./more-like-this";
+import { titleFacts } from "./title-facts";
 import {
   resolvePrimaryAction,
   titleActionLabel,
@@ -148,7 +149,7 @@ export function TitleDetail(props: TitleDetailProps) {
         }
         setStatuses((prev) => ({ ...prev, [key]: "done" }));
 
-        // The press said Watch, so the press has to end in the player. The
+        // The press said Play, so the press has to end in the player. The
         // engine fetches sequentially and primes the file's first bytes, so a
         // torrent that started a second ago is as openable as one that
         // finished last week — the only thing that was missing was being told
@@ -278,6 +279,7 @@ function TitleContent({
   // wordmark and all, behind its own H1. No backdrop is a tinted panel.
   const backdrop = payload.backdropUrl;
   const downloaded = progressPercent(payload.downloadFraction);
+  const downloadFraction = clampFraction(payload.downloadFraction);
 
   // The season the user is looking at, which is not always the season the
   // detail route answered with: it only knows the seasons we hold files for,
@@ -296,21 +298,35 @@ function TitleContent({
   const seasonCount = extras?.seasonCount ?? null;
   const similar = extras?.moreLikeThis ?? [];
 
-  const facts = [
-    payload.year ? String(payload.year) : null,
-    mediaTypeLabel(payload.mediaType),
-    payload.rating != null ? `${payload.rating.toFixed(1)} rating` : null,
+  const facts = titleFacts({
+    year: payload.year,
+    mediaType: payload.mediaType,
+    rating: payload.rating,
+    isSeries: payload.isSeries,
     // Only ever the provider's count. Counting the seasons we hold files for
     // printed "1 season" directly above a list headed "5 in season 2"; a
     // number that contradicts the thing under it is worse than no number.
-    payload.isSeries && seasonCount != null && seasonCount > 0
-      ? `${seasonCount} season${seasonCount === 1 ? "" : "s"}`
-      : null,
-  ].filter((f): f is string => Boolean(f));
+    seasonCount,
+  });
 
   const primarySubtitle =
     primary.season != null && primary.episode != null
       ? `S${pad(primary.season)}E${pad(primary.episode)}`
+      : null;
+  const primaryStatusText = primaryStatusMessage(
+    primary,
+    primaryStatus,
+    primarySubtitle,
+  );
+  const primaryHint =
+    payload.isSeries && primarySubtitle
+      ? `${
+          primary.kind === "get"
+            ? "Gets"
+            : primary.label === "Resume"
+              ? "Resumes"
+              : "Starts with"
+        } ${primarySubtitle}. Choose a different episode below.`
       : null;
 
   return (
@@ -384,11 +400,11 @@ function TitleContent({
                 {payload.availability != null ? (
                   <AvailabilityChip state={payload.availability} />
                 ) : null}
-                {facts.map((fact) => (
-                  <span key={fact} data-title-fact className="tabular-nums">
-                    {fact}
+                {facts ? (
+                  <span data-title-facts className="tabular-nums">
+                    {facts}
                   </span>
-                ))}
+                ) : null}
               </div>
 
               {payload.overview ? (
@@ -397,12 +413,6 @@ function TitleContent({
                   className="text-body mt-3 line-clamp-4 max-w-xl"
                 >
                   {payload.overview}
-                </p>
-              ) : null}
-
-              {downloaded != null && downloaded < 100 ? (
-                <p className="mt-3 text-[12px] text-[var(--text-tertiary)]">
-                  {downloaded}% downloaded
                 </p>
               ) : null}
 
@@ -428,7 +438,7 @@ function TitleContent({
                 >
                   {primaryStatus === "pending" ? (
                     <Loader2 className="animate-spin" aria-hidden />
-                  ) : primary.kind === "play" ? (
+                  ) : primary.kind === "play" || primary.kind === "stream" ? (
                     <Play className="fill-current" aria-hidden />
                   ) : (
                     <Download aria-hidden />
@@ -447,6 +457,47 @@ function TitleContent({
                   onChanged={onLibraryChanged}
                 />
               </div>
+
+              {primaryHint ? (
+                <p className="mt-2 text-[12px] text-[var(--text-secondary)]">
+                  {primaryHint}
+                </p>
+              ) : null}
+
+              {primaryStatusText || (downloaded != null && downloaded < 100) ? (
+                <div
+                  className="mt-3 max-w-sm space-y-1.5 text-[12px] text-[var(--text-tertiary)]"
+                  role={primaryStatusText ? "status" : undefined}
+                >
+                  <p>
+                    {[
+                      primaryStatusText,
+                      downloaded != null && downloaded < 100
+                        ? `${downloaded}% downloaded`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" — ")}
+                  </p>
+                  {downloadFraction != null ? (
+                    <div
+                      className="h-1 overflow-hidden rounded-full bg-[var(--bg-muted)]"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(downloadFraction * 100)}
+                      aria-label={`${title} download progress`}
+                    >
+                      <div
+                        className="h-full rounded-full bg-[var(--accent)]"
+                      style={{
+                        width: `${Math.round(downloadFraction * 100)}%`,
+                      }}
+                    />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {notice ? (
                 <p
@@ -561,18 +612,24 @@ function buildExtrasUrl(
   return `/api/title/${encodeURIComponent(workKey)}/extras?${params.toString()}`;
 }
 
-/** Human label for a media type, derived — never compared inline. */
-function mediaTypeLabel(raw: string | null): string | null {
-  const mediaType = normalizeMediaType(raw);
-  if (!mediaType) return null;
-  if (mediaType === "movie") return "Film";
-  return isSeriesMediaType(mediaType) && mediaType === "anime"
-    ? "Anime"
-    : "Series";
-}
-
 function pad(n: number): string {
   return String(n).padStart(2, "0");
+}
+
+function primaryStatusMessage(
+  action: TitleAction,
+  status: TitleActionStatus,
+  target: string | null,
+): string | null {
+  const subject = target ?? "this title";
+  if (status === "pending") {
+    if (action.kind === "play") return "Opening player…";
+    return `Getting ${subject} ready…`;
+  }
+  if (status === "done" && action.kind === "get") {
+    return `Getting ${subject}`;
+  }
+  return null;
 }
 
 /**

@@ -48,6 +48,16 @@ export function formatDuration(seconds: number | null | undefined): string {
   return parts.join(" ");
 }
 
+/** Join short metadata facts with a real, spoken separator. */
+export function factsLine(
+  parts: readonly (string | null | undefined | false)[],
+): string {
+  return parts
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter((part) => part.length > 0)
+    .join(" · ");
+}
+
 /** Relative time like "2h ago" */
 export function formatRelativeTime(date: Date | string | null | undefined): string {
   if (!date) return "—";

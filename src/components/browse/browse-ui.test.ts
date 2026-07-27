@@ -724,6 +724,12 @@ check("availabilityMeta: every state, including null, has its own word", () => {
   assert.equal(new Set(descriptions).size, descriptions.length);
 });
 
+check("availabilityMeta: fetchable names getting, not local readiness", () => {
+  assert.equal(availabilityMeta("ready").label, "Ready");
+  assert.equal(availabilityMeta("fetchable").label, "Can get");
+  assert.notEqual(availabilityMeta("fetchable").label, "Available");
+});
+
 // ---------------------------------------------------------------------------
 // Posters
 // ---------------------------------------------------------------------------

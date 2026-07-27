@@ -5,7 +5,7 @@ import { Loader2, Play, Search } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, factsLine } from "@/lib/utils";
 import {
   actionLabel,
   cleanDisplayTitle,
@@ -45,6 +45,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
   const secondary = searchAction(item);
   const title = cleanDisplayTitle(item.title);
   const facts = heroFacts(item);
+  const factsText = factsLine(facts);
   const fraction = clampFraction(item.progressFraction);
   const label = actionLabel(action, status);
   const image = item.backdropUrl ?? item.posterUrl;
@@ -100,11 +101,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
 
           <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-[var(--text-secondary)]">
             <AvailabilityChip state={item.availability} />
-            {facts.map((fact) => (
-              <span key={fact} className="tabular-nums">
-                {fact}
-              </span>
-            ))}
+            {factsText ? <span className="tabular-nums">{factsText}</span> : null}
           </div>
 
           <p className="text-body mt-3 max-w-xl">{heroPitch(item)}</p>

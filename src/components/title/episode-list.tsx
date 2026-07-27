@@ -10,7 +10,7 @@
  *
  * Three judgements are baked into a row:
  *
- *  - **A row has to say what the episode is.** "S02E01 · Not checked · Download"
+ *  - **A row has to say what the episode is.** "S02E01 · Not checked · Get"
  *    is a filename with better spacing, and drew the same verdict as the rest
  *    of the app once did: *"a website you go to view torrent lists"*. The name,
  *    air date, runtime and synopsis come from the extras round trip and are
@@ -21,7 +21,7 @@
  *    renders as *no chip* — the row is still clickable and Get still says what
  *    it means. This is not the same as calling it `unavailable`, which is a
  *    claim, and one we never make per-episode.
- *  - **An unaired episode gets no button.** Offering "Download" for something
+ *  - **An unaired episode gets no button.** Offering "Get" for something
  *    that does not exist yet is the app asserting a state it never checked. It
  *    prints its air date instead — plain text, so there is no disabled control
  *    for a keyboard user to land on. A local file always wins over a future
@@ -32,7 +32,7 @@ import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { PosterImage } from "@/components/browse/poster-image";
 import { formatClock, progressPercent } from "@/components/browse/availability";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, factsLine } from "@/lib/utils";
 import {
   formatAirDate,
   formatRuntime,
@@ -183,6 +183,7 @@ function EpisodeRow({
   }
   if (resumeAt) facts.push(`Resume at ${resumeAt}`);
   else if (watched != null && watched < 100) facts.push(`${watched}% watched`);
+  const factsText = factsLine(facts);
 
   // Only actionable states get a badge. `null` means nobody has looked, and a
   // chip saying so on every row of a season conveys nothing.
@@ -245,19 +246,9 @@ function EpisodeRow({
           </span>
         ) : null}
 
-        {/* Adjacent inline facts in a flex row: whitespace between them is not
-            rendered (flex creates no anonymous boxes for whitespace-only text),
-            so the separator is a real element with real text in it rather than
-            a margin — a screen reader cannot hear a margin, and `{" "}` here
-            would be silently dropped. */}
-        {facts.length > 0 ? (
+        {factsText ? (
           <span className="mt-1 flex flex-wrap items-center text-[11px] text-[var(--text-tertiary)]">
-            {facts.map((fact, index) => (
-              <span key={fact} className="inline-flex items-center">
-                {index > 0 ? <span className="mx-1.5">·</span> : null}
-                {fact}
-              </span>
-            ))}
+            {factsText}
           </span>
         ) : null}
 

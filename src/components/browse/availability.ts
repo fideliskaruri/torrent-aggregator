@@ -106,7 +106,7 @@ export function availabilityMeta(
       };
     case "fetchable":
       return {
-        label: "Available",
+        label: "Can get",
         tone: "secondary",
         description: "Not on disk yet, but a viable release exists.",
       };
@@ -506,4 +506,3 @@ export function actionLabel(action: CardAction, status: ActionStatus): string {
       return assertNever(action, "actionLabel");
   }
 }
-

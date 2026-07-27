@@ -12,6 +12,7 @@
  * Pure and DOM-free: `work-sections.test.ts` drives it as a table.
  */
 import { parseResolution } from "@/lib/torrents/quality";
+import { factsLine } from "@/lib/utils";
 
 /** The shape this module needs from a release. Deliberately structural. */
 export interface SectionableRelease {
@@ -185,10 +186,8 @@ export function workSubtitle({
   seasons: number;
   releaseCount: number;
 }): string {
-  return [
+  return factsLine([
     seasons > 1 ? `${seasons} seasons` : null,
     `${releaseCount.toLocaleString()} ${releaseCount === 1 ? "release" : "releases"}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ]);
 }
