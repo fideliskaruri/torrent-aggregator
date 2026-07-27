@@ -20,6 +20,10 @@ import {
   shouldSendAsStreamOnly,
   streamingRetentionEnabled,
 } from "@/lib/streaming/retention";
+import {
+  readDefaultRetentionPolicy,
+  resolveSendRetentionChoice,
+} from "@/lib/library/retention-settings";
 
 export const dynamic = "force-dynamic";
 /** WebTorrent / disk I/O must run in Node, not Edge. */
@@ -145,12 +149,23 @@ export async function POST(request: NextRequest) {
       magnet: body.magnet,
     });
     const existingOrigin = await existingRetentionOrigin(session.user.id, infoHash);
+    let sendRetention: "stream" | "keep" | null = body.retention ?? null;
+    if (body.retention == null) {
+      const defaultRetention = await readDefaultRetentionPolicy(session.user.id);
+      sendRetention = resolveSendRetentionChoice({
+        defaultPolicy: defaultRetention.policy,
+        defaultPolicyPersisted: defaultRetention.persisted,
+        explicitRetention: null,
+        watchListItemId: body.watchListItemId,
+        existingOrigin,
+      });
+    }
     const streamOnly = shouldSendAsStreamOnly({
       enabled: streamingRetentionEnabled(),
       clientType: config.clientType,
       sendTarget,
       watchListItemId: body.watchListItemId,
-      retention: body.retention ?? null,
+      retention: sendRetention,
       existingOrigin,
     });
 

@@ -7,7 +7,6 @@ import {
   ChevronRight,
   FolderOpen,
   FolderSearch,
-  Loader2,
   Plus,
   Tags,
   Trash2,
@@ -15,12 +14,15 @@ import {
 } from "lucide-react";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
 import { FolderPicker } from "@/components/settings/folder-picker";
+import { RetentionPanel } from "@/components/settings/retention-panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfErrorState } from "@/components/tf/error-state";
 import { cn } from "@/lib/utils";
+import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
+import { useStableLoading } from "@/components/ui/use-stable-loading";
 
 interface ClientForm {
   clientType: "qbittorrent" | "transmission" | "builtin";
@@ -204,6 +206,7 @@ export default function SettingsPage() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   /** Connection test succeeded — cleared when connection fields change */
   const [connectionOk, setConnectionOk] = useState(false);
+  const showLoading = useStableLoading(loading && !loadError);
 
   // Deep-link: ?tab=connection|folders|categories
   useEffect(() => {
@@ -570,14 +573,7 @@ export default function SettingsPage() {
     });
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        Loading settings…
-      </div>
-    );
-  }
+  if (loading && !loadError) return <SettingsSkeleton visible={showLoading} />;
 
 
   if (loadError) {
@@ -849,27 +845,28 @@ export default function SettingsPage() {
 
         {/* Folders */}
         {tab === "folders" && (
-          <section
-            role="tabpanel"
-            aria-labelledby="settings-tab-folders"
-            className="surface rounded-xl p-5 sm:p-6 space-y-5"
-          >
-            <div className="flex items-start gap-3">
-              <FolderOpen className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
-              <div>
-                <h2 className="text-sm font-medium text-[var(--text)]">
-                  Download folders
-                </h2>
-                <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
-                  Set a base folder to auto-map each category to{" "}
-                  <code className="text-[var(--text-secondary)]">
-                    base/Category
-                  </code>
-                  . Override individual categories under Categories if needed.
-                  Paths must be readable by the torrent client.
-                </p>
+          <>
+            <section
+              role="tabpanel"
+              aria-labelledby="settings-tab-folders"
+              className="surface rounded-xl p-5 sm:p-6 space-y-5"
+            >
+              <div className="flex items-start gap-3">
+                <FolderOpen className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
+                <div>
+                  <h2 className="text-sm font-medium text-[var(--text)]">
+                    Download folders
+                  </h2>
+                  <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
+                    Set a base folder to auto-map each category to{" "}
+                    <code className="text-[var(--text-secondary)]">
+                      base/Category
+                    </code>
+                    . Override individual categories under Categories if needed.
+                    Paths must be readable by the torrent client.
+                  </p>
+                </div>
               </div>
-            </div>
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
@@ -885,7 +882,7 @@ export default function SettingsPage() {
                       className="inline-flex items-center gap-1 text-[11px] text-[var(--accent-text)] hover:underline disabled:opacity-40"
                     >
                       {openingPath === form.baseDownloadPath ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <LoadingGlyph className="h-3 w-3" />
                       ) : (
                         <FolderSearch className="h-3 w-3" />
                       )}
@@ -1079,7 +1076,7 @@ export default function SettingsPage() {
                     {openingPath === form.savePath ||
                     openingPath === form.category ||
                     openingPath === "default" ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <LoadingGlyph className="h-3 w-3" />
                     ) : (
                       <FolderSearch className="h-3 w-3" />
                     )}
@@ -1142,7 +1139,10 @@ export default function SettingsPage() {
               folders on this server; “Open folder” opens them in your file
               manager when paths are local.
             </p>
-          </section>
+            </section>
+
+            <RetentionPanel />
+          </>
         )}
 
         {/* Categories */}
@@ -1365,7 +1365,7 @@ export default function SettingsPage() {
                                     derived ||
                                     form.savePath) ||
                                 openingPath === c ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <LoadingGlyph className="h-4 w-4" />
                                 ) : (
                                   <FolderSearch className="h-4 w-4" />
                                 )}
@@ -1434,7 +1434,7 @@ export default function SettingsPage() {
             )}
             <div className="flex flex-wrap gap-2 shrink-0 sm:ml-auto">
               <Button type="submit" disabled={saving} size="lg">
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {saving && <LoadingGlyph className="h-4 w-4" />}
                 Save
               </Button>
               <Button
@@ -1470,6 +1470,39 @@ export default function SettingsPage() {
         onSelect={handlePickerSelect}
       />
     </div>
+  );
+}
+
+
+function SettingsSkeleton({ visible = true }: { visible?: boolean }) {
+  return (
+    <PageSkeletonFrame
+      aria-label="Loading settings"
+      className={cn(
+        "container-app max-w-2xl py-6 sm:py-8 space-y-5 pb-28 min-w-0 transition-opacity duration-150",
+        !visible && "opacity-0",
+      )}
+    >
+      <div className="space-y-2">
+        <SkeletonBlock className="h-8 w-32" />
+        <SkeletonBlock className="h-4 w-80 max-w-full" />
+      </div>
+      <SkeletonBlock className="h-11 w-full rounded-lg" />
+      <div className="surface space-y-4 p-4 sm:p-5">
+        <SkeletonBlock className="h-5 w-40" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Array.from({ length: 4 }, (_, i) => (
+            <SkeletonBlock key={i} className="h-16 w-full" />
+          ))}
+        </div>
+        <SkeletonBlock className="h-24 w-full" />
+      </div>
+      <div className="surface space-y-3 p-4 sm:p-5">
+        <SkeletonBlock className="h-5 w-36" />
+        <SkeletonBlock className="h-16 w-full" />
+        <SkeletonBlock className="h-16 w-full" />
+      </div>
+    </PageSkeletonFrame>
   );
 }
 

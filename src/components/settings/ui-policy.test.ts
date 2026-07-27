@@ -9,6 +9,7 @@ import {
 } from "@/app/rules/page";
 import { PRIMARY_DOWNLOAD_CLIENT_OPTIONS } from "@/app/settings/page";
 import { normalizeMediaType } from "@/lib/metadata/media-type";
+import fs from "node:fs";
 
 const ruleCategoryValues = RULE_CATEGORY_OPTIONS.map((option) => option.value);
 
@@ -73,4 +74,36 @@ assert.deepEqual(
     { value: "transmission", stance: "advanced" },
   ],
   "external clients are useful integrations, but they must not be presented as equal to in-browser playback",
+);
+
+const settingsPage = fs.readFileSync("src/app/settings/page.tsx", "utf8");
+const retentionPanel = fs.readFileSync(
+  "src/components/settings/retention-panel.tsx",
+  "utf8",
+);
+
+assert.match(
+  settingsPage,
+  /import \{ RetentionPanel \} from "@\/components\/settings\/retention-panel";/,
+  "retention settings must be imported by the Settings page, not left as dead code",
+);
+assert.match(
+  settingsPage,
+  /<RetentionPanel \/>/,
+  "retention controls must be rendered where users manage downloads",
+);
+assert.doesNotMatch(
+  retentionPanel,
+  />\s*Stream-only\s*</,
+  "the default-retention option label must state the effect, not the mechanism",
+);
+assert.match(
+  retentionPanel,
+  /Free up space after watching/,
+  "the stream-cache default should be labelled by the user-visible effect",
+);
+assert.match(
+  retentionPanel,
+  /Delete reclaimable stream-only files/,
+  "the destructive sweep button must say it deletes files",
 );

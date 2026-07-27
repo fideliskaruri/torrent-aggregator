@@ -32,12 +32,35 @@ interface SweepResult {
   satisfied: boolean;
 }
 
+const RETENTION_OPTIONS: Array<{
+  value: RetentionPolicy;
+  label: string;
+  hint: string;
+}> = [
+  {
+    value: "EPHEMERAL",
+    label: "Free up space after watching",
+    hint: "New Play/stream sends use a temporary cache. Tracked, watchlisted, or explicitly kept items stay.",
+  },
+  {
+    value: "KEPT",
+    label: "Keep new downloads",
+    hint: "New built-in sends stay on disk until you remove them.",
+  },
+];
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
   if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
   return `${Math.round(bytes)} B`;
+}
+
+function retentionLabel(policy: RetentionPolicy | "INDETERMINATE"): string {
+  if (policy === "EPHEMERAL") return "stream cache";
+  if (policy === "KEPT") return "kept";
+  return "unknown";
 }
 
 export function RetentionPanel() {
@@ -110,6 +133,14 @@ export function RetentionPanel() {
   }
 
   async function runSweep(mode: "preview" | "delete") {
+    if (
+      mode === "delete" &&
+      !window.confirm(
+        "Delete reclaimable stream-only files now? Kept, tracked, watchlisted, active, downloading, and unknown items are skipped.",
+      )
+    ) {
+      return;
+    }
     setSweeping(mode);
     setError(null);
     try {
@@ -145,7 +176,8 @@ export function RetentionPanel() {
         <div>
           <h2 className="text-sm font-medium text-[var(--text)]">Retention</h2>
           <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
-            Stream-only is the default. Tracked, watchlisted, or explicitly kept releases are permanent.
+            Streamed files can be treated like a cache. Tracked, watchlisted,
+            or explicitly kept releases stay permanent.
           </p>
         </div>
       </div>
@@ -157,48 +189,59 @@ export function RetentionPanel() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            {([
-              ["EPHEMERAL", "Stream-only"],
-              ["KEPT", "Keep everything"],
-            ] as const).map(([value, label]) => (
-              <Button
-                key={value}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {RETENTION_OPTIONS.map((option) => (
+              <button
                 type="button"
-                variant={policy === value ? "default" : "secondary"}
+                key={option.value}
+                aria-pressed={policy === option.value}
                 disabled={saving !== null}
-                onClick={() => void save(value)}
+                onClick={() => void save(option.value)}
+                className={`rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1 disabled:opacity-40 ${
+                  policy === option.value
+                    ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                    : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
+                }`}
               >
-                {saving === value ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {label}
-              </Button>
+                <span className="flex items-center gap-1.5 font-medium">
+                  {saving === option.value ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  {option.label}
+                </span>
+                <span className="mt-1 block text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                  {option.hint}
+                </span>
+              </button>
             ))}
           </div>
-
+ 
           {!persisted ? (
             <p className="text-[11px] text-[var(--warning)] leading-relaxed">
               The app needs the pending database migration before this default can be saved persistently.
             </p>
           ) : null}
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Button
               type="button"
               variant="secondary"
+              className="h-auto min-h-9 whitespace-normal py-2 text-center"
               disabled={sweeping !== null}
               onClick={() => void runSweep("preview")}
             >
               {sweeping === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Preview cleanup
+              Preview reclaimable files
             </Button>
             <Button
               type="button"
-              variant="secondary"
+              variant="destructive"
+              className="h-auto min-h-9 whitespace-normal py-2 text-center"
               disabled={sweeping !== null}
               onClick={() => void runSweep("delete")}
             >
               {sweeping === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Reclaim now
+              Delete reclaimable stream-only files
             </Button>
           </div>
 
@@ -238,7 +281,7 @@ export function RetentionPanel() {
                     <li key={item.hash} className="flex items-center justify-between gap-3 text-xs">
                       <span className="min-w-0 truncate text-[var(--text-secondary)]">{item.name}</span>
                       <span className="shrink-0 text-[var(--text-tertiary)]">
-                        {item.retentionPolicy.toLowerCase()} · {formatBytes(item.sizeBytes)}
+                        {retentionLabel(item.retentionPolicy)} · {formatBytes(item.sizeBytes)}
                       </span>
                     </li>
                   ))}

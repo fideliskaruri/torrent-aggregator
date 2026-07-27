@@ -11,6 +11,7 @@ export const RETENTION_POLICY_KEPT = "KEPT" as const;
 export type RetentionPolicy =
   | typeof RETENTION_POLICY_EPHEMERAL
   | typeof RETENTION_POLICY_KEPT;
+export type SendRetentionChoice = "stream" | "keep";
 
 export const DEFAULT_RETENTION_POLICY: RetentionPolicy =
   RETENTION_POLICY_EPHEMERAL;
@@ -98,6 +99,21 @@ export function resolveRetentionPolicy(
   if (existing === RETENTION_POLICY_KEPT) return RETENTION_POLICY_KEPT;
   if (shouldPromoteToKept(input)) return RETENTION_POLICY_KEPT;
   return normalizeRetentionPolicy(input.defaultPolicy, DEFAULT_RETENTION_POLICY);
+}
+
+export function resolveSendRetentionChoice(
+  input: RetentionDecisionInput & {
+    explicitRetention?: SendRetentionChoice | null;
+    defaultPolicyPersisted?: boolean | null;
+  },
+): SendRetentionChoice | null {
+  if (input.explicitRetention === "stream" || input.explicitRetention === "keep") {
+    return input.explicitRetention;
+  }
+  if (input.defaultPolicyPersisted !== true) return null;
+  return resolveRetentionPolicy(input) === RETENTION_POLICY_KEPT
+    ? "keep"
+    : "stream";
 }
 
 export function shouldDemoteToEphemeral(input: {

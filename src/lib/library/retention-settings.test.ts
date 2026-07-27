@@ -10,6 +10,7 @@ import {
   isSafeToEvictEphemeral,
   normalizeRetentionPolicy,
   resolveRetentionPolicy,
+  resolveSendRetentionChoice,
   retentionPolicyForOrigin,
   shouldDemoteToEphemeral,
   shouldPromoteToKept,
@@ -42,6 +43,49 @@ async function main() {
   assert.equal(
     resolveRetentionPolicy({ existingOrigin: "user", defaultPolicy: "EPHEMERAL" }),
     RETENTION_POLICY_KEPT,
+  );
+  assert.equal(
+    resolveSendRetentionChoice({
+      explicitRetention: "stream",
+      defaultPolicy: "KEPT",
+      defaultPolicyPersisted: true,
+    }),
+    "stream",
+    "an explicit stream-only click must beat the saved default",
+  );
+  assert.equal(
+    resolveSendRetentionChoice({
+      explicitRetention: "keep",
+      defaultPolicy: "EPHEMERAL",
+      defaultPolicyPersisted: true,
+    }),
+    "keep",
+    "an explicit keep click must beat the saved default",
+  );
+  assert.equal(
+    resolveSendRetentionChoice({
+      defaultPolicy: "KEPT",
+      defaultPolicyPersisted: true,
+    }),
+    "keep",
+    "a persisted keep default must be consulted when no explicit choice is sent",
+  );
+  assert.equal(
+    resolveSendRetentionChoice({
+      defaultPolicy: "EPHEMERAL",
+      defaultPolicyPersisted: true,
+      watchListItemId: "wl",
+    }),
+    "keep",
+    "watchlisted sends must still auto-promote to kept at the decision point",
+  );
+  assert.equal(
+    resolveSendRetentionChoice({
+      defaultPolicy: "KEPT",
+      defaultPolicyPersisted: false,
+    }),
+    null,
+    "if the default could not be read, keep the route's previous conservative behavior",
   );
   assert.equal(
     shouldDemoteToEphemeral({
