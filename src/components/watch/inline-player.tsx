@@ -2218,7 +2218,7 @@ function InlineStreamPlayerInner({
     <div
       className={cn(
         "w-full space-y-2",
-        theatre && "flex h-full min-h-0 items-center justify-center px-4 py-14 sm:px-6",
+        theatre && "flex h-full min-h-0 items-stretch px-4 py-14 sm:px-6",
         className,
       )}
       data-inline-player
@@ -2262,7 +2262,7 @@ function InlineStreamPlayerInner({
           className={cn(
             "space-y-2",
             theatre
-              ? "mx-auto flex h-full w-full max-w-6xl flex-col justify-center gap-3 bg-transparent"
+              ? "mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col justify-center gap-3 bg-transparent"
               : "rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2.5 motion-safe:animate-[inline-player-expand_140ms_ease-out]",
           )}
         >
@@ -2428,13 +2428,13 @@ function InlineStreamPlayerInner({
           ) : null}
 
           {playableSrc && selectedFile ? (
-            <div className={cn("space-y-1.5", theatre && "flex min-h-0 flex-col gap-2")}>
+            <div className={cn("space-y-1.5", theatre && "flex h-full min-h-0 flex-col gap-2")}>
               <div
                 data-stream-stage
                 className={cn(
                   "relative",
                   theatre &&
-                    "mx-auto flex aspect-video w-full max-h-[calc(100dvh-13rem)] items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_24px_80px_rgba(0,0,0,0.55)]",
+                    "mx-auto flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_24px_80px_rgba(0,0,0,0.55)]",
                 )}
               >
               {playbackMode === "hls" ? (
@@ -2445,7 +2445,7 @@ function InlineStreamPlayerInner({
                   preload="auto"
                   className={cn(
                     "w-full bg-black",
-                    theatre ? "h-full object-contain" : "rounded-md",
+                    theatre ? "h-full min-h-0 object-contain" : "rounded-md",
                   )}
                   title={activeTitle}
                   onClick={togglePlay}
@@ -2500,7 +2500,7 @@ function InlineStreamPlayerInner({
                   preload="metadata"
                   className={cn(
                     "w-full bg-black",
-                    theatre ? "h-full object-contain" : "rounded-md",
+                    theatre ? "h-full min-h-0 object-contain" : "rounded-md",
                   )}
                   src={playableSrc}
                   title={activeTitle}
