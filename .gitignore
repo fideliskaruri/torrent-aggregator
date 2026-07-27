@@ -64,6 +64,11 @@ tmp-home.html
 # agent / session scratch
 .grok/
 .claude/
+# Throwaway probe scripts. They are excluded from tsconfig too: a scratch file
+# must never be able to break `npm run build` for everyone else.
+scripts/_*
+.qabak/
+qa-*.log
 
 # OS
 Thumbs.db
@@ -86,3 +91,9 @@ switch.json
 # local run logs
 run.log
 fix-server.log
+
+# Playback transcode/remux session temp files
+.sessions/
+
+# Generated media fixtures for the playback e2e harness
+.media-e2e/
