@@ -712,9 +712,11 @@ operate on rather than a frozen snapshot.
   browser-side signal — no web API exposes the decoder's channel count.
 - `media-torrent-e2e.mts` — the only test where a real user's bytes flow.
   `scripts/lib/local-swarm.mts` runs a `bittorrent-tracker` server and a
-  WebTorrent seeder on loopback; the magnet deliberately carries `tr=` so the
-  engine's `withPublicTrackers` does not inject public trackers, which is what
-  guarantees the test never touches the internet. It mounts the real
+  WebTorrent seeder on loopback; the magnet deliberately carries only a local
+  `tr=`, and the engine treats an all-local announce list (`127.0.0.1`,
+  `localhost`, `::1`, or RFC1918 IPv4) as a private swarm that must not gain
+  public trackers. That explicit rule is what guarantees the test never touches
+  the internet. It mounts the real
   `handleStreamFileRequest` (injecting only `getConfig`) so `file.stream()`,
   the stall guard and the range semantics are all the production ones. This is
   the harness that found the 8 MiB truncation bug above.

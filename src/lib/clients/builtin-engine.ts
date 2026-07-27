@@ -21,14 +21,17 @@ import { pruneEmptyParents } from "./prune-empty-parents";
 import { findTorrentByHash } from "./find-torrent-by-hash";
 import { haltTransfer, resumeTransfer as resumeTransferCore } from "./transfer-control";
 import prisma from "@/lib/prisma";
+import { foregroundActive } from "@/lib/prewarm/foreground";
 
 type WebTorrentLike = {
   torrents: Array<WtTorrent>;
   add: (
-    uri: string,
-    opts?: { path?: string },
+    uri: string | Uint8Array,
+    opts?: BuiltinAddOptions,
     cb?: (t: WtTorrent) => void,
   ) => WtTorrent;
+  throttleUpload?: (rate: number) => void | boolean;
+  throttleDownload?: (rate: number) => void | boolean;
   /** WebTorrent 3+: async; prefer findTorrent (scans torrents) instead */
   get: (id: string) => WtTorrent | void | Promise<WtTorrent | null | void>;
   remove?: (
@@ -45,6 +48,11 @@ type WtFile = {
   path: string;
   length: number;
   type?: string;
+  offset?: number;
+  _startPiece?: number;
+  _endPiece?: number;
+  select?: (priority?: number) => void;
+  deselect?: () => void;
   stream: (opts?: { start?: number; end?: number }) => ReadableStream<Uint8Array>;
 };
 
@@ -64,7 +72,18 @@ type WtTorrent = {
   path: string;
   magnetURI?: string;
   pieces?: Array<unknown>;
-  files?: Array<WtFile & { select?: () => void; deselect?: () => void }>;
+  files?: Array<WtFile>;
+  select?: (start: number, end: number, priority?: number) => void;
+  _select?: (
+    start: number,
+    end: number,
+    priority?: number,
+    notify?: (() => void) | null,
+    isStreamSelection?: boolean,
+  ) => void;
+  _deselect?: (start: number, end: number, isStreamSelection?: boolean) => void;
+  critical?: (start: number, end: number) => void;
+  pieceLength?: number;
   /** Live peer connections. Destroying these is the only way to stop transfer. */
   wires?: Array<{ destroyed?: boolean; destroy?: () => void }>;
   _peers?: Map<string, { destroyed?: boolean; destroy?: (err?: Error) => void }>;
@@ -113,8 +132,16 @@ type WtTorrent = {
  *
  * We do not pin `torrentPort`: measurement showed it made no difference, and a
  * fixed port collides with a qBittorrent install on the same machine.
- * `maxConns` is left at WebTorrent's 55 for the same reason — no observed
- * swarm ever came close to saturating it.
+ *
+ * `maxConns` stays at WebTorrent's 55 deliberately, but no longer because the
+ * old 1-4 peer swarms could not fill it. Tracker breadth should make foreground
+ * swarms wider. Raising the per-torrent budget now would also give every
+ * background seed the same larger socket pool, so ten torrents could multiply
+ * the very contention this file is trying to remove. Until a measurement shows
+ * the playing torrent sitting at 55 connected peers while still starved, the
+ * safer fix is tracker breadth plus upload shaping, not a global connection
+ * increase. If that measurement arrives, the right next step is a foreground
+ * connection policy, not just a bigger number for all torrents.
  */
 const BUILTIN_CLIENT_OPTIONS = { utp: false } as const;
 
@@ -135,32 +162,184 @@ export const builtinClientOptions = BUILTIN_CLIENT_OPTIONS;
  * swarm and slightly slower overall than rarest-first, because you cannot
  * prioritise the pieces that are hardest to get.
  */
-const ADD_OPTIONS = { strategy: "sequential" } as const;
+type BuiltinAddOptions = {
+  strategy: "sequential";
+  announce: string[];
+  path?: string;
+};
 
-export const builtinAddOptions = ADD_OPTIONS;
-
-/** Public trackers so magnets without announce still find peers (common on TPB/CSV). */
-const FALLBACK_TRACKERS = [
+/** Public trackers that widen thin public swarms without replacing release trackers. */
+export const PUBLIC_TRACKERS = [
   "udp://tracker.opentrackr.org:1337/announce",
   "udp://open.stealth.si:80/announce",
   "udp://tracker.torrent.eu.org:451/announce",
+  "udp://exodus.desync.com:6969/announce",
+  "udp://tracker.openbittorrent.com:6969/announce",
   "wss://tracker.openwebtorrent.com",
   "wss://tracker.webtorrent.dev",
-];
+] as const;
 
-/**
- * Ensure magnet has trackers; WebTorrent won't download if magnet is bare btih
- * and DHT is blocked/slow.
- */
-function withPublicTrackers(uri: string): string {
-  const u = uri.trim();
-  if (!u.startsWith("magnet:")) return u;
-  if (/tr=/i.test(u)) return u;
-  let out = u;
-  for (const tr of FALLBACK_TRACKERS) {
-    out += `&tr=${encodeURIComponent(tr)}`;
+const ADD_OPTIONS: BuiltinAddOptions = {
+  strategy: "sequential",
+  announce: [...PUBLIC_TRACKERS],
+};
+
+export const builtinAddOptions = ADD_OPTIONS;
+
+function normalizeAnnounceUrl(value: string): string {
+  try {
+    const u = new URL(value.trim());
+    const protocol = u.protocol.toLowerCase();
+    const host = u.hostname.toLowerCase();
+    const port = u.port ? `:${u.port}` : "";
+    const path = (u.pathname || "").replace(/\/+$/, "");
+    return `${protocol}//${host}${port}${path}`;
+  } catch {
+    return value.trim().toLowerCase().replace(/\/+$/, "");
+  }
+}
+
+function uniqueTrackers(trackers: Iterable<string>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const tracker of trackers) {
+    const trimmed = tracker.trim();
+    if (!trimmed) continue;
+    const key = normalizeAnnounceUrl(trimmed);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
   }
   return out;
+}
+
+function trackerHost(value: string): string | null {
+  try {
+    return new URL(value.trim()).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return null;
+  }
+}
+
+function isPrivateIpv4(host: string): boolean {
+  const parts = host.split(".");
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => Number(p));
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b] = nums;
+  return (
+    a === 127 ||
+    a === 10 ||
+    (a === 192 && b === 168) ||
+    (a === 172 && b >= 16 && b <= 31)
+  );
+}
+
+function isLocalAnnounce(tracker: string): boolean {
+  const host = trackerHost(tracker);
+  if (!host) return false;
+  return host === "localhost" || host === "::1" || isPrivateIpv4(host);
+}
+
+function localOnlyAnnounce(trackers: readonly string[]): boolean {
+  return trackers.length > 0 && trackers.every(isLocalAnnounce);
+}
+
+function fallbackTrackersMissingFromMagnet(uri: string): string[] {
+  if (!uri.trim().startsWith("magnet:")) return [...PUBLIC_TRACKERS];
+  try {
+    const magnet = new URL(uri.trim());
+    const trackers = magnet.searchParams.getAll("tr");
+    if (localOnlyAnnounce(trackers)) return [];
+    const seen = new Set<string>();
+    for (const tr of trackers) {
+      seen.add(normalizeAnnounceUrl(tr));
+    }
+    return PUBLIC_TRACKERS.filter((tr) => !seen.has(normalizeAnnounceUrl(tr)));
+  } catch {
+    return [...PUBLIC_TRACKERS];
+  }
+}
+
+/**
+ * Add public trackers without throwing away the release's own announce list.
+ *
+ * This is no longer the engine's primary add path — `client.add(...,
+ * { announce })` covers magnets, .torrent buffers and info hashes alike. The
+ * string helper remains exported because tests and small probes use it to check
+ * the rule directly: a magnet with one dead tracker is still a thin swarm, so
+ * "has any `tr=`" must never disable the public list.
+ */
+export function withPublicTrackers(uri: string): string {
+  const u = uri.trim();
+  if (!u.startsWith("magnet:")) return u;
+  try {
+    const magnet = new URL(u);
+    const existing = magnet.searchParams.getAll("tr");
+    const trackers = localOnlyAnnounce(existing)
+      ? uniqueTrackers(existing)
+      : uniqueTrackers([...existing, ...PUBLIC_TRACKERS]);
+    magnet.searchParams.delete("tr");
+    for (const tr of trackers) {
+      magnet.searchParams.append("tr", tr);
+    }
+    return magnet.toString();
+  } catch {
+    let out = u;
+    for (const tr of PUBLIC_TRACKERS) {
+      out += `&tr=${encodeURIComponent(tr)}`;
+    }
+    return out;
+  }
+}
+
+function addOptionsForInput(
+  input: string | Uint8Array,
+  dest: string,
+): BuiltinAddOptions {
+  const announce =
+    typeof input === "string"
+      ? fallbackTrackersMissingFromMagnet(input)
+      : [...PUBLIC_TRACKERS];
+  return { ...ADD_OPTIONS, announce: uniqueTrackers(announce), path: dest };
+}
+
+export function addTorrentWithEngineDefaults(
+  client: Pick<WebTorrentLike, "add">,
+  input: string | Uint8Array,
+  dest: string,
+  cb?: (t: WtTorrent) => void,
+): WtTorrent {
+  return client.add(input, addOptionsForInput(input, dest), cb);
+}
+
+export const FOREGROUND_UPLOAD_LIMIT_BPS = 64 * 1024;
+const UNLIMITED_UPLOAD_LIMIT = -1;
+const UPLOAD_THROTTLE_POLL_MS = 5_000;
+
+function applyForegroundUploadThrottle(
+  client: Pick<WebTorrentLike, "throttleUpload" | "throttleDownload"> | null | undefined,
+  active: boolean,
+): void {
+  if (typeof client?.throttleUpload !== "function") return;
+  // WebTorrent 3.0.16 exposes `throttleUpload(rate)` and
+  // `throttleDownload(rate)` methods, with `-1` meaning unlimited. We never
+  // call the download side: playback is already sequential and file-prioritised,
+  // and a download cap would punish the stream we are trying to protect.
+  const rate = active ? FOREGROUND_UPLOAD_LIMIT_BPS : UNLIMITED_UPLOAD_LIMIT;
+  if (rate === 0) return;
+  try {
+    client.throttleUpload(rate);
+  } catch {
+    /* best-effort; a missing throttle must not take the engine down */
+  }
+}
+
+export function applyForegroundUploadThrottleForTests(
+  client: Pick<WebTorrentLike, "throttleUpload" | "throttleDownload">,
+  active: boolean,
+): void {
+  applyForegroundUploadThrottle(client, active);
 }
 
 /** Select all files so every piece is wanted. Does NOT change pause state. */
@@ -178,6 +357,191 @@ function selectAllFiles(t: WtTorrent): void {
   } catch {
     /* best-effort */
   }
+}
+
+const BACKGROUND_FILE_PRIORITY = 0;
+const PLAYING_FILE_PRIORITY = 2;
+const SEEK_FILE_PRIORITY = 3;
+const SEEK_PRIORITY_BYTES = 2 * 1024 * 1024;
+
+type StreamPriorityOptions = {
+  seekOffset?: number;
+  prefetchEdges?: typeof prefetchBuiltinFileEdges;
+  onPrefetchError?: (err: unknown) => void;
+};
+
+type StreamPriorityState = {
+  key: string;
+  fileRange: { start: number; end: number } | null;
+  seekRange: { start: number; end: number } | null;
+};
+
+let prioritizedStreamFiles = new WeakMap<object, StreamPriorityState>();
+let prioritizedEdgePrefetches = new WeakMap<object, Set<string>>();
+
+function fileSelectionKey(file: BuiltinStreamFile): string {
+  return normalizeTorrentFilePath(file.path || file.name);
+}
+
+function finitePiece(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : null;
+}
+
+function filePieceRange(file: BuiltinStreamFile): { start: number; end: number } | null {
+  const start = finitePiece((file as WtFile)._startPiece);
+  const end = finitePiece((file as WtFile)._endPiece);
+  if (start == null || end == null || end < start) return null;
+  return { start, end };
+}
+
+function seekPieceRange(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+  seekOffset: number | undefined,
+): { start: number; end: number } | null {
+  if (seekOffset == null || !Number.isFinite(seekOffset) || seekOffset <= 0) return null;
+  const pieceLength = readProp(() => (torrent as WtTorrent).pieceLength, 0);
+  const fileOffset = readProp(() => (file as WtFile).offset, 0) ?? 0;
+  if (!pieceLength || pieceLength <= 0) return null;
+  const fileRange = filePieceRange(file);
+  if (!fileRange) return null;
+  const start = Math.min(
+    fileRange.end,
+    Math.max(fileRange.start, Math.floor((fileOffset + seekOffset) / pieceLength)),
+  );
+  const pieces = Math.max(0, Math.ceil(SEEK_PRIORITY_BYTES / pieceLength) - 1);
+  return { start, end: Math.min(fileRange.end, start + pieces) };
+}
+
+function selectPieceRange(
+  torrent: BuiltinStreamTorrent,
+  range: { start: number; end: number },
+  priority: number,
+): boolean {
+  const t = torrent as WtTorrent;
+  try {
+    if (typeof t._select === "function") {
+      t._select(range.start, range.end, priority, null, true);
+      return true;
+    }
+    t.select?.(range.start, range.end, priority);
+    return typeof t.select === "function";
+  } catch {
+    return false;
+  }
+}
+
+function deselectStreamPieceRange(
+  torrent: BuiltinStreamTorrent,
+  range: { start: number; end: number } | null,
+): void {
+  if (!range) return;
+  try {
+    (torrent as WtTorrent)._deselect?.(range.start, range.end, true);
+  } catch {
+    /* best-effort */
+  }
+}
+
+function triggerPriorityEdgePrefetch(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+  opts: StreamPriorityOptions,
+): void {
+  const key = fileSelectionKey(file);
+  let files = prioritizedEdgePrefetches.get(torrent);
+  if (!files) {
+    files = new Set<string>();
+    prioritizedEdgePrefetches.set(torrent, files);
+  }
+  if (files.has(key)) return;
+  files.add(key);
+  const prefetchEdges = opts.prefetchEdges ?? prefetchBuiltinFileEdges;
+  void prefetchEdges(torrent, file).catch((err) => {
+    files.delete(key);
+    opts.onPrefetchError?.(err);
+  });
+}
+
+/**
+ * Tell WebTorrent which file is actually on screen.
+ *
+ * The torrent remains selected as a pack. We only add higher-priority overlays
+ * for the watched file, because removing sibling selections makes the next
+ * episode unreachable and turns a season pack into a one-file download. The
+ * private `_select(..., isStreamSelection: true)` shape is the same one
+ * WebTorrent's own FileIterator uses for active streams; unlike public
+ * `torrent.select`, it does not merge with the low-priority whole-torrent
+ * selection that WebTorrent creates at startup.
+ */
+export function prioritizeBuiltinStreamFile(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+  opts: StreamPriorityOptions = {},
+): void {
+  const key = fileSelectionKey(file);
+  const range = filePieceRange(file);
+  const seek = seekPieceRange(torrent, file, opts.seekOffset);
+  const previous = prioritizedStreamFiles.get(torrent);
+  if (
+    previous?.key === key &&
+    previous.seekRange?.start === seek?.start &&
+    previous.seekRange?.end === seek?.end
+  ) {
+    triggerPriorityEdgePrefetch(torrent, file, opts);
+    return;
+  }
+
+  if (previous?.key !== key) {
+    deselectStreamPieceRange(torrent, previous?.fileRange ?? null);
+  }
+  deselectStreamPieceRange(torrent, previous?.seekRange ?? null);
+  prioritizedStreamFiles.set(torrent, { key, fileRange: range, seekRange: seek });
+
+  const files = readProp(() => torrent.files, undefined);
+  if (previous?.key !== key && Array.isArray(files)) {
+    for (const sibling of files) {
+      if (fileSelectionKey(sibling) === key) continue;
+      try {
+        sibling.select?.(BACKGROUND_FILE_PRIORITY);
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  if (range && previous?.key !== key) {
+    selectPieceRange(torrent, range, PLAYING_FILE_PRIORITY);
+  } else if (!range && previous?.key !== key) {
+    try {
+      file.select?.(PLAYING_FILE_PRIORITY);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  if (seek) {
+    selectPieceRange(torrent, seek, SEEK_FILE_PRIORITY);
+    try {
+      (torrent as WtTorrent).critical?.(seek.start, seek.end);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  // The byte route marks the foreground timestamp after the first chunk proves
+  // the request is real. Priority selection happens a little earlier, while the
+  // first chunk is still fighting for the wire. Cap upload here too so old
+  // completed seeds cannot crowd out the very first bytes of playback.
+  applyForegroundUploadThrottle(state().client, true);
+  triggerPriorityEdgePrefetch(torrent, file, opts);
+}
+
+export function resetBuiltinStreamPriorityForTests(): void {
+  prioritizedStreamFiles = new WeakMap<object, StreamPriorityState>();
+  prioritizedEdgePrefetches = new WeakMap<object, Set<string>>();
 }
 
 /**
@@ -225,6 +589,7 @@ type TorrentMeta = {
 type EngineState = {
   client: WebTorrentLike | null;
   loading: Promise<WebTorrentLike> | null;
+  uploadThrottleTimer: ReturnType<typeof setInterval> | null;
   /** hash -> last known save path / category for list enrichment */
   meta: Map<string, TorrentMeta>;
   /** userIds (or "*" for all-users) already rehydrated this process */
@@ -240,6 +605,7 @@ function state(): EngineState {
     g.__tfBuiltinEngine = {
       client: null,
       loading: null,
+      uploadThrottleTimer: null,
       meta: new Map(),
       rehydrated: new Set(),
       rehydrating: new Map(),
@@ -247,9 +613,20 @@ function state(): EngineState {
   }
   // Backfill fields if an older singleton is still hot-reloaded in dev
   const s = g.__tfBuiltinEngine;
+  (s as Partial<EngineState>).uploadThrottleTimer ??= null;
   if (!s.rehydrated) s.rehydrated = new Set();
   if (!s.rehydrating) s.rehydrating = new Map();
   return s;
+}
+
+function startUploadThrottleLoop(client: WebTorrentLike): void {
+  const s = state();
+  if (s.uploadThrottleTimer) return;
+  applyForegroundUploadThrottle(client, foregroundActive());
+  s.uploadThrottleTimer = setInterval(() => {
+    applyForegroundUploadThrottle(client, foregroundActive());
+  }, UPLOAD_THROTTLE_POLL_MS);
+  s.uploadThrottleTimer.unref?.();
 }
 
 /**
@@ -270,6 +647,8 @@ export async function shutdownBuiltinEngine(): Promise<boolean> {
 
   s.client = null;
   s.loading = null;
+  if (s.uploadThrottleTimer) clearInterval(s.uploadThrottleTimer);
+  s.uploadThrottleTimer = null;
   s.meta.clear();
   s.rehydrated.clear();
   s.rehydrating.clear();
@@ -423,6 +802,7 @@ async function getWtClient(): Promise<WebTorrentLike> {
     }
     const client = new WebTorrent(BUILTIN_CLIENT_OPTIONS);
     s.client = client;
+    startUploadThrottleLoop(client);
     return client;
   })();
 
@@ -578,10 +958,7 @@ async function rehydrateFromDb(
           });
 
           // Fire-and-forget: do not wait for metadata (can hang on dead magnets)
-          const t = client.add(withPublicTrackers(row.magnet), {
-            ...ADD_OPTIONS,
-            path: dest,
-          });
+          const t = addTorrentWithEngineDefaults(client, row.magnet, dest);
           t.on("error", (err: unknown) => {
             console.warn(
               `[builtin-engine] rehydrate error for ${hash}:`,
@@ -1055,7 +1432,7 @@ export class BuiltinClient implements TorrentClientAdapter {
 
       fs.mkdirSync(dest, { recursive: true });
 
-      const addUri = withPublicTrackers(uri);
+      const addUri = uri.trim();
       const existingHash = extractInfoHash(addUri) || extractInfoHash(uri);
       if (existingHash) {
         const existing = findTorrent(client, existingHash);
@@ -1129,7 +1506,7 @@ export class BuiltinClient implements TorrentClientAdapter {
             ),
           );
         }, 90_000);
-        const t = client.add(addUri, { ...ADD_OPTIONS, path: dest }, (ready) => {
+        const t = addTorrentWithEngineDefaults(client, addUri, dest, (ready) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
@@ -1291,10 +1668,7 @@ export class BuiltinClient implements TorrentClientAdapter {
             try {
               if (!findTorrent(client, h)) {
                 repairExistingLayout(dest, row.name);
-                const t = client.add(withPublicTrackers(row.magnet), {
-                  ...ADD_OPTIONS,
-                  path: dest,
-                });
+                const t = addTorrentWithEngineDefaults(client, row.magnet, dest);
                 t.on("ready", () => applyPersistedStatus(t, row.status));
                 t.on("error", () => {
                   /* logged elsewhere */

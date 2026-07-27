@@ -1,0 +1,192 @@
+import assert from "node:assert/strict";
+import type {
+  BuiltinStreamFile,
+  BuiltinStreamTorrent,
+} from "./builtin-engine";
+import {
+  prioritizeBuiltinStreamFile,
+  resetBuiltinStreamPriorityForTests,
+} from "./builtin-engine";
+
+type Selection = {
+  start: number;
+  end: number;
+  priority: number | undefined;
+  stream: boolean | undefined;
+};
+
+type FakeFile = BuiltinStreamFile & {
+  offset: number;
+  _startPiece: number;
+  _endPiece: number;
+  selectCalls: number[];
+  deselectCalls: number;
+};
+
+function fakeFile(path: string, start: number, end: number, offset: number): FakeFile {
+  return {
+    name: path.split("/").pop() || path,
+    path,
+    length: (end - start + 1) * 1024,
+    offset,
+    _startPiece: start,
+    _endPiece: end,
+    selectCalls: [],
+    deselectCalls: 0,
+    select(priority?: number) {
+      this.selectCalls.push(priority ?? 0);
+    },
+    deselect() {
+      this.deselectCalls += 1;
+    },
+    stream() {
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.close();
+        },
+      });
+    },
+  } as FakeFile;
+}
+
+function fakeTorrent(files: FakeFile[]): BuiltinStreamTorrent & {
+  pieceLength: number;
+  pieces: unknown[];
+  selections: Selection[];
+  deselections: Array<{ start: number; end: number; stream: boolean | undefined }>;
+  criticalCalls: Array<{ start: number; end: number }>;
+  _select: (
+    start: number,
+    end: number,
+    priority?: number,
+    notify?: (() => void) | null,
+    stream?: boolean,
+  ) => void;
+  critical: (start: number, end: number) => void;
+  _deselect: (start: number, end: number, stream?: boolean) => void;
+} {
+  return {
+    infoHash: "abcdef1234567890abcdef1234567890abcdef12",
+    name: "Season pack",
+    progress: 0,
+    downloadSpeed: 0,
+    numPeers: 1,
+    files,
+    pieceLength: 1024,
+    pieces: new Array(60).fill({}),
+    selections: [],
+    deselections: [],
+    criticalCalls: [],
+    _select(start, end, priority, _notify, stream) {
+      this.selections.push({ start, end, priority, stream });
+    },
+    _deselect(start, end, stream) {
+      this.deselections.push({ start, end, stream });
+    },
+    critical(start, end) {
+      this.criticalCalls.push({ start, end });
+    },
+  };
+}
+
+let failures = 0;
+
+async function check(name: string, fn: () => void | Promise<void>) {
+  try {
+    resetBuiltinStreamPriorityForTests();
+    await fn();
+    console.log(`  ✓ ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.error(`  ✗ ${name}: ${(err as Error).message}`);
+  }
+}
+
+async function main() {
+  await check("played file gets a higher overlay while siblings stay selected", () => {
+    const ep1 = fakeFile("Show/S01E01.mkv", 0, 9, 0);
+    const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
+    const ep6 = fakeFile("Show/S01E06.mkv", 50, 59, 50 * 1024);
+    const torrent = fakeTorrent([ep1, ep5, ep6]);
+
+    prioritizeBuiltinStreamFile(torrent, ep5, {
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(ep1.selectCalls, [0]);
+    assert.deepEqual(ep6.selectCalls, [0]);
+    assert.equal(ep1.deselectCalls, 0);
+    assert.equal(ep6.deselectCalls, 0);
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 49, priority: 2, stream: true },
+    ]);
+  });
+
+  await check("repeat calls for the same file are a no-op", () => {
+    const ep1 = fakeFile("Show/S01E01.mkv", 0, 9, 0);
+    const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
+    const torrent = fakeTorrent([ep1, ep5]);
+    let prefetches = 0;
+
+    prioritizeBuiltinStreamFile(torrent, ep5, {
+      prefetchEdges: async () => {
+        prefetches += 1;
+      },
+    });
+    prioritizeBuiltinStreamFile(torrent, ep5, {
+      prefetchEdges: async () => {
+        prefetches += 1;
+      },
+    });
+
+    assert.deepEqual(ep1.selectCalls, [0]);
+    assert.equal(torrent.selections.length, 1);
+    assert.equal(prefetches, 1);
+  });
+
+  await check("switching files drops only the old priority overlay", () => {
+    const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
+    const ep6 = fakeFile("Show/S01E06.mkv", 50, 59, 50 * 1024);
+    const torrent = fakeTorrent([ep5, ep6]);
+
+    prioritizeBuiltinStreamFile(torrent, ep5, {
+      prefetchEdges: async () => undefined,
+    });
+    prioritizeBuiltinStreamFile(torrent, ep6, {
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.equal(ep5.deselectCalls, 0);
+    assert.equal(ep6.deselectCalls, 0);
+    assert.deepEqual(torrent.deselections, [{ start: 40, end: 49, stream: true }]);
+    assert.deepEqual(ep5.selectCalls, [0]);
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 49, priority: 2, stream: true },
+      { start: 50, end: 59, priority: 2, stream: true },
+    ]);
+  });
+
+  await check("seek offset marks the requested pieces urgent", () => {
+    const ep5 = fakeFile("Show/S01E05.mkv", 40, 60, 40 * 1024);
+    const torrent = fakeTorrent([ep5]);
+
+    prioritizeBuiltinStreamFile(torrent, ep5, {
+      seekOffset: 5 * 1024,
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 60, priority: 2, stream: true },
+      { start: 45, end: 60, priority: 3, stream: true },
+    ]);
+    assert.deepEqual(torrent.criticalCalls, [{ start: 45, end: 60 }]);
+  });
+}
+
+main().then(() => {
+  if (failures > 0) {
+    console.error(`\n${failures} builtin engine priority test(s) failed`);
+    process.exit(1);
+  }
+  console.log("\nAll builtin engine priority tests passed.");
+});

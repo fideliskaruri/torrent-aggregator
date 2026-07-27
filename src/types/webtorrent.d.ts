@@ -7,7 +7,7 @@ declare module "webtorrent" {
     torrentPort: number;
     add(
       uri: string | Uint8Array,
-      opts?: { path?: string },
+      opts?: { announce?: string[]; path?: string; strategy?: string },
       cb?: (torrent: Torrent) => void,
     ): Torrent;
     seed(
@@ -18,11 +18,17 @@ declare module "webtorrent" {
     get(id: string): Torrent | void;
     destroy(cb?: (err?: Error) => void): void;
     on(ev: string, fn: (...args: unknown[]) => void): void;
+    throttleUpload(rate: number): void | boolean;
+    throttleDownload(rate: number): void | boolean;
   }
   export interface TorrentFile {
     name: string;
     path: string;
     length: number;
+    offset?: number;
+    stream(opts?: { start?: number; end?: number }): ReadableStream<Uint8Array>;
+    select(priority?: number): void;
+    deselect(): void;
   }
   export interface Torrent {
     infoHash: string;
@@ -44,6 +50,14 @@ declare module "webtorrent" {
     /** The .torrent file itself, available once metadata is known. */
     torrentFile: Uint8Array;
     files?: TorrentFile[];
+    select(
+      start: number,
+      end: number,
+      priority?: number,
+      notify?: () => void,
+    ): void;
+    deselect(start: number, end: number): void;
+    critical(start: number, end: number): void;
     pause(): void;
     resume(): void;
     /** `host:port`. Only valid after the `infoHash` event. */

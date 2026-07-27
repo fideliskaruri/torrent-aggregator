@@ -2,19 +2,12 @@
 // report peers/speed under different client options. Answers "is the engine
 // slow, or is the swarm dead?"
 import WebTorrent from "webtorrent";
+import { builtinAddOptions, PUBLIC_TRACKERS } from "../src/lib/clients/builtin-engine.js";
 import { patchWebTorrentPieceRace, swallowedPieceRaces } from "../src/lib/clients/webtorrent-piece-race.js";
 import { patchWebTorrentConnErrors } from "../src/lib/clients/webtorrent-conn-errors.js";
 
 await patchWebTorrentPieceRace();
 await patchWebTorrentConnErrors();
-
-const TRACKERS = [
-  "udp://tracker.opentrackr.org:1337/announce",
-  "udp://open.stealth.si:80/announce",
-  "udp://tracker.torrent.eu.org:451/announce",
-  "udp://exodus.desync.com:6969/announce",
-  "udp://tracker.openbittorrent.com:6969/announce",
-];
 
 const hash = process.argv[2];
 const label = process.argv[3] ?? "default";
@@ -24,7 +17,7 @@ const DEST = process.argv[6] ?? process.env.TEMP + "\\tf-probe-" + label;
 
 const magnet =
   `magnet:?xt=urn:btih:${hash}` +
-  TRACKERS.map((t) => `&tr=${encodeURIComponent(t)}`).join("");
+  PUBLIC_TRACKERS.map((t) => `&tr=${encodeURIComponent(t)}`).join("");
 
 const client = new WebTorrent(optsArg) as unknown as {
   add: (u: string, o: object) => Record<string, unknown>;
@@ -33,7 +26,7 @@ const client = new WebTorrent(optsArg) as unknown as {
 
 console.log(`[${label}] opts=${JSON.stringify(optsArg)}`);
 
-const t = client.add(magnet, { path: DEST, strategy: "sequential" });
+const t = client.add(magnet, { ...builtinAddOptions, path: DEST });
 
 (t as { on: (e: string, f: () => void) => void }).on("ready", () => {
   const g = t as unknown as { progress: number; length: number };

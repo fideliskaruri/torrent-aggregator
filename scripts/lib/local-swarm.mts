@@ -9,9 +9,12 @@
  * be both slow and flaky, so instead we run the tracker and the seeder in this
  * process and let the app's own engine be the leecher.
  *
- * The magnet deliberately carries a `tr=` for the local tracker: the engine's
- * `withPublicTrackers` only injects public trackers into a *bare* magnet, so a
- * tracker URL here is what guarantees the test never announces to the internet.
+ * The magnet deliberately carries only a loopback `tr=` for the local tracker.
+ * The engine treats an all-local announce list (`127.0.0.1`, `localhost`,
+ * `::1`, or RFC1918 IPv4) as a private swarm and does not add public trackers.
+ * That is the explicit offline guarantee: if a future harness creates another
+ * loopback swarm, it stays on loopback for the same reason instead of depending
+ * on the old "any `tr=` disables fallback trackers" bug.
  *
  * Neither `bittorrent-tracker` nor `webtorrent` ships types. `webtorrent` is
  * declared app-wide in `src/types/webtorrent.d.ts`; the tracker is declared in
