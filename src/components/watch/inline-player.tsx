@@ -2862,7 +2862,7 @@ function InlineStreamPlayerInner({
   );
 
   const renderStreamVideo = useCallback(
-    (options: { className: string; nativeControls: boolean; defaultSubtitleTrack?: boolean }) =>
+    (options: { className: string; defaultSubtitleTrack?: boolean }) =>
       playbackMode === "hls" ? (
         <video
           data-stream-video
@@ -3370,7 +3370,6 @@ function InlineStreamPlayerInner({
               {playableSrc && selectedFile ? (
                 renderStreamVideo({
                   className: "absolute inset-0 h-full w-full bg-black object-contain",
-                  nativeControls: false,
                   defaultSubtitleTrack: true,
                 })
               ) : null}
@@ -3829,7 +3828,6 @@ function InlineStreamPlayerInner({
               >
               {renderStreamVideo({
                 className: "w-full rounded-md bg-black",
-                nativeControls: false,
               })}
               {seeking ? (
                 <span

@@ -165,14 +165,20 @@ async function assertMovingWithoutOverlay(page: Page) {
   }, null, { timeout: 20_000 });
   await page.evaluate(() => {
     const video = document.querySelector<HTMLVideoElement>("[data-stream-video]");
+    (window as Window & { __tfWaitingStartTime?: number }).__tfWaitingStartTime = video?.currentTime;
     video?.dispatchEvent(new Event("waiting", { bubbles: true }));
   });
-  await page.waitForTimeout(150);
+  const advancedAfterWaiting = await page.waitForFunction(() => {
+    const video = document.querySelector<HTMLVideoElement>("[data-stream-video]");
+    const start = (window as Window & { __tfWaitingStartTime?: number }).__tfWaitingStartTime;
+    return Boolean(video && start != null && video.currentTime > start + 0.15 && !video.paused);
+  }, null, { timeout: 2_000 }).catch(() => null);
+  if (!advancedAfterWaiting) throw new Error("Fixture did not keep advancing after the waiting event");
   const overlayText = await page.locator("text=/Buffering|Too slow to stream|waiting for enough/i").count();
   if (overlayText > 0) throw new Error(`Buffering overlay/status visible over moving video (${overlayText} matches)`);
   const spinnerCount = await page.locator(".animate-spin:visible").count();
   if (spinnerCount > 0) throw new Error(`Visible spinner over moving video (${spinnerCount} matches)`);
-  console.log(`PASS moving video stayed clear after waiting; visible spinners=${spinnerCount}`);
+  console.log(`PASS moving video kept advancing after waiting and stayed clear; visible spinners=${spinnerCount}`);
 }
 
 async function main() {
