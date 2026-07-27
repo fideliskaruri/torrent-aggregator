@@ -29,6 +29,7 @@ import { PlayOverlay } from "@/components/browse/play-overlay";
 import { TfPathChip } from "@/components/tf/path-chip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { searchReleaseDisplay } from "./release-display";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +43,7 @@ interface TorrentCardProps {
   searchCategory?: string;
   featured?: boolean;
   showPoster?: boolean;
+  showRoute?: boolean;
   work?: WorkGroup<TorrentResult> | null;
   fallbackPosterUrl?: string | null;
 }
@@ -52,6 +54,7 @@ export function TorrentCard({
   searchCategory,
   featured = false,
   showPoster = true,
+  showRoute = true,
   work = null,
   fallbackPosterUrl = null,
 }: TorrentCardProps) {
@@ -84,6 +87,8 @@ export function TorrentCard({
   const health = torrent.health ?? 0;
   const workTitle = work?.name ?? meta?.title ?? null;
   const workYear = work?.year ?? meta?.year ?? null;
+  const display = searchReleaseDisplay(torrent, { workTitle, workYear });
+  const visibleTags = [...new Set([...display.facts, ...torrent.tags.slice(0, 1)])];
   const posterUrl = showPoster
     ? (work?.posterUrl ?? fallbackPosterUrl ?? meta?.posterUrl ?? null)
     : null;
@@ -91,8 +96,8 @@ export function TorrentCard({
     .trim()
     .charAt(0)
     .toUpperCase() || "?";
-  const playTitle = workTitle ?? torrent.title;
-  const playSubtitle = [torrent.episode?.label, torrent.tags.slice(0, 2).join(" · ")]
+  const playTitle = display.headline;
+  const playSubtitle = [display.facts.join(" · "), torrent.tags.slice(0, 2).join(" · ")]
     .filter(Boolean)
     .join(" · ");
 
@@ -345,6 +350,7 @@ export function TorrentCard({
         data-featured-result={featured ? "true" : undefined}
         data-index={index}
         tabIndex={0}
+        title={display.rawTitle}
       >
       {/*
         Layout (Material list + 8pt grid):
@@ -353,7 +359,7 @@ export function TorrentCard({
         the full row (that created the empty mid-gap).
       */}
       <div className="flex gap-3 sm:gap-4">
-        {/* One poster per work: later releases from the same work keep flowing, without repeating art. */}
+        {/* One poster per work: later releases keep a typographic anchor, not repeated art. */}
         {showPoster ? (
         <div
           className={cn(
@@ -389,36 +395,29 @@ export function TorrentCard({
             <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg)]" />
           )}
         </div>
-        ) : null}
+        ) : (
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] px-2 text-center font-semibold leading-tight text-[var(--text-secondary)]",
+              featured ? "h-16 w-20 text-sm" : "h-12 w-14 text-[11px]",
+            )}
+            aria-hidden
+          >
+            <span>{display.anchor}</span>
+          </div>
+        )}
 
         {/* Content column: stacked blocks with consistent 8px rhythm */}
         <div className="min-w-0 flex-1 flex flex-col gap-2">
           {/* 1. Title block */}
           <div className="min-w-0 space-y-1">
-            {(featured || !compact) && (
+            {featured && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                {workTitle && (
-                  <span className="text-xs font-medium text-[var(--accent-text)]">
-                    {workTitle}
-                    {workYear ? (
-                      <span className="font-normal text-[var(--text-tertiary)]">
-                        {" "}
-                        ({workYear})
-                      </span>
-                    ) : null}
-                  </span>
-                )}
-                {torrent.episode?.label && (
-                  <span className="badge badge-accent">
-                    {torrent.episode.label}
-                  </span>
-                )}
-                {featured ? (
-                  <span className="badge badge-accent">Best match</span>
-                ) : null}
+                <span className="badge badge-accent">Best match</span>
               </div>
             )}
             <h3
+              title={display.rawTitle}
               className={cn(
                 "font-medium text-[var(--text)] leading-snug break-words",
                 featured
@@ -428,7 +427,7 @@ export function TorrentCard({
                   : "text-sm line-clamp-2",
               )}
             >
-              {torrent.title}
+              {display.headline}
             </h3>
           </div>
 
@@ -437,9 +436,6 @@ export function TorrentCard({
                lines on narrow. */}
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
-            {compact && torrent.episode?.label && (
-              <span className="badge badge-accent">{torrent.episode.label}</span>
-            )}
             <span className="stat">
               <span className="stat-em text-[var(--success)]">
                 {torrent.seeders}
@@ -452,7 +448,9 @@ export function TorrentCard({
             <span className="stat">
               {torrent.sizeLabel || formatBytes(torrent.sizeBytes)}
             </span>
-            <span className="stat">
+            {display.healthLabel ? (
+            <span className="stat" title="Estimated swarm health">
+              {display.healthLabel.label}{" "}
               <span
                 className={cn(
                   "stat-em",
@@ -463,9 +461,10 @@ export function TorrentCard({
                       : "text-[var(--danger)]",
                 )}
               >
-                {health}%
+                {display.healthLabel.value}
               </span>
             </span>
+            ) : null}
             <span className="stat uppercase tracking-wide">{torrent.source}</span>
             {!compact && torrent.publishedAt && (
               <span className="stat">
@@ -473,7 +472,7 @@ export function TorrentCard({
               </span>
             )}
             {!compact &&
-              torrent.tags.slice(0, 2).map((tag) => (
+              visibleTags.map((tag) => (
                 <span key={tag} className="badge">
                   {tag}
                 </span>
@@ -639,7 +638,7 @@ export function TorrentCard({
           </div>
           </div>
 
-          {(chipPath || chipRelative) ? (
+          {showRoute && (chipPath || chipRelative) ? (
             <div className="min-w-0">
               <TfPathChip
                 path={chipPath || chipRelative}

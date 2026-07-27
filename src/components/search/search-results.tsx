@@ -272,15 +272,24 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         if (!firstIdByWork.has(work.key)) firstIdByWork.set(work.key, item.id);
       }
     }
+    const routeKeys = data.results.map((torrent) => routeKey(torrent));
+    const distinctRoutes = new Set(routeKeys.filter(Boolean));
     const base = (currentPage - 1) * (data.pageSize ?? pageSize);
     return data.results.map((torrent, offset) => {
       const work = groupById.get(torrent.id) ?? null;
+      const currentRoute = routeKeys[offset];
+      const prevRoute = routeKeys[offset - 1] ?? null;
+      const nextRoute = routeKeys[offset + 1] ?? null;
       return {
         torrent,
         work,
         index: base + offset,
         featured: offset === 0 && currentPage === 1,
         showPoster: work ? firstIdByWork.get(work.key) === torrent.id : true,
+        showRoute:
+          Boolean(currentRoute) &&
+          distinctRoutes.size > 1 &&
+          (currentRoute !== prevRoute || currentRoute !== nextRoute),
       };
     });
   }, [data, works, currentPage, pageSize]);
@@ -366,12 +375,6 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                 </>
               )}
             </span>
-            {data && typeof data.tookMs === "number" && (
-              <>
-                <span className="text-[var(--border-strong)]">·</span>
-                <span className="tabular-nums">{data.tookMs}ms</span>
-              </>
-            )}
             {data && (
               <>
                 {data.cached && (
@@ -641,7 +644,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       ) : (
         <>
           <div className="grid gap-3">
-            {resultFlow.map(({ torrent, work, index, featured, showPoster }) => {
+            {resultFlow.map(({ torrent, work, index, featured, showPoster, showRoute }) => {
               const fallbackPosterUrl = work?.posterUrl
                 ? null
                 : work
@@ -660,6 +663,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                   searchCategory={category}
                   featured={featured}
                   showPoster={showPoster}
+                  showRoute={showRoute}
                   work={work}
                   fallbackPosterUrl={fallbackPosterUrl}
                 />
@@ -807,6 +811,14 @@ function buildPageList(
     out.push(sorted[i]);
   }
   return out;
+}
+
+function routeKey(torrent: TorrentResult): string | null {
+  return (
+    torrent.route?.relativePath?.trim() ||
+    torrent.route?.savePath?.trim() ||
+    null
+  );
 }
 
 function FilterField({

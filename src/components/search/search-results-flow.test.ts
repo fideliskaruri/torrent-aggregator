@@ -48,6 +48,13 @@ check("the primary search result action is playback, not Send", () => {
   assert.doesNotMatch(torrentCard, /data-action="send"/);
 });
 
+check("search cards do not narrate timing, raw releases, or unlabeled health", () => {
+  assert.doesNotMatch(searchResults, /tookMs/);
+  assert.doesNotMatch(torrentCard, /<h3[\s\S]*\{torrent\.title\}[\s\S]*<\/h3>/);
+  assert.doesNotMatch(torrentCard, /\{health\}%/);
+  assert.match(torrentCard, /title=\{display\.rawTitle\}/);
+});
+
 if (failures > 0) {
   console.error(`\n${failures} failure(s)`);
   process.exit(1);
