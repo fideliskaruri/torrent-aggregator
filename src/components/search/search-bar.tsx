@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Clock, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SEARCH_HREF } from "@/lib/navigation";
 
 const CATEGORIES = [
   { value: "all", label: "All" },
@@ -123,8 +124,8 @@ export function SearchBar({
     setOpen(false);
     const params = new URLSearchParams({ q: trimmed });
     if (cat && cat !== "all") params.set("category", cat);
-    // Results live on home — keep a single search surface
-    router.push(`/?${params.toString()}`);
+    // Results live on /search; `/` is the browse catalog.
+    router.push(`${SEARCH_HREF}?${params.toString()}`);
   }
 
   function onSubmit(e: FormEvent) {

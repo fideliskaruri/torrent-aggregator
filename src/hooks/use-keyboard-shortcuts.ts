@@ -2,12 +2,13 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { SEARCH_HREF } from "@/lib/navigation";
 
 /**
  * Global shortcuts:
- * /  — focus search
+ * /  — focus search, or go to the search page when this one has no search box
  * g then h/s/w/c/a/r/t — navigate package flow
- *   h home · s search · w library · c client · a activity · r rules · t settings
+ *   h home (browse) · s search · w library · c client · a activity · r rules · t settings
  */
 export function useKeyboardShortcuts() {
   const router = useRouter();
@@ -30,8 +31,14 @@ export function useKeyboardShortcuts() {
         const el = document.querySelector<HTMLInputElement>(
           'input[data-search-input="true"]',
         );
-        el?.focus();
-        el?.select();
+        if (el) {
+          el.focus();
+          el.select();
+        } else {
+          // Browse and every other page without a search box: the shortcut
+          // used to do nothing at all there, which reads as broken.
+          router.push(SEARCH_HREF);
+        }
         return;
       }
 
@@ -49,7 +56,7 @@ export function useKeyboardShortcuts() {
       if (pendingG) {
         pendingG = false;
         if (e.key === "h") router.push("/");
-        if (e.key === "s") router.push("/");
+        if (e.key === "s") router.push(SEARCH_HREF);
         if (e.key === "w") router.push("/watchlist");
         if (e.key === "c") router.push("/client");
         if (e.key === "a") router.push("/activity");

@@ -7,8 +7,14 @@
  * `flow.test.ts` asserts the product rules against it.
  *
  * Product rules encoded here:
- *  - Search, Library and Client are the primary path: find it, monitor it,
- *    watch it download.
+ *  - `/` is Browse: the catalog of what you can watch right now. It answers
+ *    "here is what you can play", where the old search-box landing asked
+ *    "what do you want?" and left a new install staring at an empty page.
+ *  - Search is its own entry rather than the home page. It is still one click
+ *    away everywhere: the header renders the Search entry as a compact search
+ *    affordance (see {@link desktopNavRow}) and it holds a mobile tab.
+ *  - Browse, Search, Library and Client are the primary path: see it, find it,
+ *    monitor it, watch it download.
  *  - History is not a peer of the others. It is the download log, reached from
  *    Activity.
  *  - "Run automation" lives on Library only; duplicating it on Client or
@@ -27,9 +33,22 @@ export type NavItem = {
   owns?: readonly string[];
 };
 
+/** The search surface. Exported so nothing has to hardcode the route. */
+export const SEARCH_HREF = "/search";
+
+/**
+ * The one entry the desktop header renders as a search box instead of a link.
+ *
+ * Search deserves a permanent, always-visible affordance rather than a word in
+ * a row of words — but it must still be a real nav entry so the mobile tab bar
+ * and the active-route logic have exactly one model to read.
+ */
+export const HEADER_SEARCH_HREF = SEARCH_HREF;
+
 /** Always visible on desktop, and the bottom tab bar on mobile. */
 export const PRIMARY_NAV: readonly NavItem[] = [
-  { href: "/", label: "Search" },
+  { href: "/", label: "Browse" },
+  { href: SEARCH_HREF, label: "Search" },
   { href: "/watchlist", label: "Library" },
   { href: "/client", label: "Client" },
 ] as const;
@@ -51,6 +70,28 @@ export const DESKTOP_NAV: readonly NavItem[] = [
 
 /** Index in DESKTOP_NAV where the primary path ends and secondary begins. */
 export const DESKTOP_NAV_DIVIDER_INDEX = PRIMARY_NAV.length;
+
+/**
+ * The desktop header's text links, and where the divider sits among them.
+ *
+ * The Search entry is pulled out of the row because the header renders it as a
+ * search box on the far right; removing it shifts every later index by one, so
+ * the divider position is computed here rather than being a constant the
+ * header has to correct by hand.
+ */
+export function desktopNavRow(): {
+  items: readonly NavItem[];
+  dividerIndex: number;
+} {
+  const items = DESKTOP_NAV.filter((item) => item.href !== HEADER_SEARCH_HREF);
+  const primaryHrefs = new Set(
+    PRIMARY_NAV.filter((item) => item.href !== HEADER_SEARCH_HREF).map(
+      (item) => item.href,
+    ),
+  );
+  const dividerIndex = items.findIndex((item) => !primaryHrefs.has(item.href));
+  return { items, dividerIndex: dividerIndex === -1 ? items.length : dividerIndex };
+}
 
 /** Routes that light the mobile More tab when the sheet is closed. */
 export const MORE_ACTIVE_PREFIXES: readonly string[] = [

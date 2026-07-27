@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  Clapperboard,
   HardDriveDownload,
   Info,
   Library,
@@ -20,12 +21,14 @@ import {
   MORE_ACTIVE_PREFIXES,
   PRIMARY_NAV,
   SECONDARY_NAV,
+  SEARCH_HREF,
   navActiveHref,
 } from "@/lib/navigation";
 
 /** Icons live here because they are presentation, not part of the nav model. */
 const NAV_ICONS: Record<string, typeof Search> = {
-  "/": Search,
+  "/": Clapperboard,
+  [SEARCH_HREF]: Search,
   "/watchlist": Library,
   "/client": HardDriveDownload,
   "/activity": Activity,
@@ -255,9 +258,16 @@ export function MobileNav() {
         data-mobile-nav
         aria-label="Primary"
       >
-        <div className="grid h-[var(--mobile-nav-h)] grid-cols-4">
+        {/* One column per primary tab, plus More. Driven by the nav model so
+            adding an entry cannot leave a tab hanging off the edge. */}
+        <div
+          className="grid h-[var(--mobile-nav-h)]"
+          style={{
+            gridTemplateColumns: `repeat(${PRIMARY_TABS.length + 1}, minmax(0, 1fr))`,
+          }}
+        >
           {PRIMARY_TABS.map(({ href, label, icon: Icon }) => {
-            // Home (`/`) is the search surface — active for exact `/` only
+            // Browse (`/`) is the catalog — active for exact `/` only
             const active =
               href === "/"
                 ? pathname === "/"
@@ -282,7 +292,7 @@ export function MobileNav() {
                   className={cn("h-5 w-5", active && "text-[var(--accent)]")}
                   strokeWidth={active ? 2.25 : 1.75}
                 />
-                {label}
+                <span className="max-w-full truncate px-0.5">{label}</span>
               </Link>
             );
           })}

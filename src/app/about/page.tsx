@@ -35,20 +35,22 @@ export default function AboutPage() {
         <h2 className="text-[13px] font-medium text-[var(--text)]">Keyboard</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px] font-mono text-[var(--text-tertiary)]">
           <dt className="text-[var(--text-secondary)]">/</dt>
-          <dd>Focus search</dd>
+          <dd>Focus search, or open Search from anywhere</dd>
           <dt className="text-[var(--text-secondary)]">j / k</dt>
           <dd>Next / previous result</dd>
           <dt className="text-[var(--text-secondary)]">m</dt>
           <dd>Copy magnet</dd>
           <dt className="text-[var(--text-secondary)]">s</dt>
           <dd>Send to client</dd>
+          <dt className="text-[var(--text-secondary)]">← / →</dt>
+          <dd>Move between cards in a browse rail</dd>
           <dt className="text-[var(--text-secondary)]">g then …</dt>
-          <dd>h home · s search · w library · c client</dd>
+          <dd>h browse · s search · w library · c client</dd>
         </dl>
       </section>
 
       <Button asChild variant="ghost" size="sm" className="px-0 h-auto">
-        <Link href="/">← Home</Link>
+        <Link href="/">← Browse</Link>
       </Button>
     </div>
   );

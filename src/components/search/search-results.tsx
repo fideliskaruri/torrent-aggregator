@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -12,14 +13,28 @@ import {
   SearchX,
   SlidersHorizontal,
 } from "lucide-react";
-import type { SearchResponse, TorrentSourceId } from "@/lib/torrents/types";
-import { parseResolution } from "@/lib/torrents/quality";
+import type { SearchResponse, TorrentResult, TorrentSourceId } from "@/lib/torrents/types";
+import {
+  groupReleasesByWork,
+  type WorkGroup,
+} from "@/lib/torrents/work-identity";
 import {
   describeSourceFailure,
   sourceShortLabel,
 } from "@/lib/torrents/source-labels";
+import {
+  buildSections,
+  defaultSectionKey,
+  qualityLadder,
+  seasonCount,
+  workSubtitle,
+} from "./work-sections";
 import { TorrentCard } from "./torrent-card";
+import { titleHrefForName } from "@/components/title/work-key";
 import { cn } from "@/lib/utils";
+import { SEARCH_HREF } from "@/lib/navigation";
+import { useReleaseArtwork } from "@/hooks/use-release-artwork";
+import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import { Button } from "@/components/ui/button";
 
@@ -56,8 +71,6 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [openQuality, setOpenQuality] = useState<Set<string>>(new Set());
 
   const minSeeders = searchParams.get("minSeeders") ?? "";
   const releaseKind = searchParams.get("releaseKind") ?? "";
@@ -76,7 +89,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   }, [sourcesParam]);
 
   /**
-   * Build home search URL (`/?q=…`). Non-page overrides clear `page` so
+   * Build the search URL (`/search?q=…`). Non-page overrides clear `page` so
    * filters/sources always reset to page 1 unless `page` is set in overrides.
    */
   const buildUrl = useCallback(
@@ -94,7 +107,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         if (v == null || v === "") params.delete(k);
         else params.set(k, v);
       }
-      return `/?${params.toString()}`;
+      return `${SEARCH_HREF}?${params.toString()}`;
     },
     [searchParams, query, category],
   );
@@ -115,9 +128,6 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       if (!query) return;
       setLoading(true);
       setError(null);
-      // A season the user picked for the last query says nothing about this one.
-      setActiveSection(null);
-      setOpenQuality(new Set());
       try {
         const params = new URLSearchParams({
           q: query,
@@ -234,6 +244,74 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   const densityLabel =
     density === "comfortable" ? "Comfortable" : "Compact";
 
+  /**
+   * One card per *work*, not one header per page.
+   *
+   * The page used to elect a single `subject` by majority vote on
+   * `metadata.title` across the top 16 enriched rows. Two things were wrong
+   * with that, and a "dune" search hit both: a page that is 60% one work and
+   * 40% another got one header speaking for all of it ("DUNE · 2017 · 127
+   * releases" over five different works), and the vote keyed on catalog
+   * metadata — the very thing that had mis-matched. Worse, seasons were
+   * bucketed by number alone, so clicking "S01" mixed *Dune: Prophecy*
+   * episodes with *Children of Dune* episodes.
+   *
+   * Identity now comes from the release names, which are self-describing and
+   * were never ambiguous, and every downstream decision — seasons, the quality
+   * ladder, the count in the heading — is computed inside one work. Rank order
+   * is still the server's: `groupReleasesByWork` preserves it within a group
+   * and emits groups in the order their best-ranked release appeared, so the
+   * work the user meant stays first without scoring relevance a second time.
+   */
+  const works = useMemo(() => {
+    if (!data?.results.length) return [];
+    return groupReleasesByWork(
+      data.results,
+      (t) => t.title,
+      (t) => t.metadata,
+    );
+  }, [data]);
+
+  /**
+   * Artwork for works whose releases carried no usable catalog match.
+   *
+   * `groupReleasesByWork` only accepts a poster from a release whose catalog
+   * title agrees with the group name, which is the right rule — it is what
+   * stops a card wearing another film's poster. But it leaves real gaps: a
+   * "dune" search puts `Dune Part Two (2024) [1080p] [WEBRip] 88` in its own
+   * group, the stray `88` makes the catalog title disagree, and the top card
+   * on the page renders as a grey letter tile even though the poster is
+   * sitting in the payload.
+   *
+   * This asks the artwork resolver for the *group's own name*, which is the
+   * question that card is actually posing. One batched request for the page,
+   * only for the groups that are missing art.
+   */
+  const artworkNeeds = useMemo(
+    () =>
+      works
+        .filter((work) => !work.posterUrl)
+        .map((work) => ({
+          name: work.year ? `${work.name} ${work.year}` : work.name,
+          category: work.isSeries ? "tv" : "movie",
+        })),
+    [works],
+  );
+  const fallbackArtwork = useReleaseArtwork(artworkNeeds);
+
+  /**
+   * Absolute rank of each row, for the number the card draws. Computed once
+   * over the page rather than per work, so it stays the position in the
+   * server's ranking and not a per-card counter.
+   */
+  const rankOf = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!data?.results.length) return map;
+    const base = (currentPage - 1) * (data.pageSize ?? pageSize);
+    data.results.forEach((t, i) => map.set(t.id, base + i));
+    return map;
+  }, [data, currentPage, pageSize]);
+
   if (loading) {
     return (
       <div className="space-y-0 overflow-hidden rounded-[var(--radius)] border border-[var(--border)]">
@@ -287,274 +365,6 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     minSeeders || resolution || codec || maxSizeGb || sourcesParam || releaseKind,
   );
 
-  /**
-   * Rank order is the server's. This only decides *where each row is drawn* —
-   * it never reorders within a bucket, so the best release still sits at the
-   * top of whichever section it belongs to.
-   *
-   * Three decisions:
-   *
-   * 1. When one show dominates the results, it gets ONE header with the
-   *    artwork and name, and every row below drops its own copy. Twenty
-   *    identical posters down the left edge is texture, not information.
-   * 2. Rows bucket on an intrinsic key — the season number the release itself
-   *    declares — never on a computed "relevance" band. Newest season first:
-   *    the reason to search a running show is almost always the latest season,
-   *    and the old build buried it under four screens of back catalogue.
-   * 3. Each season shows its top three releases. The rest are one click away,
-   *    counted honestly. Nine near-identical rows per season is the wall the
-   *    user was looking at; the best of each season, side by side, is the
-   *    comparison he was actually trying to make.
-   */
-  const layout = (() => {
-    if (!data?.results.length) return null;
-
-    const indexOf = new Map<string, number>();
-    const base = (currentPage - 1) * (data.pageSize ?? pageSize);
-    data.results.forEach((t, i) => indexOf.set(t.id, base + i));
-
-    // A header can only speak for the page if the page is mostly one show.
-    let subject: {
-      title: string;
-      year?: number | null;
-      posterUrl?: string | null;
-    } | null = null;
-    /**
-     * The vote is taken over the *top* identified releases, not all of them.
-     *
-     * Two things make a whole-page vote wrong. Metadata enrichment is capped
-     * server-side at the top 16 results, so most rows on a 100-row page carry
-     * no catalog title at all. And the identified rows that do appear far down
-     * the ranking are mostly junk fuzzy matches — a real "the bear" search
-     * resolves its tail to `Jack the Bear`, `Hair of the Bear`, `The Bears and
-     * I`. Counting those diluted a genuine 15-of-16 consensus down to 15-of-27
-     * and switched show-collapse off, putting the wall of duplicate posters
-     * back on the page.
-     *
-     * Sampling the top of a rank-ordered list is also just the right question:
-     * the best matches are where the search's intent lives.
-     */
-    const SUBJECT_SAMPLE = 16;
-    const sample: string[] = [];
-    for (const t of data.results) {
-      const name = t.metadata?.title?.trim();
-      if (name) sample.push(name);
-      if (sample.length >= SUBJECT_SAMPLE) break;
-    }
-    const byTitle = new Map<string, number>();
-    for (const name of sample) byTitle.set(name, (byTitle.get(name) ?? 0) + 1);
-    const [topTitle, topCount] = [...byTitle.entries()].sort(
-      (a, b) => b[1] - a[1],
-    )[0] ?? ["", 0];
-    if (
-      topTitle &&
-      sample.length > 0 &&
-      topCount >= Math.ceil(sample.length * 0.6)
-    ) {
-      const sampleRow = data.results.find(
-        (t) => t.metadata?.title === topTitle,
-      );
-      subject = {
-        title: topTitle,
-        year: sampleRow?.metadata?.year,
-        posterUrl: sampleRow?.metadata?.posterUrl,
-      };
-    }
-
-    const isPack = (t: (typeof data.results)[number]) =>
-      Boolean(t.episode?.isBatch || t.episode?.isSeasonPack);
-
-    const complete: typeof data.results = [];
-    const bySeason = new Map<number, typeof data.results>();
-    const other: typeof data.results = [];
-
-    // A movie search has no seasons to group by; a stray TV hit must not
-    // impose a "Season 1" header on a page of films.
-    if (category !== "movies") {
-      for (const t of data.results) {
-        const season = t.episode?.season;
-        if (season != null && !t.episode?.isMultiSeason) {
-          const list = bySeason.get(season) ?? [];
-          list.push(t);
-          bySeason.set(season, list);
-        } else if (isPack(t)) complete.push(t);
-        else other.push(t);
-      }
-    }
-
-    const sections: {
-      key: string;
-      label: string;
-      short: string;
-      items: typeof data.results;
-    }[] = [];
-
-    if (complete.length) {
-      sections.push({
-        key: "complete",
-        label: "Complete series",
-        short: "Complete",
-        items: complete,
-      });
-    }
-    for (const season of [...bySeason.keys()].sort((a, b) => b - a)) {
-      sections.push({
-        key: `s${season}`,
-        label: `Season ${season}`,
-        short: `S${String(season).padStart(2, "0")}`,
-        items: bySeason.get(season)!,
-      });
-    }
-    if (other.length) {
-      sections.push({
-        key: "other",
-        label: sections.length ? "Everything else" : "Results",
-        short: sections.length ? "Other" : "Results",
-        items: other,
-      });
-    }
-
-    /**
-     * Which season opens first. Ranking order looks like the principled
-     * answer but isn't: on a bare "the bear" search the top-ranked release
-     * happened to be a season 1 rip, so the page opened on the oldest season.
-     * What the user meant is in the query itself — and when the query names no
-     * season, the reason to search a running show is almost always the newest.
-     */
-    const askedSeason = /\bs(?:eason)?\s*0*(\d{1,3})\b/i.exec(query)?.[1];
-    const askedKey = askedSeason ? `s${parseInt(askedSeason, 10)}` : null;
-    const defaultKey =
-      (askedKey && sections.find((s) => s.key === askedKey)?.key) ??
-      sections.find((s) => s.key.startsWith("s"))?.key ??
-      sections[0]?.key ??
-      null;
-
-    return {
-      subject,
-      indexOf,
-      seasonCount: bySeason.size,
-      sections: sections.length > 1 ? sections : null,
-      defaultKey,
-      flat: data.results,
-    };
-  })();
-
-  const sectionKeys = layout?.sections?.map((s) => s.key) ?? [];
-  const activeKey =
-    activeSection && sectionKeys.includes(activeSection)
-      ? activeSection
-      : (layout?.defaultKey ?? null);
-  const activeItems =
-    layout?.sections?.find((s) => s.key === activeKey)?.items ??
-    layout?.flat ??
-    [];
-
-  /**
-   * Twenty rows is not a choice, it is homework. The only decision the user is
-   * actually making is *which quality* — everything below the best 1080p is a
-   * near-duplicate of it. So the list collapses to one row per resolution, in
-   * a fixed descending ladder, and the runners-up stay reachable behind an
-   * honestly-counted disclosure rather than being deleted.
-   *
-   * The ladder is fixed rather than rank-ordered on purpose: it must be in the
-   * same place on every search, or it stops being scannable.
-   */
-  const qualityGroups = (() => {
-    if (!activeItems.length) return null;
-
-    const buckets = new Map<number, typeof activeItems>();
-    for (const t of activeItems) {
-      // 0 stands for "no resolution in the title" — real, and not a failure.
-      const res = parseResolution(t.title) ?? 0;
-      const list = buckets.get(res) ?? [];
-      list.push(t);
-      buckets.set(res, list);
-    }
-
-    // A page with only one quality has nothing to compare; a ladder of one is
-    // a header over the whole list, which is noise.
-    if (buckets.size < 2) return null;
-
-    return [...buckets.keys()]
-      .sort((a, b) => b - a)
-      .map((res) => ({
-        key: `q${res}`,
-        label: res ? `${res}p` : "Unlabelled quality",
-        items: buckets.get(res)!,
-      }));
-  })();
-
-  const releaseList = !layout ? null : qualityGroups ? (
-    <div className="space-y-2">
-      {qualityGroups.map((group) => {
-        const open = openQuality.has(group.key);
-        const shown = open ? group.items : group.items.slice(0, 1);
-        const hidden = group.items.length - shown.length;
-        return (
-          <section key={group.key} className="space-y-1">
-            <h3
-              data-quality-group={group.key}
-              className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
-            >
-              {group.label}
-              <span className="font-normal tabular-nums text-[var(--text-tertiary)]">
-                {group.items.length}
-              </span>
-            </h3>
-            <div className="surface divide-y divide-[var(--border)]">
-              {shown.map((t) => (
-                <TorrentCard
-                  key={t.id}
-                  torrent={t}
-                  index={layout.indexOf.get(t.id) ?? 0}
-                  searchCategory={category}
-                  grouped={Boolean(layout.subject)}
-                />
-              ))}
-              {hidden > 0 || open ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setOpenQuality((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(group.key)) next.delete(group.key);
-                      else next.add(group.key);
-                      return next;
-                    })
-                  }
-                  aria-expanded={open}
-                  className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] sm:px-4"
-                >
-                  <ChevronDown
-                    className={cn(
-                      "h-3.5 w-3.5 transition-transform",
-                      open && "rotate-180",
-                    )}
-                  />
-                  {open
-                    ? `Show only the best ${group.label}`
-                    : `${hidden} more ${group.label}`}
-                </button>
-              ) : null}
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  ) : (
-    <div className="surface divide-y divide-[var(--border)]">
-      {activeItems.map((t) => (
-        <TorrentCard
-          key={t.id}
-          torrent={t}
-          index={layout.indexOf.get(t.id) ?? 0}
-          searchCategory={category}
-          grouped={Boolean(layout.subject)}
-        />
-      ))}
-    </div>
-  );
-
   const failedSources = data?.sources.filter((s) => s.error) ?? [];
 
   return (
@@ -583,10 +393,14 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                 </>
               )}
             </span>
-            {data && (
+            {data && typeof data.tookMs === "number" && (
               <>
                 <span className="text-[var(--border-strong)]">·</span>
                 <span className="tabular-nums">{data.tookMs}ms</span>
+              </>
+            )}
+            {data && (
+              <>
                 {data.cached && (
                   <>
                     <span className="text-[var(--border-strong)]">·</span>
@@ -853,102 +667,34 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         </div>
       ) : (
         <>
-          {layout?.subject ? (
-            <div className="surface flex items-center gap-3 px-3 py-2.5 sm:px-4">
-              <div className="relative w-11 shrink-0 overflow-hidden rounded-md sm:w-12">
-                {layout.subject.posterUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={layout.subject.posterUrl}
-                    alt=""
-                    className="aspect-[2/3] w-full rounded-md bg-[var(--bg-muted)] object-cover"
-                  />
-                ) : (
-                  <div
-                    className="flex aspect-[2/3] w-full items-center justify-center rounded-md bg-[var(--bg-muted)]"
-                    aria-hidden
-                  >
-                    <span className="select-none text-base font-semibold text-[var(--text-tertiary)]">
-                      {layout.subject.title.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-[var(--text)]">
-                  {layout.subject.title}
-                </h2>
-                <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
-                  {[
-                    layout.subject.year ? String(layout.subject.year) : null,
-                    layout.seasonCount > 1
-                      ? `${layout.seasonCount} seasons here`
-                      : null,
-                    /**
-                     * The season and quality counts below are computed over
-                     * the releases actually fetched. Saying "205 releases"
-                     * while the season tabs sum to 200 is the same kind of
-                     * small lie the ladder itself just stopped telling, so
-                     * when the pool is truncated the header says so.
-                     */
-                    (data?.results.length ?? 0) < totalCount
-                      ? `${(data?.results.length ?? 0).toLocaleString()} of ${totalCount.toLocaleString()} releases`
-                      : `${totalCount.toLocaleString()} releases`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              </div>
-            </div>
-          ) : null}
-
-          {layout?.sections ? (
-            <div className="space-y-2">
-              <div
-                role="tablist"
-                aria-label="Seasons"
-                className="sticky top-0 z-20 -mx-1 flex gap-1 overflow-x-auto bg-[var(--bg)]/95 px-1 py-1.5 backdrop-blur"
-              >
-                {layout.sections.map((section) => {
-                  const active = section.key === activeKey;
-                  return (
-                    <button
-                      key={section.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      data-season-tab={section.key}
-                      onClick={() => setActiveSection(section.key)}
-                      title={section.label}
-                      className={cn(
-                        "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                        active
-                          ? "border-transparent bg-[var(--text)] text-[var(--bg)]"
-                          : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
-                      )}
-                    >
-                      {section.short}
-                      <span
-                        className={cn(
-                          "tabular-nums",
-                          active
-                            ? "text-[var(--bg)]/70"
-                            : "text-[var(--text-tertiary)]",
-                        )}
-                      >
-                        {section.items.length}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div role="tabpanel" data-season-panel={activeKey ?? ""}>
-                {releaseList}
-              </div>
-            </div>
-          ) : layout && layout.flat.length ? (
-            releaseList
-          ) : null}
+          {/*
+            Works are separated by more space than anything inside one. On a
+            multi-work page the reader's first question is "how many different
+            things is this?", and a gap that matches the internal rhythm makes
+            the next work's heading look like another row of the previous one.
+          */}
+          <div className="space-y-8">
+            {works.map((work) => (
+              <WorkCard
+                key={work.key}
+                work={work}
+                query={query}
+                category={category}
+                rankOf={rankOf}
+                soloWork={works.length === 1}
+                fallbackPosterUrl={
+                  work.posterUrl
+                    ? null
+                    : (fallbackArtwork[
+                        artworkQueryForRelease(
+                          work.year ? `${work.name} ${work.year}` : work.name,
+                          work.isSeries ? "tv" : "movie",
+                        ).key
+                      ]?.posterUrl ?? null)
+                }
+              />
+            ))}
+          </div>
 
           {totalPages > 1 && (
             <Pagination
@@ -963,6 +709,317 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * One work: its heading, its season switcher, and its releases.
+ *
+ * Everything here is scoped to `work.items`. That is the whole point of the
+ * component existing — season and quality bucketing over a mixed page is what
+ * put *Children of Dune* episodes behind *Dune: Prophecy*'s "S01" tab, and a
+ * component that only ever receives one work's releases cannot express that
+ * question again.
+ *
+ * Selection state lives here rather than in the parent so each work remembers
+ * its own open season and expanded quality rungs. A new search produces new
+ * work keys, which remounts these and clears the state for free.
+ */
+function WorkCard({
+  work,
+  query,
+  category,
+  rankOf,
+  soloWork,
+  fallbackPosterUrl,
+}: {
+  work: WorkGroup<TorrentResult>;
+  query: string;
+  category: string;
+  /** Position in the server's ranking, for the number each row draws. */
+  rankOf: Map<string, number>;
+  /** True when this is the page's only work — see the sticky-tabs note below. */
+  soloWork: boolean;
+  /**
+   * Art resolved from the group's own name, used only when the releases
+   * themselves offered none the grouping was willing to trust.
+   */
+  fallbackPosterUrl: string | null;
+}) {
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [openQuality, setOpenQuality] = useState<Set<string>>(new Set());
+  const domId = useId();
+
+  const sections = useMemo(
+    () =>
+      buildSections(work.items, {
+        // A film has no seasons to group by, and a movies-category search must
+        // never sprout a "Season 1" header from one stray TV hit.
+        includeSeasons: work.isSeries && category !== "movies",
+      }),
+    [work.items, work.isSeries, category],
+  );
+
+  const switcher = sections.length > 1 ? sections : null;
+  const defaultKey = useMemo(
+    () => defaultSectionKey(sections, query),
+    [sections, query],
+  );
+  const activeKey =
+    activeSection && sections.some((s) => s.key === activeSection)
+      ? activeSection
+      : defaultKey;
+
+  const activeItems =
+    sections.find((s) => s.key === activeKey)?.items ?? work.items;
+  const ladder = useMemo(() => qualityLadder(activeItems), [activeItems]);
+
+  const heading = work.name;
+  const posterUrl = work.posterUrl ?? fallbackPosterUrl;
+
+  const titleAttr = work.year ? `${heading} (${work.year})` : heading;
+
+  // Every card opens the page about the work, search included: this header is
+  // a card, not a caption. Same funnel as the rails, so a result and its
+  // poster on the home board land on the same page.
+  const workHref = titleHrefForName(heading, { mediaType: category });
+
+  const releases = ladder ? (
+    <div className="space-y-2">
+      {ladder.map((group) => {
+        // Namespaced by section: "3 more 1080p" counts the rungs of *this*
+        // season, so carrying the open state across a tab switch would show a
+        // count that belongs to a list the user is no longer looking at.
+        const stateKey = `${activeKey ?? ""}:${group.key}`;
+        const open = openQuality.has(stateKey);
+        const shown = open ? group.items : group.items.slice(0, 1);
+        const hidden = group.items.length - shown.length;
+        return (
+          <section key={group.key} className="space-y-1">
+            {/* h3, not h4: since the split, a quality rung sits directly under
+                the work's own h2 — there is no longer an intermediate level
+                between them for a screen reader to walk through. */}
+            <h3
+              data-quality-group={group.key}
+              className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
+            >
+              {group.label}
+              <span className="font-normal tabular-nums text-[var(--text-tertiary)]">
+                {group.items.length}
+              </span>
+            </h3>
+            <div className="surface divide-y divide-[var(--border)]">
+              {shown.map((t) => (
+                <TorrentCard
+                  key={t.id}
+                  torrent={t}
+                  index={rankOf.get(t.id) ?? 0}
+                  searchCategory={category}
+                  grouped
+                />
+              ))}
+              {hidden > 0 || open ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenQuality((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(stateKey)) next.delete(stateKey);
+                      else next.add(stateKey);
+                      return next;
+                    })
+                  }
+                  aria-expanded={open}
+                  aria-label={
+                    open
+                      ? `Show only the best ${group.label} of ${heading}`
+                      : `Show ${hidden} more ${group.label} of ${heading}`
+                  }
+                  className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] sm:px-4"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform",
+                      open && "rotate-180",
+                    )}
+                  />
+                  {open
+                    ? `Show only the best ${group.label}`
+                    : `${hidden} more ${group.label}`}
+                </button>
+              ) : null}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  ) : (
+    <div className="surface divide-y divide-[var(--border)]">
+      {activeItems.map((t) => (
+        <TorrentCard
+          key={t.id}
+          torrent={t}
+          index={rankOf.get(t.id) ?? 0}
+          searchCategory={category}
+          grouped
+        />
+      ))}
+    </div>
+  );
+
+  return (
+    <section aria-labelledby={`${domId}-title`} className="space-y-2">
+      {/*
+        One poster per work, never per row. The rule that produced show-collapse
+        still holds — twenty identical posters down the left edge is texture,
+        not information — but the unit it applies to is the work, not the page.
+        Several posters on a page is now the structure: each one heads a
+        distinct thing, and no two of them are the same artwork.
+      */}
+      <div className="surface flex items-center gap-3 px-3 py-2.5 sm:px-4">
+        <div className="relative w-11 shrink-0 overflow-hidden rounded-md sm:w-12">
+          {posterUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={posterUrl}
+              alt=""
+              className="aspect-[2/3] w-full rounded-md bg-[var(--bg-muted)] object-cover"
+            />
+          ) : (
+            // An initial, never an empty box: a grey rectangle is pixel-
+            // identical to the loading skeleton.
+            <div
+              className="flex aspect-[2/3] w-full items-center justify-center rounded-md bg-[var(--bg-muted)]"
+              aria-hidden
+            >
+              <span className="select-none text-base font-semibold text-[var(--text-tertiary)]">
+                {heading.trim().charAt(0).toUpperCase() || "?"}
+              </span>
+            </div>
+          )}
+          {/* Sibling overlay, never a wrapper: the poster sits inside a header
+              that also carries a heading link, and an `<a>` inside an `<a>` is
+              invalid markup. */}
+          {workHref ? (
+            <Link
+              href={workHref}
+              tabIndex={-1}
+              aria-hidden
+              className="absolute inset-0 rounded-md"
+            />
+          ) : null}
+        </div>
+        <div className="min-w-0">
+          <h2
+            id={`${domId}-title`}
+            title={titleAttr}
+            className="truncate text-sm font-semibold text-[var(--text)]"
+          >
+            {workHref ? (
+              <Link
+                href={workHref}
+                data-card-target="title"
+                className="rounded-[4px] outline-none hover:text-[var(--accent-text)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              >
+                {heading}
+              </Link>
+            ) : (
+              heading
+            )}
+            {work.year ? (
+              // Part of a film's identity, not trivia: *Dune* 1984 and *Dune*
+              // 2021 are two works that would otherwise share a heading.
+              //
+              // The leading {" "} is load-bearing for assistive tech, not
+              // decoration: `ml-*` is a CSS margin, and a screen reader
+              // concatenates adjacent text nodes with no regard for it.
+              // Without the space this heading announces as "Dune1984". The
+              // margin is trimmed to keep the *visual* gap identical.
+              <>
+                {" "}
+                <span className="ml-0.5 font-normal tabular-nums text-[var(--text-tertiary)]">
+                  {work.year}
+                </span>
+              </>
+            ) : null}
+          </h2>
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+            {workSubtitle({
+              seasons: seasonCount(sections),
+              releaseCount: work.items.length,
+            })}
+          </p>
+        </div>
+      </div>
+
+      {switcher ? (
+        <div className="space-y-2">
+          <div
+            role="tablist"
+            // Several tab groups can now share a page, so "Seasons" alone would
+            // announce two different shows' tabs identically — exactly the
+            // confusion this whole change exists to remove.
+            aria-label={`Seasons of ${heading}`}
+            className={cn(
+              "-mx-1 flex gap-1 overflow-x-auto px-1 py-1.5",
+              // Sticky only when this card owns the page. Several sticky strips
+              // would pile up on each other as you scroll past each work.
+              soloWork &&
+                "sticky top-0 z-20 bg-[var(--bg)]/95 backdrop-blur",
+            )}
+          >
+            {switcher.map((section) => {
+              const active = section.key === activeKey;
+              return (
+                <button
+                  key={section.key}
+                  type="button"
+                  role="tab"
+                  id={`${domId}-tab-${section.key}`}
+                  aria-selected={active}
+                  aria-controls={`${domId}-panel`}
+                  data-season-tab={`${work.key}:${section.key}`}
+                  onClick={() => setActiveSection(section.key)}
+                  title={`${section.label} — ${heading}`}
+                  aria-label={`${section.label} of ${heading}, ${section.items.length} releases`}
+                  className={cn(
+                    "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    active
+                      ? "border-transparent bg-[var(--text)] text-[var(--bg)]"
+                      : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
+                  )}
+                >
+                  <span aria-hidden>{section.short}</span>
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "tabular-nums",
+                      active
+                        ? "text-[var(--bg)]/70"
+                        : "text-[var(--text-tertiary)]",
+                    )}
+                  >
+                    {section.items.length}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div
+            role="tabpanel"
+            id={`${domId}-panel`}
+            aria-labelledby={
+              activeKey ? `${domId}-tab-${activeKey}` : undefined
+            }
+            data-season-panel={`${work.key}:${activeKey ?? ""}`}
+          >
+            {releases}
+          </div>
+        </div>
+      ) : (
+        releases
+      )}
+    </section>
   );
 }
 

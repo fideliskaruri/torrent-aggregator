@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "@/components/providers/session-provider";
 import { ArrowRight, HardDriveDownload } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
+import { titleHrefForName } from "@/components/title/work-key";
 
 interface TeaserTorrent {
   hash: string;
@@ -75,6 +76,12 @@ export function ActiveDownloadsTeaser() {
         <h2 className="text-[13px] font-medium text-[var(--text-secondary)] inline-flex items-center gap-2">
           <HardDriveDownload className="h-3.5 w-3.5 text-[var(--accent-text)]" />
           Active downloads
+          {/* A screen reader concatenates adjacent text nodes and cannot see
+              the flex `gap`, so this announced as "Active downloads2". A
+              whitespace-only node is no use here either — the spec drops
+              whitespace-only anonymous flex items — so the separator has to be
+              a real glyph, hidden visually and read as a pause. */}
+          <span className="sr-only">,</span>
           <span className="text-[11px] font-normal text-[var(--text-tertiary)] tabular-nums">
             {items.length}
             {dlspeed > 0 ? ` · ↓ ${formatBytes(dlspeed)}/s` : ""}
@@ -91,10 +98,11 @@ export function ActiveDownloadsTeaser() {
       <ul className="space-y-1.5">
         {items.map((t) => {
           const pct = Math.min(100, Math.round(t.progress * 1000) / 10);
+          const titleHref = titleHrefForName(t.name) ?? "/client";
           return (
             <li key={t.hash}>
               <Link
-                href="/client"
+                href={titleHref}
                 className="surface-interactive flex items-center gap-3 px-3 py-2.5 min-w-0"
               >
                 <div className="min-w-0 flex-1">

@@ -6,8 +6,7 @@
  * secret was configured, which is the one failure mode that matters.
  */
 import fs from "node:fs";
-import path from "node:path";
-import { encryptSecret, decryptSecret, resetKeyCache } from "./crypto";
+import { encryptSecret, decryptSecret, keyFilePath, resetKeyCache } from "./crypto";
 
 let failures = 0;
 
@@ -20,7 +19,12 @@ function assert(name: string, cond: boolean, detail = "") {
   }
 }
 
-const KEY_FILE = path.join(process.cwd(), ".torrentflow.key");
+// Ask the implementation where the key lives rather than reconstructing the
+// path. The hard-coded `cwd()/.torrentflow.key` here was wrong as soon as the
+// unit runner gave the suite its own database in a temp directory: the key was
+// written next to that database, and "generates a key file" failed while the
+// code was behaving exactly as designed.
+const KEY_FILE = keyFilePath();
 const hadKeyFile = fs.existsSync(KEY_FILE);
 const originalEnvKey = process.env.ENCRYPTION_KEY;
 const originalAuthSecret = process.env.AUTH_SECRET;

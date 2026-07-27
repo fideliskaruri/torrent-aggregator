@@ -17,8 +17,12 @@ const PREFIX = "enc:v1:";
  * is `/app`, so a cwd-relative key was thrown away on every image rebuild and
  * every saved external-client password stopped decrypting. A backup of the
  * data directory must be self-sufficient.
+ *
+ * Exported because the test needs the same answer. It previously recomputed
+ * `cwd()/.torrentflow.key` by hand, which silently stopped matching the moment
+ * the database moved — the test then asserted against a file nothing writes.
  */
-function keyFilePath(): string {
+export function keyFilePath(): string {
   const url = process.env.DATABASE_URL ?? "";
   const m = url.match(/^file:(.+)$/);
   if (m) {

@@ -22,6 +22,7 @@ import type { TorrentResult } from "@/lib/torrents/types";
 import { formatBytes, formatRelativeTime, cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import { useDownloadPrefs } from "@/hooks/use-download-prefs";
+import { isSeriesMediaType } from "@/lib/metadata/media-type";
 import { TfPathChip } from "@/components/tf/path-chip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -221,7 +222,7 @@ export function TorrentCard({
       toast.message(!session ? "Sign in for library" : "No metadata");
       return;
     }
-    const isSeries = meta.mediaType === "tv" || meta.mediaType === "anime";
+    const isSeries = isSeriesMediaType(meta.mediaType);
     if (isSeries) {
       // Pre-fill from torrent episode if present
       const m = torrent.title.match(/S(\d{1,2})E(\d{1,3})/i);

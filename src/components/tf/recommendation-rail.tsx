@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import type { RecommendationRail } from "@/lib/recommend";
+import { titleHrefForName } from "@/components/title/work-key";
 
 /**
  * One rail of suggestions, headed with the library title that explains it.
@@ -91,6 +93,9 @@ export function RecommendationRailSection({
       <ul className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         {visible.map((item) => {
           const key = `${item.mediaType}:${item.externalId}`;
+          const titleHref = titleHrefForName(item.title, {
+            mediaType: item.mediaType,
+          });
           return (
             <li key={key} className="min-w-0">
               <div className="surface flex h-full flex-col overflow-hidden">
@@ -123,25 +128,57 @@ export function RecommendationRailSection({
                       </span>
                     </div>
                   )}
+                  {titleHref ? (
+                    <Link
+                      href={titleHref}
+                      tabIndex={-1}
+                      aria-hidden
+                      className="absolute inset-0"
+                    />
+                  ) : null}
                 </div>
                 <div className="flex flex-1 flex-col p-2">
-                  <p
-                    className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2"
-                    title={item.title}
-                  >
-                    {item.title}
-                  </p>
-                  {item.year ? (
-                    <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
-                      {item.year}
-                    </p>
-                  ) : null}
+                  {titleHref ? (
+                    <Link
+                      href={titleHref}
+                      className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    >
+                      <p
+                        className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]"
+                        title={item.title}
+                      >
+                        {item.title}
+                      </p>
+                      {item.year ? (
+                        <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
+                          {item.year}
+                        </p>
+                      ) : null}
+                    </Link>
+                  ) : (
+                    <>
+                      <p
+                        className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2"
+                        title={item.title}
+                      >
+                        {item.title}
+                      </p>
+                      {item.year ? (
+                        <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
+                          {item.year}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
                   {/* mt-auto on the wrapper, so a two-line title doesn't drop
                       this button 17px below its neighbours' baseline. */}
                   <div className="mt-auto pt-2">
                     <button
                       type="button"
-                      onClick={() => add(item)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        add(item);
+                      }}
                       disabled={busy === key}
                       aria-label={`Add ${item.title} to library`}
                       className="flex w-full items-center justify-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--accent-text)] disabled:opacity-50"

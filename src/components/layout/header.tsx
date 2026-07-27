@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Rows3 } from "lucide-react";
+import { Rows3, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import {
   DESKTOP_NAV,
-  DESKTOP_NAV_DIVIDER_INDEX,
+  HEADER_SEARCH_HREF,
   activeNavLabel,
+  desktopNavRow,
+  navActive,
   navActiveHref,
 } from "@/lib/navigation";
 
@@ -18,6 +20,8 @@ export function Header() {
   const { density, setDensity } = useUiPreferences();
   const pageTitle = activeNavLabel(pathname);
   const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
+  const { items: navRow, dividerIndex } = desktopNavRow();
+  const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
 
   return (
     <header className="app-header" data-app-header>
@@ -61,11 +65,11 @@ export function Header() {
           data-desktop-nav
           aria-label="Main"
         >
-          {DESKTOP_NAV.map((item, i) => {
+          {navRow.map((item, i) => {
             const { href, label } = item;
             const active = href === activeDesktopHref;
             // Divider separates the primary path from the secondary pages.
-            const showDivider = i === DESKTOP_NAV_DIVIDER_INDEX;
+            const showDivider = i === dividerIndex;
             return (
               <span key={href} className="contents">
                 {showDivider ? (
@@ -92,8 +96,44 @@ export function Header() {
           })}
         </nav>
 
-        {/* Desktop actions: list density */}
+        {/* Desktop actions: search, then list density */}
         <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
+          {/* Search is a permanent affordance rather than a word in the nav
+              row: it is the second thing anyone does here, and on Browse there
+              is no input for the `/` shortcut to land on. Full control on
+              desktop, icon on phones where the bottom tab bar also carries it. */}
+          <Link
+            href={HEADER_SEARCH_HREF}
+            aria-current={searchActive ? "page" : undefined}
+            data-header-search
+            className={cn(
+              "hidden md:inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors",
+              "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
+              searchActive
+                ? "border-[var(--border-strong)] bg-[var(--bg-muted)] text-[var(--text)]"
+                : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-tertiary)] hover:border-[var(--border-strong)] hover:text-[var(--text-secondary)]",
+            )}
+          >
+            <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="lg:min-w-[7rem] text-left">Search</span>
+            <kbd className="hidden lg:inline rounded border border-[var(--border)] bg-[var(--bg)] px-1 font-mono text-[10px] text-[var(--text-tertiary)]">
+              /
+            </kbd>
+          </Link>
+          <Link
+            href={HEADER_SEARCH_HREF}
+            aria-label="Search"
+            aria-current={searchActive ? "page" : undefined}
+            className={cn(
+              "md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors",
+              "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
+              searchActive
+                ? "bg-[var(--bg-muted)] text-[var(--text)]"
+                : "text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-secondary)]",
+            )}
+          >
+            <Search className="h-4 w-4" aria-hidden />
+          </Link>
           <button
             type="button"
             className="hidden md:inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"

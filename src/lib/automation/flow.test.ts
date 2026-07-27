@@ -30,10 +30,13 @@ import type { ClientConnectionConfig } from "@/lib/clients/types";
 import {
   DESKTOP_NAV,
   DESKTOP_NAV_DIVIDER_INDEX,
+  HEADER_SEARCH_HREF,
   HISTORY_HREF,
   MORE_ACTIVE_PREFIXES,
   PRIMARY_NAV,
+  SEARCH_HREF,
   SECONDARY_NAV,
+  desktopNavRow,
   navActive,
   navActiveHref,
 } from "@/lib/navigation";
@@ -209,8 +212,26 @@ console.log("flow: navigation model contracts…");
 
   assert.deepEqual(
     primaryHrefs,
-    ["/", "/watchlist", "/client"],
-    "primary path is Search → Library → Client",
+    ["/", SEARCH_HREF, "/watchlist", "/client"],
+    "primary path is Browse → Search → Library → Client",
+  );
+
+  // `/` is the catalog now, not the search box. Search is a peer route, and it
+  // must stay a real nav entry so the mobile tab bar and the active-route
+  // logic read from one model even though the desktop header draws it as a box.
+  assert.equal(
+    PRIMARY_NAV[0]?.label,
+    "Browse",
+    "`/` is labelled Browse: it answers 'here is what you can watch'",
+  );
+  assert.equal(
+    HEADER_SEARCH_HREF,
+    SEARCH_HREF,
+    "the header's search affordance points at the search route",
+  );
+  assert.ok(
+    PRIMARY_NAV.some((i: NavItem) => i.href === HEADER_SEARCH_HREF),
+    "the header search affordance must correspond to a real nav entry",
   );
 
   assert.ok(
@@ -238,6 +259,43 @@ console.log("flow: navigation model contracts…");
     PRIMARY_NAV.length,
     "the divider sits between primary and secondary",
   );
+
+  /**
+   * The header renders Search as a search box on the right, so it is pulled
+   * out of the text row — which shifts every later index by one. The divider
+   * position is therefore computed, not a constant the header corrects by hand.
+   */
+  {
+    const { items: rowItems, dividerIndex } = desktopNavRow();
+    const rowHrefs = rowItems.map((i: NavItem) => i.href);
+    assert.ok(
+      !rowHrefs.includes(HEADER_SEARCH_HREF),
+      "the search entry is drawn as a box, not repeated as a text link",
+    );
+    assert.deepEqual(
+      rowHrefs,
+      desktopHrefs.filter((h) => h !== HEADER_SEARCH_HREF),
+      "the row is the desktop nav minus the search entry, in order",
+    );
+    // The divider must still land exactly where primary ends.
+    const primaryInRow = primaryHrefs.filter((h) => h !== HEADER_SEARCH_HREF);
+    assert.equal(
+      dividerIndex,
+      primaryInRow.length,
+      "the divider still separates the primary path from secondary pages",
+    );
+    assert.deepEqual(
+      rowHrefs.slice(0, dividerIndex),
+      primaryInRow,
+      "everything before the divider is primary",
+    );
+    for (const href of rowHrefs.slice(dividerIndex)) {
+      assert.ok(
+        secondaryHrefs.includes(href),
+        `everything after the divider is secondary — ${href} is not`,
+      );
+    }
+  }
 
   // Every desktop entry beyond the primary path must be a real secondary page.
   for (const href of desktopHrefs.slice(PRIMARY_NAV.length)) {
@@ -271,10 +329,11 @@ console.log("flow: navigation model contracts…");
    * itself — so this is the invariant that keeps that from double-highlighting.
    */
   {
-    // `/search` is deliberately absent: it is a server-side redirect to `/`,
-    // so the nav never renders on it.
+    // `/search` is a real page now — the search experience moved off `/`, so
+    // the nav renders on it and must highlight the Search entry.
     const allRoutes = [
       "/",
+      SEARCH_HREF,
       "/watchlist",
       "/client",
       "/activity",
@@ -333,6 +392,16 @@ console.log("flow: navigation model contracts…");
       navActiveHref(DESKTOP_NAV, "/history"),
       "/activity",
       "History is reached from Activity",
+    );
+    assert.equal(
+      navActiveHref(DESKTOP_NAV, SEARCH_HREF),
+      SEARCH_HREF,
+      "Search owns its own route now",
+    );
+    assert.equal(
+      navActiveHref(DESKTOP_NAV, `${SEARCH_HREF}?q=dune`),
+      null,
+      "navActive matches paths, not query strings — callers must pass pathname",
     );
     // A nested route lights its parent, not the root.
     assert.equal(navActiveHref(DESKTOP_NAV, "/watchlist/42"), "/watchlist");
