@@ -2,6 +2,7 @@ import {
   bufferedAheadOf,
   bufferedSourceRanges,
   bufferingLabel,
+  byteRangesToSourceRanges,
   encodeStreamFilePath,
   findSidecarSubtitle,
   infoHashFromMagnet,
@@ -10,6 +11,7 @@ import {
   streamStateSentence,
   streamPath,
   streamStatusMessage,
+  sourceTimeInRanges,
   upNextStatusSentence,
   type StreamFile,
 } from "./inline-player";
@@ -193,6 +195,50 @@ assert(
 assert(
   "with no buffer there is nothing ahead",
   bufferedAheadOf([], 95) === 0,
+);
+
+// ── Downloaded torrent spans ──
+//
+// These are not the same as media buffer. They come from verified torrent
+// pieces, so sparse seeking must render sparse islands instead of a single
+// confident full-width track.
+assert(
+  "downloaded byte islands map onto the source timeline",
+  JSON.stringify(
+    byteRangesToSourceRanges(
+      [
+        { start: 0, end: 250 },
+        { start: 500, end: 750 },
+      ],
+      1000,
+      100,
+    ),
+  ) === JSON.stringify([
+    { start: 0, end: 25 },
+    { start: 50, end: 75 },
+  ]),
+);
+assert(
+  "adjacent downloaded byte ranges merge before rendering",
+  JSON.stringify(
+    byteRangesToSourceRanges(
+      [
+        { start: 0, end: 250 },
+        { start: 250, end: 500 },
+      ],
+      1000,
+      100,
+    ),
+  ) === JSON.stringify([{ start: 0, end: 50 }]),
+);
+assert(
+  "downloaded mapping makes no claim without duration",
+  byteRangesToSourceRanges([{ start: 0, end: 250 }], 1000, null).length === 0,
+);
+assert(
+  "a seek target distinguishes held pieces from gaps",
+  sourceTimeInRanges([{ start: 50, end: 75 }], 60) &&
+    !sourceTimeInRanges([{ start: 50, end: 75 }], 80),
 );
 
 // ── Swarm health ──

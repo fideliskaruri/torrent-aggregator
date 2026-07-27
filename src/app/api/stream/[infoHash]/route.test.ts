@@ -20,7 +20,7 @@
  */
 import assert from "node:assert/strict";
 
-import { handleStreamIndexRequest } from "./route";
+import { downloadedFileRanges, handleStreamIndexRequest } from "./route";
 import type { ClientConnectionConfig } from "@/lib/clients";
 
 let failures = 0;
@@ -133,6 +133,58 @@ async function main() {
       "Rick and Morty S01E02.mkv",
     ]);
   });
+
+  console.log("\n── Stream manifest downloaded ranges ──");
+
+  const rangeCases: Array<{
+    name: string;
+    verifiedPieces: number[];
+    file: { length: number; offset?: number; _startPiece?: number; _endPiece?: number };
+    expect: Array<{ start: number; end: number }>;
+  }> = [
+    {
+      name: "contiguous verified pieces merge into one held span",
+      verifiedPieces: [0, 1],
+      file: { length: 20, offset: 0, _startPiece: 0, _endPiece: 3 },
+      expect: [{ start: 0, end: 10 }],
+    },
+    {
+      name: "sparse verified pieces stay as separate islands",
+      verifiedPieces: [0, 2],
+      file: { length: 20, offset: 0, _startPiece: 0, _endPiece: 3 },
+      expect: [
+        { start: 0, end: 5 },
+        { start: 10, end: 15 },
+      ],
+    },
+    {
+      name: "piece spans are clipped to a file that starts mid-piece",
+      verifiedPieces: [1],
+      file: { length: 8, offset: 3, _startPiece: 0, _endPiece: 2 },
+      expect: [{ start: 2, end: 7 }],
+    },
+    {
+      name: "a complete torrent paints the whole file without consulting peers",
+      verifiedPieces: [],
+      file: { length: 20, offset: 0, _startPiece: 0, _endPiece: 3 },
+      expect: [{ start: 0, end: 20 }],
+    },
+  ];
+
+  for (const c of rangeCases) {
+    await checkAsync(c.name, async () => {
+      const torrent = {
+        done: c.name.startsWith("a complete"),
+        progress: c.name.startsWith("a complete") ? 1 : 0.5,
+        length: 20,
+        pieceLength: 5,
+        lastPieceLength: 5,
+        pieces: Array.from({ length: 4 }),
+        bitfield: { get: (index: number) => c.verifiedPieces.includes(index) },
+      };
+      assert.deepEqual(downloadedFileRanges(torrent as never, c.file), c.expect);
+    });
+  }
 
   console.log(failures === 0 ? "\nPASS" : `\nFAIL — ${failures} check(s) failed.`);
   process.exit(failures === 0 ? 0 : 1);

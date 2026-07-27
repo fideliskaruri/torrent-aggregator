@@ -56,6 +56,31 @@ export type StreamSwarmState = {
   observedAt: number;
 };
 
+type ByteRange = {
+  /** Inclusive byte offset within the file. */
+  start: number;
+  /** Exclusive byte offset within the file. */
+  end: number;
+};
+
+type TorrentBitfield = { get?: (index: number) => boolean };
+type TorrentPieceState = {
+  bitfield?: TorrentBitfield;
+  pieceLength?: number;
+  lastPieceLength?: number;
+  length?: number;
+  done?: boolean;
+  progress?: number;
+  pieces?: Array<unknown>;
+};
+type FilePieceState = {
+  offset?: number;
+  length: number;
+  _startPiece?: number;
+  _endPiece?: number;
+  downloaded?: number;
+};
+
 function swarmState(torrent?: BuiltinStreamTorrent): StreamSwarmState {
   const speed = torrent?.downloadSpeed;
   const progress = torrent?.progress;
@@ -69,6 +94,74 @@ function swarmState(torrent?: BuiltinStreamTorrent): StreamSwarmState {
         : null,
     observedAt: Date.now(),
   };
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function mergeByteRange(ranges: ByteRange[], range: ByteRange): void {
+  if (range.end <= range.start) return;
+  const last = ranges[ranges.length - 1];
+  if (last && range.start <= last.end) {
+    last.end = Math.max(last.end, range.end);
+    return;
+  }
+  ranges.push(range);
+}
+
+/**
+ * Verified torrent pieces held on disk, intersected with one file.
+ *
+ * WebTorrent already keeps the authoritative answer in `torrent.bitfield`; the
+ * manifest route is the one JSON shape the browser already polls, so surfacing
+ * it here avoids a second endpoint whose whole job would be to ask the same
+ * engine the same question. Only verified pieces are painted: a partially-filled
+ * piece is not something `file.stream()` can seek into without waiting.
+ */
+export function downloadedFileRanges(
+  torrent: BuiltinStreamTorrent | undefined,
+  file: { length: number; offset?: number; _startPiece?: number; _endPiece?: number },
+): ByteRange[] {
+  if (!file.length || file.length <= 0) return [];
+  const t = torrent as TorrentPieceState | undefined;
+  if (!t) return [];
+  if (t.done === true || (typeof t.progress === "number" && t.progress >= 1)) {
+    return [{ start: 0, end: file.length }];
+  }
+
+  const bitfield = t.bitfield;
+  if (typeof bitfield?.get !== "function") return [];
+  const pieceLength = finiteNumber(t.pieceLength);
+  if (!pieceLength || pieceLength <= 0) return [];
+
+  const f = file as FilePieceState;
+  const fileOffset = finiteNumber(f.offset) ?? 0;
+  const fileEnd = fileOffset + file.length;
+  const startPiece =
+    finiteNumber(f._startPiece) ?? Math.max(0, Math.floor(fileOffset / pieceLength));
+  const endPiece =
+    finiteNumber(f._endPiece) ?? Math.max(startPiece, Math.floor((fileEnd - 1) / pieceLength));
+  const torrentLength = finiteNumber(t.length);
+  const piecesLength = Array.isArray(t.pieces) ? t.pieces.length : null;
+  const ranges: ByteRange[] = [];
+
+  for (let index = startPiece; index <= endPiece; index += 1) {
+    if (!bitfield.get(index)) continue;
+    const pieceStart = index * pieceLength;
+    const isLastPiece = piecesLength !== null && index === piecesLength - 1;
+    const pieceEnd =
+      isLastPiece && finiteNumber(t.lastPieceLength)
+        ? pieceStart + (finiteNumber(t.lastPieceLength) ?? pieceLength)
+        : torrentLength
+          ? Math.min(torrentLength, pieceStart + pieceLength)
+          : pieceStart + pieceLength;
+    const start = Math.max(0, Math.min(file.length, Math.max(pieceStart, fileOffset) - fileOffset));
+    const end = Math.max(0, Math.min(file.length, Math.min(pieceEnd, fileEnd) - fileOffset));
+    mergeByteRange(ranges, { start, end });
+  }
+
+  return ranges;
 }
 
 function logStreamIndexLine(entry: {
@@ -161,6 +254,7 @@ export async function handleStreamIndexRequest(
       path: manifestPath(file.path),
       length: file.length,
       index,
+      downloadedRanges: downloadedFileRanges(lookup.torrent, file),
     })),
     clientType: "builtin",
     swarm: swarmState(lookup.torrent),

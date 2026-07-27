@@ -749,11 +749,11 @@ async function main() {
       assert.equal(res.status, 200);
       const body = (await res.json()) as {
         clientType?: string;
-        files?: { path: string; length: number; index: number }[];
+        files?: { path: string; length: number; index: number; downloadedRanges: unknown[] }[];
       };
       assert.equal(body.clientType, "builtin");
       assert.deepEqual(body.files, [
-        { path: "Folder/Movie.mkv", length: 2048, index: 0 },
+        { path: "Folder/Movie.mkv", length: 2048, index: 0, downloadedRanges: [] },
       ]);
     });
   } finally {

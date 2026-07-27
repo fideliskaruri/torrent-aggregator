@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Component,
   useCallback,
   useEffect,
   useId,
@@ -8,6 +9,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from "react";
 import { Check, Copy, Loader2, Maximize, Pause, Play, Volume2, VolumeX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,11 +29,13 @@ export type StreamFile = {
   path: string;
   length: number;
   index: number;
+  downloadedRanges?: ByteRange[];
 };
 
 type StreamManifest = {
   files: StreamFile[];
   clientType?: string;
+  swarm?: SwarmSample;
 };
 
 export type StreamProgress = {
@@ -502,6 +506,113 @@ export function formatClock(totalSeconds: number): string {
 
 /** A buffered span expressed in seconds on the *source* timeline. */
 export type SourceRange = { start: number; end: number };
+export type ByteRange = { start: number; end: number };
+
+function sameRanges(a: SourceRange[], b: SourceRange[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (r, i) =>
+        Math.abs(r.start - b[i].start) < 0.05 &&
+        Math.abs(r.end - b[i].end) < 0.05,
+    )
+  );
+}
+
+export function byteRangesToSourceRanges(
+  byteRanges: ByteRange[] | null | undefined,
+  fileLength: number,
+  sourceDuration: number | null,
+): SourceRange[] {
+  if (!byteRanges || !fileLength || fileLength <= 0 || !sourceDuration || sourceDuration <= 0) {
+    return [];
+  }
+  const out: SourceRange[] = [];
+  for (const range of byteRanges) {
+    if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) continue;
+    const startByte = Math.max(0, Math.min(fileLength, range.start));
+    const endByte = Math.max(0, Math.min(fileLength, range.end));
+    if (endByte <= startByte) continue;
+    const next = {
+      start: (startByte / fileLength) * sourceDuration,
+      end: (endByte / fileLength) * sourceDuration,
+    };
+    const last = out[out.length - 1];
+    if (last && next.start <= last.end + 0.05) {
+      last.end = Math.max(last.end, next.end);
+    } else {
+      out.push(next);
+    }
+  }
+  return out;
+}
+
+export function sourceTimeInRanges(ranges: SourceRange[], position: number): boolean {
+  return ranges.some((range) => position >= range.start - 0.5 && position <= range.end + 0.5);
+}
+
+function roundedRangeData(ranges: SourceRange[]): string {
+  return JSON.stringify(
+    ranges.map((r) => [
+      Math.round(r.start * 100) / 100,
+      Math.round(r.end * 100) / 100,
+    ]),
+  );
+}
+
+function TimelineBands({
+  sourceDuration,
+  bufferedRanges,
+  downloadedRanges,
+  currentSourceTime,
+}: {
+  sourceDuration: number;
+  bufferedRanges: SourceRange[];
+  downloadedRanges: SourceRange[];
+  currentSourceTime: number;
+}) {
+  return (
+    <>
+      <span
+        data-stream-downloaded
+        data-ranges={roundedRangeData(downloadedRanges)}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2"
+      >
+        {downloadedRanges.map((range) => (
+          <span
+            key={`downloaded-${range.start}-${range.end}`}
+            data-stream-downloaded-range
+            className="absolute top-0 h-full rounded-full bg-[var(--accent)]/35"
+            style={{
+              left: `${(range.start / sourceDuration) * 100}%`,
+              width: `${((range.end - range.start) / sourceDuration) * 100}%`,
+            }}
+          />
+        ))}
+      </span>
+      <span
+        data-stream-buffered
+        data-ranges={roundedRangeData(bufferedRanges)}
+        data-ahead={Math.round(bufferedAheadOf(bufferedRanges, currentSourceTime) * 100) / 100}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2"
+      >
+        {bufferedRanges.map((range) => (
+          <span
+            key={`buffered-${range.start}-${range.end}`}
+            data-stream-buffered-range
+            className="absolute top-0 h-full rounded-full bg-white/70"
+            style={{
+              left: `${(range.start / sourceDuration) * 100}%`,
+              width: `${((range.end - range.start) / sourceDuration) * 100}%`,
+            }}
+          />
+        ))}
+      </span>
+    </>
+  );
+}
 
 /**
  * Move `video.buffered` into the coordinate space the viewer is looking at.
@@ -638,7 +749,49 @@ type SubtitleStatus = "idle" | "loading" | "extracting" | "ready" | "error";
   }
 }
 
-export function InlineStreamPlayer({
+class InlinePlayerErrorBoundary extends Component<
+  { children: ReactNode; title: string },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div
+        data-inline-player-error
+        className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px] text-[var(--text-secondary)]"
+      >
+        <p className="font-medium text-[var(--text-primary)]">The player hit an error.</p>
+        <p className="mt-1">
+          {this.props.title} is still in your library. Retry the player, or use the other title
+          actions while this recovers.
+        </p>
+        <button
+          type="button"
+          className="mt-2 rounded-full border border-[var(--border)] px-3 py-1 text-[12px] font-medium text-[var(--accent-text)]"
+          onClick={() => this.setState({ failed: false })}
+        >
+          Retry player
+        </button>
+      </div>
+    );
+  }
+}
+
+export function InlineStreamPlayer(props: InlinePlayerProps) {
+  return (
+    <InlinePlayerErrorBoundary key={props.infoHash} title={props.title}>
+      <InlineStreamPlayerInner {...props} />
+    </InlinePlayerErrorBoundary>
+  );
+}
+
+function InlineStreamPlayerInner({
   infoHash,
   title,
   progress,
@@ -710,10 +863,9 @@ export function InlineStreamPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   /**
-   * Buffered spans in *source* seconds. Only populated in HLS mode: in direct
-   * mode the native control bar is kept (there the media timeline *is* the
-   * file), and the browser already paints an accurate band on it. Painting a
-   * second one is how this player ended up showing two disagreeing scrubbers.
+   * Buffered spans in *source* seconds: decoded bytes the media element can play
+   * immediately. This is deliberately separate from downloaded spans; a torrent
+   * can hold far-ahead sparse islands that are not in the decoder buffer yet.
    */
   const [bufferedRanges, setBufferedRanges] = useState<SourceRange[]>([]);
   /** Subtitle tracks offered for the selected file, from `/api/subtitles`. */
@@ -802,6 +954,20 @@ export function InlineStreamPlayer({
   }, [selectedFile, activeTitle]);
   const currentSeason = activeSeason ?? parsedCurrentEpisode?.season ?? null;
   const currentEpisode = activeEpisode ?? parsedCurrentEpisode?.episode ?? null;
+  const downloadedRanges = useMemo(
+    () =>
+      selectedFile
+        ? byteRangesToSourceRanges(
+            selectedFile.downloadedRanges,
+            selectedFile.length,
+            sourceDuration,
+          )
+        : [],
+    [selectedFile, sourceDuration],
+  );
+  const currentTimeHeld = downloadedRanges.length > 0
+    ? sourceTimeInRanges(downloadedRanges, currentSourceTime)
+    : null;
   const minimumStreamBps =
     selectedFile && sourceDuration && sourceDuration > 0
       ? (selectedFile.length / sourceDuration) * 1.15
@@ -885,16 +1051,7 @@ export function InlineStreamPlayer({
     (video: HTMLVideoElement) => {
       const next = bufferedSourceRanges(video.buffered, timelineOffset, sourceDuration);
       setBufferedRanges((prev) => {
-        if (
-          prev.length === next.length &&
-          prev.every(
-            (r, i) =>
-              Math.abs(r.start - next[i].start) < 0.05 &&
-              Math.abs(r.end - next[i].end) < 0.05,
-          )
-        ) {
-          return prev;
-        }
+        if (sameRanges(prev, next)) return prev;
         return next;
       });
     },
@@ -1094,6 +1251,34 @@ export function InlineStreamPlayer({
       setManifestLoading(false);
     }
   }, [activeInfoHash, manifest]);
+
+  const fetchPlayerSample = useCallback(
+    async (signal: AbortSignal): Promise<SwarmSample | null> => {
+      const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}?poll=1`, {
+        signal,
+        cache: "no-store",
+      });
+      if (!res.ok && res.status !== 425) return null;
+      const body = await readJson<StreamManifest>(res);
+      if (!body) return null;
+      if (Array.isArray(body.files)) {
+        setManifest((prev) => ({
+          files: body.files,
+          clientType: body.clientType ?? prev?.clientType,
+        }));
+      }
+      const swarm = body.swarm;
+      if (!swarm || typeof swarm !== "object") return null;
+      return {
+        peers: typeof swarm.peers === "number" ? swarm.peers : null,
+        downloadSpeedBps:
+          typeof swarm.downloadSpeedBps === "number" ? swarm.downloadSpeedBps : null,
+        progress: typeof swarm.progress === "number" ? swarm.progress : null,
+        observedAt: typeof swarm.observedAt === "number" ? swarm.observedAt : Date.now(),
+      };
+    },
+    [activeInfoHash],
+  );
 
   const copySelected = useCallback(async () => {
     const loaded = await loadManifest();
@@ -2030,11 +2215,11 @@ export function InlineStreamPlayer({
                 value={selectedPath ?? ""}
                 onChange={(e) => setSelectedPath(e.target.value || null)}
                 data-stream-file-select
-                className="h-8 w-full rounded-md border border-[var(--border)] bg-[var(--bg-muted)] px-2 text-[12px] text-[var(--text)]"
+                className="input-field h-8 w-full px-2 text-[12px]"
               >
-                <option value="">Pick a video file…</option>
+                <option value="" className="bg-[var(--bg-elevated)]">Pick a video file…</option>
                 {videoFiles.map((file) => (
-                  <option key={file.index} value={file.path}>
+                  <option key={file.index} value={file.path} className="bg-[var(--bg-elevated)]">
                     {file.path} · {formatBytes(file.length)}
                   </option>
                 ))}
@@ -2274,29 +2459,36 @@ export function InlineStreamPlayer({
                   Checking for the next episode…
                 </div>
               ) : null}
-              {playbackMode !== "hls" ? (
-                /*
-                  The native control bar already paints an accurate buffered
-                  band in this mode — the media timeline *is* the file — so a
-                  second visible bar would be the "two disagreeing scrubbers"
-                  bug again. The ranges are still published, so a test (or a
-                  reader debugging a stall) can read what is instant.
-                */
-                <span
-                  hidden
-                  data-stream-buffered
-                  data-ranges={JSON.stringify(
-                    bufferedRanges.map((r) => [
-                      Math.round(r.start * 100) / 100,
-                      Math.round(r.end * 100) / 100,
-                    ]),
-                  )}
-                  data-ahead={
-                    Math.round(bufferedAheadOf(bufferedRanges, currentSourceTime) * 100) / 100
-                  }
-                />
-              ) : null}
               </div>
+              {playbackMode !== "hls" && sourceDuration && sourceDuration > 0 ? (
+                <div
+                  data-stream-availability
+                  data-current-held={currentTimeHeld ?? "unknown"}
+                  className="space-y-1"
+                >
+                  <div className="relative h-2 rounded-full bg-[var(--border)]">
+                    <TimelineBands
+                      sourceDuration={sourceDuration}
+                      bufferedRanges={bufferedRanges}
+                      downloadedRanges={downloadedRanges}
+                      currentSourceTime={currentSourceTime}
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-y-1/2 rounded-full bg-[var(--text-primary)]"
+                      style={{
+                        left: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-[var(--text-tertiary)]">
+                    <span className="text-[var(--accent-text)]">Downloaded</span> pieces are
+                    held by the torrent; <span className="text-[var(--text-secondary)]">bright</span>{" "}
+                    spans are buffered in the browser.
+                    {currentTimeHeld === false ? " This position is not downloaded yet." : ""}
+                  </p>
+                </div>
+              ) : null}
               {playbackMode === "hls" ? (
                 <div data-stream-transport-row className="flex items-center gap-2">
                   <button
@@ -2323,37 +2515,16 @@ export function InlineStreamPlayer({
                           className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--border)]"
                         />
                         {/*
-                          The buffered band, in *source* seconds. `data-ranges`
-                          is the same array the bar is drawn from, so a test can
-                          check the claim against `video.buffered` instead of
-                          trusting a pixel.
+                          Downloaded and buffered bands are separate claims.
+                          Downloaded can be sparse torrent islands; buffered is
+                          what the media element can decode without waiting.
                         */}
-                        <span
-                          data-stream-buffered
-                          data-ranges={JSON.stringify(
-                            bufferedRanges.map((r) => [
-                              Math.round(r.start * 100) / 100,
-                              Math.round(r.end * 100) / 100,
-                            ]),
-                          )}
-                          data-ahead={
-                            Math.round(bufferedAheadOf(bufferedRanges, currentSourceTime) * 100) / 100
-                          }
-                          aria-hidden="true"
-                          className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2"
-                        >
-                          {bufferedRanges.map((range) => (
-                            <span
-                              key={`${range.start}-${range.end}`}
-                              data-stream-buffered-range
-                              className="absolute top-0 h-full rounded-full bg-[var(--text-tertiary)]/70"
-                              style={{
-                                left: `${(range.start / sourceDuration) * 100}%`,
-                                width: `${((range.end - range.start) / sourceDuration) * 100}%`,
-                              }}
-                            />
-                          ))}
-                        </span>
+                        <TimelineBands
+                          sourceDuration={sourceDuration}
+                          bufferedRanges={bufferedRanges}
+                          downloadedRanges={downloadedRanges}
+                          currentSourceTime={currentSourceTime}
+                        />
                         <span
                           aria-hidden="true"
                           className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--accent)]"
@@ -2365,6 +2536,7 @@ export function InlineStreamPlayer({
                           type="range"
                           aria-label="Seek"
                           data-stream-seek
+                          data-current-held={currentTimeHeld ?? "unknown"}
                           className="relative w-full min-w-0"
                           min={0}
                           max={Math.floor(sourceDuration)}
@@ -2403,11 +2575,16 @@ export function InlineStreamPlayer({
                   </button>
                 </div>
               ) : null}
+              {playbackMode === "hls" && currentTimeHeld === false && seeking ? (
+                <p data-stream-seek-held="false" className="text-[11px] text-[var(--text-tertiary)]">
+                  That position is not downloaded yet — playback will wait for torrent pieces.
+                </p>
+              ) : null}
               {audioTracks.length > 1 ? (
                 <label className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]">
                   <span>Audio</span>
                   <select
-                    className="min-w-0 flex-1 truncate rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[11px]"
+                    className="input-field min-w-0 flex-1 truncate px-1.5 py-1 text-[11px]"
                     value={audioStreamIndex ?? ""}
                     data-stream-audio-select
                     onChange={(e) => {
@@ -2418,7 +2595,11 @@ export function InlineStreamPlayer({
                     }}
                   >
                     {audioTracks.map((track, i) => (
-                      <option key={track.streamIndex} value={track.streamIndex}>
+                      <option
+                        key={track.streamIndex}
+                        value={track.streamIndex}
+                        className="bg-[var(--bg-elevated)]"
+                      >
                         {audioTrackLabel(track, i)}
                       </option>
                     ))}
@@ -2429,19 +2610,24 @@ export function InlineStreamPlayer({
                 <label className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]">
                   <span>Subtitles</span>
                   <select
-                    className="min-w-0 flex-1 truncate rounded border border-[var(--border)] bg-transparent px-1.5 py-1 text-[11px]"
+                    className="input-field min-w-0 flex-1 truncate px-1.5 py-1 text-[11px]"
                     value={subtitleTrackId}
                     data-stream-subtitle-select
                     aria-label="Subtitles"
                     onChange={(e) => selectSubtitleTrack(e.target.value)}
                   >
-                    <option value="">Off</option>
+                    <option value="" className="bg-[var(--bg-elevated)]">Off</option>
                     {subtitleTracks.map((track) => (
                       // A track that cannot become WebVTT is shown, because
                       // hiding it would make the release look like it has no
                       // subtitles at all — but it is not selectable, because
                       // selecting it could only ever render nothing.
-                      <option key={track.id} value={track.id} disabled={!track.src}>
+                      <option
+                        key={track.id}
+                        value={track.id}
+                        disabled={!track.src}
+                        className="bg-[var(--bg-elevated)]"
+                      >
                         {track.label}
                       </option>
                     ))}
@@ -2473,6 +2659,7 @@ export function InlineStreamPlayer({
                   active={Boolean(playableSrc)}
                   minimumStreamBps={minimumStreamBps}
                   onSample={setSwarmSample}
+                  fetchSample={fetchPlayerSample}
                 />
                 <p className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-tertiary)]">
                   {releaseChips.length > 0
