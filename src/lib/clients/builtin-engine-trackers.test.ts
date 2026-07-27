@@ -7,8 +7,10 @@ import {
   addTorrentWithEngineDefaults,
   applyForegroundUploadThrottleForTests,
   builtinAddOptions,
+  configureBuiltinClientListeningWaitForTests,
   PUBLIC_TRACKERS,
   rehydrateFailureDataForTests,
+  waitForClientListeningForTests,
   withPublicTrackers,
 } from "./builtin-engine";
 
@@ -154,6 +156,60 @@ for (const tracker of [
   assert.equal(calls[1], -1, "idle restores unlimited upload");
 }
 
+async function checkClientListeningTimeoutContinues() {
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  try {
+    const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+    const fakeClient = {
+      torrents: [],
+      listening: false,
+      add(_input: string | Uint8Array) {
+        return { on() {} };
+      },
+      get() {},
+      destroy() {},
+      on(event: string, fn: (...args: unknown[]) => void) {
+        let set = listeners.get(event);
+        if (!set) {
+          set = new Set();
+          listeners.set(event, set);
+        }
+        set.add(fn);
+      },
+      once(event: string, fn: (...args: unknown[]) => void) {
+        this.on(event, fn);
+      },
+      removeListener(event: string, fn: (...args: unknown[]) => void) {
+        listeners.get(event)?.delete(fn);
+      },
+    };
+
+    configureBuiltinClientListeningWaitForTests({ timeoutMs: 1 });
+    await waitForClientListeningForTests(fakeClient as never);
+    await waitForClientListeningForTests(fakeClient as never);
+    assert.equal(warnings.length, 1, "peer-listener timeout warning is emitted once");
+    assert.match(
+      warnings[0],
+      /peer listener did not open.*continuing anyway/i,
+      "timeout warning must say the engine continues",
+    );
+    assert.equal(
+      listeners.get("listening")?.size ?? 0,
+      0,
+      "timed-out wait removes its listening listener",
+    );
+    const usable = fakeClient.add("magnet:?xt=urn:btih:0123456789012345678901234567890123456789");
+    assert.equal(typeof usable.on, "function", "client remains usable after listener timeout");
+  } finally {
+    configureBuiltinClientListeningWaitForTests(null);
+    console.warn = originalWarn;
+  }
+}
+
 {
   const source = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "builtin-engine.ts"),
@@ -186,4 +242,11 @@ for (const err of [
   assert.ok(data.error.length > 0, "rehydrate failures must leave an explainable row");
 }
 
-console.log("builtin-engine-trackers.test.ts: all assertions passed");
+checkClientListeningTimeoutContinues()
+  .then(() => {
+    console.log("builtin-engine-trackers.test.ts: all assertions passed");
+  })
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

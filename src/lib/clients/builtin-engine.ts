@@ -25,6 +25,7 @@ import { foregroundActive } from "@/lib/prewarm/foreground";
 
 type WebTorrentLike = {
   torrents: Array<WtTorrent>;
+  listening?: boolean;
   add: (
     uri: string | Uint8Array,
     opts?: BuiltinAddOptions,
@@ -41,6 +42,8 @@ type WebTorrentLike = {
   ) => void | Promise<void>;
   destroy: (cb?: (err?: Error) => void) => void;
   on: (ev: string, fn: (...args: unknown[]) => void) => void;
+  once?: (ev: string, fn: (...args: unknown[]) => void) => void;
+  removeListener?: (ev: string, fn: (...args: unknown[]) => void) => void;
 };
 
 type WtFile = {
@@ -320,6 +323,15 @@ export function addTorrentWithEngineDefaults(
 export const FOREGROUND_UPLOAD_LIMIT_BPS = 64 * 1024;
 const UNLIMITED_UPLOAD_LIMIT = -1;
 const UPLOAD_THROTTLE_POLL_MS = 5_000;
+const CLIENT_LISTENING_TIMEOUT_MS = 10_000;
+const CLIENT_LISTENING_TIMEOUT_WARNING =
+  "[builtin-engine] peer listener did not open within 10s; continuing anyway. " +
+  "Torrent adds may briefly register one WebTorrent listening listener each until the peer server opens.";
+
+let clientListeningTimeoutWarned = false;
+let clientListeningWaitOverrideForTests:
+  | { timeoutMs?: number; forceTimeout?: boolean }
+  | null = null;
 
 function applyForegroundUploadThrottle(
   client: Pick<WebTorrentLike, "throttleUpload" | "throttleDownload"> | null | undefined,
@@ -344,6 +356,52 @@ export function applyForegroundUploadThrottleForTests(
   active: boolean,
 ): void {
   applyForegroundUploadThrottle(client, active);
+}
+
+function warnClientListeningTimeoutOnce(): void {
+  if (clientListeningTimeoutWarned) return;
+  clientListeningTimeoutWarned = true;
+  console.warn(CLIENT_LISTENING_TIMEOUT_WARNING);
+}
+
+async function waitForClientListening(client: WebTorrentLike): Promise<void> {
+  const override = clientListeningWaitOverrideForTests;
+  if (!override?.forceTimeout && readProp(() => client.listening, false)) return;
+  const subscribe = client.once ?? client.on;
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = (timedOut = false) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      client.removeListener?.("listening", onListening);
+      if (timedOut) warnClientListeningTimeoutOnce();
+      resolve();
+    };
+    const onListening = () => finish();
+    const timer = setTimeout(
+      () => finish(true),
+      override?.timeoutMs ?? CLIENT_LISTENING_TIMEOUT_MS,
+    );
+    timer.unref?.();
+    if (!override?.forceTimeout) {
+      subscribe.call(client, "listening", onListening);
+      if (readProp(() => client.listening, false)) finish();
+    }
+  });
+}
+
+export function configureBuiltinClientListeningWaitForTests(
+  opts: { timeoutMs?: number; forceTimeout?: boolean } | null,
+): void {
+  clientListeningWaitOverrideForTests = opts;
+  clientListeningTimeoutWarned = false;
+}
+
+export async function waitForClientListeningForTests(
+  client: WebTorrentLike,
+): Promise<void> {
+  await waitForClientListening(client);
 }
 
 /** Select all files so every piece is wanted. Does NOT change pause state. */
@@ -930,6 +988,13 @@ async function getWtClient(): Promise<WebTorrentLike> {
       );
     }
     const client = new WebTorrent(BUILTIN_CLIENT_OPTIONS);
+    // WebTorrent queues every torrent added before the peer server emits
+    // "listening" by attaching `client.once("listening")` in torrent.js. A
+    // cold rehydrate can add dozens of rows synchronously, tripping
+    // MaxListenersExceededWarning and retaining per-torrent closures until the
+    // socket opens. Wait once here so all later adds take WebTorrent's direct
+    // `client.listening` branch instead of registering one listener per torrent.
+    await waitForClientListening(client);
     s.client = client;
     startUploadThrottleLoop(client);
     return client;
