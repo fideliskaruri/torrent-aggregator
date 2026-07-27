@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
+import { normalizeTitle } from "@/lib/utils";
 import type { SearchResponse } from "./types";
 
 const memory = new Map<string, { expires: number; value: SearchResponse }>();
@@ -94,16 +95,22 @@ export async function setSearchCache(
   ttlMs = DEFAULT_TTL_MS,
 ): Promise<void> {
   const expiresAt = new Date(Date.now() + ttlMs);
+  // Recorded so the browse availability resolver can find "the latest search
+  // for this title" without reconstructing this row's opaque `cacheKey` from
+  // an option set it does not know. See the field comment in schema.prisma.
+  const normalizedQuery = normalizeTitle(value.query ?? "") || null;
   memory.set(key, { expires: expiresAt.getTime(), value });
   try {
     await prisma.searchCache.upsert({
       where: { cacheKey: key },
       create: {
         cacheKey: key,
+        normalizedQuery,
         payload: JSON.stringify(value),
         expiresAt,
       },
       update: {
+        normalizedQuery,
         payload: JSON.stringify(value),
         expiresAt,
       },

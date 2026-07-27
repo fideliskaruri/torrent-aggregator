@@ -238,4 +238,114 @@ function base(partial: Partial<TorrentResult> & { title: string }): TorrentResul
   );
 }
 
+// --- An indexer's trailing number must not fork a film into two groups ---
+//
+// Search groups releases through `groupKey` here, which is a completely
+// separate path from `workIdentity` in work-identity.ts and had the identical
+// defect. Observed live on `/search?q=dune`: `Dune Part Two (2024) [1080p]
+// [WEBRip] 88` grouped under `dune part two 88` and rendered as its own work,
+// captioned "Dune Part Two 88" and with no poster, directly above the real
+// Dune Part Two. Both paths now share `stripTrailingJunkNumber`.
+{
+  const ranked = rankResults(
+    [
+      base({ title: "Dune Part Two (2024) [1080p] [WEBRip] 88", seeders: 1092 }),
+      base({ title: "Dune Part Two (2024) [2160p] [WEBRip]", seeders: 300 }),
+      base({
+        title: "Dune.Part.Two.2024.1080p.WEBRip.1600MB.DD2.0.x264-GalaxyRG",
+        seeders: 200,
+      }),
+      base({
+        title:
+          "Dune Part Two 2024 NORDiC 1080p REMUX BluRay AVC DTS-HD MA TrueHD 7 1 Atmos",
+        seeders: 120,
+      }),
+    ],
+    "dune part two",
+  );
+  const keys = new Set(ranked.map((r) => r.groupKey));
+  assert.equal(
+    keys.size,
+    1,
+    `four prints of Dune Part Two are one group, got ${keys.size}: ` +
+      [...keys].map((k) => `"${k}"`).join(", "),
+  );
+  for (const r of ranked) {
+    assert.ok(
+      !/\b88\b/.test(r.groupKey ?? ""),
+      `an indexer suffix leaked into the group key: ${r.groupKey}`,
+    );
+  }
+
+  // The counterweight: a title that genuinely ends in a number must NOT be
+  // collapsed into its sibling. A blanket digit strip would merge these.
+  const toys = rankResults(
+    [
+      base({ title: "Toy Story 5 (2026) [1080p] [WEBRip]" }),
+      base({ title: "Toy Story 4 (2019) [1080p] [WEBRip]" }),
+    ],
+    "toy story",
+  );
+  const toyKeys = new Set(toys.map((r) => r.groupKey));
+  assert.equal(
+    toyKeys.size,
+    2,
+    `Toy Story 4 and 5 are different films, got ${toyKeys.size}: ` +
+      [...toyKeys].map((k) => `"${k}"`).join(", "),
+  );
+}
+
+// --- Two films sharing a title are told apart by year, not merged ---
+//
+// The year now rides in the key's suffix instead of the base. Deleting it
+// outright would have been the easy way to stop the same film splitting across
+// prints, and it would have silently merged these two very different films
+// into one group — a worse bug, and one nobody would have noticed.
+{
+  const dunes = rankResults(
+    [
+      base({ title: "Dune (2021) [1080p] [WEBRip]" }),
+      base({ title: "Dune.1984.1080p.BluRay.x264-AMIABLE" }),
+    ],
+    "dune",
+  );
+  const keys = new Set(dunes.map((r) => r.groupKey));
+  assert.equal(
+    keys.size,
+    2,
+    `Dune 1984 and Dune 2021 are different films, got ${keys.size}: ` +
+      [...keys].map((k) => `"${k}"`).join(", "),
+  );
+
+  // Numeric titles keep their names; only the year we actually parsed moves.
+  const NUMERIC_TITLE_CASES: [string, string][] = [
+    ["1917.2019.1080p.BluRay.x264-SPARKS", "1917|Y2019"],
+    ["2012.2009.1080p.BluRay.x264-REFiNED", "2012|Y2009"],
+    ["300.2006.2160p.UHD.BluRay.x265-TERMiNAL", "300|Y2006"],
+  ];
+  for (const [title, expected] of NUMERIC_TITLE_CASES) {
+    assert.equal(
+      rankResults([base({ title })], "x")[0].groupKey,
+      expected,
+      `a numeric title must survive year extraction: "${title}"`,
+    );
+  }
+
+  // Words that merely start with a stripped token must not be eaten. `multi`
+  // is in the token list; "Multiplicity" must keep its name.
+  assert.equal(
+    rankResults([base({ title: "Multiplicity (1996) [1080p] [BluRay]" })], "x")[0]
+      .groupKey,
+    "multiplicity|Y1996",
+  );
+  // Bare language names are deliberately NOT stripped — this is a real film.
+  assert.equal(
+    rankResults(
+      [base({ title: "The German Doctor (2013) [1080p] [BluRay]" })],
+      "x",
+    )[0].groupKey,
+    "the german doctor|Y2013",
+  );
+}
+
 console.log("ranking.test.ts: all assertions passed");

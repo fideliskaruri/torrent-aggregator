@@ -1,6 +1,7 @@
 import type { ReleaseGroup, TorrentResult } from "./types";
 import { normalizeTitle } from "@/lib/utils";
 import { parseEpisode } from "./episodes";
+import { stripTrailingJunkNumber, releaseYear } from "./work-identity";
 import {
   compareReleases,
   describeRelease,
@@ -171,6 +172,11 @@ const RELEASE_TOKEN_PATTERNS = [
   "truehd\\s*\\d*(?:\\s*\\d)?",
   "atmos",
   "mp3",
+  // AC3 / E-AC3. Their absence was not merely cosmetic: `Dune ... AC3 ...`
+  // grouped as `dune extended ac|E3`, because with the token left in place the
+  // episode parser read the trailing "3" of "AC3" as episode 3 and put a film
+  // in an episode group.
+  "e?-?ac-?3",
   "(?:dual|multi)\\s*audio",
   // Source
   "web\\s*-?\\s*dl",
@@ -179,6 +185,7 @@ const RELEASE_TOKEN_PATTERNS = [
   "blu\\s*-?\\s*ray",
   "bd\\s*rip",
   "br\\s*rip",
+  "hd\\s*rip",
   "bd",
   "hdtv",
   "dvd\\s*rip",
@@ -189,6 +196,15 @@ const RELEASE_TOKEN_PATTERNS = [
   "sdr",
   "cam",
   "ts",
+  // Cut/edition tags. None of these is a film title on its own, and each was
+  // observed as the only token separating one cut of a film from another in
+  // the same group.
+  "extended",
+  "unrated",
+  "theatrical",
+  "imax",
+  "hybrid",
+  "\\d{1,2}\\s*bit",
   // Release qualifiers
   "repack",
   "proper",
@@ -200,6 +216,19 @@ const RELEASE_TOKEN_PATTERNS = [
   "subbed",
   "dubbed",
   "raw",
+  // A file size baked into the release name: "...1080p.WEBRip.1600MB.DD2.0...".
+  // Unambiguous — no title contains "1600MB" — and it was observed live
+  // splitting Dune Part Two into its own group on `/search?q=dune`, because it
+  // was the only token distinguishing that release's key from its siblings'.
+  "\\d+(?:[.,]\\d+)?\\s*[mg]b",
+  // Language/region packaging tags. Deliberately only the ones that are never
+  // a word in a title: "NORDiC" was observed live producing the group
+  // `dune part two 2024 nordic` alongside `dune part two`. Bare language names
+  // ("german", "french") are NOT listed — "The German Doctor" is a real film,
+  // and stripping those would merge or truncate real titles.
+  "nordic",
+  "multi",
+  "multisubs?",
   // Platforms / distributors
   "amzn",
   "dsnp",
@@ -281,6 +310,38 @@ function buildGroupKey(
 
   base = base.replace(/\s+/g, " ").trim();
 
+  // An indexer's trailing suffix, e.g. `Dune Part Two (2024) [1080p] [WEBRip] 88`.
+  // Without this the film groups under `dune part two 88` and renders as a
+  // second work beside the real one, with no poster. Shares its rule with
+  // `workIdentity` so the two grouping paths cannot disagree about how many
+  // films "Dune Part Two" is. See `stripTrailingJunkNumber`'s own notes for
+  // why a title that legitimately ends in a number is left alone.
+  base = stripTrailingJunkNumber(title, base);
+
+  base = base.replace(/\s+/g, " ").trim();
+
+  // The release year, handled exactly the way the episode number above is:
+  // removed from the base and carried in the key's suffix instead.
+  //
+  // It has to be one or the other consistently, and leaving it in the base was
+  // observed live on `/search?q=dune` splitting single films across groups.
+  // A year written in brackets — `Dune Part Two (2024) [1080p]` — is erased by
+  // `normalizeTitle`, while the same film's dotted print —
+  // `Dune.Part.Two.2024.2160p...` — keeps it, so the two prints keyed as
+  // `dune part two` and `dune part two 2024` and rendered as two works.
+  //
+  // Moving it to the suffix rather than deleting it is deliberate: deleting it
+  // would merge *Dune* (1984) into *Dune* (2021), which is a worse bug than
+  // the one being fixed. `releaseYear` is reused rather than a fresh regex
+  // because it already refuses to read `1080p`/`2160p`/`x264` as years, and
+  // only the year it actually parsed is removed, so `1917` and `2012` keep
+  // their titles.
+  const year = releaseYear(title);
+  if (year != null) {
+    base = base.replace(new RegExp(`(?<![\\d.])${year}(?![\\d.])`, "g"), " ");
+    base = base.replace(/\s+/g, " ").trim();
+  }
+
   // Stripping everything would collapse unrelated releases into one group,
   // which is worse than the over-splitting this is meant to fix.
   if (!base) base = normalized.replace(/\s+/g, " ").trim() || title;
@@ -294,7 +355,9 @@ function buildGroupKey(
   if (episode.episode != null) {
     return `${base}|E${episode.episode}`;
   }
-  return base;
+  // A film's year distinguishes it; a series' does not, which is why this sits
+  // below every episode branch rather than being appended unconditionally.
+  return year != null ? `${base}|Y${year}` : base;
 }
 
 function markBestPicks(results: TorrentResult[]): TorrentResult[] {
