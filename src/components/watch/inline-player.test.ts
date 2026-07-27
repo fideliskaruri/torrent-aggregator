@@ -11,6 +11,7 @@ import {
   findSidecarSubtitle,
   infoHashFromMagnet,
   releaseDetailChips,
+  resolveVideoFileSelection,
   selectVideoFiles,
   streamStateSentence,
   streamPath,
@@ -51,6 +52,62 @@ assert(
 assert(
   "does not attach unrelated subtitle files",
   findSidecarSubtitle(files, "Show/Season 01/Show S01E02.mp4") === undefined,
+);
+assert(
+  "auto-selects the requested episode from a realistic season pack",
+  resolveVideoFileSelection(
+    [
+      { path: "Pack.Show.S01E01.1080p.WEB-DL.mp4", length: 100, index: 0 },
+      { path: "Pack.Show.S01E03.1080p.WEB-DL.mp4", length: 100, index: 1 },
+      { path: "Pack.Show.S01E04.1080p.WEB-DL.mp4", length: 100, index: 2 },
+    ],
+    { season: 1, episode: 3 },
+  )?.path.includes("S01E03") === true,
+);
+const episodeVariants = [
+  "Show s01e03 1080p.mp4",
+  "Show S01.E03 1080p.mp4",
+  "Show 1x03 1080p.mp4",
+  "Show S1E3 1080p.mp4",
+];
+for (const variant of episodeVariants) {
+  assert(
+    `auto-selects episode variant ${variant}`,
+    resolveVideoFileSelection(
+      [
+        { path: "Show S01E01 1080p.mp4", length: 100, index: 0 },
+        { path: variant, length: 100, index: 1 },
+      ],
+      { season: 1, episode: 3 },
+    )?.path === variant,
+  );
+}
+assert(
+  "does not guess a multi-file pack when the requested episode is unknown",
+  resolveVideoFileSelection(
+    [
+      { path: "Show S01E01.mp4", length: 100, index: 0 },
+      { path: "Show S01E03.mp4", length: 100, index: 1 },
+    ],
+    { season: null, episode: null },
+  ) === null,
+);
+assert(
+  "does not guess when more than one file matches the requested episode",
+  resolveVideoFileSelection(
+    [
+      { path: "Show S01E03 1080p.mp4", length: 100, index: 0 },
+      { path: "Show 1x03 alt.mp4", length: 100, index: 1 },
+    ],
+    { season: 1, episode: 3 },
+  ) === null,
+);
+assert(
+  "single-file torrents remain selectable without an episode hint",
+  resolveVideoFileSelection(
+    [{ path: "Movie 2026.mp4", length: 100, index: 0 }],
+    { season: null, episode: null },
+  )?.path === "Movie 2026.mp4",
 );
 
 assert(

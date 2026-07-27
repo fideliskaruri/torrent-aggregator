@@ -324,6 +324,44 @@ export function selectVideoFiles(files: StreamFile[]) {
   return files.filter((file) => isVideoFile(file.path));
 }
 
+function episodeFromFilePath(path: string): { season: number; episode: number } | null {
+  const name = path.replace(/\\/g, "/").split("/").pop() ?? path;
+  const patterns = [
+    /(?:^|[^a-z0-9])s0*([1-9]\d*)[\s._-]*e0*([1-9]\d*)(?=$|[^a-z0-9])/i,
+    /(?:^|[^a-z0-9])0*([1-9]\d*)x0*([1-9]\d*)(?=$|[^a-z0-9])/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(name);
+    if (!match) continue;
+    return {
+      season: Number(match[1]),
+      episode: Number(match[2]),
+    };
+  }
+  const parsed = parseEpisode(name);
+  if (parsed.season != null && parsed.episode != null) {
+    return { season: parsed.season, episode: parsed.episode };
+  }
+  return null;
+}
+
+export function resolveVideoFileSelection(
+  files: StreamFile[],
+  target: { season?: number | null; episode?: number | null },
+): StreamFile | null {
+  const videos = selectVideoFiles(files);
+  if (videos.length === 1) return videos[0];
+  if (videos.length === 0) return null;
+  const season = target.season;
+  const episode = target.episode;
+  if (season == null || episode == null) return null;
+  const matches = videos.filter((file) => {
+    const parsed = episodeFromFilePath(file.path);
+    return parsed?.season === season && parsed.episode === episode;
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function findSidecarSubtitle(files: StreamFile[], videoPath: string) {
   const videoBase = basenameWithoutExtension(videoPath);
   const videoDir = directoryOf(videoPath);
@@ -1048,6 +1086,12 @@ function InlineStreamPlayerInner({
   }, [selectedFile, activeTitle]);
   const currentSeason = activeSeason ?? parsedCurrentEpisode?.season ?? null;
   const currentEpisode = activeEpisode ?? parsedCurrentEpisode?.episode ?? null;
+  const requestedEpisode = useMemo(() => {
+    if (currentSeason != null && currentEpisode != null) {
+      return { season: currentSeason, episode: currentEpisode };
+    }
+    return episodeFromFilePath(activeTitle);
+  }, [currentSeason, currentEpisode, activeTitle]);
   const currentMediaType = currentSeason != null || currentEpisode != null ? "tv" : "movie";
   const downloadedRanges = useMemo(
     () =>
@@ -1337,7 +1381,16 @@ function InlineStreamPlayerInner({
       const next = { files, clientType: data?.clientType };
       setManifest(next);
       const videos = selectVideoFiles(files);
-      if (videos.length === 1) setSelectedPath(videos[0].path);
+      const requested = resolveVideoFileSelection(files, {
+        season: requestedEpisode?.season,
+        episode: requestedEpisode?.episode,
+      });
+      if (requested) {
+        setSelectedPath(requested.path);
+      } else if (videos.length > 1) {
+        setProblem(null);
+        setMessage("Choose the episode to play from this season pack.");
+      }
       if (videos.length === 0) {
         setProblem("missing");
         setMessage("No video file was listed for this torrent.");
@@ -1350,7 +1403,7 @@ function InlineStreamPlayerInner({
     } finally {
       setManifestLoading(false);
     }
-  }, [activeInfoHash, manifest]);
+  }, [activeInfoHash, manifest, requestedEpisode]);
 
   const fetchPlayerSample = useCallback(
     async (signal: AbortSignal): Promise<SwarmSample | null> => {
@@ -1389,11 +1442,14 @@ function InlineStreamPlayerInner({
   const copySelected = useCallback(async () => {
     const loaded = await loadManifest();
     if (!loaded) return;
-    const videos = selectVideoFiles(loaded.files);
-    const path = selectedPath ?? (videos.length === 1 ? videos[0].path : null);
+    const inferred = resolveVideoFileSelection(loaded.files, {
+      season: requestedEpisode?.season,
+      episode: requestedEpisode?.episode,
+    });
+    const path = selectedPath ?? inferred?.path ?? null;
     if (!path) {
       setExpanded(true);
-      setMessage("Pick a file, then copy its stream URL.");
+      setMessage("Pick an episode, then copy its stream URL.");
       return;
     }
     try {
@@ -1402,7 +1458,7 @@ function InlineStreamPlayerInner({
       setProblem("generic");
       setMessage("Could not copy the stream URL.");
     }
-  }, [copyUrl, loadManifest, selectedPath]);
+  }, [copyUrl, loadManifest, selectedPath, requestedEpisode]);
 
   const toggleExpanded = useCallback(async () => {
     if (expanded) {
@@ -2810,6 +2866,28 @@ function InlineStreamPlayerInner({
                         .join(" · ")}
                     </p>
                   </div>
+                  {videoFiles.length > 1 ? (
+                    <label className="pointer-events-auto flex max-w-[min(26rem,45vw)] shrink-0 items-center gap-2 rounded-full border border-white/12 bg-black/45 px-3 py-2 text-[11px] text-white/70 shadow-2xl backdrop-blur-md">
+                      <span className="shrink-0 font-medium uppercase tracking-[0.14em] text-white/45">
+                        Episode
+                      </span>
+                      <select
+                        value={selectedPath ?? ""}
+                        onChange={(e) => setSelectedPath(e.target.value || null)}
+                        data-stream-file-select
+                        aria-label="Video file"
+                        className="min-w-0 flex-1 appearance-none truncate bg-transparent text-[12px] font-medium text-white outline-none"
+                      >
+                        <option value="" className="bg-[var(--bg-elevated)]">Pick a video file…</option>
+                        {videoFiles.map((file) => (
+                          <option key={file.index} value={file.path} className="bg-[var(--bg-elevated)]">
+                            {file.path} · {formatBytes(file.length)}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-white/50" />
+                    </label>
+                  ) : null}
                 </div>
               </div>
 
