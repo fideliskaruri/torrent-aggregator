@@ -12,6 +12,7 @@ import { decryptSecret } from "@/lib/crypto";
 import {
   externalClientConfig,
 } from "./types";
+import { withFormattedAddTorrentMessage } from "./messages";
 
 export function getClient(type: TorrentClientType) {
   if (type === "transmission") return transmissionClient;
@@ -29,7 +30,9 @@ export async function sendToClient(
   config: ClientConnectionConfig,
   payload: AddTorrentPayload,
 ): Promise<AddTorrentResult> {
-  return getClient(config.clientType).addTorrent(config, payload);
+  return withFormattedAddTorrentMessage(
+    await getClient(config.clientType).addTorrent(config, payload),
+  );
 }
 
 export async function listClientTorrents(

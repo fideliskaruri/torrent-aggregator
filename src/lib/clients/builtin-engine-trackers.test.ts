@@ -8,6 +8,7 @@ import {
   applyForegroundUploadThrottleForTests,
   builtinAddOptions,
   PUBLIC_TRACKERS,
+  rehydrateFailureDataForTests,
   withPublicTrackers,
 } from "./builtin-engine";
 
@@ -168,6 +169,21 @@ for (const tracker of [
     1,
     "all WebTorrent add calls must flow through addTorrentWithEngineDefaults",
   );
+  assert.ok(
+    !source.includes("Download started (") &&
+      !source.includes("Downloading in built-in engine"),
+    "the engine must return structured transfer details, not product copy",
+  );
+}
+
+for (const err of [
+  new Error("malformed magnet URI"),
+  "Timed out restoring torrent metadata",
+  "",
+]) {
+  const data = rehydrateFailureDataForTests(err);
+  assert.equal(data.status, "error");
+  assert.ok(data.error.length > 0, "rehydrate failures must leave an explainable row");
 }
 
 console.log("builtin-engine-trackers.test.ts: all assertions passed");

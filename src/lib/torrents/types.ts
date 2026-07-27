@@ -141,6 +141,8 @@ export interface ClientTorrent {
   eta?: number;
   /** Connected peers. 0 while downloading is what "stalled" actually means. */
   peers?: number;
+  /** Client-reported failure reason, when state is "error". */
+  error?: string | null;
   category?: string;
   /** Absolute download directory from the torrent client */
   savePath?: string | null;

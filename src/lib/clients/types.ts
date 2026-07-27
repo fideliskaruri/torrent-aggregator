@@ -67,9 +67,18 @@ export interface AddTorrentPayload {
   savePath?: string | null;
 }
 
+export type AddTorrentDetails =
+  | {
+      type: "builtin-transfer";
+      action: "started" | "already_downloading" | "already_complete";
+      pct: number;
+      peers: number;
+    };
+
 export interface AddTorrentResult {
   ok: boolean;
   message: string;
+  details?: AddTorrentDetails;
 }
 
 export interface TorrentClientAdapter {

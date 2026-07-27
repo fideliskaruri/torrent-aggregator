@@ -133,15 +133,18 @@ type WtTorrent = {
  * We do not pin `torrentPort`: measurement showed it made no difference, and a
  * fixed port collides with a qBittorrent install on the same machine.
  *
- * `maxConns` stays at WebTorrent's 55 deliberately, but no longer because the
- * old 1-4 peer swarms could not fill it. Tracker breadth should make foreground
- * swarms wider. Raising the per-torrent budget now would also give every
- * background seed the same larger socket pool, so ten torrents could multiply
- * the very contention this file is trying to remove. Until a measurement shows
- * the playing torrent sitting at 55 connected peers while still starved, the
- * safer fix is tracker breadth plus upload shaping, not a global connection
- * increase. If that measurement arrives, the right next step is a foreground
- * connection policy, not just a bigger number for all torrents.
+ * `maxConns` stays at WebTorrent's 55 deliberately. Re-measured after public
+ * fallback trackers were restored, using Ubuntu 24.04.3
+ * (d160b8d8ea35a5b4e52837468fc8f03d55cef1f7) with this probe:
+ *
+ *   metadata 5.7s; peak 32 peers / 32 wires in 60s; peak 14.9 MiB/s
+ *
+ * The default was not saturated. Raising the per-torrent budget now would also
+ * give every background seed the same larger socket pool, so ten torrents could
+ * multiply the very contention this file is trying to remove. If a future
+ * measurement shows a playing torrent pinned at 55 connected peers while still
+ * starved, the right next step is a foreground connection policy, not just a
+ * bigger number for all torrents.
  */
 const BUILTIN_CLIENT_OPTIONS = { utp: false } as const;
 
@@ -578,12 +581,80 @@ function applyPersistedStatus(t: WtTorrent, status: string | null | undefined): 
   ensureDownloading(t);
 }
 
+const REHYDRATE_METADATA_TIMEOUT_MS = 90_000;
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function rehydrateFailureData(err: unknown): { status: "error"; error: string } {
+  const message = errorMessage(err).trim();
+  return {
+    status: "error",
+    error: message || "Built-in engine could not restore this torrent",
+  };
+}
+
+export function rehydrateFailureDataForTests(
+  err: unknown,
+): { status: "error"; error: string } {
+  return rehydrateFailureData(err);
+}
+
+async function recordRehydrateFailure(
+  row: EngineTorrentRehydrateRow,
+  err: unknown,
+): Promise<void> {
+  await prisma.engineTorrent.updateMany({
+    where: { id: row.id },
+    data: rehydrateFailureData(err),
+  });
+}
+
+function scheduleRehydrateReadyPersist(
+  row: EngineTorrentRehydrateRow,
+  t: WtTorrent,
+): void {
+  void prisma.engineTorrent
+    .updateMany({
+      where: { id: row.id },
+      data: {
+        error: null,
+        progress: readProp(() => t.progress, 0),
+        sizeBytes: BigInt(
+          Math.max(0, Math.floor(readProp(() => t.length, 0))),
+        ),
+        status:
+          row.status === "paused"
+            ? "paused"
+            : isComplete(t)
+              ? "seeding"
+              : "downloading",
+        name: readProp(() => t.name, "") || row.name,
+      },
+    })
+    .catch(() => {
+      /* best-effort */
+    });
+}
+
 type TorrentMeta = {
   savePath?: string;
   category?: string;
   name?: string;
   /** Owning user — used to scope list/pause/delete in multi-user process */
   userId?: string;
+};
+
+type EngineTorrentRehydrateRow = {
+  id: string;
+  userId: string;
+  hash: string;
+  name: string;
+  magnet: string | null;
+  savePath: string | null;
+  category: string | null;
+  status: string;
 };
 
 type EngineState = {
@@ -917,7 +988,7 @@ async function rehydrateFromDb(
       const rows = await prisma.engineTorrent.findMany({
         where: {
           ...(userId?.trim() ? { userId: userId.trim() } : {}),
-          status: { not: "removed" },
+          status: { notIn: ["removed", "error"] },
           magnet: { not: null },
         },
       });
@@ -957,17 +1028,42 @@ async function rehydrateFromDb(
             userId: row.userId,
           });
 
-          // Fire-and-forget: do not wait for metadata (can hang on dead magnets)
           const t = addTorrentWithEngineDefaults(client, row.magnet, dest);
+          let settled = false;
+          const fail = (err: unknown) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            try {
+              t.destroy?.({ destroyStore: false });
+            } catch {
+              /* best-effort */
+            }
+            void recordRehydrateFailure(row, err).catch(() => {
+              /* best-effort */
+            });
+          };
+          const timer = setTimeout(() => {
+            fail(
+              new Error(
+                "Timed out restoring torrent metadata; the magnet may be dead or the content may be gone. Re-add the release to retry.",
+              ),
+            );
+          }, REHYDRATE_METADATA_TIMEOUT_MS);
           t.on("error", (err: unknown) => {
             console.warn(
               `[builtin-engine] rehydrate error for ${hash}:`,
-              err instanceof Error ? err.message : err,
+              errorMessage(err),
             );
+            fail(err);
           });
           t.on("ready", () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
             const h = t.infoHash?.toLowerCase?.() || hash;
             applyPersistedStatus(t, row.status);
+            scheduleRehydrateReadyPersist(row, t);
             s.meta.set(h, {
               savePath: dest,
               category: row.category ?? undefined,
@@ -978,8 +1074,11 @@ async function rehydrateFromDb(
         } catch (err) {
           console.warn(
             `[builtin-engine] failed to re-add ${hash}:`,
-            err instanceof Error ? err.message : err,
+            errorMessage(err),
           );
+          await recordRehydrateFailure(row, err).catch(() => {
+            /* best-effort */
+          });
         }
       }
     } catch (err) {
@@ -1516,9 +1615,15 @@ export class BuiltinClient implements TorrentClientAdapter {
           const pct = Math.round(readProp(() => existing.progress, 0) * 100);
           return {
             ok: true,
-            message: isComplete(existing)
-              ? `Already complete in built-in engine (${pct}% · ${existing.name || hash.slice(0, 8)})`
-              : `Downloading in built-in engine (${pct}% · ${peers} peers · ${dest})`,
+            message: "",
+            details: {
+              type: "builtin-transfer",
+              action: isComplete(existing)
+                ? "already_complete"
+                : "already_downloading",
+              pct,
+              peers,
+            },
           };
         }
       }
@@ -1613,9 +1718,13 @@ export class BuiltinClient implements TorrentClientAdapter {
       const pct = Math.round(readProp(() => live.progress, 0) * 100);
       return {
         ok: true,
-        message: isComplete(live)
-          ? `Already complete (${pct}%) → ${dest}`
-          : `Download started (${pct}% · ${peers} peers) → ${dest}`,
+        message: "",
+        details: {
+          type: "builtin-transfer",
+          action: isComplete(live) ? "already_complete" : "started",
+          pct,
+          peers,
+        },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1705,20 +1814,27 @@ export class BuiltinClient implements TorrentClientAdapter {
           const h = row.hash.toLowerCase();
           if (seen.has(h)) continue;
           // Kick re-add if we have a magnet
-          if (row.magnet?.trim()) {
+          if (row.status !== "error" && row.magnet?.trim()) {
             const dest =
               row.savePath?.trim() || defaultDownloadRoot(config);
             try {
               if (!findTorrent(client, h)) {
                 repairExistingLayout(dest, row.name);
                 const t = addTorrentWithEngineDefaults(client, row.magnet, dest);
-                t.on("ready", () => applyPersistedStatus(t, row.status));
-                t.on("error", () => {
-                  /* logged elsewhere */
+                t.on("ready", () => {
+                  applyPersistedStatus(t, row.status);
+                  scheduleRehydrateReadyPersist(row, t);
+                });
+                t.on("error", (err: unknown) => {
+                  void recordRehydrateFailure(row, err).catch(() => {
+                    /* best-effort */
+                  });
                 });
               }
-            } catch {
-              /* best-effort */
+            } catch (err) {
+              void recordRehydrateFailure(row, err).catch(() => {
+                /* best-effort */
+              });
             }
           }
           out.push({
@@ -1730,7 +1846,9 @@ export class BuiltinClient implements TorrentClientAdapter {
             upspeed: 0,
             // Prefer "downloading" so UI filters show it; metaDL was easy to miss
             state:
-              row.status === "paused"
+              row.status === "error"
+                ? "error"
+                : row.status === "paused"
                 ? "paused"
                 : row.status === "seeding"
                   ? "seeding"
@@ -1739,6 +1857,7 @@ export class BuiltinClient implements TorrentClientAdapter {
                     : "metaDL",
             category: row.category ?? undefined,
             savePath: row.savePath,
+            error: row.error ?? undefined,
           });
           seen.add(h);
         }
