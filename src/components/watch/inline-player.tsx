@@ -267,11 +267,17 @@ export function candidateQualityShape(candidate: PlaybackCandidate): string {
     .join(" · ");
 }
 
+export function isUpNextPlayableEnoughToAdvance(
+  availability: UpNextAvailability | null | undefined,
+): boolean {
+  return availability === "ready" || availability === "downloading";
+}
+
 export function canAutoAdvanceToUpNext(
   next: UpNextEpisodeCard | null,
   cancelled: boolean,
 ): boolean {
-  return Boolean(!cancelled && next?.infoHash && next.availability === "ready");
+  return Boolean(!cancelled && next?.infoHash && isUpNextPlayableEnoughToAdvance(next.availability));
 }
 
 /** Label an audio track for the picker: "English · AC-3 5.1". */

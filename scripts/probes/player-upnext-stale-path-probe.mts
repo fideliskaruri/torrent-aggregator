@@ -202,9 +202,9 @@ async function installRoutes(page: Page) {
           label: "S01E04",
           season: 1,
           episode: 4,
-          availability: "ready",
+          availability: "downloading",
           infoHash: nextHash,
-          progress: 1,
+          progress: 0.5,
         },
       });
     }
@@ -215,13 +215,13 @@ async function installRoutes(page: Page) {
   });
 }
 
-async function decodedVideo(page: Page) {
-  const handle = await page.waitForFunction(() => {
+async function decodedVideo(page: Page, expectedSourcePart?: string) {
+  const handle = await page.waitForFunction((expected) => {
     const video = document.querySelector<HTMLVideoElement>("[data-stream-video]");
-    return video && video.currentSrc && video.readyState >= 2 && video.videoWidth > 0
+    return video && video.currentSrc && (!expected || video.currentSrc.includes(expected)) && video.readyState >= 2 && video.videoWidth > 0
       ? { currentSrc: video.currentSrc, readyState: video.readyState }
       : null;
-  }, null, { timeout: 30_000 });
+  }, expectedSourcePart, { timeout: 30_000 });
   return handle.jsonValue() as Promise<{ currentSrc: string; readyState: number } | null>;
 }
 
@@ -237,15 +237,14 @@ async function main() {
     await page.goto(`${base}/client`, { waitUntil: "networkidle" });
     timingOrigin = Date.now();
     await page.locator("[data-client-play]").first().click();
-    const first = await decodedVideo(page);
+    const first = await decodedVideo(page, "S01E03");
     if (!first?.currentSrc.includes("S01E03")) throw new Error(`Initial playback did not decode S01E03: ${first?.currentSrc}`);
     const initialDecodedAt = Date.now() - timingOrigin;
     await page.evaluate(() => {
       document.querySelector<HTMLVideoElement>("[data-stream-video]")?.dispatchEvent(new Event("ended", { bubbles: true }));
     });
     await page.locator("[data-up-next-card]").first().waitFor({ state: "visible", timeout: 10_000 });
-    await page.locator("[data-up-next-card] button", { hasText: "Play now" }).first().click();
-    const next = await decodedVideo(page);
+    const next = await decodedVideo(page, "S01E04");
     if (!next?.currentSrc.includes("S01E04")) throw new Error(`Up-next decoded the wrong episode: ${next?.currentSrc}`);
     if (stream404s.length > 0) throw new Error(`Stale file-level stream requests returned 404: ${JSON.stringify(stream404s)}`);
     const stale = fileRequests.filter((request) => request.includes(nextHash) && request.includes("S01E03"));
