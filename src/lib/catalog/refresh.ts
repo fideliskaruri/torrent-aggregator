@@ -140,6 +140,7 @@ export interface CatalogRefreshResult {
 }
 
 let inFlight: Promise<CatalogRefreshResult> | null = null;
+const relatedInFlight = new Map<string, Promise<number>>();
 let timer: ReturnType<typeof setInterval> | null = null;
 
 /**
@@ -361,6 +362,23 @@ export async function refreshRelatedForSeed(seed: {
 }): Promise<number> {
   const title = seed.title.trim();
   if (!title) return 0;
+
+  const key = `${title}\u0000${seed.mediaType ?? ""}`;
+  const existing = relatedInFlight.get(key);
+  if (existing) return existing;
+
+  const work = runRefreshRelatedForSeed({ title, mediaType: seed.mediaType }).finally(() => {
+    if (relatedInFlight.get(key) === work) relatedInFlight.delete(key);
+  });
+  relatedInFlight.set(key, work);
+  return work;
+}
+
+async function runRefreshRelatedForSeed(seed: {
+  title: string;
+  mediaType: MediaType | null;
+}): Promise<number> {
+  const title = seed.title;
 
   const trending = await readCatalogRows("trending", null, WORKS_PER_SOURCE);
   const popular = await readCatalogRows("popular", null, WORKS_PER_SOURCE);

@@ -122,6 +122,7 @@ model CachedMetadata {
 
   @@index([source, externalId])
   @@index([expiresAt])
+  @@index([updatedAt])
 }
 
 model ClientSettings {
@@ -222,6 +223,9 @@ model CatalogEntry {
 
   @@unique([workKey, source, seedTitle])
   @@index([source, rank])
+  // The read path orders by rank, then title. Keeping title in the index avoids
+  // SQLite building a temp B-tree for the right side of that ORDER BY.
+  @@index([source, seedTitle, rank, title])
   @@index([refreshedAt])
 }
 
