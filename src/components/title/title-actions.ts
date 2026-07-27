@@ -14,11 +14,13 @@
  * Two rules carry over from the browse card and are not negotiable:
  *
  *  1. **Never offer Watch for something that will not play.** A `ready` claim
- *     with no info hash is nothing the player can open, so it degrades to
- *     Download rather than rendering a button that dead-ends.
+ *     with no info hash is nothing the player can open, so it degrades — but
+ *     to a *stream* Watch, which searches and sends before opening the player,
+ *     rather than to a button that dead-ends.
  *  2. **`null` is not `unavailable`.** Nobody having searched is not the same
- *     as having searched and found nothing. Both still get a working Download
- *     button — the action is the same either way, so the button is the same.
+ *     as having searched and found nothing. Unchecked gets Watch: the click
+ *     runs the search it is waiting for and plays the result. Only a state we
+ *     have positive evidence about — `unavailable` — degrades to Download.
  *
  * Pure and DOM-free on purpose: `title.test.ts` drives it as a table.
  */
@@ -48,7 +50,36 @@ export interface GetTitleAction {
   episode: number | null;
 }
 
-export type TitleAction = PlayTitleAction | GetTitleAction;
+/**
+ * Grab it, then open the player on what was grabbed.
+ *
+ * The product rule is "click and it plays". Anything we do not already hold
+ * used to answer that with a Download button, which asks the viewer to leave
+ * and come back — the one thing this redesign exists to stop.
+ *
+ * Nothing new is needed to honour it. The engine already adds every torrent
+ * with `strategy: "sequential"` and pulls the file's first and last bytes into
+ * the piece selector (`clients/builtin-engine.ts`), both done specifically so a
+ * partial file is watchable from the start. The grab pipeline already knows the
+ * info hash it chose — it dedupes on it — and used to throw it away at the API
+ * boundary. Returning it is the whole change: a torrent that started one second
+ * ago is as addressable as one that finished last week.
+ *
+ * This is a *distinct kind* rather than a flag on `play`, because the two have
+ * different failure modes and must not share a code path. `play` opens
+ * something we hold and can only fail to render. `stream` performs a search and
+ * a send first, either of which can find nothing — and a Watch press that finds
+ * nothing must say so, never open a black player and let the viewer conclude
+ * the app is broken.
+ */
+export interface StreamTitleAction {
+  kind: "stream";
+  label: "Watch";
+  season: number | null;
+  episode: number | null;
+}
+
+export type TitleAction = PlayTitleAction | GetTitleAction | StreamTitleAction;
 
 /**
  * What each concrete state permits, as a total map.
@@ -57,11 +88,19 @@ export type TitleAction = PlayTitleAction | GetTitleAction;
  * upstream is a compile error *here*, at the one table that has to decide
  * about it, rather than silently inheriting whichever branch happens to be
  * last. `null` is deliberately not a key — it is handled before the lookup.
+ *
+ * `fetchable` means we have searched and a seeded release exists. That is not
+ * "come back later", it is "press play"; it moves to `stream`.
+ *
+ * `unavailable` is the one state that stays a Download. We searched and found
+ * nothing, so offering Watch would dead-end — and rule 1 above says we never
+ * offer Watch for something that will not play. Download is honest: it retries
+ * the search and reports plainly when there is still nothing.
  */
-const STATE_POLICY: Record<AvailabilityState, "local" | "remote"> = {
+const STATE_POLICY: Record<AvailabilityState, "local" | "stream" | "remote"> = {
   ready: "local",
   warm: "local",
-  fetchable: "remote",
+  fetchable: "stream",
   unavailable: "remote",
 };
 
@@ -79,10 +118,12 @@ export interface Playable {
  * The single action offered for one playable thing.
  *
  * Ordering matters:
- *  1. Local *and* addressable → Watch/Resume.
- *  2. Local but no info hash → falls through; a claim we cannot honour never
- *     surfaces as Watch.
- *  3. Everything else → Download.
+ *  1. Local *and* addressable → Watch/Resume, straight into the player.
+ *  2. Positively unavailable → Download. The only state where we hold evidence
+ *     that pressing Watch would dead-end.
+ *  3. Everything else — fetchable, unchecked, or a local claim with no info
+ *     hash — → Watch, via a grab. Not knowing is not a reason to make the
+ *     viewer do the work.
  */
 export function resolvePlayableAction(item: Playable): TitleAction {
   const state = item.availability;
@@ -90,7 +131,12 @@ export function resolvePlayableAction(item: Playable): TitleAction {
   const season = item.season ?? null;
   const episode = item.episode ?? null;
 
-  if (state !== null && STATE_POLICY[state] === "local" && infoHash) {
+  // `null` is not a key in the table: an unchecked thing is one search away
+  // from playing, which is the same shape as `fetchable`, not the same shape
+  // as a state we have checked and ruled out.
+  const policy = state === null ? "stream" : STATE_POLICY[state];
+
+  if (policy === "local" && infoHash) {
     const resume = item.resumePositionSec ?? 0;
     return {
       kind: "play",
@@ -103,9 +149,18 @@ export function resolvePlayableAction(item: Playable): TitleAction {
     };
   }
 
+  if (policy === "remote") {
+    return {
+      kind: "get",
+      label: "Download",
+      season,
+      episode,
+    };
+  }
+
   return {
-    kind: "get",
-    label: "Download",
+    kind: "stream",
+    label: "Watch",
     season,
     episode,
   };
@@ -163,14 +218,25 @@ export function resolvePrimaryAction(payload: TitleDetailPayload): TitleAction {
   });
   if (titleLevel.kind === "play") return titleLevel;
 
+  // A series-level action has to name an episode; the title-level lookup could
+  // not, because it was asked about the work. Keep whichever kind the state
+  // earned and only fill in the target — a `fetchable` series must not lose its
+  // Watch on the way through here just because it needed an episode number.
   if (payload.isSeries) {
     const target = nextUpTarget(payload);
-    return {
-      kind: "get",
-      label: "Download",
-      season: target.season,
-      episode: target.episode,
-    };
+    return titleLevel.kind === "stream"
+      ? {
+          kind: "stream",
+          label: "Watch",
+          season: target.season,
+          episode: target.episode,
+        }
+      : {
+          kind: "get",
+          label: "Download",
+          season: target.season,
+          episode: target.episode,
+        };
   }
 
   return titleLevel;
@@ -236,6 +302,14 @@ export function titleActionLabel(
   switch (action.kind) {
     case "play":
       if (status === "pending") return "Opening…";
+      if (status === "error") return "Try again";
+      return action.label;
+    case "stream":
+      // A grab takes tens of seconds before the first frame, and silence for
+      // that long reads as a dead button. "Finding a copy…" is what is
+      // actually happening — the search, not the playback — and saying so is
+      // what stops a second press starting a second grab.
+      if (status === "pending") return "Finding a copy…";
       if (status === "error") return "Try again";
       return action.label;
     case "get":

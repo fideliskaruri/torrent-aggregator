@@ -121,6 +121,8 @@ export function TitleDetail(props: TitleDetailProps) {
         return;
       }
 
+      const streaming = action.kind === "stream";
+
       setStatuses((prev) => ({ ...prev, [key]: "pending" }));
       setNotice(null);
       try {
@@ -138,12 +140,36 @@ export function TitleDetail(props: TitleDetailProps) {
         const body = (await res.json().catch(() => null)) as {
           ok?: boolean;
           message?: string;
+          infoHash?: string | null;
         } | null;
 
         if (!res.ok || !body?.ok) {
           throw new Error(body?.message || `Could not get ${label}`);
         }
         setStatuses((prev) => ({ ...prev, [key]: "done" }));
+
+        // The press said Watch, so the press has to end in the player. The
+        // engine fetches sequentially and primes the file's first bytes, so a
+        // torrent that started a second ago is as openable as one that
+        // finished last week — the only thing that was missing was being told
+        // which one it is.
+        //
+        // No hash means the grab succeeded but we cannot address what it sent.
+        // That is rare and it is not an error, so it degrades to the download
+        // notice rather than opening a player on nothing.
+        const hash = body.infoHash?.trim();
+        if (streaming && hash) {
+          setNotice(null);
+          setPlaying({
+            infoHash: hash,
+            title: label,
+            subtitle: null,
+            resumePositionSec: null,
+          });
+          refetch();
+          return;
+        }
+
         setNotice(body.message ?? `${label} sent to your client.`);
         refetch();
       } catch (err) {

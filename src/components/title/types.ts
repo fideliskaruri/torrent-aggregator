@@ -219,4 +219,12 @@ export interface TitleGrabResponse {
   /** The release that was actually sent, when one was. */
   title?: string | null;
   savePath?: string | null;
+  /**
+   * The release that was sent, addressable.
+   *
+   * Present whenever the pipeline chose something, including
+   * `already_active` — a torrent that is already running is exactly the one a
+   * caller wants to open the player on.
+   */
+  infoHash?: string | null;
 }

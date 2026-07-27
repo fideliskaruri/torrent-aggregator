@@ -5,6 +5,7 @@
  */
 import prisma from "@/lib/prisma";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import {
   afterSuccessfulGrab,
   episodeSearchQuery,
@@ -28,6 +29,15 @@ export type OnDemandResult = {
   title?: string;
   savePath?: string | null;
   magnet?: string | null;
+  /**
+   * The release that was sent, addressable.
+   *
+   * The pipeline has always known this — it dedupes on it — and threw it away
+   * at the boundary. Returning it is what lets a caller open the player on a
+   * torrent that started downloading a second ago instead of telling the user
+   * to come back later.
+   */
+  infoHash?: string | null;
   /** True when grab matched hunt cursor and cursor was advanced */
   advanced?: boolean;
   lastEpisode?: string;
@@ -273,6 +283,7 @@ export async function grabSingleEpisode(opts: {
       message: pipelineResult.message,
       title: pipelineResult.candidate?.title,
       magnet: pipelineResult.candidate?.magnet,
+      infoHash: normalizeInfoHash(pipelineResult.candidate?.infoHash),
     };
   }
 
@@ -299,6 +310,7 @@ export async function grabSingleEpisode(opts: {
     title: pipelineResult.candidate?.title,
     savePath: pipelineResult.target?.savePath,
     magnet: pipelineResult.candidate?.magnet,
+    infoHash: normalizeInfoHash(pipelineResult.candidate?.infoHash),
     advanced: cursorAdvance.advanced,
     lastEpisode: cursorAdvance.lastEpisode,
     cursorSeason: cursorAdvance.cursorSeason,

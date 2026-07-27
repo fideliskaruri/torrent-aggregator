@@ -15,15 +15,20 @@ export interface PlayOverlayProps {
 }
 
 /**
- * Full-screen playback surface for a browse card.
+ * The playback surface. Press Watch, get the picture.
  *
- * The player itself belongs to `components/watch` and is shared with Client and
- * Library; browse mounts it rather than forking a second one. It owns its own
- * disclosure state and takes no "start expanded" prop, so the effect below
- * presses its toggle once — clicking a card *is* an explicit "play this", and
- * making the user press a second Play would be the whole point of the redesign
- * undone. If that toggle ever disappears the user simply sees the player's own
- * button, which is why this is a nudge and not a requirement.
+ * This used to be a `max-w-4xl` card: a dialog containing a header, a bordered
+ * panel, and inside that the player's own disclosure widget with its Play
+ * toggle. Four nested boxes around a letterboxed video, on a page whole point
+ * is the video. Watching is what the product is for and it was the smallest
+ * thing on screen, under a primary button that read "Hide player".
+ *
+ * So there is no card. The overlay is the picture, edge to edge, and the only
+ * chrome is what you need to leave: a title and a close control that sit over
+ * the top of the frame rather than stealing height from it. Everything the old
+ * header carried — the copy-stream-URL escape hatch, the reassurance line —
+ * was furniture around a video, and furniture around a video is the thing we
+ * are removing.
  */
 export function PlayOverlay({
   infoHash,
@@ -84,8 +89,8 @@ export function PlayOverlay({
     const toggle = dialog?.querySelector<HTMLButtonElement>(
       "[data-stream-play-toggle]",
     );
-    if (toggle?.getAttribute("aria-expanded") === "false") toggle.click();
-    (toggle ?? focusables()[0])?.focus();
+    void toggle;
+    focusables()[0]?.focus();
 
     return () => {
       document.removeEventListener("keydown", onKey, true);
@@ -96,7 +101,7 @@ export function PlayOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-[60] flex items-center justify-center"
       role="dialog"
       aria-modal="true"
       aria-label={`Play ${title}`}
@@ -108,37 +113,50 @@ export function PlayOverlay({
         tabIndex={-1}
         aria-label="Close player"
         onClick={onClose}
-        className="absolute inset-0 bg-black/70"
+        className="absolute inset-0 bg-black"
       />
 
-      <div
-        className="relative flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-y-auto rounded-t-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)] sm:rounded-[var(--radius)]"
-        style={{ paddingBottom: "var(--safe-bottom)" }}
-      >
-        <div className="flex items-start gap-3 border-b border-[var(--border)] p-3 sm:p-4">
+      {/*
+        The frame, and nothing else. `max-h`/`max-w` in viewport units rather
+        than a fixed pixel width: the constraint on a video is the screen it is
+        being watched on, not a breakpoint. A card class here is what made a
+        16:9 picture occupy a third of a 1400px display.
+      */}
+      <div className="relative flex h-full w-full max-h-[100dvh] max-w-[100vw] flex-col justify-center">
+        {/*
+          Chrome sits *over* the picture. Anything in normal flow above the
+          video takes height from it, and height is the whole budget.
+          `pointer-events-none` on the strip with `auto` on the controls keeps
+          the area beside the close button clickable as backdrop-to-dismiss.
+        */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start gap-3 bg-gradient-to-b from-black/80 to-transparent p-3 sm:p-4">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-[var(--text)]">
-              {title}
-            </p>
-            <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">
-              {[subtitle, resumeAt ? `You stopped at ${resumeAt}` : null]
-                .filter(Boolean)
-                .join(" · ") || "Streaming from your own machine"}
-            </p>
+            <p className="truncate text-sm font-semibold text-white">{title}</p>
+            {subtitle || resumeAt ? (
+              <p className="mt-0.5 truncate text-[12px] text-white/70">
+                {[subtitle, resumeAt ? `You stopped at ${resumeAt}` : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
+            className="pointer-events-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/50 text-white/80 transition-colors hover:bg-black/70 hover:text-white"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
 
-        <div className="p-3 sm:p-4">
-          <InlineStreamPlayer infoHash={infoHash} title={title} />
-        </div>
+        <InlineStreamPlayer
+          infoHash={infoHash}
+          title={title}
+          resumeSec={resumePositionSec ?? undefined}
+          chrome="theatre"
+          className="min-h-0"
+        />
       </div>
     </div>
   );

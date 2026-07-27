@@ -302,7 +302,7 @@ const ACTION_CASES: {
   availability: AvailabilityState | null;
   infoHash: string | null;
   resumePositionSec?: number | null;
-  expectKind: "play" | "get";
+  expectKind: "play" | "get" | "stream";
   expectLabel: string;
 }[] = [
   {
@@ -331,15 +331,15 @@ const ACTION_CASES: {
     name: "ready with no hash never offers Play",
     availability: "ready",
     infoHash: null,
-    expectKind: "get",
-    expectLabel: "Download",
+    expectKind: "stream",
+    expectLabel: "Watch",
   },
   {
-    name: "fetchable gets",
+    name: "fetchable plays — a seeded release exists, so the click is Watch",
     availability: "fetchable",
     infoHash: null,
-    expectKind: "get",
-    expectLabel: "Download",
+    expectKind: "stream",
+    expectLabel: "Watch",
   },
   {
     name: "unavailable still gets — it looks again",
@@ -352,8 +352,8 @@ const ACTION_CASES: {
     name: "null is not unavailable, and is not a dead end",
     availability: null,
     infoHash: null,
-    expectKind: "get",
-    expectLabel: "Download",
+    expectKind: "stream",
+    expectLabel: "Watch",
   },
 ];
 
@@ -381,7 +381,7 @@ check("resolvePlayableAction: never returns a navigation action", () => {
     for (const infoHash of [null, "hash"]) {
       const action = resolvePlayableAction({ availability: state, infoHash });
       assert.ok(
-        action.kind === "play" || action.kind === "get",
+        action.kind === "play" || action.kind === "get" || action.kind === "stream",
         `${state}/${infoHash} produced ${action.kind}`,
       );
       assert.ok(
@@ -389,6 +389,24 @@ check("resolvePlayableAction: never returns a navigation action", () => {
         `${state}/${infoHash} produced a link, not an action`,
       );
     }
+  }
+});
+
+check("resolvePlayableAction: a play action is never issued without a hash", () => {
+  // The whole point of the `stream` kind is that "we cannot address this yet"
+  // and "the viewer must go away and come back" are different statements. The
+  // first is allowed to say Watch; neither is allowed to produce a `play`,
+  // because `play` opens the player immediately and would open it on nothing.
+  const states: (AvailabilityState | null)[] = [
+    null,
+    "ready",
+    "warm",
+    "fetchable",
+    "unavailable",
+  ];
+  for (const state of states) {
+    const action = resolvePlayableAction({ availability: state, infoHash: null });
+    assert.notEqual(action.kind, "play", `${state} produced an unaddressable play`);
   }
 });
 
@@ -413,15 +431,19 @@ check("copy: no self-narrating sentence rides along with the action", () => {
   }
 });
 
-check("null is not unavailable: both stay actionable, neither is a dead end", () => {
+check("null is not unavailable: both stay actionable, and they differ", () => {
   const unchecked = resolvePlayableAction({ availability: null, infoHash: null });
   const dead = resolvePlayableAction({
     availability: "unavailable",
     infoHash: null,
   });
-  assert.equal(unchecked.kind, "get");
+  // Both are actionable — neither is a dead end. But they are no longer the
+  // same button: not having looked is one search away from playing, whereas
+  // having looked and found nothing is not, and offering Watch there would
+  // dead-end on the one state where we hold evidence that it would.
+  assert.equal(unchecked.kind, "stream");
+  assert.equal(unchecked.label, "Watch");
   assert.equal(dead.kind, "get");
-  assert.equal(unchecked.label, "Download");
   assert.equal(dead.label, "Download");
 });
 
@@ -489,9 +511,10 @@ function payload(over: Partial<TitleDetailPayload> = {}): TitleDetailPayload {
   };
 }
 
-check("primary action: an empty page still offers Get, never Search", () => {
+check("primary action: an empty page still offers an action, never Search", () => {
   const action = resolvePrimaryAction(payload());
-  assert.equal(action.kind, "get");
+  assert.equal(action.kind, "stream");
+  assert.ok(!/search/i.test(action.label));
 });
 
 check("primary action: resume wins over everything", () => {
@@ -535,10 +558,13 @@ check("primary action: an episode with no hash is not playable", () => {
       episodes: [episode({ episode: 1, availability: "ready", infoHash: null })],
     }),
   );
-  assert.equal(action.kind, "get");
+  // Still actionable — a `ready` claim we cannot address is one search away
+  // from playing — but never a `play`, which would open the player on nothing.
+  assert.notEqual(action.kind, "play");
+  assert.equal(action.kind, "stream");
 });
 
-check("primary action: a series Get names an episode", () => {
+check("primary action: a series action names an episode", () => {
   const action = resolvePrimaryAction(
     payload({
       library: {
@@ -550,12 +576,50 @@ check("primary action: a series Get names an episode", () => {
       },
     }),
   );
-  assert.equal(action.kind, "get");
   assert.equal(action.season, 2);
   assert.equal(action.episode, 7);
 });
 
-check("primary action: a film Get names no episode", () => {
+check("primary action: a series keeps its Watch when it needs an episode", () => {
+  // The title-level lookup cannot name an episode, so a series falls through
+  // to the cursor to find one. That detour used to flatten every state into a
+  // Download — a fetchable series lost its Watch on the way through purely
+  // because it needed an episode number attached.
+  const action = resolvePrimaryAction(
+    payload({
+      availability: "fetchable",
+      library: {
+        ...payload().library,
+        inLibrary: true,
+        watchListItemId: "wl-1",
+        cursorSeason: 2,
+        cursorEpisode: 7,
+      },
+    }),
+  );
+  assert.equal(action.kind, "stream");
+  assert.equal(action.label, "Watch");
+  assert.equal(action.season, 2);
+  assert.equal(action.episode, 7);
+});
+
+check("primary action: an unavailable series still degrades to Download", () => {
+  const action = resolvePrimaryAction(
+    payload({
+      availability: "unavailable",
+      library: {
+        ...payload().library,
+        cursorSeason: 3,
+        cursorEpisode: 1,
+      },
+    }),
+  );
+  assert.equal(action.kind, "get");
+  assert.equal(action.season, 3);
+  assert.equal(action.episode, 1);
+});
+
+check("primary action: a film action names no episode", () => {
   const action = resolvePrimaryAction(
     payload({
       workKey: "dune-2021",
@@ -567,7 +631,7 @@ check("primary action: a film Get names no episode", () => {
       availability: "fetchable",
     }),
   );
-  assert.equal(action.kind, "get");
+  assert.equal(action.kind, "stream");
   assert.equal(action.season, null);
   assert.equal(action.episode, null);
 });
@@ -587,7 +651,7 @@ check("primary action: never a search, in any state combination", () => {
           payload({ availability: state, isSeries, infoHash }),
         );
         assert.ok(
-          action.kind === "play" || action.kind === "get",
+          action.kind === "play" || action.kind === "get" || action.kind === "stream",
           `${state}/${isSeries}/${infoHash} produced ${action.kind}`,
         );
         assert.ok(
@@ -633,7 +697,7 @@ check("nextUpTarget: else the only episode every series has", () => {
 
 check("resolveEpisodeAction: an unchecked episode is still clickable", () => {
   const action = resolveEpisodeAction(episode({ season: 4, episode: 11 }));
-  assert.equal(action.kind, "get");
+  assert.equal(action.kind, "stream");
   assert.equal(action.season, 4);
   assert.equal(action.episode, 11);
 });
@@ -663,7 +727,7 @@ check("resolveEpisodeAction: a partly-watched episode resumes", () => {
 // ---------------------------------------------------------------------------
 
 check("titleActionLabel: a grab keeps telling the truth after it lands", () => {
-  const get = resolvePlayableAction({ availability: null, infoHash: null });
+  const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
   assert.equal(titleActionLabel(get, "idle"), "Download");
   assert.equal(titleActionLabel(get, "pending"), "Starting…");
   assert.equal(titleActionLabel(get, "done"), "Downloading");
@@ -671,6 +735,18 @@ check("titleActionLabel: a grab keeps telling the truth after it lands", () => {
   // A control that still says "Download" after a successful grab invites a
   // second, duplicate grab.
   assert.notEqual(titleActionLabel(get, "done"), titleActionLabel(get, "idle"));
+});
+
+check("titleActionLabel: a stream says what it is doing while it looks", () => {
+  const stream = resolvePlayableAction({ availability: "fetchable", infoHash: null });
+  assert.equal(titleActionLabel(stream, "idle"), "Watch");
+  // The gap between the press and the first frame is a search, not playback,
+  // and tens of seconds of an unchanged button reads as a dead control.
+  assert.notEqual(titleActionLabel(stream, "pending"), "Watch");
+  assert.equal(titleActionLabel(stream, "error"), "Try again");
+  for (const status of ["idle", "pending", "done", "error"] as const) {
+    assert.ok(!/search/i.test(titleActionLabel(stream, status)));
+  }
 });
 
 check("titleActionLabel: play never says Search in any status", () => {
@@ -817,7 +893,7 @@ check("mergeEpisodes: an added row is gettable, never a dead control", () => {
     metaSeason: 3,
   });
   const action = resolveEpisodeAction(rows[0]);
-  assert.equal(action.kind, "get");
+  assert.equal(action.kind, "stream");
   assert.equal(action.season, 3);
   assert.equal(action.episode, 7);
   assert.ok(!/search/i.test(titleActionLabel(action, "idle")));

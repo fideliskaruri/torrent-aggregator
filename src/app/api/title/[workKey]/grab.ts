@@ -27,6 +27,7 @@ import { runGrabPipeline } from "@/lib/grab/pipeline";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
 import type { TitleGrabRequest, TitleGrabResponse } from "@/components/title/types";
@@ -64,6 +65,7 @@ export async function grabForTitle(
       message: result.message,
       title: result.title ?? null,
       savePath: result.savePath ?? null,
+      infoHash: result.infoHash ?? null,
     };
   }
 
@@ -158,6 +160,7 @@ async function grabWholeWork(input: TitleGrabInput): Promise<TitleGrabResponse> 
     message: result.message,
     title: result.candidate?.title ?? null,
     savePath: result.target?.savePath ?? null,
+    infoHash: normalizeInfoHash(result.candidate?.infoHash),
   };
 }
 

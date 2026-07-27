@@ -56,6 +56,23 @@ type InlinePlayerProps = {
   posterUrl?: string | null;
   watchListItemId?: string | null;
   className?: string;
+  /**
+   * How much of the player's own furniture to draw.
+   *
+   * `inline` is the original: a disclosure widget that sits in a list, closed,
+   * with a Play button that expands it and a bordered panel around the result.
+   * That is right on /client and /library, where the player is one row among
+   * many and must not dominate.
+   *
+   * `theatre` is for when the viewer has already said "play this". The
+   * disclosure has been answered by the click that got here, so re-rendering
+   * its toggle produces a button whose only job is to undo the thing the user
+   * just asked for — which is how a video player ended up with **Hide player**
+   * as its loudest control. In theatre there is no toggle, no panel border and
+   * no copy-URL escape hatch competing with the picture: the picture is the
+   * interface.
+   */
+  chrome?: "inline" | "theatre";
 };
 
 const VIDEO_EXTENSIONS = new Set([
@@ -513,9 +530,15 @@ export function InlineStreamPlayer({
   posterUrl,
   watchListItemId,
   className,
+  chrome = "inline",
 }: InlinePlayerProps) {
+  const theatre = chrome === "theatre";
   const panelId = useId();
-  const [expanded, setExpanded] = useState(false);
+  // Theatre is entered by an explicit "play this", so it starts open. The old
+  // route into this state was an effect in the overlay that reached into the
+  // player's DOM and clicked its toggle for it; a component that has to be
+  // puppeteered through its own public surface is one that was missing a prop.
+  const [expanded, setExpanded] = useState(theatre);
   const [manifest, setManifest] = useState<StreamManifest | null>(null);
   const [manifestLoading, setManifestLoading] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -878,6 +901,14 @@ export function InlineStreamPlayer({
     setExpanded(true);
     void loadManifest();
   }, [expanded, loadManifest]);
+
+  // Theatre skips the toggle, so it also skips the manifest load the toggle
+  // performed on the way through. Nothing else fetches it, so without this the
+  // panel opens and sits on "Resolving files…" forever.
+  useEffect(() => {
+    if (!theatre) return;
+    void loadManifest();
+  }, [theatre, loadManifest]);
 
   /**
    * Fallback: try the direct stream endpoint when the plan endpoint is
@@ -1573,8 +1604,9 @@ export function InlineStreamPlayer({
 
   return (
     <div
-      className={cn("w-full space-y-2", className)}
+      className={cn("w-full space-y-2", theatre && "space-y-0", className)}
       data-inline-player
+      data-player-chrome={chrome}
       data-infohash={infoHash}
       data-playback-mode={playbackMode}
       data-playback-strategy={strategy ?? undefined}
@@ -1583,7 +1615,7 @@ export function InlineStreamPlayer({
       data-resume-sec={resumeTargetSec > 0 ? resumeTargetSec : undefined}
       onKeyDown={handleKeyDown}
     >
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className={cn("flex flex-wrap items-center gap-1.5", theatre && "hidden")}>
         <Button
           type="button"
           variant="secondary"
@@ -1611,7 +1643,12 @@ export function InlineStreamPlayer({
       {expanded ? (
         <div
           id={panelId}
-          className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2.5 space-y-2 motion-safe:animate-[inline-player-expand_140ms_ease-out]"
+          className={cn(
+            "space-y-2",
+            theatre
+              ? "bg-transparent"
+              : "rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2.5 motion-safe:animate-[inline-player-expand_140ms_ease-out]",
+          )}
         >
           <style>{`
             @keyframes inline-player-expand {
@@ -1736,7 +1773,10 @@ export function InlineStreamPlayer({
                   key={playableSrc}
                   ref={attachHls}
                   preload="auto"
-                  className="w-full rounded-md bg-black"
+                  className={cn(
+                    "w-full bg-black",
+                    theatre ? "max-h-[100dvh] object-contain" : "rounded-md",
+                  )}
                   title={title}
                   onClick={togglePlay}
                   onError={() => {
@@ -1787,7 +1827,10 @@ export function InlineStreamPlayer({
                   ref={attachNativeVideo}
                   controls
                   preload="metadata"
-                  className="w-full rounded-md bg-black"
+                  className={cn(
+                    "w-full bg-black",
+                    theatre ? "max-h-[100dvh] object-contain" : "rounded-md",
+                  )}
                   src={playableSrc}
                   title={title}
                   onError={() => {
