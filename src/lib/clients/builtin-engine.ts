@@ -433,6 +433,7 @@ type StreamPriorityOptions = {
 type StreamPriorityState = {
   key: string;
   headRange: { start: number; end: number } | null;
+  tailRange: { start: number; end: number } | null;
   seekRange: { start: number; end: number } | null;
 };
 
@@ -485,6 +486,27 @@ function headPieceRange(
   if (!pieceLength || pieceLength <= 0) return fileRange;
   const pieces = Math.max(0, Math.ceil(STREAM_HEAD_PRIORITY_BYTES / pieceLength) - 1);
   return { start: fileRange.start, end: Math.min(fileRange.end, fileRange.start + pieces) };
+}
+
+function tailPieceRange(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+): { start: number; end: number } | null {
+  const fileRange = filePieceRange(file);
+  if (!fileRange) return null;
+  const pieceLength = readProp(() => (torrent as WtTorrent).pieceLength, 0);
+  if (!pieceLength || pieceLength <= 0) return null;
+  const pieces = Math.max(0, Math.ceil(STREAM_HEAD_PRIORITY_BYTES / pieceLength) - 1);
+  const filePieces = fileRange.end - fileRange.start + 1;
+  if (filePieces <= pieces + 1) return null;
+  return { start: Math.max(fileRange.start, fileRange.end - pieces), end: fileRange.end };
+}
+
+function samePieceRange(
+  a: { start: number; end: number } | null,
+  b: { start: number; end: number } | null,
+): boolean {
+  return a?.start === b?.start && a?.end === b?.end;
 }
 
 function torrentPieceRange(
@@ -603,13 +625,13 @@ export function prioritizeBuiltinStreamFile(
   const key = fileSelectionKey(file);
   const seek = seekPieceRange(torrent, file, opts.seekOffset);
   const head = seek ? null : headPieceRange(torrent, file);
+  const tail = tailPieceRange(torrent, file);
   const previous = prioritizedStreamFiles.get(torrent);
   if (
     previous?.key === key &&
-    previous.headRange?.start === head?.start &&
-    previous.headRange?.end === head?.end &&
-    previous.seekRange?.start === seek?.start &&
-    previous.seekRange?.end === seek?.end
+    samePieceRange(previous.headRange, head) &&
+    samePieceRange(previous.tailRange, tail) &&
+    samePieceRange(previous.seekRange, seek)
   ) {
     triggerPriorityEdgePrefetch(torrent, file, opts);
     return;
@@ -619,12 +641,16 @@ export function prioritizeBuiltinStreamFile(
     deselectStreamPieceRange(torrent, previous?.headRange ?? null);
   }
   deselectStreamPieceRange(torrent, previous?.seekRange ?? null);
+  if (!samePieceRange(previous?.tailRange ?? null, tail)) {
+    deselectStreamPieceRange(torrent, previous?.tailRange ?? null);
+  }
   if (previous?.key !== key) {
     deselectAllFiles(torrent);
   }
-  prioritizedStreamFiles.set(torrent, { key, headRange: head, seekRange: seek });
+  prioritizedStreamFiles.set(torrent, { key, headRange: head, tailRange: tail, seekRange: seek });
 
   if (head) selectPieceRange(torrent, head, SEEK_FILE_PRIORITY);
+  if (tail && !samePieceRange(tail, head)) selectPieceRange(torrent, tail, SEEK_FILE_PRIORITY);
 
   if (seek) {
     selectPieceRange(torrent, seek, SEEK_FILE_PRIORITY);

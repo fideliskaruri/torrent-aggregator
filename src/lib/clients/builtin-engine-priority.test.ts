@@ -126,6 +126,7 @@ async function main() {
     assert.deepEqual(torrent.publicDeselections, [{ start: 0, end: 59 }]);
     assert.deepEqual(torrent.selections, [
       { start: 40, end: 41, priority: 3, stream: true },
+      { start: 48, end: 49, priority: 3, stream: true },
     ]);
   });
 
@@ -149,7 +150,7 @@ async function main() {
     assert.deepEqual(ep1.selectCalls, []);
     assert.equal(ep1.deselectCalls, 1);
     assert.deepEqual(torrent.publicDeselections, [{ start: 0, end: 59 }]);
-    assert.equal(torrent.selections.length, 1);
+    assert.equal(torrent.selections.length, 2);
     assert.equal(prefetches, 1);
   });
 
@@ -171,11 +172,16 @@ async function main() {
       { start: 0, end: 59 },
       { start: 0, end: 59 },
     ]);
-    assert.deepEqual(torrent.deselections, [{ start: 40, end: 41, stream: true }]);
+    assert.deepEqual(torrent.deselections, [
+      { start: 40, end: 41, stream: true },
+      { start: 48, end: 49, stream: true },
+    ]);
     assert.deepEqual(ep5.selectCalls, []);
     assert.deepEqual(torrent.selections, [
       { start: 40, end: 41, priority: 3, stream: true },
+      { start: 48, end: 49, priority: 3, stream: true },
       { start: 50, end: 51, priority: 3, stream: true },
+      { start: 58, end: 59, priority: 3, stream: true },
     ]);
   });
 
@@ -225,8 +231,31 @@ async function main() {
 
     assert.deepEqual(
       torrent.selections,
-      [{ start: 40, end: 41, priority: 3, stream: true }],
-      "opening S01E03 must not request S01E03's whole piece range at one priority",
+      [
+        { start: 40, end: 41, priority: 3, stream: true },
+        { start: 58, end: 59, priority: 3, stream: true },
+      ],
+      "opening S01E03 must request only bounded head and tail windows",
+    );
+  });
+
+  await check("selected pack file also prioritises its own tail for MKV cues", () => {
+    const ep1 = fakeFile("Show/S01E01.mkv", 0, 19, 0);
+    const ep3 = fakeFile("Show/S01E03.mkv", 40, 79, 40 * 1024);
+    const ep4 = fakeFile("Show/S01E04.mkv", 80, 119, 80 * 1024);
+    const torrent = fakeTorrent([ep1, ep3, ep4], 1024 * 1024);
+
+    prioritizeBuiltinStreamFile(torrent, ep3, {
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(
+      torrent.selections,
+      [
+        { start: 40, end: 41, priority: 3, stream: true },
+        { start: 78, end: 79, priority: 3, stream: true },
+      ],
+      "S01E03 must prioritise S01E03's tail pieces, not the torrent tail or a sibling",
     );
   });
 }
