@@ -207,8 +207,13 @@ async function main() {
     const full = await page.evaluate(READ_CONTROLS);
     await page.screenshot({ path: path.join(outDir, "fullscreen.png") });
 
-    const a = new Set((inline as { controls: string[] }).controls);
-    const b = new Set((full as { controls: string[] }).controls);
+    // The fullscreen toggle is the one control that is *supposed* to differ:
+    // it labels the action it will perform, so it reads "Full screen" inline
+    // and "Exit full screen" once you are there. Normalise it so a real
+    // regression is not buried under an expected label flip.
+    const normalise = (c: string) => (/full screen/i.test(c) ? "fullscreen-toggle" : c);
+    const a = new Set((inline as { controls: string[] }).controls.map(normalise));
+    const b = new Set((full as { controls: string[] }).controls.map(normalise));
     const onlyInline = [...a].filter((x) => !b.has(x));
     const onlyFull = [...b].filter((x) => !a.has(x));
 
