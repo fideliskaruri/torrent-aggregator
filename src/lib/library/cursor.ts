@@ -3,6 +3,7 @@
  * On-demand rewatch must not rewind this cursor (Phase 3).
  */
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { seasonCoverage } from "@/lib/torrents/pack-preference";
 import { isSeriesMediaType } from "@/lib/metadata/media-type";
 
 export function padEp(n: number): string {
@@ -235,6 +236,35 @@ export function afterSuccessfulGrab(
   nextEpisodeHint: string;
 } {
   const fromTitle = parseEpisode(grabbedTitle);
+  const packCoverage = seasonCoverage(grabbedTitle, fromTitle);
+  if (huntCursor && packCoverage && packCoverage.kind !== "unknown-complete") {
+    const coversCursor =
+      packCoverage.from <= huntCursor.season &&
+      huntCursor.season <= packCoverage.to;
+    if (coversCursor) {
+      const next = { season: packCoverage.to + 1, episode: 1 };
+      const lastEpisode =
+        packCoverage.from === packCoverage.to
+          ? `S${padEp(packCoverage.to)} pack`
+          : `S${padEp(packCoverage.from)}-S${padEp(packCoverage.to)} pack`;
+
+      /**
+       * A successful pack send is the only safe time to jump the cursor over
+       * episodes we have not watched one-by-one. The torrent reached the client
+       * before this function is committed with GrabJob/DownloadHistory, so the
+       * skipped S01E06..S01E13-style episodes are already on disk or actively
+       * arriving in the same package. If the send fails or the process crashes
+       * before the transaction commits, this branch is never persisted and the
+       * cursor retries the original episode instead.
+       */
+      return {
+        lastEpisode,
+        cursorSeason: next.season,
+        cursorEpisode: next.episode,
+        nextEpisodeHint: episodeSearchQuery(title, next.season, next.episode),
+      };
+    }
+  }
   let completed: ShowCursor;
 
   if (fromTitle.season != null && fromTitle.episode != null) {

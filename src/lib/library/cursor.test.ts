@@ -59,6 +59,33 @@ import {
 }
 
 {
+  const cases = [
+    {
+      name: "single-season pack jumps to next season",
+      grabbedTitle: "The Bear Season 1 Complete 1080p",
+      hunt: { season: 1, episode: 5 },
+      title: "The Bear",
+      expect: { lastEpisode: "S01 pack", season: 2, episode: 1, hint: "The Bear S02E01" },
+    },
+    {
+      name: "multi-season pack jumps past the covered range",
+      grabbedTitle: "The Simpsons S01-S03 Complete 1080p",
+      hunt: { season: 2, episode: 9 },
+      title: "The Simpsons",
+      expect: { lastEpisode: "S01-S03 pack", season: 4, episode: 1, hint: "The Simpsons S04E01" },
+    },
+  ];
+
+  for (const tc of cases) {
+    const next = afterSuccessfulGrab(tc.title, tc.hunt, tc.grabbedTitle);
+    assert.equal(next.lastEpisode, tc.expect.lastEpisode, tc.name);
+    assert.equal(next.cursorSeason, tc.expect.season, tc.name);
+    assert.equal(next.cursorEpisode, tc.expect.episode, tc.name);
+    assert.equal(next.nextEpisodeHint, tc.expect.hint, tc.name);
+  }
+}
+
+{
   // lastEpisode means already have → hunt next
   const { query, cursor } = resolveHuntCursor({
     title: "Family Guy",

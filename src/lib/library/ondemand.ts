@@ -4,8 +4,8 @@
  * - Grab of the current hunt target (next SxxEyy): advances cursor like automation.
  */
 import prisma from "@/lib/prisma";
-import { parseEpisode } from "@/lib/torrents/episodes";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import { selectSeriesCandidateWithPackPreference } from "@/lib/torrents/pack-preference";
 import {
   afterSuccessfulGrab,
   episodeSearchQuery,
@@ -201,17 +201,12 @@ export async function grabSingleEpisode(opts: {
         ? `On-demand: no matching ${formatEpisodeLabel(season, episode)} release in ${count} results`
         : `No seeded torrent for ${formatEpisodeLabel(season, episode)}`,
 
-    // ── Candidate: exact season/episode match with seeders ─────────────
+    // ── Candidate: prefer safe packs, then exact season/episode ────────
     selectCandidate(results) {
-      const withMagnet = results.filter(
-        (t) => t.magnet && (t.seeders ?? 0) > 0,
-      );
-      return (
-        withMagnet.find((t) => {
-          const ep = parseEpisode(t.title);
-          return ep.season === season && ep.episode === episode;
-        }) ?? null
-      );
+      return selectSeriesCandidateWithPackPreference(results, {
+        season,
+        episode,
+      });
     },
 
     // ── No dedupe for on-demand (user explicitly asked) ──────────────
