@@ -23,6 +23,15 @@ interface StorageUsage {
   }>;
 }
 
+interface SweepResult {
+  mode: "preview" | "delete";
+  reclaimedBytes: number;
+  wouldDelete: Array<{ hash: string; name: string; onDiskBytes: number }>;
+  deleted: Array<{ hash: string; name: string; onDiskBytes: number }>;
+  skipped: Array<{ hash: string; reason: string; name?: string }>;
+  satisfied: boolean;
+}
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
@@ -37,6 +46,8 @@ export function RetentionPanel() {
   const [persisted, setPersisted] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<RetentionPolicy | null>(null);
+  const [sweeping, setSweeping] = useState<"preview" | "delete" | null>(null);
+  const [sweepResult, setSweepResult] = useState<SweepResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -98,6 +109,33 @@ export function RetentionPanel() {
     }
   }
 
+  async function runSweep(mode: "preview" | "delete") {
+    setSweeping(mode);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/retention-sweep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        result?: SweepResult;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok || !data.result) {
+        throw new Error(data.message || data.error || "Could not run retention sweep");
+      }
+      setSweepResult(data.result);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSweeping(null);
+    }
+  }
+
   const topItems = useMemo(() => usage?.items.slice(0, 5) ?? [], [usage]);
 
   return (
@@ -141,6 +179,49 @@ export function RetentionPanel() {
             <p className="text-[11px] text-[var(--warning)] leading-relaxed">
               The app needs the pending database migration before this default can be saved persistently.
             </p>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={sweeping !== null}
+              onClick={() => void runSweep("preview")}
+            >
+              {sweeping === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Preview cleanup
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={sweeping !== null}
+              onClick={() => void runSweep("delete")}
+            >
+              {sweeping === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Reclaim now
+            </Button>
+          </div>
+
+          {sweepResult ? (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3 text-xs text-[var(--text-secondary)] space-y-2">
+              <p>
+                {sweepResult.mode === "preview" ? "Would reclaim" : "Reclaimed"}{" "}
+                <span className="font-medium text-[var(--text)]">
+                  {formatBytes(sweepResult.reclaimedBytes)}
+                </span>
+                {" from "}
+                {(sweepResult.mode === "preview"
+                  ? sweepResult.wouldDelete
+                  : sweepResult.deleted
+                ).length}{" "}
+                item(s). {sweepResult.satisfied ? "Budget satisfied." : "Budget still exceeded."}
+              </p>
+              {sweepResult.skipped.length ? (
+                <p className="text-[var(--text-tertiary)]">
+                  Skipped {sweepResult.skipped.length}: {sweepResult.skipped.slice(0, 3).map((s) => s.reason).join(", ")}
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
           {usage ? (
