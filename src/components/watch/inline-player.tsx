@@ -13,9 +13,11 @@ import { Check, Copy, Loader2, Maximize, Pause, Play, Volume2, VolumeX, X } from
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
-import { SwarmChip } from "@/components/watch/swarm-chip";
+import { SwarmChip, swarmHealth, type SwarmSample } from "@/components/watch/swarm-chip";
 import { subtitleListUrl, subtitleTrackSrc, type SubtitleTrack } from "@/lib/media/subtitles";
 import type { ProgressUpdateBody } from "@/lib/browse/types";
+import { parseEpisode } from "@/lib/torrents/episodes";
+import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
 import Hls from "hls.js";
 
 // Re-export so existing consumers (tests, other components) keep working.
@@ -331,6 +333,121 @@ export function bufferingLabel(progress?: StreamProgress) {
   return `buffering — waiting for torrent pieces${peerText}`;
 }
 
+export type UpNextAvailability = "ready" | "downloading" | "not-fetched";
+
+type UpNextEpisodeCard = {
+  title: string;
+  label: string;
+  season: number;
+  episode: number;
+  availability: UpNextAvailability;
+  infoHash: string | null;
+  progress: number | null;
+};
+
+type UpNextResponse = {
+  ok?: boolean;
+  next?: UpNextEpisodeCard | null;
+};
+
+type CurrentTarget = {
+  infoHash: string;
+  title: string;
+  resumeSec?: number;
+  season?: number | null;
+  episode?: number | null;
+  posterUrl?: string | null;
+  watchListItemId?: string | null;
+};
+
+const AUTO_ADVANCE_SECONDS = 8;
+
+function sourceChip(title: string): string | null {
+  const tier = parseSourceTier(title);
+  if (tier === SOURCE_TIER.WEBDL) return "WEB-DL";
+  if (tier === SOURCE_TIER.WEBRIP) return /\bweb[-_. ]?rip\b/i.test(title) ? "WEBRip" : null;
+  if (tier === SOURCE_TIER.HDTV) return "HDTV";
+  if (tier === SOURCE_TIER.BLURAY) return "BluRay";
+  return null;
+}
+
+function audioChip(title: string): string | null {
+  const t = title.replace(/[._-]+/g, " ");
+  if (/\bddp?\s*5\s*\.?\s*1\b/i.test(t) || /\be[- ]?ac[- ]?3\b/i.test(t)) return "DDP5.1";
+  if (/\bac[- ]?3\b/i.test(t)) return "AC-3";
+  if (/\baac\s*5\s*\.?\s*1\b/i.test(t)) return "AAC 5.1";
+  if (/\baac\b/i.test(t)) return "AAC";
+  if (/\bdts(?:[- ]?hd)?\b/i.test(t)) return "DTS";
+  if (/\bflac\b/i.test(t)) return "FLAC";
+  if (/\bopus\b/i.test(t)) return "Opus";
+  return null;
+}
+
+function videoCodecChip(title: string): string | null {
+  const t = title.replace(/[._-]+/g, " ");
+  if (/\b(?:h\s*\.?\s*264|x264|avc)\b/i.test(t)) return "H.264";
+  if (/\b(?:h\s*\.?\s*265|x265|hevc)\b/i.test(t)) return "H.265";
+  if (/\bav1\b/i.test(t)) return "AV1";
+  if (/\bvp9\b/i.test(t)) return "VP9";
+  return null;
+}
+
+/**
+ * Technical identity belongs in diagnostics, not as the viewer's label. The
+ * release path can be a tracker wrapper folder plus a scene filename, which is
+ * why the old chip read like a filesystem accident. These chips reuse the same
+ * episode and quality parsers the rest of the app trusts, then show only facts a
+ * viewer can use: resolution, source, audio/video shape and size.
+ */
+export function releaseDetailChips(path: string, bytes: number): string[] {
+  const filename = path.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? path;
+  const withoutExt = filename.replace(/\.(mkv|mp4|avi|m4v|mov|webm|ts|m2ts|mpe?g)$/i, "");
+  const parsed = parseEpisode(withoutExt);
+  void parsed;
+  const chips: string[] = [];
+  const resolution = parseResolution(withoutExt);
+  if (resolution) chips.push(`${resolution}p`);
+  const source = sourceChip(withoutExt);
+  if (source) chips.push(source);
+  const audio = audioChip(withoutExt);
+  if (audio) chips.push(audio);
+  const codec = videoCodecChip(withoutExt);
+  if (codec) chips.push(codec);
+  if (Number.isFinite(bytes) && bytes > 0) chips.push(formatBytes(bytes));
+  return chips;
+}
+
+export function upNextStatusSentence(state: UpNextAvailability): string {
+  if (state === "ready") return "Ready to play now.";
+  if (state === "downloading") {
+    return "Still downloading — you can start streaming, but it may buffer.";
+  }
+  return "Not fetched yet.";
+}
+
+export function streamStateSentence(args: {
+  checking: boolean;
+  preparing: boolean;
+  waiting: boolean;
+  playing: boolean;
+  playable?: boolean;
+  swarm?: SwarmSample | null;
+  minimumStreamBps?: number;
+}): string {
+  if (args.checking) return "Checking whether this file can play now.";
+  if (args.preparing) {
+    return "Preparing playback — this usually takes under a minute once pieces arrive.";
+  }
+  const health = swarmHealth(args.swarm ?? null, args.minimumStreamBps ?? 0);
+  if (args.waiting && health === "thin" && (args.swarm?.downloadSpeedBps ?? 0) > 0) {
+    return "Too slow to stream — downloading in the background.";
+  }
+  if (args.waiting) return "Buffering — waiting for enough of the file.";
+  if (args.playing) return "Playing now.";
+  if (args.playable) return "Ready to play.";
+  return "Waiting for a playable file.";
+}
+
 async function readJson<T>(res: Response): Promise<T | null> {
   const text = await res.text();
   if (!text.trim()) return null;
@@ -513,10 +630,11 @@ type SubtitleStatus = "idle" | "loading" | "extracting" | "ready" | "error";
 /** Human-readable label for what the playback ladder is doing. */function rungLabel(rung: string): string {
   switch (rung) {
     case "direct": return "Playing directly";
-    case "remux": return "Remuxing for your browser…";
-    case "transcode-audio": return "Transcoding audio…";
-    case "transcode-full": return "Transcoding video + audio…";
-    default: return "Preparing…";
+    case "remux":
+    case "transcode-audio":
+    case "transcode-full":
+      return "Preparing playback — this usually takes under a minute once pieces arrive.";
+    default: return "Preparing playback…";
   }
 }
 
@@ -534,6 +652,21 @@ export function InlineStreamPlayer({
 }: InlinePlayerProps) {
   const theatre = chrome === "theatre";
   const panelId = useId();
+  const [target, setTarget] = useState<CurrentTarget>({
+    infoHash,
+    title,
+    resumeSec,
+    season,
+    episode,
+    posterUrl,
+    watchListItemId,
+  });
+  const activeInfoHash = target.infoHash;
+  const activeTitle = target.title;
+  const activeSeason = target.season;
+  const activeEpisode = target.episode;
+  const activePosterUrl = target.posterUrl;
+  const activeWatchListItemId = target.watchListItemId;
   // Theatre is entered by an explicit "play this", so it starts open. The old
   // route into this state was an effect in the overlay that reached into the
   // player's DOM and clicked its toggle for it; a component that has to be
@@ -550,6 +683,12 @@ export function InlineStreamPlayer({
   const [waiting, setWaiting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [preparingLabel, setPreparingLabel] = useState<string | null>(null);
+  const [swarmSample, setSwarmSample] = useState<SwarmSample | null>(null);
+  const [upNext, setUpNext] = useState<UpNextEpisodeCard | null>(null);
+  const [upNextLoading, setUpNextLoading] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const [autoAdvanceCancelled, setAutoAdvanceCancelled] = useState(false);
+  const [advanceCountdown, setAdvanceCountdown] = useState(AUTO_ADVANCE_SECONDS);
   const [audioTracks, setAudioTracks] = useState<PlanAudioTrack[]>([]);
   const [audioStreamIndex, setAudioStreamIndex] = useState<number | null>(null);
   const [sourceDuration, setSourceDuration] = useState<number | null>(null);
@@ -627,15 +766,58 @@ export function InlineStreamPlayer({
   const seekPostTimerRef = useRef<number | null>(null);
 
   const resumeTargetSec =
-    typeof resumeSec === "number" && Number.isFinite(resumeSec) && resumeSec > RESUME_MIN_SEC
-      ? Math.floor(resumeSec)
+    typeof target.resumeSec === "number" &&
+    Number.isFinite(target.resumeSec) &&
+    target.resumeSec > RESUME_MIN_SEC
+      ? Math.floor(target.resumeSec)
       : 0;
+
+  useEffect(() => {
+    setTarget({
+      infoHash,
+      title,
+      resumeSec,
+      season,
+      episode,
+      posterUrl,
+      watchListItemId,
+    });
+  }, [infoHash, title, resumeSec, season, episode, posterUrl, watchListItemId]);
 
   const videoFiles = useMemo(
     () => (manifest ? selectVideoFiles(manifest.files) : []),
     [manifest],
   );
   const selectedFile = videoFiles.find((file) => file.path === selectedPath);
+  const parsedCurrentEpisode = useMemo(() => {
+    const fromFile = selectedFile ? parseEpisode(selectedFile.path) : null;
+    if (fromFile?.season != null && fromFile.episode != null) {
+      return { season: fromFile.season, episode: fromFile.episode };
+    }
+    const fromTitle = parseEpisode(activeTitle);
+    if (fromTitle.season != null && fromTitle.episode != null) {
+      return { season: fromTitle.season, episode: fromTitle.episode };
+    }
+    return null;
+  }, [selectedFile, activeTitle]);
+  const currentSeason = activeSeason ?? parsedCurrentEpisode?.season ?? null;
+  const currentEpisode = activeEpisode ?? parsedCurrentEpisode?.episode ?? null;
+  const minimumStreamBps =
+    selectedFile && sourceDuration && sourceDuration > 0
+      ? (selectedFile.length / sourceDuration) * 1.15
+      : 0;
+  const stateSentence = streamStateSentence({
+    checking: checkingStream,
+    preparing: Boolean(preparingLabel),
+    waiting,
+    playing: isPlaying,
+    playable: Boolean(playableSrc),
+    swarm: swarmSample,
+    minimumStreamBps,
+  });
+  const releaseChips = selectedFile
+    ? releaseDetailChips(selectedFile.path, selectedFile.length)
+    : [];
   /**
    * The subtitle file a release ships *next to* the video under the exact same
    * name. Direct mode used to mount this as a `default` `<track>`, so it is kept
@@ -649,6 +831,37 @@ export function InlineStreamPlayer({
         : null,
     [manifest, selectedPath],
   );
+
+  useEffect(() => {
+    setManifest(null);
+    setManifestLoading(false);
+    setSelectedPath(null);
+    setMessage(null);
+    setProblem(null);
+    setPlayableSrc(null);
+    setPlaybackMode("direct");
+    setCheckingStream(false);
+    setWaiting(false);
+    setPreparingLabel(null);
+    setSwarmSample(null);
+    setUpNext(null);
+    setUpNextLoading(false);
+    setEnded(false);
+    setAutoAdvanceCancelled(false);
+    setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
+    setCurrentSourceTime(0);
+    setSourceDuration(null);
+    setTimelineOffset(0);
+    setBufferedRanges([]);
+    setPlanNonce((n) => n + 1);
+    resumeConsumedRef.current = false;
+    pendingSeekRef.current = 0;
+    pendingNativeSeekRef.current = 0;
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+  }, [activeInfoHash]);
 
   // Clean up HLS instance on unmount or source change
   useEffect(() => {
@@ -727,7 +940,7 @@ export function InlineStreamPlayer({
       const filePath = selectedPathRef.current;
       const durationSec = sourceDurationRef.current ?? videoRef.current?.duration ?? null;
       const positionSec = Math.floor(currentSourceTimeRef.current);
-      if (!filePath || !infoHash) return;
+      if (!filePath || !activeInfoHash) return;
       const usableDuration =
         durationSec && Number.isFinite(durationSec) && durationSec > 0 ? durationSec : null;
       if (
@@ -745,15 +958,15 @@ export function InlineStreamPlayer({
       if (usableDuration === null) return;
 
       const body: ProgressUpdateBody = {
-        infoHash,
+        infoHash: activeInfoHash,
         filePath,
         positionSec,
         durationSec: Math.floor(usableDuration),
-        title,
-        season: season ?? null,
-        episode: episode ?? null,
-        posterUrl: posterUrl ?? null,
-        watchListItemId: watchListItemId ?? null,
+        title: activeTitle,
+        season: currentSeason,
+        episode: currentEpisode,
+        posterUrl: activePosterUrl ?? null,
+        watchListItemId: activeWatchListItemId ?? null,
       };
       // Recorded before the request resolves on purpose: the throttle is about
       // how often we *ask*, and a failed write must not free the next tick to
@@ -779,7 +992,14 @@ export function InlineStreamPlayer({
         /* Blob/sendBeacon unavailable: the position is simply not stored */
       }
     },
-    [infoHash, title, season, episode, posterUrl, watchListItemId],
+    [
+      activeInfoHash,
+      activeTitle,
+      currentSeason,
+      currentEpisode,
+      activePosterUrl,
+      activeWatchListItemId,
+    ],
   );
 
   /**
@@ -828,13 +1048,13 @@ export function InlineStreamPlayer({
 
   const copyUrl = useCallback(
     async (path: string) => {
-      const url = `${window.location.origin}${streamPath(infoHash, path)}`;
+      const url = `${window.location.origin}${streamPath(activeInfoHash, path)}`;
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setMessage("Stream URL copied.");
       window.setTimeout(() => setCopied(false), 1600);
     },
-    [infoHash],
+    [activeInfoHash],
   );
 
   const loadManifest = useCallback(async () => {
@@ -843,7 +1063,7 @@ export function InlineStreamPlayer({
     setMessage(null);
     setProblem(null);
     try {
-      const res = await fetch(`/api/stream/${encodeURIComponent(infoHash)}`);
+      const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}`);
       if (!res.ok) {
         const mapped = streamStatusMessage(res.status);
         setProblem(mapped.problem);
@@ -873,7 +1093,7 @@ export function InlineStreamPlayer({
     } finally {
       setManifestLoading(false);
     }
-  }, [infoHash, manifest]);
+  }, [activeInfoHash, manifest]);
 
   const copySelected = useCallback(async () => {
     const loaded = await loadManifest();
@@ -901,6 +1121,90 @@ export function InlineStreamPlayer({
     setExpanded(true);
     void loadManifest();
   }, [expanded, loadManifest]);
+
+  const loadUpNext = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!activeInfoHash || !activeTitle.trim()) return null;
+      setUpNextLoading(true);
+      try {
+        const res = await fetch("/api/prewarm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "next",
+            infoHash: activeInfoHash,
+            title: selectedFile?.path ?? activeTitle,
+            season: currentSeason,
+            episode: currentEpisode,
+            watchListItemId: activeWatchListItemId ?? null,
+          }),
+          signal,
+        });
+        const data = await readJson<UpNextResponse>(res);
+        if (!res.ok || signal?.aborted) return null;
+        const next = data?.next ?? null;
+        setUpNext(next);
+        return next;
+      } catch {
+        if (!signal?.aborted) setUpNext(null);
+        return null;
+      } finally {
+        if (!signal?.aborted) setUpNextLoading(false);
+      }
+    },
+    [
+      activeInfoHash,
+      activeTitle,
+      selectedFile,
+      currentSeason,
+      currentEpisode,
+      activeWatchListItemId,
+    ],
+  );
+
+  useEffect(() => {
+    if (!playableSrc || !selectedPath) return;
+    const controller = new AbortController();
+    void loadUpNext(controller.signal);
+    return () => controller.abort();
+  }, [playableSrc, selectedPath, loadUpNext]);
+
+  const playUpNext = useCallback(
+    (next: UpNextEpisodeCard | null = upNext) => {
+      if (!next?.infoHash) return;
+      setTarget({
+        infoHash: next.infoHash,
+        title: next.title,
+        season: next.season,
+        episode: next.episode,
+        watchListItemId: activeWatchListItemId,
+        posterUrl: activePosterUrl,
+        resumeSec: 0,
+      });
+    },
+    [upNext, currentSeason, currentEpisode, activeWatchListItemId, activePosterUrl],
+  );
+
+  const handleEnded = useCallback(() => {
+    setIsPlaying(false);
+    setEnded(true);
+    setAutoAdvanceCancelled(false);
+    setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
+    postProgress({ force: true });
+    void loadUpNext();
+  }, [postProgress, loadUpNext]);
+
+  useEffect(() => {
+    if (!ended || autoAdvanceCancelled || !upNext?.infoHash) return;
+    if (advanceCountdown <= 0) {
+      playUpNext(upNext);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setAdvanceCountdown((n) => Math.max(0, n - 1));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [ended, autoAdvanceCancelled, upNext, advanceCountdown, playUpNext]);
 
   // Theatre skips the toggle, so it also skips the manifest load the toggle
   // performed on the way through. Nothing else fetches it, so without this the
@@ -1030,7 +1334,7 @@ export function InlineStreamPlayer({
             return;
           }
           // Try direct stream as fallback
-          await tryDirectStream(infoHash, filePath, controller.signal);
+          await tryDirectStream(activeInfoHash, filePath, controller.signal);
           return;
         }
 
@@ -1059,7 +1363,7 @@ export function InlineStreamPlayer({
            */
           const nativeUrl =
             planData.plan.rung === "direct"
-              ? streamPath(infoHash, filePath)
+              ? streamPath(activeInfoHash, filePath)
               : planData.playUrl;
           setPlaybackMode("direct");
           setTimelineOffset(0);
@@ -1077,7 +1381,7 @@ export function InlineStreamPlayer({
       } catch {
         if (!controller.signal.aborted) {
           // Network error — fall back to direct stream check
-          await tryDirectStream(infoHash, filePath, controller.signal).catch(() => {
+          await tryDirectStream(activeInfoHash, filePath, controller.signal).catch(() => {
             setProblem("generic");
             setMessage("Could not check the stream.");
           });
@@ -1089,7 +1393,7 @@ export function InlineStreamPlayer({
     })();
 
     return () => controller.abort();
-  }, [expanded, infoHash, selectedPath, planNonce, audioStreamIndex, tryDirectStream]);
+  }, [expanded, activeInfoHash, selectedPath, planNonce, audioStreamIndex, tryDirectStream]);
 
   // Selecting a different file must not inherit the previous file's seek offset
   // or audio-track choice.
@@ -1137,7 +1441,7 @@ export function InlineStreamPlayer({
     const filePath = selectedPath;
     void (async () => {
       try {
-        const res = await fetch(subtitleListUrl(infoHash, filePath), {
+        const res = await fetch(subtitleListUrl(activeInfoHash, filePath), {
           signal: controller.signal,
         });
         if (!res.ok || controller.signal.aborted) return;
@@ -1163,7 +1467,7 @@ export function InlineStreamPlayer({
       }
     })();
     return () => controller.abort();
-  }, [expanded, infoHash, selectedPath, defaultSidecarPath, planResolved]);
+  }, [expanded, activeInfoHash, selectedPath, defaultSidecarPath, planResolved]);
 
   /**
    * Restart the HLS session at `sourceSec`.
@@ -1238,8 +1542,8 @@ export function InlineStreamPlayer({
   const activeSubtitleSrc = useMemo(() => {
     if (!activeSubtitle || !selectedPath) return null;
     const offset = playbackMode === "hls" ? timelineOffset : 0;
-    return subtitleTrackSrc(infoHash, selectedPath, activeSubtitle.id, offset);
-  }, [activeSubtitle, infoHash, selectedPath, playbackMode, timelineOffset]);
+    return subtitleTrackSrc(activeInfoHash, selectedPath, activeSubtitle.id, offset);
+  }, [activeSubtitle, activeInfoHash, selectedPath, playbackMode, timelineOffset]);
 
   /**
    * Turn the rendered `<track>` on.
@@ -1607,7 +1911,7 @@ export function InlineStreamPlayer({
       className={cn("w-full space-y-2", theatre && "space-y-0", className)}
       data-inline-player
       data-player-chrome={chrome}
-      data-infohash={infoHash}
+      data-infohash={activeInfoHash}
       data-playback-mode={playbackMode}
       data-playback-strategy={strategy ?? undefined}
       data-playback-rung={playbackRung ?? undefined}
@@ -1753,14 +2057,14 @@ export function InlineStreamPlayer({
           {checkingStream ? (
             <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Probing file…
+              {stateSentence}
             </p>
           ) : null}
 
           {preparingLabel && !checkingStream ? (
             <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {preparingLabel}
+              {stateSentence}
             </p>
           ) : null}
 
@@ -1777,7 +2081,7 @@ export function InlineStreamPlayer({
                     "w-full bg-black",
                     theatre ? "max-h-[100dvh] object-contain" : "rounded-md",
                   )}
-                  title={title}
+                  title={activeTitle}
                   onClick={togglePlay}
                   onError={() => {
                     if (!hlsRef.current) {
@@ -1787,11 +2091,12 @@ export function InlineStreamPlayer({
                     }
                   }}
                   onWaiting={() => setWaiting(true)}
-                  onPlay={() => setIsPlaying(true)}
+                  onPlay={() => { setIsPlaying(true); setEnded(false); }}
                   onPause={() => {
                     setIsPlaying(false);
                     postProgress({ force: true });
                   }}
+                  onEnded={handleEnded}
                   onSeeking={() => setSeeking(true)}
                   onPlaying={() => { setWaiting(false); setSeeking(false); setPreparingLabel(null); }}
                   onCanPlay={(e) => { setWaiting(false); setPreparingLabel(null); readBuffered(e.currentTarget); }}
@@ -1832,7 +2137,7 @@ export function InlineStreamPlayer({
                     theatre ? "max-h-[100dvh] object-contain" : "rounded-md",
                   )}
                   src={playableSrc}
-                  title={title}
+                  title={activeTitle}
                   onError={() => {
                     setProblem("browser-error");
                     setMessage("This release won't play in the browser.");
@@ -1841,11 +2146,12 @@ export function InlineStreamPlayer({
                   onWaiting={() => setWaiting(true)}
                   onPlaying={() => { setWaiting(false); setSeeking(false); }}
                   onCanPlay={() => setWaiting(false)}
-                  onPlay={() => setIsPlaying(true)}
+                  onPlay={() => { setIsPlaying(true); setEnded(false); }}
                   onPause={() => {
                     setIsPlaying(false);
                     postProgress({ force: true });
                   }}
+                  onEnded={handleEnded}
                   onSeeking={() => setSeeking(true)}
                   onSeeked={(e) => {
                     setSeeking(false);
@@ -1907,6 +2213,60 @@ export function InlineStreamPlayer({
                 >
                   <Loader2 className="h-6 w-6 animate-spin text-white/90" />
                 </span>
+              ) : null}
+              {ended && upNext ? (
+                <div
+                  data-up-next-card
+                  className="absolute inset-x-3 bottom-3 z-10 rounded-xl border border-white/15 bg-black/80 p-3 text-white shadow-[var(--shadow-md)] sm:inset-x-auto sm:right-4 sm:bottom-4 sm:w-80"
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/60">
+                    Up next
+                  </p>
+                  <p className="mt-1 truncate text-sm font-semibold">{upNext.title}</p>
+                  <p className="text-[12px] text-white/70">{upNext.label}</p>
+                  <p className="mt-1 text-[12px] text-white/70">
+                    {upNextStatusSentence(upNext.availability)}
+                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    {upNext.infoHash ? (
+                      <button
+                        type="button"
+                        onClick={() => playUpNext(upNext)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black"
+                      >
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                        Play now
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-full bg-white/20 px-3 text-[12px] font-semibold text-white/60"
+                      >
+                        Not fetched yet
+                      </button>
+                    )}
+                    {upNext.infoHash && !autoAdvanceCancelled ? (
+                      <button
+                        type="button"
+                        onClick={() => setAutoAdvanceCancelled(true)}
+                        className="h-8 rounded-full border border-white/20 px-3 text-[12px] text-white/80"
+                      >
+                        Cancel autoplay ({advanceCountdown})
+                      </button>
+                    ) : upNext.infoHash ? (
+                      <span className="text-[12px] text-white/60">Autoplay cancelled.</span>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {ended && upNextLoading ? (
+                <div
+                  data-up-next-loading
+                  className="absolute inset-x-3 bottom-3 z-10 rounded-xl border border-white/15 bg-black/75 p-3 text-[12px] text-white/70 sm:inset-x-auto sm:right-4 sm:bottom-4"
+                >
+                  Checking for the next episode…
+                </div>
               ) : null}
               {playbackMode !== "hls" ? (
                 /*
@@ -2102,14 +2462,27 @@ export function InlineStreamPlayer({
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
-                <SwarmChip infoHash={infoHash} active={Boolean(playableSrc)} />
+                <SwarmChip
+                  infoHash={activeInfoHash}
+                  active={Boolean(playableSrc)}
+                  minimumStreamBps={minimumStreamBps}
+                  onSample={setSwarmSample}
+                />
                 <p className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-tertiary)]">
-                  {selectedFile.path} · {formatBytes(selectedFile.length)}
+                  {releaseChips.length > 0
+                    ? releaseChips.join(" · ")
+                    : formatBytes(selectedFile.length)}
                 </p>
               </div>
+              {upNext ? (
+                <p data-up-next-status className="text-[11px] text-[var(--text-tertiary)]">
+                  Next: {upNext.title} {upNext.label} —{" "}
+                  {upNextStatusSentence(upNext.availability)}
+                </p>
+              ) : null}
               {waiting ? (
                 <p className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
-                  {bufferingLabel(progress)}
+                  {stateSentence}
                 </p>
               ) : null}
             </div>

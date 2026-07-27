@@ -42,7 +42,10 @@ export type SwarmHealth = "unknown" | "stalled" | "thin" | "live";
  * Only "no peers at all" is called stalled, because that is the one state the
  * viewer cannot wait out.
  */
-export function swarmHealth(sample: SwarmSample | null): SwarmHealth {
+export function swarmHealth(
+  sample: SwarmSample | null,
+  minimumStreamBps = 0,
+): SwarmHealth {
   if (!sample) return "unknown";
   const { peers, downloadSpeedBps: rate, progress } = sample;
   if (peers === null && rate === null) return "unknown";
@@ -51,7 +54,9 @@ export function swarmHealth(sample: SwarmSample | null): SwarmHealth {
   // them as trouble would be a warning about a problem that cannot happen.
   if (progress !== null && progress >= 1) return "live";
   if (peers === 0) return "stalled";
-  if (rate !== null && rate > 0) return "live";
+  if (rate !== null && rate > 0) {
+    return rate >= Math.max(0, minimumStreamBps) ? "live" : "thin";
+  }
   if (peers !== null && peers > 0) return "thin";
   return "unknown";
 }
@@ -67,11 +72,16 @@ export function rateText(bps: number | null): string {
 }
 
 /** One sentence a screen reader can read out on demand. */
-export function swarmSummary(sample: SwarmSample | null): string {
-  const health = swarmHealth(sample);
+export function swarmSummary(sample: SwarmSample | null, minimumStreamBps = 0): string {
+  const health = swarmHealth(sample, minimumStreamBps);
   if (health === "unknown") return "Swarm health unknown — no peer data from the engine.";
   if ((sample?.progress ?? 0) >= 1) {
     return `Download complete — playing from disk. ${peerText(sample?.peers ?? null)} connected.`;
+  }
+  if (health === "thin" && (sample?.downloadSpeedBps ?? 0) > 0 && minimumStreamBps > 0) {
+    return `Swarm is too slow to sustain this file: ${rateText(
+      sample?.downloadSpeedBps ?? null,
+    )} arriving, about ${rateText(minimumStreamBps)} needed.`;
   }
   return `Swarm: ${peerText(sample?.peers ?? null)} connected, ${rateText(
     sample?.downloadSpeedBps ?? null,
@@ -92,6 +102,8 @@ type SwarmChipProps = {
   /** Poll only while the player is actually mounted and showing something. */
   active: boolean;
   className?: string;
+  minimumStreamBps?: number;
+  onSample?: (sample: SwarmSample | null) => void;
   /** Test seam: overrides the network fetch. */
   fetchSample?: (signal: AbortSignal) => Promise<SwarmSample | null>;
 };
@@ -121,7 +133,14 @@ async function defaultFetchSample(
   };
 }
 
-export function SwarmChip({ infoHash, active, className, fetchSample }: SwarmChipProps) {
+export function SwarmChip({
+  infoHash,
+  active,
+  className,
+  minimumStreamBps = 0,
+  onSample,
+  fetchSample,
+}: SwarmChipProps) {
   /**
    * The sample is stored with the torrent it describes. Rendering compares the
    * two, so switching torrents shows "unknown" immediately rather than another
@@ -158,10 +177,16 @@ export function SwarmChip({ infoHash, active, className, fetchSample }: SwarmChi
         const next = fetchSample
           ? await fetchSample(controller.signal)
           : await defaultFetchSample(infoHash, controller.signal);
-        if (!stopped) setState({ key: infoHash, sample: next });
+        if (!stopped) {
+          setState({ key: infoHash, sample: next });
+          onSample?.(next);
+        }
       } catch {
         // Including AbortError on unmount, where the setState is skipped anyway.
-        if (!stopped) setState({ key: infoHash, sample: null });
+        if (!stopped) {
+          setState({ key: infoHash, sample: null });
+          onSample?.(null);
+        }
       }
       schedule();
     };
@@ -190,12 +215,12 @@ export function SwarmChip({ infoHash, active, className, fetchSample }: SwarmChi
       controller.abort();
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [active, infoHash, clearTimer, fetchSample]);
+  }, [active, infoHash, clearTimer, fetchSample, onSample]);
 
   if (!active) return null;
 
   const sample = state.key === infoHash ? state.sample : null;
-  const health = swarmHealth(sample);
+  const health = swarmHealth(sample, minimumStreamBps);
   const peers = peerText(sample?.peers ?? null);
   const rate = rateText(sample?.downloadSpeedBps ?? null);
 
@@ -209,7 +234,7 @@ export function SwarmChip({ infoHash, active, className, fetchSample }: SwarmChi
       // The numbers change every few seconds; announcing each one would make the
       // player unusable with a screen reader. The chip is readable on demand.
       aria-live="off"
-      title={swarmSummary(sample)}
+      title={swarmSummary(sample, minimumStreamBps)}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-muted)] px-2 py-0.5 text-[11px] text-[var(--text-tertiary)] tabular-nums",
         className,

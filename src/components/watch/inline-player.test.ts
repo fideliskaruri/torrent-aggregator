@@ -5,9 +5,12 @@ import {
   encodeStreamFilePath,
   findSidecarSubtitle,
   infoHashFromMagnet,
+  releaseDetailChips,
   selectVideoFiles,
+  streamStateSentence,
   streamPath,
   streamStatusMessage,
+  upNextStatusSentence,
   type StreamFile,
 } from "./inline-player";
 import { peerText, rateText, swarmHealth, swarmSummary } from "./swarm-chip";
@@ -89,6 +92,40 @@ assert(
 assert(
   "buffering label degrades when only peer data exists",
   bufferingLabel({ peers: 1 }) === "buffering — waiting for torrent pieces · 1 peer",
+);
+assert(
+  "release details render parsed chips instead of the wrapper path",
+  releaseDetailChips(
+    "www.UIndex.org - Rick and Morty S01E02 Lawnmower Dog 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune\\Rick and Morty S01E02 Lawnmower Dog 1080p AMZN WEB-DL DDP5.1 H.264-Kitsune.mkv",
+    716 * 1024 ** 2,
+  ).join(" · ") === "1080p · WEB-DL · DDP5.1 · H.264 · 716 MB",
+);
+assert(
+  "release details do not expose the raw release path as a label",
+  !releaseDetailChips(
+    "www.UIndex.org - Rick and Morty S01E02 Lawnmower Dog 1080p WEB-DL.mkv",
+    716 * 1024 ** 2,
+  ).join(" ").includes("www.UIndex"),
+);
+assert(
+  "preparing state names the viewer state, not the ffmpeg mechanism",
+  streamStateSentence({ checking: false, preparing: true, waiting: false, playing: false }) ===
+    "Preparing playback — this usually takes under a minute once pieces arrive.",
+);
+assert(
+  "waiting on an unsustainable stream says the truth",
+  streamStateSentence({
+    checking: false,
+    preparing: false,
+    waiting: true,
+    playing: false,
+    swarm: { peers: 4, downloadSpeedBps: 1_200, progress: 0.15, observedAt: 0 },
+    minimumStreamBps: 500_000,
+  }) === "Too slow to stream — downloading in the background.",
+);
+assert(
+  "up-next status never calls an incomplete torrent ready",
+  upNextStatusSentence("downloading") === "Still downloading — you can start streaming, but it may buffer.",
 );
 
 // ── Buffered band ──
@@ -181,6 +218,20 @@ assert(
   "peers and bytes is live",
   swarmHealth({ peers: 3, downloadSpeedBps: 250_000, progress: 0.2, observedAt: 0 }) ===
     "live",
+);
+assert(
+  "a rate below the file bitrate is thin, not green",
+  swarmHealth(
+    { peers: 4, downloadSpeedBps: 1_200, progress: 0.1, observedAt: 0 },
+    500_000,
+  ) === "thin",
+);
+assert(
+  "a rate that can sustain the file is live",
+  swarmHealth(
+    { peers: 4, downloadSpeedBps: 700_000, progress: 0.1, observedAt: 0 },
+    500_000,
+  ) === "live",
 );
 assert(
   "a finished torrent is live even with no peers and no rate — it plays off disk",

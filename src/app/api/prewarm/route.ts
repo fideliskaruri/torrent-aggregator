@@ -21,9 +21,19 @@ import {
   markForegroundActive,
   syncPrewarmSuspension,
 } from "@/lib/prewarm/foreground";
-import { onPlaybackProgress, prewarmNextEpisode } from "@/lib/prewarm/prewarm";
+import {
+  onPlaybackProgress,
+  prewarmNextEpisode,
+  resolveNextEpisode,
+} from "@/lib/prewarm/prewarm";
 import { PREWARM_ORIGIN } from "@/lib/prewarm/types";
 import type { NextEpisode } from "@/lib/prewarm/types";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
+import { parseEpisode } from "@/lib/torrents/episodes";
+import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import { workIdentity } from "@/lib/torrents/work-identity";
+import { normalizeTitle } from "@/lib/utils";
+import { getPreRanked, releaseInfoHash } from "@/lib/prewarm/prerank";
 
 export const dynamic = "force-dynamic";
 
@@ -78,6 +88,14 @@ type PrewarmRequest =
   | { action: "prerank"; limit?: number }
   | { action: "evict"; bytes: number }
   | { action: "foreground"; infoHash?: string; beacon?: boolean }
+  | {
+      action: "next";
+      infoHash: string;
+      title: string;
+      season?: number | null;
+      episode?: number | null;
+      watchListItemId?: string | null;
+    }
   | {
       action: "trigger";
       next: NextEpisode;
@@ -170,6 +188,69 @@ export async function POST(request: NextRequest) {
         resumed: result.resumed,
         parked: result.parked,
         snapshot: foregroundSnapshot(),
+      });
+    }
+
+    if (body.action === "next") {
+      const infoHash = normalizeInfoHash(body.infoHash);
+      if (!infoHash || typeof body.title !== "string") {
+        return NextResponse.json(
+          { error: "infoHash and title are required" },
+          { status: 400 },
+        );
+      }
+      const next = await resolveNextEpisode({
+        userId,
+        infoHash,
+        title: body.title,
+        season: body.season ?? null,
+        episode: body.episode ?? null,
+        watchListItemId: body.watchListItemId ?? null,
+      });
+      if (!next) {
+        return NextResponse.json({ ok: true, next: null });
+      }
+
+      const targetName = normalizeTitle(next.title);
+      const heldRows = await prisma.engineTorrent.findMany({
+        where: { userId, status: { not: "removed" } },
+        orderBy: { updatedAt: "desc" },
+        take: 100,
+      });
+      const ranked = await getPreRanked(next);
+      const rankedHash = ranked?.candidate ? releaseInfoHash(ranked.candidate) : null;
+      const exact = rankedHash
+        ? heldRows.find((row) => row.hash === rankedHash)
+        : null;
+      const byEpisode =
+        exact ??
+        heldRows.find((row) => {
+          const ep = parseEpisode(row.name);
+          if (ep.season !== next.season || ep.episode !== next.episode) return false;
+          return normalizeTitle(workIdentity(row.name).name) === targetName;
+        }) ??
+        null;
+
+      const progress = byEpisode ? Math.max(0, Math.min(1, byEpisode.progress)) : null;
+      const availability =
+        byEpisode == null
+          ? "not-fetched"
+          : progress != null && progress >= 1
+            ? "ready"
+            : "downloading";
+
+      return NextResponse.json({
+        ok: true,
+        next: {
+          title: next.title,
+          label: formatEpisodeLabel(next.season, next.episode),
+          season: next.season,
+          episode: next.episode,
+          availability,
+          infoHash: byEpisode?.hash ?? null,
+          progress,
+          source: next.source,
+        },
       });
     }
 
