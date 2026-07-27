@@ -36,8 +36,7 @@
  * hides a release the user could have watched. `dead` is only ever returned
  * when we connected to peers and they gave us nothing.
  */
-import prisma from "@/lib/prisma";
-import os from "node:os";
+import { prisma } from "@/lib/prisma";
 import path from "node:path";
 import { infoHashFromMagnet, normalizeInfoHash } from "@/lib/torrents/infohash";
 
@@ -498,10 +497,10 @@ async function resolveLive(
 }
 
 function defaultProbeDir(): string {
-  // A throwaway directory; the probe's partial data is deleted on teardown.
-  // Kept out of the user's download tree so a probe can never be mistaken for
-  // a real download or collide with one on disk.
-  return path.join(os.tmpdir(), "tf-swarm-probe");
+  // A throwaway directory under the repo; the probe's partial data is deleted
+  // on teardown. Keep it out of OS temp directories so worktree runs are
+  // inspectable and do not violate the shared-environment rules.
+  return path.join(process.cwd(), ".torrentflow", "swarm-probe");
 }
 
 interface FreshProbeArgs {
@@ -536,6 +535,9 @@ function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
     const onDownload = (bytes: unknown) => {
       const n = Number(bytes);
       if (Number.isFinite(n) && n > 0) bytesReceived += n;
+      if (hasEnoughHeadroom(args, startedAt, args.now(), bytesReceived)) {
+        finish(true);
+      }
     };
     const onWire = (wire: unknown) => {
       if (wire && typeof wire === "object") {
@@ -646,6 +648,18 @@ function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
       }
     }
   });
+}
+
+function hasEnoughHeadroom(
+  args: Pick<FreshProbeArgs, "requiredBps">,
+  startedAt: number,
+  now: number,
+  bytesReceived: number,
+): boolean {
+  const elapsedMs = Math.max(0, now - startedAt);
+  if (elapsedMs <= 0 || bytesReceived <= 0) return false;
+  const effectiveBps = (bytesReceived * 1000) / elapsedMs;
+  return effectiveBps >= args.requiredBps * MIN_HEADROOM;
 }
 
 function countByteSenders(

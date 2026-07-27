@@ -36,7 +36,7 @@
  * guessed values is the bug this column was added to prevent, it missed 100% of
  * the time, and `npm run test:seam` exists to catch a regression. Do not do it.
  */
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import {
   searchTorrents,
   SearchThrottledError,
@@ -488,22 +488,22 @@ export type PreRankSource = "watching" | "monitored" | "watchlist";
 
 /** The default sources — the two highest-value tiers, matching prior behaviour. */
 export const DEFAULT_PRERANK_SOURCES: readonly PreRankSource[] = [
-  "watching",
   "monitored",
+  "watching",
 ];
 
 /**
  * The targets worth pre-ranking right now, best bet first.
  *
- * 1. The next episode of everything in Continue Watching — highest hit rate by
- *    a mile, and the episode the user is most likely to press play on.
- * 2. The hunt cursor of every monitored series — the library has already
+ * 1. The hunt cursor of every monitored series — the library has already
  *    stated, in a durable field, which episode it wants next.
- * 3. (Opt-in) Other watchlist titles — planned series and movies the user has
- *    saved but is not yet actively watching or monitoring.
+ * 2. Other watchlist titles — planned series and movies the user explicitly
+ *    saved, opportunistic but still user-declared.
+ * 3. The next episode of Continue Watching — the most likely immediate click,
+ *    but behind durable tracked/saved intent for this background probe.
  *
- * `sources` gates which tiers run; the default keeps the prior watching+
- * monitored behaviour so existing callers are unaffected.
+ * `sources` gates which tiers run; the default keeps the same two tiers as
+ * before, with monitored intent first.
  *
  * Ordering matters: the background indexer budget is small, so the first few
  * targets are the only ones that reliably get done.
@@ -528,6 +528,78 @@ export async function upcomingTargets(
     seen.add(key);
     out.push(t);
   };
+
+  try {
+    const monitored = sources.has("monitored")
+      ? await db.watchListItem.findMany({
+          where: { userId, monitored: true },
+          orderBy: { updatedAt: "desc" },
+          take: limit * 2,
+        })
+      : [];
+
+    for (const item of monitored) {
+      if (!isSeriesMediaType(item.mediaType)) continue;
+      const hunt = resolveHuntCursor({
+        title: item.title,
+        mediaType: item.mediaType,
+        cursorSeason: item.cursorSeason,
+        cursorEpisode: item.cursorEpisode,
+        fromSeason: item.fromSeason,
+        fromEpisode: item.fromEpisode,
+        lastEpisode: item.lastEpisode,
+        nextEpisodeHint: item.nextEpisodeHint,
+      });
+      if (!hunt.cursor) continue;
+      push({
+        title: item.title,
+        mediaType: item.mediaType,
+        season: hunt.cursor.season,
+        episode: hunt.cursor.episode,
+      });
+    }
+  } catch {
+    // Same reasoning.
+  }
+
+  // Tier 2: other watchlist titles the user saved but is not actively watching
+  // or monitoring. Opportunistic only, and never the whole
+  // catalogue. Series resolve to their hunt cursor; movies use the bare title.
+  if (sources.has("watchlist")) {
+    try {
+      const saved = await db.watchListItem.findMany({
+        where: { userId, status: { notIn: ["completed", "dropped"] } },
+        orderBy: { updatedAt: "desc" },
+        take: limit * 2,
+      });
+
+      for (const item of saved) {
+        if (isSeriesMediaType(item.mediaType)) {
+          const hunt = resolveHuntCursor({
+            title: item.title,
+            mediaType: item.mediaType,
+            cursorSeason: item.cursorSeason,
+            cursorEpisode: item.cursorEpisode,
+            fromSeason: item.fromSeason,
+            fromEpisode: item.fromEpisode,
+            lastEpisode: item.lastEpisode,
+            nextEpisodeHint: item.nextEpisodeHint,
+          });
+          if (!hunt.cursor) continue;
+          push({
+            title: item.title,
+            mediaType: item.mediaType,
+            season: hunt.cursor.season,
+            episode: hunt.cursor.episode,
+          });
+        } else {
+          push({ title: item.title, mediaType: item.mediaType });
+        }
+      }
+    } catch {
+      // Same reasoning.
+    }
+  }
 
   try {
     const watching = sources.has("watching")
@@ -564,78 +636,6 @@ export async function upcomingTargets(
     }
   } catch {
     // Fall through to the library pass — a partial answer beats none.
-  }
-
-  try {
-    const monitored = sources.has("monitored")
-      ? await db.watchListItem.findMany({
-          where: { userId, monitored: true },
-          orderBy: { updatedAt: "desc" },
-          take: limit * 2,
-        })
-      : [];
-
-    for (const item of monitored) {
-      if (!isSeriesMediaType(item.mediaType)) continue;
-      const hunt = resolveHuntCursor({
-        title: item.title,
-        mediaType: item.mediaType,
-        cursorSeason: item.cursorSeason,
-        cursorEpisode: item.cursorEpisode,
-        fromSeason: item.fromSeason,
-        fromEpisode: item.fromEpisode,
-        lastEpisode: item.lastEpisode,
-        nextEpisodeHint: item.nextEpisodeHint,
-      });
-      if (!hunt.cursor) continue;
-      push({
-        title: item.title,
-        mediaType: item.mediaType,
-        season: hunt.cursor.season,
-        episode: hunt.cursor.episode,
-      });
-    }
-  } catch {
-    // Same reasoning.
-  }
-
-  // Tier 3: other watchlist titles the user saved but is not actively watching
-  // or monitoring. Opportunistic only — deliberately last, and never the whole
-  // catalogue. Series resolve to their hunt cursor; movies use the bare title.
-  if (sources.has("watchlist")) {
-    try {
-      const saved = await db.watchListItem.findMany({
-        where: { userId, status: { notIn: ["completed", "dropped"] } },
-        orderBy: { updatedAt: "desc" },
-        take: limit * 2,
-      });
-
-      for (const item of saved) {
-        if (isSeriesMediaType(item.mediaType)) {
-          const hunt = resolveHuntCursor({
-            title: item.title,
-            mediaType: item.mediaType,
-            cursorSeason: item.cursorSeason,
-            cursorEpisode: item.cursorEpisode,
-            fromSeason: item.fromSeason,
-            fromEpisode: item.fromEpisode,
-            lastEpisode: item.lastEpisode,
-            nextEpisodeHint: item.nextEpisodeHint,
-          });
-          if (!hunt.cursor) continue;
-          push({
-            title: item.title,
-            mediaType: item.mediaType,
-            season: hunt.cursor.season,
-            episode: hunt.cursor.episode,
-          });
-        } else {
-          push({ title: item.title, mediaType: item.mediaType });
-        }
-      }
-    } catch {
-      // Same reasoning.
-    }
   }
 
   return out;
