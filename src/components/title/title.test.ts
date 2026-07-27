@@ -47,6 +47,14 @@ import {
   episodeListView,
   episodeSeasonSummary,
 } from "./episode-list-state";
+import {
+  canOfferSeasonGrab,
+  episodeStatusesFromSeasonReport,
+  seasonGrabSummary,
+  shouldRunSeasonGrab,
+  type SeasonGrabReport,
+  type SeasonGrabStatus,
+} from "./season-grab-state";
 import type {
   TitleDetailPayload,
   TitleEpisode,
@@ -749,6 +757,96 @@ check("episodeSeasonSummary: header distinguishes loading, rows, empty, and erro
     episodeSeasonSummary(3, 0, { status: "error", message: "Nope" }),
     "Could not load season 3",
   );
+});
+
+check("seasonGrabSummary: idle is unknown, not dead", () => {
+  assert.equal(
+    seasonGrabSummary({ status: "idle" }, 1),
+    "Season coverage not measured yet.",
+  );
+});
+
+check("canOfferSeasonGrab: no known episodes means no season action", () => {
+  assert.equal(canOfferSeasonGrab(1, 0), false);
+  assert.equal(canOfferSeasonGrab(null, 10), false);
+  assert.equal(canOfferSeasonGrab(1, 10), true);
+});
+
+check("seasonGrabSummary: loading does not claim empty coverage", () => {
+  assert.equal(seasonGrabSummary({ status: "pending" }, 2), "Checking season 2…");
+});
+
+check("seasonGrabSummary: coverage names missing episodes", () => {
+  const report: SeasonGrabReport = {
+    season: 1,
+    totalEpisodes: 10,
+    coveredEpisodes: 8,
+    strategy: "mixed",
+    episodes: [
+      ...Array.from({ length: 8 }, (_, i) => ({
+        episode: i + 1,
+        status: "covered" as const,
+      })),
+      { episode: 9, status: "missing" as const, reason: "No acceptable release" },
+      { episode: 10, status: "missing" as const, reason: "No acceptable release" },
+    ],
+  };
+
+  assert.equal(
+    seasonGrabSummary({ status: "done", report }, 1),
+    "8 of 10 episodes covered. Missing: S01E09, S01E10.",
+  );
+});
+
+check("seasonGrabSummary: error is not empty", () => {
+  assert.equal(
+    seasonGrabSummary({ status: "error", message: "Planner failed" }, 4),
+    "Could not plan season 4. Planner failed",
+  );
+});
+
+check("shouldRunSeasonGrab: pressing twice after success submits one grab", () => {
+  let status: SeasonGrabStatus = { status: "idle" };
+  let grabs = 0;
+
+  const press = () => {
+    if (!shouldRunSeasonGrab(status)) return;
+    grabs += 1;
+    status = {
+      status: "done",
+      report: {
+        season: 1,
+        totalEpisodes: 1,
+        coveredEpisodes: 1,
+        strategy: "singles",
+        episodes: [{ episode: 1, status: "covered" }],
+      },
+    };
+  };
+
+  press();
+  press();
+
+  assert.equal(grabs, 1);
+});
+
+check("episodeStatusesFromSeasonReport: season grab lights rows individually", () => {
+  const report: SeasonGrabReport = {
+    season: 2,
+    totalEpisodes: 3,
+    coveredEpisodes: 1,
+    strategy: "singles",
+    episodes: [
+      { episode: 1, status: "covered" },
+      { episode: 2, status: "missing", reason: "No release" },
+      { episode: 3, status: "not_measured", reason: "Planner skipped it" },
+    ],
+  };
+
+  assert.deepEqual(episodeStatusesFromSeasonReport(report), {
+    s2e1: "done",
+    s2e2: "error",
+  });
 });
 
 check("resolveEpisodeAction: an unchecked episode is still clickable", () => {

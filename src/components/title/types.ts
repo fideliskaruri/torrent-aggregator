@@ -14,6 +14,7 @@
  * `unavailable` is a claim, and is only ever set where a real check was made.
  */
 import type { AvailabilityState } from "@/lib/browse";
+import type { SeasonGrabReport } from "./season-grab-state";
 
 /** One row in the episode list. */
 export interface TitleEpisode {
@@ -203,9 +204,13 @@ export interface TitleExtrasPayload {
 
 /** Body accepted by `POST /api/title/[workKey]` — the one-click grab. */
 export interface TitleGrabRequest {
+  /** Omit for the normal title/episode action; `season` plans known rows. */
+  mode?: "title" | "season";
   /** Omit both for a film (or a whole-title grab). */
   season?: number | null;
   episode?: number | null;
+  /** Known episode numbers for a one-press season grab. */
+  episodes?: number[] | null;
   /** Passed through when the page was reached with only a title in the URL. */
   title?: string | null;
   mediaType?: string | null;
@@ -227,4 +232,11 @@ export interface TitleGrabResponse {
    * caller wants to open the player on.
    */
   infoHash?: string | null;
+}
+
+/** What a season-level one-click grab answers. */
+export interface TitleSeasonGrabResponse {
+  ok: boolean;
+  message: string;
+  report?: SeasonGrabReport | null;
 }

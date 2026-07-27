@@ -52,6 +52,13 @@ import {
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
+import {
+  canOfferSeasonGrab,
+  seasonGrabStrategySummary,
+  seasonGrabSummary,
+  shouldRunSeasonGrab,
+  type SeasonGrabStatus,
+} from "./season-grab-state";
 import type { TitleSeason } from "./types";
 
 export interface EpisodeListProps {
@@ -63,7 +70,9 @@ export interface EpisodeListProps {
   /** Non-null while a season change is in flight, so the list can dim. */
   busy: boolean;
   statusFor: (key: string) => TitleActionStatus;
+  seasonGrabStatus: SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
+  onSeasonGrab: (season: number, episodes: number[]) => void;
   onAction: (action: TitleAction, label: string) => void;
 }
 
@@ -80,10 +89,17 @@ export function EpisodeList({
   loadState,
   busy,
   statusFor,
+  seasonGrabStatus,
   onSeasonChange,
+  onSeasonGrab,
   onAction,
 }: EpisodeListProps) {
   const view = episodeListView(loadState, episodes.length);
+  const showSeasonGrab = canOfferSeasonGrab(season, episodes.length);
+  const seasonGrabCanRun =
+    showSeasonGrab && shouldRunSeasonGrab(seasonGrabStatus);
+  const seasonGrabSummaryId =
+    showSeasonGrab && season != null ? `season-${season}-grab-status` : undefined;
 
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
@@ -98,33 +114,71 @@ export function EpisodeList({
         ) : null}
       </div>
 
-      {seasons.length > 1 ? (
-        <nav aria-label="Seasons" className="mt-3">
-          <ul className="flex snap-x gap-1.5 overflow-x-auto pb-1">
-            {seasons.map((s) => {
-              const current = s.season === season;
-              return (
-                <li key={s.season} className="shrink-0 snap-start">
-                  <button
-                    type="button"
-                    data-season-tab
-                    aria-pressed={current}
-                    onClick={() => onSeasonChange(s.season)}
-                    className={cn(
-                      "rounded-[var(--radius)] border px-3 py-1.5 text-[12px] font-medium transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-                      current
-                        ? "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]"
-                        : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
-                    )}
-                  >
-                    Season {s.season}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+      {seasons.length > 1 || showSeasonGrab ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          {seasons.length > 1 ? (
+            <nav aria-label="Seasons" className="min-w-0 flex-1">
+              <ul className="flex snap-x gap-1.5 overflow-x-auto pb-1">
+                {seasons.map((s) => {
+                  const current = s.season === season;
+                  return (
+                    <li key={s.season} className="shrink-0 snap-start">
+                      <button
+                        type="button"
+                        data-season-tab
+                        aria-pressed={current}
+                        onClick={() => onSeasonChange(s.season)}
+                        className={cn(
+                          "rounded-[var(--radius)] border px-3 py-1.5 text-[12px] font-medium transition-colors",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                          current
+                            ? "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]"
+                            : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
+                        )}
+                      >
+                        Season {s.season}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </nav>
+          ) : null}
+
+          {showSeasonGrab && season != null ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              data-season-grab
+              aria-busy={seasonGrabStatus.status === "pending" || undefined}
+              aria-describedby={seasonGrabSummaryId}
+              disabled={!seasonGrabCanRun}
+              onClick={() =>
+                onSeasonGrab(
+                  season,
+                  episodes.map((episode) => episode.episode),
+                )
+              }
+              className="shrink-0"
+            >
+              {seasonGrabStatus.status === "pending" ? (
+                <Loader2 className="animate-spin" aria-hidden />
+              ) : (
+                <Download aria-hidden />
+              )}
+              Download season
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {showSeasonGrab && season != null ? (
+        <SeasonGrabReportLine
+          id={seasonGrabSummaryId}
+          season={season}
+          status={seasonGrabStatus}
+        />
       ) : null}
 
       {view.kind === "loading" ? (
@@ -173,6 +227,31 @@ export function EpisodeList({
   );
 }
 
+function SeasonGrabReportLine({
+  id,
+  season,
+  status,
+}: {
+  id?: string;
+  season: number;
+  status: SeasonGrabStatus;
+}) {
+  if (status.status === "idle") return null;
+  const strategy =
+    status.status === "done" ? seasonGrabStrategySummary(status.report) : null;
+  return (
+    <div
+      id={id}
+      className="mt-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]"
+      role={status.status === "error" ? "alert" : "status"}
+      data-season-grab-report
+    >
+      <p>{seasonGrabSummary(status, season)}</p>
+      {strategy ? <p>{strategy}</p> : null}
+    </div>
+  );
+}
+
 function EpisodeSkeletonRows({ rows }: { rows: number }) {
   return (
     <ul
@@ -213,8 +292,14 @@ function EpisodeRow({
   onAction: (action: TitleAction, label: string) => void;
 }) {
   const action = resolveEpisodeAction(episode);
-  const label = titleActionButtonLabel(action, status);
-  const canRun = shouldRunTitleAction(action, status);
+  const effectiveStatus =
+    action.kind === "play" && status === "done" ? "idle" : status;
+  const label = titleActionButtonLabel(action, effectiveStatus);
+  const canRun = shouldRunTitleAction(action, effectiveStatus);
+  const actionStatusText = episodeActionStatusText(
+    episode.label,
+    effectiveStatus,
+  );
   const downloaded = progressPercent(episode.downloadFraction);
   const watched = progressPercent(episode.watchedFraction);
   const resumeAt = formatClock(episode.resumePositionSec);
@@ -304,6 +389,15 @@ function EpisodeRow({
           </span>
         ) : null}
 
+        {actionStatusText ? (
+          <span
+            className="mt-1 block text-[11px] text-[var(--text-tertiary)]"
+            data-episode-action-status
+          >
+            {actionStatusText}
+          </span>
+        ) : null}
+
         {meta?.overview ? (
           <span className="mt-1 line-clamp-2 block text-[12px] leading-relaxed text-[var(--text-tertiary)]">
             {meta.overview}
@@ -328,12 +422,12 @@ function EpisodeRow({
           data-episode-action
           data-action-kind={action.kind}
           aria-label={`${label} — ${episode.label}`}
-          aria-busy={status === "pending" || undefined}
+          aria-busy={effectiveStatus === "pending" || undefined}
           disabled={!canRun}
           onClick={() => onAction(action, episode.label)}
           className="shrink-0 self-center"
         >
-          {status === "pending" ? (
+          {effectiveStatus === "pending" ? (
             <Loader2 className="animate-spin" aria-hidden />
           ) : action.kind === "play" ? (
             <Play className="fill-current" aria-hidden />
@@ -345,4 +439,14 @@ function EpisodeRow({
       )}
     </li>
   );
+}
+
+function episodeActionStatusText(
+  label: string,
+  status: TitleActionStatus,
+): string | null {
+  if (status === "pending") return `Getting ${label} ready…`;
+  if (status === "done") return `Getting ${label}`;
+  if (status === "error") return `Could not get ${label}.`;
+  return null;
 }

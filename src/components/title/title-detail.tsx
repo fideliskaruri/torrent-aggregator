@@ -56,7 +56,17 @@ import {
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
-import type { TitleDetailPayload, TitleExtrasPayload } from "./types";
+import {
+  episodeStatusesFromSeasonReport,
+  seasonGrabKey,
+  shouldRunSeasonGrab,
+  type SeasonGrabStatus,
+} from "./season-grab-state";
+import type {
+  TitleDetailPayload,
+  TitleExtrasPayload,
+  TitleSeasonGrabResponse,
+} from "./types";
 
 export interface TitleDetailProps {
   workKey: string;
@@ -80,9 +90,13 @@ const PRIMARY_KEY = "primary";
 export function TitleDetail(props: TitleDetailProps) {
   const [season, setSeason] = useState<number | null>(props.season ?? null);
   const [statuses, setStatuses] = useState<Record<string, TitleActionStatus>>({});
+  const [seasonStatuses, setSeasonStatuses] = useState<
+    Record<string, SeasonGrabStatus>
+  >({});
   const [notice, setNotice] = useState<string | null>(null);
   const [playing, setPlaying] = useState<PlayTarget | null>(null);
   const spentRemoteActions = useRef(new Set<string>());
+  const spentSeasonGrabs = useRef(new Set<string>());
 
   const url = useMemo(
     () => buildDetailUrl({ ...props, season }),
@@ -194,6 +208,66 @@ export function TitleDetail(props: TitleDetailProps) {
     [props.workKey, props.title, props.mediaType, props.year, refetch, statusFor],
   );
 
+  const seasonStatusFor = useCallback(
+    (targetSeason: number) =>
+      seasonStatuses[seasonGrabKey(targetSeason)] ?? ({ status: "idle" } as const),
+    [seasonStatuses],
+  );
+
+  const runSeasonGrab = useCallback(
+    async (targetSeason: number, episodes: number[]) => {
+      const key = seasonGrabKey(targetSeason);
+      const current = seasonStatusFor(targetSeason);
+      if (!shouldRunSeasonGrab(current)) return;
+      if (spentSeasonGrabs.current.has(key)) return;
+
+      spentSeasonGrabs.current.add(key);
+      setSeasonStatuses((prev) => ({ ...prev, [key]: { status: "pending" } }));
+      setNotice(null);
+      try {
+        const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "season",
+            season: targetSeason,
+            episodes,
+            title: props.title ?? null,
+            mediaType: props.mediaType ?? null,
+            year: props.year ?? null,
+          }),
+        });
+        const body = (await res.json().catch(() => null)) as
+          | TitleSeasonGrabResponse
+          | null;
+
+        if (!res.ok || !body?.ok || !body.report) {
+          throw new Error(body?.message || `Could not plan season ${targetSeason}`);
+        }
+        const report = body.report;
+
+        setSeasonStatuses((prev) => ({
+          ...prev,
+          [key]: { status: "done", report },
+        }));
+        refetch();
+      } catch (err) {
+        spentSeasonGrabs.current.delete(key);
+        setSeasonStatuses((prev) => ({
+          ...prev,
+          [key]: {
+            status: "error",
+            message:
+              err instanceof Error
+                ? err.message
+                : `Could not plan season ${targetSeason}`,
+          },
+        }));
+      }
+    },
+    [props.workKey, props.title, props.mediaType, props.year, refetch, seasonStatusFor],
+  );
+
   // One exclusive chain. A failed request must never be narrowed into "there
   // is nothing here" — those are different sentences and only one of them is
   // true at a time.
@@ -238,7 +312,9 @@ export function TitleDetail(props: TitleDetailProps) {
           refreshing={refreshing}
           notice={notice}
           statusFor={statusFor}
+          seasonStatusFor={seasonStatusFor}
           onSeasonChange={setSeason}
+          onSeasonGrab={runSeasonGrab}
           onAction={runAction}
           onLibraryChanged={refetch}
         />
@@ -274,7 +350,9 @@ function TitleContent({
   refreshing,
   notice,
   statusFor,
+  seasonStatusFor,
   onSeasonChange,
+  onSeasonGrab,
   onAction,
   onLibraryChanged,
 }: {
@@ -287,7 +365,9 @@ function TitleContent({
   refreshing: boolean;
   notice: string | null;
   statusFor: (key: string) => TitleActionStatus;
+  seasonStatusFor: (season: number) => SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
+  onSeasonGrab: (season: number, episodes: number[]) => void;
   onAction: (action: TitleAction, key: string, label: string) => void;
   onLibraryChanged: () => void;
 }) {
@@ -327,6 +407,12 @@ function TitleContent({
       : episodeListLoading
         ? ({ status: "loading" } as const)
         : ({ status: "ready" } as const);
+  const activeSeasonGrabStatus =
+    activeSeason != null ? seasonStatusFor(activeSeason) : ({ status: "idle" } as const);
+  const seasonEpisodeStatuses =
+    activeSeasonGrabStatus.status === "done"
+      ? episodeStatusesFromSeasonReport(activeSeasonGrabStatus.report)
+      : {};
 
   const facts = titleFacts({
     year: payload.year,
@@ -560,8 +646,13 @@ function TitleContent({
             truncated={truncated}
             loadState={episodeListState}
             busy={refreshing && season !== payload.season}
-            statusFor={statusFor}
+            statusFor={(key) => {
+              const direct = statusFor(key);
+              return direct !== "idle" ? direct : (seasonEpisodeStatuses[key] ?? "idle");
+            }}
+            seasonGrabStatus={activeSeasonGrabStatus}
             onSeasonChange={onSeasonChange}
+            onSeasonGrab={onSeasonGrab}
             onAction={(action, label) =>
               onAction(
                 action,

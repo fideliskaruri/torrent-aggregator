@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { buildTitleDetail } from "./detail";
-import { grabForTitle } from "./grab";
+import { grabForTitle, grabSeasonForTitle } from "./grab";
 import type { TitleGrabRequest } from "@/components/title/types";
 
 export const dynamic = "force-dynamic";
@@ -101,7 +101,7 @@ export async function POST(request: Request, context: RouteContext) {
       mediaType: body.mediaType ?? null,
     });
 
-    const result = await grabForTitle({
+    const input = {
       userId: session.user.id,
       workKey: key,
       season: body.season ?? null,
@@ -110,7 +110,16 @@ export async function POST(request: Request, context: RouteContext) {
       resolvedMediaType: detail.mediaType,
       isSeries: detail.isSeries,
       watchListItemId: detail.library.watchListItemId,
-    });
+    };
+
+    const result =
+      body.mode === "season"
+        ? await grabSeasonForTitle({
+            ...input,
+            season: body.season ?? 0,
+            episodes: body.episodes ?? [],
+          })
+        : await grabForTitle(input);
 
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   } catch (err) {

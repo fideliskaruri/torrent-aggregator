@@ -30,7 +30,15 @@ import { parseEpisode } from "@/lib/torrents/episodes";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
-import type { TitleGrabRequest, TitleGrabResponse } from "@/components/title/types";
+import type {
+  TitleGrabRequest,
+  TitleGrabResponse,
+  TitleSeasonGrabResponse,
+} from "@/components/title/types";
+import type {
+  SeasonGrabEpisodeReport,
+  SeasonGrabReport,
+} from "@/components/title/season-grab-state";
 
 export interface TitleGrabInput extends TitleGrabRequest {
   userId: string;
@@ -70,6 +78,75 @@ export async function grabForTitle(
   }
 
   return grabWholeWork(input);
+}
+
+export interface TitleSeasonGrabInput extends TitleGrabInput {
+  season: number;
+  episodes: number[];
+}
+
+/**
+ * Temporary season-planner seam.
+ *
+ * The swarm planner will replace this function's body with a measured
+ * pack-vs-singles plan. The title page already consumes the typed report, so
+ * wiring the real planner is a one-line swap at this boundary rather than a UI
+ * rewrite.
+ */
+export async function grabSeasonForTitle(
+  input: TitleSeasonGrabInput,
+): Promise<TitleSeasonGrabResponse> {
+  const season = toPositiveInt(input.season);
+  const episodes = uniquePositiveInts(input.episodes);
+  if (season == null || episodes.length === 0) {
+    return {
+      ok: false,
+      message: "No known episodes to plan for this season",
+    };
+  }
+
+  const episodeReports: SeasonGrabEpisodeReport[] = [];
+  const coveredHashes = new Set<string>();
+
+  for (const episode of episodes) {
+    const result = await grabSingleEpisode({
+      userId: input.userId,
+      showTitle: input.resolvedTitle,
+      mediaType: input.resolvedMediaType ?? "tv",
+      season,
+      episode,
+      watchListItemId: input.watchListItemId,
+    });
+
+    if (result.ok) {
+      const hash = normalizeInfoHash(result.infoHash);
+      if (hash) coveredHashes.add(hash);
+      episodeReports.push({ episode, status: "covered" });
+      continue;
+    }
+
+    if (isNoReleaseMessage(result.message)) {
+      episodeReports.push({
+        episode,
+        status: "missing",
+        reason: result.message,
+      });
+      continue;
+    }
+
+    return {
+      ok: false,
+      message: result.message,
+      report: seasonReport(season, episodes, episodeReports, coveredHashes),
+    };
+  }
+
+  const report = seasonReport(season, episodes, episodeReports, coveredHashes);
+  return {
+    ok: true,
+    message: `${report.coveredEpisodes} of ${report.totalEpisodes} episodes covered`,
+    report,
+  };
 }
 
 /**
@@ -214,4 +291,59 @@ function toPositiveInt(value: unknown): number | null {
   if (!Number.isFinite(n)) return null;
   const int = Math.trunc(n);
   return int >= 1 ? int : null;
+}
+
+function uniquePositiveInts(values: unknown): number[] {
+  if (!Array.isArray(values)) return [];
+  return Array.from(
+    new Set(
+      values
+        .map(toPositiveInt)
+        .filter((value): value is number => value != null),
+    ),
+  ).sort((a, b) => a - b);
+}
+
+function isNoReleaseMessage(message: string): boolean {
+  return /no (seeded torrent|matching .* release|release .* in \d+ results)/i.test(
+    message,
+  );
+}
+
+function seasonReport(
+  season: number,
+  episodes: number[],
+  episodeReports: SeasonGrabEpisodeReport[],
+  coveredHashes: Set<string>,
+): SeasonGrabReport {
+  const answered = new Map(episodeReports.map((episode) => [episode.episode, episode]));
+  const complete = episodes.map(
+    (episode) =>
+      answered.get(episode) ?? {
+        episode,
+        status: "not_measured" as const,
+        reason: "The planner stopped before this episode was measured.",
+      },
+  );
+  const coveredEpisodes = complete.filter(
+    (episode) => episode.status === "covered",
+  ).length;
+
+  return {
+    season,
+    totalEpisodes: episodes.length,
+    coveredEpisodes,
+    strategy: inferSeasonStrategy(coveredHashes.size, coveredEpisodes),
+    episodes: complete,
+  };
+}
+
+function inferSeasonStrategy(
+  uniqueCoveredHashes: number,
+  coveredEpisodes: number,
+): SeasonGrabReport["strategy"] {
+  if (coveredEpisodes === 0) return "unknown";
+  if (coveredEpisodes > 1 && uniqueCoveredHashes === 1) return "pack";
+  if (uniqueCoveredHashes > 1 && uniqueCoveredHashes < coveredEpisodes) return "mixed";
+  return "singles";
 }
