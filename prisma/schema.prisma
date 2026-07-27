@@ -155,6 +155,9 @@ model ClientSettings {
   /// purpose: a background timer that grabs releases is not something to
   /// switch on behind the user's back.
   automationIntervalMinutes Int?
+  /// Default retention for new built-in primary sends: "EPHEMERAL" (stream-only) | "KEPT".
+  /// Tracked/watchlisted/explicit keep sends are promoted to KEPT regardless of this default.
+  defaultRetentionPolicy String @default("EPHEMERAL")
   /// Speculative swarm-probe scope: "off" | "watching" | "monitored".
   /// Null = the "watching" default (only the next episode of shows in
   /// progress). Unlike automation this only *measures* swarm health, it never

@@ -14,6 +14,12 @@ import {
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { DEFAULT_TARGET_RESOLUTION } from "@/lib/torrents/quality";
 import {
+  getRetentionSettingsSnapshot,
+  normalizeRetentionPolicy,
+  writeDefaultRetentionPolicy,
+  type RetentionPolicy,
+} from "@/lib/library/retention-settings";
+import {
   SELECTABLE_RESOLUTIONS,
   invalidateTargetResolution,
 } from "@/lib/torrents/target-resolution";
@@ -77,6 +83,9 @@ function publicSettings(settings: {
   automationIntervalMinutes?: number | null;
   categories: string | null;
   pathRules: string | null;
+  defaultRetentionPolicy?: RetentionPolicy | null;
+  defaultRetentionPolicyPersisted?: boolean | null;
+  storageUsage?: Awaited<ReturnType<typeof getRetentionSettingsSnapshot>>["storageUsage"] | null;
 }) {
   const categories = parseJsonArray(settings.categories);
   const external =
@@ -122,6 +131,12 @@ function publicSettings(settings: {
     categories: categories.length ? categories : DEFAULT_CATEGORIES,
     pathRules: parseJsonRecord(settings.pathRules),
     hasExternal: Boolean(external),
+    defaultRetentionPolicy:
+      settings.defaultRetentionPolicy ?? normalizeRetentionPolicy(null),
+    defaultRetentionPolicyPersisted: Boolean(
+      settings.defaultRetentionPolicyPersisted,
+    ),
+    storageUsage: settings.storageUsage ?? null,
   };
 }
 
@@ -133,9 +148,10 @@ export async function GET() {
     }
 
     const settings = await ensureDefaultClientSettings(session.user.id);
+    const retention = await getRetentionSettingsSnapshot(session.user.id);
 
     return NextResponse.json({
-      settings: publicSettings(settings),
+      settings: publicSettings({ ...settings, ...retention }),
       defaults: {
         categories: DEFAULT_CATEGORIES,
         baseDownloadPath: defaultDownloadDir(),
@@ -182,6 +198,8 @@ export async function PUT(request: NextRequest) {
       test?: boolean;
       /** Which connection to test: primary or external */
       testTarget?: "primary" | "external";
+      /** Default for new built-in primary sends: stream-only cache or permanent. */
+      defaultRetentionPolicy?: RetentionPolicy | string | null;
       /** One-click: make builtin primary, keep current external creds */
       switchToBuiltin?: boolean;
     };
@@ -229,8 +247,9 @@ export async function PUT(request: NextRequest) {
           externalClientType: keepExternal,
         },
       });
+      const retention = await getRetentionSettingsSnapshot(session.user.id);
       return NextResponse.json({
-        settings: publicSettings(settings),
+        settings: publicSettings({ ...settings, ...retention }),
         message:
           "Switched to built-in engine. External client kept for optional Send to my client.",
       });
@@ -393,6 +412,15 @@ export async function PUT(request: NextRequest) {
       },
     });
 
+    let retentionWrite = { persisted: true };
+    if (body.defaultRetentionPolicy !== undefined) {
+      retentionWrite = await writeDefaultRetentionPolicy(
+        session.user.id,
+        normalizeRetentionPolicy(body.defaultRetentionPolicy),
+      );
+    }
+    const retention = await getRetentionSettingsSnapshot(session.user.id);
+
     // Ranking reads this through a short-lived memo; without this the user
     // would change the quality target, hit Search, and see the old order.
     invalidateTargetResolution();
@@ -454,8 +482,11 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json({
-      settings: publicSettings(settings),
+      settings: publicSettings({ ...settings, ...retention }),
       testResult,
+      retentionWarning: retentionWrite.persisted
+        ? null
+        : "Retention default needs the pending Prisma migration before it can be saved.",
     });
   } catch (err) {
     console.error("[settings/client PUT]", err);
