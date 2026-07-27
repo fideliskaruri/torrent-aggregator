@@ -30,6 +30,8 @@ import { parseEpisode } from "@/lib/torrents/episodes";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
+import { acquireSeason } from "@/lib/library/season-acquire";
+import type { SeasonPlan } from "@/lib/torrents/season-plan";
 import type {
   TitleGrabRequest,
   TitleGrabResponse,
@@ -93,6 +95,15 @@ export interface TitleSeasonGrabInput extends TitleGrabInput {
  * wiring the real planner is a one-line swap at this boundary rather than a UI
  * rewrite.
  */
+/**
+ * Season acquisition, planned around measured swarm health.
+ *
+ * Delegates the decision to `acquireSeason`, which prefers a good pack, fills
+ * gaps with singles, and never grabs an episode twice. The strategy is *read
+ * off the plan* rather than inferred from how many info-hashes came back —
+ * the plan knows whether it chose a pack, and guessing from counts would
+ * mislabel a one-episode season as a pack.
+ */
 export async function grabSeasonForTitle(
   input: TitleSeasonGrabInput,
 ): Promise<TitleSeasonGrabResponse> {
@@ -105,48 +116,57 @@ export async function grabSeasonForTitle(
     };
   }
 
-  const episodeReports: SeasonGrabEpisodeReport[] = [];
-  const coveredHashes = new Set<string>();
-
-  for (const episode of episodes) {
-    const result = await grabSingleEpisode({
+  let result: Awaited<ReturnType<typeof acquireSeason>>;
+  try {
+    result = await acquireSeason({
       userId: input.userId,
-      showTitle: input.resolvedTitle,
+      title: input.resolvedTitle,
       mediaType: input.resolvedMediaType ?? "tv",
       season,
-      episode,
-      watchListItemId: input.watchListItemId,
-    });
-
-    if (result.ok) {
-      const hash = normalizeInfoHash(result.infoHash);
-      if (hash) coveredHashes.add(hash);
-      episodeReports.push({ episode, status: "covered" });
-      continue;
-    }
-
-    if (isNoReleaseMessage(result.message)) {
-      episodeReports.push({
-        episode,
-        status: "missing",
-        reason: result.message,
-      });
-      continue;
-    }
-
+      episodes,
+    }, { watchListItemId: input.watchListItemId });
+  } catch (err) {
+    // A failed plan is an error, not an empty season. Saying "no episodes
+    // found" here would be the same lie the episode list used to tell.
     return {
       ok: false,
-      message: result.message,
-      report: seasonReport(season, episodes, episodeReports, coveredHashes),
+      message: err instanceof Error ? err.message : "Could not plan this season",
     };
   }
 
-  const report = seasonReport(season, episodes, episodeReports, coveredHashes);
+  const acquired = new Set(result.acquired);
+  const episodeReports: SeasonGrabEpisodeReport[] = episodes.map((episode) => {
+    if (acquired.has(episode)) return { episode, status: "covered" as const };
+    return {
+      episode,
+      status: "missing" as const,
+      reason: "No release found for this episode",
+    };
+  });
+
+  const report: SeasonGrabReport = {
+    season,
+    totalEpisodes: episodes.length,
+    coveredEpisodes: acquired.size,
+    strategy: planStrategy(result.plan),
+    episodes: episodeReports,
+  };
+
   return {
     ok: true,
-    message: `${report.coveredEpisodes} of ${report.totalEpisodes} episodes covered`,
+    message: result.coverageLabel,
     report,
   };
+}
+
+/** Read the strategy off the plan itself, rather than guessing from counts. */
+function planStrategy(plan: SeasonPlan): SeasonGrabReport["strategy"] {
+  const hasPack = plan.pack != null;
+  const hasSingles = plan.singles.length > 0;
+  if (hasPack && hasSingles) return "mixed";
+  if (hasPack) return "pack";
+  if (hasSingles) return "singles";
+  return "unknown";
 }
 
 /**
@@ -304,46 +324,3 @@ function uniquePositiveInts(values: unknown): number[] {
   ).sort((a, b) => a - b);
 }
 
-function isNoReleaseMessage(message: string): boolean {
-  return /no (seeded torrent|matching .* release|release .* in \d+ results)/i.test(
-    message,
-  );
-}
-
-function seasonReport(
-  season: number,
-  episodes: number[],
-  episodeReports: SeasonGrabEpisodeReport[],
-  coveredHashes: Set<string>,
-): SeasonGrabReport {
-  const answered = new Map(episodeReports.map((episode) => [episode.episode, episode]));
-  const complete = episodes.map(
-    (episode) =>
-      answered.get(episode) ?? {
-        episode,
-        status: "not_measured" as const,
-        reason: "The planner stopped before this episode was measured.",
-      },
-  );
-  const coveredEpisodes = complete.filter(
-    (episode) => episode.status === "covered",
-  ).length;
-
-  return {
-    season,
-    totalEpisodes: episodes.length,
-    coveredEpisodes,
-    strategy: inferSeasonStrategy(coveredHashes.size, coveredEpisodes),
-    episodes: complete,
-  };
-}
-
-function inferSeasonStrategy(
-  uniqueCoveredHashes: number,
-  coveredEpisodes: number,
-): SeasonGrabReport["strategy"] {
-  if (coveredEpisodes === 0) return "unknown";
-  if (coveredEpisodes > 1 && uniqueCoveredHashes === 1) return "pack";
-  if (uniqueCoveredHashes > 1 && uniqueCoveredHashes < coveredEpisodes) return "mixed";
-  return "singles";
-}
