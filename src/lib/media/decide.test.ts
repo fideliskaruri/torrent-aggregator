@@ -9,7 +9,12 @@ import assert from "node:assert/strict";
 import type { ProbeResult, ProbeStream } from "./probe";
 import type { ClientCapabilities, CodecEntry } from "./capabilities";
 import { DEFAULT_CAPABILITIES } from "./capabilities";
-import { decidePlayback, type PlaybackPlan, type PlaybackRung } from "./decide";
+import {
+  decidePlayback,
+  selectPreferredAudioStream,
+  type PlaybackPlan,
+  type PlaybackRung,
+} from "./decide";
 
 // ── Helpers ──
 
@@ -26,6 +31,7 @@ function makeStream(overrides: Partial<ProbeStream> & { codecType: string; codec
     channelLayout: null,
     language: null,
     title: null,
+    dispositionDefault: false,
     bitRate: null,
     sampleRate: null,
     ...overrides,
@@ -476,6 +482,152 @@ async function main() {
     const plan = decidePlayback(probe, DEFAULT_CAPABILITIES);
     assert.ok(["direct", "remux", "transcode-audio", "transcode-full"].includes(plan.rung));
   });
+
+  await check("French-first MULTi auto-selects English feature audio", () => {
+    const probe = makeProbe({
+      container: "matroska,webm",
+      video: { codec: "h264" },
+      audio: [
+        { codec: "eac3", channels: 6, language: "fre", title: "French" },
+        { codec: "eac3", channels: 6, language: "eng", title: "English" },
+      ],
+    });
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.selectedAudioIndex, 2);
+  });
+
+  await check("English commentary never outranks English feature audio", () => {
+    const probe = makeProbe({
+      container: "matroska,webm",
+      video: { codec: "h264" },
+      audio: [
+        { codec: "aac", channels: 2, language: "eng", title: "Director commentary" },
+        { codec: "aac", channels: 2, language: "eng", title: "English" },
+      ],
+    });
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.selectedAudioIndex, 2);
+  });
+
+  await check("unknown-language-only releases fall back to the first track", () => {
+    const probe = makeProbe({
+      container: "matroska,webm",
+      video: { codec: "h264" },
+      audio: [
+        { codec: "aac", channels: 2, language: "und", title: "Track 1" },
+        { codec: "aac", channels: 6, language: "", title: "Track 2" },
+      ],
+    });
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.selectedAudioIndex, 1);
+  });
+
+  await check("regional English variants match the English preference", () => {
+    const probe = makeProbe({
+      container: "matroska,webm",
+      video: { codec: "h264" },
+      audio: [
+        { codec: "aac", channels: 6, language: "jpn", title: "Japanese" },
+        { codec: "aac", channels: 2, language: "en-GB", title: "English UK" },
+      ],
+    });
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.selectedAudioIndex, 2);
+  });
+
+  await check("5.1 English beats 2.0 English regardless of container order", () => {
+    const probe = makeProbe({
+      container: "matroska,webm",
+      video: { codec: "h264" },
+      audio: [
+        { codec: "aac", channels: 2, language: "eng", title: "English stereo" },
+        { codec: "aac", channels: 6, language: "eng", title: "English 5.1" },
+      ],
+    });
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.selectedAudioIndex, 2);
+  });
+
+  await check("manual audio choice survives automatic English preference", () => {
+    const probe = makeProbe({
+      container: "matroska,webm",
+      video: { codec: "h264" },
+      audio: [
+        { codec: "aac", channels: 6, language: "eng", title: "English" },
+        { codec: "aac", channels: 6, language: "jpn", title: "Japanese" },
+      ],
+    });
+    const plan = decidePlayback(probe, EDGE_CAPS, { audioStreamIndex: 2 });
+    assert.equal(plan.selectedAudioIndex, 2);
+  });
+
+  await check("default disposition wins only after preferred languages miss", () => {
+    const probe = makeProbe({
+      container: "matroska,webm",
+      video: { codec: "h264" },
+      audio: [
+        { codec: "aac", channels: 2, language: "spa", title: "Spanish" },
+        { codec: "aac", channels: 2, language: "ita", title: "Italian", dispositionDefault: true },
+      ],
+    });
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.selectedAudioIndex, 2);
+  });
+
+  const audioSelectionCases: Array<{
+    name: string;
+    audio: Partial<ProbeStream>[];
+    prefs?: Parameters<typeof selectPreferredAudioStream>[1];
+    expectedStreamIndex: number;
+  }> = [
+    {
+      name: "explicit user preference outranks English",
+      audio: [
+        { codec: "aac", channels: 6, language: "eng", title: "English" },
+        { codec: "aac", channels: 6, language: "fr-FR", title: "French" },
+      ],
+      prefs: { preferredLanguage: "fra" },
+      expectedStreamIndex: 2,
+    },
+    {
+      name: "manual stream index outranks automatic language preference",
+      audio: [
+        { codec: "aac", channels: 6, language: "eng", title: "English" },
+        { codec: "aac", channels: 6, language: "jpn", title: "Japanese" },
+      ],
+      prefs: { audioStreamIndex: 2 },
+      expectedStreamIndex: 2,
+    },
+    {
+      name: "commentary remains selectable but is skipped by auto-select",
+      audio: [
+        { codec: "aac", channels: 6, language: "eng", title: "English commentary" },
+        { codec: "aac", channels: 2, language: "eng", title: "English feature" },
+      ],
+      expectedStreamIndex: 2,
+    },
+    {
+      name: "unknown is not English and does not block fallback",
+      audio: [
+        { codec: "aac", channels: 2, language: "und", title: "Track 1" },
+        { codec: "aac", channels: 6, language: null, title: "Track 2" },
+      ],
+      expectedStreamIndex: 1,
+    },
+  ];
+
+  for (const tc of audioSelectionCases) {
+    await check(`audio ordering: ${tc.name}`, () => {
+      const probe = makeProbe({
+        container: "matroska,webm",
+        video: { codec: "h264" },
+        audio: tc.audio,
+      });
+      const streams = probe.streams.filter((s) => s.codecType === "audio");
+      const selected = selectPreferredAudioStream(streams, tc.prefs);
+      assert.equal(selected?.index, tc.expectedStreamIndex);
+    });
+  }
 }
 
 main().then(() => {

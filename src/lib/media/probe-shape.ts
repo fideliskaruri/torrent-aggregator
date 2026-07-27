@@ -17,6 +17,8 @@ export type ProbeStream = {
   channelLayout: string | null;
   language: string | null;
   title: string | null;
+  /** ffprobe disposition.default; used only when no preferred language matches. */
+  dispositionDefault?: boolean;
   bitRate: number | null;
   sampleRate: number | null;
 };
@@ -74,6 +76,7 @@ export function parseProbeOutput(stdout: string): ProbeOutcome {
     channelLayout: s.channel_layout ? String(s.channel_layout) : null,
     language: extractTag(s, "language"),
     title: extractTag(s, "title"),
+    dispositionDefault: extractDefaultDisposition(s),
     bitRate: typeof s.bit_rate === "string" ? parseInt(s.bit_rate, 10) || null : null,
     sampleRate: typeof s.sample_rate === "string" ? parseInt(s.sample_rate, 10) || null : null,
   }));
@@ -86,6 +89,12 @@ function extractTag(stream: Record<string, unknown>, key: string): string | null
   if (!tags) return null;
   const val = tags[key] ?? tags[key.toUpperCase()];
   return val ? String(val) : null;
+}
+
+function extractDefaultDisposition(stream: Record<string, unknown>): boolean {
+  const disposition = stream.disposition as Record<string, unknown> | undefined;
+  const raw = disposition?.default;
+  return raw === 1 || raw === "1" || raw === true;
 }
 
 function normalizeCodecType(raw: string): ProbeStream["codecType"] {

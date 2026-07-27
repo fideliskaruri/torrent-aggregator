@@ -90,6 +90,8 @@ export type PlaybackPlan = {
 export type DecideOptions = {
   /** ffprobe stream index of the audio track the viewer picked. */
   audioStreamIndex?: number | null;
+  /** Preferred audio language tag. Defaults to English until settings expose it. */
+  preferredAudioLanguage?: string | null;
 };
 
 // ── Video codec support checks ──
@@ -170,20 +172,119 @@ function canDirectPlay(
   return true;
 }
 
+export type AudioSelectionPrefs = {
+  /** ffprobe stream index picked by the viewer; always wins. */
+  audioStreamIndex?: number | null;
+  /** User language preference; falls back to English when absent. */
+  preferredLanguage?: string | null;
+};
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  eng: "en",
+  fre: "fr",
+  fra: "fr",
+  ger: "de",
+  deu: "de",
+  dut: "nl",
+  nld: "nl",
+  gre: "el",
+  ell: "el",
+  alb: "sq",
+  sqi: "sq",
+  arm: "hy",
+  hye: "hy",
+  baq: "eu",
+  eus: "eu",
+  cze: "cs",
+  ces: "cs",
+  chi: "zh",
+  zho: "zh",
+  ice: "is",
+  isl: "is",
+  mac: "mk",
+  mkd: "mk",
+  mao: "mi",
+  mri: "mi",
+  may: "ms",
+  msa: "ms",
+  per: "fa",
+  fas: "fa",
+  rum: "ro",
+  ron: "ro",
+  slo: "sk",
+  slk: "sk",
+  tib: "bo",
+  bod: "bo",
+  wel: "cy",
+  cym: "cy",
+  jpn: "ja",
+  spa: "es",
+  ita: "it",
+  por: "pt",
+  rus: "ru",
+  kor: "ko",
+  ara: "ar",
+  hin: "hi",
+};
+
+function normalizedLanguage(tag: string | null | undefined): string | null {
+  const raw = tag?.trim().toLowerCase();
+  if (!raw || raw === "und") return null;
+  const primary = raw.split(/[-_]/)[0];
+  if (!primary || primary === "und") return null;
+  return LANGUAGE_ALIASES[primary] ?? primary;
+}
+
+function isCommentaryTrack(stream: ProbeStream): boolean {
+  return /commentary|director/i.test(stream.title ?? "");
+}
+
+function bestLanguageMatch(streams: ProbeStream[]): ProbeStream {
+  return streams
+    .map((stream, order) => ({ stream, order }))
+    .sort((a, b) => {
+      const channels = (b.stream.channels ?? 0) - (a.stream.channels ?? 0);
+      if (channels !== 0) return channels;
+      const defaults =
+        Number(Boolean(b.stream.dispositionDefault)) -
+        Number(Boolean(a.stream.dispositionDefault));
+      if (defaults !== 0) return defaults;
+      return a.order - b.order;
+    })[0].stream;
+}
+
 /**
- * Pick the audio track to mux. An explicit viewer choice wins; otherwise the
- * first audio stream, which is what every muxer marks as the default track.
+ * Pick the audio track to mux.
+ *
+ * Order: explicit stream index → user language → English → default disposition
+ * → first non-commentary track. Commentary/director tracks remain in the plan
+ * for manual selection, but are not auto-selected while a non-commentary option
+ * exists.
  */
-function selectAudio(
+export function selectPreferredAudioStream(
   streams: ProbeStream[],
-  requested: number | null | undefined,
+  prefs: AudioSelectionPrefs = {},
 ): ProbeStream | null {
   if (streams.length === 0) return null;
-  if (typeof requested === "number") {
-    const match = streams.find((s) => s.index === requested);
+  if (typeof prefs.audioStreamIndex === "number") {
+    const match = streams.find((s) => s.index === prefs.audioStreamIndex);
     if (match) return match;
   }
-  return streams[0];
+
+  const nonCommentary = streams.filter((s) => !isCommentaryTrack(s));
+  const auto = nonCommentary.length > 0 ? nonCommentary : streams;
+  const preferred = normalizedLanguage(prefs.preferredLanguage);
+  const languageOrder = [...new Set([preferred, "en"].filter(Boolean))] as string[];
+
+  for (const language of languageOrder) {
+    const matches = auto.filter((s) => normalizedLanguage(s.language) === language);
+    if (matches.length > 0) return bestLanguageMatch(matches);
+  }
+
+  const defaults = auto.filter((s) => s.dispositionDefault);
+  if (defaults.length > 0) return bestLanguageMatch(defaults);
+
+  return auto[0];
 }
 
 // ── The decision ──
@@ -196,7 +297,10 @@ export function decidePlayback(
   const container = normalizeContainer(probe.container);
   const video = videoStream(probe);
   const allAudio = audioStreams(probe);
-  const audio = selectAudio(allAudio, options.audioStreamIndex);
+  const audio = selectPreferredAudioStream(allAudio, {
+    audioStreamIndex: options.audioStreamIndex,
+    preferredLanguage: options.preferredAudioLanguage,
+  });
   const selectedAudioIndex = audio?.index ?? null;
 
   // No video stream at all — audio-only or corrupt
