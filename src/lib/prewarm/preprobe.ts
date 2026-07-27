@@ -43,7 +43,11 @@
 import prisma from "@/lib/prisma";
 import { foregroundActive } from "./foreground";
 import { normalizeTitle } from "@/lib/utils";
-import { releaseInfoHash, upcomingTargets } from "./prerank";
+import {
+  releaseInfoHash,
+  upcomingTargets,
+  type PreRankSource,
+} from "./prerank";
 import {
   getSwarmMeasurement,
   probeAndRecord,
@@ -52,6 +56,73 @@ import {
 import { findLiveBuiltinTorrent } from "@/lib/clients/builtin-engine";
 import type { PreRankTarget } from "./types";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
+
+/**
+ * How widely the speculative probe casts. The user asked for exactly this
+ * control ("a default list of the best torrents for shows I want to track…
+ * even the ones I don't… that might be too much computation") and then talked
+ * themselves out of "everything" in the same breath. That self-correction is
+ * the design:
+ *
+ *   - `off`       — do not probe at all.
+ *   - `watching`  — only the next episode of shows currently in progress. The
+ *                   money case, and the default: a handful of items that buy
+ *                   down click-to-play latency directly.
+ *   - `monitored` — everything the user monitors, plus watchlist titles
+ *                   opportunistically.
+ *
+ * There is deliberately no "everything/catalogue" scope: probing content
+ * nobody will open is bandwidth spent competing with playback.
+ */
+export type PreProbeScope = "off" | "watching" | "monitored";
+
+/**
+ * The middle tier is the default. Unlike automation — which *grabs* and so is
+ * strictly opt-in — a probe only *measures*, so measuring what the user is
+ * actively watching behind the scenes is safe and is the whole point.
+ */
+export const DEFAULT_PREPROBE_SCOPE: PreProbeScope = "watching";
+
+/** Clamp any stored/incoming value to a known scope; unknown → the default. */
+export function normalizePreProbeScope(
+  value: string | null | undefined,
+): PreProbeScope {
+  return value === "off" || value === "watching" || value === "monitored"
+    ? value
+    : DEFAULT_PREPROBE_SCOPE;
+}
+
+/** Which upcoming-target tiers a scope draws from. */
+function sourcesForScope(scope: PreProbeScope): readonly PreRankSource[] {
+  switch (scope) {
+    case "off":
+      return [];
+    case "watching":
+      return ["watching"];
+    case "monitored":
+      return ["watching", "monitored", "watchlist"];
+  }
+}
+
+/**
+ * The user's stored pre-probe scope. Null in the DB reads as the "watching"
+ * default (see {@link DEFAULT_PREPROBE_SCOPE}).
+ */
+export async function resolvePreProbeScope(
+  userId: string,
+  db: typeof prisma = prisma,
+): Promise<PreProbeScope> {
+  try {
+    const row = await db.clientSettings.findUnique({
+      where: { userId },
+      select: { preProbeScope: true },
+    });
+    return normalizePreProbeScope(row?.preProbeScope ?? null);
+  } catch {
+    return DEFAULT_PREPROBE_SCOPE;
+  }
+}
+
 
 /**
  * How many upcoming targets one pre-probe pass will look at.
@@ -75,7 +146,9 @@ export const MAX_PREPROBE_CANDIDATES = 3;
 
 export interface PreProbeResult {
   /** Why the pass did nothing, when it did nothing. */
-  skipped?: "foreground" | "no-targets";
+  skipped?: "foreground" | "no-targets" | "disabled";
+  /** The scope this pass ran under. */
+  scope: PreProbeScope;
   /** Info-hashes freshly probed this pass. */
   probed: string[];
   /** Info-hashes skipped because a fresh verdict already existed. */
@@ -90,6 +163,11 @@ export interface PreProbeOptions {
   db?: typeof prisma;
   limitTargets?: number;
   limitCandidates?: number;
+  /**
+   * Override the user's stored scope. When omitted, the scope is read from
+   * `ClientSettings.preProbeScope` (null → the "watching" default).
+   */
+  scope?: PreProbeScope;
   /** Test seam — inject a fake probe so unit tests never touch a swarm. */
   _probeFn?: typeof probeAndRecord;
   /** Test seam — inject the live-download guard. */
@@ -169,12 +247,21 @@ export async function preProbeUpcoming(
   const poolFor =
     opts._poolFor ?? ((t: PreRankTarget) => poolForTarget(t, db));
 
+  const scope = opts.scope ?? (await resolvePreProbeScope(userId, db));
+
   const result: PreProbeResult = {
+    scope,
     probed: [],
     skippedFresh: [],
     skippedLive: [],
     verdicts: {},
   };
+
+  // Scope `off` disables the probe entirely — the user's explicit choice.
+  if (scope === "off") {
+    result.skipped = "disabled";
+    return result;
+  }
 
   // Rule 1: never compete with a viewer. Speculative work yields, always.
   if (isForeground()) {
@@ -189,7 +276,12 @@ export async function preProbeUpcoming(
   );
 
   const targets =
-    opts._targets ?? (await upcomingTargets(userId, { limit: maxTargets, db }));
+    opts._targets ??
+    (await upcomingTargets(userId, {
+      limit: maxTargets,
+      db,
+      sources: sourcesForScope(scope),
+    }));
   if (targets.length === 0) {
     result.skipped = "no-targets";
     return result;
@@ -235,7 +327,14 @@ export async function preProbeUpcoming(
 
       const measurement = await probe(
         { magnet: candidate.magnet ?? null, infoHash: hash },
-        { db, sizeBytes: candidate.sizeBytes ?? null },
+        {
+          db,
+          sizeBytes: candidate.sizeBytes ?? null,
+          // The candidate's release title is a better visibility-list name than
+          // the magnet's `dn`, and lets the settings surface show a row even for
+          // a magnet that carried no display name.
+          name: candidate.title ?? null,
+        },
       );
       result.probed.push(hash);
       if (measurement) result.verdicts[hash] = measurement.verdict;

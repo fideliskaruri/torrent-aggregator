@@ -183,6 +183,11 @@ export function classifySwarm(facts: SwarmFacts): SwarmVerdict {
 export interface SwarmMeasurement {
   /** Normalised (lowercase-hex) info-hash. */
   infoHash: string;
+  /**
+   * Human-readable release name, best-effort from the magnet `dn` or a caller
+   * override. Purely for the settings visibility list; never affects a verdict.
+   */
+  name?: string | null;
   /** Peers that actually connected. */
   peersConnected: number;
   /** Of those, how many actually sent us bytes. */
@@ -269,6 +274,29 @@ export function probeInfoHash(input: {
   return infoHashFromMagnet(input.magnet ?? null);
 }
 
+/**
+ * Best-effort human name for the visibility list, from a magnet's `dn`
+ * (display name) parameter. Not used in any verdict — purely presentational.
+ */
+export function magnetDisplayName(magnet?: string | null): string | null {
+  if (!magnet) return null;
+  const m = /[?&]dn=([^&]+)/i.exec(magnet);
+  if (!m) return null;
+  try {
+    const name = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Attach a best-effort name to a measurement without disturbing anything else. */
+function withName(m: SwarmMeasurement, name: string | null): SwarmMeasurement {
+  if (name && !m.name) m.name = name;
+  return m;
+}
+
+
 /** Build the measurement of a live download without touching it. */
 function measureLiveDownload(
   hash: string,
@@ -352,6 +380,9 @@ export async function probeSwarm(
   // No metadata to key on — we cannot find out anything. Not `dead`: `unknown`.
   if (!hash) return unknownMeasurement("", requiredBps, now());
 
+  // Best-effort display name for the visibility list. Presentational only.
+  const name = magnetDisplayName(input.magnet ?? null);
+
   // ── Guard: never probe (and therefore never destroy) a live download ──
   //
   // This guard is the one place in the module where a wrong answer costs data,
@@ -368,13 +399,16 @@ export async function probeSwarm(
   //   - `absent`  → and only then may a fresh probe run.
   const live = await resolveLive(deps, hash);
   if (live.kind === "live") {
-    return measureLiveDownload(hash, live.torrent, requiredBps, now());
+    return withName(
+      measureLiveDownload(hash, live.torrent, requiredBps, now()),
+      name,
+    );
   }
   if (live.kind === "unknown") {
     // Could-not-determine is not "there is nothing there". Same `unknown` is
     // not `dead` discipline as the verdict rule — here the stake is the user's
     // files, so it matters even more.
-    return unknownMeasurement(hash, requiredBps, now());
+    return withName(unknownMeasurement(hash, requiredBps, now()), name);
   }
 
   // ── A fresh probe ─────────────────────────────────────────────────────
@@ -407,23 +441,26 @@ export async function probeSwarm(
     }
   } catch {
     // Could not even get a client — we know nothing.
-    return unknownMeasurement(hash, requiredBps, now());
+    return withName(unknownMeasurement(hash, requiredBps, now()), name);
   }
 
   const dest = deps.probeDir ?? defaultProbeDir();
 
-  return await runFreshProbe({
-    hash,
-    magnetInput,
-    dest,
-    client,
-    add,
-    windowMs,
-    now,
-    requiredBps,
-    sizeHint: deps.sizeBytes ?? null,
-    durationSec: deps.durationSec ?? null,
-  });
+  return withName(
+    await runFreshProbe({
+      hash,
+      magnetInput,
+      dest,
+      client,
+      add,
+      windowMs,
+      now,
+      requiredBps,
+      sizeHint: deps.sizeBytes ?? null,
+      durationSec: deps.durationSec ?? null,
+    }),
+    name,
+  );
 }
 
 /**
@@ -627,6 +664,7 @@ type Db = typeof prisma;
 /** A stored measurement, with the verdict already expiry-corrected. */
 export interface StoredSwarmMeasurement {
   infoHash: string;
+  name: string | null;
   peersConnected: number;
   peersUnchoked: number;
   bytesReceived: number;
@@ -663,7 +701,9 @@ export async function recordSwarmMeasurement(
   const now = opts.now ?? Date.now();
   const ttl = opts.ttlMs ?? SWARM_MEASUREMENT_TTL_MS;
   const expiresAt = new Date(now + ttl);
+  const name = m.name?.trim() || null;
   const data = {
+    name,
     peersConnected: Math.max(0, Math.floor(m.peersConnected)),
     peersUnchoked: Math.max(0, Math.floor(m.peersUnchoked)),
     bytesReceived: BigInt(Math.max(0, Math.floor(m.bytesReceived))),
@@ -678,7 +718,9 @@ export async function recordSwarmMeasurement(
     await db.swarmMeasurement.upsert({
       where: { infoHash: hash },
       create: { infoHash: hash, ...data },
-      update: data,
+      // Don't clobber a previously-resolved name with a null from a later probe
+      // that happened to lack a `dn`; keep the last name we knew.
+      update: name ? data : (() => { const { name: _drop, ...rest } = data; return rest; })(),
     });
   } catch (err) {
     console.warn(
@@ -757,6 +799,7 @@ export async function loadSwarmVerdicts(
 
 interface SwarmRow {
   infoHash: string;
+  name?: string | null;
   peersConnected: number;
   peersUnchoked: number;
   bytesReceived: bigint;
@@ -773,6 +816,7 @@ function toStored(row: SwarmRow, now: number): StoredSwarmMeasurement {
   const stored = isVerdict(row.verdict) ? row.verdict : "unknown";
   return {
     infoHash: row.infoHash,
+    name: row.name ?? null,
     peersConnected: row.peersConnected,
     peersUnchoked: row.peersUnchoked,
     bytesReceived: Number(row.bytesReceived),
@@ -795,10 +839,13 @@ function toStored(row: SwarmRow, now: number): StoredSwarmMeasurement {
  */
 export async function probeAndRecord(
   input: { magnet?: string | null; infoHash?: string | null },
-  deps: ProbeDeps & { db?: Db; ttlMs?: number } = {},
+  deps: ProbeDeps & { db?: Db; ttlMs?: number; name?: string | null } = {},
 ): Promise<SwarmMeasurement | null> {
   try {
     const measurement = await probeSwarm(input, deps);
+    // A caller-supplied name (e.g. the candidate's release title) is more
+    // reliable than a magnet's `dn`, so let it win when present.
+    if (deps.name?.trim()) measurement.name = deps.name.trim();
     await recordSwarmMeasurement(measurement, {
       db: deps.db,
       ttlMs: deps.ttlMs,
@@ -810,5 +857,70 @@ export async function probeAndRecord(
       err instanceof Error ? err.message : String(err),
     );
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Visibility: what has been measured, for the settings surface
+// ---------------------------------------------------------------------------
+
+/** One row in the "what has been measured" list the settings UI renders. */
+export interface RecentSwarmMeasurement {
+  infoHash: string;
+  name: string | null;
+  /** Expiry-corrected: an expired row reads `unknown`, never its old verdict. */
+  verdict: SwarmVerdict;
+  peersConnected: number;
+  peersUnchoked: number;
+  effectiveBps: number;
+  requiredBps: number;
+  measuredAt: Date;
+  expiresAt: Date;
+  /**
+   * True once the TTL has passed. A measurement is a *prediction, not a
+   * guarantee* — swarms change — so the UI must present an expired row as
+   * stale/`unknown` rather than as current fact.
+   */
+  expired: boolean;
+}
+
+/** How many measured releases the visibility list returns by default. */
+export const RECENT_MEASUREMENTS_LIMIT = 50;
+
+/**
+ * The most recently measured swarms, newest first, for the settings surface.
+ *
+ * Every verdict is expiry-corrected through {@link toStored}, so the list can
+ * never present a stale `dead`/`good` as current — an expired row reads
+ * `unknown`, matching the "prediction, not guarantee" framing the UI must use.
+ */
+export async function listRecentSwarmMeasurements(
+  opts: { db?: Db; now?: number; limit?: number } = {},
+): Promise<RecentSwarmMeasurement[]> {
+  const db = opts.db ?? prisma;
+  const now = opts.now ?? Date.now();
+  const limit = Math.max(1, Math.min(500, opts.limit ?? RECENT_MEASUREMENTS_LIMIT));
+  try {
+    const rows = await db.swarmMeasurement.findMany({
+      orderBy: { measuredAt: "desc" },
+      take: limit,
+    });
+    return rows.map((row) => {
+      const stored = toStored(row, now);
+      return {
+        infoHash: stored.infoHash,
+        name: (row as SwarmRow).name ?? null,
+        verdict: stored.verdict,
+        peersConnected: stored.peersConnected,
+        peersUnchoked: stored.peersUnchoked,
+        effectiveBps: stored.effectiveBps,
+        requiredBps: stored.requiredBps,
+        measuredAt: stored.measuredAt,
+        expiresAt: stored.expiresAt,
+        expired: stored.expired,
+      };
+    });
+  } catch {
+    return [];
   }
 }

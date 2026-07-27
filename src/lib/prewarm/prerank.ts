@@ -476,22 +476,49 @@ export async function preRank(
 export const PRERANK_UPCOMING_LIMIT = 6;
 
 /**
+ * The sources a pre-rank / pre-probe pass may draw targets from, in descending
+ * value order. Scoping the *speculative swarm probe* maps onto these:
+ *   - "watching"  → the next episode of shows in progress (the money case).
+ *   - "monitored" → the hunt cursor of every monitored series.
+ *   - "watchlist" → planned/other watchlist titles, opportunistic only.
+ * Never the whole catalogue: that is bandwidth spent competing with playback
+ * for content nobody will open.
+ */
+export type PreRankSource = "watching" | "monitored" | "watchlist";
+
+/** The default sources — the two highest-value tiers, matching prior behaviour. */
+export const DEFAULT_PRERANK_SOURCES: readonly PreRankSource[] = [
+  "watching",
+  "monitored",
+];
+
+/**
  * The targets worth pre-ranking right now, best bet first.
  *
  * 1. The next episode of everything in Continue Watching — highest hit rate by
  *    a mile, and the episode the user is most likely to press play on.
  * 2. The hunt cursor of every monitored series — the library has already
  *    stated, in a durable field, which episode it wants next.
+ * 3. (Opt-in) Other watchlist titles — planned series and movies the user has
+ *    saved but is not yet actively watching or monitoring.
+ *
+ * `sources` gates which tiers run; the default keeps the prior watching+
+ * monitored behaviour so existing callers are unaffected.
  *
  * Ordering matters: the background indexer budget is small, so the first few
  * targets are the only ones that reliably get done.
  */
 export async function upcomingTargets(
   userId: string,
-  opts: { limit?: number; db?: typeof prisma } = {},
+  opts: {
+    limit?: number;
+    db?: typeof prisma;
+    sources?: readonly PreRankSource[];
+  } = {},
 ): Promise<PreRankTarget[]> {
   const db = opts.db ?? prisma;
   const limit = Math.max(1, opts.limit ?? PRERANK_UPCOMING_LIMIT);
+  const sources = new Set(opts.sources ?? DEFAULT_PRERANK_SOURCES);
   const out: PreRankTarget[] = [];
   const seen = new Set<string>();
 
@@ -503,11 +530,13 @@ export async function upcomingTargets(
   };
 
   try {
-    const watching = await db.playbackProgress.findMany({
-      where: { userId, completedAt: null, season: { not: null }, episode: { not: null } },
-      orderBy: { updatedAt: "desc" },
-      take: limit * 2,
-    });
+    const watching = sources.has("watching")
+      ? await db.playbackProgress.findMany({
+          where: { userId, completedAt: null, season: { not: null }, episode: { not: null } },
+          orderBy: { updatedAt: "desc" },
+          take: limit * 2,
+        })
+      : [];
 
     // Resolve the show title from the library row when there is one — a
     // PlaybackProgress title is a release name, and a release name is not a
@@ -538,11 +567,13 @@ export async function upcomingTargets(
   }
 
   try {
-    const monitored = await db.watchListItem.findMany({
-      where: { userId, monitored: true },
-      orderBy: { updatedAt: "desc" },
-      take: limit * 2,
-    });
+    const monitored = sources.has("monitored")
+      ? await db.watchListItem.findMany({
+          where: { userId, monitored: true },
+          orderBy: { updatedAt: "desc" },
+          take: limit * 2,
+        })
+      : [];
 
     for (const item of monitored) {
       if (!isSeriesMediaType(item.mediaType)) continue;
@@ -566,6 +597,45 @@ export async function upcomingTargets(
     }
   } catch {
     // Same reasoning.
+  }
+
+  // Tier 3: other watchlist titles the user saved but is not actively watching
+  // or monitoring. Opportunistic only — deliberately last, and never the whole
+  // catalogue. Series resolve to their hunt cursor; movies use the bare title.
+  if (sources.has("watchlist")) {
+    try {
+      const saved = await db.watchListItem.findMany({
+        where: { userId, status: { notIn: ["completed", "dropped"] } },
+        orderBy: { updatedAt: "desc" },
+        take: limit * 2,
+      });
+
+      for (const item of saved) {
+        if (isSeriesMediaType(item.mediaType)) {
+          const hunt = resolveHuntCursor({
+            title: item.title,
+            mediaType: item.mediaType,
+            cursorSeason: item.cursorSeason,
+            cursorEpisode: item.cursorEpisode,
+            fromSeason: item.fromSeason,
+            fromEpisode: item.fromEpisode,
+            lastEpisode: item.lastEpisode,
+            nextEpisodeHint: item.nextEpisodeHint,
+          });
+          if (!hunt.cursor) continue;
+          push({
+            title: item.title,
+            mediaType: item.mediaType,
+            season: hunt.cursor.season,
+            episode: hunt.cursor.episode,
+          });
+        } else {
+          push({ title: item.title, mediaType: item.mediaType });
+        }
+      }
+    } catch {
+      // Same reasoning.
+    }
   }
 
   return out;

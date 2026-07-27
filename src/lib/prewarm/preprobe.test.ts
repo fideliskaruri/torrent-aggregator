@@ -19,7 +19,13 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
 import type { TorrentResult } from "@/lib/torrents/types";
-import { preProbeUpcoming } from "./preprobe";
+import {
+  preProbeUpcoming,
+  normalizePreProbeScope,
+  resolvePreProbeScope,
+  DEFAULT_PREPROBE_SCOPE,
+} from "./preprobe";
+import { upcomingTargets } from "./prerank";
 
 let failures = 0;
 
@@ -122,6 +128,87 @@ async function main(): Promise<void> {
       assert.ok(
         !probed.includes(c.infoHash!) && !probed.includes(d.infoHash!),
         "candidates beyond the cap are never probed",
+      );
+    });
+
+    await checkAsync("scope resolution: null and unknown default to 'watching'", async () => {
+      assert.equal(normalizePreProbeScope(null), "watching");
+      assert.equal(normalizePreProbeScope(undefined), "watching");
+      assert.equal(normalizePreProbeScope("bogus"), "watching");
+      assert.equal(DEFAULT_PREPROBE_SCOPE, "watching");
+      // Known values pass through unchanged.
+      assert.equal(normalizePreProbeScope("off"), "off");
+      assert.equal(normalizePreProbeScope("monitored"), "monitored");
+    });
+
+    await checkAsync("scope is read from ClientSettings; a missing row is 'watching'", async () => {
+      const fakeDb = (scope: string | null) =>
+        ({
+          clientSettings: {
+            findUnique: async () =>
+              scope === null ? null : { preProbeScope: scope },
+          },
+        }) as unknown as typeof prisma;
+      assert.equal(await resolvePreProbeScope("u", fakeDb("monitored")), "monitored");
+      assert.equal(await resolvePreProbeScope("u", fakeDb("off")), "off");
+      // No row stored → the middle default, not off.
+      assert.equal(await resolvePreProbeScope("u", fakeDb(null)), "watching");
+    });
+
+    await checkAsync("scope 'off' disables the pass — no targets, no probe", async () => {
+      let probeCalls = 0;
+      const res = await preProbeUpcoming("someone", {
+        db: prisma,
+        scope: "off",
+        _foregroundActive: () => false,
+        _targets: [{ title: "Zzqx Show", mediaType: "movie" }],
+        _poolFor: async () => {
+          throw new Error("pool was read while scope was off");
+        },
+        _probeFn: async () => {
+          probeCalls += 1;
+          return null;
+        },
+      });
+      assert.equal(res.skipped, "disabled");
+      assert.equal(res.scope, "off");
+      assert.equal(probeCalls, 0, "scope off must not probe anything");
+    });
+
+    await checkAsync("scope maps to tiers: 'watching' excludes monitored+watchlist", async () => {
+      // A fake db that counts how many times the watchlist table is queried.
+      // The "watching" tier only touches playbackProgress (and watchListItem
+      // *only* to resolve titles when there are watching rows — none here), so
+      // a watching-scoped pass must never query watchListItem.
+      let watchListQueries = 0;
+      const makeDb = () =>
+        ({
+          playbackProgress: { findMany: async () => [] },
+          watchListItem: {
+            findMany: async () => {
+              watchListQueries += 1;
+              return [];
+            },
+          },
+        }) as unknown as typeof prisma;
+
+      watchListQueries = 0;
+      await upcomingTargets("u", { db: makeDb(), sources: ["watching"] });
+      assert.equal(
+        watchListQueries,
+        0,
+        "'watching' scope must not reach into monitored or watchlist",
+      );
+
+      watchListQueries = 0;
+      await upcomingTargets("u", {
+        db: makeDb(),
+        sources: ["watching", "monitored", "watchlist"],
+      });
+      assert.equal(
+        watchListQueries,
+        2,
+        "'monitored' scope queries both the monitored and watchlist tiers",
       );
     });
   } finally {

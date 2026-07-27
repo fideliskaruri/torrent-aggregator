@@ -36,6 +36,7 @@ import {
   classifySwarm,
   DEFAULT_REQUIRED_MBPS,
   getSwarmMeasurement,
+  listRecentSwarmMeasurements,
   MIN_HEADROOM,
   probeSwarm,
   recordSwarmMeasurement,
@@ -474,6 +475,76 @@ async function main(): Promise<void> {
         stale.verdict,
         "good",
         "a swarm that has decayed is not pinned to its old pass",
+      );
+    });
+
+    // ── Visibility: name persisted, list reads expiry-corrected verdicts ──
+    await checkAsync("a measurement stores its name and lists newest-first", async () => {
+      const hash = sha1();
+      writtenHashes.push(hash);
+      const base = Date.now();
+      await recordSwarmMeasurement(
+        {
+          infoHash: hash,
+          name: "The Bear S01E01 MULTi 1080p WEB H264-AVON",
+          peersConnected: 34,
+          peersUnchoked: 12,
+          bytesReceived: 30_000_000,
+          elapsedMs: 8000,
+          effectiveBps: 6_000_000,
+          requiredBps: 1_000_000,
+          verdict: "good",
+          measuredAt: base,
+          fromLiveDownload: false,
+        },
+        { db: prisma, ttlMs: 60_000, now: base },
+      );
+
+      const list = await listRecentSwarmMeasurements({ db: prisma, now: base, limit: 100 });
+      const row = list.find((r) => r.infoHash === hash);
+      assert.ok(row, "the measured release appears in the visibility list");
+      assert.equal(
+        row.name,
+        "The Bear S01E01 MULTi 1080p WEB H264-AVON",
+        "the human-readable name is persisted for the settings surface",
+      );
+      assert.equal(row.verdict, "good");
+      assert.equal(row.peersConnected, 34);
+    });
+
+    await checkAsync("the visibility list reports an expired verdict as unknown", async () => {
+      const hash = sha1();
+      writtenHashes.push(hash);
+      const base = Date.now();
+      await recordSwarmMeasurement(
+        {
+          infoHash: hash,
+          name: "Stale Pick",
+          peersConnected: 8,
+          peersUnchoked: 3,
+          bytesReceived: 20_000_000,
+          elapsedMs: 8000,
+          effectiveBps: 5_000_000,
+          requiredBps: 1_000_000,
+          verdict: "good",
+          measuredAt: base,
+          fromLiveDownload: false,
+        },
+        { db: prisma, ttlMs: 1000, now: base },
+      );
+
+      const list = await listRecentSwarmMeasurements({
+        db: prisma,
+        now: base + 2000,
+        limit: 100,
+      });
+      const row = list.find((r) => r.infoHash === hash);
+      assert.ok(row, "the row still exists in the list");
+      assert.equal(row.expired, true, "the TTL has passed");
+      assert.equal(
+        row.verdict,
+        "unknown",
+        "a prediction, not a guarantee: the list must not present a stale good as current",
       );
     });
 
