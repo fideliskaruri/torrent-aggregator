@@ -8,6 +8,7 @@ import {
 } from "@/lib/library/cursor";
 import { resolveMetadata } from "@/lib/metadata/enrich";
 import { isSeriesMediaType } from "@/lib/metadata/media-type";
+import { promoteLibraryStreamsToKept } from "@/lib/streaming/retention";
 
 export const dynamic = "force-dynamic";
 
@@ -152,6 +153,12 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  await promoteLibraryStreamsToKept(session.user.id, {
+    watchListItemId: item.id,
+    title: item.title,
+    mediaType: item.mediaType,
+  });
+
   return NextResponse.json({ item });
 }
 
@@ -259,6 +266,14 @@ export async function PATCH(request: NextRequest) {
   const updated = await prisma.watchListItem.findUnique({
     where: { id: body.id },
   });
+
+  if (updated && body.monitored === true) {
+    await promoteLibraryStreamsToKept(session.user.id, {
+      watchListItemId: updated.id,
+      title: updated.title,
+      mediaType: updated.mediaType,
+    });
+  }
 
   return NextResponse.json({ item: updated });
 }

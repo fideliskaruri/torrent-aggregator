@@ -146,4 +146,6 @@ export interface ClientTorrent {
   category?: string;
   /** Absolute download directory from the torrent client */
   savePath?: string | null;
+  /** Whether this torrent is permanent or a stream cache entry. */
+  retentionState?: "kept" | "stream" | "prewarm" | "unknown";
 }

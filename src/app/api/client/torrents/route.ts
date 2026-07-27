@@ -8,6 +8,8 @@ import {
 import { formatClientError } from "@/lib/clients/errors";
 import { pruneEmptyParents } from "@/lib/clients/prune-empty-parents";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
+import prisma from "@/lib/prisma";
+import { retentionStateForOrigin } from "@/lib/streaming/retention";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -42,8 +44,31 @@ export async function GET() {
 
     try {
       const torrents = await listClientTorrents(config);
+      const hashes = [
+        ...new Set(
+          torrents
+            .map((t) => t.hash?.toLowerCase())
+            .filter((h): h is string => Boolean(h)),
+        ),
+      ];
+      const origins = hashes.length
+        ? new Map(
+            (
+              await prisma.engineTorrent.findMany({
+                where: { userId: session.user.id, hash: { in: hashes } },
+                select: { hash: true, origin: true },
+              })
+            ).map((row) => [row.hash.toLowerCase(), row.origin] as const),
+          )
+        : new Map<string, string>();
+      const annotated = torrents.map((torrent) => ({
+        ...torrent,
+        retentionState: retentionStateForOrigin(
+          torrent.hash ? origins.get(torrent.hash.toLowerCase()) : null,
+        ),
+      }));
       return NextResponse.json({
-        torrents,
+        torrents: annotated,
         clientType: config.clientType,
         host: publicHost,
         offline: false,

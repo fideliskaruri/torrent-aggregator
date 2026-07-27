@@ -10,6 +10,15 @@ import { formatClientError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import type { MediaMetadata } from "@/lib/torrents/types";
+import {
+  existingRetentionOrigin,
+  markTorrentStreamOnly,
+  promoteTorrentToKept,
+  releaseInfoHash,
+  retentionStateForOrigin,
+  shouldSendAsStreamOnly,
+  streamingRetentionEnabled,
+} from "@/lib/streaming/retention";
 
 export const dynamic = "force-dynamic";
 /** WebTorrent / disk I/O must run in Node, not Edge. */
@@ -42,6 +51,8 @@ export async function POST(request: NextRequest) {
        * external = optional qBittorrent/Transmission ("Send to my client").
        */
       target?: "primary" | "external";
+      /** "stream" = cache entry, "keep" = permanent. */
+      retention?: "stream" | "keep";
     };
 
     try {
@@ -128,6 +139,19 @@ export async function POST(request: NextRequest) {
 
     const { category: cat, savePath, smart } = pathTarget;
     const isBuiltin = config.clientType === "builtin";
+    const infoHash = releaseInfoHash({
+      infoHash: body.infoHash,
+      magnet: body.magnet,
+    });
+    const existingOrigin = await existingRetentionOrigin(session.user.id, infoHash);
+    const streamOnly = shouldSendAsStreamOnly({
+      enabled: streamingRetentionEnabled(),
+      clientType: config.clientType,
+      sendTarget,
+      watchListItemId: body.watchListItemId,
+      retention: body.retention ?? null,
+      existingOrigin,
+    });
 
     // Automatic storage budget (cap under download folder + free-space floor)
     {
@@ -244,6 +268,21 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    let retentionState = retentionStateForOrigin(
+      existingOrigin ?? (streamOnly ? "stream" : "user"),
+    );
+    if (result.ok && isBuiltin && sendTarget === "primary") {
+      if (streamOnly) {
+        await markTorrentStreamOnly(session.user.id, infoHash, {
+          allowFreshDefaultOrigin: existingOrigin == null,
+        });
+        retentionState = "stream";
+      } else {
+        await promoteTorrentToKept(session.user.id, infoHash);
+        retentionState = "kept";
+      }
+    }
+
     return NextResponse.json(
       {
         ...result,
@@ -256,6 +295,7 @@ export async function POST(request: NextRequest) {
           category: smart.category,
           confidence: smart.confidence,
         },
+        retentionState,
       },
       { status: result.ok ? 200 : looksOffline ? 503 : 502 },
     );
