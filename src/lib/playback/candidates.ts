@@ -30,8 +30,10 @@
  * The swarm verdict (`good | weak | dead | unknown`) is produced by the
  * measurement agent's `swarm-probe` on its own schedule with a 6h TTL. This is a
  * UI-latency path, so it only ever **reads cached** verdicts and never probes.
- * The reader is injected ({@link SwarmVerdictReader}); until `swarm-probe.ts`
- * lands, the default reader returns nothing and every candidate reads `unknown`.
+ * The reader is injected ({@link SwarmVerdictReader}) so this module stays free
+ * of node-only imports; `/api/playback/candidates` supplies `loadSwarmVerdicts`
+ * from `swarm-probe.ts`. The default reader measures nothing and reads `unknown`
+ * for every candidate, which is the correct answer when nothing is wired.
  *
  * `unknown` IS NOT `dead`. An unmeasured release is a normal, offerable choice —
  * it is listed like any other and never hidden or labelled broken. Only an
@@ -85,8 +87,9 @@ export type PlayabilitySignal = "direct" | "transcode" | "unknown";
  * is called on a UI-latency path. Absent or expired entries are simply omitted
  * from the returned map, and the caller reads them as `unknown`.
  *
- * When `swarm-probe.ts` lands (owned by the measurement agent), its cached-read
- * is wired in here; the default below keeps everything `unknown` until then.
+ * Implemented by `loadSwarmVerdicts` in `swarm-probe.ts`, injected at the route
+ * so this module never statically imports node-only code. The default below is
+ * the unmeasured answer, used only when no reader is supplied.
  */
 export type SwarmVerdictReader = (
   infoHashes: readonly string[],

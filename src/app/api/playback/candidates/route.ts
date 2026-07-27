@@ -17,6 +17,7 @@ import { auth } from "@/lib/auth";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { listCandidates } from "@/lib/playback/candidates";
+import { loadSwarmVerdicts } from "@/lib/torrents/swarm-probe";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -54,7 +55,13 @@ export async function POST(request: Request) {
   );
 
   try {
-    const candidates = await listCandidates(target, { currentInfoHash });
+    const candidates = await listCandidates(target, {
+      currentInfoHash,
+      // The measured verdicts live in the DB; read them here rather than letting
+      // every candidate default to `unknown`. This is a cached read only — the
+      // probe runs on its own schedule, never on this UI-latency path.
+      readVerdicts: (hashes) => loadSwarmVerdicts(hashes),
+    });
     return json(200, { candidates });
   } catch (err) {
     return json(500, {
