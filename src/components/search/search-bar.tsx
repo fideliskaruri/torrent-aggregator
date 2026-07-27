@@ -17,18 +17,17 @@ const CATEGORIES = [
   { value: "anime", label: "Anime" },
   { value: "movies", label: "Movies" },
   { value: "tv", label: "TV" },
-  { value: "music", label: "Music" },
-  { value: "games", label: "Games" },
-  { value: "apps", label: "Apps" },
 ] as const;
 
 const RECENT_KEY = "tf-recent-searches";
+const CATEGORY_VALUES = new Set(CATEGORIES.map((c) => c.value));
 
 interface SearchBarProps {
   initialQuery?: string;
   initialCategory?: string;
   size?: "hero" | "compact";
   className?: string;
+  autoFocus?: boolean;
 }
 
 interface Suggestion {
@@ -43,10 +42,11 @@ export function SearchBar({
   initialCategory = "all",
   size = "hero",
   className,
+  autoFocus = false,
 }: SearchBarProps) {
   const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
-  const [category, setCategory] = useState(initialCategory);
+  const [category, setCategory] = useState(normalizeSearchCategory(initialCategory));
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
@@ -194,6 +194,7 @@ export function SearchBar({
               )}
               autoComplete="off"
               spellCheck={false}
+              autoFocus={autoFocus}
             />
             {query && (
               <button
@@ -340,4 +341,10 @@ export function SearchBar({
       </div>
     </form>
   );
+}
+
+function normalizeSearchCategory(value: string): string {
+  return CATEGORY_VALUES.has(value as (typeof CATEGORIES)[number]["value"])
+    ? value
+    : "all";
 }
