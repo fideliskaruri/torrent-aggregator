@@ -13,6 +13,12 @@ export interface SeasonGrabReport {
   totalEpisodes: number;
   coveredEpisodes: number;
   strategy: "pack" | "singles" | "mixed" | "unknown";
+  /**
+   * False when coverage rests on a pack's *name* rather than its verified file
+   * list — a bare `S01` claims the whole season and may not hold it. The wording
+   * must not state an unverified count as fact.
+   */
+  coverageConfirmed: boolean;
   episodes: SeasonGrabEpisodeReport[];
 }
 
@@ -65,7 +71,9 @@ export function seasonGrabSummary(
     .map((episode) => formatEpisodeLabel(report.season, episode.episode));
 
   const parts = [
-    `${report.coveredEpisodes} of ${report.totalEpisodes} episodes covered.`,
+    report.coverageConfirmed
+      ? `${report.coveredEpisodes} of ${report.totalEpisodes} episodes covered.`
+      : `Should cover ${report.coveredEpisodes} of ${report.totalEpisodes} episodes — the pack's name claims the season, but its contents aren't confirmed yet.`,
   ];
   if (missing.length > 0) {
     parts.push(`Missing: ${missing.join(", ")}.`);

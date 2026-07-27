@@ -782,6 +782,7 @@ check("seasonGrabSummary: coverage names missing episodes", () => {
     totalEpisodes: 10,
     coveredEpisodes: 8,
     strategy: "mixed",
+    coverageConfirmed: true,
     episodes: [
       ...Array.from({ length: 8 }, (_, i) => ({
         episode: i + 1,
@@ -819,6 +820,7 @@ check("shouldRunSeasonGrab: pressing twice after success submits one grab", () =
         totalEpisodes: 1,
         coveredEpisodes: 1,
         strategy: "singles",
+        coverageConfirmed: true,
         episodes: [{ episode: 1, status: "covered" }],
       },
     };
@@ -836,6 +838,7 @@ check("episodeStatusesFromSeasonReport: season grab lights rows individually", (
     totalEpisodes: 3,
     coveredEpisodes: 1,
     strategy: "singles",
+    coverageConfirmed: true,
     episodes: [
       { episode: 1, status: "covered" },
       { episode: 2, status: "missing", reason: "No release" },
@@ -1152,3 +1155,35 @@ if (failures > 0) {
   process.exit(1);
 }
 console.log("\nAll title tests passed.");
+
+check("seasonGrabSummary: unconfirmed pack coverage is not stated as fact", () => {
+  const report: SeasonGrabReport = {
+    season: 1,
+    totalEpisodes: 9,
+    coveredEpisodes: 9,
+    strategy: "pack",
+    coverageConfirmed: false,
+    episodes: Array.from({ length: 9 }, (_, i) => ({
+      episode: i + 1,
+      status: "covered" as const,
+    })),
+  };
+  const summary = seasonGrabSummary({ status: "done", report }, 1);
+  // A bare `S01` pack claims the whole season without proving it. Reporting
+  // "9 of 9 episodes covered" here would repeat the advertised-vs-delivered
+  // mistake the swarm probe exists to resist, one field over.
+  assert(
+    !summary.startsWith("9 of 9 episodes covered"),
+    `unconfirmed coverage must not be asserted as fact, got: ${summary}`,
+  );
+  assert(summary.includes("aren't confirmed"), `expected a hedge, got: ${summary}`);
+
+  const confirmed = seasonGrabSummary(
+    { status: "done", report: { ...report, coverageConfirmed: true } },
+    1,
+  );
+  assert(
+    confirmed.startsWith("9 of 9 episodes covered"),
+    `confirmed coverage should be stated plainly, got: ${confirmed}`,
+  );
+});

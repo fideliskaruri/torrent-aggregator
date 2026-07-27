@@ -149,6 +149,7 @@ export async function grabSeasonForTitle(
     totalEpisodes: episodes.length,
     coveredEpisodes: acquired.size,
     strategy: planStrategy(result.plan),
+    coverageConfirmed: result.coverageConfirmed,
     episodes: episodeReports,
   };
 
