@@ -2215,6 +2215,391 @@ function InlineStreamPlayerInner({
       </label>
     ) : null;
 
+  if (theatre) {
+    const statusTitle = message
+      ? "Playback cannot start yet."
+      : manifestLoading
+        ? "Resolving files…"
+      : !playableSrc && selectedFile
+        ? "Preparing playback — this usually takes under a minute once pieces arrive."
+      : checkingStream || preparingLabel || !playableSrc
+        ? stateSentence
+        : null;
+    const showStageStatus = !playableSrc || waiting || preparingLabel;
+
+    return (
+      <div
+        className={cn(
+          "flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden px-4 pb-4 pt-14 sm:px-6",
+          className,
+        )}
+        data-inline-player
+        data-player-chrome={chrome}
+        data-infohash={activeInfoHash}
+        data-playback-mode={playbackMode}
+        data-playback-strategy={strategy ?? undefined}
+        data-playback-rung={playbackRung ?? undefined}
+        data-strategy-reason={strategyReason ?? undefined}
+        data-resume-sec={resumeTargetSec > 0 ? resumeTargetSec : undefined}
+        onKeyDown={handleKeyDown}
+      >
+        <style>{`
+          [data-inline-player] [data-stream-seek] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            height: 12px;
+            cursor: pointer;
+          }
+          [data-inline-player] [data-stream-seek]::-webkit-slider-runnable-track {
+            height: 4px;
+            background: transparent;
+            border-radius: 999px;
+          }
+          [data-inline-player] [data-stream-seek]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 11px;
+            width: 11px;
+            margin-top: -3.5px;
+            border-radius: 999px;
+            background: var(--accent);
+            border: none;
+          }
+          [data-inline-player] [data-stream-seek]::-moz-range-track {
+            height: 4px;
+            background: transparent;
+            border-radius: 999px;
+          }
+          [data-inline-player] [data-stream-seek]::-moz-range-thumb {
+            height: 11px;
+            width: 11px;
+            border: none;
+            border-radius: 999px;
+            background: var(--accent);
+          }
+          [data-inline-player] [data-stream-seek]:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+            border-radius: 999px;
+          }
+        `}</style>
+
+        <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-3">
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <div
+              data-stream-stage
+              className="relative flex aspect-video w-full max-h-full items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black bg-cover bg-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+              style={
+                activePosterUrl
+                  ? { backgroundImage: `linear-gradient(rgba(0,0,0,.66), rgba(0,0,0,.72)), url(${activePosterUrl})` }
+                  : undefined
+              }
+            >
+              {playableSrc && selectedFile ? (
+                playbackMode === "hls" ? (
+                  <video
+                    data-stream-video
+                    key={playableSrc}
+                    ref={attachHls}
+                    preload="auto"
+                    className="absolute inset-0 h-full w-full bg-black object-contain"
+                    title={activeTitle}
+                    onClick={togglePlay}
+                    onError={() => {
+                      if (!hlsRef.current) {
+                        setProblem("browser-error");
+                        setMessage("This release won't play in the browser.");
+                        setPlayableSrc(null);
+                      }
+                    }}
+                    onWaiting={() => setWaiting(true)}
+                    onPlay={() => { setIsPlaying(true); setEnded(false); }}
+                    onPause={() => {
+                      setIsPlaying(false);
+                      postProgress({ force: true });
+                    }}
+                    onEnded={handleEnded}
+                    onSeeking={() => setSeeking(true)}
+                    onPlaying={() => { setWaiting(false); setSeeking(false); setPreparingLabel(null); }}
+                    onCanPlay={(e) => { setWaiting(false); setPreparingLabel(null); readBuffered(e.currentTarget); }}
+                    onProgress={(e) => readBuffered(e.currentTarget)}
+                    onSeeked={(e) => { setSeeking(false); readBuffered(e.currentTarget); }}
+                    onTimeUpdate={(e) => {
+                      const position = timelineOffset + e.currentTarget.currentTime;
+                      setCurrentSourceTime(position);
+                      currentSourceTimeRef.current = position;
+                      readBuffered(e.currentTarget);
+                      postProgress();
+                    }}
+                  >
+                    {activeSubtitle ? (
+                      <track
+                        key={activeSubtitleSrc ?? activeSubtitle.id}
+                        kind="subtitles"
+                        src={activeSubtitleSrc ?? undefined}
+                        srcLang={activeSubtitle.language ?? undefined}
+                        label={activeSubtitle.label}
+                        onLoad={() => setSubtitleStatus("ready")}
+                        onError={() => {
+                          setSubtitleStatus("error");
+                          setSubtitleNote("That subtitle track could not be loaded.");
+                        }}
+                      />
+                    ) : null}
+                  </video>
+                ) : (
+                  <video
+                    data-stream-video
+                    key={playableSrc}
+                    ref={attachNativeVideo}
+                    preload="metadata"
+                    className="absolute inset-0 h-full w-full bg-black object-contain"
+                    src={playableSrc}
+                    title={activeTitle}
+                    onError={() => {
+                      setProblem("browser-error");
+                      setMessage("This release won't play in the browser.");
+                      setPlayableSrc(null);
+                    }}
+                    onWaiting={() => setWaiting(true)}
+                    onPlaying={() => { setWaiting(false); setSeeking(false); }}
+                    onCanPlay={() => setWaiting(false)}
+                    onPlay={() => { setIsPlaying(true); setEnded(false); }}
+                    onPause={() => {
+                      setIsPlaying(false);
+                      postProgress({ force: true });
+                    }}
+                    onEnded={handleEnded}
+                    onSeeking={() => setSeeking(true)}
+                    onSeeked={(e) => {
+                      setSeeking(false);
+                      readBuffered(e.currentTarget);
+                      scheduleSeekProgress();
+                    }}
+                    onProgress={(e) => readBuffered(e.currentTarget)}
+                    onLoadedMetadata={(e) => {
+                      checkAudioTracks(e.currentTarget);
+                      applyPendingNativeSeek(e.currentTarget);
+                      if (!sourceDuration && Number.isFinite(e.currentTarget.duration)) {
+                        setSourceDuration(e.currentTarget.duration);
+                      }
+                    }}
+                    onLoadedData={(e) => checkAudioTracks(e.currentTarget)}
+                    onTimeUpdate={(e) => {
+                      checkDecodedAudio(e.currentTarget);
+                      const position = e.currentTarget.currentTime;
+                      setCurrentSourceTime(position);
+                      currentSourceTimeRef.current = position;
+                      readBuffered(e.currentTarget);
+                      postProgress();
+                    }}
+                  >
+                    {activeSubtitle ? (
+                      <track
+                        key={activeSubtitleSrc ?? activeSubtitle.id}
+                        kind="subtitles"
+                        src={activeSubtitleSrc ?? undefined}
+                        srcLang={activeSubtitle.language ?? undefined}
+                        label={activeSubtitle.label}
+                        default
+                        onLoad={() => setSubtitleStatus("ready")}
+                        onError={() => {
+                          setSubtitleStatus("error");
+                          setSubtitleNote("That subtitle track could not be loaded.");
+                        }}
+                      />
+                    ) : null}
+                  </video>
+                )
+              ) : null}
+
+              {showStageStatus ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20 px-6 text-center">
+                  <div className="flex max-w-md flex-col items-center gap-3 text-white/75">
+                    {message ? (
+                      <X className="h-7 w-7 text-white/70" />
+                    ) : (
+                      <Loader2 className="h-7 w-7 animate-spin text-white/80" />
+                    )}
+                    <p className="text-sm font-medium text-white">{statusTitle}</p>
+                    {message ? <p className="text-[12px] text-white/60">{message}</p> : null}
+                    {message ? (
+                      problem === "missing" ? (
+                        <a
+                          href={searchHref}
+                          className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
+                        >
+                          Find a release
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMessage(null);
+                            setProblem(null);
+                            void loadManifest();
+                          }}
+                          className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
+                        >
+                          Try again
+                        </button>
+                      )
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {seeking ? (
+                <span
+                  data-stream-seeking
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-md bg-black/25"
+                >
+                  <Loader2 className="h-6 w-6 animate-spin text-white/90" />
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div
+            data-stream-transport-row
+            className="mx-auto flex w-full shrink-0 flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-[var(--shadow-md)] backdrop-blur"
+          >
+            <button
+              type="button"
+              data-stream-transport
+              onClick={togglePlay}
+              disabled={!playableSrc}
+              aria-label={isPlaying ? "Pause" : "Play"}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            >
+              {isPlaying ? (
+                <Pause className="h-3.5 w-3.5 fill-current" />
+              ) : (
+                <Play className="h-3.5 w-3.5 translate-x-px fill-current" />
+              )}
+            </button>
+            {sourceDuration && sourceDuration > 0 ? (
+              <>
+                <span className="relative flex min-w-[180px] flex-1 items-center">
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--border)]"
+                  />
+                  <TimelineBands
+                    sourceDuration={sourceDuration}
+                    bufferedRanges={bufferedRanges}
+                    downloadedRanges={downloadedRanges}
+                    currentSourceTime={currentSourceTime}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--accent)]"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%`,
+                    }}
+                  />
+                  <input
+                    type="range"
+                    aria-label="Seek"
+                    data-stream-seek
+                    data-current-held={currentTimeHeld ?? "unknown"}
+                    className="relative w-full min-w-0"
+                    min={0}
+                    max={Math.floor(sourceDuration)}
+                    step={1}
+                    value={Math.min(Math.floor(currentSourceTime), Math.floor(sourceDuration))}
+                    onChange={(e) => setCurrentSourceTime(Number(e.target.value))}
+                    onMouseUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
+                    onKeyUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
+                    onTouchEnd={(e) => handleSourceSeek(Number(e.currentTarget.value))}
+                  />
+                </span>
+                <span className="text-[11px] text-white/70 tabular-nums">
+                  {formatClock(currentSourceTime)} / {formatClock(sourceDuration)}
+                </span>
+              </>
+            ) : (
+              <span className="flex-1 text-[11px] text-white/60">Resolving timeline…</span>
+            )}
+            {audioControl}
+            {subtitleControl}
+            <button
+              type="button"
+              onClick={toggleMute}
+              disabled={!playableSrc}
+              aria-label={muted ? "Unmute" : "Mute"}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded text-white/60 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            >
+              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={goFullscreen}
+              disabled={!playableSrc}
+              aria-label="Full screen"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded text-white/60 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            >
+              <Maximize className="h-4 w-4" />
+            </button>
+          </div>
+
+          {(selectedFile || upNext) ? (
+            <div className="mx-auto flex w-full shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-white/70">
+              {selectedFile ? (
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <SwarmChip
+                    infoHash={activeInfoHash}
+                    active={Boolean(playableSrc)}
+                    minimumStreamBps={minimumStreamBps}
+                    onSample={setSwarmSample}
+                    fetchSample={fetchPlayerSample}
+                  />
+                  <p className="min-w-0 flex-1 truncate text-[11px] text-white/60">
+                    {releaseChips.length > 0
+                      ? releaseChips.join(" · ")
+                      : formatBytes(selectedFile.length)}
+                  </p>
+                </div>
+              ) : null}
+              {upNext ? (
+                <div
+                  data-up-next-status
+                  className="flex min-w-0 items-center gap-2 text-[11px] text-white/70"
+                >
+                  <span className="min-w-0 truncate">
+                    Next: {upNext.title} {upNext.label} — {upNextStatusSentence(upNext.availability)}
+                  </span>
+                  {upNext.infoHash ? (
+                    <button
+                      type="button"
+                      onClick={() => playUpNext(upNext)}
+                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-semibold text-black"
+                    >
+                      <Play className="h-3 w-3 fill-current" />
+                      Play
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void fetchUpNext()}
+                      disabled={upNextLoading}
+                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-white/15 px-2.5 text-[11px] font-medium text-white/80 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {upNextLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Fetch next
+                    </button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
