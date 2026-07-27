@@ -348,6 +348,49 @@ model MediaProbe {
   @@unique([infoHash, filePath])
 }
 
+/// A *measured* verdict on whether a swarm can actually feed a stream.
+///
+/// Advertised seeder counts are a claim from the indexer, and that claim does
+/// not survive contact with the swarm (28 advertised → 6 connected → 0
+/// delivering, observed live). `swarmProbe` briefly attaches to the swarm and
+/// records what it *actually* delivered; this table remembers that so we do not
+/// re-probe the same magnet on every play or speculation.
+///
+/// Keyed by infoHash (normalised lowercase hex) because the swarm is a property
+/// of the content, not of any one search or user.
+///
+/// `verdict` is one of good | weak | dead | unknown. **`unknown` is not
+/// `dead`** — see `swarm-probe.ts` and the `availability: null` discussion in
+/// docs/handover.md §3. An expired row must read as `unknown`, never as its
+/// last verdict, so a swarm that has since revived gets a fresh chance.
+model SwarmMeasurement {
+  id             String   @id @default(cuid())
+  /// 40-char lowercase-hex infoHash. Normalised before write (see infohash.ts).
+  infoHash       String   @unique
+  /// Peers that actually connected — not the number advertised.
+  peersConnected Int      @default(0)
+  /// Of those, how many actually sent us bytes. A peer that connects and chokes
+  /// us forever is worth nothing, so it is counted separately.
+  peersUnchoked  Int      @default(0)
+  /// Total content bytes received during the probe window.
+  bytesReceived  BigInt   @default(0)
+  /// How long the probe ran, in milliseconds.
+  elapsedMs      Int      @default(0)
+  /// Derived effective throughput: bytesReceived / elapsed, in bytes/sec.
+  effectiveBps   Float    @default(0)
+  /// The bitrate the file needs to sustain playback, in bytes/sec, that the
+  /// verdict was judged against (from size+duration, or the named fallback).
+  requiredBps    Float    @default(0)
+  verdict        String
+  measuredAt     DateTime @default(now())
+  /// When this verdict stops being trusted. A read past this reports `unknown`.
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
 model SearchCache {
   id        String   @id @default(cuid())
   cacheKey  String   @unique

@@ -16,6 +16,7 @@ import prisma from "@/lib/prisma";
 import { getUserClientConfig } from "@/lib/clients";
 import { evictPrewarmsForBytes, listEvictablePrewarms } from "@/lib/prewarm/eviction";
 import { preRankUpcoming, upcomingTargets } from "@/lib/prewarm/prerank";
+import { preProbeUpcoming } from "@/lib/prewarm/preprobe";
 import {
   foregroundSnapshot,
   markForegroundActive,
@@ -130,6 +131,20 @@ export async function POST(request: NextRequest) {
   try {
     if (body.action === "prerank") {
       const choices = await preRankUpcoming(userId, { limit: body.limit });
+
+      // Speculatively measure the top candidates' swarms so the verdict is
+      // already stored by the time the user presses play. Fire-and-forget:
+      // this is background work, it must not add latency to the pre-rank
+      // response, and it yields to any foreground stream on its own (see
+      // `preProbeUpcoming`). Errors are swallowed — an unreachable swarm is a
+      // normal `unknown`, not a route failure.
+      void preProbeUpcoming(userId).catch((err) => {
+        console.warn(
+          "[prewarm] pre-probe pass failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+
       return NextResponse.json({
         ok: true,
         // `candidate: null` means "we looked and found nothing usable".

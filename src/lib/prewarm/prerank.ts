@@ -49,6 +49,7 @@ import { normalizeTitle } from "@/lib/utils";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PipelineSearchOptions } from "@/lib/grab/types";
 import type { PreRankedChoice, PreRankTarget } from "./types";
+import { loadSwarmVerdicts, type SwarmVerdict } from "@/lib/torrents/swarm-probe";
 
 /** How long a pre-ranked choice is worth reusing. */
 export const PRERANK_TTL_MS = 10 * 60 * 1000;
@@ -195,21 +196,73 @@ export function releaseInfoHash(r: TorrentResult): string | null {
 }
 
 /**
+ * Reorder an already-ranked pool by *measured* swarm verdict, stably.
+ *
+ * This is the seam that replaces the indexer's claim with a measurement. The
+ * ranker ordered these releases on advertised seeders; a verdict from an actual
+ * probe outranks that claim. But the rule is **demote, never filter** — the
+ * same invariant `quality.ts` holds (docs/handover.md §3): a `dead`-looking
+ * release that is the *only* release must still be reachable, because the
+ * alternative is offering the user nothing at all. Nothing is removed here.
+ *
+ * The tiers:
+ *   - `good`    → promoted above everything: a measured pass beats any claim.
+ *   - `unknown` → **neutral**. Most candidates are unknown most of the time, so
+ *     this is the baseline; treating it as bad would make the system refuse to
+ *     try anything it has not already tried. It keeps its ranker position.
+ *   - `weak`    → demoted below the baseline: it delivered, but not enough.
+ *   - `dead`    → demoted hardest, to the very back — but still present.
+ *
+ * Stable within a tier: the ranker's order (input order) is preserved by the
+ * index tiebreak, so among equally-verdicted releases the better-ranked one
+ * still wins.
+ */
+function verdictTier(v: SwarmVerdict): number {
+  switch (v) {
+    case "good":
+      return 0;
+    case "unknown":
+      return 1;
+    case "weak":
+      return 2;
+    case "dead":
+      return 3;
+  }
+}
+
+export function orderByVerdict(
+  results: readonly TorrentResult[],
+  verdictOf: (r: TorrentResult) => SwarmVerdict,
+): TorrentResult[] {
+  return results
+    .map((r, i) => ({ r, i, tier: verdictTier(verdictOf(r)) }))
+    .sort((a, b) => a.tier - b.tier || a.i - b.i)
+    .map((x) => x.r);
+}
+
+/**
  * Pick the release to grab from an **already-ranked** pool.
  *
  * Input order is authoritative: `searchTorrents` has already run
  * `rankResults`, which is the single ordering implementation. This function
- * only *filters* — it never re-sorts, so it cannot disagree with the ranker.
+ * only *filters* and, when a measured verdict is supplied, *reorders by that
+ * verdict* — it never re-sorts on advertised numbers, so it cannot disagree
+ * with the ranker on the claims.
  *
  * The rule is the on-demand caller's rule verbatim: a release needs a magnet
  * and at least one seeder, and when an episode was asked for it must be that
  * exact episode. A season pack is not accepted in place of an episode: the
  * pre-warm budget is sized for one episode, and quietly pulling forty is the
  * kind of surprise a background feature must never spring.
+ *
+ * `verdictOf` is optional and pure. When omitted, the ranker's order stands
+ * untouched — so the fast memo/cache path (no DB) behaves exactly as before,
+ * and only callers with a measurement to offer change the outcome.
  */
 export function selectBestRelease(
   results: readonly TorrentResult[],
   target: PreRankTarget,
+  opts: { verdictOf?: (r: TorrentResult) => SwarmVerdict } = {},
 ): TorrentResult | null {
   const season = unit(target.season);
   const episode = unit(target.episode);
@@ -219,15 +272,36 @@ export function selectBestRelease(
   );
   if (usable.length === 0) return null;
 
-  if (season == null || episode == null) return usable[0] ?? null;
+  const ordered = opts.verdictOf
+    ? orderByVerdict(usable, opts.verdictOf)
+    : usable;
+
+  if (season == null || episode == null) return ordered[0] ?? null;
 
   return (
-    usable.find((r) => {
+    ordered.find((r) => {
       const ep = r.episode ?? parseEpisode(r.title);
       if (ep.isSeasonPack) return false;
       return ep.season === season && ep.episode === episode;
     }) ?? null
   );
+}
+
+/**
+ * Load measured swarm verdicts for a pool and turn them into a `verdictOf`
+ * lookup for {@link selectBestRelease}. Every release with no fresh measurement
+ * reads as `unknown` (neutral), which is the map's default.
+ */
+export async function verdictLookupFor(
+  results: readonly TorrentResult[],
+  db: typeof prisma,
+): Promise<(r: TorrentResult) => SwarmVerdict> {
+  const hashes = results.map((r) => releaseInfoHash(r));
+  const verdicts = await loadSwarmVerdicts(hashes, { db });
+  return (r: TorrentResult) => {
+    const h = releaseInfoHash(r);
+    return (h && verdicts.get(h)) || "unknown";
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +332,7 @@ function buildChoice(
   response: Pick<SearchResponse, "results">,
   source: PreRankedChoice["source"],
   rankedAt: number,
+  verdictOf?: (r: TorrentResult) => SwarmVerdict,
 ): PreRankedChoice {
   const options = prewarmSearchOptions(target);
   return {
@@ -267,7 +342,7 @@ function buildChoice(
     category: options.category as PreRankedChoice["category"],
     season: unit(target.season),
     episode: unit(target.episode),
-    candidate: selectBestRelease(response.results, target),
+    candidate: selectBestRelease(response.results, target, { verdictOf }),
     resultCount: response.results.length,
     source,
     rankedAt,
@@ -317,8 +392,21 @@ export async function getPreRanked(
     const payload = JSON.parse(row.payload) as SearchResponse;
     if (!Array.isArray(payload.results)) return null;
 
+    // A measured verdict outranks the indexer's advertised claim. Loading it
+    // here is cheap (one indexed read keyed by info-hash) and is what lets a
+    // release we have actually probed `good` win over one merely advertising
+    // more seeders. Absent a measurement every release reads `unknown`
+    // (neutral), so this never demotes anything we have not measured.
+    const verdictOf = await verdictLookupFor(payload.results, db);
+
     return remember(
-      buildChoice(target, payload, "search-cache", row.expiresAt.getTime()),
+      buildChoice(
+        target,
+        payload,
+        "search-cache",
+        row.expiresAt.getTime(),
+        verdictOf,
+      ),
     );
   } catch {
     // A pre-ranked choice is an accelerator. Not having one is normal.
@@ -359,10 +447,14 @@ export async function preRank(
 
   const search = opts._searchFn ?? searchTorrents;
   const options = prewarmSearchOptions(target);
+  const db = opts.db ?? prisma;
 
   try {
     const response = await search(searchPayloadFor(options));
-    return remember(buildChoice(target, response, "search", Date.now()));
+    const verdictOf = await verdictLookupFor(response.results, db);
+    return remember(
+      buildChoice(target, response, "search", Date.now(), verdictOf),
+    );
   } catch (err) {
     if (err instanceof SearchThrottledError) {
       // Expected and harmless: speculation yields to the person who is waiting.

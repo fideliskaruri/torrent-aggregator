@@ -1269,6 +1269,36 @@ function findTorrent(
   return findTorrentByHash(client.torrents, hash);
 }
 
+/**
+ * The live WebTorrent client, for the swarm probe.
+ *
+ * Returns the same patched singleton every other add path uses, so a probe's
+ * `addTorrentWithEngineDefaults` inherits the private-swarm tracker rule, the
+ * wire-encryption/metadata-race patches, and the µTP-off setting. A probe must
+ * never construct its own `new WebTorrent()` — that would bypass all of it.
+ */
+export async function getBuiltinClientForProbe(): Promise<
+  Pick<WebTorrentLike, "add" | "torrents">
+> {
+  return getWtClient();
+}
+
+/**
+ * A live torrent the engine already holds, or null.
+ *
+ * The probe consults this before attaching to anything: if the info-hash is
+ * already a real download, the probe must read that torrent's live figures and
+ * must **never** add or destroy it. Destroying it would delete a user's
+ * download. Sync `findTorrent` scan (never `client.get()`, which is async).
+ */
+export function findLiveBuiltinTorrent(hash: string): WtTorrent | null {
+  const s = state();
+  if (!s.client) return null;
+  const normalized = hash.trim().toLowerCase();
+  if (!normalized) return null;
+  return findTorrent(s.client, normalized) ?? null;
+}
+
 export type BuiltinStreamFile = WtFile;
 export type BuiltinStreamTorrent = Pick<
   WtTorrent,
