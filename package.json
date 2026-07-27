@@ -29,6 +29,7 @@
     "test:media:stall": "tsx scripts/media-stall-watchdog.mts",
     "test:media:browser": "tsx scripts/media-browser-playback.mts",
     "test:media:torrent": "tsx scripts/media-torrent-e2e.mts",
+    "test:media:bitrate": "tsx scripts/media-stream-bitrate.mts",
     "test:media:ui": "tsx scripts/media-player-ui.mts",
     "seed": "node scripts/seed-demo.mjs",
     "seed:reset": "node scripts/seed-demo.mjs --reset",
