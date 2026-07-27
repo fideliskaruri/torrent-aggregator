@@ -919,6 +919,7 @@ function InlineStreamPlayerInner({
   const [upNext, setUpNext] = useState<UpNextEpisodeCard | null>(null);
   const [upNextLoading, setUpNextLoading] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [transitioningTitle, setTransitioningTitle] = useState<string | null>(null);
   const [autoAdvanceCancelled, setAutoAdvanceCancelled] = useState(false);
   const [advanceCountdown, setAdvanceCountdown] = useState(AUTO_ADVANCE_SECONDS);
   const [audioTracks, setAudioTracks] = useState<PlanAudioTrack[]>([]);
@@ -1462,6 +1463,10 @@ function InlineStreamPlayerInner({
   const playUpNext = useCallback(
     (next: UpNextEpisodeCard | null = upNext) => {
       if (!next?.infoHash) return;
+      setTransitioningTitle(next.title);
+      setEnded(false);
+      setAutoAdvanceCancelled(false);
+      setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
       setTarget({
         infoHash: next.infoHash,
         title: next.title,
@@ -1784,6 +1789,7 @@ function InlineStreamPlayerInner({
           pendingNativeSeekRef.current = startSec > 0 ? startSec : 0;
           if (startSec > 0) setCurrentSourceTime(startSec);
           setPlayableSrc(nativeUrl);
+          setTransitioningTitle(null);
         } else {
           // HLS — a genuinely incomplete file, or one that needs ffmpeg.
           setTimelineOffset(planData.startSec);
@@ -1791,6 +1797,7 @@ function InlineStreamPlayerInner({
           setPlaybackMode("hls");
           setPreparingLabel(rungLabel(planData.plan.rung));
           setPlayableSrc(planData.playUrl);
+          setTransitioningTitle(null);
         }
       } catch {
         if (!controller.signal.aborted) {
@@ -2503,6 +2510,8 @@ function InlineStreamPlayerInner({
           : message;
     const statusTitle = terminalTitle
       ? terminalTitle
+      : transitioningTitle && !playableSrc
+        ? `Preparing ${transitioningTitle}`
       : manifestLoading
         ? "Resolving files…"
       : !playableSrc && selectedFile
@@ -2607,7 +2616,7 @@ function InlineStreamPlayerInner({
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <div
               data-stream-stage
-              className="relative flex aspect-video w-full max-h-full items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black bg-cover bg-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+              className="relative flex aspect-video w-full max-h-full items-center justify-center overflow-hidden rounded-2xl border border-white/12 bg-black bg-cover bg-center shadow-[0_24px_90px_rgba(0,0,0,0.68)] ring-1 ring-black/50"
               style={
                 activePosterUrl
                   ? { backgroundImage: `linear-gradient(rgba(0,0,0,.66), rgba(0,0,0,.72)), url(${activePosterUrl})` }
@@ -2732,13 +2741,24 @@ function InlineStreamPlayerInner({
                 )
               ) : null}
 
+              {!playableSrc ? (
+                <div
+                  data-stream-preparing
+                  key={`preparing-${activeInfoHash}`}
+                  aria-hidden="true"
+                  className="absolute inset-0 bg-transparent"
+                />
+              ) : null}
+
               {showStageStatus ? (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20 px-6 text-center">
-                  <div className="flex max-w-md flex-col items-center gap-3 text-white/75">
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),rgba(0,0,0,0.55)_62%)] px-6 text-center">
+                  <div className="flex max-w-md flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/45 px-6 py-5 text-white/75 shadow-2xl backdrop-blur-md">
                     {terminalTitle ? (
                       <X className="h-7 w-7 text-white/70" />
                     ) : (
-                      <Loader2 className="h-7 w-7 animate-spin text-white/80" />
+                      <span className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/8">
+                        <Loader2 className="h-6 w-6 animate-spin text-white/85" />
+                      </span>
                     )}
                     <p className="text-sm font-medium text-white">{statusTitle}</p>
                     {terminalDetail ? <p className="text-[12px] text-white/60">{terminalDetail}</p> : null}
