@@ -49,6 +49,7 @@ export type StreamFile = {
 };
 
 type StreamManifest = {
+  infoHash: string;
   files: StreamFile[];
   clientType?: string;
   swarm?: SwarmSample;
@@ -266,11 +267,17 @@ export function candidateQualityShape(candidate: PlaybackCandidate): string {
     .join(" · ");
 }
 
+export function isUpNextPlayableEnoughToAdvance(
+  availability: UpNextAvailability | null | undefined,
+): boolean {
+  return availability === "ready" || availability === "downloading";
+}
+
 export function canAutoAdvanceToUpNext(
   next: UpNextEpisodeCard | null,
   cancelled: boolean,
 ): boolean {
-  return Boolean(!cancelled && next?.infoHash && next.availability === "ready");
+  return Boolean(!cancelled && next?.infoHash && isUpNextPlayableEnoughToAdvance(next.availability));
 }
 
 /** Label an audio track for the picker: "English · AC-3 5.1". */
@@ -360,6 +367,11 @@ export function resolveVideoFileSelection(
     return parsed?.season === season && parsed.episode === episode;
   });
   return matches.length === 1 ? matches[0] : null;
+}
+
+function videoFileForPath(files: StreamFile[], path: string | null): StreamFile | null {
+  if (!path) return null;
+  return selectVideoFiles(files).find((file) => file.path === path) ?? null;
 }
 
 export function findSidecarSubtitle(files: StreamFile[], videoPath: string) {
@@ -1068,11 +1080,15 @@ function InlineStreamPlayerInner({
     });
   }, [infoHash, title, resumeSec, season, episode, posterUrl, watchListItemId]);
 
+  const activeManifest = manifest?.infoHash === activeInfoHash ? manifest : null;
   const videoFiles = useMemo(
-    () => (manifest ? selectVideoFiles(manifest.files) : []),
-    [manifest],
+    () => (activeManifest ? selectVideoFiles(activeManifest.files) : []),
+    [activeManifest],
   );
-  const selectedFile = videoFiles.find((file) => file.path === selectedPath);
+  const selectedFile = activeManifest
+    ? videoFileForPath(activeManifest.files, selectedPath)
+    : null;
+  const effectiveSelectedPath = selectedFile?.path ?? null;
   const parsedCurrentEpisode = useMemo(() => {
     const fromFile = selectedFile ? parseEpisode(selectedFile.path) : null;
     if (fromFile?.season != null && fromFile.episode != null) {
@@ -1131,10 +1147,10 @@ function InlineStreamPlayerInner({
    */
   const defaultSidecarPath = useMemo(
     () =>
-      manifest && selectedPath
-        ? findSidecarSubtitle(manifest.files, selectedPath)?.path ?? null
+      activeManifest && effectiveSelectedPath
+        ? findSidecarSubtitle(activeManifest.files, effectiveSelectedPath)?.path ?? null
         : null,
-    [manifest, selectedPath],
+    [activeManifest, effectiveSelectedPath],
   );
 
   useEffect(() => {
@@ -1213,12 +1229,12 @@ function InlineStreamPlayerInner({
     sourceDurationRef.current = sourceDuration;
   }, [sourceDuration]);
   useEffect(() => {
-    selectedPathRef.current = selectedPath;
+    selectedPathRef.current = effectiveSelectedPath;
     // A different file is a different progress row; the throttle must not carry
     // the previous file's position over and suppress the first write.
     lastPostedSecRef.current = null;
     lastPostedAtRef.current = null;
-  }, [selectedPath]);
+  }, [effectiveSelectedPath]);
 
   /**
    * Write the playback position to `/api/progress`.
@@ -1359,7 +1375,7 @@ function InlineStreamPlayerInner({
   );
 
   const loadManifest = useCallback(async () => {
-    if (manifest) return manifest;
+    if (manifest?.infoHash === activeInfoHash) return manifest;
     setManifestLoading(true);
     setMessage(null);
     setProblem(null);
@@ -1378,7 +1394,7 @@ function InlineStreamPlayerInner({
         return null;
       }
       const files = Array.isArray(data?.files) ? data.files : [];
-      const next = { files, clientType: data?.clientType };
+      const next: StreamManifest = { infoHash: activeInfoHash, files, clientType: data?.clientType };
       setManifest(next);
       const videos = selectVideoFiles(files);
       const requested = resolveVideoFileSelection(files, {
@@ -1408,7 +1424,7 @@ function InlineStreamPlayerInner({
   const fetchPlayerSample = useCallback(
     async (signal: AbortSignal): Promise<SwarmSample | null> => {
       const params = new URLSearchParams({ poll: "1" });
-      if (selectedPath) params.set("file", selectedPath);
+      if (effectiveSelectedPath) params.set("file", effectiveSelectedPath);
       const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}?${params}`, {
         signal,
         cache: "no-store",
@@ -1418,9 +1434,12 @@ function InlineStreamPlayerInner({
       if (!body) return null;
       if (Array.isArray(body.files)) {
         setManifest((prev) => ({
+          infoHash: activeInfoHash,
           files: body.files.map((file) => {
             if ("downloadedRanges" in file) return file;
-            const previous = prev?.files.find((p) => p.path === file.path);
+            const previous = prev?.infoHash === activeInfoHash
+              ? prev.files.find((p) => p.path === file.path)
+              : null;
             return previous?.downloadedRanges ? { ...file, downloadedRanges: previous.downloadedRanges } : file;
           }),
           clientType: body.clientType ?? prev?.clientType,
@@ -1436,7 +1455,7 @@ function InlineStreamPlayerInner({
         observedAt: typeof swarm.observedAt === "number" ? swarm.observedAt : Date.now(),
       };
     },
-    [activeInfoHash, selectedPath],
+    [activeInfoHash, effectiveSelectedPath],
   );
 
   const copySelected = useCallback(async () => {
@@ -1446,7 +1465,7 @@ function InlineStreamPlayerInner({
       season: requestedEpisode?.season,
       episode: requestedEpisode?.episode,
     });
-    const path = selectedPath ?? inferred?.path ?? null;
+    const path = effectiveSelectedPath ?? inferred?.path ?? null;
     if (!path) {
       setExpanded(true);
       setMessage("Pick an episode, then copy its stream URL.");
@@ -1458,7 +1477,7 @@ function InlineStreamPlayerInner({
       setProblem("generic");
       setMessage("Could not copy the stream URL.");
     }
-  }, [copyUrl, loadManifest, selectedPath, requestedEpisode]);
+  }, [copyUrl, loadManifest, effectiveSelectedPath, requestedEpisode]);
 
   const toggleExpanded = useCallback(async () => {
     if (expanded) {
@@ -1510,11 +1529,11 @@ function InlineStreamPlayerInner({
   );
 
   useEffect(() => {
-    if (!playableSrc || !selectedPath) return;
+    if (!playableSrc || !effectiveSelectedPath) return;
     const controller = new AbortController();
     void loadUpNext(controller.signal);
     return () => controller.abort();
-  }, [playableSrc, selectedPath, loadUpNext]);
+  }, [playableSrc, effectiveSelectedPath, loadUpNext]);
 
   const playUpNext = useCallback(
     (next: UpNextEpisodeCard | null = upNext) => {
@@ -1725,7 +1744,7 @@ function InlineStreamPlayerInner({
   // block below — a render may be discarded, and a discarded render must not
   // leave a mutation behind. Declared *before* the playback effect so it has
   // already run by the time that effect reads `pendingSeekRef.current`; it
-  // deliberately keys on `selectedPath` only, so a seek (which bumps
+  // deliberately keys on the effective selected path only, so a seek (which bumps
   // `planNonce`) does not clobber the offset it just requested.
   //
   // A resume position is applied here, exactly once, to the first file opened:
@@ -1735,7 +1754,7 @@ function InlineStreamPlayerInner({
   // afterwards starts that file at 0, because a position stored for one episode
   // is not a position in another.
   useEffect(() => {
-    if (!selectedPath) return;
+    if (!effectiveSelectedPath) return;
     if (!resumeConsumedRef.current && resumeTargetSec > 0) {
       resumeConsumedRef.current = true;
       pendingSeekRef.current = resumeTargetSec;
@@ -1743,15 +1762,15 @@ function InlineStreamPlayerInner({
     }
     resumeConsumedRef.current = true;
     pendingSeekRef.current = 0;
-  }, [selectedPath, resumeTargetSec]);
+  }, [effectiveSelectedPath, resumeTargetSec]);
 
   // Main playback effect: when a file is selected, negotiate the playback plan.
   // Also re-runs on `planNonce` — bumped when the viewer seeks past what the
   // current ffmpeg session has produced, or picks a different audio track.
   useEffect(() => {
-    if (!expanded || !selectedPath) return;
+    if (!expanded || !effectiveSelectedPath) return;
     const controller = new AbortController();
-    const filePath = selectedPath;
+    const filePath = effectiveSelectedPath;
     const startSec = pendingSeekRef.current;
     const requestedAudio = audioStreamIndex;
 
@@ -1870,7 +1889,7 @@ function InlineStreamPlayerInner({
     })();
 
     return () => controller.abort();
-  }, [expanded, activeInfoHash, selectedPath, planNonce, audioStreamIndex, tryDirectStream]);
+  }, [expanded, activeInfoHash, effectiveSelectedPath, planNonce, audioStreamIndex, tryDirectStream]);
 
   // Selecting a different file must not inherit the previous file's seek offset
   // or audio-track choice.
@@ -1883,9 +1902,9 @@ function InlineStreamPlayerInner({
   // that belongs to another file), and only then did the reset land and fire it
   // a second time. Adjusting during render means React re-renders before
   // committing, so the playback effect runs once, with the right values.
-  const [resetForPath, setResetForPath] = useState(selectedPath);
-  if (selectedPath !== resetForPath) {
-    setResetForPath(selectedPath);
+  const [resetForPath, setResetForPath] = useState(effectiveSelectedPath);
+  if (effectiveSelectedPath !== resetForPath) {
+    setResetForPath(effectiveSelectedPath);
     setTimelineOffset(0);
     setAudioTracks([]);
     setAudioStreamIndex(null);
@@ -1913,9 +1932,9 @@ function InlineStreamPlayerInner({
    */
   const planResolved = Boolean(playableSrc);
   useEffect(() => {
-    if (!expanded || !selectedPath || !planResolved) return;
+    if (!expanded || !effectiveSelectedPath || !planResolved) return;
     const controller = new AbortController();
-    const filePath = selectedPath;
+    const filePath = effectiveSelectedPath;
     void (async () => {
       try {
         const res = await fetch(subtitleListUrl(activeInfoHash, filePath), {
@@ -1944,7 +1963,7 @@ function InlineStreamPlayerInner({
       }
     })();
     return () => controller.abort();
-  }, [expanded, activeInfoHash, selectedPath, defaultSidecarPath, planResolved]);
+  }, [expanded, activeInfoHash, effectiveSelectedPath, defaultSidecarPath, planResolved]);
 
   /**
    * Restart the HLS session at `sourceSec`.
@@ -2072,10 +2091,10 @@ function InlineStreamPlayerInner({
    * simply never appear. Direct mode plays the file itself, so the offset is 0.
    */
   const activeSubtitleSrc = useMemo(() => {
-    if (!activeSubtitle || !selectedPath) return null;
+    if (!activeSubtitle || !effectiveSelectedPath) return null;
     const offset = playbackMode === "hls" ? timelineOffset : 0;
-    return subtitleTrackSrc(activeInfoHash, selectedPath, activeSubtitle.id, offset);
-  }, [activeSubtitle, activeInfoHash, selectedPath, playbackMode, timelineOffset]);
+    return subtitleTrackSrc(activeInfoHash, effectiveSelectedPath, activeSubtitle.id, offset);
+  }, [activeSubtitle, activeInfoHash, effectiveSelectedPath, playbackMode, timelineOffset]);
 
   /**
    * Turn the rendered `<track>` on.
@@ -2872,7 +2891,7 @@ function InlineStreamPlayerInner({
                         Episode
                       </span>
                       <select
-                        value={selectedPath ?? ""}
+                        value={effectiveSelectedPath ?? ""}
                         onChange={(e) => setSelectedPath(e.target.value || null)}
                         data-stream-file-select
                         aria-label="Video file"
@@ -3457,7 +3476,7 @@ function InlineStreamPlayerInner({
             <label className="block space-y-1 text-[11px] text-[var(--text-tertiary)]">
               File
               <select
-                value={selectedPath ?? ""}
+                value={effectiveSelectedPath ?? ""}
                 onChange={(e) => setSelectedPath(e.target.value || null)}
                 data-stream-file-select
                 className="input-field h-8 w-full px-2 text-[12px]"
@@ -3478,7 +3497,7 @@ function InlineStreamPlayerInner({
                 <X className="h-3.5 w-3.5 text-[var(--danger)]" />
               ) : null}
               <span>{message}</span>
-              {selectedPath && problem !== "preparing" ? (
+              {effectiveSelectedPath && problem !== "preparing" ? (
                 <button
                   type="button"
                   className="font-medium text-[var(--accent-text)] hover:underline"

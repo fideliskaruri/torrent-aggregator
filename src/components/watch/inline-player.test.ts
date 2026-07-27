@@ -10,6 +10,7 @@ import {
   encodeStreamFilePath,
   findSidecarSubtitle,
   infoHashFromMagnet,
+  isUpNextPlayableEnoughToAdvance,
   releaseDetailChips,
   resolveVideoFileSelection,
   selectVideoFiles,
@@ -214,7 +215,7 @@ assert(
   }) === "1080p · WEB-DL · H.264 · DDP · 807 MB",
 );
 assert(
-  "up-next autoplay only starts for a ready next release",
+  "up-next autoplay starts for a ready next release",
   canAutoAdvanceToUpNext(
     {
       title: "the bear",
@@ -229,8 +230,8 @@ assert(
   ),
 );
 assert(
-  "up-next autoplay will not start a still-downloading next release",
-  !canAutoAdvanceToUpNext(
+  "up-next autoplay starts for a still-downloading next release",
+  canAutoAdvanceToUpNext(
     {
       title: "the bear",
       label: "S01E02",
@@ -239,6 +240,41 @@ assert(
       availability: "downloading",
       infoHash: "a".repeat(40),
       progress: 0.4,
+    },
+    false,
+  ),
+);
+assert("up-next advance playability accepts ready", isUpNextPlayableEnoughToAdvance("ready"));
+assert("up-next advance playability accepts downloading", isUpNextPlayableEnoughToAdvance("downloading"));
+assert("up-next advance playability rejects not-fetched", !isUpNextPlayableEnoughToAdvance("not-fetched"));
+assert("up-next advance playability rejects null", !isUpNextPlayableEnoughToAdvance(null));
+assert("up-next advance playability rejects undefined", !isUpNextPlayableEnoughToAdvance(undefined));
+assert(
+  "up-next autoplay requires an info hash even when downloading",
+  !canAutoAdvanceToUpNext(
+    {
+      title: "the bear",
+      label: "S01E02",
+      season: 1,
+      episode: 2,
+      availability: "downloading",
+      infoHash: null,
+      progress: 0.4,
+    },
+    false,
+  ),
+);
+assert(
+  "up-next autoplay rejects not-fetched next releases",
+  !canAutoAdvanceToUpNext(
+    {
+      title: "the bear",
+      label: "S01E02",
+      season: 1,
+      episode: 2,
+      availability: "not-fetched",
+      infoHash: "a".repeat(40),
+      progress: 0,
     },
     false,
   ),
