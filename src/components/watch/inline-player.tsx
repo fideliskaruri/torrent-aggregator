@@ -1237,10 +1237,10 @@ function InlineStreamPlayerInner({
       const url = `${window.location.origin}${streamPath(activeInfoHash, path)}`;
       await navigator.clipboard.writeText(url);
       setCopied(true);
-      setMessage("Stream URL copied.");
+      if (!theatre) setMessage("Stream URL copied.");
       window.setTimeout(() => setCopied(false), 1600);
     },
-    [activeInfoHash],
+    [activeInfoHash, theatre],
   );
 
   const loadManifest = useCallback(async () => {
@@ -2161,7 +2161,7 @@ function InlineStreamPlayerInner({
   const reportNoAudio = useCallback(() => {
     setProblem("no-audio");
     setMessage(
-      "This file's audio can't be decoded in a browser (usually Dolby AC-3/E-AC-3 or DTS). The video is fine — open it in your player for sound.",
+      "This file's audio can't be decoded in a browser (usually Dolby AC-3/E-AC-3 or DTS). Another release will likely play with sound here.",
     );
     setPlayableSrc(null);
   }, []);
@@ -2281,15 +2281,6 @@ function InlineStreamPlayerInner({
     ) : null;
 
   if (theatre) {
-    const statusTitle = message
-      ? "Playback cannot start yet."
-      : manifestLoading
-        ? "Resolving files…"
-      : !playableSrc && selectedFile
-        ? "Preparing playback — this usually takes under a minute once pieces arrive."
-      : checkingStream || preparingLabel || !playableSrc
-        ? stateSentence
-        : null;
     const showStageStatus = !playableSrc || waiting || preparingLabel;
     const chromeVisible = theatreControlsVisible || controlsPinned;
     const controlsOpacity = chromeVisible ? "opacity-100" : "opacity-0";
@@ -2308,6 +2299,37 @@ function InlineStreamPlayerInner({
       setAudioMenuOpen(false);
       setVolumeMenuOpen(false);
     };
+    const peerCount = swarmSample?.peers ?? null;
+    const rateBps = swarmSample?.downloadSpeedBps ?? null;
+    const deliveryDetail =
+      peerCount == null && rateBps == null
+        ? "the swarm is not sending enough data"
+        : `${peerCount === 1 ? "one peer" : `${peerCount ?? 0} peers`}, ${
+            rateBps != null && rateBps >= 1024 ? `${formatBytes(rateBps)}/s` : "almost no data"
+          }`;
+    const terminalTitle =
+      problem === "stalled" || problem === "preparing"
+        ? "This release isn't delivering."
+        : problem === "browser-error" || problem === "no-audio"
+          ? "This release won't play in the browser."
+          : message
+            ? "Playback cannot start yet."
+            : null;
+    const terminalDetail =
+      problem === "stalled" || problem === "preparing"
+        ? `This release isn't delivering — ${deliveryDetail}.`
+        : problem === "browser-error" || problem === "no-audio"
+          ? message ?? "The browser cannot decode this release."
+          : message;
+    const statusTitle = terminalTitle
+      ? terminalTitle
+      : manifestLoading
+        ? "Resolving files…"
+      : !playableSrc && selectedFile
+        ? "Preparing playback — this usually takes under a minute once pieces arrive."
+      : checkingStream || preparingLabel || !playableSrc
+        ? stateSentence
+        : null;
 
     return (
       <div
@@ -2533,34 +2555,37 @@ function InlineStreamPlayerInner({
               {showStageStatus ? (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20 px-6 text-center">
                   <div className="flex max-w-md flex-col items-center gap-3 text-white/75">
-                    {message ? (
+                    {terminalTitle ? (
                       <X className="h-7 w-7 text-white/70" />
                     ) : (
                       <Loader2 className="h-7 w-7 animate-spin text-white/80" />
                     )}
                     <p className="text-sm font-medium text-white">{statusTitle}</p>
-                    {message ? <p className="text-[12px] text-white/60">{message}</p> : null}
-                    {message ? (
-                      problem === "missing" ? (
+                    {terminalDetail ? <p className="text-[12px] text-white/60">{terminalDetail}</p> : null}
+                    {terminalTitle ? (
+                      <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                         <a
                           href={searchHref}
-                          className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
+                          className="inline-flex h-9 items-center rounded-full bg-white px-4 text-[12px] font-semibold text-black transition hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                         >
-                          Find a release
+                          Try another release
                         </a>
-                      ) : (
                         <button
                           type="button"
-                          onClick={() => {
-                            setMessage(null);
-                            setProblem(null);
-                            void loadManifest();
-                          }}
-                          className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
+                          onClick={() => void copySelected()}
+                          className="inline-flex h-9 items-center rounded-full border border-white/15 px-4 text-[12px] font-medium text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                         >
-                          Try again
+                          Open in your player
                         </button>
-                      )
+                        <button
+                          type="button"
+                          disabled
+                          title="Release switching is being wired in."
+                          className="inline-flex h-9 cursor-not-allowed items-center rounded-full border border-white/10 px-4 text-[12px] font-medium text-white/35"
+                        >
+                          Switch here soon
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </div>
