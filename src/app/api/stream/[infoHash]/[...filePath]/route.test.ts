@@ -9,7 +9,11 @@ import type {
   BuiltinStreamLookup,
   BuiltinStreamTorrent,
 } from "@/lib/clients/builtin-engine";
-import { openVerifiedDiskStream } from "@/lib/clients/disk-fastpath";
+import {
+  diskFastPathVerificationCacheStatsForTests,
+  openVerifiedDiskStream,
+  resetDiskFastPathVerificationCacheForTests,
+} from "@/lib/clients/disk-fastpath";
 import {
   OPEN_ENDED_RANGE_CAP_BYTES,
   handleStreamFileRequest,
@@ -643,6 +647,103 @@ async function main() {
         assert.equal(body[0], byteAt(512));
       } finally {
         await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    await check("disk hash verification memoises positive pieces only", async () => {
+      resetStreamPrefetchForTests();
+      resetDiskFastPathVerificationCacheForTests();
+      const disk = await makeDiskBackedTorrent({
+        length: 2048,
+        pieceLength: 1024,
+        verifiedPieces: [],
+      });
+      try {
+        const bytes = new Uint8Array(2048);
+        for (let i = 0; i < bytes.length; i += 1) bytes[i] = byteAt(i);
+        Object.assign(disk.torrent, {
+          ready: false,
+          length: 2048,
+          lastPieceLength: 1024,
+          _hashes: pieceHashes(bytes, 1024),
+          bitfield: { get: () => false },
+        });
+        disk.file.stream = () => {
+          throw new Error("verified disk cache should not touch WebTorrent stream");
+        };
+        for (const range of ["bytes=0-99", "bytes=100-199"]) {
+          const res = await handleStreamFileRequest(
+            new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+              headers: { range },
+            }),
+            { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+            depsFor(disk.torrent, disk.file),
+          );
+          assert.equal(res.status, 206);
+          assert.equal((await bodyBytes(res)).length, 100);
+        }
+        const stats = diskFastPathVerificationCacheStatsForTests();
+        assert.equal(stats.stores, 1);
+        assert.equal(stats.hits, 1);
+      } finally {
+        await disk.cleanup();
+      }
+    });
+
+    await check("disk hash cache invalidates when a file changes", async () => {
+      resetStreamPrefetchForTests();
+      resetDiskFastPathVerificationCacheForTests();
+      const disk = await makeDiskBackedTorrent({
+        length: 2048,
+        pieceLength: 1024,
+        verifiedPieces: [],
+      });
+      try {
+        const bytes = new Uint8Array(2048);
+        for (let i = 0; i < bytes.length; i += 1) bytes[i] = byteAt(i);
+        Object.assign(disk.torrent, {
+          ready: false,
+          length: 2048,
+          lastPieceLength: 1024,
+          _hashes: pieceHashes(bytes, 1024),
+          bitfield: { get: () => false },
+        });
+        const first = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=0-99" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          depsFor(disk.torrent, disk.file),
+        );
+        assert.equal(first.status, 206);
+        assert.equal((await bodyBytes(first)).length, 100);
+
+        const changed = new Uint8Array(bytes);
+        changed[0] ^= 0xff;
+        const diskPath = path.join(disk.root, "Folder", "Movie.mkv");
+        await fs.writeFile(diskPath, changed);
+        const future = new Date(Date.now() + 10_000);
+        await fs.utimes(diskPath, future, future);
+
+        let streams = 0;
+        const original = disk.file.stream;
+        disk.file.stream = (opts) => {
+          streams += 1;
+          return original.call(disk.file, opts);
+        };
+        const second = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=0-99" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          depsFor(disk.torrent, disk.file),
+        );
+        assert.equal(second.status, 206);
+        assert.equal((await bodyBytes(second)).length, 100);
+        assert.equal(streams, 1, "changed disk bytes must be rechecked, not served from cache");
+        assert.equal(diskFastPathVerificationCacheStatsForTests().invalidations, 1);
+      } finally {
+        await disk.cleanup();
       }
     });
 
