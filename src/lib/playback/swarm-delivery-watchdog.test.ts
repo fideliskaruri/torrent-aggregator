@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { resetSwarmWatch, swarmDeliveryTick, type SwarmWatchDeps } from "./swarm-delivery-watchdog";
 import { MAX_FAILOVER_ATTEMPTS } from "./failover";
+import type { SwarmVerdict } from "./candidates";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 
@@ -204,6 +205,29 @@ async function run() {
     }
     assert.deepEqual(h.started, [hash(2)], "started the alternate release");
     assert.deepEqual(h.abandoned, [hash(1)], "abandoned (paused) the undecodable one, kept its bytes");
+  }
+
+  // ── Failover consults cached swarm verdicts, skipping a measured-dead pick ─
+  {
+    resetSwarmWatch();
+    const h = harness("frozen");
+    // The next-ranked release after the opener is already measured dead. The
+    // verdict is authoritative truth the picker must consult — not burn an
+    // attempt failing over onto a swarm we already watched deliver nothing.
+    h.deps.readVerdicts = async () =>
+      new Map<string, SwarmVerdict>([[hash(2), "dead"]]);
+
+    let current = hash(1);
+    for (let i = 0; i < 60 && h.started.length === 0; i++) {
+      const r = await swarmDeliveryTick("verdict|S1E1", current, TARGET, h.deps);
+      current = r.currentHash;
+    }
+    assert.ok(h.started.length >= 1, "a stalled source still fails over");
+    assert.equal(
+      h.started[0],
+      hash(3),
+      "skipped the measured-dead next release and chose the next live one",
+    );
   }
 
   console.log("swarm-delivery-watchdog.test.ts: PASS");

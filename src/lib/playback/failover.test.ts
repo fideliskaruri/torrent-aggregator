@@ -7,6 +7,7 @@ import {
   failOver,
   MAX_FAILOVER_ATTEMPTS,
 } from "./failover";
+import type { SwarmVerdict } from "./candidates";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 
@@ -167,6 +168,63 @@ function run() {
     const pool = [unkeyable, release(2, 3)];
     const step = chooseNextRelease(pool, TARGET, []);
     assert.equal(step!.infoHash, hash(2), "skips the higher-seeded but unkeyable release");
+  }
+
+  // ── The cached swarm verdict is consulted, not just the ranker ─────────
+  // Regression for the recurring "truth computed then not consulted" defect:
+  // the verdict is authoritative and cached, so failover must not re-select a
+  // release the probe already measured dead when a live one is available.
+  {
+    // Top-ranked release (hash 1) is measured dead → skip it for a live one.
+    const deadTop = new Map<string, SwarmVerdict>([[hash(1), "dead"]]);
+    const picked = chooseNextRelease(POOL, TARGET, [], deadTop);
+    assert.ok(picked, "still finds a candidate when the top one is dead");
+    assert.equal(picked!.infoHash, hash(2), "skips the top-ranked release the probe measured dead");
+
+    // `unknown` is not `dead`: an unmeasured top release is chosen normally.
+    const unknownTop = new Map<string, SwarmVerdict>([[hash(1), "unknown"]]);
+    assert.equal(
+      chooseNextRelease(POOL, TARGET, [], unknownTop)!.infoHash,
+      hash(1),
+      "an unmeasured release is offered normally — unknown is not dead",
+    );
+
+    // A `good`/`weak` verdict never demotes a release either.
+    const goodTop = new Map<string, SwarmVerdict>([[hash(1), "good"]]);
+    assert.equal(
+      chooseNextRelease(POOL, TARGET, [], goodTop)!.infoHash,
+      hash(1),
+      "a measured-good release keeps its rank",
+    );
+
+    // Deprioritize, never hide: every untried release dead → still try one.
+    const allDead = new Map<string, SwarmVerdict>(
+      POOL.map((r) => [r.infoHash!, "dead" as SwarmVerdict]),
+    );
+    const lastResort = chooseNextRelease(POOL, TARGET, [], allDead);
+    assert.ok(lastResort, "when every candidate is measured dead, still try one rather than give up");
+    assert.equal(lastResort!.infoHash, hash(1), "falls back to the ranker's top as a last resort");
+
+    // No verdict map → behaviour identical to before measurement existed.
+    assert.equal(
+      chooseNextRelease(POOL, TARGET, [])!.infoHash,
+      hash(1),
+      "absent verdicts, selection is exactly rank order",
+    );
+
+    // failOver threads the verdict map through to selection.
+    let session = createFailoverSession("the-bear|S1E1|verdict");
+    session = commitSource(session, hash(1)); // opened on the top pick
+    const deadNext = new Map<string, SwarmVerdict>([[hash(2), "dead"]]);
+    const step = failOver(session, POOL, TARGET, MAX_FAILOVER_ATTEMPTS, "delivery", deadNext);
+    assert.equal(step.kind, "switch");
+    if (step.kind === "switch") {
+      assert.equal(
+        step.candidate.infoHash,
+        hash(3),
+        "failOver skips the measured-dead next release and picks the next live one",
+      );
+    }
   }
 
   console.log("failover.test.ts: PASS");
