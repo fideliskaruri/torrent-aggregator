@@ -22,20 +22,6 @@ import type {
 } from "./types";
 
 // ---------------------------------------------------------------------------
-// Title cleaning
-// ---------------------------------------------------------------------------
-
-/**
- * Card titles must be human-readable work names, never raw torrent/release
- * names. Any title sourced from a torrent name (DownloadHistory.title,
- * PlaybackProgress.title, EngineTorrent.name) must pass through this.
- * Watchlist titles (WatchListItem.title) are already curated and skip this.
- */
-function displayTitle(rawName: string): string {
-  return workIdentity(rawName).name || rawName;
-}
-
-// ---------------------------------------------------------------------------
 // Continue Watching
 // ---------------------------------------------------------------------------
 
@@ -47,7 +33,10 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
   const rows = await prisma.playbackProgress.findMany({
     where: { userId, completedAt: null },
     orderBy: { updatedAt: "desc" },
-    take: 20,
+    // Read wider than the rendered rail: multiple files from one work collapse
+    // to one card, and a rail should not become sparse just because the viewer
+    // sampled several episodes from the same show.
+    take: 60,
   });
 
   if (rows.length === 0) return null;
@@ -65,29 +54,50 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
   const hashes = [...new Set(rows.map((r) => r.infoHash.trim().toLowerCase()))];
   const torrents = await prisma.engineTorrent.findMany({
     where: { userId, hash: { in: hashes } },
-    select: { hash: true, progress: true, status: true },
+    select: { hash: true, name: true, progress: true, status: true },
   });
   const byHash = new Map(torrents.map((t) => [t.hash.toLowerCase(), t]));
 
-  const items: RailItem[] = rows.map((r) => ({
-    id: r.id,
-    title: displayTitle(r.title),
-    subtitle: formatEpisodeSubtitle(r.season, r.episode),
-    posterUrl: r.posterUrl,
-    backdropUrl: null,
-    availability: engineAvailability(byHash.get(r.infoHash.trim().toLowerCase())),
-    progressFraction:
-      r.durationSec && r.durationSec > 0
-        ? Math.min(r.positionSec / r.durationSec, 1)
-        : null,
-    resumePositionSec: r.positionSec,
-    infoHash: r.infoHash,
-    filePath: r.filePath,
-    watchListItemId: r.watchListItemId,
-    mediaType: null,
-    season: r.season,
-    episode: r.episode,
-  }));
+  // `PlaybackProgress.title` is supplied by the player and can be just the file
+  // label (`S01E02`). Use the torrent's release name when it exists, then run
+  // the same work collapse used by the other release-backed rails. That fixes
+  // both halves of the screenshot failure: one show no longer becomes two cards,
+  // and an episode coordinate never occupies the work-title slot.
+  const works = collapseReleasesByWork(
+    rows.map((r) => {
+      const hash = r.infoHash.trim().toLowerCase();
+      return {
+        name: byHash.get(hash)?.name ?? r.title,
+        sortAt: r.updatedAt,
+        hasArtwork: r.posterUrl != null,
+        value: r,
+      };
+    }),
+  );
+
+  const items: RailItem[] = works.slice(0, 20).map((work) => {
+    const r = work.value;
+    const torrent = byHash.get(r.infoHash.trim().toLowerCase());
+    return {
+      id: r.id,
+      title: work.title,
+      subtitle: formatEpisodeSubtitle(r.season, r.episode),
+      posterUrl: r.posterUrl,
+      backdropUrl: null,
+      availability: engineAvailability(torrent),
+      progressFraction:
+        r.durationSec && r.durationSec > 0
+          ? Math.min(r.positionSec / r.durationSec, 1)
+          : null,
+      resumePositionSec: r.positionSec,
+      infoHash: r.infoHash,
+      filePath: r.filePath,
+      watchListItemId: r.watchListItemId,
+      mediaType: null,
+      season: r.season,
+      episode: r.episode,
+    };
+  });
 
   return { id: "continue-watching", title: "Continue Watching", items };
 }
@@ -111,8 +121,8 @@ function engineAvailability(
 // ---------------------------------------------------------------------------
 
 /**
- * Fully downloaded torrents (progress === 1), grouped so a season pack is one
- * card, not 24. Uses the torrent name to group by show+season.
+ * Fully downloaded torrents (progress === 1), collapsed by work so a season
+ * pack is one card, not 24, and two releases of one show do not duplicate.
  *
  * Poster enrichment goes through the one artwork resolver (see ./artwork.ts),
  * the same one the discovery rails use. A miss is still `null` and the card
@@ -128,34 +138,21 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
 
   if (torrents.length === 0) return null;
 
-  // Group by a coarse key (normalized name without episode markers) so a
-  // season pack or multi-episode set is one card.
-  const groups = new Map<
-    string,
-    { torrent: (typeof torrents)[number]; count: number }
-  >();
-
-  for (const t of torrents) {
-    const key = coarseGroupKey(t.name);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.count += 1;
-      if (t.updatedAt > existing.torrent.updatedAt) {
-        existing.torrent = t;
-      }
-    } else {
-      groups.set(key, { torrent: t, count: 1 });
-    }
-  }
-
-  // One artwork pass for every group, resolved by work identity.
-  const cards = [...groups.values()].slice(0, 20);
+  // Collapse through the shared work rule, not a local "coarse" key. The local
+  // key kept dots, tracker prefixes and release suffixes in the bucket, so the
+  // same show could render as `Rick.and.Morty...` and `www.UIndex.org - Rick and
+  // Morty...` side by side even though `workIdentity()` already knew they were
+  // one series.
+  const cards = collapseReleasesByWork(
+    torrents.map((t) => ({ name: t.name, sortAt: t.updatedAt, value: t })),
+  ).slice(0, 20);
   const artwork = await resolveArtworkForReleases(
-    cards.map((g) => g.torrent.name),
+    cards.map((g) => g.name),
   );
 
   const items: RailItem[] = [];
-  for (const [i, { torrent, count }] of cards.entries()) {
+  for (const [i, work] of cards.entries()) {
+    const torrent = work.value;
     const art = artwork[i];
     items.push({
       id: torrent.id,
@@ -164,8 +161,8 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       // "Children of Dune" is a thing you can decide to watch. The scene name is
       // still the source of truth for identity — it is just not what a browse
       // rail should put in front of someone.
-      title: workIdentity(torrent.name).name || torrent.name,
-      subtitle: count > 1 ? `${count} files` : null,
+      title: work.title,
+      subtitle: work.releaseCount > 1 ? `${work.releaseCount} files` : null,
       posterUrl: art?.posterUrl ?? null,
       backdropUrl: art?.backdropUrl ?? null,
       availability: "ready",
@@ -344,7 +341,7 @@ async function buildRecentlyAdded(userId: string): Promise<Rail | null> {
     const art = artwork[i];
     return {
       id: h.id,
-      title: displayTitle(h.title),
+      title: work.title,
       // Only a collapsed group says anything worth saying here; a single grab
       // of an episode already says it in its own subtitle.
       subtitle:
@@ -438,24 +435,4 @@ function formatEpisodeSubtitle(
   if (season != null) return `Season ${season}`;
   if (episode != null) return `Episode ${episode}`;
   return null;
-}
-
-/**
- * Coarse grouping key for Ready to Play: strips episode markers,
- * release-group noise, and bracketed segments so multiple files from one
- * torrent / season collapse into one card.
- */
-function coarseGroupKey(name: string): string {
-  return name
-    .toLowerCase()
-    // Strip bracketed segments whole (fansub groups, hashes, etc.)
-    .replace(/[[({【][^\])}】]*[\])}】]/g, " ")
-    .replace(/\b(s\d{1,3}\s*e\d{1,4}|ep?\s*\d{1,4}|\d{1,3}x\d{1,4})\b/gi, " ")
-    .replace(/\b\d{3,4}p\b/gi, " ")
-    .replace(
-      /\b(hevc|x26[45]|h26[45]|aac|web[-_]?dl|bluray|hdtv|mkv|mp4)\b/gi,
-      " ",
-    )
-    .replace(/\s+/g, " ")
-    .trim();
 }

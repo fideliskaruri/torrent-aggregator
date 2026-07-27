@@ -12,6 +12,7 @@ import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { AvailabilityQuery } from "./availability";
 import { COMPLETION_THRESHOLD } from "./types";
 import type { AvailabilityState, Availability } from "./types";
+import { collapseReleasesByWork } from "./collapse";
 
 // Import the internal helpers we export for testing
 import {
@@ -590,40 +591,33 @@ check("formatEpisodeSubtitle produces correct labels", () => {
   }
 });
 
-check("coarse group key collapses multiple encodings of same show", () => {
-  // Validate the rule: different encodings of the same show + season should
-  // share a key, but different shows should not.
-  function coarseGroupKey(name: string): string {
-    return name
-      .toLowerCase()
-      .replace(/[[({【][^\])}】]*[\])}】]/g, " ")
-      .replace(
-        /\b(s\d{1,3}\s*e\d{1,4}|ep?\s*\d{1,4}|\d{1,3}x\d{1,4})\b/gi,
-        " ",
-      )
-      .replace(/\b\d{3,4}p\b/gi, " ")
-      .replace(
-        /\b(hevc|x26[45]|h26[45]|aac|web[-_]?dl|bluray|hdtv|mkv|mp4)\b/gi,
-        " ",
-      )
-      .replace(/\s+/g, " ")
-      .trim();
-  }
+check("release-backed rails use the shared work collapse", () => {
+  const rows = [
+    torrent({ name: "The Bear S03E01 1080p WEB-DL x265" }),
+    torrent({ name: "The Bear S03E02 720p HDTV x264" }),
+    torrent({ name: "www.UIndex.org - Rick and Morty S01E02 1080p WEB-DL x264" }),
+    torrent({ name: "Rick.and.Morty.S01E01.1080p.WEB-DL.x264-GROUP" }),
+    torrent({ name: "Breaking Bad S05E16 1080p" }),
+  ];
 
-  // Same show, different encodings → same key
-  const key1 = coarseGroupKey("The Bear S03E01 1080p WEB-DL x265");
-  const key2 = coarseGroupKey("The Bear S03E01 720p HDTV x264");
-  assert.equal(key1, key2, "same show different encodings should share key");
+  const collapsed = collapseReleasesByWork(
+    rows.map((row, i) => ({
+      name: row.name,
+      sortAt: new Date(Date.UTC(2024, 0, 1, 0, i, 0)),
+      value: row,
+    })),
+  );
 
-  // Different shows → different keys
-  const keyA = coarseGroupKey("Breaking Bad S05E16 1080p");
-  const keyB = coarseGroupKey("The Bear S03E01 1080p");
-  assert.notEqual(keyA, keyB, "different shows should not share key");
-
-  // Anime with brackets → stripped
-  const keyC = coarseGroupKey("[SubsPlease] One Piece - 1170 (1080p)");
-  const keyD = coarseGroupKey("[Erai-raws] One Piece - 1170 (720p)");
-  assert.equal(keyC, keyD, "anime same ep different groups should share key");
+  assert.deepEqual(
+    collapsed.map((work) => work.title),
+    ["The Bear", "Rick and Morty", "Breaking Bad"],
+    "punctuation, tracker prefixes and episode numbers must not split one show into several cards",
+  );
+  assert.deepEqual(
+    collapsed.map((work) => work.releaseCount),
+    [2, 2, 1],
+    "only releases of the same work should be folded into a single card",
+  );
 });
 
 // ---------------------------------------------------------------------------

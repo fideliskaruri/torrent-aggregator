@@ -31,6 +31,8 @@
  */
 import { workIdentity } from "@/lib/torrents/work-identity";
 
+export const UNKNOWN_WORK_TITLE = "Unknown title";
+
 /** One release, as the collapser needs to see it. */
 export interface CollapsibleRelease<T> {
   /**
@@ -55,6 +57,8 @@ export interface CollapsibleRelease<T> {
 export interface CollapsedWork<T> {
   /** `workIdentity().key`. Opaque; never parsed back apart or displayed. */
   workKey: string;
+  /** The visible card title, derived from the same release name as `workKey`. */
+  title: string;
   /** The surviving member: has artwork if any member did, and is the newest. */
   value: T;
   /** The surviving member's release name — the identity source. */
@@ -70,6 +74,9 @@ export interface CollapsedWork<T> {
  * caller that queried `orderBy: createdAt desc` gets its recency ordering back
  * unchanged. A name that yields no usable identity key falls back to the name
  * itself, so an unparseable release still gets a card rather than vanishing.
+ * The visible title is derived here too, because grouping on one parser and
+ * printing through another is how `Ready to Play` could collapse one way while
+ * `Continue Watching` put `S01E02` on a card.
  */
 export function collapseReleasesByWork<T>(
   releases: readonly CollapsibleRelease<T>[],
@@ -80,13 +87,15 @@ export function collapseReleasesByWork<T>(
     const name = release.name?.trim();
     if (!name) continue;
 
-    const key = workIdentity(name).key || name.toLowerCase();
+    const display = browseWorkDisplay(name);
+    const key = display.key;
     const hasArtwork = release.hasArtwork === true;
     const existing = byWork.get(key);
 
     if (!existing) {
       byWork.set(key, {
         workKey: key,
+        title: display.title,
         value: release.value,
         name,
         releaseCount: 1,
@@ -108,15 +117,58 @@ export function collapseReleasesByWork<T>(
     if (winsOnArtwork || winsOnRecency) {
       existing.value = release.value;
       existing.name = name;
+      existing.title = display.title;
       existing.sortAt = release.sortAt;
       existing.hasArtwork = hasArtwork;
     }
   }
 
-  return [...byWork.values()].map(({ workKey, value, name, releaseCount }) => ({
-    workKey,
-    value,
-    name,
-    releaseCount,
-  }));
+  return [...byWork.values()].map(
+    ({ workKey, title, value, name, releaseCount }) => ({
+      workKey,
+      title,
+      value,
+      name,
+      releaseCount,
+    }),
+  );
+}
+
+/**
+ * The rail-facing identity for one release name.
+ *
+ * `workIdentity()` deliberately falls back to the trimmed release when the
+ * structural cut leaves no name. That is safe for search grouping, where losing
+ * a release would be worse than keeping a noisy label, but it is not safe for a
+ * browse card: a bare `S01E02` is an episode coordinate, not a work. Keep the
+ * card so progress is not hidden, but print an explicit unknown title instead
+ * of promoting the coordinate into the title slot.
+ */
+export function browseWorkDisplay(name: string): { key: string; title: string } {
+  const trimmed = name.trim();
+  const identity = workIdentity(trimmed);
+  const derived = identity.name.trim();
+
+  if (derived && !isEpisodeOnlyLabel(derived)) {
+    return { key: identity.key || fallbackWorkKey(trimmed), title: derived };
+  }
+
+  const fallback =
+    trimmed && !isEpisodeOnlyLabel(trimmed) ? trimmed : UNKNOWN_WORK_TITLE;
+  return { key: fallbackWorkKey(trimmed), title: fallback };
+}
+
+function fallbackWorkKey(name: string): string {
+  return `release:${name.toLowerCase().replace(/\s+/g, " ").trim()}`;
+}
+
+function isEpisodeOnlyLabel(value: string): boolean {
+  const label = value
+    .toLowerCase()
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^(?:s\d{1,3}\s*e\d{1,4}|\d{1,3}x\d{1,4}|e(?:p(?:isode)?)?\s*\d{1,4}|episode\s+\d{1,4})$/.test(
+    label,
+  );
 }

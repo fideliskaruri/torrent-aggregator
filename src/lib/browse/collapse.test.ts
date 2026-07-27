@@ -2,7 +2,9 @@
  * Work-collapsing tests for the browse rails.
  *
  * The rule under test: **a rail shows works, not releases.** Two releases of
- * one film are one card; two films that merely share a title are two.
+ * one film are one card; two films that merely share a title are two, and the
+ * title printed on the card comes from the same work derivation that did the
+ * collapse.
  *
  * Table-driven over diverse inputs per AGENTS.md — different films, different
  * series, different sources of duplication (resolution, encode, release group,
@@ -96,6 +98,13 @@ const ONE_CARD_CASES: Array<{ name: string; releases: string[] }> = [
       "Inside.Out.2.2024.2160p.WEB-DL.HDR.x265",
     ],
   },
+  {
+    name: "punctuated and site-prefixed episodes of one show",
+    releases: [
+      "Rick.and.Morty.S01E01.1080p.WEB-DL.x264-GROUP",
+      "www.UIndex.org - Rick and Morty S01E02 1080p WEB-DL x264",
+    ],
+  },
 ];
 
 for (const tc of ONE_CARD_CASES) {
@@ -114,6 +123,15 @@ for (const tc of ONE_CARD_CASES) {
       collapsed[0].releaseCount,
       tc.releases.length,
       "releaseCount must count every member of the group",
+    );
+    assert.equal(
+      typeof collapsed[0].title,
+      "string",
+      "the collapser must return the visible card title with the grouping key",
+    );
+    assert.ok(
+      !/^s\d{1,3}e\d{1,4}$/i.test(collapsed[0].title),
+      "the visible card title must be a work name, not an episode code",
     );
   });
 }
@@ -258,6 +276,16 @@ check("a single release yields one card with releaseCount 1", () => {
   ]);
   assert.equal(collapsed.length, 1);
   assert.equal(collapsed[0].releaseCount, 1);
+});
+
+check("episode-only release names do not become visible card titles", () => {
+  const collapsed = collapseReleasesByWork([release("S01E02", 1)]);
+  assert.equal(collapsed.length, 1);
+  assert.equal(
+    collapsed[0].title,
+    "Unknown title",
+    "an episode code is not a work name; falling back to it recreates the Continue Watching bug",
+  );
 });
 
 // ---------------------------------------------------------------------------
