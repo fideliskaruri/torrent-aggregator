@@ -54,6 +54,7 @@ const GHOST_SHOW = `Ghost Harness ${RUN_ID}`;
 const WORK = path.join(repoRoot, ".e2e-instant-play", RUN_ID);
 const SEED_DIR = ensureDir(path.join(WORK, "seed"));
 const LEECH_DIR = ensureDir(path.join(WORK, "leech"));
+const APP_PORT = 3000;
 let PORT = 0;
 let BASE = "";
 
@@ -229,7 +230,8 @@ async function seedDatabase(seeds: SeededTorrent[]) {
 type DevServer = { child: ChildProcess; base: string };
 
 async function startDevServer(expectHashes: string[]): Promise<DevServer> {
-  PORT = await freePort();
+  PORT = APP_PORT;
+  await assertPortFree(PORT);
   BASE = `http://127.0.0.1:${PORT}`;
   const child = spawn(
     process.execPath,
@@ -279,14 +281,23 @@ async function startDevServer(expectHashes: string[]): Promise<DevServer> {
   throw new Error(`dev server did not rehydrate seeded torrents (${last})`);
 }
 
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
+// The app always runs on 3000. A random free port would let a stale dev server
+// keep holding 3000 while the harness quietly measured a different one, so an
+// occupied port is a hard error here, not something to route around.
+async function assertPortFree(port: number): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
     const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      const port = typeof addr === "object" && addr ? addr.port : 0;
-      server.close(() => resolve(port));
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      reject(
+        err.code === "EADDRINUSE"
+          ? new Error(
+              `port ${port} is already in use — stop whatever holds it (a stale \`next dev\` or a previous harness run) and try again`,
+            )
+          : err,
+      );
+    });
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolve());
     });
   });
 }

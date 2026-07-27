@@ -1,7 +1,6 @@
 import type { ReadStream } from "node:fs";
 import { open, readFile, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
 import type {
   BuiltinStreamFile,
   BuiltinStreamTorrent,
@@ -151,9 +150,18 @@ function fileHandleStreamToWeb(
   nodeStream: ReadStream,
   opts: DiskFastPathOptions,
 ): ReadableStream<Uint8Array> {
-  const inner = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
-  const reader = inner.getReader();
+  // Deliberately NOT `Readable.toWeb`. That adapter subscribes to 'data' and
+  // enqueues from the event handler with no check that its controller is still
+  // open, so a chunk already in flight when the reader is cancelled throws
+  // "Invalid state: Controller is already closed" from inside `emit`. Nothing
+  // owns that throw -- it is not on our await chain -- so it escapes as an
+  // uncaughtException and takes the server's in-flight requests with it. A
+  // browser cancels a range request on every seek, so this fired on ordinary
+  // playback. Reading the Node stream directly keeps every chunk on a promise
+  // we await, which is the only way the guards below can hold.
+  const iterator = nodeStream[Symbol.asyncIterator]();
   let closeStarted: Promise<void> | null = null;
+  let closed = false;
 
   const closeOnce = (reason: "end" | "error" | "cancel" | "close") => {
     if (!closeStarted) {
@@ -172,26 +180,35 @@ function fileHandleStreamToWeb(
 
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
+      if (closed) return;
       try {
-        const next = await reader.read();
+        const next = await iterator.next();
+        // Re-check: a cancel can land while we were awaiting the chunk.
+        if (closed) return;
         if (next.done) {
+          closed = true;
           controller.close();
           await closeOnce("end");
           return;
         }
-        controller.enqueue(next.value);
+        controller.enqueue(new Uint8Array(next.value));
       } catch (err) {
         await closeOnce("error");
+        // A cancelled stream has no controller left to reject.
+        if (closed) return;
+        closed = true;
         throw err;
       }
     },
     async cancel(reason) {
+      closed = true;
       // Exactly one object owns this descriptor: the FileHandle. The Node stream
       // is only a reader over it. A browser seek or tab close cancels the web
       // stream before EOF, so explicitly destroy the Node side and close the
       // handle here instead of waiting for GC to discover an abandoned file.
+      // `return()` destroys the readable and settles any parked `next()`.
+      await iterator.return?.().catch(() => undefined);
       nodeStream.destroy(reason instanceof Error ? reason : undefined);
-      await reader.cancel(reason).catch(() => undefined);
       await closeOnce("cancel");
     },
   });
