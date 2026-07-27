@@ -207,8 +207,8 @@ async function main() {
     const full = await page.evaluate(READ_CONTROLS);
     await page.screenshot({ path: path.join(outDir, "fullscreen.png") });
 
-    const a = new Set(inline.controls as string[]);
-    const b = new Set(full.controls as string[]);
+    const a = new Set((inline as { controls: string[] }).controls);
+    const b = new Set((full as { controls: string[] }).controls);
     const onlyInline = [...a].filter((x) => !b.has(x));
     const onlyFull = [...b].filter((x) => !a.has(x));
 
