@@ -27,7 +27,7 @@
  *    blocks — the bug that told `/watchlist` users their library was empty
  *    when the request had actually failed.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Download, Loader2, Play, Search } from "lucide-react";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
@@ -51,7 +51,8 @@ import { MoreLikeThis } from "./more-like-this";
 import { titleFacts } from "./title-facts";
 import {
   resolvePrimaryAction,
-  titleActionLabel,
+  shouldRunTitleAction,
+  titleActionButtonLabel,
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
@@ -81,6 +82,7 @@ export function TitleDetail(props: TitleDetailProps) {
   const [statuses, setStatuses] = useState<Record<string, TitleActionStatus>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [playing, setPlaying] = useState<PlayTarget | null>(null);
+  const spentRemoteActions = useRef(new Set<string>());
 
   const url = useMemo(
     () => buildDetailUrl({ ...props, season }),
@@ -112,6 +114,8 @@ export function TitleDetail(props: TitleDetailProps) {
 
   const runAction = useCallback(
     async (action: TitleAction, key: string, label: string) => {
+      if (!shouldRunTitleAction(action, statusFor(key))) return;
+
       if (action.kind === "play") {
         setPlaying({
           infoHash: action.infoHash,
@@ -123,6 +127,8 @@ export function TitleDetail(props: TitleDetailProps) {
       }
 
       const streaming = action.kind === "stream";
+      if (spentRemoteActions.current.has(key)) return;
+      spentRemoteActions.current.add(key);
 
       setStatuses((prev) => ({ ...prev, [key]: "pending" }));
       setNotice(null);
@@ -174,11 +180,12 @@ export function TitleDetail(props: TitleDetailProps) {
         setNotice(body.message ?? `${label} sent to your client.`);
         refetch();
       } catch (err) {
+        spentRemoteActions.current.delete(key);
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
         setNotice(err instanceof Error ? err.message : `Could not get ${label}`);
       }
     },
-    [props.workKey, props.title, props.mediaType, props.year, refetch],
+    [props.workKey, props.title, props.mediaType, props.year, refetch, statusFor],
   );
 
   // One exclusive chain. A failed request must never be narrowed into "there
@@ -272,7 +279,7 @@ function TitleContent({
   const title = cleanDisplayTitle(payload.title);
   const primary = resolvePrimaryAction(payload);
   const primaryStatus = statusFor(PRIMARY_KEY);
-  const primaryLabel = titleActionLabel(primary, primaryStatus);
+  const primaryLabel = titleActionButtonLabel(primary, primaryStatus);
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
@@ -318,6 +325,12 @@ function TitleContent({
     primaryStatus,
     primarySubtitle,
   );
+  const primaryCanRun = shouldRunTitleAction(primary, primaryStatus);
+  const primaryStatusId = "title-primary-status";
+  const primaryDescribedBy =
+    primaryStatusText || (downloaded != null && downloaded < 100)
+      ? primaryStatusId
+      : undefined;
   const primaryHint =
     payload.isSeries && primarySubtitle
       ? `${
@@ -427,7 +440,9 @@ function TitleContent({
                       ? `${primaryLabel} — ${title} ${primarySubtitle}`
                       : `${primaryLabel} — ${title}`
                   }
-                  disabled={primaryStatus === "pending"}
+                  aria-busy={primaryStatus === "pending" || undefined}
+                  aria-describedby={primaryDescribedBy}
+                  disabled={!primaryCanRun}
                   onClick={() =>
                     onAction(
                       primary,
@@ -466,6 +481,7 @@ function TitleContent({
 
               {primaryStatusText || (downloaded != null && downloaded < 100) ? (
                 <div
+                  id={primaryStatusId}
                   className="mt-3 max-w-sm space-y-1.5 text-[12px] text-[var(--text-tertiary)]"
                   role={primaryStatusText ? "status" : undefined}
                 >

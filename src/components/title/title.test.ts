@@ -30,7 +30,9 @@ import {
   resolveEpisodeAction,
   resolvePlayableAction,
   resolvePrimaryAction,
-  titleActionLabel,
+  shouldRunTitleAction,
+  titleActionButtonLabel,
+  type TitleActionStatus,
 } from "./title-actions";
 import { titleFacts } from "./title-facts";
 import {
@@ -739,29 +741,58 @@ check("resolveEpisodeAction: a partly-watched episode resumes", () => {
 // Labels
 // ---------------------------------------------------------------------------
 
-check("titleActionLabel: primary slot keeps the action word while status moves below", () => {
+check("titleActionButtonLabel: primary slot keeps the action word while status moves below", () => {
   const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
-  assert.equal(titleActionLabel(get, "idle"), "Get");
-  assert.equal(titleActionLabel(get, "pending"), "Get");
-  assert.equal(titleActionLabel(get, "done"), "Get");
-  assert.equal(titleActionLabel(get, "error"), "Try again");
+  assert.equal(titleActionButtonLabel(get, "idle"), "Get");
+  assert.equal(titleActionButtonLabel(get, "pending"), "Get");
+  assert.equal(titleActionButtonLabel(get, "done"), "Get");
+  assert.equal(titleActionButtonLabel(get, "error"), "Try again");
 });
 
-check("titleActionLabel: a stream stays a Play action while it looks", () => {
+check("titleActionButtonLabel: a stream stays a Play action while it looks", () => {
   const stream = resolvePlayableAction({ availability: "fetchable", infoHash: null });
-  assert.equal(titleActionLabel(stream, "idle"), "Play");
-  assert.equal(titleActionLabel(stream, "pending"), "Play");
-  assert.equal(titleActionLabel(stream, "error"), "Try again");
+  assert.equal(titleActionButtonLabel(stream, "idle"), "Play");
+  assert.equal(titleActionButtonLabel(stream, "pending"), "Play");
+  assert.equal(titleActionButtonLabel(stream, "error"), "Try again");
   for (const status of ["idle", "pending", "done", "error"] as const) {
-    assert.ok(!/search/i.test(titleActionLabel(stream, status)));
+    assert.ok(!/search/i.test(titleActionButtonLabel(stream, status)));
   }
 });
 
-check("titleActionLabel: play never says Search in any status", () => {
+check("titleActionButtonLabel: play never says Search in any status", () => {
   const play = resolvePlayableAction({ availability: "ready", infoHash: "h" });
   for (const status of ["idle", "pending", "done", "error"] as const) {
-    assert.ok(!/search/i.test(titleActionLabel(play, status)));
+    assert.ok(!/search/i.test(titleActionButtonLabel(play, status)));
   }
+});
+
+check("shouldRunTitleAction: pressing get twice after success submits one grab", () => {
+  const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
+  let status: TitleActionStatus = "idle";
+  let grabs = 0;
+
+  const press = () => {
+    if (!shouldRunTitleAction(get, status)) return;
+    grabs += 1;
+    status = "done";
+  };
+
+  press();
+  press();
+
+  assert.equal(grabs, 1);
+});
+
+check("shouldRunTitleAction: done only spends remote grab actions", () => {
+  const play = resolvePlayableAction({ availability: "ready", infoHash: "h" });
+  const stream = resolvePlayableAction({ availability: "fetchable", infoHash: null });
+  const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
+
+  assert.equal(shouldRunTitleAction(play, "done"), true);
+  assert.equal(shouldRunTitleAction(stream, "done"), false);
+  assert.equal(shouldRunTitleAction(get, "done"), false);
+  assert.equal(shouldRunTitleAction(get, "error"), true);
+  assert.equal(shouldRunTitleAction(stream, "pending"), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -904,7 +935,7 @@ check("mergeEpisodes: an added row is gettable, never a dead control", () => {
   assert.equal(action.kind, "stream");
   assert.equal(action.season, 3);
   assert.equal(action.episode, 7);
-  assert.ok(!/search/i.test(titleActionLabel(action, "idle")));
+  assert.ok(!/search/i.test(titleActionButtonLabel(action, "idle")));
 });
 
 check("mergeSeasons: the tabs are what we hold plus what the show has", () => {

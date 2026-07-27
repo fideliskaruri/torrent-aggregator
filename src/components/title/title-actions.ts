@@ -282,19 +282,36 @@ export function nextUpTarget(payload: TitleDetailPayload): {
 }
 
 // ---------------------------------------------------------------------------
-// Labels
+// Button state
 // ---------------------------------------------------------------------------
 
 /** Where an in-flight action has got to. One grab at a time, per control. */
 export type TitleActionStatus = "idle" | "pending" | "done" | "error";
 
 /**
- * The button text for an action in a given status.
+ * Whether pressing the button may run side effects now.
  *
- * Status is rendered beside the progress row. The primary slot keeps saying
- * what a press does, so it never becomes an unclickable state readout.
+ * The label no longer prevents duplicate grabs; it stays an action word while
+ * status lives beside the progress row. This predicate is the guard instead:
+ * pending actions cannot be clicked, and successful remote grabs stay spent
+ * until the refreshed payload resolves them into a real `play` action.
  */
-export function titleActionLabel(
+export function shouldRunTitleAction(
+  action: TitleAction,
+  status: TitleActionStatus,
+): boolean {
+  if (status === "pending") return false;
+  if (status === "done" && action.kind !== "play") return false;
+  return true;
+}
+
+/**
+ * The button's visible action text.
+ *
+ * This only folds failures into a retry label. Progress and completion are not
+ * encoded here, because state belongs in the status row, not the primary slot.
+ */
+export function titleActionButtonLabel(
   action: TitleAction,
   status: TitleActionStatus,
 ): string {

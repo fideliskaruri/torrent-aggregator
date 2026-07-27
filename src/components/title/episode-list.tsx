@@ -41,7 +41,8 @@ import {
 } from "./merge-extras";
 import {
   resolveEpisodeAction,
-  titleActionLabel,
+  shouldRunTitleAction,
+  titleActionButtonLabel,
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
@@ -162,7 +163,8 @@ function EpisodeRow({
   onAction: (action: TitleAction, label: string) => void;
 }) {
   const action = resolveEpisodeAction(episode);
-  const label = titleActionLabel(action, status);
+  const label = titleActionButtonLabel(action, status);
+  const canRun = shouldRunTitleAction(action, status);
   const downloaded = progressPercent(episode.downloadFraction);
   const watched = progressPercent(episode.watchedFraction);
   const resumeAt = formatClock(episode.resumePositionSec);
@@ -276,7 +278,8 @@ function EpisodeRow({
           data-episode-action
           data-action-kind={action.kind}
           aria-label={`${label} — ${episode.label}`}
-          disabled={status === "pending"}
+          aria-busy={status === "pending" || undefined}
+          disabled={!canRun}
           onClick={() => onAction(action, episode.label)}
           className="shrink-0 self-center"
         >
