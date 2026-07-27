@@ -8,7 +8,7 @@
  * Two rail defects shipped that no unit test could see, because both only
  * appear once there is *real data with a specific shape* in the database:
  *
- *   1. **Borrowed posters.** The Ready to Play poster lookup matched a torrent
+ *   1. **Borrowed posters.** Release-backed rail poster lookup matched a torrent
  *      against `CachedMetadata` with bidirectional containment, on the *raw
  *      torrent name*. A single catalog row titled "Dune" therefore lent its
  *      poster to "Children.of.Dune.S01.COMPLETE.720p...", because that name
@@ -31,6 +31,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../src/lib/prisma";
 import { buildBrowsePayload } from "../src/lib/browse/rails";
+import { shutdownBuiltinEngine } from "../src/lib/clients/builtin-engine";
 import type { Rail, RailItem } from "../src/lib/browse/types";
 
 const userId = `rails-test-${randomUUID()}`;
@@ -84,7 +85,7 @@ async function seed(): Promise<void> {
 
   await prisma.engineTorrent.createMany({
     data: [
-      // Ready to Play: a *different* work whose name contains "dune".
+      // Completed DB row: a *different* work whose name contains "dune".
       {
         userId,
         hash: "a".repeat(40),
@@ -109,6 +110,15 @@ async function seed(): Promise<void> {
         progress: 1,
       },
     ],
+  });
+
+  await prisma.downloadHistory.create({
+    data: {
+      userId,
+      title: "Children.of.Dune.S01.COMPLETE.720p.BluRay.x264-GalaxyTV",
+      infoHash: "a".repeat(40),
+      status: "sent",
+    },
   });
 
   await prisma.playbackProgress.createMany({
@@ -149,6 +159,7 @@ async function seed(): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
+  await shutdownBuiltinEngine().catch(() => undefined);
   await prisma.cachedMetadata
     .deleteMany({ where: { cacheKey: { in: metadataKeys } } })
     .catch(() => undefined);
@@ -166,13 +177,14 @@ async function main(): Promise<void> {
 
   // --- Poster borrowing ---------------------------------------------------
   const ready = rail(rails, "ready-to-play");
-  const children = item(ready, "children of dune");
+  const recent = rail(rails, "recently-added");
+  const children = item(recent, "children of dune");
 
-  check("Ready to Play contains the completed torrent", () => {
+  check("Recently Added contains the completed release", () => {
     assert.ok(
       children,
       `expected a Children of Dune card; got ${JSON.stringify(
-        ready?.items.map((i) => i.title) ?? null,
+        recent?.items.map((i) => i.title) ?? null,
       )}`,
     );
   });
@@ -194,6 +206,15 @@ async function main(): Promise<void> {
       `Children of Dune is wearing the film Dune's artwork. A catalog title may ` +
         `refine a name, never blur one — and matching must run on the derived ` +
         `work name, not the raw torrent name`,
+    );
+  });
+
+  check("a completed DB row absent from the live engine is not called ready", () => {
+    const unbackedReady = item(ready, "children of dune");
+    assert.equal(
+      unbackedReady,
+      undefined,
+      "Ready to Play may only contain torrents the live engine can actually serve",
     );
   });
 

@@ -16,6 +16,10 @@ import prisma from "@/lib/prisma";
 import { isViable } from "@/lib/torrents/quality";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { normalizeTitle } from "@/lib/utils";
+import {
+  getBuiltinTorrentPresenceForAvailability,
+  type BuiltinTorrentPresence,
+} from "@/lib/clients/builtin-engine";
 import type { SearchResponse } from "@/lib/torrents/types";
 import type { Availability } from "./types";
 
@@ -42,6 +46,7 @@ function getCached(key: string): Availability | null {
 }
 
 function setCached(key: string, value: Availability): void {
+  if (value.state === null) return;
   memoryCache.set(key, { expires: Date.now() + MEMORY_TTL_MS, value });
 }
 
@@ -89,7 +94,11 @@ export async function resolveAvailability(
     select: { hash: true, name: true, progress: true, status: true },
   });
 
-  const result = await computeAvailabilityWithTorrents(query, torrents);
+  const result = await computeAvailabilityWithTorrents(
+    userId,
+    query,
+    torrents,
+  );
   setCached(cacheKey, result);
   return result;
 }
@@ -118,7 +127,7 @@ export async function resolveAvailabilityBatch(
     const cacheKey = availCacheKey(userId, q);
     const cached = getCached(cacheKey);
     if (cached) return cached;
-    return resolveLocalOnly(q, allTorrents);
+    return resolveLocalOnly(q, allTorrents, readyPresenceForUser(userId));
   });
 
   // Identify which queries still need the search-cache check (got null above,
@@ -175,7 +184,7 @@ export async function resolveLocalAvailabilityBatch(
   });
 
   return queries.map((q) => {
-    const local = resolveLocalOnly(q, allTorrents);
+    const local = resolveLocalOnly(q, allTorrents, readyPresenceForUser(userId));
     // null means no local torrent — report unknown, NOT unavailable
     return local ?? { state: null };
   });
@@ -203,6 +212,13 @@ interface TorrentRow {
   name: string;
   progress: number;
   status: string;
+}
+
+type ReadyTorrentPresence = BuiltinTorrentPresence;
+type ReadyPresenceLookup = (hash: string) => ReadyTorrentPresence;
+
+function readyPresenceForUser(userId: string): ReadyPresenceLookup {
+  return (hash) => getBuiltinTorrentPresenceForAvailability(userId, hash);
 }
 
 /**
@@ -256,15 +272,25 @@ function torrentMatchesQuery(
 function resolveLocalOnly(
   query: AvailabilityQuery,
   torrents: TorrentRow[],
+  readyPresence: ReadyPresenceLookup,
 ): Availability | null {
   const matching = torrents.filter((t) => torrentMatchesQuery(t, query));
 
-  const ready = matching.find(
+  const readyCandidates = matching.filter(
     (t) => t.progress === 1 && t.status !== "removed",
   );
-  if (ready) {
-    return { state: "ready", infoHash: ready.hash };
+  let sawUnknownReady = false;
+  let sawAbsentReady = false;
+  for (const ready of readyCandidates) {
+    const presence = readyPresence(ready.hash);
+    if (presence === "present") {
+      return { state: "ready", infoHash: ready.hash };
+    }
+    if (presence === "unknown") sawUnknownReady = true;
+    if (presence === "absent") sawAbsentReady = true;
   }
+
+  if (sawUnknownReady) return { state: null };
 
   const warm = matching.find(
     (t) =>
@@ -277,6 +303,13 @@ function resolveLocalOnly(
     return { state: "warm", infoHash: warm.hash, progress: warm.progress };
   }
 
+  if (sawAbsentReady) {
+    // A completed DB row proves the user acquired this once, but a rehydrated
+    // engine without the hash cannot serve bytes now. `fetchable` is the honest
+    // downgrade: try to recover/re-get it, without falsely claiming it is gone.
+    return { state: "fetchable" };
+  }
+
   return null;
 }
 
@@ -285,10 +318,11 @@ function resolveLocalOnly(
  * for batch items that had no local torrent.
  */
 async function computeAvailabilityWithTorrents(
+  userId: string,
   query: AvailabilityQuery,
   torrents: TorrentRow[],
 ): Promise<Availability> {
-  const local = resolveLocalOnly(query, torrents);
+  const local = resolveLocalOnly(query, torrents, readyPresenceForUser(userId));
   if (local) return local;
 
   // No local torrent — check the search cache
@@ -462,5 +496,6 @@ export {
   hasViableMatch as _hasViableMatch,
   resolveLocalOnly as _resolveLocalOnly,
   resolveFromSearchCache as _resolveFromSearchCache,
+  type ReadyTorrentPresence as _ReadyTorrentPresence,
   type TorrentRow as _TorrentRow,
 };

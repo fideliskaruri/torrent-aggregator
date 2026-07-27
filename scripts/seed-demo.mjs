@@ -404,7 +404,9 @@ async function main() {
     // has ever heard of therefore makes the engine adopt the row, park it at
     // "metaDL" forever, and overwrite progress with 0 — which silently emptied
     // the Ready to Play rail minutes after a successful seed. A fixture must
-    // not pretend to be a live swarm.
+    // not pretend to be a live swarm. Because these rows are intentionally not
+    // engine-backed, availability now downgrades them to `fetchable`; an empty
+    // demo "Ready to Play" rail is expected and correct.
     for (const t of [...READY, ...DOWNLOADING, ...WATCHING, ...COMPLETED]) {
       const hash = fakeHash(t.key);
       const progress = t.progress ?? 1;

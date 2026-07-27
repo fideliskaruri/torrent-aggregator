@@ -14,6 +14,7 @@ import { resolveArtworkForReleases } from "./artwork";
 import { collapseReleasesByWork } from "./collapse";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { getBuiltinTorrentPresenceForAvailability } from "@/lib/clients/builtin-engine";
 import type {
   Rail,
   RailItem,
@@ -84,7 +85,7 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
       subtitle: formatEpisodeSubtitle(r.season, r.episode),
       posterUrl: r.posterUrl,
       backdropUrl: null,
-      availability: engineAvailability(torrent),
+      availability: engineAvailability(userId, torrent),
       progressFraction:
         r.durationSec && r.durationSec > 0
           ? Math.min(r.positionSec / r.durationSec, 1)
@@ -108,10 +109,16 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
  * same as `unavailable` — see ./availability.ts.
  */
 function engineAvailability(
-  t: { progress: number; status: string } | undefined,
+  userId: string,
+  t: { hash: string; progress: number; status: string } | undefined,
 ): AvailabilityState | null {
   if (!t || t.status === "removed") return null;
-  if (t.progress === 1) return "ready";
+  if (t.progress === 1) {
+    const presence = getBuiltinTorrentPresenceForAvailability(userId, t.hash);
+    if (presence === "present") return "ready";
+    if (presence === "absent") return "fetchable";
+    return null;
+  }
   if (t.progress > 0 && t.status !== "error") return "warm";
   return null;
 }
@@ -165,7 +172,7 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       subtitle: work.releaseCount > 1 ? `${work.releaseCount} files` : null,
       posterUrl: art?.posterUrl ?? null,
       backdropUrl: art?.backdropUrl ?? null,
-      availability: "ready",
+      availability: engineAvailability(userId, torrent),
       progressFraction: null,
       resumePositionSec: null,
       infoHash: torrent.hash,
@@ -177,9 +184,18 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
     });
   }
 
-  if (items.length === 0) return null;
+  return readyToPlayRailFromItems(items);
+}
 
-  return { id: "ready-to-play", title: "Ready to Play", items };
+function readyToPlayRailFromItems(items: RailItem[]): Rail | null {
+  // `fetchable` here means the rehydrated engine definitively lacks the hash, so
+  // it is not ready. `null` means cold-start / still checking; keep the card so
+  // the rail does not vanish for content the DB says the user completed.
+  const readyItems = items.filter((item) => item.availability !== "fetchable");
+
+  if (readyItems.length === 0) return null;
+
+  return { id: "ready-to-play", title: "Ready to Play", items: readyItems };
 }
 
 // ---------------------------------------------------------------------------
@@ -436,3 +452,5 @@ function formatEpisodeSubtitle(
   if (episode != null) return `Episode ${episode}`;
   return null;
 }
+
+export { readyToPlayRailFromItems as _readyToPlayRailFromItems };

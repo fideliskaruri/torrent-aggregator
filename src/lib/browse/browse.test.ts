@@ -11,8 +11,9 @@ import assert from "node:assert/strict";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { AvailabilityQuery } from "./availability";
 import { COMPLETION_THRESHOLD } from "./types";
-import type { AvailabilityState, Availability } from "./types";
+import type { AvailabilityState, Availability, RailItem } from "./types";
 import { collapseReleasesByWork } from "./collapse";
+import { _readyToPlayRailFromItems as readyToPlayRailFromItems } from "./rails";
 
 // Import the internal helpers we export for testing
 import {
@@ -20,6 +21,7 @@ import {
   _hasViableMatch as hasViableMatch,
   _resolveLocalOnly as resolveLocalOnly,
   _resolveFromSearchCache as resolveFromSearchCache,
+  type _ReadyTorrentPresence as ReadyTorrentPresence,
   type _TorrentRow as TorrentRow,
 } from "./availability";
 
@@ -78,6 +80,35 @@ function searchResponse(results: TorrentResult[]): SearchResponse {
     pageSize: 20,
     totalPages: 1,
     sources: [],
+  };
+}
+
+function enginePresence(
+  states: Record<string, ReadyTorrentPresence>,
+): (hash: string) => ReadyTorrentPresence {
+  return (hash) => states[hash.toLowerCase()] ?? "unknown";
+}
+
+const engineHoldsEverything = () => "present" as const;
+
+function railItem(
+  partial: Partial<RailItem> & { id: string; title: string },
+): RailItem {
+  return {
+    id: partial.id,
+    title: partial.title,
+    subtitle: partial.subtitle ?? null,
+    posterUrl: partial.posterUrl ?? null,
+    backdropUrl: partial.backdropUrl ?? null,
+    availability: partial.availability ?? null,
+    progressFraction: partial.progressFraction ?? null,
+    resumePositionSec: partial.resumePositionSec ?? null,
+    infoHash: partial.infoHash ?? null,
+    filePath: partial.filePath ?? null,
+    watchListItemId: partial.watchListItemId ?? null,
+    mediaType: partial.mediaType ?? null,
+    season: partial.season ?? null,
+    episode: partial.episode ?? null,
   };
 }
 
@@ -305,6 +336,7 @@ interface AvailLocalCase {
   name: string;
   torrents: TorrentRow[];
   query: AvailabilityQuery;
+  engine?: (hash: string) => ReadyTorrentPresence;
   /** null means "no local torrent found" */
   expected: Availability | null;
 }
@@ -321,7 +353,50 @@ const AVAIL_LOCAL_CASES: AvailLocalCase[] = [
       }),
     ],
     query: { title: "The Bear", season: 3, episode: 1 },
+    engine: enginePresence({ bear301hash: "present" }),
     expected: { state: "ready", infoHash: "bear301hash" },
+  },
+  {
+    name: "completed row with live engine handle → ready",
+    torrents: [
+      torrent({
+        name: "Severance S02E01 1080p WEB-DL",
+        hash: "severance201",
+        progress: 1,
+        status: "seeding",
+      }),
+    ],
+    query: { title: "Severance", season: 2, episode: 1 },
+    engine: enginePresence({ severance201: "present" }),
+    expected: { state: "ready", infoHash: "severance201" },
+  },
+  {
+    name: "completed row absent from rehydrated engine → fetchable, not ready",
+    torrents: [
+      torrent({
+        name: "Silo S02E10 1080p WEB-DL",
+        hash: "silo210",
+        progress: 1,
+        status: "seeding",
+      }),
+    ],
+    query: { title: "Silo", season: 2, episode: 10 },
+    engine: enginePresence({ silo210: "absent" }),
+    expected: { state: "fetchable" },
+  },
+  {
+    name: "completed row while engine state is unknown → null, not unavailable",
+    torrents: [
+      torrent({
+        name: "Foundation S03E01 1080p WEB-DL",
+        hash: "foundation301",
+        progress: 1,
+        status: "seeding",
+      }),
+    ],
+    query: { title: "Foundation", season: 3, episode: 1 },
+    engine: enginePresence({ foundation301: "unknown" }),
+    expected: { state: null },
   },
   {
     name: "partially downloaded torrent with peers → warm",
@@ -400,13 +475,18 @@ const AVAIL_LOCAL_CASES: AvailLocalCase[] = [
       }),
     ],
     query: { title: "One Piece" },
+    engine: enginePresence({ "op1170-1080p": "present" }),
     expected: { state: "ready", infoHash: "op1170-1080p" },
   },
 ];
 
 for (const tc of AVAIL_LOCAL_CASES) {
   check(tc.name, () => {
-    const result = resolveLocalOnly(tc.query, tc.torrents);
+    const result = resolveLocalOnly(
+      tc.query,
+      tc.torrents,
+      tc.engine ?? engineHoldsEverything,
+    );
     if (tc.expected === null) {
       assert.equal(result, null, `expected null, got ${JSON.stringify(result)}`);
     } else {
@@ -454,7 +534,7 @@ check("batch produces correct mixed states (local-only path)", () => {
   const expectedStates: (AvailabilityState | null)[] = ["ready", "warm", null];
 
   for (let i = 0; i < queries.length; i++) {
-    const result = resolveLocalOnly(queries[i], torrents);
+    const result = resolveLocalOnly(queries[i], torrents, engineHoldsEverything);
     if (expectedStates[i] === null) {
       assert.equal(result, null, `batch item ${i}: expected null (no local)`);
     } else {
@@ -619,6 +699,61 @@ check("release-backed rails use the shared work collapse", () => {
     "only releases of the same work should be folded into a single card",
   );
 });
+
+console.log("\n--- ready-to-play rail truthfulness ---");
+
+const READY_RAIL_CASES: Array<{
+  name: string;
+  items: RailItem[];
+  expectedTitles: string[] | null;
+  expectedStates?: Array<AvailabilityState | null>;
+}> = [
+  {
+    name: "cold start keeps completed DB rows with neutral availability",
+    items: [
+      railItem({ id: "dune", title: "Dune Part Two", availability: null }),
+      railItem({ id: "bear", title: "The Bear", availability: null }),
+    ],
+    expectedTitles: ["Dune Part Two", "The Bear"],
+    expectedStates: [null, null],
+  },
+  {
+    name: "definitively absent row is dropped while live row remains ready",
+    items: [
+      railItem({ id: "ready", title: "Severance", availability: "ready" }),
+      railItem({ id: "absent", title: "Silo", availability: "fetchable" }),
+    ],
+    expectedTitles: ["Severance"],
+    expectedStates: ["ready"],
+  },
+  {
+    name: "engine up with no present hashes removes the rail",
+    items: [
+      railItem({ id: "silo", title: "Silo", availability: "fetchable" }),
+      railItem({ id: "foundation", title: "Foundation", availability: "fetchable" }),
+    ],
+    expectedTitles: null,
+  },
+];
+
+for (const tc of READY_RAIL_CASES) {
+  check(tc.name, () => {
+    const rail = readyToPlayRailFromItems(tc.items);
+    if (tc.expectedTitles === null) {
+      assert.equal(rail, null, "expected no Ready to Play rail");
+      return;
+    }
+    assert.notEqual(rail, null, "expected Ready to Play rail to survive");
+    assert.deepEqual(
+      rail!.items.map((item) => item.title),
+      tc.expectedTitles,
+    );
+    assert.deepEqual(
+      rail!.items.map((item) => item.availability),
+      tc.expectedStates,
+    );
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Input validation rules (progress route)
@@ -852,7 +987,7 @@ check("resolveLocalOnly never returns unavailable", () => {
     "Niche OVA",
   ];
   for (const title of titles) {
-    const result = resolveLocalOnly({ title }, noTorrents);
+    const result = resolveLocalOnly({ title }, noTorrents, engineHoldsEverything);
     assert.equal(
       result,
       null,

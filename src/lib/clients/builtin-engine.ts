@@ -1095,6 +1095,49 @@ export function mapTorrent(
   };
 }
 
+export type BuiltinTorrentPresence = "present" | "absent" | "unknown";
+
+/**
+ * Availability probe with a non-blocking warm-up. It may start the normal
+ * rehydrate path, but never waits for it. Until this user's rehydrate pass has
+ * finished, absence is not evidence; during that cold-start window callers must
+ * use `unknown`, not turn Play off.
+ */
+export function getBuiltinTorrentPresenceForAvailability(
+  userId: string,
+  hash: string,
+): BuiltinTorrentPresence {
+  const normalizedHash = hash.toLowerCase().trim();
+  if (!normalizedHash) return "unknown";
+
+  const s = state();
+  const key = userId.trim() || "*";
+  if (!s.client || s.loading) {
+    requestAvailabilityRehydrate(userId);
+    return "unknown";
+  }
+  if (s.rehydrating.has("*") || s.rehydrating.has(key)) return "unknown";
+  if (!s.rehydrated.has("*") && !s.rehydrated.has(key)) {
+    requestAvailabilityRehydrate(userId);
+    return "unknown";
+  }
+
+  return findTorrent(s.client, normalizedHash) ? "present" : "absent";
+}
+
+function requestAvailabilityRehydrate(userId: string): void {
+  void ensureClientAndRehydrate({
+    clientType: "builtin",
+    host: "",
+    userId: userId.trim() || null,
+  }).catch((err) => {
+    console.warn(
+      "[builtin-engine] availability rehydrate failed",
+      err instanceof Error ? err.message : err,
+    );
+  });
+}
+
 /** Hashes this user may see/control (meta + durable EngineTorrent rows). */
 async function allowedHashesForUser(userId: string): Promise<Set<string>> {
   const s = state();
