@@ -67,8 +67,9 @@ type InlinePlayerProps = {
    *
    * `inline` is the original: a disclosure widget that sits in a list, closed,
    * with a Play button that expands it and a bordered panel around the result.
-   * That is right on /client and /library, where the player is one row among
-   * many and must not dominate.
+   * Kept only for legacy embedded surfaces; the client row now opens theatre
+   * directly because watching must not be a collapsible accessory of a torrent
+   * management row.
    *
    * `theatre` is for when the viewer has already said "play this". The
    * disclosure has been answered by the click that got here, so re-rendering

@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Pause,
   Play,
+  Copy,
   RefreshCw,
   Search,
   Trash2,
@@ -45,7 +46,7 @@ import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { titleHrefForName } from "@/components/title/work-key";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
-import { InlineStreamPlayer } from "@/components/watch/inline-player";
+import { PlayOverlay } from "@/components/browse/play-overlay";
 import { startVisiblePoller } from "./polling";
 
 interface ClientTorrent {
@@ -61,6 +62,16 @@ interface ClientTorrent {
   category?: string;
   savePath?: string | null;
 }
+
+interface NowPlaying {
+  infoHash: string;
+  title: string;
+}
+
+type StreamManifestFile = {
+  path: string;
+  length: number;
+};
 
 type StatusFilter = "all" | "active" | "downloading" | "seeding" | "paused";
 
@@ -132,6 +143,7 @@ export default function ClientPage() {
     null,
   );
   const [switchingBuiltin, setSwitchingBuiltin] = useState(false);
+  const [playing, setPlaying] = useState<NowPlaying | null>(null);
 
   const load = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!opts?.quiet) setLoading(true);
@@ -495,6 +507,34 @@ export default function ClientPage() {
       toast.error("Network error opening folder");
     } finally {
       setOpeningHash(null);
+    }
+  }
+
+  async function copyStreamUrl(t: ClientTorrent) {
+    try {
+      const res = await fetch(`/api/stream/${encodeURIComponent(t.hash)}`);
+      const body = (await res.json().catch(() => null)) as {
+        files?: StreamManifestFile[];
+        error?: string;
+      } | null;
+      if (!res.ok || !body?.files?.length) {
+        throw new Error(body?.error ?? "No streamable file found");
+      }
+      const file = [...body.files].sort((a, b) => b.length - a.length)[0];
+      const encodedPath = file.path
+        .split("/")
+        .map((part) => encodeURIComponent(part))
+        .join("/");
+      const url = new URL(
+        `/api/stream/${encodeURIComponent(t.hash)}/${encodedPath}`,
+        window.location.origin,
+      );
+      await navigator.clipboard.writeText(url.toString());
+      toast.success("Stream URL copied");
+    } catch (err) {
+      toast.error("Could not copy stream URL", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   }
 
@@ -957,6 +997,19 @@ export default function ClientPage() {
                       </p>
 
                       <div className="flex items-center justify-end gap-0.5">
+                        {isBuiltin ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setPlaying({ infoHash: t.hash, title: t.name })}
+                            aria-label={`Play ${t.name}`}
+                            data-client-play
+                          >
+                            <Play className="h-3.5 w-3.5" />
+                            Play
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           variant="ghost"
@@ -986,6 +1039,18 @@ export default function ClientPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {isBuiltin ? (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => void copyStreamUrl(t)}
+                                  data-copy-stream-url
+                                >
+                                  <Copy />
+                                  Copy stream URL
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            ) : null}
                             <DropdownMenuItem
                               onClick={() => void action("pause", t.hash)}
                             >
@@ -1010,19 +1075,6 @@ export default function ClientPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
-
-                      {isBuiltin ? (
-                        <InlineStreamPlayer
-                          infoHash={t.hash}
-                          title={t.name}
-                          progress={{
-                            totalBytes: t.sizeBytes,
-                            progress: t.progress,
-                            peers: t.peers,
-                          }}
-                          className="sm:col-start-2 sm:col-span-5"
-                        />
-                      ) : null}
                     </div>
                   );
                 })}
@@ -1038,6 +1090,14 @@ export default function ClientPage() {
           )}
         </>
       )}
+
+      {playing ? (
+        <PlayOverlay
+          infoHash={playing.infoHash}
+          title={playing.title}
+          onClose={() => setPlaying(null)}
+        />
+      ) : null}
 
       <AlertDialog
         open={!!pendingDelete}
