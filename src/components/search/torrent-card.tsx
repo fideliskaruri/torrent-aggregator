@@ -16,13 +16,16 @@ import {
   FolderSearch,
   MoreHorizontal,
   Magnet,
+  Play,
   Sparkles,
 } from "lucide-react";
 import type { TorrentResult } from "@/lib/torrents/types";
+import type { WorkGroup } from "@/lib/torrents/work-identity";
 import { formatBytes, formatRelativeTime, cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import { useDownloadPrefs } from "@/hooks/use-download-prefs";
 import { isSeriesMediaType } from "@/lib/metadata/media-type";
+import { PlayOverlay } from "@/components/browse/play-overlay";
 import { TfPathChip } from "@/components/tf/path-chip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,27 +40,20 @@ interface TorrentCardProps {
   torrent: TorrentResult;
   index?: number;
   searchCategory?: string;
-  /**
-   * Set when the row sits under a header that already carries the show's
-   * artwork, name and season. Repeating all three on twenty consecutive rows
-   * turned the results page into wallpaper — the same poster twenty times
-   * reads as texture, not information.
-   */
-  /**
-   * Set when the row sits under a header that already carries the show's
-   * artwork, name and season. Repeating all three on twenty consecutive rows
-   * turned the results page into wallpaper — the same poster twenty times
-   * reads as texture, not information. It also suppresses the "Best" badge:
-   * under a rank-ordered season header, being first already says it.
-   */
-  grouped?: boolean;
+  featured?: boolean;
+  showPoster?: boolean;
+  work?: WorkGroup<TorrentResult> | null;
+  fallbackPosterUrl?: string | null;
 }
 
 export function TorrentCard({
   torrent,
   index = 0,
   searchCategory,
-  grouped = false,
+  featured = false,
+  showPoster = true,
+  work = null,
+  fallbackPosterUrl = null,
 }: TorrentCardProps) {
   const { data: session } = useSession();
   const { density } = useUiPreferences();
@@ -70,6 +66,11 @@ export function TorrentCard({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showSendOpts, setShowSendOpts] = useState(false);
+  const [playback, setPlayback] = useState<{
+    infoHash: string;
+    title: string;
+    subtitle?: string | null;
+  } | null>(null);
   /** Library aggregator: pick start season when adding a series */
   const [showAddLibrary, setShowAddLibrary] = useState(false);
   const [fromSeason, setFromSeason] = useState("1");
@@ -81,6 +82,19 @@ export function TorrentCard({
 
   const meta = torrent.metadata;
   const health = torrent.health ?? 0;
+  const workTitle = work?.name ?? meta?.title ?? null;
+  const workYear = work?.year ?? meta?.year ?? null;
+  const posterUrl = showPoster
+    ? (work?.posterUrl ?? fallbackPosterUrl ?? meta?.posterUrl ?? null)
+    : null;
+  const posterInitial = (workTitle ?? torrent.title ?? "?")
+    .trim()
+    .charAt(0)
+    .toUpperCase() || "?";
+  const playTitle = workTitle ?? torrent.title;
+  const playSubtitle = [torrent.episode?.label, torrent.tags.slice(0, 2).join(" · ")]
+    .filter(Boolean)
+    .join(" · ");
 
   // Server-computed route (source of truth)
   const route = torrent.route;
@@ -117,9 +131,24 @@ export function TorrentCard({
     }
   }
 
-  async function sendToClient(target: "primary" | "external" = "primary") {
+  function infoHashForPlayback(): string | null {
+    const direct = torrent.infoHash?.trim().toLowerCase();
+    if (direct) return direct;
+    const xt = /(?:^|[?&])xt=urn:btih:([^&]+)/i.exec(torrent.magnet ?? "")?.[1];
+    if (!xt) return null;
+    try {
+      return decodeURIComponent(xt).trim().toLowerCase() || null;
+    } catch {
+      return xt.trim().toLowerCase() || null;
+    }
+  }
+
+  async function sendToClient(
+    target: "primary" | "external" = "primary",
+    opts: { play?: boolean } = {},
+  ) {
     if (!session) {
-      toast.message("Sign in to send to your client");
+      toast.message(opts.play ? "Sign in to play" : "Sign in to send to your client");
       return;
     }
     setSending(true);
@@ -142,6 +171,7 @@ export function TorrentCard({
           category: manualCategory ? activeCategory : null,
           savePath: sendPath.trim() || null,
           target,
+          retention: opts.play ? "stream" : undefined,
         }),
       });
       const data = await res.json();
@@ -160,8 +190,27 @@ export function TorrentCard({
               ? "Transmission"
               : data.clientType || "";
       const msg = `${data.message || (data.ok ? "Sent" : "Failed")}${via ? ` · ${via}` : ""}${kindHint}${pathHint}`;
-      if (data.ok) toast.success(msg);
-      else toast.error(msg);
+      if (data.ok) {
+        if (opts.play && target === "primary") {
+          const infoHash = infoHashForPlayback();
+          if (infoHash) {
+            setPlayback({
+              infoHash,
+              title: playTitle,
+              subtitle: playSubtitle || null,
+            });
+            toast.success("Starting playback");
+          } else {
+            toast.message("Started download", {
+              description: "Playback will appear once the torrent hash is known.",
+            });
+          }
+        } else {
+          toast.success(msg);
+        }
+      } else {
+        toast.error(msg);
+      }
     } catch {
       toast.error("Network error");
     } finally {
@@ -286,17 +335,17 @@ export function TorrentCard({
   const canSend = Boolean(torrent.magnet || torrent.torrentUrl);
 
   return (
-    <article
-      className={cn(
-        "torrent-row group",
-        /* 8pt grid: 12–16px horizontal padding; vertical from density/globals */
-        "px-3 sm:px-4",
-        compact ? "py-3" : "py-4",
-      )}
-      data-torrent-card
-      data-index={index}
-      tabIndex={0}
-    >
+    <>
+      <article
+        className={cn(
+          "surface group scroll-mt-24 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+          featured ? "border-[var(--accent)]/60 p-3 sm:p-4" : "p-3 sm:p-4",
+        )}
+        data-torrent-card
+        data-featured-result={featured ? "true" : undefined}
+        data-index={index}
+        tabIndex={0}
+      >
       {/*
         Layout (Material list + 8pt grid):
         [poster] [ content column — title → stats → path → actions ]
@@ -304,18 +353,22 @@ export function TorrentCard({
         the full row (that created the empty mid-gap).
       */}
       <div className="flex gap-3 sm:gap-4">
-        {/* Poster — dropped when a group header already shows it */}
-        {grouped ? null : (
+        {/* One poster per work: later releases from the same work keep flowing, without repeating art. */}
+        {showPoster ? (
         <div
           className={cn(
             "torrent-poster relative shrink-0 self-start",
-            compact ? "w-10 sm:w-11" : "w-12 sm:w-14",
+            featured
+              ? "w-20 sm:w-24"
+              : compact
+                ? "w-10 sm:w-11"
+                : "w-12 sm:w-14",
           )}
         >
-          {meta?.posterUrl ? (
+          {posterUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={meta.posterUrl}
+              src={posterUrl}
               alt=""
               className="w-full aspect-[2/3] rounded-md object-cover bg-[var(--bg-muted)]"
             />
@@ -328,32 +381,29 @@ export function TorrentCard({
               aria-hidden
             >
               <span className="select-none text-2xl font-semibold text-[var(--text-tertiary)]">
-                {(meta?.title ?? torrent.title ?? "?")
-                  .trim()
-                  .charAt(0)
-                  .toUpperCase() || "?"}
+                {posterInitial}
               </span>
             </div>
           )}
-          {torrent.bestPick && !grouped && (
+          {featured && (
             <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg)]" />
           )}
         </div>
-        )}
+        ) : null}
 
         {/* Content column: stacked blocks with consistent 8px rhythm */}
         <div className="min-w-0 flex-1 flex flex-col gap-2">
           {/* 1. Title block */}
           <div className="min-w-0 space-y-1">
-            {!compact && !grouped && (
+            {(featured || !compact) && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                {meta?.title && (
+                {workTitle && (
                   <span className="text-xs font-medium text-[var(--accent-text)]">
-                    {meta.title}
-                    {meta.year ? (
+                    {workTitle}
+                    {workYear ? (
                       <span className="font-normal text-[var(--text-tertiary)]">
                         {" "}
-                        ({meta.year})
+                        ({workYear})
                       </span>
                     ) : null}
                   </span>
@@ -363,29 +413,21 @@ export function TorrentCard({
                     {torrent.episode.label}
                   </span>
                 )}
-                {torrent.bestPick && !grouped && (
-                  <span
-                    className="badge"
-                    title="Highest-ranked copy of this particular release"
-                  >
-                    Best
-                  </span>
-                )}
+                {featured ? (
+                  <span className="badge badge-accent">Best match</span>
+                ) : null}
               </div>
             )}
             <h3
               className={cn(
                 "font-medium text-[var(--text)] leading-snug break-words",
-                compact
+                featured
+                  ? "text-base sm:text-lg line-clamp-3"
+                  : compact
                   ? "text-[13px] line-clamp-2 sm:line-clamp-1"
                   : "text-sm line-clamp-2",
               )}
             >
-              {compact && torrent.bestPick && !grouped ? (
-                <span className="mr-1.5 text-[11px] font-medium text-[var(--accent-text)]">
-                  Best
-                </span>
-              ) : null}
               {torrent.title}
             </h3>
           </div>
@@ -395,7 +437,7 @@ export function TorrentCard({
                lines on narrow. */}
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1.5">
-            {(compact || grouped) && torrent.episode?.label && (
+            {compact && torrent.episode?.label && (
               <span className="badge badge-accent">{torrent.episode.label}</span>
             )}
             <span className="stat">
@@ -436,9 +478,7 @@ export function TorrentCard({
                   {tag}
                 </span>
               ))}
-            {/* Under a show header every row routes to the same place; twelve
-                identical "TV" badges is a column of noise. */}
-            {route && !grouped && (
+            {route && (
               <span
                 className={cn(
                   "badge",
@@ -456,27 +496,27 @@ export function TorrentCard({
             )}
           </div>
 
-          {/* 3. Actions — primary Send + overflow, right-aligned on wide */}
+          {/* 3. Actions — playback first; download routing lives in overflow/advanced controls. */}
           <div className="torrent-actions flex shrink-0 flex-wrap items-center gap-2">
             <div className="inline-flex h-9 sm:h-8 rounded-md overflow-hidden shadow-sm">
               <button
                 type="button"
-                onClick={() => void sendToClient("primary")}
+                onClick={() => void sendToClient("primary", { play: true })}
                 disabled={sending || !canSend}
-                data-action="send"
+                data-action="play"
                 className="btn btn-primary h-full min-h-9 sm:min-h-8 rounded-none rounded-l-md px-3 text-[13px]"
                 title={
                   prefs.clientType === "builtin" || !prefs.clientType
-                    ? "Download with built-in engine"
-                    : `Send to ${prefs.clientType}`
+                    ? "Start playback with the built-in engine"
+                    : `Start through ${prefs.clientType}`
                 }
               >
                 {sending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <ArrowDownToLine className="h-3.5 w-3.5" />
+                  <Play className="h-3.5 w-3.5" />
                 )}
-                Send
+                Play
               </button>
               <button
                 type="button"
@@ -599,8 +639,7 @@ export function TorrentCard({
           </div>
           </div>
 
-          {/* 4. Path — redundant under a group header that names the show */}
-          {!grouped && (chipPath || chipRelative) ? (
+          {(chipPath || chipRelative) ? (
             <div className="min-w-0">
               <TfPathChip
                 path={chipPath || chipRelative}
@@ -784,6 +823,15 @@ export function TorrentCard({
           ) : null}
         </div>
       </div>
-    </article>
+      </article>
+      {playback ? (
+        <PlayOverlay
+          infoHash={playback.infoHash}
+          title={playback.title}
+          subtitle={playback.subtitle}
+          onClose={() => setPlayback(null)}
+        />
+      ) : null}
+    </>
   );
 }

@@ -1,11 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Rows3,
@@ -22,15 +20,7 @@ import {
   describeSourceFailure,
   sourceShortLabel,
 } from "@/lib/torrents/source-labels";
-import {
-  buildSections,
-  defaultSectionKey,
-  qualityLadder,
-  seasonCount,
-  workSubtitle,
-} from "./work-sections";
 import { TorrentCard } from "./torrent-card";
-import { titleHrefForName } from "@/components/title/work-key";
 import { cn } from "@/lib/utils";
 import { SEARCH_HREF } from "@/lib/navigation";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
@@ -42,21 +32,8 @@ const ALL_SOURCES: { id: TorrentSourceId; label: string }[] = (
   ["nyaa", "apibay", "torrentscsv", "yts", "1337x"] as const
 ).map((id) => ({ id, label: sourceShortLabel(id) }));
 
-/**
- * The page groups results into seasons and then a quality ladder, showing one
- * row per rung. Those counts are only honest if they are computed over the
- * whole pool, so the page fetches the pool rather than a 20-row window — the
- * old 20 made "best 1080p of season 5" mean "best among an arbitrary 20 of
- * 145". Rendering cost is unchanged; the ladder still shows a handful of rows.
- */
+/** Fetch enough ranked results that scrolling feels like a flow, not a teaser. */
 const DEFAULT_PAGE_SIZE = 200;
-
-/**
- * A season the user cannot reach without scrolling past another season is a
- * season they will not reach. Seasons are therefore a *switcher*, not a stack:
- * one season is on screen at a time, complete and uncapped, and every other
- * season is one click away at a fixed position near the top of the page.
- */
 
 interface SearchResultsProps {
   query: string;
@@ -214,9 +191,9 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         cards[idx].scrollIntoView({ block: "nearest", behavior: "smooth" });
       } else if (e.key === "m" && idx >= 0) {
         cards[idx].querySelector<HTMLElement>('[data-action="copy"]')?.click();
-      } else if (e.key === "s" && !e.metaKey && !e.ctrlKey && idx >= 0) {
+      } else if (e.key === "p" && !e.metaKey && !e.ctrlKey && idx >= 0) {
         e.preventDefault();
-        cards[idx].querySelector<HTMLElement>('[data-action="send"]')?.click();
+        cards[idx].querySelector<HTMLElement>('[data-action="play"]')?.click();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -245,23 +222,9 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     density === "comfortable" ? "Comfortable" : "Compact";
 
   /**
-   * One card per *work*, not one header per page.
-   *
-   * The page used to elect a single `subject` by majority vote on
-   * `metadata.title` across the top 16 enriched rows. Two things were wrong
-   * with that, and a "dune" search hit both: a page that is 60% one work and
-   * 40% another got one header speaking for all of it ("DUNE · 2017 · 127
-   * releases" over five different works), and the vote keyed on catalog
-   * metadata — the very thing that had mis-matched. Worse, seasons were
-   * bucketed by number alone, so clicking "S01" mixed *Dune: Prophecy*
-   * episodes with *Children of Dune* episodes.
-   *
-   * Identity now comes from the release names, which are self-describing and
-   * were never ambiguous, and every downstream decision — seasons, the quality
-   * ladder, the count in the heading — is computed inside one work. Rank order
-   * is still the server's: `groupReleasesByWork` preserves it within a group
-   * and emits groups in the order their best-ranked release appeared, so the
-   * work the user meant stays first without scoring relevance a second time.
+   * Group identity is only used for per-work artwork and labels. It must never
+   * decide which ranked releases are visible: `data.results` is already the
+   * server-ranked truth, so the page renders that list directly below.
    */
   const works = useMemo(() => {
     if (!data?.results.length) return [];
@@ -299,18 +262,28 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   );
   const fallbackArtwork = useReleaseArtwork(artworkNeeds);
 
-  /**
-   * Absolute rank of each row, for the number the card draws. Computed once
-   * over the page rather than per work, so it stays the position in the
-   * server's ranking and not a per-card counter.
-   */
-  const rankOf = useMemo(() => {
-    const map = new Map<string, number>();
-    if (!data?.results.length) return map;
+  const resultFlow = useMemo(() => {
+    if (!data?.results.length) return [];
+    const groupById = new Map<string, WorkGroup<TorrentResult>>();
+    const firstIdByWork = new Map<string, string>();
+    for (const work of works) {
+      for (const item of work.items) {
+        groupById.set(item.id, work);
+        if (!firstIdByWork.has(work.key)) firstIdByWork.set(work.key, item.id);
+      }
+    }
     const base = (currentPage - 1) * (data.pageSize ?? pageSize);
-    data.results.forEach((t, i) => map.set(t.id, base + i));
-    return map;
-  }, [data, currentPage, pageSize]);
+    return data.results.map((torrent, offset) => {
+      const work = groupById.get(torrent.id) ?? null;
+      return {
+        torrent,
+        work,
+        index: base + offset,
+        featured: offset === 0 && currentPage === 1,
+        showPoster: work ? firstIdByWork.get(work.key) === torrent.id : true,
+      };
+    });
+  }, [data, works, currentPage, pageSize]);
 
   if (loading) {
     return (
@@ -667,33 +640,31 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         </div>
       ) : (
         <>
-          {/*
-            Works are separated by more space than anything inside one. On a
-            multi-work page the reader's first question is "how many different
-            things is this?", and a gap that matches the internal rhythm makes
-            the next work's heading look like another row of the previous one.
-          */}
-          <div className="space-y-8">
-            {works.map((work) => (
-              <WorkCard
-                key={work.key}
-                work={work}
-                query={query}
-                category={category}
-                rankOf={rankOf}
-                soloWork={works.length === 1}
-                fallbackPosterUrl={
-                  work.posterUrl
-                    ? null
-                    : (fallbackArtwork[
-                        artworkQueryForRelease(
-                          work.year ? `${work.name} ${work.year}` : work.name,
-                          work.isSeries ? "tv" : "movie",
-                        ).key
-                      ]?.posterUrl ?? null)
-                }
-              />
-            ))}
+          <div className="grid gap-3">
+            {resultFlow.map(({ torrent, work, index, featured, showPoster }) => {
+              const fallbackPosterUrl = work?.posterUrl
+                ? null
+                : work
+                  ? (fallbackArtwork[
+                      artworkQueryForRelease(
+                        work.year ? `${work.name} ${work.year}` : work.name,
+                        work.isSeries ? "tv" : "movie",
+                      ).key
+                    ]?.posterUrl ?? null)
+                  : null;
+              return (
+                <TorrentCard
+                  key={torrent.id}
+                  torrent={torrent}
+                  index={index}
+                  searchCategory={category}
+                  featured={featured}
+                  showPoster={showPoster}
+                  work={work}
+                  fallbackPosterUrl={fallbackPosterUrl}
+                />
+              );
+            })}
           </div>
 
           {totalPages > 1 && (
@@ -709,317 +680,6 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         </>
       )}
     </div>
-  );
-}
-
-/**
- * One work: its heading, its season switcher, and its releases.
- *
- * Everything here is scoped to `work.items`. That is the whole point of the
- * component existing — season and quality bucketing over a mixed page is what
- * put *Children of Dune* episodes behind *Dune: Prophecy*'s "S01" tab, and a
- * component that only ever receives one work's releases cannot express that
- * question again.
- *
- * Selection state lives here rather than in the parent so each work remembers
- * its own open season and expanded quality rungs. A new search produces new
- * work keys, which remounts these and clears the state for free.
- */
-function WorkCard({
-  work,
-  query,
-  category,
-  rankOf,
-  soloWork,
-  fallbackPosterUrl,
-}: {
-  work: WorkGroup<TorrentResult>;
-  query: string;
-  category: string;
-  /** Position in the server's ranking, for the number each row draws. */
-  rankOf: Map<string, number>;
-  /** True when this is the page's only work — see the sticky-tabs note below. */
-  soloWork: boolean;
-  /**
-   * Art resolved from the group's own name, used only when the releases
-   * themselves offered none the grouping was willing to trust.
-   */
-  fallbackPosterUrl: string | null;
-}) {
-  const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [openQuality, setOpenQuality] = useState<Set<string>>(new Set());
-  const domId = useId();
-
-  const sections = useMemo(
-    () =>
-      buildSections(work.items, {
-        // A film has no seasons to group by, and a movies-category search must
-        // never sprout a "Season 1" header from one stray TV hit.
-        includeSeasons: work.isSeries && category !== "movies",
-      }),
-    [work.items, work.isSeries, category],
-  );
-
-  const switcher = sections.length > 1 ? sections : null;
-  const defaultKey = useMemo(
-    () => defaultSectionKey(sections, query),
-    [sections, query],
-  );
-  const activeKey =
-    activeSection && sections.some((s) => s.key === activeSection)
-      ? activeSection
-      : defaultKey;
-
-  const activeItems =
-    sections.find((s) => s.key === activeKey)?.items ?? work.items;
-  const ladder = useMemo(() => qualityLadder(activeItems), [activeItems]);
-
-  const heading = work.name;
-  const posterUrl = work.posterUrl ?? fallbackPosterUrl;
-
-  const titleAttr = work.year ? `${heading} (${work.year})` : heading;
-
-  // Every card opens the page about the work, search included: this header is
-  // a card, not a caption. Same funnel as the rails, so a result and its
-  // poster on the home board land on the same page.
-  const workHref = titleHrefForName(heading, { mediaType: category });
-
-  const releases = ladder ? (
-    <div className="space-y-2">
-      {ladder.map((group) => {
-        // Namespaced by section: "3 more 1080p" counts the rungs of *this*
-        // season, so carrying the open state across a tab switch would show a
-        // count that belongs to a list the user is no longer looking at.
-        const stateKey = `${activeKey ?? ""}:${group.key}`;
-        const open = openQuality.has(stateKey);
-        const shown = open ? group.items : group.items.slice(0, 1);
-        const hidden = group.items.length - shown.length;
-        return (
-          <section key={group.key} className="space-y-1">
-            {/* h3, not h4: since the split, a quality rung sits directly under
-                the work's own h2 — there is no longer an intermediate level
-                between them for a screen reader to walk through. */}
-            <h3
-              data-quality-group={group.key}
-              className="flex items-baseline gap-2 px-0.5 text-xs font-medium text-[var(--text-secondary)]"
-            >
-              {group.label}
-              <span className="font-normal tabular-nums text-[var(--text-tertiary)]">
-                {group.items.length}
-              </span>
-            </h3>
-            <div className="surface divide-y divide-[var(--border)]">
-              {shown.map((t) => (
-                <TorrentCard
-                  key={t.id}
-                  torrent={t}
-                  index={rankOf.get(t.id) ?? 0}
-                  searchCategory={category}
-                  grouped
-                />
-              ))}
-              {hidden > 0 || open ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setOpenQuality((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(stateKey)) next.delete(stateKey);
-                      else next.add(stateKey);
-                      return next;
-                    })
-                  }
-                  aria-expanded={open}
-                  aria-label={
-                    open
-                      ? `Show only the best ${group.label} of ${heading}`
-                      : `Show ${hidden} more ${group.label} of ${heading}`
-                  }
-                  className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-2 text-left text-[12px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] sm:px-4"
-                >
-                  <ChevronDown
-                    className={cn(
-                      "h-3.5 w-3.5 transition-transform",
-                      open && "rotate-180",
-                    )}
-                  />
-                  {open
-                    ? `Show only the best ${group.label}`
-                    : `${hidden} more ${group.label}`}
-                </button>
-              ) : null}
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  ) : (
-    <div className="surface divide-y divide-[var(--border)]">
-      {activeItems.map((t) => (
-        <TorrentCard
-          key={t.id}
-          torrent={t}
-          index={rankOf.get(t.id) ?? 0}
-          searchCategory={category}
-          grouped
-        />
-      ))}
-    </div>
-  );
-
-  return (
-    <section aria-labelledby={`${domId}-title`} className="space-y-2">
-      {/*
-        One poster per work, never per row. The rule that produced show-collapse
-        still holds — twenty identical posters down the left edge is texture,
-        not information — but the unit it applies to is the work, not the page.
-        Several posters on a page is now the structure: each one heads a
-        distinct thing, and no two of them are the same artwork.
-      */}
-      <div className="surface flex items-center gap-3 px-3 py-2.5 sm:px-4">
-        <div className="relative w-11 shrink-0 overflow-hidden rounded-md sm:w-12">
-          {posterUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={posterUrl}
-              alt=""
-              className="aspect-[2/3] w-full rounded-md bg-[var(--bg-muted)] object-cover"
-            />
-          ) : (
-            // An initial, never an empty box: a grey rectangle is pixel-
-            // identical to the loading skeleton.
-            <div
-              className="flex aspect-[2/3] w-full items-center justify-center rounded-md bg-[var(--bg-muted)]"
-              aria-hidden
-            >
-              <span className="select-none text-base font-semibold text-[var(--text-tertiary)]">
-                {heading.trim().charAt(0).toUpperCase() || "?"}
-              </span>
-            </div>
-          )}
-          {/* Sibling overlay, never a wrapper: the poster sits inside a header
-              that also carries a heading link, and an `<a>` inside an `<a>` is
-              invalid markup. */}
-          {workHref ? (
-            <Link
-              href={workHref}
-              tabIndex={-1}
-              aria-hidden
-              className="absolute inset-0 rounded-md"
-            />
-          ) : null}
-        </div>
-        <div className="min-w-0">
-          <h2
-            id={`${domId}-title`}
-            title={titleAttr}
-            className="truncate text-sm font-semibold text-[var(--text)]"
-          >
-            {workHref ? (
-              <Link
-                href={workHref}
-                data-card-target="title"
-                className="rounded-[4px] outline-none hover:text-[var(--accent-text)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-              >
-                {heading}
-              </Link>
-            ) : (
-              heading
-            )}
-            {work.year ? (
-              // Part of a film's identity, not trivia: *Dune* 1984 and *Dune*
-              // 2021 are two works that would otherwise share a heading.
-              //
-              // The leading {" "} is load-bearing for assistive tech, not
-              // decoration: `ml-*` is a CSS margin, and a screen reader
-              // concatenates adjacent text nodes with no regard for it.
-              // Without the space this heading announces as "Dune1984". The
-              // margin is trimmed to keep the *visual* gap identical.
-              <>
-                {" "}
-                <span className="ml-0.5 font-normal tabular-nums text-[var(--text-tertiary)]">
-                  {work.year}
-                </span>
-              </>
-            ) : null}
-          </h2>
-          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
-            {workSubtitle({
-              seasons: seasonCount(sections),
-              releaseCount: work.items.length,
-            })}
-          </p>
-        </div>
-      </div>
-
-      {switcher ? (
-        <div className="space-y-2">
-          <div
-            role="tablist"
-            // Several tab groups can now share a page, so "Seasons" alone would
-            // announce two different shows' tabs identically — exactly the
-            // confusion this whole change exists to remove.
-            aria-label={`Seasons of ${heading}`}
-            className={cn(
-              "-mx-1 flex gap-1 overflow-x-auto px-1 py-1.5",
-              // Sticky only when this card owns the page. Several sticky strips
-              // would pile up on each other as you scroll past each work.
-              soloWork &&
-                "sticky top-0 z-20 bg-[var(--bg)]/95 backdrop-blur",
-            )}
-          >
-            {switcher.map((section) => {
-              const active = section.key === activeKey;
-              return (
-                <button
-                  key={section.key}
-                  type="button"
-                  role="tab"
-                  id={`${domId}-tab-${section.key}`}
-                  aria-selected={active}
-                  aria-controls={`${domId}-panel`}
-                  data-season-tab={`${work.key}:${section.key}`}
-                  onClick={() => setActiveSection(section.key)}
-                  title={`${section.label} — ${heading}`}
-                  aria-label={`${section.label} of ${heading}, ${section.items.length} releases`}
-                  className={cn(
-                    "flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                    active
-                      ? "border-transparent bg-[var(--text)] text-[var(--bg)]"
-                      : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
-                  )}
-                >
-                  <span aria-hidden>{section.short}</span>
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "tabular-nums",
-                      active
-                        ? "text-[var(--bg)]/70"
-                        : "text-[var(--text-tertiary)]",
-                    )}
-                  >
-                    {section.items.length}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <div
-            role="tabpanel"
-            id={`${domId}-panel`}
-            aria-labelledby={
-              activeKey ? `${domId}-tab-${activeKey}` : undefined
-            }
-            data-season-panel={`${work.key}:${activeKey ?? ""}`}
-          >
-            {releases}
-          </div>
-        </div>
-      ) : (
-        releases
-      )}
-    </section>
   );
 }
 
