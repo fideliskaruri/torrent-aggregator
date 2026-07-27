@@ -134,6 +134,34 @@ async function main() {
     ]);
   });
 
+  await checkAsync("a poll can omit downloaded ranges for files not on screen", async () => {
+    const res = await handleStreamIndexRequest(
+      { infoHash: "a".repeat(40) },
+      {
+        getConfig: async () => CONFIG,
+        findFile: (async () => ({
+          status: "ok" as const,
+          torrent: {
+            files: [
+              { path: "Pack\\Episode 01.mkv", length: 100 },
+              { path: "Pack\\Episode 02.mkv", length: 100 },
+            ],
+            numPeers: 2,
+            progress: 0.5,
+            downloadSpeed: 0,
+          },
+          file: { path: "Pack\\Episode 01.mkv", length: 100 },
+        })) as never,
+        quiet: true,
+        downloadedRangesFor: "Pack/Episode 02.mkv",
+      },
+    );
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { files: Array<Record<string, unknown>> };
+    assert.ok(!("downloadedRanges" in body.files[0]));
+    assert.deepEqual(body.files[1]?.downloadedRanges, []);
+  });
+
   console.log("\n── Stream manifest downloaded ranges ──");
 
   const rangeCases: Array<{
@@ -185,6 +213,51 @@ async function main() {
       assert.deepEqual(downloadedFileRanges(torrent as never, c.file), c.expect);
     });
   }
+
+  await checkAsync("downloaded range islands are capped without moving outer bounds", async () => {
+    const verifiedPieces = new Set<number>();
+    for (let i = 0; i < 130; i += 2) verifiedPieces.add(i);
+    const torrent = {
+      done: false,
+      progress: 0.5,
+      length: 130,
+      pieceLength: 1,
+      lastPieceLength: 1,
+      pieces: Array.from({ length: 130 }),
+      bitfield: { get: (index: number) => verifiedPieces.has(index) },
+    };
+    const ranges = downloadedFileRanges(
+      torrent as never,
+      { length: 130, offset: 0, _startPiece: 0, _endPiece: 129 },
+    );
+    assert.equal(ranges.length, 64);
+    assert.deepEqual(ranges[0], { start: 0, end: 3 });
+    assert.deepEqual(ranges[ranges.length - 1], { start: 128, end: 129 });
+  });
+
+  await checkAsync("a file already under the range cap is returned untouched", async () => {
+    const verifiedPieces = new Set([0, 2, 4]);
+    const torrent = {
+      done: false,
+      progress: 0.5,
+      length: 6,
+      pieceLength: 1,
+      lastPieceLength: 1,
+      pieces: Array.from({ length: 6 }),
+      bitfield: { get: (index: number) => verifiedPieces.has(index) },
+    };
+    assert.deepEqual(
+      downloadedFileRanges(
+        torrent as never,
+        { length: 6, offset: 0, _startPiece: 0, _endPiece: 5 },
+      ),
+      [
+        { start: 0, end: 1 },
+        { start: 2, end: 3 },
+        { start: 4, end: 5 },
+      ],
+    );
+  });
 
   console.log(failures === 0 ? "\nPASS" : `\nFAIL — ${failures} check(s) failed.`);
   process.exit(failures === 0 ? 0 : 1);

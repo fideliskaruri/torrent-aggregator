@@ -22,6 +22,13 @@ type IndexDeps = {
    * a log line each time — the diagnostics exist for the one-off resolve.
    */
   quiet?: boolean;
+  /**
+   * When present, only this manifest path carries downloadedRanges. The player
+   * polls this route while one file is on screen; repeating range arrays for a
+   * 24-episode pack on every tick would spend bytes on files the viewer is not
+   * looking at.
+   */
+  downloadedRangesFor?: string | null;
 };
 
 function torrentPeers(torrent?: BuiltinStreamTorrent): number | null {
@@ -81,6 +88,8 @@ type FilePieceState = {
   downloaded?: number;
 };
 
+export const MAX_DOWNLOADED_RANGES_PER_FILE = 64;
+
 function swarmState(torrent?: BuiltinStreamTorrent): StreamSwarmState {
   const speed = torrent?.downloadSpeed;
   const progress = torrent?.progress;
@@ -108,6 +117,35 @@ function mergeByteRange(ranges: ByteRange[], range: ByteRange): void {
     return;
   }
   ranges.push(range);
+}
+
+function capDownloadedRanges(ranges: ByteRange[]): ByteRange[] {
+  if (ranges.length <= MAX_DOWNLOADED_RANGES_PER_FILE) return ranges;
+  const capped = ranges.map((range) => ({ ...range }));
+  /**
+   * This manifest is polled and multiplied by file count in season packs. A
+   * scrubber a few hundred pixels wide cannot resolve hundreds of one-piece
+   * islands, so coalesce the smallest gaps until the payload is bounded. That
+   * over-reports by less than a pixel for the gaps we erase, while preserving
+   * the first and last held boundaries and keeping sparse shape visible.
+   */
+  while (capped.length > MAX_DOWNLOADED_RANGES_PER_FILE) {
+    let mergeAt = 1;
+    let smallestGap = Number.POSITIVE_INFINITY;
+    for (let i = 1; i < capped.length; i += 1) {
+      const gap = capped[i].start - capped[i - 1].end;
+      if (gap < smallestGap) {
+        smallestGap = gap;
+        mergeAt = i;
+      }
+    }
+    capped[mergeAt - 1] = {
+      start: capped[mergeAt - 1].start,
+      end: capped[mergeAt].end,
+    };
+    capped.splice(mergeAt, 1);
+  }
+  return capped;
 }
 
 /**
@@ -161,7 +199,7 @@ export function downloadedFileRanges(
     mergeByteRange(ranges, { start, end });
   }
 
-  return ranges;
+  return capDownloadedRanges(ranges);
 }
 
 function logStreamIndexLine(entry: {
@@ -249,13 +287,21 @@ export async function handleStreamIndexRequest(
   }
 
   logStreamIndex({ infoHash, torrent: lookup.torrent, outcome: "ok" });
+  const downloadedRangesFor = deps.downloadedRangesFor
+    ? manifestPath(deps.downloadedRangesFor)
+    : null;
   return NextResponse.json({
-    files: (lookup.torrent.files ?? []).map((file, index) => ({
-      path: manifestPath(file.path),
-      length: file.length,
-      index,
-      downloadedRanges: downloadedFileRanges(lookup.torrent, file),
-    })),
+    files: (lookup.torrent.files ?? []).map((file, index) => {
+      const path = manifestPath(file.path);
+      return {
+        path,
+        length: file.length,
+        index,
+        ...(downloadedRangesFor === null || downloadedRangesFor === path
+          ? { downloadedRanges: downloadedFileRanges(lookup.torrent, file) }
+          : {}),
+      };
+    }),
     clientType: "builtin",
     swarm: swarmState(lookup.torrent),
   });
@@ -294,6 +340,10 @@ type RouteContext = {
   params: RouteParams | Promise<RouteParams>;
 };
 export async function GET(request: Request, context: RouteContext) {
-  const quiet = new URL(request.url).searchParams.get("poll") === "1";
-  return handleStreamIndexRequest(await context.params, { quiet });
+  const searchParams = new URL(request.url).searchParams;
+  const quiet = searchParams.get("poll") === "1";
+  return handleStreamIndexRequest(await context.params, {
+    quiet,
+    downloadedRangesFor: searchParams.get("file"),
+  });
 }

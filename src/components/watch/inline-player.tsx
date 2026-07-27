@@ -1254,7 +1254,9 @@ function InlineStreamPlayerInner({
 
   const fetchPlayerSample = useCallback(
     async (signal: AbortSignal): Promise<SwarmSample | null> => {
-      const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}?poll=1`, {
+      const params = new URLSearchParams({ poll: "1" });
+      if (selectedPath) params.set("file", selectedPath);
+      const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}?${params}`, {
         signal,
         cache: "no-store",
       });
@@ -1263,7 +1265,11 @@ function InlineStreamPlayerInner({
       if (!body) return null;
       if (Array.isArray(body.files)) {
         setManifest((prev) => ({
-          files: body.files,
+          files: body.files.map((file) => {
+            if ("downloadedRanges" in file) return file;
+            const previous = prev?.files.find((p) => p.path === file.path);
+            return previous?.downloadedRanges ? { ...file, downloadedRanges: previous.downloadedRanges } : file;
+          }),
           clientType: body.clientType ?? prev?.clientType,
         }));
       }
@@ -1277,7 +1283,7 @@ function InlineStreamPlayerInner({
         observedAt: typeof swarm.observedAt === "number" ? swarm.observedAt : Date.now(),
       };
     },
-    [activeInfoHash],
+    [activeInfoHash, selectedPath],
   );
 
   const copySelected = useCallback(async () => {
