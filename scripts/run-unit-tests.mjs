@@ -16,6 +16,7 @@
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,6 +70,42 @@ if (files.length === 0) {
 
 console.log(`Running ${files.length} ${mode} test file(s)\n`);
 
+/**
+ * A private database for the run.
+ *
+ * Several suites (prerank, prewarm, run-lock, eviction) go through
+ * `@/lib/prisma`, which points at the repo's `dev.db`. When the dev server is
+ * running — which it is during `npm test`, and whenever anyone is actually
+ * using the app — those suites failed with Prisma `P1008 SocketTimeout` from
+ * SQLite lock contention, not from any assertion. The identical suite passes
+ * against its own copy of the file. A test that only passes when the app is
+ * stopped reports on the environment rather than on the code, so give the
+ * children their own database and leave `dev.db` to the server.
+ *
+ * The copy carries the WAL and shared-memory sidecars: taking `dev.db` alone
+ * while the server holds an open WAL yields a torn snapshot that is missing
+ * every recently written row.
+ */
+function createPrivateDb() {
+  const source = path.join(root, "dev.db");
+  if (!fs.existsSync(source)) return null;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-unit-db-"));
+  const target = path.join(dir, "unit.db");
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const from = `${source}${suffix}`;
+    if (fs.existsSync(from)) fs.copyFileSync(from, `${target}${suffix}`);
+  }
+  return { dir, url: `file:${target.split(path.sep).join("/")}` };
+}
+
+const privateDb = createPrivateDb();
+if (privateDb) {
+  console.log(`Using private database ${privateDb.url}\n`);
+}
+const childEnv = privateDb
+  ? { ...process.env, DATABASE_URL: privateDb.url }
+  : process.env;
+
 const results = [];
 for (const file of files) {
   const started = Date.now();
@@ -77,6 +114,7 @@ for (const file of files) {
     encoding: "utf8",
     shell: true,
     timeout: 180_000,
+    env: childEnv,
   });
   const out = `${r.stdout || ""}${r.stderr || ""}`;
   const took = Date.now() - started;
@@ -102,6 +140,9 @@ for (const file of files) {
 }
 
 const failed = results.filter((r) => !r.ok);
+if (privateDb) {
+  fs.rmSync(privateDb.dir, { recursive: true, force: true });
+}
 console.log(
   `\n${failed.length === 0 ? "ALL GREEN" : `${failed.length} FAILED`} — ` +
     `${results.length - failed.length}/${results.length} passed`,

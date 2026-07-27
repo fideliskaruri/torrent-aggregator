@@ -127,6 +127,108 @@ async function main() {
     `status ${estimate.status}`,
   );
 
+  // --- Browse payload: the home page's only round trip ---------------------
+  // The rails are allowed to be empty on a fresh install, but the envelope
+  // must always be well-formed — the UI renders straight off this shape.
+  console.log("\nbrowse:");
+  const browsePayload = await req("GET", "/api/browse");
+  check(
+    "GET /api/browse 200",
+    browsePayload.status === 200,
+    `status ${browsePayload.status}`,
+  );
+  check("  returns rails[]", Array.isArray(browsePayload.json?.rails));
+  check(
+    "  returns generatedAt",
+    typeof browsePayload.json?.generatedAt === "string",
+  );
+  {
+    const rails = browsePayload.json?.rails ?? [];
+    check(
+      "  every rail has id, title and items[]",
+      rails.every(
+        (r) =>
+          typeof r?.id === "string" &&
+          typeof r?.title === "string" &&
+          Array.isArray(r?.items),
+      ),
+    );
+    const items = rails.flatMap((r) => r?.items ?? []);
+    // `null` means "not yet determined" and must render as a neutral,
+    // clickable affordance. Any other value is a claim the UI will act on, so
+    // an unknown string here would silently become a wrong button.
+    const ALLOWED = ["ready", "warm", "fetchable", "unavailable"];
+    check(
+      "  availability is a known state or null",
+      items.every(
+        (i) => i?.availability === null || ALLOWED.includes(i?.availability),
+      ),
+      items
+        .map((i) => i?.availability)
+        .filter((a) => a !== null && !ALLOWED.includes(a))
+        .join(", "),
+    );
+    check(
+      "  progressFraction is null or within 0–1",
+      items.every(
+        (i) =>
+          i?.progressFraction === null ||
+          (typeof i?.progressFraction === "number" &&
+            i.progressFraction >= 0 &&
+            i.progressFraction <= 1),
+      ),
+    );
+    check(
+      "  every item carries an id and a title",
+      items.every((i) => typeof i?.id === "string" && typeof i?.title === "string"),
+    );
+  }
+
+  // --- Playback progress: validation must never 500 ------------------------
+  console.log("\nplayback progress:");
+  const progressList = await req("GET", "/api/progress");
+  check(
+    "GET /api/progress answers",
+    progressList.status < 500,
+    `status ${progressList.status}`,
+  );
+  for (const [name, body] of [
+    ["empty body", {}],
+    ["missing filePath", { infoHash: "a".repeat(40), title: "x" }],
+    ["missing title", { infoHash: "a".repeat(40), filePath: "a.mkv" }],
+  ]) {
+    const bad = await req("POST", "/api/progress", body);
+    check(
+      `POST /api/progress (${name}) rejects without 500`,
+      bad.status >= 400 && bad.status < 500,
+      `status ${bad.status}`,
+    );
+  }
+
+  // --- Playback plan: an unknown torrent is a 4xx, never a crash -----------
+  // POST-only: the plan is derived from a body, not a query string.
+  const plan = await req("POST", "/api/playback/plan", {
+    infoHash: "0".repeat(40),
+    filePath: "nope.mkv",
+  });
+  check(
+    "POST /api/playback/plan answers for an unknown torrent",
+    plan.status !== 500,
+    `status ${plan.status}`,
+  );
+  check("  json body", isJson(plan));
+  check(
+    "  explains the problem",
+    typeof plan.json?.error === "string" && plan.json.error.length > 0,
+  );
+
+  const badPlan = await req("POST", "/api/playback/plan", {});
+  check(
+    "POST /api/playback/plan with empty body rejects without 500",
+    badPlan.status !== 500,
+    `status ${badPlan.status}`,
+  );
+
   // --- Search / suggest: must be well-formed even when indexers are blocked
   console.log("\nsearch:");
   const search = await req("GET", "/api/search?q=big+buck+bunny&pageSize=5");

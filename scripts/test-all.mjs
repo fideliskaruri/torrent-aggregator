@@ -142,6 +142,14 @@ async function httpGet(name, urlPath, check) {
 
 await ensureDevServer();
 
+// 0) Hygiene. Instant, and it runs before anything expensive because a
+// deliberate-sabotage edit left in the tree makes every result below a lie:
+// three separate agents were each caught mid-verification with one live, and
+// in every case the suite was green, the types checked and the page rendered.
+run("no-sabotage", "node", ["scripts/check-no-sabotage.mjs"], {
+  timeout: 60_000,
+});
+
 // 1) Units
 run("unit", "npm", ["run", "test:unit"], { timeout: 180_000 });
 
@@ -173,6 +181,59 @@ run("conn-errors", "npx", ["tsx", "scripts/test-conn-errors.mts"], {
 
 // 3) API contract suite (every route, against the running server)
 run("api-smoke", "node", ["scripts/api-smoke.mjs", BASE], { timeout: 180_000 });
+
+// 3b) Browse/discovery suites.
+//
+// These were added after this harness was first written and were only ever run
+// by hand, which meant "npm run test:all" could go green while the surfaces the
+// user actually looks at were broken. They are wired in here so a full
+// regression means the whole product, not just the library internals.
+//
+// Each script reads a DIFFERENT base-URL variable — qa-*/shoot-* use BASE_URL,
+// check-layout uses PLAYWRIGHT_BASE_URL. Setting only one produces a wall of
+// convincing false failures against a server that is actually fine, so all of
+// them are pinned to BASE here.
+const uiEnv = { BASE_URL: BASE, PLAYWRIGHT_BASE_URL: BASE, TF_BASE_URL: BASE };
+
+run("availability-seam", "npx", ["tsx", "scripts/test-availability-seam.mts"], {
+  timeout: 120_000,
+  env: uiEnv,
+});
+run("browse-rails", "npx", ["tsx", "scripts/test-browse-rails.mts"], {
+  timeout: 120_000,
+  env: uiEnv,
+});
+// Asks the question the owner actually asked: does the front page read like a
+// catalog, or like a torrent list? Catches filename captions and rails of
+// grey letter-tiles, both of which have shipped through a fully green suite.
+run("catalog-quality", "npx", ["tsx", "scripts/check-catalog-quality.mts"], {
+  timeout: 120_000,
+  env: uiEnv,
+});
+run("image-hosts", "npx", ["tsx", "scripts/check-image-hosts.mts"], {
+  timeout: 120_000,
+  env: uiEnv,
+});
+run("error-states", "node", ["scripts/qa-error-states.mjs"], {
+  timeout: 240_000,
+  env: uiEnv,
+});
+run("a11y", "node", ["scripts/qa-a11y.mjs"], {
+  timeout: 240_000,
+  env: uiEnv,
+});
+run("layout", "node", ["scripts/check-layout.mjs"], {
+  timeout: 240_000,
+  env: uiEnv,
+});
+run("browse-screens", "node", ["scripts/shoot-browse.mjs"], {
+  timeout: 240_000,
+  env: uiEnv,
+});
+run("watchlist-screens", "node", ["scripts/shoot-watchlist.mjs"], {
+  timeout: 240_000,
+  env: uiEnv,
+});
 
 // 4) Live HTTP (async fetch — Windows curl is unreliable)
 await httpGet("home", "/", (status) => ({

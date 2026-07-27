@@ -140,6 +140,96 @@ async function stickyHoldsOnScroll(page) {
   return Math.abs(after.y - before.y) < 2;
 }
 
+/**
+ * The mobile tab bar is `position: fixed`, so it floats over the document and
+ * costs no layout height. Nothing below it is scrollable into view — the page
+ * has to *reserve* that height itself (`app-main` does, via
+ * `--mobile-nav-h + --safe-bottom`).
+ *
+ * If that reservation is ever dropped, shortened, or overridden by a route,
+ * the failure is invisible everywhere except the very bottom of the page on a
+ * phone: the last row of content sits permanently under the bar and cannot be
+ * tapped. No other probe here sees it — overflow is horizontal, and a
+ * full-page screenshot renders fixed elements at the viewport origin, so the
+ * bar appears to float mid-page and looks fine.
+ *
+ * So: scroll to the true bottom and assert that no interactive element's box
+ * intrudes into the bar's box.
+ */
+async function contentUnderMobileNav(page) {
+  return page.evaluate(async () => {
+    const nav = document.querySelector("[data-mobile-nav]");
+    if (!nav) return null; // Desktop widths: the bar is display:none.
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    await new Promise((r) => setTimeout(r, 350));
+
+    const bar = nav.getBoundingClientRect();
+    if (bar.height === 0) return null;
+
+    const describe = (el) =>
+      `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}` +
+      `${el.className && typeof el.className === "string" ? `.${el.className.trim().split(/\s+/).slice(0, 2).join(".")}` : ""}` +
+      `("${(el.textContent ?? "").trim().slice(0, 32)}")`;
+
+    const problems = [];
+
+    /*
+      Primary, and the only assertion here that is actually sensitive.
+
+      An occlusion check ("is anything interactive sitting under the bar?")
+      sounds like the right test and is nearly useless: whether a control
+      happens to land in the bar's band depends entirely on how tall the
+      seeded content is. On a sparse page the last elements are
+      non-interactive filler that stops short of the bar, so the check passes
+      just as happily with the reservation deleted. Verified by deleting it.
+
+      What is actually invariant is the reservation: the document must be
+      taller than its own content by at least the bar's height, so the last
+      pixel of content can be scrolled clear of it. That holds regardless of
+      what the content is, and it fails the instant the padding goes.
+    */
+    const main = document.querySelector(".app-main");
+    if (main) {
+      const scrollY = window.scrollY;
+      let contentBottom = 0;
+      for (const el of main.querySelectorAll("*")) {
+        const s = getComputedStyle(el);
+        if (s.position === "fixed" || s.display === "none" || s.visibility === "hidden")
+          continue;
+        const r = el.getBoundingClientRect();
+        if (r.height === 0) continue;
+        contentBottom = Math.max(contentBottom, r.bottom + scrollY);
+      }
+      const docH = document.documentElement.scrollHeight;
+      const slack = Math.round(docH - contentBottom);
+      if (slack < Math.round(bar.height) - 2) {
+        problems.push(
+          `the page reserves only ${slack}px below its last content but the ` +
+            `fixed bar is ${Math.round(bar.height)}px tall, so that much of ` +
+            `the page can never be scrolled out from under it`,
+        );
+      }
+    }
+
+    // Secondary: a control actually sitting under the bar right now. Weaker
+    // (see above) but when it does fire it names the offending element.
+    for (const el of document.querySelectorAll(
+      "a, button, input, select, textarea, [role='tab']",
+    )) {
+      if (nav.contains(el)) continue;
+      const s = getComputedStyle(el);
+      if (s.display === "none" || s.visibility === "hidden" || s.position === "fixed")
+        continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      if (r.bottom > bar.top + 2 && r.top < bar.bottom - 2) {
+        problems.push(`${describe(el)} is under the bar`);
+      }
+    }
+    return problems;
+  });
+}
+
 const browser = await chromium.launch();
 try {
   for (const width of WIDTHS) {
@@ -190,6 +280,18 @@ try {
         fail(`${route} @${width} .app-header moved when the page scrolled`);
       } else if (held === true) {
         ok(`${route} @${width} .app-header stayed put on scroll`);
+      }
+
+      const occluded = await contentUnderMobileNav(page);
+      if (occluded === null) {
+        // No mobile bar at this width — nothing to assert.
+      } else if (occluded.length) {
+        fail(
+          `${route} @${width} content is stranded under the fixed mobile nav ` +
+            `at the bottom of the page: ${occluded.slice(0, 4).join(" | ")}`,
+        );
+      } else {
+        ok(`${route} @${width} nothing stranded under the mobile nav`);
       }
     }
     await ctx.close();

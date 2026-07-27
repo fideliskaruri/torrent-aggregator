@@ -41,7 +41,7 @@ async function main() {
   assert.deepEqual(hunt0.cursor, { season: 9, episode: 1 });
 
   // Off-cursor rewatch (S09E05 while hunting S09E01) — no advance
-  const rewatch = await advanceLibraryItemIfHuntMatch({
+  const rewatch = await advanceLibraryItemIfHuntMatch(prisma, {
     userId: user.id,
     watchListItemId: item.id,
     grabSeason: 9,
@@ -58,7 +58,7 @@ async function main() {
   assert.equal(afterRewatch.lastEpisode, null);
 
   // Hunt-cursor match — advance like automation
-  const matched = await advanceLibraryItemIfHuntMatch({
+  const matched = await advanceLibraryItemIfHuntMatch(prisma, {
     userId: user.id,
     watchListItemId: item.id,
     grabSeason: 9,
@@ -83,7 +83,7 @@ async function main() {
   assert.equal(hunt1.query, "Family Guy S09E02");
 
   // Second hunt match advances again
-  const next = await advanceLibraryItemIfHuntMatch({
+  const next = await advanceLibraryItemIfHuntMatch(prisma, {
     userId: user.id,
     watchListItemId: item.id,
     grabSeason: 9,
