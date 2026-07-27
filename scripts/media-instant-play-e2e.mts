@@ -350,7 +350,12 @@ async function browsePayload(base: string) {
 
 async function clickReadyCard(page: Page, title: string) {
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
-  const button = page.locator(`[data-rail="ready-to-play"] [data-card-action="play"][aria-label*="${title}"]`).first();
+  const escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const button = page
+    .locator(`[data-rail="ready-to-play"] [data-card-action="play"]`)
+    .filter({ hasText: /^Play$/ })
+    .and(page.getByRole("button", { name: new RegExp(`^Play\\s+—\\s+${escapedTitle}(?:\\s+—|$)`) }))
+    .first();
   await button.waitFor({ state: "visible", timeout: 120_000 });
   await button.scrollIntoViewIfNeeded();
   await button.click();

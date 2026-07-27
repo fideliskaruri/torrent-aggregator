@@ -151,7 +151,11 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
   // Morty...` side by side even though `workIdentity()` already knew they were
   // one series.
   const cards = collapseReleasesByWork(
-    torrents.map((t) => ({ name: t.name, sortAt: t.updatedAt, value: t })),
+    torrents.map((t) => ({
+      name: t.name,
+      sortAt: readyCollapseSortAt(t.name, t.updatedAt),
+      value: t,
+    })),
   ).slice(0, 20);
   const artwork = await resolveArtworkForReleases(
     cards.map((g) => g.name),
@@ -185,6 +189,17 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
   }
 
   return readyToPlayRailFromItems(items);
+}
+
+/**
+ * Ready-to-Play collapses a season pack and single up-next episodes into one
+ * work card. Keep the pack as the playable representative: it is the row that
+ * can open any episode in the season, while a prewarmed single is only one file.
+ */
+export function readyCollapseSortAt(name: string, updatedAt: Date): Date {
+  const parsed = parseEpisode(name);
+  if (!parsed.isSeasonPack) return updatedAt;
+  return new Date(updatedAt.getTime() + 10 * 365 * 24 * 60 * 60 * 1000);
 }
 
 function readyToPlayRailFromItems(items: RailItem[]): Rail | null {

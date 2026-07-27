@@ -74,6 +74,7 @@ type WtTorrent = {
   pieces?: Array<unknown>;
   files?: Array<WtFile>;
   select?: (start: number, end: number, priority?: number) => void;
+  deselect?: (start: number, end: number) => void;
   _select?: (
     start: number,
     end: number,
@@ -362,10 +363,8 @@ function selectAllFiles(t: WtTorrent): void {
   }
 }
 
-const BACKGROUND_FILE_PRIORITY = 0;
-const PLAYING_FILE_PRIORITY = 2;
 const SEEK_FILE_PRIORITY = 3;
-const SEEK_PRIORITY_BYTES = 2 * 1024 * 1024;
+const STREAM_HEAD_PRIORITY_BYTES = 2 * 1024 * 1024;
 
 type StreamPriorityOptions = {
   seekOffset?: number;
@@ -375,7 +374,7 @@ type StreamPriorityOptions = {
 
 type StreamPriorityState = {
   key: string;
-  fileRange: { start: number; end: number } | null;
+  headRange: { start: number; end: number } | null;
   seekRange: { start: number; end: number } | null;
 };
 
@@ -414,8 +413,37 @@ function seekPieceRange(
     fileRange.end,
     Math.max(fileRange.start, Math.floor((fileOffset + seekOffset) / pieceLength)),
   );
-  const pieces = Math.max(0, Math.ceil(SEEK_PRIORITY_BYTES / pieceLength) - 1);
+  const pieces = Math.max(0, Math.ceil(STREAM_HEAD_PRIORITY_BYTES / pieceLength) - 1);
   return { start, end: Math.min(fileRange.end, start + pieces) };
+}
+
+function headPieceRange(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+): { start: number; end: number } | null {
+  const fileRange = filePieceRange(file);
+  if (!fileRange) return null;
+  const pieceLength = readProp(() => (torrent as WtTorrent).pieceLength, 0);
+  if (!pieceLength || pieceLength <= 0) return fileRange;
+  const pieces = Math.max(0, Math.ceil(STREAM_HEAD_PRIORITY_BYTES / pieceLength) - 1);
+  return { start: fileRange.start, end: Math.min(fileRange.end, fileRange.start + pieces) };
+}
+
+function torrentPieceRange(
+  torrent: BuiltinStreamTorrent,
+): { start: number; end: number } | null {
+  const pieces = readProp(() => (torrent as WtTorrent).pieces, undefined);
+  if (Array.isArray(pieces) && pieces.length > 0) {
+    return { start: 0, end: pieces.length - 1 };
+  }
+  const files = readProp(() => torrent.files, undefined);
+  if (!Array.isArray(files)) return null;
+  let end = -1;
+  for (const file of files) {
+    const range = filePieceRange(file);
+    if (range) end = Math.max(end, range.end);
+  }
+  return end >= 0 ? { start: 0, end } : null;
 }
 
 function selectPieceRange(
@@ -448,6 +476,37 @@ function deselectStreamPieceRange(
   }
 }
 
+function deselectRegularPieceRange(
+  torrent: BuiltinStreamTorrent,
+  range: { start: number; end: number } | null,
+): void {
+  if (!range) return;
+  const t = torrent as WtTorrent;
+  try {
+    if (typeof t.deselect === "function") {
+      t.deselect(range.start, range.end);
+      return;
+    }
+    t._deselect?.(range.start, range.end, false);
+  } catch {
+    /* best-effort */
+  }
+}
+
+function deselectAllFiles(torrent: BuiltinStreamTorrent): void {
+  const files = readProp(() => torrent.files, undefined);
+  if (Array.isArray(files)) {
+    for (const file of files) {
+      try {
+        file.deselect?.();
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+  deselectRegularPieceRange(torrent, torrentPieceRange(torrent));
+}
+
 function triggerPriorityEdgePrefetch(
   torrent: BuiltinStreamTorrent,
   file: BuiltinStreamFile,
@@ -471,13 +530,12 @@ function triggerPriorityEdgePrefetch(
 /**
  * Tell WebTorrent which file is actually on screen.
  *
- * The torrent remains selected as a pack. We only add higher-priority overlays
- * for the watched file, because removing sibling selections makes the next
- * episode unreachable and turns a season pack into a one-file download. The
- * private `_select(..., isStreamSelection: true)` shape is the same one
- * WebTorrent's own FileIterator uses for active streams; unlike public
- * `torrent.select`, it does not merge with the low-priority whole-torrent
- * selection that WebTorrent creates at startup.
+ * Opening one file in a pack must behave like opening a single-file torrent:
+ * the requested bytes own the swarm first. WebTorrent creates a whole-torrent
+ * selection at startup; if we leave that in place, a mid-season episode competes
+ * with earlier files in the pack. Drop regular selections, then add a small
+ * stream-priority window for the wanted head (or the seek point). FileIterator
+ * selections widen naturally as the player requests more ranges.
  */
 export function prioritizeBuiltinStreamFile(
   torrent: BuiltinStreamTorrent,
@@ -485,11 +543,13 @@ export function prioritizeBuiltinStreamFile(
   opts: StreamPriorityOptions = {},
 ): void {
   const key = fileSelectionKey(file);
-  const range = filePieceRange(file);
   const seek = seekPieceRange(torrent, file, opts.seekOffset);
+  const head = seek ? null : headPieceRange(torrent, file);
   const previous = prioritizedStreamFiles.get(torrent);
   if (
     previous?.key === key &&
+    previous.headRange?.start === head?.start &&
+    previous.headRange?.end === head?.end &&
     previous.seekRange?.start === seek?.start &&
     previous.seekRange?.end === seek?.end
   ) {
@@ -497,33 +557,16 @@ export function prioritizeBuiltinStreamFile(
     return;
   }
 
-  if (previous?.key !== key) {
-    deselectStreamPieceRange(torrent, previous?.fileRange ?? null);
+  if (previous?.key !== key || seek) {
+    deselectStreamPieceRange(torrent, previous?.headRange ?? null);
   }
   deselectStreamPieceRange(torrent, previous?.seekRange ?? null);
-  prioritizedStreamFiles.set(torrent, { key, fileRange: range, seekRange: seek });
-
-  const files = readProp(() => torrent.files, undefined);
-  if (previous?.key !== key && Array.isArray(files)) {
-    for (const sibling of files) {
-      if (fileSelectionKey(sibling) === key) continue;
-      try {
-        sibling.select?.(BACKGROUND_FILE_PRIORITY);
-      } catch {
-        /* best-effort */
-      }
-    }
+  if (previous?.key !== key) {
+    deselectAllFiles(torrent);
   }
+  prioritizedStreamFiles.set(torrent, { key, headRange: head, seekRange: seek });
 
-  if (range && previous?.key !== key) {
-    selectPieceRange(torrent, range, PLAYING_FILE_PRIORITY);
-  } else if (!range && previous?.key !== key) {
-    try {
-      file.select?.(PLAYING_FILE_PRIORITY);
-    } catch {
-      /* best-effort */
-    }
-  }
+  if (head) selectPieceRange(torrent, head, SEEK_FILE_PRIORITY);
 
   if (seek) {
     selectPieceRange(torrent, seek, SEEK_FILE_PRIORITY);

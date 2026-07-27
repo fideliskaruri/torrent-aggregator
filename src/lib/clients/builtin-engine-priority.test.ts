@@ -49,12 +49,14 @@ function fakeFile(path: string, start: number, end: number, offset: number): Fak
   } as FakeFile;
 }
 
-function fakeTorrent(files: FakeFile[]): BuiltinStreamTorrent & {
+function fakeTorrent(files: FakeFile[], pieceLength = 1024 * 1024): BuiltinStreamTorrent & {
   pieceLength: number;
   pieces: unknown[];
   selections: Selection[];
   deselections: Array<{ start: number; end: number; stream: boolean | undefined }>;
+  publicDeselections: Array<{ start: number; end: number }>;
   criticalCalls: Array<{ start: number; end: number }>;
+  deselect: (start: number, end: number) => void;
   _select: (
     start: number,
     end: number,
@@ -72,11 +74,15 @@ function fakeTorrent(files: FakeFile[]): BuiltinStreamTorrent & {
     downloadSpeed: 0,
     numPeers: 1,
     files,
-    pieceLength: 1024,
+    pieceLength,
     pieces: new Array(60).fill({}),
     selections: [],
     deselections: [],
+    publicDeselections: [],
     criticalCalls: [],
+    deselect(start, end) {
+      this.publicDeselections.push({ start, end });
+    },
     _select(start, end, priority, _notify, stream) {
       this.selections.push({ start, end, priority, stream });
     },
@@ -103,7 +109,7 @@ async function check(name: string, fn: () => void | Promise<void>) {
 }
 
 async function main() {
-  await check("played file gets a higher overlay while siblings stay selected", () => {
+  await check("played file owns the swarm while siblings are deselected", () => {
     const ep1 = fakeFile("Show/S01E01.mkv", 0, 9, 0);
     const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
     const ep6 = fakeFile("Show/S01E06.mkv", 50, 59, 50 * 1024);
@@ -113,12 +119,13 @@ async function main() {
       prefetchEdges: async () => undefined,
     });
 
-    assert.deepEqual(ep1.selectCalls, [0]);
-    assert.deepEqual(ep6.selectCalls, [0]);
-    assert.equal(ep1.deselectCalls, 0);
-    assert.equal(ep6.deselectCalls, 0);
+    assert.deepEqual(ep1.selectCalls, []);
+    assert.deepEqual(ep6.selectCalls, []);
+    assert.equal(ep1.deselectCalls, 1);
+    assert.equal(ep6.deselectCalls, 1);
+    assert.deepEqual(torrent.publicDeselections, [{ start: 0, end: 59 }]);
     assert.deepEqual(torrent.selections, [
-      { start: 40, end: 49, priority: 2, stream: true },
+      { start: 40, end: 41, priority: 3, stream: true },
     ]);
   });
 
@@ -139,12 +146,14 @@ async function main() {
       },
     });
 
-    assert.deepEqual(ep1.selectCalls, [0]);
+    assert.deepEqual(ep1.selectCalls, []);
+    assert.equal(ep1.deselectCalls, 1);
+    assert.deepEqual(torrent.publicDeselections, [{ start: 0, end: 59 }]);
     assert.equal(torrent.selections.length, 1);
     assert.equal(prefetches, 1);
   });
 
-  await check("switching files drops only the old priority overlay", () => {
+  await check("switching files drops the old priority overlay and reclaims the swarm", () => {
     const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
     const ep6 = fakeFile("Show/S01E06.mkv", 50, 59, 50 * 1024);
     const torrent = fakeTorrent([ep5, ep6]);
@@ -156,19 +165,23 @@ async function main() {
       prefetchEdges: async () => undefined,
     });
 
-    assert.equal(ep5.deselectCalls, 0);
-    assert.equal(ep6.deselectCalls, 0);
-    assert.deepEqual(torrent.deselections, [{ start: 40, end: 49, stream: true }]);
-    assert.deepEqual(ep5.selectCalls, [0]);
+    assert.equal(ep5.deselectCalls, 2);
+    assert.equal(ep6.deselectCalls, 2);
+    assert.deepEqual(torrent.publicDeselections, [
+      { start: 0, end: 59 },
+      { start: 0, end: 59 },
+    ]);
+    assert.deepEqual(torrent.deselections, [{ start: 40, end: 41, stream: true }]);
+    assert.deepEqual(ep5.selectCalls, []);
     assert.deepEqual(torrent.selections, [
-      { start: 40, end: 49, priority: 2, stream: true },
-      { start: 50, end: 59, priority: 2, stream: true },
+      { start: 40, end: 41, priority: 3, stream: true },
+      { start: 50, end: 51, priority: 3, stream: true },
     ]);
   });
 
   await check("seek offset marks the requested pieces urgent", () => {
     const ep5 = fakeFile("Show/S01E05.mkv", 40, 60, 40 * 1024);
-    const torrent = fakeTorrent([ep5]);
+    const torrent = fakeTorrent([ep5], 1024);
 
     prioritizeBuiltinStreamFile(torrent, ep5, {
       seekOffset: 5 * 1024,
@@ -176,10 +189,45 @@ async function main() {
     });
 
     assert.deepEqual(torrent.selections, [
-      { start: 40, end: 60, priority: 2, stream: true },
       { start: 45, end: 60, priority: 3, stream: true },
     ]);
     assert.deepEqual(torrent.criticalCalls, [{ start: 45, end: 60 }]);
+  });
+
+  await check("seek within the same pack file drops the old head priority", () => {
+    const ep5 = fakeFile("Show/S01E05.mkv", 40, 60, 40 * 1024);
+    const torrent = fakeTorrent([ep5], 1024);
+
+    prioritizeBuiltinStreamFile(torrent, ep5, {
+      prefetchEdges: async () => undefined,
+    });
+    prioritizeBuiltinStreamFile(torrent, ep5, {
+      seekOffset: 8 * 1024,
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(torrent.deselections, [{ start: 40, end: 60, stream: true }]);
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 60, priority: 3, stream: true },
+      { start: 48, end: 60, priority: 3, stream: true },
+    ]);
+    assert.deepEqual(torrent.criticalCalls, [{ start: 48, end: 60 }]);
+  });
+
+  await check("head priority is bounded instead of selecting the whole episode", () => {
+    const ep1 = fakeFile("Show/S01E01.mkv", 0, 19, 0);
+    const ep3 = fakeFile("Show/S01E03.mkv", 40, 59, 40 * 1024);
+    const torrent = fakeTorrent([ep1, ep3]);
+
+    prioritizeBuiltinStreamFile(torrent, ep3, {
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(
+      torrent.selections,
+      [{ start: 40, end: 41, priority: 3, stream: true }],
+      "opening S01E03 must not request S01E03's whole piece range at one priority",
+    );
   });
 }
 

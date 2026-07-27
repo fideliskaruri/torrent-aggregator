@@ -13,7 +13,10 @@ import type { AvailabilityQuery } from "./availability";
 import { COMPLETION_THRESHOLD } from "./types";
 import type { AvailabilityState, Availability, RailItem } from "./types";
 import { collapseReleasesByWork } from "./collapse";
-import { _readyToPlayRailFromItems as readyToPlayRailFromItems } from "./rails";
+import {
+  _readyToPlayRailFromItems as readyToPlayRailFromItems,
+  readyCollapseSortAt,
+} from "./rails";
 
 // Import the internal helpers we export for testing
 import {
@@ -754,6 +757,30 @@ for (const tc of READY_RAIL_CASES) {
     );
   });
 }
+
+check("ready collapse keeps a season pack ahead of a newer up-next single", () => {
+  const packUpdated = new Date(Date.UTC(2024, 0, 1, 0, 0, 0));
+  const singleUpdated = new Date(Date.UTC(2024, 0, 2, 0, 0, 0));
+
+  const collapsed = collapseReleasesByWork([
+    {
+      name: "Harness Show S01E04 1080p WEB",
+      sortAt: readyCollapseSortAt("Harness Show S01E04 1080p WEB", singleUpdated),
+      value: { hash: "single" },
+    },
+    {
+      name: "Harness Show S01 COMPLETE 1080p WEB",
+      sortAt: readyCollapseSortAt("Harness Show S01 COMPLETE 1080p WEB", packUpdated),
+      value: { hash: "pack" },
+    },
+  ]);
+
+  assert.equal(
+    collapsed[0]?.value.hash,
+    "pack",
+    "a prewarmed single must not replace the ready season-pack card",
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Input validation rules (progress route)
