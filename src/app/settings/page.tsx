@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 interface ClientForm {
   clientType: "qbittorrent" | "transmission" | "builtin";
   /** Optional secondary for "Send to my client" when primary is built-in */
-  externalClientType: "qbittorrent" | "transmission" | "" ;
+  externalClientType: "qbittorrent" | "transmission" | "";
   host: string;
   username: string;
   password: string;
@@ -49,6 +49,33 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: "folders", label: "Downloads" },
   { id: "categories", label: "Categories" },
 ];
+
+export const PRIMARY_DOWNLOAD_CLIENT_OPTIONS = [
+  {
+    value: "builtin",
+    label: "Play in TorrentFlow",
+    stance: "recommended",
+    hint: "Starts playback in the browser and keeps downloads available without another app.",
+  },
+  {
+    value: "qbittorrent",
+    label: "Use qBittorrent instead",
+    stance: "advanced",
+    hint: "Advanced: new sends depend on qBittorrent being open and reachable.",
+  },
+  {
+    value: "transmission",
+    label: "Use Transmission instead",
+    stance: "advanced",
+    hint: "Advanced: new sends depend on Transmission being open and reachable.",
+  },
+] as const;
+
+const EXTERNAL_CLIENT_OPTIONS = [
+  ["", "Do not send elsewhere"],
+  ["qbittorrent", "Also send to qBittorrent"],
+  ["transmission", "Also send to Transmission"],
+] as const;
 
 /**
  * Quality is a *target*, not a floor — nothing is ever rejected for its
@@ -106,7 +133,6 @@ function formatInterval(minutes: number): string {
 }
 
 const EMPTY_FORM: ClientForm = {
-
   clientType: "builtin",
   externalClientType: "",
   host: "http://127.0.0.1:8080",
@@ -616,7 +642,8 @@ export default function SettingsPage() {
           >
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-[var(--text-tertiary)]">
-                Built-in downloads by default — external clients are optional extras
+                Keep playback in TorrentFlow. External clients are advanced
+                fallbacks, not the normal way to watch.
               </p>
               {connectionOk ? (
                 <Badge variant="success" data-connection-ok>
@@ -626,30 +653,24 @@ export default function SettingsPage() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs text-[var(--text-tertiary)]">
-                Primary client (Send + Client page)
+                How new torrents should play
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                {(
-                  [
-                    ["builtin", "Built-in (default)"],
-                    ["qbittorrent", "qBittorrent only"],
-                    ["transmission", "Transmission only"],
-                  ] as const
-                ).map(([value, label]) => (
+              <div className="grid grid-cols-1 gap-2">
+                {PRIMARY_DOWNLOAD_CLIENT_OPTIONS.map((option) => (
                   <button
-                    key={value}
+                    key={option.value}
                     type="button"
                     onClick={() => {
                       touchForm();
                       setForm((f) => ({
                         ...f,
-                        clientType: value,
+                        clientType: option.value,
                         host:
-                          value === "qbittorrent"
+                          option.value === "qbittorrent"
                             ? f.host.includes("9091")
                               ? "http://127.0.0.1:8080"
                               : f.host || "http://127.0.0.1:8080"
-                            : value === "transmission"
+                            : option.value === "transmission"
                               ? f.host.includes("8080") &&
                                 !f.host.includes("9091")
                                 ? "http://127.0.0.1:9091"
@@ -658,20 +679,35 @@ export default function SettingsPage() {
                       }));
                     }}
                     className={cn(
-                      "rounded-lg px-3 py-2.5 text-sm transition-colors",
-                      form.clientType === value
+                      "rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1",
+                      option.stance === "advanced" && "ml-4 sm:ml-8",
+                      form.clientType === option.value
                         ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-1 ring-[var(--accent-ring)]"
                         : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-1 ring-[var(--border)] hover:text-[var(--text)]",
                     )}
                   >
-                    {label}
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{option.label}</span>
+                      {option.stance === "recommended" ? (
+                        <span className="rounded-full bg-[rgba(62,207,142,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--success)]">
+                          Recommended
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">
+                          Advanced
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1 block text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                      {option.hint}
+                    </span>
                   </button>
                 ))}
               </div>
               <p className="text-xs text-[var(--text-tertiary)] leading-relaxed pt-1">
                 {form.clientType === "builtin"
-                  ? "One-app mode: downloads run inside TorrentFlow. Stopping qBittorrent does nothing — you don't need it. Optionally connect it below to also push torrents there."
-                  : "Primary is your external Web UI. If that app is closed, Client will show offline — switch back to Built-in anytime."}
+                  ? "This is the only mode that can make a search result immediately watchable in the browser. You can still copy sends to another client below."
+                  : "TorrentFlow will hand off new sends instead of preparing them for in-browser playback. Switch back to Play in TorrentFlow when watching matters more than managing an external queue."}
               </p>
             </div>
 
@@ -680,21 +716,15 @@ export default function SettingsPage() {
               <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-4">
                 <div className="space-y-1">
                   <label className="text-xs text-[var(--text-tertiary)]">
-                    Also send to my client (optional)
+                    Optional copy to another client
                   </label>
                   <p className="text-[12px] text-[var(--text-tertiary)] leading-relaxed">
-                    Save qBittorrent or Transmission credentials. Search cards get
-                    “Send to my client” without making that app required.
+                    Add a secondary send button for qBittorrent or Transmission
+                    without making either app part of playback.
                   </p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {(
-                    [
-                      ["", "None"],
-                      ["qbittorrent", "qBittorrent"],
-                      ["transmission", "Transmission"],
-                    ] as const
-                  ).map(([value, label]) => (
+                  {EXTERNAL_CLIENT_OPTIONS.map(([value, label]) => (
                     <button
                       key={value || "none"}
                       type="button"
@@ -1129,7 +1159,8 @@ export default function SettingsPage() {
                   Categories
                 </h2>
                 <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
-                  Quick-pick chips when sending. Tap a chip to set the default.
+                  These labels choose where files are saved after TorrentFlow
+                  identifies them. Remove labels you do not want to route.
                   Empty paths inherit{" "}
                   {form.baseDownloadPath.trim()
                     ? "base/Category"

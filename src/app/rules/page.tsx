@@ -39,6 +39,13 @@ interface Rule {
 const selectClass =
   "flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
 
+export const RULE_CATEGORY_OPTIONS = [
+  { value: "all", label: "All video" },
+  { value: "anime", label: "Anime" },
+  { value: "movies", label: "Movies" },
+  { value: "tv", label: "TV" },
+] as const;
+
 export default function RulesPage() {
   const {
     data: rulesData,
@@ -169,7 +176,7 @@ export default function RulesPage() {
     <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
         title="Auto-download rules"
-        description="When a match appears with enough seeders, send it to your client."
+        description="Automatically grab watchable video releases when they become healthy enough to play."
         actions={
           <Button
             type="button"
@@ -215,7 +222,11 @@ export default function RulesPage() {
               required
             />
           </Field>
-          <Field label="Category" htmlFor="rule-category">
+          <Field
+            label="What to watch"
+            htmlFor="rule-category"
+            hint="Rules only grab video the app can browse and play."
+          >
             <select
               id="rule-category"
               className={selectClass}
@@ -224,9 +235,13 @@ export default function RulesPage() {
                 setForm((f) => ({ ...f, category: e.target.value }))
               }
             >
-              {["all", "anime", "movies", "tv", "music", "games"].map((c) => (
-                <option key={c} value={c} className="bg-[var(--bg-elevated)]">
-                  {c}
+              {RULE_CATEGORY_OPTIONS.map((c) => (
+                <option
+                  key={c.value}
+                  value={c.value}
+                  className="bg-[var(--bg-elevated)]"
+                >
+                  {c.label}
                 </option>
               ))}
             </select>
