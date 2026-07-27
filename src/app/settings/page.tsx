@@ -15,6 +15,7 @@ import {
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RetentionPanel } from "@/components/settings/retention-panel";
+import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -1450,6 +1451,8 @@ export default function SettingsPage() {
           </div>
         </div>
       </form>
+
+      <SwarmProbePanel />
 
       <FolderPicker
         open={pickerOpen}
