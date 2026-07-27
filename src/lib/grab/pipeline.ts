@@ -43,6 +43,7 @@ import { searchTorrents } from "@/lib/torrents/aggregator";
 import { sendToClient } from "@/lib/clients";
 import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
 import type { GrabPipelineOptions, GrabPipelineResult } from "./types";
+import { historyMessageFromFacts } from "@/lib/activity/history";
 
 /**
  * How long a prior grab blocks a second grab of the same infoHash.
@@ -294,15 +295,14 @@ export async function runGrabPipeline(
         ? "Auto-rule"
         : "On-demand");
 
-  const buildHistoryMessage = () =>
-    [
-      historyPrefix,
-      send.message,
-      target.category ? `cat=${target.category}` : null,
-      target.savePath ? `path=${target.savePath}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+  const historyFacts = () => ({
+    context: historyPrefix,
+    message: send.message,
+    category: target.category ?? null,
+    savePath: target.savePath ?? null,
+  });
+
+  const buildHistoryMessage = () => historyMessageFromFacts(historyFacts());
 
   const hash = normalizeInfoHash(candidate.infoHash);
   let alreadyActive = false;
@@ -354,7 +354,10 @@ export async function runGrabPipeline(
             if (priorHistory?.id) {
               await tx.downloadHistory.update({
                 where: { id: priorHistory.id },
-                data: { message: buildHistoryMessage() },
+                data: {
+                  ...historyFacts(),
+                  message: buildHistoryMessage(),
+                },
               });
             }
           }
@@ -389,6 +392,7 @@ export async function runGrabPipeline(
           infoHash: hash,
           source: candidate.source,
           status: send.ok ? "sent" : "failed",
+          ...historyFacts(),
           message: buildHistoryMessage(),
         },
       });
