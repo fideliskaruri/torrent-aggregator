@@ -1,5 +1,6 @@
 import type { ReadStream } from "node:fs";
 import { open, readFile, stat, type FileHandle } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type {
   BuiltinStreamFile,
@@ -13,10 +14,14 @@ export type ByteRange = {
 
 type TorrentWithDiskState = BuiltinStreamTorrent & {
   path?: string;
+  length?: number;
+  _hashes?: string[];
   pieceLength?: number;
+  lastPieceLength?: number;
   pieces?: unknown[];
   ready?: boolean;
   bitfield?: { get?: (index: number) => boolean };
+  files?: FileWithDiskState[];
 };
 
 type FileWithDiskState = BuiltinStreamFile & {
@@ -100,7 +105,12 @@ async function verifiedDiskPath(
   file: BuiltinStreamFile,
   range: ByteRange,
 ): Promise<string | null> {
-  if (!isTorrentRangeVerifiedOnDisk(torrent, file, range)) return null;
+  if (
+    !isTorrentRangeVerifiedOnDisk(torrent, file, range) &&
+    !(await verifyTorrentRangeFromDisk(torrent, file, range))
+  ) {
+    return null;
+  }
   const filePath = safeDiskPath(torrent as TorrentWithDiskState, file as FileWithDiskState);
   if (!filePath) return null;
   try {
@@ -110,6 +120,86 @@ async function verifiedDiskPath(
   } catch {
     return null;
   }
+}
+
+async function verifyTorrentRangeFromDisk(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+  range: ByteRange,
+): Promise<boolean> {
+  const t = torrent as TorrentWithDiskState;
+  const pieceRange = torrentPieceRangeForFileRange(torrent, file, range);
+  const hashes = Array.isArray(t._hashes) ? t._hashes : null;
+  if (!pieceRange || !hashes || pieceRange.end >= hashes.length) return false;
+
+  for (let piece = pieceRange.start; piece <= pieceRange.end; piece += 1) {
+    const expected = hashes[piece];
+    if (typeof expected !== "string" || !/^[a-f0-9]{40}$/i.test(expected)) return false;
+    const bytes = await readTorrentPieceFromDisk(t, piece);
+    if (!bytes) return false;
+    const actual = createHash("sha1").update(bytes).digest("hex");
+    if (actual.toLowerCase() !== expected.toLowerCase()) return false;
+  }
+  return true;
+}
+
+async function readTorrentPieceFromDisk(
+  torrent: TorrentWithDiskState,
+  piece: number,
+): Promise<Uint8Array | null> {
+  const pieceLength = finiteWholeNumber(torrent.pieceLength);
+  const torrentLength = finiteWholeNumber(torrent.length);
+  if (!pieceLength || torrentLength == null) return null;
+
+  const pieceStart = piece * pieceLength;
+  if (pieceStart >= torrentLength) return null;
+  const pieceEnd = Math.min(torrentLength - 1, pieceStart + pieceLength - 1);
+  const expectedLength =
+    piece === ((Array.isArray(torrent._hashes) ? torrent._hashes.length : 0) - 1)
+      ? finiteWholeNumber(torrent.lastPieceLength) || pieceEnd - pieceStart + 1
+      : pieceEnd - pieceStart + 1;
+  if (expectedLength <= 0 || expectedLength !== pieceEnd - pieceStart + 1) return null;
+
+  const files = Array.isArray(torrent.files)
+    ? [...torrent.files].sort(
+        (a, b) => (finiteWholeNumber(a.offset) ?? 0) - (finiteWholeNumber(b.offset) ?? 0),
+      )
+    : [];
+  const out = new Uint8Array(expectedLength);
+  let written = 0;
+
+  for (const f of files) {
+    const fileOffset = finiteWholeNumber(f.offset);
+    if (fileOffset == null || !Number.isFinite(f.length) || f.length < 0) return null;
+    const fileStart = fileOffset;
+    const fileEnd = fileStart + f.length - 1;
+    if (f.length === 0 || fileEnd < pieceStart || fileStart > pieceEnd) continue;
+
+    const diskPath = safeDiskPath(torrent, f);
+    if (!diskPath) return null;
+    let handle: FileHandle | null = null;
+    try {
+      handle = await open(diskPath, "r");
+      const s = await handle.stat();
+      if (!s.isFile() || s.size !== f.length) return null;
+      const startInFile = Math.max(pieceStart, fileStart) - fileStart;
+      const length = Math.min(pieceEnd, fileEnd) - Math.max(pieceStart, fileStart) + 1;
+      const { bytesRead } = await handle.read(
+        out,
+        written,
+        length,
+        startInFile,
+      );
+      if (bytesRead !== length) return null;
+      written += bytesRead;
+    } catch {
+      return null;
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+  }
+
+  return written === expectedLength ? out : null;
 }
 
 export async function openVerifiedDiskStream(
