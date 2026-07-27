@@ -35,6 +35,49 @@
  */
 export type FailureCause = "delivery" | "playability";
 
+/** Minimal source facts a recovery UI needs to offer a concrete next action. */
+export interface PlaybackSourceOption {
+  infoHash: string;
+  title: string;
+  seeders: number;
+}
+
+/**
+ * Structured action attached to any non-playing terminal or stuck state.
+ *
+ * This is the UI seam: the component should branch on `outcome.kind`, not scrape
+ * English copy. `sources` are intentionally minimal; the richer quality menu can
+ * join them with `/api/playback/candidates` by `infoHash`.
+ */
+export type PlaybackActionOutcome =
+  | {
+      kind: "wait";
+      reason: "connecting" | "cold-starting" | "checking";
+      peerCount: number | null;
+      activeRequestCount: number | null;
+      nextPollMs: number;
+    }
+  | {
+      kind: "switch-source";
+      reason: FailureCause;
+      selected: PlaybackSourceOption;
+      alternatives: PlaybackSourceOption[];
+      remainingCount: number;
+    }
+  | {
+      kind: "choose-source";
+      reason: "manual-source-stalled";
+      alternatives: PlaybackSourceOption[];
+      alternativeCount: number;
+    }
+  | {
+      kind: "none-available";
+      reason: "no-seeders" | "all-sources-failed" | "no-playable-sources";
+      triedCount: number;
+      totalCandidates: number;
+      seededCandidateCount: number;
+    };
+
 /**
  * A playback state, as facts. Never a sentence.
  *
@@ -43,7 +86,7 @@ export type FailureCause = "delivery" | "playability";
  */
 export type PlaybackNarration =
   /** We have committed to a source and are waiting for the first bytes to play. */
-  | { phase: "starting"; attempt: number }
+  | { phase: "starting"; attempt: number; outcome: PlaybackActionOutcome }
   /** Bytes are flowing; playback is possible or underway. */
   | { phase: "playing" }
   /**
@@ -51,20 +94,46 @@ export type PlaybackNarration =
    * content. `cause` says why we left it (delivery vs playability) so the UI can
    * write the right sentence. `triedCount` sources have now been abandoned.
    */
-  | { phase: "switching"; cause: FailureCause; triedCount: number; nextName: string | null }
+  | {
+      phase: "switching";
+      cause: FailureCause;
+      triedCount: number;
+      nextName: string | null;
+      outcome: PlaybackActionOutcome;
+    }
   /**
    * Every candidate has been tried and none worked. This is a terminal, honest
    * answer — not a spinner. `cause` is the dominant reason none worked (nothing
    * delivered vs nothing the browser could play); `triedCount` is how many were
    * attempted.
    */
-  | { phase: "exhausted"; cause: FailureCause; triedCount: number }
+  | {
+      phase: "exhausted";
+      cause: FailureCause;
+      triedCount: number;
+      outcome: PlaybackActionOutcome;
+    }
   /**
    * The current source has stalled, but the user pinned it (chose it
    * explicitly), so we are NOT switching automatically. The selector should
    * offer the choice; we do not take it away.
    */
-  | { phase: "stalled-held" };
+  | { phase: "stalled-held"; outcome: PlaybackActionOutcome };
+
+export function waitOutcome(args: {
+  reason: "connecting" | "cold-starting" | "checking";
+  peerCount?: number | null;
+  activeRequestCount?: number | null;
+  nextPollMs?: number;
+}): PlaybackActionOutcome {
+  return {
+    kind: "wait",
+    reason: args.reason,
+    peerCount: args.peerCount ?? null,
+    activeRequestCount: args.activeRequestCount ?? null,
+    nextPollMs: args.nextPollMs ?? 5_000,
+  };
+}
 
 /** The words a viewer sees. `detail` is optional supporting copy. */
 export interface PlaybackCopy {
@@ -85,6 +154,13 @@ export interface PlaybackCopy {
 export function describePlayback(state: PlaybackNarration): PlaybackCopy {
   switch (state.phase) {
     case "starting":
+      if (state.outcome.kind === "wait" && state.outcome.reason === "cold-starting") {
+        const peers = state.outcome.peerCount ?? 0;
+        return {
+          headline: "Still connecting to peers…",
+          detail: `${peers} ${peers === 1 ? "peer" : "peers"} found; waiting for the first video pieces.`,
+        };
+      }
       return state.attempt <= 1
         ? { headline: "Starting playback…" }
         : { headline: "Trying another source…" };
@@ -100,16 +176,24 @@ export function describePlayback(state: PlaybackNarration): PlaybackCopy {
         state.cause === "playability"
           ? "Your device can’t play this one — trying another…"
           : "This source stalled — trying another…";
-      return { headline, detail: target };
+      const suffix =
+        state.outcome.kind === "switch-source" && state.outcome.remainingCount > 0
+          ? ` ${state.outcome.remainingCount} other ${state.outcome.remainingCount === 1 ? "release" : "releases"} remain.`
+          : "";
+      return { headline, detail: `${target}${suffix}` };
     }
 
     case "exhausted": {
       const n = Math.max(1, state.triedCount);
       const sources = n === 1 ? "the only source" : `all ${n} sources`;
+      const none =
+        state.outcome.kind === "none-available" && state.outcome.reason === "no-seeders"
+          ? " No seeders were found for any release of this episode."
+          : "";
       const detail =
         state.cause === "playability"
           ? `We tried ${sources} we could find and none were ones your device can play. Try again later.`
-          : `We tried ${sources} we could find and none were delivering. Try again later.`;
+          : `We tried ${sources} we could find and none were delivering. Try again later.${none}`;
       const headline =
         state.cause === "playability"
           ? "Couldn’t play this — nothing your device supports right now"
@@ -118,6 +202,16 @@ export function describePlayback(state: PlaybackNarration): PlaybackCopy {
     }
 
     case "stalled-held":
+      if (state.outcome.kind === "choose-source") {
+        const n = state.outcome.alternativeCount;
+        return {
+          headline: "The source you chose has stalled",
+          detail:
+            n > 0
+              ? `${n} other ${n === 1 ? "release is" : "releases are"} available. Pick one to switch, or keep waiting.`
+              : "No other release is available right now. You can keep waiting or try again later.",
+        };
+      }
       return {
         headline: "The source you chose has stalled",
         detail: "It isn’t delivering right now. Pick another quality to switch, or keep waiting.",

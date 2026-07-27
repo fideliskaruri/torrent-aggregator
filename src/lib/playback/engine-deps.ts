@@ -23,7 +23,7 @@ import { builtinClient } from "@/lib/clients/builtin-engine";
 import { listClientTorrents } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { normalizeTitle } from "@/lib/utils";
-import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
+import type { ClientTorrent, SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import type { TransferSample } from "./stall";
 import type { SwarmWatchDeps, ManualSwitchDeps } from "./swarm-delivery-watchdog";
@@ -73,11 +73,18 @@ function toSample(config: ClientConnectionConfig, infoHash: string) {
     const t = torrents.find((x) => x.hash?.toLowerCase() === hash);
     if (!t) return null;
     const size = t.sizeBytes ?? 0;
+    const requestSnapshot = t as ClientTorrent & { activeRequestCount?: unknown };
+    const activeRequestCount =
+      typeof requestSnapshot.activeRequestCount === "number"
+        ? requestSnapshot.activeRequestCount
+        : null;
     return {
       atMs: Date.now(),
       downloadedBytes: Math.max(0, Math.round((t.progress ?? 0) * size)),
       progress: t.progress ?? 0,
       state: t.state,
+      peerCount: t.peers ?? null,
+      activeRequestCount,
     };
   };
 }

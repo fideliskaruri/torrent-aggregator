@@ -47,6 +47,14 @@ export interface TransferSample {
    * verdict.
    */
   state: string;
+  /** Connected peers, for actionable "still connecting" copy. Not a stall proof. */
+  peerCount?: number | null;
+  /**
+   * Active piece/block requests currently outstanding. This is the cold-start
+   * signal: peers are not just connected, the engine is asking them for the head
+   * pieces the player needs.
+   */
+  activeRequestCount?: number | null;
 }
 
 /**
@@ -80,6 +88,16 @@ export const STALL_WINDOW_MS = 30_000;
  */
 export const STALL_MIN_DELIVERED_BYTES = 256 * 1024;
 
+/**
+ * Maximum zero-byte interval to treat as an active cold start when peers are
+ * still servicing piece requests.
+ *
+ * The browser harness has shown season-pack first-frame times around 204s; this
+ * grace is deliberately above that while still bounded so a permanently choked
+ * swarm eventually becomes actionable instead of spinning forever.
+ */
+export const COLD_START_GRACE_MS = 240_000;
+
 /** A transfer is complete at/after this fraction; a complete file never stalls. */
 const COMPLETE_PROGRESS = 0.9999;
 
@@ -102,6 +120,8 @@ export type StallReason =
   | "not-downloading"
   /** Delivered bytes over the window cleared the floor — healthy or slow-but-alive. */
   | "progressing"
+  /** Zero bytes so far, but piece requests are active inside the bounded grace. */
+  | "cold-starting"
   /** Actively downloading but delivered less than the floor across the window. */
   | "stalled";
 
@@ -117,6 +137,7 @@ export interface StallVerdict {
 export interface StallOptions {
   windowMs?: number;
   minDeliveredBytes?: number;
+  coldStartGraceMs?: number;
 }
 
 /**
@@ -138,6 +159,7 @@ export function evaluateStall(
   const windowMs = options.windowMs ?? STALL_WINDOW_MS;
   const minDeliveredBytes =
     options.minDeliveredBytes ?? STALL_MIN_DELIVERED_BYTES;
+  const coldStartGraceMs = options.coldStartGraceMs ?? COLD_START_GRACE_MS;
 
   if (samples.length < 2) {
     return { stalled: false, reason: "insufficient-history", deliveredBytes: null, windowMs: null };
@@ -178,6 +200,15 @@ export function evaluateStall(
 
   if (deliveredBytes >= minDeliveredBytes) {
     return { stalled: false, reason: "progressing", deliveredBytes, windowMs: evaluatedWindow };
+  }
+
+  const activeRequestCount = Math.max(0, latest.activeRequestCount ?? 0);
+  const hasActivePieceRequests = activeRequestCount > 0;
+  const oldest = ordered[0];
+  const hasNoContentBytesYet = ordered.every((s) => s.downloadedBytes <= 0);
+  const coldStartAgeMs = latest.atMs - oldest.atMs;
+  if (hasActivePieceRequests && hasNoContentBytesYet && coldStartAgeMs <= coldStartGraceMs) {
+    return { stalled: false, reason: "cold-starting", deliveredBytes, windowMs: evaluatedWindow };
   }
 
   return { stalled: true, reason: "stalled", deliveredBytes, windowMs: evaluatedWindow };
