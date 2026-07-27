@@ -1,13 +1,13 @@
 import prisma from "@/lib/prisma";
-import { searchTorrents } from "@/lib/torrents/aggregator";
-import { getUserClientConfig, sendToClient } from "@/lib/clients";
-import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
+import { getUserClientConfig } from "@/lib/clients";
+import { isClientOfflineError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { detectContentKind } from "@/lib/download/smart-category";
 import { acquireRunLock, releaseRunLock } from "@/lib/automation/run-lock";
+import { runGrabPipeline } from "@/lib/grab/pipeline";
 import type { TorrentSourceId, TorrentResult } from "@/lib/torrents/types";
 
-export type RuleRunStatus = "sent" | "failed" | "skipped";
+export type RuleRunStatus = "sent" | "failed" | "skipped" | "already_active";
 
 export type RuleRunResult = {
   ruleId: string;
@@ -96,12 +96,6 @@ async function logRuleGrabJob(
   }
 }
 
-function looksOfflineMessage(message: string): boolean {
-  return /unreachable|econnrefused|fetch failed|timeout|not listening|cannot reach/i.test(
-    message || "",
-  );
-}
-
 /**
  * Run all enabled auto-download rules for a user (or all users if omitted).
  * Writes GrabJobs, uses smart category/path, and does not mark a release
@@ -152,178 +146,139 @@ async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
             .filter(Boolean) as TorrentSourceId[])
         : undefined;
 
-      const result = await searchTorrents({
-        query: rule.query,
-        category: rule.category as
-          | "all"
-          | "anime"
-          | "movies"
-          | "tv"
-          | "music"
-          | "apps"
-          | "games",
-        limit: 15,
-        sources,
-        // Metadata is what separates an anime episode from a live-action one
-        // when both are SxxEyy on the same indexer, and matchesRuleCategory
-        // below depends on it. A scheduled run can afford the lookup.
-        enrich: true,
-        skipCache: true,
-        // Scheduled work, not a person waiting: use the background indexer budget.
-        background: true,
-        filters: {
-          minSeeders: rule.minSeeders,
-          maxSizeBytes: rule.maxSizeBytes
-            ? Number(rule.maxSizeBytes)
-            : undefined,
-          resolution: rule.resolution ?? undefined,
-          hasMagnet: true,
-        },
-      });
-
-      const best = result.results.find(
-        (r) => r.magnet && matchesRuleCategory(r, rule.category),
-      );
-      if (!best?.magnet) {
-        await prisma.autoRule.update({
-          where: { id: rule.id },
-          data: { lastRunAt: new Date() },
-        });
-        const entry: RuleRunResult = {
-          ruleId: rule.id,
-          matched: false,
-          message: result.results.length
-            ? `No ${rule.category ?? "matching"} releases in ${result.results.length} results`
-            : "No matching torrents",
-          status: "skipped",
-        };
-        summary.push(entry);
-        await logRuleGrabJob(rule.userId, entry, rule.query);
-        continue;
-      }
-
-      // Skip if same magnet as last *successful* match
-      if (rule.lastMatchMagnet && rule.lastMatchMagnet === best.magnet) {
-        await prisma.autoRule.update({
-          where: { id: rule.id },
-          data: { lastRunAt: new Date() },
-        });
-        const entry: RuleRunResult = {
-          ruleId: rule.id,
-          matched: false,
-          title: best.title,
-          message: "Already sent this release",
-          status: "skipped",
-          magnet: best.magnet,
-          infoHash: best.infoHash ?? null,
-          source: best.source,
-        };
-        summary.push(entry);
-        await logRuleGrabJob(rule.userId, entry, rule.query);
-        continue;
-      }
-
       const config = await getUserClientConfig(rule.userId);
       if (!config) {
         const entry: RuleRunResult = {
           ruleId: rule.id,
-          matched: true,
-          title: best.title,
+          matched: false,
           message: "Match found but no torrent client configured",
           status: "failed",
-          magnet: best.magnet,
-          infoHash: best.infoHash ?? null,
-          source: best.source,
         };
         summary.push(entry);
         await logRuleGrabJob(rule.userId, entry, rule.query);
         continue;
       }
 
-      const target = resolveSmartSendTarget(config, {
-        name: best.title,
-        source: best.source,
-        searchCategory: rule.category,
-        metadata: best.metadata,
-      });
+      const ruleCategory = rule.category as
+        | "all"
+        | "anime"
+        | "movies"
+        | "tv"
+        | "music"
+        | "apps"
+        | "games";
 
-      let send: { ok: boolean; message: string };
-      let offline = false;
-      try {
-        send = await sendToClient(config, {
-          magnet: best.magnet,
-          torrentUrl: best.torrentUrl,
-          name: best.title,
-          category: target.category,
-          savePath: target.savePath,
-        });
-      } catch (err) {
-        const formatted = formatClientError(err, config.clientType);
-        send = { ok: false, message: formatted.message };
-        offline =
-          config.clientType !== "builtin" &&
-          (formatted.offline || isClientOfflineError(err));
-      }
-
-      if (
-        config.clientType !== "builtin" &&
-        !send.ok &&
-        (offline || looksOfflineMessage(send.message))
-      ) {
-        offline = true;
-        offlineUsers.add(rule.userId);
-      }
-
-      await prisma.downloadHistory.create({
-        data: {
-          userId: rule.userId,
-          title: best.title,
-          magnet: best.magnet,
-          torrentUrl: best.torrentUrl,
-          infoHash: best.infoHash,
-          source: best.source,
-          status: send.ok ? "sent" : "failed",
-          message: [
-            `Auto-rule: ${rule.name}`,
-            send.message,
-            target.category ? `cat=${target.category}` : null,
-            target.savePath ? `path=${target.savePath}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
+      const pipelineResult = await runGrabPipeline({
+        userId: rule.userId,
+        search: {
+          query: rule.query,
+          category: ruleCategory,
+          limit: 15,
+          sources,
+          // Metadata is what separates an anime episode from a live-action one
+          // when both are SxxEyy on the same indexer, and matchesRuleCategory
+          // depends on it. A scheduled run can afford the lookup.
+          enrich: true,
+          skipCache: true,
+          background: true,
+          filters: {
+            minSeeders: rule.minSeeders,
+            maxSizeBytes: rule.maxSizeBytes
+              ? Number(rule.maxSizeBytes)
+              : undefined,
+            resolution: rule.resolution ?? undefined,
+            hasMagnet: true,
+          },
         },
-      });
+        config,
+        fallbackTitle: rule.query,
+        grabJobKind: "rule",
+        externalId: rule.id,
+        downloadHistoryPrefix: `Auto-rule: ${rule.name}`,
+        noMatchMessage: (count) =>
+          count
+            ? `No ${rule.category ?? "matching"} releases in ${count} results`
+            : "No matching torrents",
 
-      // Only lock lastMatchMagnet on successful send so failed grabs retry
-      await prisma.autoRule.update({
-        where: { id: rule.id },
-        data: {
-          lastRunAt: new Date(),
-          ...(send.ok
-            ? {
-                lastMatchTitle: best.title,
-                lastMatchMagnet: best.magnet,
-                matchCount: { increment: 1 },
-              }
-            : {}),
+        // ── Candidate selection with category guard ──────────────────────
+        selectCandidate(results) {
+          return (
+            results.find(
+              (r) => r.magnet && matchesRuleCategory(r, rule.category),
+            ) ?? null
+          );
+        },
+
+        // ── Dedupe on last successful match magnet ───────────────────────
+        async checkDuplicate(candidate) {
+          if (rule.lastMatchMagnet && rule.lastMatchMagnet === candidate.magnet) {
+            return "Already sent this release";
+          }
+          return null;
+        },
+
+        // ── Path resolution ──────────────────────────────────────────────
+        resolveTarget(cfg, candidate) {
+          const t = resolveSmartSendTarget(cfg, {
+            name: candidate.title,
+            source: candidate.source,
+            searchCategory: rule.category,
+            metadata: candidate.metadata,
+          });
+          return { category: t.category, savePath: t.savePath };
+        },
+
+        // ── Post-send: lock lastMatchMagnet on success ───────────────────
+        async onSuccess(tx, candidate, target, sendMessage) {
+          await tx.autoRule.update({
+            where: { id: rule.id },
+            data: {
+              lastRunAt: new Date(),
+              lastMatchTitle: candidate.title,
+              lastMatchMagnet: candidate.magnet,
+              matchCount: { increment: 1 },
+            },
+          });
+        },
+
+        // ── Post-send failure: update lastRunAt but NOT lastMatchMagnet ──
+        async onFailure(tx, candidate, target, sendMessage, offline) {
+          await tx.autoRule.update({
+            where: { id: rule.id },
+            data: { lastRunAt: new Date() },
+          });
+          if (offline) offlineUsers.add(rule.userId);
+        },
+
+        // ── No candidate: update lastRunAt ───────────────────────────────
+        async onNoCandidate(reason, message, candidate) {
+          await prisma.autoRule.update({
+            where: { id: rule.id },
+            data: { lastRunAt: new Date() },
+          });
         },
       });
 
       const entry: RuleRunResult = {
         ruleId: rule.id,
-        matched: true,
-        title: best.title,
-        message: send.message,
-        status: send.ok ? "sent" : "failed",
-        offline: offline || undefined,
-        magnet: best.magnet,
-        infoHash: best.infoHash ?? null,
-        source: best.source,
-        savePath: target.savePath,
-        category: target.category,
+        // "already_active" counts as matched: the rule DID find its release,
+        // it is simply already downloading from a grab moments earlier.
+        matched:
+          pipelineResult.status === "sent" ||
+          pipelineResult.status === "failed" ||
+          pipelineResult.status === "already_active",
+        title: pipelineResult.candidate?.title,
+        message: pipelineResult.message,
+        status: pipelineResult.status,
+        offline: pipelineResult.offline || undefined,
+        magnet: pipelineResult.candidate?.magnet ?? null,
+        infoHash: pipelineResult.candidate?.infoHash ?? null,
+        source: pipelineResult.candidate?.source ?? null,
+        savePath: pipelineResult.target?.savePath,
+        category: pipelineResult.target?.category,
       };
       summary.push(entry);
-      await logRuleGrabJob(rule.userId, entry, rule.query);
+      // GrabJob already written by pipeline; logRuleGrabJob is not needed here.
     } catch (err) {
       const offline = isClientOfflineError(err);
       if (offline) offlineUsers.add(rule.userId);

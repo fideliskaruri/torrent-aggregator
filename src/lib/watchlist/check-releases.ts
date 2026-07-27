@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
+import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { parseEpisode, compareEpisodes, nextEpisodeQuery } from "@/lib/torrents/episodes";
 
 /**
@@ -22,12 +23,12 @@ export async function checkWatchlistReleases(userId: string) {
 
   for (const item of items) {
     try {
-      const category =
-        item.mediaType === "anime"
-          ? "anime"
-          : item.mediaType === "movie"
-            ? "movies"
-            : "tv";
+      // Unknown media types fall back to a TV hunt: this pass only ever runs
+      // for monitored watchlist rows, which are overwhelmingly series, and a
+      // wrong-but-broad category still returns results. The fallback is
+      // stated here rather than hidden in the shared helper because the
+      // browse rails are right to make the opposite choice.
+      const category = searchCategoryForMediaType(item.mediaType) ?? "tv";
 
       const searchQ = nextEpisodeQuery(item.title, item.lastEpisode);
       const result = await searchTorrents({

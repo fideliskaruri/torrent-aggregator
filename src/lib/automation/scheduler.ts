@@ -31,6 +31,7 @@
  *   want and no Prisma; the caller gates on `NEXT_RUNTIME === "nodejs"`.
  */
 import prisma from "@/lib/prisma";
+import { LOCAL_USER_ID } from "@/lib/auth-constants";
 import { runUserAutomation } from "./runner";
 
 /** Never hammer indexers, whatever is in the database. */
@@ -52,17 +53,22 @@ function state(): SchedulerState {
 
 /**
  * Resolve the configured interval in ms, or null when automation is off.
- * Values below the floor are raised rather than honoured.
+ *
+ * This is a single-user app (see `ensureLocalUser` in auth.ts). The scheduler
+ * reads the local user's settings directly by unique key rather than picking an
+ * arbitrary row, so multiple settings rows (if they ever existed) could never
+ * silently govern the global automation interval.
  */
 async function resolveIntervalMs(): Promise<{
   userId: string;
   intervalMs: number;
 } | null> {
-  const row = await prisma.clientSettings.findFirst({
-    where: { automationIntervalMinutes: { gt: 0 } },
+  const row = await prisma.clientSettings.findUnique({
+    where: { userId: LOCAL_USER_ID },
     select: { userId: true, automationIntervalMinutes: true },
   });
-  if (!row?.automationIntervalMinutes) return null;
+  if (!row?.automationIntervalMinutes || row.automationIntervalMinutes <= 0)
+    return null;
   const minutes = Math.max(MIN_INTERVAL_MINUTES, row.automationIntervalMinutes);
   return { userId: row.userId, intervalMs: minutes * 60_000 };
 }

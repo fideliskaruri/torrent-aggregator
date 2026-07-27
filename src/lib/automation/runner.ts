@@ -1,10 +1,9 @@
 import prisma from "@/lib/prisma";
-import {
-  searchTorrents,
-  SearchThrottledError,
-} from "@/lib/torrents/aggregator";
+import { SearchThrottledError } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { isViable, MIN_VIABLE_SEEDERS } from "@/lib/torrents/quality";
+import { runGrabPipeline } from "@/lib/grab/pipeline";
+import type { ViabilityDecision, TxClient } from "@/lib/grab/types";
 
 /**
  * How long automation defers a thin-but-present release before grabbing it
@@ -23,12 +22,12 @@ import {
 import { assertStorageBudget } from "@/lib/library/disk-space";
 import {
   getUserClientConfig,
-  sendToClient,
   type ClientConnectionConfig,
 } from "@/lib/clients";
-import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
+import { isClientOfflineError } from "@/lib/clients/errors";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
+import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { acquireRunLock, releaseRunLock } from "@/lib/automation/run-lock";
 import { runAutoRules } from "@/lib/rules/runner";
 
@@ -55,13 +54,6 @@ export type AutomationSummary = {
   offline: boolean;
   message: string;
 };
-
-function categoryForMediaType(mediaType: string): "anime" | "movies" | "tv" | "all" {
-  if (mediaType === "anime") return "anime";
-  if (mediaType === "movie") return "movies";
-  if (mediaType === "tv") return "tv";
-  return "all";
-}
 
 function looksOfflineMessage(message: string): boolean {
   return /unreachable|econnrefused|fetch failed|timeout|not listening|cannot reach/i.test(
@@ -232,412 +224,310 @@ async function runUserAutomationUnlocked(
     const hunt = resolveHuntCursor(item);
     const query = hunt.query;
     const huntCursor = hunt.cursor;
-    const searchCategory = categoryForMediaType(item.mediaType);
+    // Unknown media type falls back to "all": a library row can be a film as
+    // well as a series, so narrowing to one category would hide the other.
+    const searchCategory = searchCategoryForMediaType(item.mediaType) ?? "all";
 
-    try {
-      const result = await searchTorrents({
-        query,
-        category: searchCategory,
-        limit: 15,
-        enrich: false,
-        skipCache: true,
-        // Scheduled work, not a person waiting: use the background indexer budget.
-        background: true,
-        filters: {
-          hasMagnet: true,
-          // Deliberately NOT `minSeeders: 1`. A brand-new episode routinely
-          // sits at 0 seeders for its first minutes, and dropping it here made
-          // `best` undefined, which recorded a *hunt miss* — three of which
-          // roll the cursor to the next season and skip episodes forever. The
-          // single viability gate below owns the whole thin/dead decision so
-          // "not seeded yet" can never be mistaken for "does not exist".
-          ...(huntCursor
-            ? { season: huntCursor.season, episode: huntCursor.episode }
-            : {}),
+    // Client already known offline from rules — fail fast without hammering
+    if (summary.offline) {
+      await prisma.grabJob.create({
+        data: {
+          userId,
+          title: item.title,
+          query,
+          status: "failed",
+          message:
+            "Torrent client offline — skipped send (detected earlier in this run)",
+          kind: "library",
+          externalId: item.id,
         },
       });
+      summary.library.failed += 1;
+      await prisma.watchListItem.update({
+        where: { id: item.id },
+        data: { lastChecked: new Date() },
+      });
+      continue;
+    }
 
-      // Prefer exact SxxEyy match. When hunting a cursor, never grab a random ep.
-      const withMagnet = result.results.filter((t) => t.magnet);
-      const best =
-        huntCursor
-          ? withMagnet.find((t) => {
+    if (!config) {
+      await prisma.grabJob.create({
+        data: {
+          userId,
+          title: item.title,
+          query,
+          status: "failed",
+          message: "No torrent client configured",
+          kind: "library",
+          externalId: item.id,
+        },
+      });
+      summary.library.failed += 1;
+      continue;
+    }
+
+    try {
+      const pipelineResult = await runGrabPipeline({
+        userId,
+        search: {
+          query,
+          category: searchCategory,
+          limit: 15,
+          enrich: false,
+          background: true,
+          skipCache: true,
+          filters: {
+            hasMagnet: true,
+            // Deliberately NO minSeeders. A brand-new episode routinely sits
+            // at 0 seeders for its first minutes — dropping it here records a
+            // hunt miss, and three of those roll the cursor to the next season
+            // and skip episodes forever. The viability gate below owns the
+            // whole thin/dead decision.
+            ...(huntCursor
+              ? { season: huntCursor.season, episode: huntCursor.episode }
+              : {}),
+          },
+        },
+        config,
+        fallbackTitle: item.title,
+        grabJobKind: "library",
+        externalId: item.id,
+        noMatchMessage: huntCursor
+          ? (count) =>
+              count
+                ? `No matching ${formatEpisodeLabel(huntCursor.season, huntCursor.episode)} release (won't grab a different episode)`
+                : `No matching ${formatEpisodeLabel(huntCursor.season, huntCursor.episode)} release`
+          : (count) =>
+              count
+                ? `No matching release in ${count} results`
+                : "No matching torrents",
+
+        // ── Candidate selection ──────────────────────────────────────────
+        // With a cursor, only the exact episode matches. Without, first is fine.
+        selectCandidate(results) {
+          const withMagnet = results.filter((t) => t.magnet);
+          if (!huntCursor) return withMagnet[0] ?? null;
+          return (
+            withMagnet.find((t) => {
               const ep = parseEpisode(t.title);
               return (
                 ep.season === huntCursor.season &&
                 ep.episode === huntCursor.episode
               );
-            })
-          : withMagnet[0];
+            }) ?? null
+          );
+        },
 
-      if (!best?.magnet && huntCursor) {
-        await prisma.grabJob.create({
-          data: {
-            userId,
-            title: item.title,
-            query,
-            status: "skipped",
-            message: `No matching ${formatEpisodeLabel(huntCursor.season, huntCursor.episode)} release (won't grab a different episode)`,
-            kind: "library",
-            externalId: item.id,
-          },
-        });
-        summary.library.skipped += 1;
-        await recordHuntMiss(item.id, huntCursor, item.cursorMisses);
-        continue;
-      }
+        // ── Duplicate detection ──────────────────────────────────────────
+        // Dedupe BEFORE the viability gate — a release already sent that has
+        // since lost peers is "grabbed, downloading", not "waiting for seeders".
+        async checkDuplicate(candidate) {
+          if (
+            item.latestReleaseMagnet &&
+            item.latestReleaseMagnet === candidate.magnet
+          ) {
+            await prisma.watchListItem.update({
+              where: { id: item.id },
+              data: { lastChecked: new Date() },
+            });
+            return "Already sent this release";
+          }
+          // Second dedupe: keyed on what the client still holds, not history.
+          // A release the user deleted *should* be grabbable again.
+          if (candidate.infoHash) {
+            const held = await prisma.engineTorrent.findFirst({
+              where: {
+                userId,
+                hash: candidate.infoHash.toLowerCase(),
+                status: { not: "removed" },
+              },
+              select: { id: true },
+            });
+            if (held) {
+              await prisma.watchListItem.update({
+                where: { id: item.id },
+                data: { lastChecked: new Date() },
+              });
+              return "Already in the client";
+            }
+          }
+          return null;
+        },
 
-      if (!best?.magnet) {
-        await prisma.grabJob.create({
-          data: {
-            userId,
-            title: item.title,
-            query,
-            status: "skipped",
-            message: "No torrents with seeders found",
-            kind: "library",
-            externalId: item.id,
-          },
-        });
-        summary.library.skipped += 1;
-        await recordHuntMiss(item.id, huntCursor, item.cursorMisses);
-        continue;
-      }
-
-      // Dedupe BEFORE the viability gate. A release that was already sent and
-      // has since lost peers is "grabbed, downloading" — not "waiting for
-      // seeders". Gating first would log a misleading skip row every single
-      // run for a torrent the client is already working on.
-      if (
-        item.latestReleaseMagnet &&
-        item.latestReleaseMagnet === best.magnet
-      ) {
-        await prisma.grabJob.create({
-          data: {
-            userId,
-            title: best.title,
-            query,
-            status: "skipped",
-            message: "Already sent this release",
-            magnet: best.magnet,
-            infoHash: best.infoHash ?? null,
-            source: best.source,
-            kind: "library",
-            externalId: item.id,
-          },
-        });
-        summary.library.skipped += 1;
-        await prisma.watchListItem.update({
-          where: { id: item.id },
-          data: { lastChecked: new Date() },
-        });
-        continue;
-      }
-
-      // Second dedupe, on content identity rather than on this item's last
-      // send. `latestReleaseMagnet` only remembers the most recent grab, so a
-      // release picked up again later — after a cursor rewind, or the same
-      // episode reappearing on another indexer under a different magnet
-      // string — was re-sent and downloaded a second time. That is where the
-      // duplicate release folders in the library came from: the second copy
-      // collides with the first, so it has to keep its release folder.
-      //
-      // Keyed on what the client still holds, not on history: a release the
-      // user has since deleted *should* be grabbable again.
-      if (best.infoHash) {
-        const held = await prisma.engineTorrent.findFirst({
-          where: {
-            userId,
-            hash: best.infoHash.toLowerCase(),
-            status: { not: "removed" },
-          },
-          select: { id: true },
-        });
-        if (held) {
-          await prisma.grabJob.create({
-            data: {
-              userId,
-              title: best.title,
-              query,
-              status: "skipped",
-              message: "Already in the client",
-              magnet: best.magnet,
-              infoHash: best.infoHash,
-              source: best.source,
-              kind: "library",
-              externalId: item.id,
-            },
-          });
-          summary.library.skipped += 1;
-          await prisma.watchListItem.update({
-            where: { id: item.id },
-            data: { lastChecked: new Date() },
-          });
-          continue;
-        }
-      }
-
-      if (!isViable(best)) {
-        // A swarm this thin will sit at 0% indefinitely. There is no stall
-        // detector or blocklist in this app, so a dead grab is never retried —
-        // it just occupies the slot while `latestReleaseMagnet` reports
-        // "Already sent this release" forever.
-        //
-        // Crucially this is NOT recorded as a hunt miss. A miss means "this
-        // episode does not exist", and three of them roll the cursor to the
-        // next season, permanently skipping episodes. Here the episode plainly
-        // does exist — it is just not seeded yet, which is the normal state of
-        // a release in its first minutes. Holding the cursor means the next run
-        // picks it up once peers arrive.
-        //
-        // But waiting must not be forever: "thin ⇒ dead" is a heuristic, and a
-        // stable 2-seeder swarm does complete. After the grace window we take
-        // what we can get, so a niche title is never permanently undownloadable.
-        const waitingSince = item.seederWaitSince ?? new Date();
-        const waitedMs = Date.now() - waitingSince.getTime();
-
-        if (waitedMs < SEEDER_WAIT_GRACE_MS) {
+        // ── Viability gate with 6h escape hatch ─────────────────────────
+        async checkViability(candidate): Promise<ViabilityDecision> {
+          if (isViable(candidate)) return { proceed: true };
+          const waitingSince = item.seederWaitSince ?? new Date();
+          const waitedMs = Date.now() - waitingSince.getTime();
+          if (waitedMs >= SEEDER_WAIT_GRACE_MS) {
+            // Grace window elapsed — grab the thin release.
+            return { proceed: true };
+          }
           const hoursLeft = Math.max(
             1,
             Math.round((SEEDER_WAIT_GRACE_MS - waitedMs) / 3_600_000),
           );
-          await prisma.grabJob.create({
-            data: {
-              userId,
-              title: best.title,
-              query,
-              status: "skipped",
-              message: `Waiting for seeders (${best.seeders ?? 0} of ${MIN_VIABLE_SEEDERS}) — grabbing anyway in ~${hoursLeft}h if no peers arrive`,
-              magnet: best.magnet,
-              infoHash: best.infoHash ?? null,
-              source: best.source,
-              kind: "library",
-              externalId: item.id,
-            },
-          });
-          summary.library.skipped += 1;
           await prisma.watchListItem.update({
+            where: { id: item.id },
+            data: { lastChecked: new Date(), seederWaitSince: waitingSince },
+          });
+          return {
+            proceed: false,
+            deferred: true,
+            message: `Waiting for seeders (${candidate.seeders ?? 0} of ${MIN_VIABLE_SEEDERS}) — grabbing anyway in ~${hoursLeft}h if no peers arrive`,
+          };
+        },
+
+        // ── Storage budget ───────────────────────────────────────────────
+        async checkStorageBudget(candidate, target) {
+          const root =
+            config.baseDownloadPath?.trim() ||
+            target.savePath ||
+            config.savePath?.trim() ||
+            process.cwd();
+          const space = await assertStorageBudget({
+            root,
+            maxStorageBytes: config.maxStorageBytes,
+            incomingBytes: candidate.sizeBytes ?? null,
+          });
+          if (!space.ok) {
+            await prisma.watchListItem.update({
+              where: { id: item.id },
+              data: { lastChecked: new Date() },
+            });
+            return { ok: false as const, message: space.message };
+          }
+          return { ok: true as const };
+        },
+
+        // ── Path resolution ──────────────────────────────────────────────
+        resolveTarget(cfg, candidate) {
+          const t = resolveSmartSendTarget(cfg, {
+            name: candidate.title,
+            source: candidate.source,
+            searchCategory,
+            // The watchlist row is a catalog record — passing it stops
+            // S02E05 numbering from demoting a monitored anime to TV.
+            metadata: catalogMetadata(item),
+          });
+          return { category: t.category, savePath: t.savePath };
+        },
+
+        // ── Post-send: advance cursor on success ─────────────────────────
+        async onSuccess(tx, candidate, _target, _sendMessage) {
+          const advanced = afterSuccessfulGrab(
+            item.title,
+            huntCursor,
+            candidate.title,
+          );
+          await tx.watchListItem.update({
             where: { id: item.id },
             data: {
               lastChecked: new Date(),
-              seederWaitSince: waitingSince,
+              latestReleaseTitle: candidate.title,
+              latestReleaseAt: candidate.publishedAt
+                ? new Date(candidate.publishedAt)
+                : new Date(),
+              latestReleaseMagnet: candidate.magnet,
+              lastEpisode: advanced.lastEpisode,
+              cursorSeason: advanced.cursorSeason,
+              cursorEpisode: advanced.cursorEpisode,
+              cursorMisses: 0,
+              // Cursor moved on — thin-swarm wait must not leak to the next ep.
+              seederWaitSince: null,
+              nextEpisodeHint: advanced.nextEpisodeHint,
+              ...(item.fromSeason == null && huntCursor
+                ? {
+                    fromSeason: huntCursor.season,
+                    fromEpisode: huntCursor.episode,
+                  }
+                : {}),
             },
           });
-          continue;
-        }
-        // Grace window elapsed — fall through and grab the thin release.
-      }
+        },
 
-      if (!config) {
-        await prisma.grabJob.create({
-          data: {
-            userId,
-            title: best.title,
-            query,
-            status: "failed",
-            message: "No torrent client configured",
-            magnet: best.magnet,
-            infoHash: best.infoHash ?? null,
-            source: best.source,
-            kind: "library",
-            externalId: item.id,
-          },
-        });
-        summary.library.failed += 1;
-        continue;
-      }
-
-      // Client already known offline from rules — fail fast without hammering
-      if (summary.offline) {
-        await prisma.grabJob.create({
-          data: {
-            userId,
-            title: best.title,
-            query,
-            status: "failed",
-            message:
-              "Torrent client offline — skipped send (detected earlier in this run)",
-            magnet: best.magnet,
-            infoHash: best.infoHash ?? null,
-            source: best.source,
-            kind: "library",
-            externalId: item.id,
-          },
-        });
-        summary.library.failed += 1;
-        await prisma.watchListItem.update({
-          where: { id: item.id },
-          data: { lastChecked: new Date() },
-        });
-        continue;
-      }
-
-      const target = resolveSmartSendTarget(config, {
-        name: best.title,
-        source: best.source,
-        searchCategory,
-        // The watchlist row is a catalog record, not a parse of a release
-        // name — passing it stops `S02E05` numbering from demoting a
-        // monitored anime to TV, and names the show folder canonically.
-        metadata: catalogMetadata(item),
-      });
-
-      // Automatic storage cap + free-space floor (no manual check)
-      {
-        const root =
-          config.baseDownloadPath?.trim() ||
-          target.savePath ||
-          config.savePath?.trim() ||
-          process.cwd();
-        const space = await assertStorageBudget({
-          root,
-          maxStorageBytes: config.maxStorageBytes,
-          incomingBytes: best.sizeBytes ?? null,
-        });
-        if (!space.ok) {
-          await prisma.grabJob.create({
-            data: {
-              userId,
-              title: best.title,
-              query,
-              status: "failed",
-              message: space.message,
-              magnet: best.magnet,
-              infoHash: best.infoHash ?? null,
-              source: best.source,
-              savePath: target.savePath,
-              category: target.category,
-              kind: "library",
-              externalId: item.id,
-            },
-          });
-          summary.library.failed += 1;
-          await prisma.watchListItem.update({
+        // ── Post-send: record failure, detect offline ────────────────────
+        async onFailure(tx, _candidate, _target, _sendMessage, offline) {
+          if (offline) summary.offline = true;
+          await tx.watchListItem.update({
             where: { id: item.id },
             data: { lastChecked: new Date() },
           });
-          continue;
-        }
-      }
+        },
 
-      let send: { ok: boolean; message: string };
-      try {
-        send = await sendToClient(config, {
-          magnet: best.magnet,
-          torrentUrl: best.torrentUrl,
-          name: best.title,
-          category: target.category,
-          savePath: target.savePath,
-        });
-      } catch (err) {
-        const formatted = formatClientError(err, config.clientType);
-        send = { ok: false, message: formatted.message };
-        // Built-in never goes "offline" via host:port
-        if (
-          config.clientType !== "builtin" &&
-          (formatted.offline || isClientOfflineError(err))
-        ) {
-          summary.offline = true;
-        }
-      }
+        // ── No candidate: record miss / deferred / duplicate ────────────
+        async onNoCandidate(reason, _message, candidate) {
+          if (reason === "no_results" || reason === "no_match") {
+            await recordHuntMiss(item.id, huntCursor, item.cursorMisses);
+            return;
+          }
 
-      if (
-        config.clientType !== "builtin" &&
-        !send.ok &&
-        looksOfflineMessage(send.message)
-      ) {
-        summary.offline = true;
-      }
-
-      await prisma.grabJob.create({
-        data: {
-          userId,
-          title: best.title,
-          query,
-          status: send.ok ? "sent" : "failed",
-          message: send.message,
-          magnet: best.magnet,
-          infoHash: best.infoHash ?? null,
-          source: best.source,
-          savePath: target.savePath,
-          category: target.category,
-          kind: "library",
-          externalId: item.id,
+          // A duplicate at the cursor episode is success-by-other-means: the
+          // episode is already held (manual grab, auto-rule, prior crash retry,
+          // etc.). Leaving the cursor pinned here would freeze the show
+          // permanently — every subsequent run re-detects the same duplicate,
+          // the cursor never advances, and no error surfaces.
+          if (reason === "duplicate" && candidate && huntCursor) {
+            const ep = parseEpisode(candidate.title);
+            if (
+              ep.season === huntCursor.season &&
+              ep.episode === huntCursor.episode
+            ) {
+              const advanced = afterSuccessfulGrab(
+                item.title,
+                huntCursor,
+                candidate.title,
+              );
+              await prisma.watchListItem.update({
+                where: { id: item.id },
+                data: {
+                  lastChecked: new Date(),
+                  latestReleaseTitle: candidate.title,
+                  latestReleaseAt: new Date(),
+                  // Deliberately NOT setting latestReleaseMagnet: we didn't
+                  // send this — it arrived by another route. The field means
+                  // "last magnet automation sent" and feeds the first dedupe
+                  // branch; claiming we sent something we didn't is
+                  // semantically wrong, and the EngineTorrent branch already
+                  // covers re-detection of held torrents.
+                  lastEpisode: advanced.lastEpisode,
+                  cursorSeason: advanced.cursorSeason,
+                  cursorEpisode: advanced.cursorEpisode,
+                  cursorMisses: 0,
+                  seederWaitSince: null,
+                  nextEpisodeHint: advanced.nextEpisodeHint,
+                  ...(item.fromSeason == null
+                    ? {
+                        fromSeason: huntCursor.season,
+                        fromEpisode: huntCursor.episode,
+                      }
+                    : {}),
+                },
+              });
+            }
+          }
+          // "deferred" → episode exists but thin swarm, wait for seeders.
+          // "duplicate" off-cursor → held episode is not the one we're hunting.
         },
       });
 
-      await prisma.downloadHistory.create({
-        data: {
-          userId,
-          title: best.title,
-          magnet: best.magnet,
-          torrentUrl: best.torrentUrl,
-          infoHash: best.infoHash,
-          source: best.source,
-          status: send.ok ? "sent" : "failed",
-          message: [
-            `Library automation`,
-            send.message,
-            target.category ? `cat=${target.category}` : null,
-            target.savePath ? `path=${target.savePath}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        },
-      });
-
-      if (send.ok) {
+      if (pipelineResult.status === "sent") {
         summary.library.sent += 1;
-        const advanced = afterSuccessfulGrab(
-          item.title,
-          huntCursor,
-          best.title,
-        );
-        await prisma.watchListItem.update({
-          where: { id: item.id },
-          data: {
-            lastChecked: new Date(),
-            latestReleaseTitle: best.title,
-            latestReleaseAt: best.publishedAt
-              ? new Date(best.publishedAt)
-              : new Date(),
-            latestReleaseMagnet: best.magnet,
-            lastEpisode: advanced.lastEpisode,
-            cursorSeason: advanced.cursorSeason,
-            cursorEpisode: advanced.cursorEpisode,
-            cursorMisses: 0,
-            // The cursor moved on, so any thin-swarm wait belonged to the
-            // episode we just grabbed and must not leak into the next one.
-            seederWaitSince: null,
-            nextEpisodeHint: advanced.nextEpisodeHint,
-            // Seed fromSeason if user never set it (legacy items)
-            ...(item.fromSeason == null && huntCursor
-              ? {
-                  fromSeason: huntCursor.season,
-                  fromEpisode: huntCursor.episode,
-                }
-              : {}),
-          },
-        });
-      } else {
+      } else if (pipelineResult.status === "already_active") {
+        // Already grabbed moments ago (double run, manual grab racing
+        // automation). Not a send, not a failure — a no-op we already have.
+        summary.library.skipped += 1;
+      } else if (pipelineResult.status === "failed") {
         summary.library.failed += 1;
-        await prisma.watchListItem.update({
-          where: { id: item.id },
-          data: { lastChecked: new Date() },
-        });
-        // Stop hammering a dead client for remaining send attempts
-        if (summary.offline) {
-          // Mark remaining items as failed-offline without search/send
-          // (handled via summary.offline branch above on next iterations)
-        }
+        if (pipelineResult.offline) summary.offline = true;
+      } else {
+        summary.library.skipped += 1;
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
 
       // Running out of indexer budget is not a failure — it is this pass
-      // deciding to wait. Recording it as one would write a "failed" grab row
-      // per over-budget item per tick forever, and make a healthy 3am run read
-      // as a broken client.
+      // deciding to wait.
       if (err instanceof SearchThrottledError) {
         summary.library.checked -= 1;
         summary.library.deferred += 1;

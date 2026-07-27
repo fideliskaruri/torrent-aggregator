@@ -3,6 +3,7 @@
  * On-demand rewatch must not rewind this cursor (Phase 3).
  */
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { isSeriesMediaType } from "@/lib/metadata/media-type";
 
 export function padEp(n: number): string {
   return n.toString().padStart(2, "0");
@@ -166,7 +167,7 @@ export function resolveHuntCursor(item: {
   lastEpisode?: string | null;
   nextEpisodeHint?: string | null;
 }): { query: string; cursor: ShowCursor | null } {
-  const isSeries = item.mediaType === "tv" || item.mediaType === "anime";
+  const isSeries = isSeriesMediaType(item.mediaType);
 
   if (!isSeries) {
     return { query: item.title.trim(), cursor: null };
