@@ -1,0 +1,202 @@
+/**
+ * Listing the alternative releases for a piece of content — the server side of
+ * the quality selector.
+ *
+ * WHY THIS IS NOT A BITRATE LADDER
+ * --------------------------------
+ * In a streaming service, "quality" is one source re-encoded at several
+ * bitrates, and the only tradeoff is sharpness vs bandwidth. In a torrent app it
+ * is the opposite: each quality is a *different release* with a *different
+ * swarm*. So the real question a viewer faces is not "sharper or cheaper" but
+ * **"sharper, or will it play at all"** — a 1080p release behind one dead peer
+ * is strictly worse than a 720p release with thirty live ones. This module
+ * exists to make that visible: it lists each candidate *with its swarm verdict*
+ * so a human can weigh resolution against whether the swarm actually delivers.
+ *
+ * SINGLE DISCOVERY PATH
+ * ---------------------
+ * The candidates are the same ranked pool `failOver`/`chooseNextRelease` use —
+ * `rankedResultsFromCache`, what a prior search already cached. This module only
+ * *lists and annotates*; it never runs a second search or a second ranking. The
+ * pool's order is the ranker's order and is preserved verbatim: we annotate, we
+ * do not re-sort, so the list cannot disagree with the ranker or the
+ * auto-failover order.
+ *
+ * VERDICTS ARE READ, NEVER MEASURED
+ * ---------------------------------
+ * The swarm verdict (`good | weak | dead | unknown`) is produced by the
+ * measurement agent's `swarm-probe` on its own schedule with a 6h TTL. This is a
+ * UI-latency path, so it only ever **reads cached** verdicts and never probes.
+ * The reader is injected ({@link SwarmVerdictReader}); until `swarm-probe.ts`
+ * lands, the default reader returns nothing and every candidate reads `unknown`.
+ *
+ * `unknown` IS NOT `dead`. An unmeasured release is a normal, offerable choice —
+ * it is listed like any other and never hidden or labelled broken. Only an
+ * explicit `dead` measurement means "we watched this swarm deliver nothing".
+ * Collapsing the two would hide most of the catalogue the first time the app
+ * runs, before anything has been measured.
+ */
+import { releaseInfoHash } from "@/lib/prewarm/prerank";
+import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
+import type { TorrentResult } from "@/lib/torrents/types";
+import type { PreRankTarget } from "@/lib/prewarm/types";
+import { rankedResultsFromCache } from "./engine-deps";
+
+/** A cached swarm measurement. `unknown` means unmeasured, NOT dead. */
+export type SwarmVerdict = "good" | "weak" | "dead" | "unknown";
+
+/**
+ * Reads *cached* swarm verdicts for a set of infoHashes. Must never probe — it
+ * is called on a UI-latency path. Absent or expired entries are simply omitted
+ * from the returned map, and the caller reads them as `unknown`.
+ *
+ * When `swarm-probe.ts` lands (owned by the measurement agent), its cached-read
+ * is wired in here; the default below keeps everything `unknown` until then.
+ */
+export type SwarmVerdictReader = (
+  infoHashes: readonly string[],
+) => Promise<ReadonlyMap<string, SwarmVerdict>>;
+
+/** The unknown-safe default: no measurements, so every candidate is `unknown`. */
+export const unknownVerdictReader: SwarmVerdictReader = async () => new Map();
+
+/** Human-facing capture-source label, for the selector. Display only. */
+export type SourceLabel = "BluRay" | "WEB-DL" | "WEBRip" | "HDTV" | "Unknown";
+
+const SOURCE_LABEL_PATTERNS: Array<[RegExp, SourceLabel]> = [
+  [/\b(?:blu[-_. ]?ray|bluray|bdrip|brrip|bd[-_. ]?remux|remux|uhdbd)\b/i, "BluRay"],
+  [/\b(?:web[-_. ]?rip|webrip)\b/i, "WEBRip"],
+  [/\b(?:web[-_. ]?dl|webdl)\b/i, "WEB-DL"],
+  [/\b(?:hdtv|pdtv|sdtv|dsr|dvbs?[-_. ]?rip|tvrip)\b/i, "HDTV"],
+];
+
+function sourceLabel(title: string): SourceLabel {
+  const t = title.replace(/[._]/g, " ");
+  for (const [re, label] of SOURCE_LABEL_PATTERNS) {
+    if (re.test(t)) return label;
+  }
+  return "Unknown";
+}
+
+function parseCodec(title: string): string | null {
+  const t = title.replace(/[._]/g, " ");
+  if (/\b(?:x265|h[.\s]?265|hevc)\b/i.test(t)) return "HEVC";
+  if (/\b(?:x264|h[.\s]?264|avc)\b/i.test(t)) return "H.264";
+  if (/\bav1\b/i.test(t)) return "AV1";
+  return null;
+}
+
+function parseAudio(title: string): string | null {
+  const t = title.replace(/[._]/g, " ");
+  if (/\batmos\b/i.test(t)) return "Atmos";
+  if (/\btruehd\b/i.test(t)) return "TrueHD";
+  if (/\bdts(?:[-\s]?hd)?(?:[-\s]?ma)?\b/i.test(t)) return "DTS";
+  if (/\b(?:ddp|dd\+|e[-\s]?ac[-\s]?3|eac3)\b/i.test(t)) return "DDP";
+  if (/\b(?:dd|ac[-\s]?3)\b/i.test(t)) return "DD";
+  if (/\baac\b/i.test(t)) return "AAC";
+  return null;
+}
+
+/** One release, annotated for the selector. */
+export interface CandidateListing {
+  /** Canonical lowercase-hex infoHash. Present by construction. */
+  infoHash: string;
+  title: string;
+  /** Vertical resolution in px (1080, 720, …) or null when the name says nothing. */
+  resolution: number | null;
+  /** Numeric capture tier (see {@link SOURCE_TIER}); higher is better. */
+  sourceTier: number;
+  /** Human capture-source label for display. */
+  sourceLabel: SourceLabel;
+  sizeBytes: number | null;
+  sizeLabel: string | null;
+  codec: string | null;
+  audio: string | null;
+  /** Advertised seeders — a claim from the indexer, which the verdict may contradict. */
+  seeders: number;
+  /** True for the release currently playing. */
+  isCurrent: boolean;
+  /** Cached swarm measurement. `unknown` when unmeasured — offered normally. */
+  verdict: SwarmVerdict;
+}
+
+/** Turn a release title into its display shape. Pure and unit-testable. */
+export function describeReleaseShape(title: string): {
+  resolution: number | null;
+  sourceTier: number;
+  sourceLabel: SourceLabel;
+  codec: string | null;
+  audio: string | null;
+} {
+  return {
+    resolution: parseResolution(title),
+    sourceTier: parseSourceTier(title),
+    sourceLabel: sourceLabel(title),
+    codec: parseCodec(title),
+    audio: parseAudio(title),
+  };
+}
+
+export interface ListCandidatesOptions {
+  /** The infoHash currently playing, so the list can mark it. */
+  currentInfoHash?: string | null;
+  /** Candidate pool source; defaults to the shared cached ranked pool. */
+  rankedResults?: (target: PreRankTarget) => Promise<readonly TorrentResult[]>;
+  /** Cached verdict reader; defaults to unknown-for-all. Never probes. */
+  readVerdicts?: SwarmVerdictReader;
+}
+
+/**
+ * List the alternative releases for `target`, annotated with quality shape and
+ * cached swarm verdicts, in the ranker's order.
+ *
+ * A release with no resolvable infoHash is dropped: it cannot be selected,
+ * committed, or measured, so it cannot be a menu item. Duplicate infoHashes are
+ * collapsed to the first (highest-ranked) occurrence.
+ */
+export async function listCandidates(
+  target: PreRankTarget,
+  options: ListCandidatesOptions = {},
+): Promise<CandidateListing[]> {
+  const getPool = options.rankedResults ?? ((t) => rankedResultsFromCache(t));
+  const readVerdicts = options.readVerdicts ?? unknownVerdictReader;
+  const current = options.currentInfoHash?.toLowerCase() ?? null;
+
+  const pool = await getPool(target);
+
+  const seen = new Set<string>();
+  const usable: Array<{ release: TorrentResult; infoHash: string }> = [];
+  for (const release of pool) {
+    const infoHash = releaseInfoHash(release);
+    if (!infoHash || seen.has(infoHash)) continue;
+    seen.add(infoHash);
+    usable.push({ release, infoHash });
+  }
+
+  let verdicts: ReadonlyMap<string, SwarmVerdict>;
+  try {
+    verdicts = await readVerdicts(usable.map((u) => u.infoHash));
+  } catch {
+    // A verdict lookup failure must not blank the whole selector — fall back to
+    // unknown, which is offered normally.
+    verdicts = new Map();
+  }
+
+  return usable.map(({ release, infoHash }) => {
+    const shape = describeReleaseShape(release.title);
+    return {
+      infoHash,
+      title: release.title,
+      resolution: shape.resolution,
+      sourceTier: shape.sourceTier,
+      sourceLabel: shape.sourceLabel,
+      sizeBytes: release.sizeBytes,
+      sizeLabel: release.sizeLabel ?? null,
+      codec: shape.codec,
+      audio: shape.audio,
+      seeders: release.seeders,
+      isCurrent: current !== null && infoHash === current,
+      verdict: verdicts.get(infoHash) ?? "unknown",
+    };
+  });
+}
