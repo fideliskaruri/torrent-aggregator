@@ -42,6 +42,11 @@ import {
   mergeEpisodes,
   mergeSeasons,
 } from "./merge-extras";
+import {
+  EMPTY_EPISODES_COPY,
+  episodeListView,
+  episodeSeasonSummary,
+} from "./episode-list-state";
 import type {
   TitleDetailPayload,
   TitleEpisode,
@@ -709,6 +714,42 @@ check("nextUpTarget: else the only episode every series has", () => {
 // ---------------------------------------------------------------------------
 // Episode rows
 // ---------------------------------------------------------------------------
+
+check("episodeListView: loading with no rows shows skeletons, never empty copy", () => {
+  const view = episodeListView({ status: "loading" }, 0);
+  assert.equal(view.kind, "loading");
+  assert.ok(view.skeletonRows > 0);
+  assert.ok(!("copy" in view) || view.copy !== EMPTY_EPISODES_COPY);
+});
+
+check("episodeListView: loading with existing rows keeps and dims stale rows", () => {
+  const view = episodeListView({ status: "loading" }, 4);
+  assert.deepEqual(view, { kind: "rows", dim: true });
+});
+
+check("episodeListView: settled with no rows preserves the honest empty copy", () => {
+  const view = episodeListView({ status: "ready" }, 0);
+  assert.deepEqual(view, { kind: "empty", copy: EMPTY_EPISODES_COPY });
+});
+
+check("episodeListView: failed load is an error, not empty", () => {
+  const view = episodeListView({ status: "error", message: "TMDB timed out" }, 0);
+  assert.deepEqual(view, { kind: "error", message: "TMDB timed out" });
+  assert.notEqual(view.kind, "empty");
+});
+
+check("episodeSeasonSummary: header distinguishes loading, rows, empty, and error", () => {
+  assert.equal(
+    episodeSeasonSummary(3, 0, { status: "loading" }),
+    "Loading season 3",
+  );
+  assert.equal(episodeSeasonSummary(3, 7, { status: "ready" }), "7 in season 3");
+  assert.equal(episodeSeasonSummary(3, 0, { status: "ready" }), "Season 3");
+  assert.equal(
+    episodeSeasonSummary(3, 0, { status: "error", message: "Nope" }),
+    "Could not load season 3",
+  );
+});
 
 check("resolveEpisodeAction: an unchecked episode is still clickable", () => {
   const action = resolveEpisodeAction(episode({ season: 4, episode: 11 }));

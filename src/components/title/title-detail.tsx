@@ -97,15 +97,21 @@ export function TitleDetail(props: TitleDetailProps) {
   //
   // Deliberately a *separate* query with its own lifecycle. It is the only
   // part of this page that touches the network, so it must never be able to
-  // hold the render or turn a working page red — its error is not read, and
-  // its absence degrades a row from "Nightmares" back to "S02E01".
+  // hold the whole render. Its absence degrades a row from "Nightmares" back
+  // to "S02E01"; its loading and error states still matter to the episode
+  // panel, because unknown must not be narrowed into empty.
   const activeSeason = season ?? data?.season ?? null;
   const extrasUrl = useMemo(
     () => (data ? buildExtrasUrl(props.workKey, data, activeSeason) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.workKey, data?.title, data?.year, data?.mediaType, activeSeason],
   );
-  const { data: extras } = useApiQuery<TitleExtrasPayload>(extrasUrl);
+  const {
+    data: extras,
+    loading: extrasLoading,
+    refreshing: extrasRefreshing,
+    error: extrasError,
+  } = useApiQuery<TitleExtrasPayload>(extrasUrl);
 
   const statusFor = useCallback(
     (key: string) => statuses[key] ?? "idle",
@@ -225,6 +231,9 @@ export function TitleDetail(props: TitleDetailProps) {
         <TitleContent
           payload={data}
           extras={extras}
+          extrasLoading={extrasLoading}
+          extrasRefreshing={extrasRefreshing}
+          extrasError={extrasError}
           season={season}
           refreshing={refreshing}
           notice={notice}
@@ -258,6 +267,9 @@ export function TitleDetail(props: TitleDetailProps) {
 function TitleContent({
   payload,
   extras,
+  extrasLoading,
+  extrasRefreshing,
+  extrasError,
   season,
   refreshing,
   notice,
@@ -268,6 +280,9 @@ function TitleContent({
 }: {
   payload: TitleDetailPayload;
   extras: TitleExtrasPayload | null;
+  extrasLoading: boolean;
+  extrasRefreshing: boolean;
+  extrasError: string | null;
   season: number | null;
   refreshing: boolean;
   notice: string | null;
@@ -304,6 +319,14 @@ function TitleContent({
 
   const seasonCount = extras?.seasonCount ?? null;
   const similar = extras?.moreLikeThis ?? [];
+  const episodeListLoading =
+    (refreshing && season !== payload.season) || extrasLoading || extrasRefreshing;
+  const episodeListState =
+    extrasError && rows.length === 0
+      ? ({ status: "error", message: extrasError } as const)
+      : episodeListLoading
+        ? ({ status: "loading" } as const)
+        : ({ status: "ready" } as const);
 
   const facts = titleFacts({
     year: payload.year,
@@ -506,10 +529,10 @@ function TitleContent({
                     >
                       <div
                         className="h-full rounded-full bg-[var(--accent)]"
-                      style={{
-                        width: `${Math.round(downloadFraction * 100)}%`,
-                      }}
-                    />
+                        style={{
+                          width: `${Math.round(downloadFraction * 100)}%`,
+                        }}
+                      />
                     </div>
                   ) : null}
                 </div>
@@ -535,6 +558,7 @@ function TitleContent({
             season={activeSeason}
             episodes={rows}
             truncated={truncated}
+            loadState={episodeListState}
             busy={refreshing && season !== payload.season}
             statusFor={statusFor}
             onSeasonChange={onSeasonChange}

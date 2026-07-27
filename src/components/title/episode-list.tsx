@@ -40,6 +40,12 @@ import {
   type EpisodeRowModel,
 } from "./merge-extras";
 import {
+  EMPTY_EPISODES_COPY,
+  episodeListView,
+  episodeSeasonSummary,
+  type EpisodeListLoadState,
+} from "./episode-list-state";
+import {
   resolveEpisodeAction,
   shouldRunTitleAction,
   titleActionButtonLabel,
@@ -53,6 +59,7 @@ export interface EpisodeListProps {
   season: number | null;
   episodes: EpisodeRowModel[];
   truncated: boolean;
+  loadState: EpisodeListLoadState;
   /** Non-null while a season change is in flight, so the list can dim. */
   busy: boolean;
   statusFor: (key: string) => TitleActionStatus;
@@ -70,11 +77,14 @@ export function EpisodeList({
   season,
   episodes,
   truncated,
+  loadState,
   busy,
   statusFor,
   onSeasonChange,
   onAction,
 }: EpisodeListProps) {
+  const view = episodeListView(loadState, episodes.length);
+
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -83,9 +93,7 @@ export function EpisodeList({
         </h2>
         {season != null ? (
           <p className="text-[12px] text-[var(--text-tertiary)]">
-            {episodes.length > 0
-              ? `${episodes.length} in season ${season}`
-              : `Season ${season}`}
+            {episodeSeasonSummary(season, episodes.length, loadState)}
           </p>
         ) : null}
       </div>
@@ -119,18 +127,30 @@ export function EpisodeList({
         </nav>
       ) : null}
 
-      {episodes.length === 0 ? (
+      {view.kind === "loading" ? (
+        <EpisodeSkeletonRows rows={view.skeletonRows} />
+      ) : view.kind === "error" ? (
+        <p
+          role="alert"
+          className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-[var(--text-tertiary)]"
+        >
+          Could not load this season&apos;s episodes. {view.message}
+        </p>
+      ) : view.kind === "empty" ? (
         <p className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-[var(--text-tertiary)]">
           {/* Not an empty state: the page has plenty on it. This is the honest
               answer to "how many episodes are there?" — which nothing local
               knows until something for this show has been searched or grabbed. */}
-          No episodes known yet. Nothing here has been searched or downloaded, so
-          there is no episode list to show. Use the button above to get the next
-          one.
+          {EMPTY_EPISODES_COPY}
         </p>
       ) : (
         <>
-          <ul className={cn("mt-3 space-y-1.5", busy && "opacity-60")}>
+          <ul
+            className={cn(
+              "mt-3 space-y-1.5",
+              (busy || view.dim) && "opacity-60",
+            )}
+          >
             {episodes.map((episode) => (
               <EpisodeRow
                 key={episode.episode}
@@ -150,6 +170,36 @@ export function EpisodeList({
         </>
       )}
     </section>
+  );
+}
+
+function EpisodeSkeletonRows({ rows }: { rows: number }) {
+  return (
+    <ul
+      className="mt-3 space-y-1.5"
+      aria-label="Loading episodes"
+      aria-busy="true"
+      data-episode-skeletons
+    >
+      {Array.from({ length: rows }, (_, i) => (
+        <li
+          key={i}
+          className="surface flex items-start gap-3 px-3 py-2.5"
+          data-episode-skeleton
+        >
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline gap-2">
+              <span className="skeleton h-3 w-12 rounded" />
+              <span className="skeleton h-3.5 w-40 rounded" />
+            </span>
+            <span className="mt-2 block">
+              <span className="skeleton block h-2.5 w-56 max-w-full rounded" />
+            </span>
+          </span>
+          <span className="skeleton h-8 w-16 shrink-0 self-center rounded-[var(--radius)]" />
+        </li>
+      ))}
+    </ul>
   );
 }
 
