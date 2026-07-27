@@ -49,7 +49,7 @@ check("monitoring off renders as an actionable toggle with a described helper", 
   );
   const describedBy = /aria-describedby="([^"]+)"/.exec(html)?.[1];
   assert.ok(describedBy, html);
-  assert.match(html, />Turn monitoring on</);
+  assert.match(html, />Turn automatic checks on</);
   assert.match(html, new RegExp(`<p id="${describedBy}"[^>]*>New episodes are fetched`));
 });
 
@@ -61,7 +61,7 @@ check("monitoring on exposes the opposite toggle without a stale helper", () => 
       onChanged: () => {},
     }),
   );
-  assert.match(html, />Turn monitoring off</);
+  assert.match(html, />Turn automatic checks off</);
   assert.doesNotMatch(html, /aria-describedby=/);
   assert.doesNotMatch(html, /New episodes are fetched/);
 });
