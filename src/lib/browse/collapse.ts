@@ -165,6 +165,13 @@ export function browseWorkDisplay(name: string): { key: string; title: string } 
   const trimmed = name.trim();
   const identity = workIdentity(trimmed);
   const derived = identity.name.trim();
+  const numberedSeries = identity.isSeries
+    ? explicitNumberedSeriesTitle(trimmed, derived)
+    : null;
+
+  if (numberedSeries) {
+    return { key: `series:${normalizeBrowseKey(numberedSeries)}`, title: numberedSeries };
+  }
 
   if (derived && !isEpisodeOnlyLabel(derived)) {
     return { key: identity.key || fallbackWorkKey(trimmed), title: derived };
@@ -177,6 +184,41 @@ export function browseWorkDisplay(name: string): { key: string; title: string } 
 
 function fallbackWorkKey(name: string): string {
   return `release:${name.toLowerCase().replace(/\s+/g, " ").trim()}`;
+}
+
+function explicitNumberedSeriesTitle(
+  releaseName: string,
+  identityTitle: string,
+): string | null {
+  if (!identityTitle || isEpisodeOnlyLabel(identityTitle)) return null;
+
+  const normalized = releaseName
+    .replace(/[._]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const marker = normalized.search(/\bS\d{1,3}\s*E\d{1,4}\b/i);
+  if (marker <= 0) return null;
+
+  const head = normalized
+    .slice(0, marker)
+    .replace(/[\s\-–—_:|.]+$/g, "")
+    .trim();
+  if (!/\s\d{1,4}$/.test(head)) return null;
+
+  const headKey = normalizeBrowseKey(head);
+  const identityKey = normalizeBrowseKey(identityTitle);
+  if (!headKey || !identityKey) return null;
+
+  return headKey.replace(/\s+\d{1,4}$/, "") === identityKey ? head : null;
+}
+
+function normalizeBrowseKey(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/['’`]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isEpisodeOnlyLabel(value: string): boolean {
