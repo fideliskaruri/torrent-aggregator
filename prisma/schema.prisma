@@ -30,6 +30,7 @@ model User {
   autoRules      AutoRule[]
   grabJobs       GrabJob[]
   engineTorrents EngineTorrent[]
+  playbackProgress PlaybackProgress[]
 }
 
 // ─── App domain models ───────────────────────────────────────────────────────
@@ -176,6 +177,12 @@ model EngineTorrent {
   progress  Float    @default(0)
   sizeBytes BigInt   @default(0)
   error     String?
+  /// Who asked for this: "user" (explicit grab) | "prewarm" (speculative).
+  /// Only `prewarm` rows may be evicted to reclaim disk — evicting something
+  /// the user explicitly asked for would be data loss, not cache management.
+  origin    String   @default("user")
+  /// Last time playback touched this torrent. Drives LRU eviction of prewarms.
+  lastUsedAt DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -183,6 +190,39 @@ model EngineTorrent {
 
   @@unique([userId, hash])
   @@index([userId, status])
+  @@index([userId, origin, lastUsedAt])
+}
+
+/// A discovered title, independent of any release. This is the catalog layer
+/// the browse page reads: rails must never resolve a torrent on render, so
+/// trending/popular titles are cached here and refreshed on a timer.
+model CatalogEntry {
+  id          String   @id @default(cuid())
+  /// Stable key derived from the work identity (normalised title + year).
+  workKey     String
+  title       String
+  year        Int?
+  mediaType   String // movie | tv | anime
+  posterUrl   String?
+  backdropUrl String?
+  overview    String?
+  rating      Float?
+  /// Which rail sourced this: "trending" | "popular" | "related".
+  source      String
+  /// Ordering within its source, lowest first.
+  rank        Int      @default(0)
+  /// Free-form seed for "Because you're watching X".
+  seedTitle   String?
+  /// Highest seeder count seen for this title, for a health hint pre-click.
+  seeders     Int      @default(0)
+  /// The best release name found, so the detail page can pre-rank instantly.
+  bestRelease String?
+  refreshedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([workKey, source, seedTitle])
+  @@index([source, rank])
+  @@index([refreshedAt])
 }
 
 model DownloadHistory {
@@ -200,6 +240,7 @@ model DownloadHistory {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([userId, status])
 }
 
 model AutoRule {
@@ -233,14 +274,95 @@ model RunLock {
   acquiredAt DateTime @default(now())
 
   @@unique([userId, scope])
+  /// Stale-lock reclamation scans by age (acquiredAt < cutoff); without this it
+  /// is a full table scan on every automation run.
+  @@index([acquiredAt])
+}
+
+/// Where the user is inside a specific playable file.
+///
+/// Keyed by the file rather than the title because one torrent can hold a whole
+/// season, and "resume" has to mean the episode actually being watched. The
+/// title/season/episode/poster columns are denormalised on purpose: Continue
+/// Watching is the first rail on the home page, and it must render without
+/// waking the torrent engine or re-parsing release names on every load.
+model PlaybackProgress {
+  id              String    @id @default(cuid())
+  userId          String
+  infoHash        String
+  filePath        String
+  positionSec     Float     @default(0)
+  durationSec     Float?
+  /// Set once playback passes the completion threshold. Completion is judged on
+  /// a fraction of duration, never on reaching the exact end, because viewers
+  /// routinely abandon a file during the credits and would otherwise keep a
+  /// finished episode pinned to Continue Watching forever.
+  completedAt     DateTime?
+  title           String
+  season          Int?
+  episode         Int?
+  watchListItemId String?
+  posterUrl       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, infoHash, filePath])
+  @@index([userId, updatedAt])
+  @@index([userId, completedAt])
+}
+
+/// Cached ffprobe result for one file inside one torrent.
+///
+/// Probing costs a seek to the head of the file, which on a cold torrent means
+/// waiting for real pieces to arrive, so the answer is remembered. The stored
+/// fields are exactly what the playback decision needs: container and codecs
+/// decide direct-play vs remux vs transcode, and channel layout is kept so a
+/// 5.1 track is never silently downmixed to stereo.
+model MediaProbe {
+  id            String   @id @default(cuid())
+  infoHash      String
+  filePath      String
+  container     String?
+  durationSec   Float?
+  videoCodec    String?
+  videoProfile  String?
+  width         Int?
+  height        Int?
+  /// e.g. smpte2084 (HDR10) / arib-std-b67 (HLG); null or bt709 means SDR.
+  colorTransfer String?
+  audioCodec    String?
+  audioChannels Int?
+  audioLayout   String?
+  /// JSON: the full stream list, so subtitle/audio track pickers do not need a
+  /// second probe.
+  streamsJson   String?
+  probedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([infoHash, filePath])
 }
 
 model SearchCache {
   id        String   @id @default(cuid())
   cacheKey  String   @unique
+  /// normalizeTitle() of the query this row answered.
+  ///
+  /// The browse availability resolver needs "the most recent search for this
+  /// title", but `cacheKey` is an opaque sha256 over the *full* option set
+  /// (category, limit, sources, filters, target resolution). Any caller with a
+  /// different option shape produces a different hash, so reconstructing the
+  /// key from the outside is a guaranteed miss that no test can catch — and
+  /// adding one option (as `target` was) silently breaks it again. Keying the
+  /// lookup off the query itself is stable under all of that.
+  ///
+  /// Nullable so pre-existing rows need no backfill; they simply age out.
+  normalizedQuery String?
   payload   String // JSON SearchResponse
   expiresAt DateTime
   createdAt DateTime @default(now())
 
   @@index([expiresAt])
+  @@index([normalizedQuery, expiresAt])
 }
