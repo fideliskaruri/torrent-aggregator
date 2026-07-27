@@ -11,7 +11,22 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { Check, ChevronDown, Copy, Loader2, Maximize, Pause, Play, Volume2, VolumeX, X } from "lucide-react";
+import {
+  Captions,
+  Check,
+  ChevronDown,
+  Copy,
+  Loader2,
+  Maximize,
+  Pause,
+  Play,
+  RotateCcw,
+  RotateCw,
+  SlidersHorizontal,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn, formatBytes } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
@@ -867,6 +882,7 @@ function InlineStreamPlayerInner({
    */
   const [isPlaying, setIsPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
   /**
    * Buffered spans in *source* seconds: decoded bytes the media element can play
    * immediately. This is deliberately separate from downloaded spans; a torrent
@@ -897,11 +913,19 @@ function InlineStreamPlayerInner({
    * freeze rather than as work happening.
    */
   const [seeking, setSeeking] = useState(false);
-  const hlsRef = useRef<Hls | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+   const [theatreControlsVisible, setTheatreControlsVisible] = useState(true);
+   const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
+   const [audioMenuOpen, setAudioMenuOpen] = useState(false);
+   const [volumeMenuOpen, setVolumeMenuOpen] = useState(false);
+   const [seekHoverTime, setSeekHoverTime] = useState<number | null>(null);
+   const [playPulse, setPlayPulse] = useState<"play" | "pause" | null>(null);
+   const hlsRef = useRef<Hls | null>(null);
+   const videoRef = useRef<HTMLVideoElement | null>(null);
   /** Pending seek target on the source timeline, consumed by the next plan. */
   const pendingSeekRef = useRef(0);
   const seekInFlightRef = useRef(false);
+  const controlsIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playPulseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
    * Where to put the playhead once the *native* element has metadata. Native
    * playback needs no re-plan to seek — the file is addressed by byte range —
@@ -1709,6 +1733,34 @@ function InlineStreamPlayerInner({
     setPlanNonce((n) => n + 1);
   }, []);
 
+  const controlsPinned =
+    !isPlaying || waiting || seeking || Boolean(preparingLabel) || subtitleMenuOpen || audioMenuOpen || volumeMenuOpen;
+
+  const showTheatreControls = useCallback(() => {
+    setTheatreControlsVisible(true);
+    if (controlsIdleRef.current) clearTimeout(controlsIdleRef.current);
+    if (controlsPinned) return;
+    controlsIdleRef.current = setTimeout(() => setTheatreControlsVisible(false), 3000);
+  }, [controlsPinned]);
+
+  useEffect(() => {
+    if (controlsPinned) {
+      setTheatreControlsVisible(true);
+      if (controlsIdleRef.current) clearTimeout(controlsIdleRef.current);
+      return;
+    }
+    showTheatreControls();
+    return () => {
+      if (controlsIdleRef.current) clearTimeout(controlsIdleRef.current);
+    };
+  }, [controlsPinned, showTheatreControls]);
+
+  const triggerPlayPulse = useCallback((kind: "play" | "pause") => {
+    setPlayPulse(kind);
+    if (playPulseRef.current) clearTimeout(playPulseRef.current);
+    playPulseRef.current = setTimeout(() => setPlayPulse(null), 520);
+  }, []);
+
   /** Play/pause the underlying element. State is synced from the media events,
    *  never assumed here, so an autoplay block or a stall can't desync the icon. */
   const togglePlay = useCallback(() => {
@@ -1718,16 +1770,29 @@ function InlineStreamPlayerInner({
       void video.play().catch(() => {
         /* autoplay refusal keeps the paused icon, which is the truth */
       });
+      triggerPlayPulse("play");
     } else {
       video.pause();
+      triggerPlayPulse("pause");
     }
-  }, []);
+  }, [triggerPlayPulse]);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
     video.muted = !video.muted;
     setMuted(video.muted);
+  }, []);
+
+  const changeVolume = useCallback((value: number) => {
+    const next = Math.max(0, Math.min(1, value));
+    const video = videoRef.current;
+    if (video) {
+      video.volume = next;
+      video.muted = next === 0;
+    }
+    setVolume(next);
+    setMuted(next === 0);
   }, []);
 
   /**
@@ -2226,11 +2291,29 @@ function InlineStreamPlayerInner({
         ? stateSentence
         : null;
     const showStageStatus = !playableSrc || waiting || preparingLabel;
+    const chromeVisible = theatreControlsVisible || controlsPinned;
+    const controlsOpacity = chromeVisible ? "opacity-100" : "opacity-0";
+    const pointerWhenHidden = chromeVisible ? "pointer-events-auto" : "pointer-events-none focus-within:opacity-100";
+    const selectedAudioLabel =
+      audioTracks.find((track) => track.streamIndex === audioStreamIndex)
+        ? audioTrackLabel(
+            audioTracks.find((track) => track.streamIndex === audioStreamIndex)!,
+            audioTracks.findIndex((track) => track.streamIndex === audioStreamIndex),
+          )
+        : "Audio";
+    const selectedSubtitleLabel =
+      subtitleTracks.find((track) => track.id === subtitleTrackId)?.label ?? "Off";
+    const closeMenus = () => {
+      setSubtitleMenuOpen(false);
+      setAudioMenuOpen(false);
+      setVolumeMenuOpen(false);
+    };
 
     return (
       <div
         className={cn(
           "flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden px-4 pb-4 pt-14 sm:px-6",
+          !theatreControlsVisible && !controlsPinned && "cursor-none",
           className,
         )}
         data-inline-player
@@ -2242,43 +2325,76 @@ function InlineStreamPlayerInner({
         data-strategy-reason={strategyReason ?? undefined}
         data-resume-sec={resumeTargetSec > 0 ? resumeTargetSec : undefined}
         onKeyDown={handleKeyDown}
+        onPointerMove={showTheatreControls}
+        onFocusCapture={showTheatreControls}
       >
         <style>{`
-          [data-inline-player] [data-stream-seek] {
+          @keyframes inline-player-pulse {
+            from { opacity: 0; transform: scale(.82); }
+            25% { opacity: 1; }
+            to { opacity: 0; transform: scale(1.08); }
+          }
+          [data-player-chrome="theatre"] [data-stream-seek],
+          [data-inline-player] [data-stream-volume] {
             -webkit-appearance: none;
             appearance: none;
             background: transparent;
             height: 12px;
             cursor: pointer;
           }
-          [data-inline-player] [data-stream-seek]::-webkit-slider-runnable-track {
-            height: 4px;
+          [data-player-chrome="theatre"] [data-stream-seek]::-webkit-slider-runnable-track,
+          [data-inline-player] [data-stream-volume]::-webkit-slider-runnable-track {
+            height: 3px;
             background: transparent;
             border-radius: 999px;
+            transition: height 180ms ease;
           }
-          [data-inline-player] [data-stream-seek]::-webkit-slider-thumb {
+          [data-player-chrome="theatre"] [data-stream-seek]::-webkit-slider-thumb,
+          [data-inline-player] [data-stream-volume]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
-            height: 11px;
-            width: 11px;
-            margin-top: -3.5px;
+            height: 13px;
+            width: 13px;
+            margin-top: -5px;
             border-radius: 999px;
             background: var(--accent);
             border: none;
+            opacity: 0;
+            transition: opacity 160ms ease, transform 160ms ease;
           }
-          [data-inline-player] [data-stream-seek]::-moz-range-track {
-            height: 4px;
+          [data-player-chrome="theatre"] [data-stream-seek]:hover::-webkit-slider-runnable-track,
+          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible::-webkit-slider-runnable-track {
+            height: 6px;
+          }
+          [data-player-chrome="theatre"] [data-stream-seek]:hover::-webkit-slider-thumb,
+          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible::-webkit-slider-thumb,
+          [data-inline-player] [data-stream-volume]:hover::-webkit-slider-thumb,
+          [data-inline-player] [data-stream-volume]:focus-visible::-webkit-slider-thumb {
+            opacity: 1;
+          }
+          [data-player-chrome="theatre"] [data-stream-seek]::-moz-range-track,
+          [data-inline-player] [data-stream-volume]::-moz-range-track {
+            height: 3px;
             background: transparent;
             border-radius: 999px;
           }
-          [data-inline-player] [data-stream-seek]::-moz-range-thumb {
-            height: 11px;
-            width: 11px;
+          [data-player-chrome="theatre"] [data-stream-seek]::-moz-range-thumb,
+          [data-inline-player] [data-stream-volume]::-moz-range-thumb {
+            height: 13px;
+            width: 13px;
             border: none;
             border-radius: 999px;
             background: var(--accent);
+            opacity: 0;
           }
-          [data-inline-player] [data-stream-seek]:focus-visible {
+          [data-player-chrome="theatre"] [data-stream-seek]:hover::-moz-range-thumb,
+          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible::-moz-range-thumb,
+          [data-inline-player] [data-stream-volume]:hover::-moz-range-thumb,
+          [data-inline-player] [data-stream-volume]:focus-visible::-moz-range-thumb {
+            opacity: 1;
+          }
+          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible,
+          [data-inline-player] [data-stream-volume]:focus-visible {
             outline: 2px solid var(--accent);
             outline-offset: 2px;
             border-radius: 999px;
@@ -2450,6 +2566,349 @@ function InlineStreamPlayerInner({
                 </div>
               ) : null}
 
+              <div
+                className={cn(
+                  "pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-5 transition-opacity duration-200",
+                  controlsOpacity,
+                )}
+              >
+                <div className="pointer-events-auto flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold text-white drop-shadow">{activeTitle}</p>
+                    <p className="mt-0.5 truncate text-[12px] text-white/65">
+                      {[currentSeason != null && currentEpisode != null ? `S${String(currentSeason).padStart(2, "0")}E${String(currentEpisode).padStart(2, "0")}` : null, releaseChips[0]]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={cn(
+                  "absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-4 pt-24 transition-opacity duration-200",
+                  controlsOpacity,
+                  pointerWhenHidden,
+                )}
+              >
+                {ended && upNext ? (
+                  <div
+                    data-up-next-card
+                    className="absolute bottom-28 right-5 w-80 overflow-hidden rounded-2xl border border-white/15 bg-black/80 p-3 text-white shadow-[0_18px_60px_rgba(0,0,0,.55)] backdrop-blur"
+                  >
+                    <div className="flex gap-3">
+                      <div
+                        className="h-16 w-24 shrink-0 rounded-lg bg-white/10 bg-cover bg-center"
+                        style={activePosterUrl ? { backgroundImage: `url(${activePosterUrl})` } : undefined}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/55">
+                          Up next
+                        </p>
+                        <p className="mt-1 truncate text-sm font-semibold">{upNext.title}</p>
+                        <p className="text-[12px] text-white/65">{upNext.label}</p>
+                        <p className="mt-1 text-[12px] text-white/65">
+                          {upNext.infoHash && !autoAdvanceCancelled
+                            ? `Playing in ${advanceCountdown}…`
+                            : upNextStatusSentence(upNext.availability)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      {upNext.infoHash ? (
+                        <button
+                          type="button"
+                          onClick={() => playUpNext(upNext)}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black"
+                        >
+                          <Play className="h-3.5 w-3.5 fill-current" />
+                          Play now
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void fetchUpNext()}
+                          disabled={upNextLoading}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-[12px] font-semibold text-white/80 disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {upNextLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Fetch next
+                        </button>
+                      )}
+                      {upNext.infoHash && !autoAdvanceCancelled ? (
+                        <button
+                          type="button"
+                          onClick={() => setAutoAdvanceCancelled(true)}
+                          className="h-9 rounded-full border border-white/15 px-3 text-[12px] text-white/75 hover:bg-white/10"
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div
+                  data-stream-transport-row
+                  className="flex items-center gap-2 text-white"
+                >
+                  <button
+                    type="button"
+                    data-stream-transport
+                    onClick={togglePlay}
+                    disabled={!playableSrc}
+                    aria-label={isPlaying ? "Pause" : "Play"}
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-black transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                  >
+                    {isPlaying ? (
+                      <Pause className="h-5 w-5 fill-current" />
+                    ) : (
+                      <Play className="h-5 w-5 translate-x-px fill-current" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => seekRelative(-10)}
+                    disabled={!playableSrc}
+                    aria-label="Back 10 seconds"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white/80 transition hover:bg-white/12 hover:text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                  >
+                    <RotateCcw className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => seekRelative(10)}
+                    disabled={!playableSrc}
+                    aria-label="Forward 10 seconds"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white/80 transition hover:bg-white/12 hover:text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                  >
+                    <RotateCw className="h-5 w-5" />
+                  </button>
+                  <span className="min-w-[84px] text-[12px] text-white/80 tabular-nums">
+                    {formatClock(currentSourceTime)} / {sourceDuration && sourceDuration > 0 ? formatClock(sourceDuration) : "0:00"}
+                  </span>
+                  {sourceDuration && sourceDuration > 0 ? (
+                    <span className="relative flex min-w-[200px] flex-1 items-center">
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/18"
+                      />
+                      <TimelineBands
+                        sourceDuration={sourceDuration}
+                        bufferedRanges={bufferedRanges}
+                        downloadedRanges={downloadedRanges}
+                        currentSourceTime={currentSourceTime}
+                      />
+                      <span
+                        aria-hidden="true"
+                        className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--accent)]"
+                        style={{
+                          width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%`,
+                        }}
+                      />
+                      {seekHoverTime != null ? (
+                        <span
+                          className="pointer-events-none absolute -top-9 rounded-md bg-black/85 px-2 py-1 text-[11px] text-white shadow-lg"
+                          style={{
+                            left: `${Math.max(0, Math.min(100, (seekHoverTime / sourceDuration) * 100))}%`,
+                            transform: "translateX(-50%)",
+                          }}
+                        >
+                          {formatClock(seekHoverTime)}
+                        </span>
+                      ) : null}
+                      <input
+                        type="range"
+                        aria-label="Seek"
+                        data-stream-seek
+                        data-current-held={currentTimeHeld ?? "unknown"}
+                        className="relative w-full min-w-0"
+                        min={0}
+                        max={Math.floor(sourceDuration)}
+                        step={1}
+                        value={Math.min(Math.floor(currentSourceTime), Math.floor(sourceDuration))}
+                        onChange={(e) => setCurrentSourceTime(Number(e.target.value))}
+                        onMouseUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
+                        onKeyUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
+                        onTouchEnd={(e) => handleSourceSeek(Number(e.currentTarget.value))}
+                        onPointerMove={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const pct = (e.clientX - rect.left) / rect.width;
+                          setSeekHoverTime(Math.max(0, Math.min(sourceDuration, pct * sourceDuration)));
+                        }}
+                        onPointerLeave={() => setSeekHoverTime(null)}
+                      />
+                    </span>
+                  ) : (
+                    <span className="flex-1 text-[12px] text-white/60">Resolving timeline…</span>
+                  )}
+
+                  <div
+                    className="relative"
+                    onPointerEnter={() => setVolumeMenuOpen(true)}
+                    onPointerLeave={() => setVolumeMenuOpen(false)}
+                  >
+                    <button
+                      type="button"
+                      onClick={toggleMute}
+                      disabled={!playableSrc}
+                      aria-label={muted ? "Unmute" : "Mute"}
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white/80 transition hover:bg-white/12 hover:text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    >
+                      {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                    </button>
+                    {volumeMenuOpen ? (
+                      <div className="absolute bottom-full left-1/2 mb-2 flex h-28 -translate-x-1/2 items-center rounded-full border border-white/10 bg-black/80 px-2 py-3 shadow-xl backdrop-blur">
+                        <input
+                          data-stream-volume
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={muted ? 0 : volume}
+                          aria-label="Volume"
+                          className="h-24 w-20 -rotate-90"
+                          onChange={(e) => changeVolume(Number(e.target.value))}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubtitleMenuOpen((open) => !open);
+                        setAudioMenuOpen(false);
+                      }}
+                      aria-label="Subtitles"
+                      aria-expanded={subtitleMenuOpen}
+                      className="grid h-10 w-10 place-items-center rounded-full text-white/80 transition hover:bg-white/12 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    >
+                      <Captions className="h-5 w-5" />
+                    </button>
+                    {subtitleMenuOpen ? (
+                      <div className="absolute bottom-full right-0 mb-2 w-64 overflow-hidden rounded-2xl border border-white/10 bg-black/90 p-2 text-sm text-white shadow-2xl backdrop-blur">
+                        <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+                          Subtitles
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            selectSubtitleTrack("");
+                            closeMenus();
+                          }}
+                          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] hover:bg-white/10"
+                        >
+                          Off
+                          {!subtitleTrackId ? <Check className="h-4 w-4 text-[var(--accent)]" /> : null}
+                        </button>
+                        {subtitleTracks.map((track) => (
+                          <button
+                            key={track.id}
+                            type="button"
+                            disabled={!track.src}
+                            onClick={() => {
+                              selectSubtitleTrack(track.id);
+                              closeMenus();
+                            }}
+                            className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-[13px] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <span className="truncate">{track.label}</span>
+                            {subtitleTrackId === track.id ? <Check className="h-4 w-4 text-[var(--accent)]" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAudioMenuOpen((open) => !open);
+                        setSubtitleMenuOpen(false);
+                      }}
+                      aria-label="Audio"
+                      aria-expanded={audioMenuOpen}
+                      className="grid h-10 w-10 place-items-center rounded-full text-white/80 transition hover:bg-white/12 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    >
+                      <SlidersHorizontal className="h-5 w-5" />
+                    </button>
+                    {audioMenuOpen ? (
+                      <div className="absolute bottom-full right-0 mb-2 w-72 overflow-hidden rounded-2xl border border-white/10 bg-black/90 p-2 text-sm text-white shadow-2xl backdrop-blur">
+                        <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">
+                          Audio
+                        </p>
+                        {audioTracks.length > 0 ? (
+                          audioTracks.map((track, i) => (
+                            <button
+                              key={track.streamIndex}
+                              type="button"
+                              onClick={() => {
+                                pendingSeekRef.current = currentSourceTime;
+                                setAudioStreamIndex(track.streamIndex);
+                                closeMenus();
+                              }}
+                              className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-[13px] hover:bg-white/10"
+                            >
+                              <span className="truncate">{audioTrackLabel(track, i)}</span>
+                              {audioStreamIndex === track.streamIndex ? <Check className="h-4 w-4 text-[var(--accent)]" /> : null}
+                            </button>
+                          ))
+                        ) : (
+                          <p className="px-3 py-2 text-[13px] text-white/55">Default audio</p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={goFullscreen}
+                    disabled={!playableSrc}
+                    aria-label="Full screen"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-white/80 transition hover:bg-white/12 hover:text-white disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                  >
+                    <Maximize className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="mt-3 flex min-h-6 items-center justify-between gap-3 text-[11px] text-white/55">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {selectedFile ? (
+                      <SwarmChip
+                        infoHash={activeInfoHash}
+                        active={Boolean(playableSrc)}
+                        minimumStreamBps={minimumStreamBps}
+                        onSample={setSwarmSample}
+                        fetchSample={fetchPlayerSample}
+                      />
+                    ) : null}
+                    <span className="truncate">
+                      {[selectedAudioLabel !== "Audio" ? selectedAudioLabel : null, selectedSubtitleLabel !== "Off" ? selectedSubtitleLabel : "Subtitles off"]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </div>
+                  <span className="hidden min-w-0 truncate text-right md:block">
+                    {releaseChips.length > 0 ? releaseChips.join(" · ") : selectedFile ? formatBytes(selectedFile.length) : ""}
+                  </span>
+                </div>
+              </div>
+
+              {playPulse ? (
+                <div className="pointer-events-none absolute inset-0 z-40 grid place-items-center">
+                  <span className="grid h-24 w-24 animate-[inline-player-pulse_520ms_ease-out] place-items-center rounded-full bg-black/45 text-white shadow-2xl backdrop-blur">
+                    {playPulse === "play" ? (
+                      <Play className="h-10 w-10 translate-x-0.5 fill-current" />
+                    ) : (
+                      <Pause className="h-10 w-10 fill-current" />
+                    )}
+                  </span>
+                </div>
+              ) : null}
+
               {seeking ? (
                 <span
                   data-stream-seeking
@@ -2461,140 +2920,6 @@ function InlineStreamPlayerInner({
               ) : null}
             </div>
           </div>
-
-          <div
-            data-stream-transport-row
-            className="mx-auto flex w-full shrink-0 flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-[var(--shadow-md)] backdrop-blur"
-          >
-            <button
-              type="button"
-              data-stream-transport
-              onClick={togglePlay}
-              disabled={!playableSrc}
-              aria-label={isPlaying ? "Pause" : "Play"}
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-            >
-              {isPlaying ? (
-                <Pause className="h-3.5 w-3.5 fill-current" />
-              ) : (
-                <Play className="h-3.5 w-3.5 translate-x-px fill-current" />
-              )}
-            </button>
-            {sourceDuration && sourceDuration > 0 ? (
-              <>
-                <span className="relative flex min-w-[180px] flex-1 items-center">
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--border)]"
-                  />
-                  <TimelineBands
-                    sourceDuration={sourceDuration}
-                    bufferedRanges={bufferedRanges}
-                    downloadedRanges={downloadedRanges}
-                    currentSourceTime={currentSourceTime}
-                  />
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--accent)]"
-                    style={{
-                      width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%`,
-                    }}
-                  />
-                  <input
-                    type="range"
-                    aria-label="Seek"
-                    data-stream-seek
-                    data-current-held={currentTimeHeld ?? "unknown"}
-                    className="relative w-full min-w-0"
-                    min={0}
-                    max={Math.floor(sourceDuration)}
-                    step={1}
-                    value={Math.min(Math.floor(currentSourceTime), Math.floor(sourceDuration))}
-                    onChange={(e) => setCurrentSourceTime(Number(e.target.value))}
-                    onMouseUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
-                    onKeyUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
-                    onTouchEnd={(e) => handleSourceSeek(Number(e.currentTarget.value))}
-                  />
-                </span>
-                <span className="text-[11px] text-white/70 tabular-nums">
-                  {formatClock(currentSourceTime)} / {formatClock(sourceDuration)}
-                </span>
-              </>
-            ) : (
-              <span className="flex-1 text-[11px] text-white/60">Resolving timeline…</span>
-            )}
-            {audioControl}
-            {subtitleControl}
-            <button
-              type="button"
-              onClick={toggleMute}
-              disabled={!playableSrc}
-              aria-label={muted ? "Unmute" : "Mute"}
-              className="grid h-7 w-7 shrink-0 place-items-center rounded text-white/60 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-            >
-              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={goFullscreen}
-              disabled={!playableSrc}
-              aria-label="Full screen"
-              className="grid h-7 w-7 shrink-0 place-items-center rounded text-white/60 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-            >
-              <Maximize className="h-4 w-4" />
-            </button>
-          </div>
-
-          {(selectedFile || upNext) ? (
-            <div className="mx-auto flex w-full shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-white/70">
-              {selectedFile ? (
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <SwarmChip
-                    infoHash={activeInfoHash}
-                    active={Boolean(playableSrc)}
-                    minimumStreamBps={minimumStreamBps}
-                    onSample={setSwarmSample}
-                    fetchSample={fetchPlayerSample}
-                  />
-                  <p className="min-w-0 flex-1 truncate text-[11px] text-white/60">
-                    {releaseChips.length > 0
-                      ? releaseChips.join(" · ")
-                      : formatBytes(selectedFile.length)}
-                  </p>
-                </div>
-              ) : null}
-              {upNext ? (
-                <div
-                  data-up-next-status
-                  className="flex min-w-0 items-center gap-2 text-[11px] text-white/70"
-                >
-                  <span className="min-w-0 truncate">
-                    Next: {upNext.title} {upNext.label} — {upNextStatusSentence(upNext.availability)}
-                  </span>
-                  {upNext.infoHash ? (
-                    <button
-                      type="button"
-                      onClick={() => playUpNext(upNext)}
-                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-semibold text-black"
-                    >
-                      <Play className="h-3 w-3 fill-current" />
-                      Play
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void fetchUpNext()}
-                      disabled={upNextLoading}
-                      className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-white/15 px-2.5 text-[11px] font-medium text-white/80 disabled:cursor-wait disabled:opacity-60"
-                    >
-                      {upNextLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                      Fetch next
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
     );

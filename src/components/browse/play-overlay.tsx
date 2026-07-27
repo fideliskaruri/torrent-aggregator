@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
-import { formatClock } from "./availability";
 
 export interface PlayOverlayProps {
   infoHash: string;
@@ -38,7 +37,6 @@ export function PlayOverlay({
   onClose,
 }: PlayOverlayProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const resumeAt = formatClock(resumePositionSec);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -125,17 +123,7 @@ export function PlayOverlay({
           `pointer-events-none` on the strip with `auto` on the controls keeps
           the area beside the close button clickable as backdrop-to-dismiss.
         */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start gap-3 bg-gradient-to-b from-black/80 to-transparent p-3 sm:p-4">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-white">{title}</p>
-            {subtitle || resumeAt ? (
-              <p className="mt-0.5 truncate text-[12px] text-white/70">
-                {[subtitle, resumeAt ? `You stopped at ${resumeAt}` : null]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-            ) : null}
-          </div>
+        <div className="pointer-events-none absolute right-0 top-0 z-50 flex items-start p-3 sm:p-4">
           <button
             type="button"
             onClick={onClose}
