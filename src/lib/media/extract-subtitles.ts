@@ -19,6 +19,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { formatBytesShort } from "@/lib/library/disk-space";
 import { resolveFfmpegPath } from "./ff-binaries";
 import { sessionsDir } from "./session";
 import { isWebVtt, srtToVtt } from "./subtitles";
@@ -31,6 +32,9 @@ export const MAX_SUBTITLE_BYTES = 8 * 1024 * 1024;
  * never ends is worse than an honest "this took too long, try again".
  */
 export const EXTRACT_TIMEOUT_MS = 5 * 60_000;
+
+/** Subtitle conversions are derived cache entries, not user downloads. */
+export const SUBTITLE_CACHE_BUDGET_BYTES = 512 * 1024 * 1024;
 
 export type ExtractOutcome =
   | { ok: true; vtt: string; cached: boolean }
@@ -56,7 +60,9 @@ function cacheFile(infoHash: string, filePath: string, trackId: string): string 
 function readCache(file: string): string | null {
   try {
     const text = fs.readFileSync(file, "utf8");
-    return text.trim().length > 0 ? text : null;
+    if (text.trim().length === 0) return null;
+    touchCache(file);
+    return text;
   } catch {
     return null;
   }
@@ -66,9 +72,74 @@ function writeCache(file: string, vtt: string): void {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, vtt, "utf8");
+    touchCache(file);
+    evictSubtitleCacheOverBudget();
   } catch {
     /* a cache that cannot be written is slow, not broken */
   }
+}
+
+function touchCache(file: string): void {
+  try {
+    const now = new Date();
+    fs.utimesSync(file, now, now);
+  } catch {
+    /* best-effort LRU timestamp */
+  }
+}
+
+/**
+ * LRU eviction for subtitle conversions.
+ *
+ * This mirrors the repo's cache vocabulary: derived entries only, oldest
+ * `lastUsedAt` first, and protected work in flight is never touched.
+ */
+export function evictSubtitleCacheOverBudget(
+  budgetBytes: number = SUBTITLE_CACHE_BUDGET_BYTES,
+): number {
+  const root = subtitleCacheDir();
+  let names: string[];
+  try {
+    names = fs.readdirSync(root);
+  } catch {
+    return 0;
+  }
+
+  const protectedFiles = new Set(inFlight.keys());
+  const candidates = names
+    .filter((name) => name.endsWith(".vtt"))
+    .map((name) => {
+      const file = path.join(root, name);
+      try {
+        const stat = fs.statSync(file);
+        if (!stat.isFile()) return null;
+        return { file, size: stat.size, used: stat.mtimeMs };
+      } catch {
+        return null;
+      }
+    })
+    .filter((c): c is { file: string; size: number; used: number } => c !== null);
+
+  let total = candidates.reduce((sum, c) => sum + c.size, 0);
+  if (total <= budgetBytes) return 0;
+
+  candidates.sort((a, b) => a.used - b.used);
+  let removed = 0;
+  for (const candidate of candidates) {
+    if (total <= budgetBytes) break;
+    if (protectedFiles.has(candidate.file)) continue;
+    try {
+      fs.rmSync(candidate.file, { force: true });
+      total -= candidate.size;
+      removed += 1;
+      console.info(
+        `[subtitles] evicted ${path.basename(candidate.file)} (${formatBytesShort(candidate.size)})`,
+      );
+    } catch {
+      /* locked on Windows; the next write will try again */
+    }
+  }
+  return removed;
 }
 
 /** In-flight extractions, keyed by cache file, so duplicates share one ffmpeg. */

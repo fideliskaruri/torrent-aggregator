@@ -31,6 +31,15 @@ import {
   subtitleTrackSrc,
 } from "./subtitles";
 import type { ProbeStream } from "./probe";
+import fs from "node:fs";
+import path from "node:path";
+import {
+  cacheSidecarVtt,
+  evictSubtitleCacheOverBudget,
+  readCachedSubtitle,
+  resetSubtitleExtractionForTests,
+  subtitleCacheDir,
+} from "./extract-subtitles";
 
 let failures = 0;
 
@@ -257,6 +266,59 @@ assert("rejects an empty id", parseSubtitleTrackId("") === null);
 assert(
   "rejects a traversal attempt in a sidecar id",
   parseSubtitleTrackId("sidecar:../../etc/passwd") === null,
+);
+
+// ── Cache eviction ──
+
+const cacheRoot = subtitleCacheDir();
+fs.mkdirSync(cacheRoot, { recursive: true });
+resetSubtitleExtractionForTests();
+
+function removeCachedText(text: string): void {
+  try {
+    for (const name of fs.readdirSync(cacheRoot)) {
+      const file = path.join(cacheRoot, name);
+      try {
+        if (fs.statSync(file).isFile() && fs.readFileSync(file, "utf8") === text) {
+          fs.rmSync(file, { force: true });
+        }
+      } catch {
+        /* raced with another cache user */
+      }
+    }
+  } catch {
+    /* no cache yet */
+  }
+}
+
+const oldCue = `WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nold-${Date.now()}\n`;
+const newCue = `WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nnew-${Date.now()}\n`;
+removeCachedText(oldCue);
+removeCachedText(newCue);
+cacheSidecarVtt("cache-evict-old", "film.mkv", "sidecar:old.srt", oldCue);
+cacheSidecarVtt("cache-evict-new", "film.mkv", "sidecar:new.srt", newCue);
+
+const oldName = fs.readdirSync(cacheRoot).find((name) => {
+  try {
+    return fs.readFileSync(path.join(cacheRoot, name), "utf8") === oldCue;
+  } catch {
+    return false;
+  }
+});
+const oldFile = path.join(cacheRoot, oldName ?? "");
+const oldSize = fs.statSync(oldFile).size;
+const totalSubtitleCacheBytes = fs
+  .readdirSync(cacheRoot)
+  .filter((name) => name.endsWith(".vtt"))
+  .reduce((sum, name) => sum + fs.statSync(path.join(cacheRoot, name)).size, 0);
+const oldTime = new Date(0);
+fs.utimesSync(oldFile, oldTime, oldTime);
+
+assert(
+  "subtitle cache evicts least-recently-used derived VTTs first",
+  evictSubtitleCacheOverBudget(totalSubtitleCacheBytes - oldSize + 1) >= 1 &&
+    readCachedSubtitle("cache-evict-old", "film.mkv", "sidecar:old.srt") === null &&
+    readCachedSubtitle("cache-evict-new", "film.mkv", "sidecar:new.srt") === newCue,
 );
 assert(
   "rejects a non-numeric embedded index",
