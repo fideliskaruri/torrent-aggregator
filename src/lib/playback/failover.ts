@@ -29,7 +29,12 @@
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { releaseInfoHash, selectBestRelease } from "@/lib/prewarm/prerank";
-import type { FailureCause, PlaybackNarration } from "./narration";
+import type {
+  FailureCause,
+  PlaybackActionOutcome,
+  PlaybackNarration,
+  PlaybackSourceOption,
+} from "./narration";
 
 /**
  * Maximum number of distinct sources we will commit to for one piece of
@@ -141,6 +146,54 @@ export function chooseNextRelease(
   return { release, infoHash };
 }
 
+export function sourceOptionFromRelease(
+  release: TorrentResult,
+  infoHash: string,
+): PlaybackSourceOption {
+  return {
+    infoHash,
+    title: release.title,
+    seeders: Math.max(0, release.seeders ?? 0),
+  };
+}
+
+export function listSourceOptions(
+  results: readonly TorrentResult[],
+  excludeHashes: readonly string[] = [],
+): PlaybackSourceOption[] {
+  const excluded = new Set(excludeHashes.map((h) => h.toLowerCase()));
+  const seen = new Set<string>();
+  const out: PlaybackSourceOption[] = [];
+  for (const release of results) {
+    const infoHash = releaseInfoHash(release);
+    if (!infoHash || excluded.has(infoHash) || seen.has(infoHash)) continue;
+    seen.add(infoHash);
+    out.push(sourceOptionFromRelease(release, infoHash));
+  }
+  return out;
+}
+
+function exhaustedOutcome(
+  results: readonly TorrentResult[],
+  triedCount: number,
+  cause: FailureCause,
+): PlaybackActionOutcome {
+  const candidates = listSourceOptions(results);
+  const seededCandidateCount = candidates.filter((c) => c.seeders > 0).length;
+  return {
+    kind: "none-available",
+    reason:
+      cause === "playability"
+        ? "no-playable-sources"
+        : candidates.length > 0 && seededCandidateCount === 0
+          ? "no-seeders"
+          : "all-sources-failed",
+    triedCount,
+    totalCandidates: candidates.length,
+    seededCandidateCount,
+  };
+}
+
 /** The outcome of asking the session to fail over after a stall. */
 export type FailoverStep =
   | {
@@ -183,7 +236,12 @@ export function failOver(
     return {
       kind: "exhausted",
       session: exhausted,
-      narration: { phase: "exhausted", cause, triedCount: session.tried.length },
+      narration: {
+        phase: "exhausted",
+        cause,
+        triedCount: session.tried.length,
+        outcome: exhaustedOutcome(results, session.tried.length, cause),
+      },
     };
   }
 
@@ -193,11 +251,17 @@ export function failOver(
     return {
       kind: "exhausted",
       session: exhausted,
-      narration: { phase: "exhausted", cause, triedCount: session.tried.length },
+      narration: {
+        phase: "exhausted",
+        cause,
+        triedCount: session.tried.length,
+        outcome: exhaustedOutcome(results, session.tried.length, cause),
+      },
     };
   }
 
   const next = commitSource(session, candidate.infoHash);
+  const alternatives = listSourceOptions(results, [...session.tried, candidate.infoHash]);
   return {
     kind: "switch",
     candidate,
@@ -207,6 +271,13 @@ export function failOver(
       cause,
       triedCount: session.tried.length,
       nextName: candidate.release.title ?? null,
+      outcome: {
+        kind: "switch-source",
+        reason: cause,
+        selected: sourceOptionFromRelease(candidate.release, candidate.infoHash),
+        alternatives,
+        remainingCount: alternatives.length,
+      },
     },
   };
 }

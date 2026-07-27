@@ -62,12 +62,14 @@ import {
   commitSource,
   createFailoverSession,
   failOver,
+  listSourceOptions,
   pinSource,
+  sourceOptionFromRelease,
   MAX_FAILOVER_ATTEMPTS,
   type FailoverCandidate,
   type FailoverSession,
 } from "./failover";
-import type { FailureCause, PlaybackNarration } from "./narration";
+import { waitOutcome, type FailureCause, type PlaybackNarration } from "./narration";
 import { buildSwarmWatchDeps } from "./engine-deps";
 
 /** How many samples to retain per source. A handful past the window is plenty. */
@@ -75,6 +77,8 @@ const MAX_SAMPLES = 32;
 
 /** Bound on distinct content keys tracked at once, so a long-lived server cannot grow forever. */
 const MAX_ENTRIES = 200;
+
+const WATCHDOG_POLL_MS = 5_000;
 
 /** Side effects the watchdog needs, injected so the core stays testable. */
 export interface SwarmWatchDeps {
@@ -190,6 +194,29 @@ function finish(entry: WatchEntry, result: SwarmWatchTickResult): SwarmWatchTick
   return result;
 }
 
+function startingNarration(
+  attempt: number,
+  verdict: StallVerdict,
+  sample: TransferSample | null,
+): PlaybackNarration {
+  const reason =
+    verdict.reason === "cold-starting"
+      ? "cold-starting"
+      : verdict.reason === "not-downloading"
+        ? "checking"
+        : "connecting";
+  return {
+    phase: "starting",
+    attempt,
+    outcome: waitOutcome({
+      reason,
+      peerCount: sample?.peerCount ?? null,
+      activeRequestCount: sample?.activeRequestCount ?? null,
+      nextPollMs: WATCHDOG_POLL_MS,
+    }),
+  };
+}
+
 /**
  * Advance the watchdog for one poll of a content's playback.
  *
@@ -217,7 +244,18 @@ export async function swarmDeliveryTick(
     const narration: PlaybackNarration =
       entry.lastNarration?.phase === "exhausted"
         ? entry.lastNarration
-        : { phase: "exhausted", cause, triedCount: entry.session.tried.length };
+        : {
+            phase: "exhausted",
+            cause,
+            triedCount: entry.session.tried.length,
+            outcome: {
+              kind: "none-available",
+              reason: cause === "playability" ? "no-playable-sources" : "all-sources-failed",
+              triedCount: entry.session.tried.length,
+              totalCandidates: entry.session.tried.length,
+              seededCandidateCount: 0,
+            },
+          };
     return finish(entry, {
       narration,
       currentHash: current,
@@ -239,7 +277,7 @@ export async function swarmDeliveryTick(
     const narration: PlaybackNarration =
       verdict.reason === "progressing" || verdict.reason === "complete"
         ? { phase: "playing" }
-        : { phase: "starting", attempt };
+        : startingNarration(attempt, verdict, sample);
     return finish(entry, { narration, currentHash: current, switched: false, exhausted: false, verdict });
   }
 
@@ -248,8 +286,18 @@ export async function swarmDeliveryTick(
   // explicit human choice is not ours to override. The selector can offer another
   // quality; the decision stays theirs.
   if (entry.session.pinnedHash && entry.session.pinnedHash === current) {
+    const results = await deps.rankedResults(target);
+    const alternatives = listSourceOptions(results, [current]);
     return finish(entry, {
-      narration: { phase: "stalled-held" },
+      narration: {
+        phase: "stalled-held",
+        outcome: {
+          kind: "choose-source",
+          reason: "manual-source-stalled",
+          alternatives,
+          alternativeCount: alternatives.length,
+        },
+      },
       currentHash: current,
       switched: false,
       exhausted: false,
@@ -279,8 +327,21 @@ export async function swarmDeliveryTick(
     // Could not start the chosen release; do not abandon the current source or
     // mark it tried a second time. Report the attempt honestly and let the next
     // tick try again — the pool or the engine may recover.
+    const alternatives = listSourceOptions(results, [...entry.session.tried, step.candidate.infoHash]);
     return finish(entry, {
-      narration: { phase: "switching", cause, triedCount: entry.session.tried.length, nextName: step.candidate.release.title ?? null },
+      narration: {
+        phase: "switching",
+        cause,
+        triedCount: entry.session.tried.length,
+        nextName: step.candidate.release.title ?? null,
+        outcome: {
+          kind: "switch-source",
+          reason: cause,
+          selected: sourceOptionFromRelease(step.candidate.release, step.candidate.infoHash),
+          alternatives,
+          remainingCount: alternatives.length,
+        },
+      },
       currentHash: current,
       switched: false,
       exhausted: false,
@@ -391,7 +452,16 @@ export async function manualSwitchTo(
   entry.session = pinSource(entry.session, chosen);
   entry.samples = []; // fresh evidence for the new source
 
-  return { ok: true, infoHash: chosen, positionSec, narration: { phase: "starting", attempt: 1 } };
+  return {
+    ok: true,
+    infoHash: chosen,
+    positionSec,
+    narration: {
+      phase: "starting",
+      attempt: 1,
+      outcome: waitOutcome({ reason: "connecting", nextPollMs: WATCHDOG_POLL_MS }),
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +617,12 @@ export function currentForegroundState(): ForegroundPlaybackState | null {
     currentHash: entry.session.current,
     pinnedHash: entry.session.pinnedHash,
     narration:
-      entry.lastNarration ?? { phase: "starting", attempt: entry.session.tried.length || 1 },
+      entry.lastNarration ??
+      startingNarration(
+        entry.session.tried.length || 1,
+        { stalled: false, reason: "insufficient-history", deliveredBytes: null, windowMs: null },
+        null,
+      ),
     exhausted: entry.session.status === "exhausted",
   };
 }
@@ -673,4 +748,3 @@ export async function driveForegroundSwarmWatch(
     recordSwarmWatchPollOutcome(false, err, deps);
   }
 }
-

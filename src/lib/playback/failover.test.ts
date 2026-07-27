@@ -89,6 +89,10 @@ function run() {
     if (step.narration.phase === "exhausted") {
       assert.equal(step.narration.triedCount, MAX_FAILOVER_ATTEMPTS, "reports how many were tried");
       assert.equal(step.narration.cause, "delivery", "auto exhaustion is a delivery failure by default");
+      assert.equal(step.narration.outcome.kind, "none-available", "terminal state carries an actionable outcome");
+      if (step.narration.outcome.kind === "none-available") {
+        assert.equal(step.narration.outcome.totalCandidates, POOL.length, "UI can say how many releases were considered");
+      }
     }
   }
 
@@ -120,6 +124,25 @@ function run() {
       assert.equal(step.narration.triedCount, 1, "one source tried so far");
       assert.equal(step.narration.nextName, "The Bear S01E01 release 2");
       assert.equal(step.narration.cause, "delivery", "a stall-driven switch carries a delivery cause");
+      assert.equal(step.narration.outcome.kind, "switch-source", "a switch tells the UI exactly what source to offer");
+      if (step.narration.outcome.kind === "switch-source") {
+        assert.equal(step.narration.outcome.selected.infoHash, hash(2));
+        assert.equal(step.narration.outcome.remainingCount, 2, "UI can show the remaining alternatives count");
+      }
+    }
+  }
+
+  // ── A no-seeder terminal state stays distinct from "we tried good-looking sources" ─
+  {
+    let session = createFailoverSession("dead|S1E1");
+    const noSeeders = [release(1, 0), release(2, 0)];
+    session = commitSource(session, hash(1));
+    session = commitSource(session, hash(2));
+    const step = failOver(session, noSeeders, TARGET);
+    assert.equal(step.kind, "exhausted");
+    if (step.narration.phase === "exhausted" && step.narration.outcome.kind === "none-available") {
+      assert.equal(step.narration.outcome.reason, "no-seeders", "no seeders is an actionable terminal reason");
+      assert.equal(step.narration.outcome.seededCandidateCount, 0);
     }
   }
 

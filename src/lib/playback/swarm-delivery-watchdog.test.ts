@@ -36,7 +36,7 @@ interface Harness {
 }
 
 /** Fake engine. `mode: "frozen"` never delivers; `mode: "progress"` always does. */
-function harness(mode: "frozen" | "progress"): Harness {
+function harness(mode: "frozen" | "progress" | "cold-start"): Harness {
   let now = 1_000_000;
   let progressed = 0;
   const started: string[] = [];
@@ -48,6 +48,16 @@ function harness(mode: "frozen" | "progress"): Harness {
       if (mode === "progress") {
         progressed += 1_200_000; // ~120 KB/s — slow but real
         return { atMs: now, downloadedBytes: progressed, progress: progressed / (1000 * MB), state: "downloading" };
+      }
+      if (mode === "cold-start") {
+        return {
+          atMs: now,
+          downloadedBytes: 0,
+          progress: 0,
+          state: "downloading",
+          peerCount: 12,
+          activeRequestCount: 8,
+        };
       }
       return { atMs: now, downloadedBytes: 900_000, progress: 0.0009, state: "downloading" };
     },
@@ -104,6 +114,34 @@ async function run() {
     const firstStart = h.events.indexOf(`start:${hash(2)}`);
     const firstAbandon = h.events.indexOf(`abandon:${hash(1)}`);
     assert.ok(firstStart >= 0 && firstStart < firstAbandon, "start precedes abandon");
+  }
+
+  // ── A legitimate cold start is not a stall merely because bytes are still zero ─
+  {
+    resetSwarmWatch();
+    const h = harness("cold-start");
+    let current = hash(1);
+    let sawColdStarting = false;
+    for (let i = 0; i < 22; i++) {
+      const r = await swarmDeliveryTick("cold-season-pack|S1E1", current, TARGET, h.deps);
+      current = r.currentHash;
+      assert.equal(r.switched, false, `tick ${i}: active peer requests mean cold-start, not failover`);
+      assert.equal(r.exhausted, false, `tick ${i}: active peer requests must not exhaust the pool`);
+      if (r.verdict.reason === "cold-starting") {
+        sawColdStarting = true;
+        assert.equal(r.narration.phase, "starting", "cold start remains a starting state");
+        if (r.narration.phase === "starting") {
+          assert.equal(r.narration.outcome.kind, "wait", "cold start tells the UI to keep waiting");
+          assert.equal(r.narration.outcome.reason, "cold-starting", "the actionable wait reason is specific");
+          assert.equal(r.narration.outcome.peerCount, 12, "peer count is carried for UI copy");
+          assert.equal(r.narration.outcome.activeRequestCount, 8, "request activity is carried for diagnostics");
+        }
+      }
+    }
+    assert.equal(h.started.length, 0, "never started an alternate during an active cold start");
+    assert.equal(h.abandoned.length, 0, "never abandoned the source during an active cold start");
+    assert.ok(sawColdStarting, "the stall verdict exposes cold-starting as the consulted decision state");
+    assert.equal(current, hash(1), "stays on the original source while cold-starting");
   }
 
   // ── A slow-but-progressing swarm is never abandoned ───────────────────
