@@ -82,8 +82,8 @@ npm run test:unit    # fast, offline — no network required
 npm run test:api     # contract-checks every API route against a running server
 npm run test:ui      # layout, contrast and modal probes against a running server
 npm run test:live    # the indexer-backed tests (needs unblocked network)
-npm run test:e2e     # Playwright
-npm run test:all     # everything, plus live HTTP checks
+npm test             # everything: units, library, API contract, browse gates
+npm run test:all     # same as npm test
 npm run lint
 ```
 
