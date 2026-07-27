@@ -28,7 +28,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { orderByVerdict, selectBestRelease } from "@/lib/prewarm/prerank";

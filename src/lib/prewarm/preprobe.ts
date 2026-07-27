@@ -40,7 +40,7 @@
  *      live download is never probed — `probeSwarm` guards that too, but we do
  *      not even queue it.
  */
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { foregroundActive } from "./foreground";
 import { normalizeTitle } from "@/lib/utils";
 import {
@@ -77,11 +77,11 @@ import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 export type PreProbeScope = "off" | "watching" | "monitored";
 
 /**
- * The middle tier is the default. Unlike automation — which *grabs* and so is
- * strictly opt-in — a probe only *measures*, so measuring what the user is
- * actively watching behind the scenes is safe and is the whole point.
+ * The monitored tier is the default: it matches the owner's ask to test shows
+ * they track (and saved watchlist titles) without sweeping the whole catalogue.
+ * Hard per-run caps below keep that scope cheap.
  */
-export const DEFAULT_PREPROBE_SCOPE: PreProbeScope = "watching";
+export const DEFAULT_PREPROBE_SCOPE: PreProbeScope = "monitored";
 
 /** Clamp any stored/incoming value to a known scope; unknown → the default. */
 export function normalizePreProbeScope(
@@ -100,13 +100,13 @@ function sourcesForScope(scope: PreProbeScope): readonly PreRankSource[] {
     case "watching":
       return ["watching"];
     case "monitored":
-      return ["watching", "monitored", "watchlist"];
+      return ["monitored", "watchlist", "watching"];
   }
 }
 
 /**
- * The user's stored pre-probe scope. Null in the DB reads as the "watching"
- * default (see {@link DEFAULT_PREPROBE_SCOPE}).
+ * The user's stored pre-probe scope. Null in the DB reads as the bounded
+ * monitored default (see {@link DEFAULT_PREPROBE_SCOPE}).
  */
 export async function resolvePreProbeScope(
   userId: string,
@@ -127,9 +127,8 @@ export async function resolvePreProbeScope(
 /**
  * How many upcoming targets one pre-probe pass will look at.
  *
- * Small on purpose: the first target in `upcomingTargets` (the next episode of
- * whatever is in Continue Watching) is by a wide margin the most likely to be
- * pressed play on. Spending the budget there beats spreading it thin.
+ * Small on purpose: tracked/watchlist intent comes first, then the next
+ * Continue Watching episode. Spending the budget there beats spreading it thin.
  */
 export const MAX_PREPROBE_TARGETS = 2;
 
@@ -144,6 +143,12 @@ export const MAX_PREPROBE_TARGETS = 2;
  */
 export const MAX_PREPROBE_CANDIDATES = 3;
 
+/** Hard upper bound on actual swarm attachments in one pass. */
+export const MAX_PREPROBE_PROBES = 6;
+
+/** Speculative probes are intentionally sequential so they never form a swarm storm. */
+export const MAX_PREPROBE_CONCURRENCY = 1;
+
 export interface PreProbeResult {
   /** Why the pass did nothing, when it did nothing. */
   skipped?: "foreground" | "no-targets" | "disabled";
@@ -155,6 +160,8 @@ export interface PreProbeResult {
   skippedFresh: string[];
   /** Info-hashes skipped because they are a live download. */
   skippedLive: string[];
+  /** True when the hard per-run probe cap stopped the pass. */
+  capped: boolean;
   /** Verdicts observed (freshly measured or already-fresh), by info-hash. */
   verdicts: Record<string, SwarmVerdict>;
 }
@@ -163,9 +170,10 @@ export interface PreProbeOptions {
   db?: typeof prisma;
   limitTargets?: number;
   limitCandidates?: number;
+  limitProbes?: number;
   /**
    * Override the user's stored scope. When omitted, the scope is read from
-   * `ClientSettings.preProbeScope` (null → the "watching" default).
+   * `ClientSettings.preProbeScope` (null → the monitored default).
    */
   scope?: PreProbeScope;
   /** Test seam — inject a fake probe so unit tests never touch a swarm. */
@@ -254,6 +262,7 @@ export async function preProbeUpcoming(
     probed: [],
     skippedFresh: [],
     skippedLive: [],
+    capped: false,
     verdicts: {},
   };
 
@@ -274,6 +283,7 @@ export async function preProbeUpcoming(
     1,
     opts.limitCandidates ?? MAX_PREPROBE_CANDIDATES,
   );
+  const maxProbes = Math.max(1, opts.limitProbes ?? MAX_PREPROBE_PROBES);
 
   const targets =
     opts._targets ??
@@ -312,12 +322,19 @@ export async function preProbeUpcoming(
         continue;
       }
 
-      // Skip anything with a fresh verdict — that is what the TTL is for.
+      // Skip anything measured within TTL — even `unknown`. A fresh probe that
+      // learned nothing is still a fresh measurement, and re-trying it in the
+      // same pass window is exactly the waste the TTL exists to prevent.
       const existing = await getSwarmMeasurement(hash, { db });
-      if (existing && existing.verdict !== "unknown") {
+      if (existing && !existing.expired) {
         result.skippedFresh.push(hash);
         result.verdicts[hash] = existing.verdict;
         continue;
+      }
+
+      if (result.probed.length >= maxProbes) {
+        result.capped = true;
+        return result;
       }
 
       if (isForeground()) {

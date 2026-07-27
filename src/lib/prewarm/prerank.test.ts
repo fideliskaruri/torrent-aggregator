@@ -26,13 +26,14 @@
  */
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import { SearchThrottledError } from "@/lib/torrents/aggregator";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { cacheKeyFrom, setSearchCache } from "@/lib/torrents/search-cache";
 import { getTargetResolution } from "@/lib/torrents/target-resolution";
 import { episodeSearchQuery } from "@/lib/library/cursor";
 import { normalizeTitle } from "@/lib/utils";
+import { loadSwarmVerdicts, recordSwarmMeasurement } from "@/lib/torrents/swarm-probe";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import {
   clearPreRankMemo,
@@ -72,6 +73,7 @@ async function checkAsync(name: string, fn: () => Promise<void>) {
 // `normalizeTitle` leaves it intact.
 const SHOW = `Zzqx Prewarm ${randomUUID().replace(/[^a-z]/g, "").slice(0, 8) || "showname"}`;
 const writtenKeys: string[] = [];
+const writtenHashes: string[] = [];
 
 function result(over: Partial<TorrentResult> & { title: string }): TorrentResult {
   // 40-hex, because that is what a real btih is and what `normalizeInfoHash`
@@ -246,6 +248,63 @@ async function main(): Promise<void> {
       assert.equal(choice.candidate?.title, `${SHOW} S01E04 720p`);
     });
 
+
+    await checkAsync("cached consumer reads stored swarm verdicts and keeps unknown releases listed", async () => {
+      clearPreRankMemo();
+      const consumerShow = `Zzqx Consumer ${randomUUID().replace(/[^a-z]/g, "").slice(0, 8) || "consumer"}`;
+      const consumerTarget: PreRankTarget = { title: consumerShow, mediaType: "movie" };
+      const claim = result({ title: `${consumerShow} Claim 999 seeders`, seeders: 999 });
+      const measured = result({ title: `${consumerShow} Measured good`, seeders: 30 });
+      const other = result({ title: `${consumerShow} Other unknown`, seeders: 10 });
+      const consumerKey = cacheKeyFrom({ q: consumerShow.toLowerCase(), probe: randomUUID() });
+      writtenKeys.push(consumerKey);
+      writtenHashes.push(measured.infoHash!);
+      await setSearchCache(consumerKey, response(consumerShow, [claim, measured, other]));
+
+      const before = await loadSwarmVerdicts(
+        [claim.infoHash, measured.infoHash, other.infoHash],
+        { db: prisma },
+      );
+      assert.deepEqual(
+        [claim, measured, other].map((r) => before.get(r.infoHash!) ?? "unknown"),
+        ["unknown", "unknown", "unknown"],
+        "unmeasured releases start unknown, not dead",
+      );
+
+      const now = Date.now();
+      await recordSwarmMeasurement(
+        {
+          infoHash: measured.infoHash!,
+          name: measured.title,
+          peersConnected: 12,
+          peersUnchoked: 6,
+          bytesReceived: 24_000_000,
+          elapsedMs: 8000,
+          effectiveBps: 3_000_000,
+          requiredBps: 1_000_000,
+          verdict: "good",
+          measuredAt: now,
+          fromLiveDownload: false,
+        },
+        { db: prisma, ttlMs: 60_000, now },
+      );
+
+      clearPreRankMemo();
+      const after = await loadSwarmVerdicts(
+        [claim.infoHash, measured.infoHash, other.infoHash],
+        { db: prisma, now },
+      );
+      const states = [claim, measured, other].map((r) => after.get(r.infoHash!) ?? "unknown");
+      const choice = await getPreRanked(consumerTarget, { db: prisma });
+      assert.ok(choice?.candidate);
+      assert.equal(choice.resultCount, 3, "unknown releases remain in the cached pool");
+      assert.deepEqual(states, ["unknown", "good", "unknown"]);
+      assert.equal(choice.candidate.title, measured.title);
+      console.log(
+        `  consumer verdict check: ${claim.title}=unknown; ${measured.title}=good; ${other.title}=unknown; listed=${choice.resultCount}; chosen=${choice.candidate.title}`,
+      );
+    });
+
     // ── Determined vs undetermined ─────────────────────────────────────
     clearPreRankMemo();
     const emptyShow = `Zzqx Empty ${randomUUID().replace(/[^a-z]/g, "").slice(0, 8) || "nothing"}`;
@@ -342,6 +401,9 @@ async function main(): Promise<void> {
   } finally {
     if (writtenKeys.length) {
       await prisma.searchCache.deleteMany({ where: { cacheKey: { in: writtenKeys } } });
+    }
+    if (writtenHashes.length) {
+      await prisma.swarmMeasurement.deleteMany({ where: { infoHash: { in: writtenHashes } } });
     }
     await prisma.$disconnect();
   }

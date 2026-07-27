@@ -17,15 +17,17 @@
  */
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 import type { TorrentResult } from "@/lib/torrents/types";
 import {
   preProbeUpcoming,
   normalizePreProbeScope,
   resolvePreProbeScope,
   DEFAULT_PREPROBE_SCOPE,
+  MAX_PREPROBE_CONCURRENCY,
 } from "./preprobe";
 import { upcomingTargets } from "./prerank";
+import { recordSwarmMeasurement } from "@/lib/torrents/swarm-probe";
 
 let failures = 0;
 
@@ -131,17 +133,87 @@ async function main(): Promise<void> {
       );
     });
 
-    await checkAsync("scope resolution: null and unknown default to 'watching'", async () => {
-      assert.equal(normalizePreProbeScope(null), "watching");
-      assert.equal(normalizePreProbeScope(undefined), "watching");
-      assert.equal(normalizePreProbeScope("bogus"), "watching");
-      assert.equal(DEFAULT_PREPROBE_SCOPE, "watching");
+    await checkAsync("fresh measurements (even unknown) are skipped and actual probes are globally capped", async () => {
+      const freshUnknown = result({ title: "Fresh unknown" });
+      const a = result({ title: "A" });
+      const b = result({ title: "B" });
+      const c = result({ title: "C" });
+      const now = Date.now();
+      await recordSwarmMeasurement(
+        {
+          infoHash: freshUnknown.infoHash!,
+          peersConnected: 0,
+          peersUnchoked: 0,
+          bytesReceived: 0,
+          elapsedMs: 8000,
+          effectiveBps: 0,
+          requiredBps: 1_000_000,
+          verdict: "unknown",
+          measuredAt: now,
+          fromLiveDownload: false,
+        },
+        { db: prisma, ttlMs: 60_000, now },
+      );
+
+      const probed: string[] = [];
+      let inFlight = 0;
+      let maxInFlight = 0;
+      try {
+        const res = await preProbeUpcoming("someone", {
+          db: prisma,
+          limitTargets: 2,
+          limitCandidates: 3,
+          limitProbes: 2,
+          _foregroundActive: () => false,
+          _targets: [
+            { title: "Target One", mediaType: "movie" },
+            { title: "Target Two", mediaType: "movie" },
+          ],
+          _findLive: () => null,
+          _poolFor: async (target) =>
+            target.title === "Target One" ? [freshUnknown, a, b] : [c],
+          _probeFn: async (input) => {
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            probed.push(input.infoHash ?? "");
+            await new Promise((r) => setTimeout(r, 1));
+            inFlight -= 1;
+            return {
+              infoHash: input.infoHash ?? "",
+              peersConnected: 3,
+              peersUnchoked: 2,
+              bytesReceived: 10_000_000,
+              elapsedMs: 8000,
+              effectiveBps: 5_000_000,
+              requiredBps: 1_000_000,
+              verdict: "good",
+              measuredAt: Date.now(),
+              fromLiveDownload: false,
+            };
+          },
+        });
+
+        assert.deepEqual(res.skippedFresh, [freshUnknown.infoHash]);
+        assert.equal(res.verdicts[freshUnknown.infoHash!], "unknown");
+        assert.deepEqual(probed, [a.infoHash, b.infoHash], "the third actual probe is stopped by the global cap");
+        assert.equal(res.capped, true, "the result reports that the hard cap stopped the pass");
+        assert.equal(maxInFlight, MAX_PREPROBE_CONCURRENCY, "probes are sequential, never concurrent");
+      } finally {
+        await prisma.swarmMeasurement.deleteMany({ where: { infoHash: freshUnknown.infoHash! } });
+      }
+    });
+
+    await checkAsync("scope resolution: null and unknown default to 'monitored'", async () => {
+      assert.equal(normalizePreProbeScope(null), "monitored");
+      assert.equal(normalizePreProbeScope(undefined), "monitored");
+      assert.equal(normalizePreProbeScope("bogus"), "monitored");
+      assert.equal(DEFAULT_PREPROBE_SCOPE, "monitored");
       // Known values pass through unchanged.
       assert.equal(normalizePreProbeScope("off"), "off");
       assert.equal(normalizePreProbeScope("monitored"), "monitored");
     });
 
-    await checkAsync("scope is read from ClientSettings; a missing row is 'watching'", async () => {
+    await checkAsync("scope is read from ClientSettings; a missing row is 'monitored'", async () => {
       const fakeDb = (scope: string | null) =>
         ({
           clientSettings: {
@@ -151,8 +223,8 @@ async function main(): Promise<void> {
         }) as unknown as typeof prisma;
       assert.equal(await resolvePreProbeScope("u", fakeDb("monitored")), "monitored");
       assert.equal(await resolvePreProbeScope("u", fakeDb("off")), "off");
-      // No row stored → the middle default, not off.
-      assert.equal(await resolvePreProbeScope("u", fakeDb(null)), "watching");
+      // No row stored → the bounded monitored default, not off.
+      assert.equal(await resolvePreProbeScope("u", fakeDb(null)), "monitored");
     });
 
     await checkAsync("scope 'off' disables the pass — no targets, no probe", async () => {
@@ -175,7 +247,65 @@ async function main(): Promise<void> {
       assert.equal(probeCalls, 0, "scope off must not probe anything");
     });
 
-    await checkAsync("scope maps to tiers: 'watching' excludes monitored+watchlist", async () => {
+    await checkAsync("target priority is tracked shows, watchlist, then continue-watching", async () => {
+      const db = {
+        playbackProgress: {
+          findMany: async () => [
+            {
+              userId: "u",
+              watchListItemId: "watching-id",
+              season: 1,
+              episode: 2,
+              completedAt: null,
+              updatedAt: new Date(),
+            },
+          ],
+        },
+        watchListItem: {
+          findMany: async (args: { where?: Record<string, unknown> }) => {
+            const where = args.where ?? {};
+            if ((where.id as { in?: string[] } | undefined)?.in) {
+              return [{ id: "watching-id", title: "Continue Show", mediaType: "tv" }];
+            }
+            if (where.monitored === true) {
+              return [
+                {
+                  id: "tracked-id",
+                  title: "Tracked Show",
+                  mediaType: "tv",
+                  monitored: true,
+                  cursorSeason: 2,
+                  cursorEpisode: 5,
+                },
+              ];
+            }
+            return [
+              {
+                id: "watchlist-id",
+                title: "Watchlist Show",
+                mediaType: "tv",
+                monitored: false,
+                cursorSeason: 3,
+                cursorEpisode: 7,
+                status: "planned",
+              },
+            ];
+          },
+        },
+      } as unknown as typeof prisma;
+
+      const targets = await upcomingTargets("u", {
+        db,
+        sources: ["monitored", "watchlist", "watching"],
+        limit: 3,
+      });
+      assert.deepEqual(
+        targets.map((t) => `${t.title} S${t.season}E${t.episode}`),
+        ["Tracked Show S2E5", "Watchlist Show S3E7", "Continue Show S1E3"],
+      );
+    });
+
+    await checkAsync("scope maps to tiers: monitored/watchlist are prioritised before watching", async () => {
       // A fake db that counts how many times the watchlist table is queried.
       // The "watching" tier only touches playbackProgress (and watchListItem
       // *only* to resolve titles when there are watching rows — none here), so
@@ -203,7 +333,7 @@ async function main(): Promise<void> {
       watchListQueries = 0;
       await upcomingTargets("u", {
         db: makeDb(),
-        sources: ["watching", "monitored", "watchlist"],
+        sources: ["monitored", "watchlist", "watching"],
       });
       assert.equal(
         watchListQueries,
