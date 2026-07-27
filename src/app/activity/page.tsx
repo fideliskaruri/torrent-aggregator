@@ -3,8 +3,8 @@
 import { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Radar } from "lucide-react";
-import { formatRelativeTime } from "@/lib/utils";
+import { Radar } from "lucide-react";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
@@ -14,6 +14,8 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
+import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
+import { useStableLoading } from "@/components/ui/use-stable-loading";
 
 interface ActivityItem {
   id: string;
@@ -61,6 +63,7 @@ function ActivityContent() {
   const { data: historyRows } = useApiQuery<ActivityItem[]>("/api/history", {
     select: (json) => (json as { items?: ActivityItem[] }).items ?? [],
   });
+  const showLoading = useStableLoading(loading && data == null && !error);
   // `data ?? []` is a fresh array on every render, which would make the memo
   // below — and therefore the artwork lookup — recompute forever.
   const items = useMemo(() => {
@@ -101,14 +104,7 @@ function ActivityContent() {
     ),
   );
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        Loading activity…
-      </div>
-    );
-  }
+  if (loading && data == null && !error) return <ActivitySkeleton visible={showLoading} />;
 
   return (
     <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">
@@ -244,14 +240,41 @@ function ActivityContent() {
 export default function ActivityPage() {
   return (
     <Suspense
-      fallback={
-        <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Loading activity…
-        </div>
-      }
+      fallback={<ActivitySkeleton />}
     >
       <ActivityContent />
     </Suspense>
+  );
+}
+
+function ActivitySkeleton({ visible = true }: { visible?: boolean }) {
+  return (
+    <PageSkeletonFrame
+      aria-label="Loading activity"
+      className={cn(
+        "container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
+        !visible && "opacity-0",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2">
+          <SkeletonBlock className="h-8 w-32" />
+          <SkeletonBlock className="h-4 w-64 max-w-full" />
+        </div>
+        <SkeletonBlock className="h-8 w-28 rounded-full" />
+      </div>
+      <ul className="space-y-2">
+        {Array.from({ length: 6 }, (_, i) => (
+          <li key={i} className="surface flex items-start gap-3 px-3.5 py-3">
+            <SkeletonBlock className="h-[38px] w-[38px] shrink-0 rounded-md" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <SkeletonBlock className="h-4 w-4/5" />
+              <SkeletonBlock className="h-3 w-2/3" />
+              <SkeletonBlock className="h-3 w-1/2" />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </PageSkeletonFrame>
   );
 }

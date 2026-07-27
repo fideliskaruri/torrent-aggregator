@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
-import { Loader2, Play, Plus, Trash2, Zap } from "lucide-react";
+import { Play, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,13 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
+import {
+  LoadingGlyph,
+  PageSkeletonFrame,
+  SkeletonBlock,
+} from "@/components/ui/loading";
+import { useStableLoading } from "@/components/ui/use-stable-loading";
+import { cn } from "@/lib/utils";
 
 interface Rule {
   id: string;
@@ -103,6 +110,7 @@ export default function RulesPage() {
   } = useApiQuery<Rule[]>("/api/rules", {
     select: (json) => (json as { rules?: Rule[] }).rules ?? [],
   });
+  const showLoading = useStableLoading(loading && rulesData == null && !error);
   const rules = rulesData ?? [];
   const [running, setRunning] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
@@ -258,12 +266,8 @@ export default function RulesPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
-        <Loader2 className="h-5 w-5 animate-spin" />
-      </div>
-    );
+  if (loading && rulesData == null && !error) {
+    return <RulesSkeleton visible={showLoading} />;
   }
 
 
@@ -285,7 +289,7 @@ export default function RulesPage() {
             }
           >
             {running ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <LoadingGlyph className="h-3.5 w-3.5" />
             ) : (
               <Play className="h-3.5 w-3.5" />
             )}
@@ -457,7 +461,7 @@ export default function RulesPage() {
                         disabled={retargeting === rule.id}
                       >
                         {retargeting === rule.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <LoadingGlyph className="h-3.5 w-3.5" />
                         ) : null}
                         Retarget
                       </Button>
@@ -540,7 +544,7 @@ export default function RulesPage() {
               className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
             >
               {removing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <LoadingGlyph className="h-3.5 w-3.5" />
               ) : null}
               Delete
             </AlertDialogAction>
@@ -548,5 +552,38 @@ export default function RulesPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function RulesSkeleton({ visible = true }: { visible?: boolean }) {
+  return (
+    <PageSkeletonFrame
+      aria-label="Loading rules"
+      className={cn(
+        "container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
+        !visible && "opacity-0",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2">
+          <SkeletonBlock className="h-8 w-52" />
+          <SkeletonBlock className="h-4 w-80 max-w-full" />
+        </div>
+        <SkeletonBlock className="h-8 w-24" />
+      </div>
+      <div className="surface space-y-3 p-4 sm:p-5">
+        <SkeletonBlock className="h-4 w-24" />
+        <div className="grid gap-3 sm:grid-cols-2">
+          {Array.from({ length: 4 }, (_, i) => (
+            <SkeletonBlock key={i} className="h-16 w-full" />
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: 3 }, (_, i) => (
+          <SkeletonBlock key={i} className="h-20 w-full" />
+        ))}
+      </div>
+    </PageSkeletonFrame>
   );
 }

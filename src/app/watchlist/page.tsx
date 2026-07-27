@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import {
   ArrowDownToLine,
   ArrowRight,
-  Loader2,
   Radar,
   Search,
   Send,
@@ -50,6 +49,12 @@ import {
   libraryItemState,
   libraryPageSummary,
 } from "@/components/library/library-state";
+import {
+  LoadingGlyph,
+  PageSkeletonFrame,
+  SkeletonBlock,
+} from "@/components/ui/loading";
+import { useStableLoading } from "@/components/ui/use-stable-loading";
 
 interface WatchItem {
   id: string;
@@ -155,6 +160,7 @@ export default function WatchlistPage() {
     error,
     refetch: load,
   } = useApiQuery<{ items?: WatchItem[] }>("/api/watchlist");
+  const showLoading = useStableLoading(loading && watchlist == null && !error);
 
   // Adjusting state from a prop/query during render is React's documented
   // alternative to a sync effect: the rows are server-owned, but this page
@@ -386,13 +392,8 @@ export default function WatchlistPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        Loading library…
-      </div>
-    );
+  if (loading && watchlist == null && !error) {
+    return <LibrarySkeleton visible={showLoading} />;
   }
 
 
@@ -422,7 +423,7 @@ export default function WatchlistPage() {
               aria-describedby={automationStateId}
             >
               {runningAuto ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <LoadingGlyph className="h-3.5 w-3.5" />
               ) : (
                 <Radar className="h-3.5 w-3.5" />
               )}
@@ -704,7 +705,7 @@ export default function WatchlistPage() {
                         title={`Download ${nextLabel} now`}
                       >
                         {sendingId === item.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <LoadingGlyph className="h-3.5 w-3.5" />
                         ) : (
                           <ArrowDownToLine className="h-3.5 w-3.5" />
                         )}
@@ -845,7 +846,7 @@ export default function WatchlistPage() {
               className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
             >
               {removing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <LoadingGlyph className="h-3.5 w-3.5" />
               ) : null}
               Remove
             </AlertDialogAction>
@@ -853,5 +854,48 @@ export default function WatchlistPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function LibrarySkeleton({ visible = true }: { visible?: boolean }) {
+  return (
+    <PageSkeletonFrame
+      aria-label="Loading library"
+      className={cn(
+        "container-app py-6 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
+        !visible && "opacity-0",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2">
+          <SkeletonBlock className="h-8 w-28" />
+          <SkeletonBlock className="h-4 w-52 max-w-full" />
+        </div>
+        <SkeletonBlock className="h-8 w-32" />
+      </div>
+      <SkeletonBlock className="h-10 w-full max-w-2xl" />
+      <div className="flex gap-1">
+        {Array.from({ length: 5 }, (_, i) => (
+          <SkeletonBlock key={i} className="h-7 w-20" />
+        ))}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {Array.from({ length: 4 }, (_, i) => (
+          <article key={i} className="surface flex min-w-0 overflow-hidden">
+            <SkeletonBlock className="min-h-[7.25rem] w-[4.75rem] shrink-0 sm:w-[5.5rem]" />
+            <div className="min-w-0 flex-1 space-y-3 p-3.5">
+              <SkeletonBlock className="h-5 w-4/5" />
+              <SkeletonBlock className="h-3 w-1/2" />
+              <SkeletonBlock className="h-20 w-full" />
+              <div className="flex gap-2">
+                <SkeletonBlock className="h-8 w-28" />
+                <SkeletonBlock className="h-8 w-16" />
+                <SkeletonBlock className="h-8 w-20" />
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </PageSkeletonFrame>
   );
 }

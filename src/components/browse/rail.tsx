@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { ActionStatus, CardAction } from "./availability";
 import { nextFocusIndex, pageScrollDelta, railEdges } from "./rail-scroll";
 import { TitleCard, TitleCardSkeleton } from "./title-card";
+import { SkeletonBlock } from "@/components/ui/loading";
 
 export interface RailProps {
   rail: RailModel;
@@ -225,7 +226,7 @@ function RailArrow({
 export function RailSkeleton({ cards = 6 }: { cards?: number }) {
   return (
     <section className="py-4 sm:py-5" aria-hidden>
-      <div className="skeleton mb-2.5 h-3.5 w-40 rounded" />
+      <SkeletonBlock className="mb-2.5 h-3.5 w-40 rounded" />
       <ul className="flex gap-2.5 overflow-hidden sm:gap-3">
         {Array.from({ length: cards }, (_, i) => (
           <TitleCardSkeleton key={i} />

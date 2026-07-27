@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import {
   FolderOpen,
   HardDriveDownload,
-  Loader2,
   MoreHorizontal,
   Pause,
   Play,
@@ -50,6 +49,12 @@ import { parseEpisode } from "@/lib/torrents/episodes";
 import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { startVisiblePoller } from "./polling";
+import {
+  LoadingGlyph,
+  PageSkeletonFrame,
+  SkeletonBlock,
+} from "@/components/ui/loading";
+import { useStableLoading } from "@/components/ui/use-stable-loading";
 
 interface ClientTorrent {
   hash: string;
@@ -185,6 +190,7 @@ export default function ClientPage() {
   );
   const [switchingBuiltin, setSwitchingBuiltin] = useState(false);
   const [playing, setPlaying] = useState<NowPlaying | null>(null);
+  const showLoading = useStableLoading(loading && !torrents.length && !error);
 
   const load = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!opts?.quiet) setLoading(true);
@@ -604,13 +610,8 @@ export default function ClientPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[50vh] items-center justify-center gap-2 text-[var(--text-tertiary)]">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        <span className="text-sm">Loading client…</span>
-      </div>
-    );
+  if (loading && !torrents.length && !error) {
+    return <ClientSkeleton visible={showLoading} />;
   }
 
 
@@ -707,7 +708,7 @@ export default function ClientPage() {
                 data-switch-to-builtin
               >
                 {switchingBuiltin ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <LoadingGlyph className="h-3.5 w-3.5" />
                 ) : null}
                 Use built-in engine
               </Button>
@@ -1097,7 +1098,7 @@ export default function ClientPage() {
                               data-open-folder
                             >
                               {openingHash === t.hash ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                                <LoadingGlyph className="h-4 w-4" />
                               ) : (
                                 <FolderOpen />
                               )}
@@ -1223,7 +1224,7 @@ export default function ClientPage() {
               data-delete-with-files
             >
               {deleting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <LoadingGlyph className="h-4 w-4" />
               ) : (
                 <Trash2 className="h-4 w-4" />
               )}
@@ -1233,5 +1234,62 @@ export default function ClientPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function ClientSkeleton({ visible = true }: { visible?: boolean }) {
+  return (
+    <PageSkeletonFrame
+      aria-label="Loading client"
+      className={cn(
+        "container-app max-w-5xl py-6 sm:py-8 space-y-4 min-w-0 transition-opacity duration-150",
+        !visible && "opacity-0",
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-2">
+          <SkeletonBlock className="h-8 w-24" />
+          <SkeletonBlock className="h-4 w-80 max-w-full" />
+        </div>
+        <div className="flex gap-2">
+          <SkeletonBlock className="h-8 w-20" />
+          <SkeletonBlock className="h-8 w-24" />
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-5">
+        {Array.from({ length: 5 }, (_, i) => (
+          <SkeletonBlock key={i} className="h-16 w-full" />
+        ))}
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <SkeletonBlock className="h-8 w-full max-w-sm" />
+        <div className="flex gap-1">
+          {Array.from({ length: 5 }, (_, i) => (
+            <SkeletonBlock key={i} className="h-7 w-20" />
+          ))}
+        </div>
+      </div>
+      <div className="surface overflow-hidden">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div
+            key={i}
+            className="grid grid-cols-1 gap-2 px-3 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] sm:gap-3"
+          >
+            <SkeletonBlock className="h-4 w-4" />
+            <div className="flex gap-2.5">
+              <SkeletonBlock className="h-10 w-10 shrink-0 rounded-md" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <SkeletonBlock className="h-4 w-4/5" />
+                <SkeletonBlock className="h-3 w-2/3" />
+              </div>
+            </div>
+            <SkeletonBlock className="h-7 w-full" />
+            <SkeletonBlock className="hidden h-4 w-full sm:block" />
+            <SkeletonBlock className="hidden h-4 w-full sm:block" />
+            <SkeletonBlock className="h-8 w-24 justify-self-end" />
+          </div>
+        ))}
+      </div>
+    </PageSkeletonFrame>
   );
 }

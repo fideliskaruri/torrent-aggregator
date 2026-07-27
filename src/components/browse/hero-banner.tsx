@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2, Play, Search } from "lucide-react";
+import { Play, Search } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,7 @@ import { AvailabilityChip } from "./availability-chip";
 import { heroFacts, heroPitch, type HeroPick } from "./hero";
 import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
+import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 
 export interface HeroBannerProps {
   pick: HeroPick;
@@ -142,7 +143,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
                 data-hero-primary
               >
                 {status === "pending" ? (
-                  <Loader2 className="animate-spin" />
+                  <LoadingGlyph />
                 ) : action.kind === "play" ? (
                   <Play className="fill-current" />
                 ) : null}
@@ -185,11 +186,11 @@ export function HeroSkeleton() {
     >
       <div className="container-app">
         <div className="flex min-h-[19rem] max-w-2xl flex-col justify-end py-8 sm:min-h-[23rem] sm:py-10 lg:min-h-[26rem]">
-          <div className="skeleton h-3 w-28 rounded" />
-          <div className="skeleton mt-3 h-9 w-3/4 rounded" />
-          <div className="skeleton mt-3 h-3 w-40 rounded" />
-          <div className="skeleton mt-3 h-3 w-full max-w-md rounded" />
-          <div className="skeleton mt-5 h-11 w-40 rounded-[var(--radius)]" />
+          <SkeletonBlock className="h-3 w-28 rounded" />
+          <SkeletonBlock className="mt-3 h-9 w-3/4 rounded" />
+          <SkeletonBlock className="mt-3 h-3 w-40 rounded" />
+          <SkeletonBlock className="mt-3 h-3 w-full max-w-md rounded" />
+          <SkeletonBlock className="mt-5 h-11 w-40 rounded-[var(--radius)]" />
         </div>
       </div>
     </section>

@@ -26,6 +26,7 @@ import { BrowseEmptyState } from "./browse-empty-state";
 import { BrowseSkeleton } from "./browse-skeleton";
 import { isFirstRun } from "./first-run";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { useStableLoading } from "@/components/ui/use-stable-loading";
 
 export function BrowseFirstRun({
   serverError,
@@ -45,6 +46,7 @@ export function BrowseFirstRun({
   );
 
   const rails = useMemo(() => data?.rails ?? [], [data]);
+  const showLoading = useStableLoading(loading && !data && !error);
 
   const failure = data ? null : (error ?? (dismissedServerError ? null : serverError));
 
@@ -66,7 +68,7 @@ export function BrowseFirstRun({
     );
   }
 
-  if (loading) return <BrowseSkeleton />;
+  if (loading && !data && !error) return <BrowseSkeleton visible={showLoading} />;
 
   // Between the two honest outcomes, and only now that a request has actually
   // resolved: a real catalog, or a genuinely empty one.

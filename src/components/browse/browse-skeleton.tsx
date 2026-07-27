@@ -1,5 +1,7 @@
 import { HeroSkeleton } from "./hero-banner";
 import { RailSkeleton } from "./rail";
+import { PageSkeletonFrame } from "@/components/ui/loading";
+import { cn } from "@/lib/utils";
 
 /**
  * The browse page while its one round trip is in flight.
@@ -16,14 +18,20 @@ import { RailSkeleton } from "./rail";
  * promising five rows to a user who is about to be shown one is its own small
  * lie.
  */
-export function BrowseSkeleton() {
+export function BrowseSkeleton({ visible = true }: { visible?: boolean }) {
   return (
-    <>
+    <PageSkeletonFrame
+      aria-label="Loading browse"
+      className={cn(
+        "transition-opacity duration-150",
+        !visible && "opacity-0",
+      )}
+    >
       <HeroSkeleton />
       <div className="container-app min-w-0 pb-14">
         <RailSkeleton />
         <RailSkeleton />
       </div>
-    </>
+    </PageSkeletonFrame>
   );
 }

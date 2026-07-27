@@ -2,7 +2,7 @@
 
 import { useId } from "react";
 import Link from "next/link";
-import { Loader2, Play, Search } from "lucide-react";
+import { Play, Search } from "lucide-react";
 import type { RailItem } from "@/lib/browse";
 import { cn } from "@/lib/utils";
 import {
@@ -17,6 +17,7 @@ import {
 import { AvailabilityChip } from "./availability-chip";
 import { PosterImage } from "./poster-image";
 import { titleHrefForItem } from "@/components/title/work-key";
+import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 
 /** Poster box width per breakpoint. Also drives `sizes` for `next/image`. */
 const CARD_WIDTH = "w-[124px] sm:w-[148px] lg:w-[168px]";
@@ -137,7 +138,7 @@ export function TitleCard({
   const badgeInner = (
     <>
       {status === "pending" ? (
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+        <LoadingGlyph className="h-3 w-3" />
       ) : action.kind === "play" ? (
         <Play className="h-3 w-3 shrink-0 fill-current" aria-hidden />
       ) : null}
@@ -301,9 +302,9 @@ export function TitleCard({
 export function TitleCardSkeleton() {
   return (
     <li className={cn("shrink-0", CARD_WIDTH)} aria-hidden>
-      <div className="skeleton aspect-[2/3] w-full rounded-[var(--radius)]" />
-      <div className="skeleton mt-2 h-3 w-4/5 rounded" />
-      <div className="skeleton mt-1.5 h-2.5 w-2/5 rounded" />
+      <SkeletonBlock className="aspect-[2/3] w-full rounded-[var(--radius)]" />
+      <SkeletonBlock className="mt-2 h-3 w-4/5 rounded" />
+      <SkeletonBlock className="mt-1.5 h-2.5 w-2/5 rounded" />
     </li>
   );
 }
