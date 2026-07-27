@@ -17,12 +17,14 @@
  *
  * ## Which member survives
  *
- * Two properties matter to the rail and they are ranked, not blended:
+ * Three properties matter to the rail and they are ranked, not blended:
  *
- *  1. **Artwork.** A collapse that drops the only member with a poster trades
+ *  1. **Explicit representative preference.** Some callers know a release is
+ *     the better playable representative of the work, independent of recency.
+ *  2. **Artwork.** A collapse that drops the only member with a poster trades
  *     a duplicate for a blank tile, which is a worse rail than the one it
  *     replaced.
- *  2. **Recency.** These rails are ordered newest-first, so the surviving
+ *  3. **Recency.** These rails are ordered newest-first, so the surviving
  *     member must carry the group's newest timestamp or the card sinks below
  *     things that arrived before it.
  *
@@ -49,6 +51,12 @@ export interface CollapsibleRelease<T> {
    * "newest wins" — the correct answer when nobody has a poster.
    */
   hasArtwork?: boolean;
+  /**
+   * Prefer this member as the work's representative before artwork/recency
+   * tiebreaks. This is not an ordering timestamp; callers should keep `sortAt`
+   * truthful and state representative intent here.
+   */
+  prefer?: boolean;
   /** Whatever the caller wants back out. */
   value: T;
 }
@@ -81,7 +89,10 @@ export interface CollapsedWork<T> {
 export function collapseReleasesByWork<T>(
   releases: readonly CollapsibleRelease<T>[],
 ): CollapsedWork<T>[] {
-  const byWork = new Map<string, CollapsedWork<T> & { sortAt: Date; hasArtwork: boolean }>();
+  const byWork = new Map<
+    string,
+    CollapsedWork<T> & { sortAt: Date; hasArtwork: boolean; prefer: boolean }
+  >();
 
   for (const release of releases) {
     const name = release.name?.trim();
@@ -90,6 +101,7 @@ export function collapseReleasesByWork<T>(
     const display = browseWorkDisplay(name);
     const key = display.key;
     const hasArtwork = release.hasArtwork === true;
+    const prefer = release.prefer === true;
     const existing = byWork.get(key);
 
     if (!existing) {
@@ -101,25 +113,30 @@ export function collapseReleasesByWork<T>(
         releaseCount: 1,
         sortAt: release.sortAt,
         hasArtwork,
+        prefer,
       });
       continue;
     }
 
     existing.releaseCount += 1;
 
-    // Artwork outranks recency: a poster is the difference between a card and
-    // a blank tile, while a few seconds of ordering is invisible.
-    const winsOnArtwork = hasArtwork && !existing.hasArtwork;
-    const tiedOnArtwork = hasArtwork === existing.hasArtwork;
+    // Representative preference outranks artwork, which outranks recency. A
+    // caller that knows which member can best play the work should not have to
+    // forge a timestamp to beat a newer single file.
+    const winsOnPreference = prefer && !existing.prefer;
+    const tiedOnPreference = prefer === existing.prefer;
+    const winsOnArtwork = tiedOnPreference && hasArtwork && !existing.hasArtwork;
+    const tiedOnArtwork = tiedOnPreference && hasArtwork === existing.hasArtwork;
     const winsOnRecency =
       tiedOnArtwork && release.sortAt.getTime() > existing.sortAt.getTime();
 
-    if (winsOnArtwork || winsOnRecency) {
+    if (winsOnPreference || winsOnArtwork || winsOnRecency) {
       existing.value = release.value;
       existing.name = name;
       existing.title = display.title;
       existing.sortAt = release.sortAt;
       existing.hasArtwork = hasArtwork;
+      existing.prefer = prefer;
     }
   }
 

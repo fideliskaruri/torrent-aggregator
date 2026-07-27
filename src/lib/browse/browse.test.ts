@@ -15,7 +15,7 @@ import type { AvailabilityState, Availability, RailItem } from "./types";
 import { collapseReleasesByWork } from "./collapse";
 import {
   _readyToPlayRailFromItems as readyToPlayRailFromItems,
-  readyCollapseSortAt,
+  readyRepresentativePreference,
 } from "./rails";
 
 // Import the internal helpers we export for testing
@@ -765,12 +765,14 @@ check("ready collapse keeps a season pack ahead of a newer up-next single", () =
   const collapsed = collapseReleasesByWork([
     {
       name: "Harness Show S01E04 1080p WEB",
-      sortAt: readyCollapseSortAt("Harness Show S01E04 1080p WEB", singleUpdated),
+      sortAt: singleUpdated,
+      prefer: readyRepresentativePreference("Harness Show S01E04 1080p WEB"),
       value: { hash: "single" },
     },
     {
       name: "Harness Show S01 COMPLETE 1080p WEB",
-      sortAt: readyCollapseSortAt("Harness Show S01 COMPLETE 1080p WEB", packUpdated),
+      sortAt: packUpdated,
+      prefer: readyRepresentativePreference("Harness Show S01 COMPLETE 1080p WEB"),
       value: { hash: "pack" },
     },
   ]);

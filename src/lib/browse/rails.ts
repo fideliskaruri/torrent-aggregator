@@ -153,7 +153,8 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
   const cards = collapseReleasesByWork(
     torrents.map((t) => ({
       name: t.name,
-      sortAt: readyCollapseSortAt(t.name, t.updatedAt),
+      sortAt: t.updatedAt,
+      prefer: readyRepresentativePreference(t.name),
       value: t,
     })),
   ).slice(0, 20);
@@ -196,10 +197,9 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
  * work card. Keep the pack as the playable representative: it is the row that
  * can open any episode in the season, while a prewarmed single is only one file.
  */
-export function readyCollapseSortAt(name: string, updatedAt: Date): Date {
+export function readyRepresentativePreference(name: string): boolean {
   const parsed = parseEpisode(name);
-  if (!parsed.isSeasonPack) return updatedAt;
-  return new Date(updatedAt.getTime() + 10 * 365 * 24 * 60 * 60 * 1000);
+  return parsed.isSeasonPack === true;
 }
 
 function readyToPlayRailFromItems(items: RailItem[]): Rail | null {

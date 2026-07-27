@@ -229,6 +229,28 @@ check("collapsing keeps the member with artwork over a newer one without", () =>
   );
 });
 
+check("a preferred representative wins despite being older", () => {
+  const collapsed = collapseReleasesByWork([
+    {
+      name: "The.Bear.S01E04.1080p.WEB.h264-GROUP",
+      sortAt: at(9),
+      value: "single",
+    },
+    {
+      name: "The.Bear.S01.COMPLETE.1080p.WEB.h264-GROUP",
+      sortAt: at(1),
+      prefer: true,
+      value: "pack",
+    },
+  ]);
+  assert.equal(collapsed.length, 1);
+  assert.equal(
+    collapsed[0].value,
+    "pack",
+    "an explicit representative preference must not be smuggled through a fake timestamp",
+  );
+});
+
 check("among members with artwork, the newest still wins", () => {
   const collapsed = collapseReleasesByWork([
     release("Heat.1995.1080p.BluRay.x264-GROUP", 2, true),
