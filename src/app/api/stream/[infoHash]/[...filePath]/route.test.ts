@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -174,6 +175,18 @@ async function makeDiskBackedTorrent(opts: {
     file,
     cleanup: () => fs.rm(root, { recursive: true, force: true }),
   };
+}
+
+function pieceHashes(bytes: Uint8Array, pieceLength: number): string[] {
+  const hashes: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += pieceLength) {
+    hashes.push(
+      createHash("sha1")
+        .update(bytes.subarray(offset, Math.min(bytes.length, offset + pieceLength)))
+        .digest("hex"),
+    );
+  }
+  return hashes;
 }
 
 function depsFor(
@@ -529,6 +542,140 @@ async function main() {
         await new Promise((resolve) => setTimeout(resolve, 25));
         assert.equal(closes.length, 1, `handle closed more than once: ${closes}`);
         assert.equal(priorities, 0, "complete disk bytes need no swarm priority");
+      } finally {
+        await disk.cleanup();
+      }
+    });
+
+    await check("an on-disk range can be hash-verified before WebTorrent ready", async () => {
+      resetStreamPrefetchForTests();
+      const disk = await makeDiskBackedTorrent({
+        length: 2048,
+        pieceLength: 1024,
+        verifiedPieces: [],
+      });
+      try {
+        const bytes = new Uint8Array(2048);
+        for (let i = 0; i < bytes.length; i += 1) bytes[i] = byteAt(i);
+        Object.assign(disk.torrent, {
+          ready: false,
+          length: 2048,
+          lastPieceLength: 1024,
+          _hashes: pieceHashes(bytes, 1024),
+          bitfield: { get: () => false },
+        });
+        disk.file.stream = () => {
+          throw new Error("disk hash fast path should not touch WebTorrent stream");
+        };
+        let priorities = 0;
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=100-199" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          {
+            ...depsFor(disk.torrent, disk.file),
+            prioritizeFile() {
+              priorities += 1;
+            },
+          },
+        );
+        assert.equal(res.status, 206);
+        assert.equal((await bodyBytes(res)).length, 100);
+        assert.equal(priorities, 0, "disk-verified bytes need no swarm priority");
+      } finally {
+        await disk.cleanup();
+      }
+    });
+
+    await check("disk hash verification covers pieces that span pack files", async () => {
+      resetStreamPrefetchForTests();
+      const root = await fs.mkdtemp(path.join(process.cwd(), ".test-disk-fastpath-pack-"));
+      try {
+        const prevRel = "Folder/Previous.mkv";
+        const curRel = "Folder/Movie.mkv";
+        const prevPath = path.join(root, ...prevRel.split("/"));
+        const curPath = path.join(root, ...curRel.split("/"));
+        await fs.mkdir(path.dirname(curPath), { recursive: true });
+        const all = new Uint8Array(2048);
+        for (let i = 0; i < all.length; i += 1) all[i] = byteAt(i);
+        await fs.writeFile(prevPath, all.subarray(0, 512));
+        await fs.writeFile(curPath, all.subarray(512));
+
+        const torrent = new FakeTorrent();
+        const prev = makeFile(prevRel, 512) as BuiltinStreamFile & { offset?: number };
+        const file = makeFile(curRel, 1536) as BuiltinStreamFile & { offset?: number };
+        prev.offset = 0;
+        file.offset = 512;
+        torrent.files = [file, prev];
+        Object.assign(torrent, {
+          path: root,
+          ready: false,
+          length: 2048,
+          pieceLength: 1024,
+          lastPieceLength: 1024,
+          pieces: Array.from({ length: 2 }),
+          _hashes: pieceHashes(all, 1024),
+          bitfield: { get: () => false },
+        });
+        file.stream = () => {
+          throw new Error("cross-file disk hash fast path should not touch WebTorrent stream");
+        };
+        const lookup: BuiltinStreamLookup = {
+          status: "found",
+          torrent: torrent as unknown as BuiltinStreamTorrent,
+          file,
+        };
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=0-99" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          {
+            getConfig: async () => builtinConfig,
+            findFile: async () => lookup,
+            prefetchEdges: async () => undefined,
+          },
+        );
+        assert.equal(res.status, 206);
+        const body = await bodyBytes(res);
+        assert.equal(body.length, 100);
+        assert.equal(body[0], byteAt(512));
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    await check("unknown piece hashes still fall back instead of trusting disk size", async () => {
+      resetStreamPrefetchForTests();
+      const disk = await makeDiskBackedTorrent({
+        length: 2048,
+        pieceLength: 1024,
+        verifiedPieces: [],
+      });
+      try {
+        Object.assign(disk.torrent, {
+          ready: false,
+          length: 2048,
+          lastPieceLength: 1024,
+          bitfield: { get: () => false },
+        });
+        let streams = 0;
+        const original = disk.file.stream;
+        disk.file.stream = (opts) => {
+          streams += 1;
+          return original.call(disk.file, opts);
+        };
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+            headers: { range: "bytes=100-199" },
+          }),
+          { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+          depsFor(disk.torrent, disk.file),
+        );
+        assert.equal(res.status, 206);
+        assert.equal((await bodyBytes(res)).length, 100);
+        assert.equal(streams, 1);
       } finally {
         await disk.cleanup();
       }
