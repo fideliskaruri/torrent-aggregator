@@ -358,7 +358,26 @@ async function clickReadyCard(page: Page, title: string) {
     .first();
   await button.waitFor({ state: "visible", timeout: 120_000 });
   await button.scrollIntoViewIfNeeded();
-  await button.click();
+
+  // The button paints during SSR but does nothing until React hydrates, and a
+  // click that lands in that window is silently dropped — no error, no overlay,
+  // and then a 180s wait for a video that was never asked for. Confirm the
+  // overlay actually opened and press again if it did not.
+  //
+  // This does not flatter the measurement: the caller starts its timer before
+  // `page.goto`, so every millisecond spent hydrating and retrying is still
+  // counted against the click-to-first-frame budget.
+  const overlay = page.locator("[data-play-overlay]");
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await button.click();
+    const opened = await overlay
+      .first()
+      .waitFor({ state: "attached", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (opened) return;
+  }
+  throw new Error("Play was pressed but the player never opened");
 }
 
 async function firstFrameAfter(page: Page, startedAt: number): Promise<number> {
