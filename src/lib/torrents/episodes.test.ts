@@ -22,6 +22,28 @@ import { parseEpisode } from "./episodes";
   assert.equal(word.isSeasonPack, true, "Season 1 with no episode is a pack");
 }
 
+// --- British "Series N" is a season pack, same as "Season N" ---
+// Top Gear, Doctor Who, Sherlock etc. publish complete seasons as "Series 22".
+// Reporting those as ordinary episodes let whole-series packs leak through the
+// "Episodes" filter (every Top Gear result was a full series, none an episode).
+{
+  const uk = parseEpisode("Top Gear UK Series 22 (2015) 1080p");
+  assert.equal(uk.season, 22, "Series 22 is season 22");
+  assert.equal(uk.episode, undefined);
+  assert.equal(uk.isSeasonPack, true, "a bare Series N is a season pack");
+  assert.equal(uk.isBatch, true);
+  assert.equal(uk.isMultiSeason, false);
+
+  const ukRange = parseEpisode("Doctor Who Series 1-4 Complete 1080p");
+  assert.equal(ukRange.isSeasonPack, true);
+  assert.equal(ukRange.isMultiSeason, true, "Series 1-4 is a multi-season pack");
+
+  // A "Series N" that carries an episode is still one episode, not a pack.
+  const ukEp = parseEpisode("Sherlock Series 3 E02 1080p BluRay");
+  assert.equal(ukEp.isSeasonPack, false, "Series 3 E02 is a single episode");
+  assert.equal(ukEp.episode, 2);
+}
+
 // --- A single episode is still not a pack ---
 {
   const ep = parseEpisode("The Bear S04E08 1080p DSNP WEB-DL DDP5 1 H 264-FLUX");

@@ -30,11 +30,16 @@ export interface EpisodeInfo {
  * `(?!\d)` stops the trailing number swallowing part of a resolution or year,
  * so `Season 1, 2024` and `S01 - 1080p` stay single-season.
  *
+ * British naming: `Series N` is the same thing as `Season N` (Top Gear, Doctor
+ * Who, Sherlock all publish "Series 22" for what US indexers call "Season 22").
+ * The spelled-out word therefore accepts `Serie(s)` as an alias — but only the
+ * word, never the bare letter `S`, so `S22` is not confused with anything else.
+ *
  * Exported so `smart-category.ts` scores and strips the exact same shape;
  * two regexes that drift apart would classify and file a torrent differently.
  */
 export const SEASON_RANGE_RE =
-  /\bS(?:easons?)?\s*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?)?\s*)?\d{1,3}(?!\d))+/i;
+  /\bS(?:easons?|eries)?\s*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?|eries)?\s*)?\d{1,3}(?!\d))+/i;
 
 export function parseEpisode(title: string): EpisodeInfo {
   const t = title;
@@ -63,7 +68,7 @@ export function parseEpisode(title: string): EpisodeInfo {
   // Multi-season list without dashes: "Season 1 2 3 4 5" / "Seasons 01 02 03"
   // (≥3 season numbers → multi pack at show root)
   const multiList = t.match(
-    /\bSeasons?\s+(\d{1,3}(?:\s+\d{1,3}){2,})\b/i,
+    /\b(?:Seasons?|Series)\s+(\d{1,3}(?:\s+\d{1,3}){2,})\b/i,
   );
   if (multiList) {
     const nums = multiList[1].match(/\d{1,3}/g)?.map((n) => parseInt(n, 10)) ?? [];
@@ -274,7 +279,7 @@ export function parseEpisode(title: string): EpisodeInfo {
       isMultiSeason: false,
     };
   }
-  const seasonWord = t.match(/\bSeasons?\s*(\d{1,3})\b/i);
+  const seasonWord = t.match(/\b(?:Seasons?|Series)\s*(\d{1,3})\b/i);
   if (seasonWord) {
     const season = parseInt(seasonWord[1], 10);
     return {
