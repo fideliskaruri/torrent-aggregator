@@ -35,11 +35,16 @@ export interface EpisodeInfo {
  * The spelled-out word therefore accepts `Serie(s)` as an alias — but only the
  * word, never the bare letter `S`, so `S22` is not confused with anything else.
  *
+ * Scene releases separate the season word from its number with a dot or
+ * underscore (`Top.Gear.Series.22`, `Sherlock_Series_3`), so the separator is
+ * `[\s._]*`, not just whitespace — a spaced-only match let dotted packs leak
+ * through the "Episodes" filter as if they were single episodes.
+ *
  * Exported so `smart-category.ts` scores and strips the exact same shape;
  * two regexes that drift apart would classify and file a torrent differently.
  */
 export const SEASON_RANGE_RE =
-  /\bS(?:easons?|eries)?\s*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?|eries)?\s*)?\d{1,3}(?!\d))+/i;
+  /\bS(?:easons?|eries)?[\s._]*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?|eries)?[\s._]*)?\d{1,3}(?!\d))+/i;
 
 export function parseEpisode(title: string): EpisodeInfo {
   const t = title;
@@ -279,7 +284,7 @@ export function parseEpisode(title: string): EpisodeInfo {
       isMultiSeason: false,
     };
   }
-  const seasonWord = t.match(/\b(?:Seasons?|Series)\s*(\d{1,3})\b/i);
+  const seasonWord = t.match(/\b(?:Seasons?|Series)[\s._]*(\d{1,3})\b/i);
   if (seasonWord) {
     const season = parseInt(seasonWord[1], 10);
     return {

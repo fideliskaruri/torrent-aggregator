@@ -42,6 +42,14 @@ import { parseEpisode } from "./episodes";
   const ukEp = parseEpisode("Sherlock Series 3 E02 1080p BluRay");
   assert.equal(ukEp.isSeasonPack, false, "Series 3 E02 is a single episode");
   assert.equal(ukEp.episode, 2);
+
+  // Scene releases use dots/underscores between the word and the number.
+  const dotted = parseEpisode("Top.Gear.UK.Series.22.1080p");
+  assert.equal(dotted.isSeasonPack, true, "dotted Series.22 is a pack");
+  assert.equal(dotted.season, 22);
+  const dottedRange = parseEpisode("Doctor.Who.Series.1-4.Complete");
+  assert.equal(dottedRange.isSeasonPack, true, "dotted Series.1-4 is a pack");
+  assert.equal(dottedRange.isMultiSeason, true);
 }
 
 // --- A single episode is still not a pack ---
