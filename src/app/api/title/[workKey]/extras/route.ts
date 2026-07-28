@@ -10,6 +10,7 @@ import {
   fetchMoreLikeThis,
   fetchSeasonEpisodes,
   fetchShowShape,
+  fetchWorkBlurb,
   resolveTmdbRef,
 } from "../../tmdb-extras";
 
@@ -58,6 +59,8 @@ export async function GET(request: Request, context: RouteContext) {
     seasons: [],
     episodes: [],
     moreLikeThis: [],
+    overview: null,
+    rating: null,
     resolved: false,
     generatedAt: new Date().toISOString(),
   };
@@ -72,11 +75,12 @@ export async function GET(request: Request, context: RouteContext) {
 
     const series = ref.mediaType === "tv";
 
-    // The season shape and the neighbours have no dependency on each other,
-    // so serialising them would double the wait for no reason.
-    const [shape, similar] = await Promise.all([
+    // The season shape, the neighbours and the blurb have no dependency on each
+    // other, so serialising them would multiply the wait for no reason.
+    const [shape, similar, blurb] = await Promise.all([
       series ? fetchShowShape(ref.id) : Promise.resolve(null),
       fetchMoreLikeThis(ref),
+      fetchWorkBlurb(ref),
     ]);
 
     // Which season to describe: what the page asked for, else the first one
@@ -96,6 +100,8 @@ export async function GET(request: Request, context: RouteContext) {
       seasons: shape?.seasons ?? [],
       episodes,
       moreLikeThis: similar.map(toSimilarLink),
+      overview: blurb.overview,
+      rating: blurb.rating,
       resolved: true,
       generatedAt: new Date().toISOString(),
     };

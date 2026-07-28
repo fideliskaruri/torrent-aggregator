@@ -197,6 +197,13 @@ export interface TitleExtrasPayload {
   seasons: number[];
   episodes: TitleEpisodeMeta[];
   moreLikeThis: TitleSimilar[];
+  /**
+   * Synopsis and score from the resolved provider entity. A fallback for the
+   * base payload, which carries these only from local data it can vouch for and
+   * so leaves them null when the one cached row was a different work.
+   */
+  overview: string | null;
+  rating: number | null;
   /** False when there was no usable provider match — drives nothing but copy. */
   resolved: boolean;
   generatedAt: string;

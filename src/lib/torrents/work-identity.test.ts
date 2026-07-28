@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  catalogAgrees,
   groupReleasesByWork,
   releaseYear,
   workIdentity,
@@ -508,6 +509,29 @@ assert.deepEqual(groupReleasesByWork([], (t: string) => t), []);
     );
     assert.notEqual(g.name, "Dune", `${g.name} must keep its own name`);
   }
+}
+
+// --- catalogAgrees: a bare title must not borrow a spin-off's metadata ---
+//
+// The mirror image of the "vaguer catalog" bug above. A title page for the 2021
+// film "Dune" — which had no cached row of its own — contains-matched the longer
+// cached rows "Dune: Prophecy" (a 2024 series) and "Dune: Part Two", and rendered
+// the spin-off's poster and synopsis full-bleed. A colon/spaced-dash subtitle is
+// a distinct work, not a refinement.
+{
+  // Rejections: a bare name never agrees with a subtitle spin-off.
+  assert.equal(catalogAgrees("Dune", "Dune: Prophecy"), false);
+  assert.equal(catalogAgrees("Dune", "Dune: Part Two"), false);
+  assert.equal(catalogAgrees("Dune", "Dune - Part Two"), false);
+  // Reverse containment stays rejected (the "blur" direction).
+  assert.equal(catalogAgrees("Children of Dune", "Dune"), false);
+
+  // Acceptances: equality after punctuation, and a parenthetical disambiguator.
+  assert.equal(catalogAgrees("Dune Prophecy", "Dune: Prophecy"), true);
+  assert.equal(catalogAgrees("The Office", "The Office (US)"), true);
+  assert.equal(catalogAgrees("Dune", "Dune"), true);
+  // A hyphenated single word ("Spider-Man") is not a subtitle boundary.
+  assert.equal(catalogAgrees("Spider-Man", "Spider-Man (2002)"), true);
 }
 
 console.log("work-identity: ok");

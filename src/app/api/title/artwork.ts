@@ -56,6 +56,7 @@ export interface CachedCatalogRow {
 export async function findCachedCatalogRow(
   workName: string,
   mediaType: MediaType | null,
+  workYear: number | null = null,
 ): Promise<CachedCatalogRow | null> {
   const name = workName.trim();
   if (!name) return null;
@@ -79,6 +80,17 @@ export async function findCachedCatalogRow(
     if (!catalogAgrees(name, row.title)) continue;
     // A media type we are sure of is a filter; one we are not sure of is not.
     if (mediaType && row.mediaType && row.mediaType !== mediaType) continue;
+    // Year discipline, by what a year means for the media type (the same split
+    // `artwork.ts` uses). A film or anime is a point-in-time work: "Dune" (2021)
+    // and "Dune" (1984) are two works, so a same-title row two or more years off
+    // is a different one and must not lend its poster. A series year is the
+    // *season* someone browsed, not the premiere, so only a row that premiered
+    // well *after* the year asked for is ruled out — a later season is normal.
+    if (workYear && row.year) {
+      const diff = row.year - workYear;
+      const isSeriesRow = row.mediaType === "tv";
+      if (isSeriesRow ? diff >= 2 : Math.abs(diff) >= 2) continue;
+    }
     return row;
   }
   return null;

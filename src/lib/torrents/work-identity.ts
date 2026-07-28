@@ -122,15 +122,20 @@ function normalizeForKey(s: string): string {
  *                                                           normalised)
  *   release "The Office"        catalog "The Office (US)" → accept (refines)
  *   release "Children of Dune"  catalog "Dune"            → REJECT (blurs)
+ *   release "Dune"              catalog "Dune: Prophecy"  → REJECT (spin-off)
  *
- * The last line is the whole point. Bidirectional containment used to accept
- * it, and a single mis-enriched row titled "Dune" then contains-matched
- * *Dune Prophecy*, *Children of Dune* and *Dune Part Two* at once. Grouping
- * stayed correct — identity never comes from metadata — but all five works
- * came back named "Dune" and wearing Dune's poster. Five identical headings
- * under five copies of one poster is exactly the illegibility that splitting
- * the works was meant to remove, so a correct split rendered as an obviously
- * broken page.
+ * The middle rule is the whole point. Bidirectional containment used to accept
+ * "Children of Dune" ← "Dune", and a single mis-enriched row titled "Dune" then
+ * contains-matched *Dune Prophecy*, *Children of Dune* and *Dune Part Two* at
+ * once. Grouping stayed correct — identity never comes from metadata — but all
+ * five works came back named "Dune" and wearing Dune's poster.
+ *
+ * The last rule closes the mirror image, which one-directional containment left
+ * open: a *bare* release "Dune" contains-matched the longer catalog titles
+ * "Dune: Prophecy" and "Dune: Part Two", so a title page for the 2021 film —
+ * which has no cached row of its own — borrowed a spin-off's poster and blurb.
+ * A colon/spaced-dash subtitle names a distinct work, not a refinement, so it is
+ * rejected; a parenthetical disambiguator ("(US)") still refines and is kept.
  *
  * Rejecting the vaguer title costs nothing: the release-derived name is
  * already accurate, just less pretty.
@@ -141,7 +146,13 @@ export function catalogAgrees(releaseName: string, catalogTitle: string): boolea
   if (!a || !b) return false;
   if (a === b) return true;
   // `b` (catalog) must contain `a` (release), not the other way round.
-  return b.includes(a);
+  if (!b.includes(a)) return false;
+  // `b` strictly extends `a`. Accept a disambiguating qualifier, but reject a
+  // colon/spaced-dash subtitle whose head is exactly `a`: "Dune: Prophecy" and
+  // "Dune - Part Two" are separate works from "Dune", not refinements of it.
+  const head = catalogTitle.split(/:\s*|\s+[-–—]\s+/)[0];
+  if (normalizeForKey(head) === a) return false;
+  return true;
 }
 
 /**

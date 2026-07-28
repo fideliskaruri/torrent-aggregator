@@ -215,6 +215,44 @@ export async function resolveTmdbRef(query: {
 }
 
 // ---------------------------------------------------------------------------
+// Synopsis and score
+// ---------------------------------------------------------------------------
+
+export interface TmdbWorkBlurb {
+  overview: string | null;
+  rating: number | null;
+}
+
+/**
+ * The synopsis and score for a resolved work.
+ *
+ * The base title payload only carries a blurb it can vouch for from *local*
+ * data. When the sole cached row is rejected as a different work — a bare
+ * "Dune" must not wear "Dune: Prophecy"'s synopsis — it has none, and the hero
+ * would read as a title with no description. This fills that gap from the same
+ * TMDB id the rest of the extras are built on, so the words on the page always
+ * describe the work the page resolved to. Absent stays absent, never wrong.
+ */
+export async function fetchWorkBlurb(ref: TmdbRef): Promise<TmdbWorkBlurb> {
+  return memo(`blurb:${ref.mediaType}:${ref.id}`, async () => {
+    const raw = await tmdbGet<{
+      overview?: string | null;
+      vote_average?: number | null;
+    }>(`/${ref.mediaType}/${ref.id}`);
+    if (!raw) return { overview: null, rating: null };
+    const overview =
+      typeof raw.overview === "string" && raw.overview.trim()
+        ? raw.overview.trim()
+        : null;
+    const rating =
+      typeof raw.vote_average === "number" && raw.vote_average > 0
+        ? raw.vote_average
+        : null;
+    return { overview, rating };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Shows, seasons, episodes
 // ---------------------------------------------------------------------------
 

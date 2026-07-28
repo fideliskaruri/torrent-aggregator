@@ -413,7 +413,7 @@ function TitleContent({
   const facts = titleFacts({
     year: payload.year,
     mediaType: payload.mediaType,
-    rating: payload.rating,
+    rating: payload.rating ?? extras?.rating ?? null,
     isSeries: payload.isSeries,
     // Only ever the provider's count. Counting the seasons we hold files for
     // printed "1 season" directly above a list headed "5 in season 2"; a
@@ -545,12 +545,12 @@ function TitleContent({
                 ) : null}
               </div>
 
-              {payload.overview ? (
+              {payload.overview ?? extras?.overview ? (
                 <p
                   data-title-overview
                   className="text-body mt-3 line-clamp-4 max-w-xl"
                 >
-                  {payload.overview}
+                  {payload.overview ?? extras?.overview}
                 </p>
               ) : null}
 

@@ -220,7 +220,7 @@ export async function buildTitleDetail(
   const cachedCatalog =
     catalog?.posterUrl && catalog?.overview
       ? null
-      : await findCachedCatalogRow(title, mediaType);
+      : await findCachedCatalogRow(title, mediaType, year);
 
   const artwork = await resolveArtwork({
     title,
