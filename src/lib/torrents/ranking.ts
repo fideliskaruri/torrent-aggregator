@@ -1,6 +1,7 @@
 import type { ReleaseGroup, TorrentResult } from "./types";
 import { normalizeTitle } from "@/lib/utils";
 import { parseEpisode } from "./episodes";
+import { isExtrasRelease } from "./filters";
 import { stripTrailingJunkNumber, releaseYear } from "./work-identity";
 import {
   compareReleases,
@@ -41,9 +42,14 @@ function affinityRank(affinity: number, steps: number[]): number {
  * sorts by descending `score` gets the same order as the comparator, minus the
  * size tiebreak, which only ever splits otherwise-equal releases.
  */
-function encodeScore(d: ReleaseRank, steps: number[]): number {
+function encodeScore(d: ReleaseRank, steps: number[], isExtras: boolean): number {
   const good = 2 - ((d.junk ? 1 : 0) + (d.implausible ? 1 : 0));
   return (
+    // I14b: a bonus/extras/sample release sits below the entire main-feature
+    // score space, so `score` (which `groupReleases` and the search API sort by)
+    // can never disagree with the demotion applied in {@link rankResults}. The
+    // multiplier dominates every lower term's maximum combined contribution.
+    (isExtras ? 0 : 1) * 1_000_000_000 +
     (d.categoryMatch + 1) * 10_000_000 +
     d.relevance * 1_000_000 +
     good * 100_000 +
@@ -73,19 +79,28 @@ export function rankResults(
   const scored = results.map((r) => {
     const episode = r.episode ?? parseEpisode(r.title);
     const rank = describeRelease(r, query, target, category);
+    const isExtras = isExtrasRelease(r.title);
     return {
       rank,
+      isExtras,
       result: {
         ...r,
         episode,
         health: computeHealth(r),
         groupKey: buildGroupKey(r.title, episode),
-        score: encodeScore(rank, steps),
+        score: encodeScore(rank, steps, isExtras),
       },
     };
   });
 
-  scored.sort((a, b) => compareReleases(a.rank, b.rank));
+  scored.sort((a, b) => {
+    // I14b: a bonus/extras/sample release ranks below the main feature whenever
+    // one exists, regardless of quality or seeders — "Play" and the top pick
+    // must never land on supplementary material. Only when every candidate is an
+    // extra do they fall through to the normal comparator among themselves.
+    if (a.isExtras !== b.isExtras) return a.isExtras ? 1 : -1;
+    return compareReleases(a.rank, b.rank);
+  });
   return markBestPicks(scored.map((s) => s.result));
 }
 

@@ -114,6 +114,10 @@ model CachedMetadata {
   synopsis    String?
   rating      Float?
   year        Int?
+  /// Primary release date (movie) or first-air date (tv/anime). Null = unknown.
+  /// Drives future-gating: a title whose releaseDate is in the future is shown
+  /// grayed + "Coming {date}", never as a dead play/download action.
+  releaseDate DateTime?
   genres      String?
   rawJson     String?
   expiresAt   DateTime
@@ -217,6 +221,8 @@ model CatalogEntry {
   workKey     String
   title       String
   year        Int?
+  /// Primary release / first-air date; drives future-gating (gray + "Coming").
+  releaseDate DateTime?
   mediaType   String // movie | tv | anime
   posterUrl   String?
   backdropUrl String?

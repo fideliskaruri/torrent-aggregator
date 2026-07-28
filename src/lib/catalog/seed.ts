@@ -20,6 +20,7 @@
  */
 import prisma from "@/lib/prisma";
 import { normalizeMediaType, type MediaType } from "@/lib/metadata/media-type";
+import { isSlopTitle } from "@/lib/metadata/slop";
 import { workIdentity } from "@/lib/torrents/work-identity";
 
 /** What the rail is seeded with. */
@@ -54,8 +55,26 @@ export async function readWatchSeed(userId: string): Promise<CatalogSeed | null>
   });
 
   if (watching?.title?.trim()) {
+    let title = seedTitleOf(watching.title);
+    // A progress row whose title is only an episode coordinate — created from a
+    // raw magnet named "…S01E05…" or a bare file name — reduces to something
+    // like "S01E05", and "Because you're watching S01E05" is a heading no
+    // product would ship. When that happens, the row's linked library item
+    // carries the real show name; prefer it. This is I9: the rail must expose
+    // the show's TITLE, never an SxxExx code.
+    if (isUnusableSeedTitle(title) && watching.watchListItemId) {
+      const linked = await prisma.watchListItem.findUnique({
+        where: { id: watching.watchListItemId },
+        select: { title: true },
+      });
+      const linkedTitle = linked?.title?.trim();
+      if (linkedTitle) {
+        const cleaned = seedTitleOf(linkedTitle);
+        if (!isUnusableSeedTitle(cleaned)) title = cleaned;
+      }
+    }
     return {
-      title: seedTitleOf(watching.title),
+      title,
       mediaType: await progressMediaType(watching),
     };
   }
@@ -132,4 +151,15 @@ const SERIES_MEDIA_TYPE = normalizeMediaType("tv");
 function seedTitleOf(raw: string): string {
   const trimmed = raw.trim();
   return workIdentity(trimmed).name || trimmed;
+}
+
+/**
+ * True when a reduced seed title is not usable as a rail heading — it is a
+ * placeholder or a bare episode coordinate ("S01E05", "Episode 5") rather than
+ * the name of a work. The rule class is shared with the browse rails via
+ * `@/lib/metadata/slop`, so the heading and the rest of the catalog agree about
+ * what counts as a real title.
+ */
+function isUnusableSeedTitle(title: string): boolean {
+  return isSlopTitle(title);
 }

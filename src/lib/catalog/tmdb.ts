@@ -79,6 +79,16 @@ export interface TmdbTitle {
   overview: string | null;
   /** TMDB's 0–10 vote average, or null when the title is simply unrated. */
   rating: number | null;
+  /**
+   * Primary release date (movie `release_date`) or first-air date (tv
+   * `first_air_date`), as `YYYY-MM-DD`. Null when TMDB has no date — an
+   * announced-but-undated title, which is never future-gated. This is the raw
+   * material future-gating reads: TMDB's trending charts are full of next-year
+   * titles ("Toy Story 5", "Avengers: Doomsday"), and without a date the render
+   * layer cannot tell "coming soon" from "available now". See
+   * src/lib/browse/release-status.ts.
+   */
+  releaseDate: string | null;
 }
 
 /**
@@ -174,6 +184,7 @@ export function parseTmdbList(data: unknown, kind: TmdbKind): TmdbTitle[] {
       backdropUrl: tmdbImageUrl(row.backdrop_path, TMDB_BACKDROP_SIZE),
       overview: firstString(row.overview),
       rating: parseRating(row.vote_average),
+      releaseDate: parseReleaseDate(row.release_date ?? row.first_air_date),
     });
   }
 
@@ -200,6 +211,63 @@ function parseYear(value: unknown): number | null {
   if (!match) return null;
   const year = Number(match[1]);
   return Number.isFinite(year) && year > 1800 ? year : null;
+}
+
+/**
+ * A TMDB `release_date` / `first_air_date` reduced to a stored `YYYY-MM-DD`.
+ *
+ * TMDB always gives a full ISO date, but the parser is deliberately tolerant so
+ * a year-only value (which recommendations and search occasionally carry, and
+ * which AniList gives natively) is not thrown away: a bare `2026` becomes
+ * `2026-01-01`, exactly the placeholder `release-status.ts` renders as
+ * "Coming 2026". A never-fabricate rule applies — anything that is not a
+ * plausible date returns null, and null is never future-gated.
+ *
+ * Exported so the extraction can be pinned by table-driven tests against
+ * captured TMDB shapes without a network call.
+ */
+export function parseReleaseDate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const full = /^(\d{4})-(\d{2})-(\d{2})\b/.exec(trimmed);
+  if (full) {
+    const year = Number(full[1]);
+    const month = Number(full[2]);
+    const day = Number(full[3]);
+    if (!plausibleYear(year)) return null;
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    return `${full[1]}-${full[2]}-${full[3]}`;
+  }
+
+  const yearOnly = /^(\d{4})$/.exec(trimmed);
+  if (yearOnly) {
+    const year = Number(yearOnly[1]);
+    return plausibleYear(year) ? `${yearOnly[1]}-01-01` : null;
+  }
+
+  return null;
+}
+
+function plausibleYear(year: number): boolean {
+  return Number.isFinite(year) && year > 1800 && year < 2200;
+}
+
+/**
+ * A stored `YYYY-MM-DD` (or full ISO) release date as a UTC `Date`, or null.
+ *
+ * Anchored at UTC midnight so a year-only placeholder (`2026-01-01`) round-trips
+ * back out as the same calendar day regardless of the server's timezone —
+ * important because `release-status.ts` keys "year only" off Jan 1. Never
+ * throws: an unparseable value is null, which is never gated.
+ */
+export function releaseDateToDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const dayOnly = value.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayOnly)) return null;
+  const date = new Date(`${dayOnly}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /** TMDB uses 0 for *unrated*, and an unrated title has no rating to show. */

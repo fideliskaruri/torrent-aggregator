@@ -40,6 +40,39 @@ export function retentionStateForOrigin(origin: string | null | undefined): Rete
   return "unknown";
 }
 
+/**
+ * The one classification rule every Play/browse/downloads surface must agree
+ * on: only a *kept* download (or a legacy/external row we cannot classify) is a
+ * "download". A `stream` is an ephemeral playback cache and a `prewarm` is
+ * speculative background work the user never asked to keep — neither is a
+ * download, so neither may appear in a downloads list, be counted in download
+ * stats, or expose download progress.
+ */
+export function isDownloadRetention(
+  state: RetentionState | null | undefined,
+): boolean {
+  return state !== "stream" && state !== "prewarm";
+}
+
+/**
+ * Visible download progress for a live torrent, given its retention state.
+ *
+ * A stream/prewarm torrent only ever pulls the pieces the player needs, so its
+ * whole-file progress is a mechanism detail that would read as "% downloaded"
+ * on a Play surface — which the product forbids. This is the single seam that
+ * decides whether a "%" may be shown, so every consumer (teaser, browse card,
+ * title hero, ready-to-play) agrees rather than each re-deciding.
+ *
+ * Returns the raw fraction only for a download-retention row; `null` otherwise.
+ */
+export function visibleDownloadProgress(
+  state: RetentionState | null | undefined,
+  progress: number | null | undefined,
+): number | null {
+  if (!isDownloadRetention(state)) return null;
+  return progress ?? null;
+}
+
 export function releaseInfoHash(input: {
   infoHash?: string | null;
   magnet?: string | null;

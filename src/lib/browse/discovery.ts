@@ -34,6 +34,7 @@ import { readCatalogRows, type CatalogRow } from "@/lib/catalog/store";
 import { ensureCatalogFresh, refreshRelatedForSeed } from "@/lib/catalog/refresh";
 import { readWatchSeed, type CatalogSeed } from "@/lib/catalog/seed";
 import { normalizeMediaType } from "@/lib/metadata/media-type";
+import { isSlopTitle } from "@/lib/metadata/slop";
 import type { Rail, RailItem } from "./types";
 
 /** How many cards a discovery rail shows. */
@@ -173,6 +174,12 @@ export function toRailItem(row: CatalogRow): RailItem {
     // `null` ("not determined") is the only honest answer, and the card layer
     // turns it into a neutral, clickable affordance rather than a dead control.
     availability: null,
+    // The catalog's stored release / first-air date, as an ISO `YYYY-MM-DD`
+    // string. TMDB's trending charts are full of next-year titles ("Toy Story
+    // 5", "Avengers: Doomsday"); carrying the date lets the card layer gray them
+    // and label "Coming {date}" via release-status.ts instead of offering a dead
+    // Play. Null (unknown) is never gated.
+    releaseDate: row.releaseDate ? row.releaseDate.toISOString().slice(0, 10) : null,
     progressFraction: null,
     resumePositionSec: null,
     infoHash: null,
@@ -190,7 +197,10 @@ async function safeRows(
   source: "trending" | "popular",
 ): Promise<CatalogRow[]> {
   try {
-    return await readCatalogRows(source, null, DISCOVERY_RAIL_SIZE);
+    const rows = await readCatalogRows(source, null, DISCOVERY_RAIL_SIZE);
+    // Last-resort guard: a placeholder that predates the slop filter on the
+    // write path must not survive a read. See @/lib/metadata/slop.
+    return rows.filter((row) => !isSlopTitle(row.title));
   } catch (err) {
     console.error(`[discovery] ${source} rows unavailable`, err);
     return [];
@@ -199,7 +209,8 @@ async function safeRows(
 
 async function safeRelatedRows(seedTitle: string): Promise<CatalogRow[]> {
   try {
-    return await readCatalogRows("related", seedTitle, DISCOVERY_RAIL_SIZE);
+    const rows = await readCatalogRows("related", seedTitle, DISCOVERY_RAIL_SIZE);
+    return rows.filter((row) => !isSlopTitle(row.title));
   } catch (err) {
     console.error("[discovery] related rows unavailable", err);
     return [];

@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSession } from "@/components/providers/session-provider";
 import { ArrowRight, HardDriveDownload } from "lucide-react";
-import { formatBytes } from "@/lib/utils";
-import { titleHrefForName } from "@/components/title/work-key";
+import { titleHrefForName, workIdentityFor } from "@/components/title/work-key";
 
 interface TeaserTorrent {
   hash: string;
@@ -30,6 +29,12 @@ function isDownloadRetention(retentionState: TeaserTorrent["retentionState"]) {
   return retentionState !== "stream" && retentionState !== "prewarm";
 }
 
+/** A clean human title for a raw release name — never the scene filename. */
+function displayTitle(name: string): string {
+  const identity = workIdentityFor(name);
+  return identity.name?.trim() || name;
+}
+
 /**
  * Thin home teaser for active client downloads when signed in.
  * Silent on error / unconfigured client.
@@ -37,7 +42,6 @@ function isDownloadRetention(retentionState: TeaserTorrent["retentionState"]) {
 export function ActiveDownloadsTeaser() {
   const { status } = useSession();
   const [items, setItems] = useState<TeaserTorrent[]>([]);
-  const [dlspeed, setDlspeed] = useState(0);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -53,17 +57,13 @@ export function ActiveDownloadsTeaser() {
         );
         if (cancelled) return;
         setItems(active.slice(0, 3));
-        setDlspeed(
-          active.reduce((sum, t) => sum + (t.dlspeed || 0), 0),
-        );
       } catch {
         /* unconfigured / offline — no teaser */
       }
     }
     void load();
-    // Without this the panel fetches once and freezes — but it shows a live
-    // download *speed*, so a frozen value is not merely stale, it is wrong.
-    // Hidden tabs do not poll: nobody is reading it, and the engine pays.
+    // Without this the panel fetches once and freezes. Hidden tabs do not poll:
+    // nobody is reading it, and the engine pays.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
       if (cancelled) return;
@@ -97,7 +97,6 @@ export function ActiveDownloadsTeaser() {
           <span className="sr-only">,</span>
           <span className="text-[11px] font-normal text-[var(--text-tertiary)] tabular-nums">
             {items.length}
-            {dlspeed > 0 ? ` · ↓ ${formatBytes(dlspeed)}/s` : ""}
           </span>
         </h2>
         <Link
@@ -110,33 +109,17 @@ export function ActiveDownloadsTeaser() {
       </div>
       <ul className="space-y-1.5">
         {items.map((t) => {
-          const pct = Math.min(100, Math.round(t.progress * 1000) / 10);
           const titleHref = titleHrefForName(t.name) ?? "/client";
           return (
             <li key={t.hash}>
               <Link
                 href={titleHref}
                 className="surface-interactive flex items-center gap-3 px-3 py-2.5 min-w-0"
+                data-teaser-item
               >
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-medium text-[var(--text)] truncate">
-                    {t.name}
-                  </p>
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <div className="h-1 flex-1 max-w-[12rem] rounded-full bg-[var(--bg-muted)] overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-[var(--accent)]"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
-                      {pct.toFixed(0)}%
-                    </span>
-                  </div>
-                </div>
-                <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
-                  ↓ {formatBytes(t.dlspeed)}/s
-                </span>
+                <p className="min-w-0 flex-1 text-[13px] font-medium text-[var(--text)] truncate">
+                  {displayTitle(t.name)}
+                </p>
               </Link>
             </li>
           );

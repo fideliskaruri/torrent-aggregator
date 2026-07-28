@@ -3,10 +3,11 @@
 /**
  * The library side of the hero: what the library should do with this work.
  *
- * The acquire intents (Play streams it, Download keeps it) are rendered by the
- * hero itself (`title-detail.tsx`), because Play has to open the in-page player
- * and only the detail container holds that machinery. This component owns the
- * decisions that come *after* acquiring: catalogue membership and monitoring.
+ * The acquire intents (Play watches it now, Download keeps it) are rendered by
+ * the hero itself (`title-detail.tsx`), because Play has to open the in-page
+ * player and only the detail container holds that machinery. This component
+ * owns the decisions that come *after* acquiring: catalogue membership and
+ * monitoring.
  *
  * It goes through the existing watchlist API rather than a new one:
  * `POST /api/watchlist` to add (it accepts `monitored: false` deliberately, so
@@ -15,7 +16,7 @@
  * server-side and handed down whole — the client never invents a catalog id,
  * because an id it made up is an id automation will later fail to match.
  */
-import { useId, useState } from "react";
+import { useState } from "react";
 import { Bell, BellOff, Check, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TitleLibraryState } from "./types";
@@ -36,7 +37,6 @@ export function LibraryControls({
 }: LibraryControlsProps) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [message, setMessage] = useState<string | null>(null);
-  const monitoringDescriptionId = useId();
 
   async function send(request: () => Promise<Response>, failure: string) {
     setPhase("pending");
@@ -119,43 +119,36 @@ export function LibraryControls({
         )}
 
         {library.inLibrary && library.watchListItemId ? (
-          <div className="flex flex-col items-start gap-1.5">
-            <Button
-              type="button"
-              size="lg"
-              variant={library.monitored ? "secondary" : "default"}
-              data-monitor-toggle
-              aria-pressed={library.monitored}
-              aria-describedby={!library.monitored ? monitoringDescriptionId : undefined}
-              disabled={busy}
-              onClick={() => setMonitored(!library.monitored)}
-            >
-              {busy ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : library.monitored ? (
-                <Bell aria-hidden />
-              ) : (
-                <BellOff aria-hidden />
-              )}
-              {library.monitored
-                ? "Turn automatic checks off"
-                : "Turn automatic checks on"}
-            </Button>
-            {/* The helper only speaks when monitoring is off, but its row is
-                always here so turning it on never pulls the layout up. */}
-            <div className="min-h-[1.25rem]">
-              {!library.monitored ? (
-                <p
-                  id={monitoringDescriptionId}
-                  className="max-w-[24rem] text-left text-[12px] text-[var(--text-tertiary)]"
-                >
-                  {isSeries
-                    ? "New episodes are fetched as they appear."
-                    : "This is fetched as soon as a release shows up."}
-                </p>
-              ) : null}
-            </div>
-          </div>
+          // Monitoring is a preference, not a call to action: a plain toggle
+          // that says what it *does* in product terms, not "automatic checks".
+          // It sits quietly beside the library chip rather than posing as a
+          // third big button next to Play and Download.
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            role="switch"
+            data-monitor-toggle
+            aria-checked={library.monitored}
+            disabled={busy}
+            onClick={() => setMonitored(!library.monitored)}
+            className="text-[var(--text-secondary)]"
+          >
+            {busy ? (
+              <Loader2 className="animate-spin" aria-hidden />
+            ) : library.monitored ? (
+              <Bell aria-hidden />
+            ) : (
+              <BellOff aria-hidden />
+            )}
+            {library.monitored
+              ? isSeries
+                ? "Getting new episodes automatically"
+                : "Getting it automatically"
+              : isSeries
+                ? "Get new episodes automatically"
+                : "Get it automatically"}
+          </Button>
         ) : null}
       </div>
 

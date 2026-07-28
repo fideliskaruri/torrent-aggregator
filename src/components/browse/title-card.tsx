@@ -182,10 +182,15 @@ export function TitleCard({
         {badgeInner}
       </button>
     </span>
-  ) : (
+  ) : action.kind === "blocked" ? (
     <span className={actionRowClass} aria-hidden>
       <span className={badgeClass}>{badgeInner}</span>
     </span>
+  ) : (
+    // `search` needs no caption: the whole card is already a link to the title
+    // page, so a "Find it" badge would just repeat what the card does. The
+    // availability chip carries the visual state on its own.
+    null
   );
 
   // The ring is offset against the page background so it reads as a ring and

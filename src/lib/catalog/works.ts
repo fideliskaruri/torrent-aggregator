@@ -31,6 +31,7 @@ import {
   normalizeMediaType,
   type MediaType,
 } from "@/lib/metadata/media-type";
+import { isSlopTitle } from "@/lib/metadata/slop";
 import type { FeedRelease } from "./feeds";
 
 /** One film or series, assembled from every release of it in the feeds. */
@@ -67,13 +68,16 @@ export interface TypedRelease {
  * anything cleverer would start deciding that real films are not real.
  *
  * A name is unusable when it carries no letter at all (so the card would read
- * as a code), or is a single character (so the card would read as a typo).
- * Everything else is shown: a slightly ugly real title beats a missing row.
+ * as a code), or is a single character (so the card would read as a typo), or
+ * is a placeholder/coordinate the slop rule class rejects ("Unknown title",
+ * "Untitled …", "Episode 5"). Everything else is shown: a slightly ugly real
+ * title beats a missing row.
  */
 export function isRenderableWorkName(name: string): boolean {
   const trimmed = name.trim();
   if (trimmed.length < 2) return false;
-  return /\p{L}/u.test(trimmed);
+  if (!/\p{L}/u.test(trimmed)) return false;
+  return !isSlopTitle(trimmed);
 }
 
 /**

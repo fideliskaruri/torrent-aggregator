@@ -17,10 +17,26 @@ import {
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { isWebVtt, srtToVtt } from "@/lib/media/subtitles";
 import { markForegroundActive } from "@/lib/prewarm/foreground";
+import {
+  readWithStallGuard,
+  sampleStreamTransfer,
+  streamStallOptions,
+  type StallGuardDeps,
+  type StallGuardResult,
+} from "@/lib/clients/stream-stall";
+import {
+  classifyPlaybackFailure,
+  type PlaybackFailure,
+} from "@/lib/clients/errors";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/**
+ * Legacy fixed-timeout constant, retained as the DEFAULT stall WINDOW (max time
+ * with zero delivered bytes) rather than a wall-clock deadline. A stream that is
+ * still receiving bytes is never abandoned; see {@link readWithStallGuard}.
+ */
 export const STREAM_STALL_TIMEOUT_MS = 15_000;
 export const OPEN_ENDED_RANGE_CAP_BYTES = 8 * 1024 * 1024;
 
@@ -258,48 +274,45 @@ async function forceSettleParkedIterator(
   wake();
 }
 
+/**
+ * Build the byte-progress stall guard deps for one torrent. The `stallWindowMs`
+ * (from `deps.stallTimeoutMs`, default {@link STREAM_STALL_TIMEOUT_MS}) becomes
+ * the maximum ZERO-byte span tolerated — not a wall-clock deadline.
+ */
+function streamStallGuardDeps(
+  torrent: BuiltinStreamTorrent,
+  stallWindowMs: number,
+): StallGuardDeps {
+  return {
+    sample: () => sampleStreamTransfer(torrent),
+    options: streamStallOptions(stallWindowMs),
+  };
+}
+
 async function firstChunkOrError(
   request: Request,
   torrent: BuiltinStreamTorrent,
   reader: ReadableStreamDefaultReader<Uint8Array>,
-  timeoutMs: number,
+  guardDeps: StallGuardDeps,
 ): Promise<
   | { ok: true; first: ReadableStreamReadResult<Uint8Array> }
-  | { ok: false; outcome: "stalled" | "aborted" }
+  | { ok: false; outcome: "stalled" | "aborted"; guard: StallGuardResult<ReadableStreamReadResult<Uint8Array>> }
 > {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let abort: (() => void) | undefined;
   const firstRead = reader.read();
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("stalled")), timeoutMs);
-  });
-  const aborted = new Promise<never>((_, reject) => {
-    if (request.signal.aborted) {
-      reject(new DOMException("Request aborted", "AbortError"));
-      return;
-    }
-    abort = () => reject(new DOMException("Request aborted", "AbortError"));
-    request.signal.addEventListener("abort", abort, { once: true });
-  });
-
-  try {
-    const first = await Promise.race([firstRead, timeout, aborted]);
-    return { ok: true, first };
-  } catch (err) {
-    const outcome =
-      err instanceof DOMException && err.name === "AbortError"
-        ? "aborted"
-        : "stalled";
-    await forceSettleParkedIterator(torrent, reader, outcome);
-    await Promise.race([
-      firstRead.catch(() => undefined),
-      new Promise((resolve) => setTimeout(resolve, 25)),
-    ]);
-    return { ok: false, outcome };
-  } finally {
-    if (timer) clearTimeout(timer);
-    if (abort) request.signal.removeEventListener("abort", abort);
+  // Race the SAME read promise against byte-progress; a progressing swarm keeps
+  // the read alive however slow, and only a truly byte-stalled one errors.
+  const result = await readWithStallGuard(() => firstRead, request.signal, guardDeps);
+  if (result.ok) {
+    return { ok: true, first: result.value };
   }
+  const outcome = result.reason === "aborted" ? "aborted" : "stalled";
+  await forceSettleParkedIterator(torrent, reader, outcome);
+  // Always observe the parked read so its eventual rejection cannot escape.
+  await Promise.race([
+    firstRead.catch(() => undefined),
+    new Promise((resolve) => setTimeout(resolve, 25)),
+  ]);
+  return { ok: false, outcome, guard: result };
 }
 
 function prependFirstChunkStream(
@@ -308,7 +321,7 @@ function prependFirstChunkStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   first: ReadableStreamReadResult<Uint8Array>,
   byteCount: number,
-  stallTimeoutMs: number,
+  guardDeps: StallGuardDeps,
 ): ReadableStream<Uint8Array> {
   let pendingFirst: ReadableStreamReadResult<Uint8Array> | null = first;
   let remaining = byteCount;
@@ -368,25 +381,30 @@ function prependFirstChunkStream(
       // partially-downloaded torrent whose swarm dries up mid-file would
       // otherwise park forever on a 'verified' listener that never fires: the
       // response would never end and never error, so the browser spins with no
-      // way to fall back to an external player.
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const next = await Promise.race([
-          reader.read(),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error("stalled")), stallTimeoutMs);
-          }),
-        ]);
+      // way to fall back to an external player. The guard uses byte progress,
+      // so a slow-but-progressing swarm keeps streaming and only a truly frozen
+      // one aborts the body.
+      const guard = await readWithStallGuard(
+        () => reader.read(),
+        request.signal,
+        guardDeps,
+      );
+      if (guard.ok) {
+        const next = guard.value;
         if (next.done) finish(controller);
         else emit(controller, next.value);
-      } catch (err) {
-        await forceSettleParkedIterator(torrent, reader, "stalled mid-stream");
-        if (!closed) {
-          closed = true;
-          controller.error(err instanceof Error ? err : new Error("stalled"));
-        }
-      } finally {
-        if (timer) clearTimeout(timer);
+        return;
+      }
+      await forceSettleParkedIterator(torrent, reader, "stalled mid-stream");
+      if (!closed) {
+        closed = true;
+        const cause =
+          guard.reason === "aborted"
+            ? new DOMException("Request aborted", "AbortError")
+            : guard.error instanceof Error
+              ? guard.error
+              : new Error("stalled");
+        controller.error(cause);
       }
     },
     async cancel(reason) {
@@ -595,7 +613,8 @@ export async function handleStreamFileRequest(
     deps.prioritizeFile ?? prioritizeBuiltinStreamFile,
   );
 
-  const stallTimeoutMs = deps.stallTimeoutMs ?? STREAM_STALL_TIMEOUT_MS;
+  const stallWindowMs = deps.stallTimeoutMs ?? STREAM_STALL_TIMEOUT_MS;
+  const guardDeps = streamStallGuardDeps(lookup.torrent, stallWindowMs);
   // WebTorrent treats `end: 0` as "unset" and selects the whole file at
   // streaming priority. The player probes with `bytes=0-0` on every Play, so
   // without this floor each press would inject a whole-file critical selection
@@ -610,7 +629,7 @@ export async function handleStreamFileRequest(
     request,
     lookup.torrent,
     reader,
-    stallTimeoutMs,
+    guardDeps,
   );
   if (!first.ok) {
     logStreamRequest({
@@ -620,15 +639,29 @@ export async function handleStreamFileRequest(
       torrent: lookup.torrent,
       outcome: first.outcome === "aborted" ? "aborted" : "stalled",
     });
+    if (first.outcome === "aborted") {
+      return json(503, {
+        error: "Stream request aborted",
+        code: "ABORTED",
+        message:
+          "The stream request was aborted before any bytes were available.",
+      });
+    }
+    // I19: classify the byte-stall into a machine code the player can act on —
+    // NO_PEERS is a delivery failure the SAME release can be retried once peers
+    // return; STALLED means peers are present but bytes froze. The default copy
+    // is mechanism-free and the player may override it.
+    const failure: PlaybackFailure = classifyPlaybackFailure({
+      stallReason: "stalled",
+      peerCount: lookup.torrent.numPeers ?? 0,
+      error: first.guard.ok ? undefined : first.guard.error,
+    });
     return json(503, {
-      error:
-        first.outcome === "aborted"
-          ? "Stream request aborted"
-          : "Stream stalled waiting for data",
-      message:
-        first.outcome === "aborted"
-          ? "The stream request was aborted before any bytes were available."
-          : "stalled on piece",
+      error: "Stream stalled waiting for data",
+      code: failure.kind,
+      failureClass: failure.failureClass,
+      retryable: failure.retryable,
+      message: failure.defaultMessage,
     });
   }
 
@@ -647,7 +680,7 @@ export async function handleStreamFileRequest(
       reader,
       first.first,
       range.end - range.start + 1,
-      stallTimeoutMs,
+      guardDeps,
     ),
     {
       status: range.status,

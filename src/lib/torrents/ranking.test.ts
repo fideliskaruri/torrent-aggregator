@@ -394,4 +394,86 @@ function base(partial: Partial<TorrentResult> & { title: string }): TorrentResul
   );
 }
 
+// --- I14b: bonus/extras/sample releases rank below the main feature ---
+{
+  // Table of supplementary release names that must never outrank a real feature,
+  // even when the extra is given every unfair advantage (more seeders, a higher
+  // resolution tag, sorted first alphabetically).
+  const extrasTitles = [
+    "The Movie 2019 BONUS DISC 1080p BluRay-LEGiON",
+    "The Movie 2019 Extras 1080p WEB-DL",
+    "The Movie 2019 Featurette 2160p BluRay",
+    "The Movie 2019 Deleted Scenes 1080p",
+    "The Movie 2019 Behind the Scenes 1080p",
+    "The Movie 2019 Making of 1080p",
+    "The Movie 2019 Gag Reel 1080p",
+    "The Movie 2019 Bloopers 1080p",
+    "The Movie.2019.Sample.1080p.BluRay",
+    "The Movie 2019 Outtakes 1080p",
+  ];
+  const feature = base({
+    id: "feature",
+    title: "The Movie 2019 720p WEB-DL",
+    seeders: 3,
+    sizeBytes: 4_000_000_000,
+  });
+  for (const title of extrasTitles) {
+    const extra = base({
+      id: "extra",
+      title,
+      seeders: 5000,
+      sizeBytes: 8_000_000_000,
+    });
+    const ranked = rankResults([extra, feature], "The Movie");
+    assert.equal(
+      ranked[0].id,
+      "feature",
+      `main feature must outrank extra: "${title}"`,
+    );
+    assert.ok(
+      (ranked[0].score ?? 0) > (ranked[1].score ?? 0),
+      `feature score must exceed extra score: "${title}"`,
+    );
+  }
+}
+
+// --- I14b: cut/edition words are NOT extras — they are the main feature ---
+{
+  // "extended", "unrated", "theatrical", "director's cut", "imax" describe a
+  // version of the feature, not bonus material, and must not be demoted.
+  const cuts = [
+    "The Movie 2019 Extended Cut 1080p BluRay",
+    "The Movie 2019 Unrated 1080p BluRay",
+    "The Movie 2019 Theatrical 1080p BluRay",
+    "The Movie 2019 IMAX 1080p BluRay",
+  ];
+  for (const title of cuts) {
+    const cut = base({ id: "cut", title, seeders: 100 });
+    const other = base({
+      id: "other",
+      title: "The Movie 2019 480p WEBRip",
+      seeders: 1,
+    });
+    const ranked = rankResults([other, cut], "The Movie");
+    assert.equal(
+      ranked[0].id,
+      "cut",
+      `a cut/edition is the feature and must win on quality: "${title}"`,
+    );
+  }
+}
+
+// --- I14b: when every candidate is an extra, ordering still works ---
+{
+  const ranked = rankResults(
+    [
+      base({ id: "lo", title: "The Movie 2019 Extras 480p", seeders: 1 }),
+      base({ id: "hi", title: "The Movie 2019 Extras 1080p", seeders: 50 }),
+    ],
+    "The Movie",
+  );
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0].id, "hi", "better extra sorts first among all-extras");
+}
+
 console.log("ranking.test.ts: all assertions passed");

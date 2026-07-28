@@ -35,6 +35,8 @@ class FakeTorrent extends EventEmitter {
   progress = 0.25;
   downloadSpeed = 0;
   numPeers = 0;
+  downloaded = 0;
+  length?: number;
   files: BuiltinStreamFile[] = [];
   path?: string;
   pieceLength?: number;
@@ -366,6 +368,92 @@ async function main() {
       assert.ok(Date.now() - started < 450, "request hung instead of timing out");
       assert.equal(torrent.listenerCount("verified"), 0);
     });
+
+    // I45/I37 acceptance: a stream slower than the stall window must keep being
+    // served — the guard is byte-progress, not a wall clock — so long as bytes
+    // are still arriving. A fixed timeout would have 503'd this working stream.
+    await check("a slow-but-progressing first piece is served, not 503'd", async () => {
+      resetStreamPrefetchForTests();
+      const torrent = new FakeTorrent();
+      torrent.numPeers = 6;
+      torrent.length = 10_000_000;
+      torrent.downloaded = 0;
+      // Bytes keep arriving faster than the (tiny) window can elapse without any.
+      const advance = setInterval(() => {
+        torrent.downloaded += 1_000_000;
+      }, 15);
+      // The head read only resolves well after the 60ms stall window, mimicking
+      // a swarm that is progressing overall but slow on the exact head piece.
+      const file: BuiltinStreamFile = {
+        name: "Movie.mkv",
+        path: "Folder/Movie.mkv",
+        length: 2048,
+        stream(opts = {}) {
+          const start = opts.start ?? 0;
+          return new ReadableStream<Uint8Array>({
+            start(controller) {
+              setTimeout(() => {
+                const chunk = new Uint8Array(100);
+                for (let i = 0; i < 100; i += 1) chunk[i] = byteAt(start + i);
+                controller.enqueue(chunk);
+                controller.close();
+              }, 300);
+            },
+          });
+        },
+      };
+      try {
+        const res = await withTimeout(
+          handleStreamFileRequest(
+            new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+              headers: { range: "bytes=100-199" },
+            }),
+            { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+            { ...depsFor(torrent, file), stallTimeoutMs: 60 },
+          ),
+          2_000,
+        );
+        assert.equal(res.status, 206, "a progressing stream must keep serving");
+        const body = await bodyBytes(res);
+        assert.equal(body.length, 100);
+      } finally {
+        clearInterval(advance);
+      }
+    });
+
+    // I19: a genuinely byte-stalled stream errors with a machine code, not dead
+    // air. No peers → NO_PEERS (retryable delivery failure); peers but frozen
+    // bytes → STALLED.
+    await check("a byte-stalled stream returns a structured failure code", async () => {
+      const cases: Array<{ peers: number; downloaded: number; code: string }> = [
+        { peers: 0, downloaded: 0, code: "NO_PEERS" },
+        { peers: 5, downloaded: 1_000_000, code: "STALLED" },
+      ];
+      for (const c of cases) {
+        resetStreamPrefetchForTests();
+        const torrent = new FakeTorrent();
+        torrent.numPeers = c.peers;
+        torrent.length = 10_000_000;
+        torrent.downloaded = c.downloaded; // static: never advances
+        const file = makeStalledFile("Folder/Movie.mkv", 2048, torrent);
+        const res = await withTimeout(
+          handleStreamFileRequest(
+            new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
+              headers: { range: "bytes=100-199" },
+            }),
+            { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
+            { ...depsFor(torrent, file), stallTimeoutMs: 60 },
+          ),
+          800,
+        );
+        assert.equal(res.status, 503, c.code);
+        const body = (await res.json()) as { code?: string; retryable?: boolean };
+        assert.equal(body.code, c.code, `expected ${c.code}`);
+        assert.equal(body.retryable, true, `${c.code} is retryable`);
+        assert.equal(torrent.listenerCount("verified"), 0);
+      }
+    });
+
 
     await check("aborting during a stalled read releases verified listener", async () => {
       resetStreamPrefetchForTests();

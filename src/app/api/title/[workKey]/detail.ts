@@ -182,8 +182,19 @@ export async function buildTitleDetail(
     });
   }
 
+  // Which playback rows belong to *this* work. Matching on `title` alone is the
+  // latent bug behind "resume opened the wrong episode": a PlaybackProgress row
+  // stores the episode label ("S01E01") or the movie name in `title`, so a
+  // series row never matches the show's workKey and genuine progress is
+  // silently dropped — the page then falls back to S01E01. The reliable signals
+  // are the file itself (its infoHash is one of this work's live local
+  // releases, which are already work-scoped) and the watchlist link, with the
+  // title match kept as the movie/last-resort path.
+  const localHashes = new Set(
+    localReleases.map((r) => r.hash.trim().toLowerCase()),
+  );
   const progress = progressRows.filter((p) =>
-    workKeyMatches(workKey, p.title, null),
+    progressMatchesWork(p, workKey, localHashes, watch?.id ?? null),
   );
 
   const releaseName = localReleases[0]?.name ?? null;
@@ -253,8 +264,16 @@ export async function buildTitleDetail(
     ? buildSeasons(localReleases, cachedReleases, progress, watch)
     : [];
 
+  // ── Resume ──────────────────────────────────────────────────────────────
+  //
+  // Computed before the season is picked, so both derive from the *same*
+  // resume decision: the hero button ("Resume S02E06") and the season the page
+  // opens on can never disagree. Emitted only when the file the progress row
+  // names is still present locally.
+  const resume = resolveResume(progress, localReleases);
+
   const selectedSeason = isSeries
-    ? pickSeason(seasons, query.season, progress, watch)
+    ? pickSeason(seasons, query.season, resume?.season ?? null, progress, watch)
     : null;
 
   const episodes =
@@ -280,9 +299,6 @@ export async function buildTitleDetail(
       cursorEpisode: watch?.cursorEpisode ?? null,
     }) > EPISODE_CAP;
 
-  // ── Resume ──────────────────────────────────────────────────────────────
-  const resume = resolveResume(progress, localReleases);
-
   const known =
     catalog !== null ||
     watch !== null ||
@@ -305,6 +321,12 @@ export async function buildTitleDetail(
     rating: catalog?.rating ?? cachedCatalog?.rating ?? null,
     posterUrl: artwork.posterUrl,
     backdropUrl: artwork.backdropUrl,
+    // The primary release / first-air date, when a catalog row carries one.
+    // Drives the future-gating visual on the title page (grayed, "Coming",
+    // disabled). Unknown stays null and is never gated.
+    releaseDate:
+      (catalog?.releaseDate ?? cachedCatalog?.releaseDate)?.toISOString() ??
+      null,
 
     availability: titleState,
     infoHash: titleLocal?.hash ?? null,
@@ -536,12 +558,16 @@ function countKnownEpisodes(
 /**
  * Which season the page opens on.
  *
- * The one asked for, else the one being watched, else the one the library is
- * hunting, else the first. Netflix opens where you are, not at the beginning.
+ * The one asked for, else the one being resumed, else the one being watched,
+ * else the one the library is hunting, else the first. Resume is preferred over
+ * a bare "watching" scan so the season the page opens on and the hero's
+ * Resume button are the *same* decision — never a split where the button says
+ * S02E06 but the list shows season 1.
  */
-function pickSeason(
+export function pickSeason(
   seasons: TitleSeason[],
   requested: number | null | undefined,
+  resumeSeason: number | null,
   progress: { season: number | null; updatedAt: Date }[],
   watch: { cursorSeason: number | null } | null,
 ): number | null {
@@ -549,6 +575,8 @@ function pickSeason(
   const available = new Set(seasons.map((s) => s.season));
 
   if (requested != null && available.has(requested)) return requested;
+
+  if (resumeSeason != null && available.has(resumeSeason)) return resumeSeason;
 
   const watching = progress.find((p) => p.season != null && available.has(p.season));
   if (watching?.season != null) return watching.season;
@@ -657,6 +685,44 @@ function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
 // ---------------------------------------------------------------------------
 
 /**
+ * Does a playback-progress row belong to this work?
+ *
+ * `PlaybackProgress.title` holds the *episode label* ("S01E01") for a series or
+ * the movie name for a film, and there is no workKey column — so a title match
+ * alone silently drops every series row and the page loses "resume where I left
+ * off". The dependable signals are:
+ *
+ *  - **the file**: the row's `infoHash` is one of this work's live local
+ *    releases (which are already scoped to the work by `workIdentityFor`), and
+ *  - **the watchlist link**: the row's `watchListItemId` is this work's item.
+ *
+ * The title match is kept as the movie / last-resort path. Any one is enough.
+ */
+export function progressMatchesWork(
+  row: {
+    title: string | null;
+    infoHash: string;
+    watchListItemId: string | null;
+  },
+  workKey: string,
+  localHashes: Set<string>,
+  watchListItemId: string | null,
+): boolean {
+  if (row.infoHash && localHashes.has(row.infoHash.trim().toLowerCase())) {
+    return true;
+  }
+  if (
+    watchListItemId &&
+    row.watchListItemId != null &&
+    row.watchListItemId === watchListItemId
+  ) {
+    return true;
+  }
+  if (row.title && workKeyMatches(workKey, row.title, null)) return true;
+  return false;
+}
+
+/**
  * Where playback should pick up, or null.
  *
  * Emitted only when the torrent the progress row names is still present. There
@@ -664,7 +730,7 @@ function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
  * deletes progress when a download is removed, so trusting the progress row
  * alone is how a Play button for a deleted file reaches the screen.
  */
-function resolveResume(
+export function resolveResume(
   progress: {
     infoHash: string;
     filePath: string;

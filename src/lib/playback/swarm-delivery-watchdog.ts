@@ -415,6 +415,18 @@ export interface ManualSwitchDeps {
   abandon(infoHash: string): Promise<void>;
   /** Carry position from the old to the new source. Returns resumed seconds, or null. */
   carryPosition(fromInfoHash: string, toInfoHash: string): Promise<number | null>;
+  /**
+   * Resolve a chosen release by infoHash when the title-keyed ranked pool does
+   * not contain it. This is the movie fix (I48): a movie's ranked pool is looked
+   * up by `normalizeTitle(target.title)`, which does not carry the year, so a
+   * switch built from a slightly different title (or a movie that was never
+   * prewarmed into a title-keyed row) misses the pool even though the release is
+   * a perfectly real one the user just picked from the selector. This fallback
+   * finds it wherever it was cached, so a genuine pick resolves while a bogus
+   * infoHash (present in no cache at all) still returns `not-a-candidate`.
+   * Optional: a deps set without it behaves exactly as before.
+   */
+  resolveRelease?(chosenInfoHash: string): Promise<TorrentResult | null>;
 }
 
 export type ManualSwitchResult =
@@ -451,7 +463,15 @@ export async function manualSwitchTo(
   const current = entry.session.current ?? currentHash.toLowerCase();
 
   const results = await deps.rankedResults(target);
-  const match = results.find((r) => releaseInfoHash(r) === chosen);
+  let match = results.find((r) => releaseInfoHash(r) === chosen) ?? null;
+  if (!match && deps.resolveRelease) {
+    // I48: the title-keyed pool missed (common for movies — the pool key drops
+    // the year and movies are not prewarmed). Fall back to resolving the chosen
+    // release from wherever it was cached. Still rejects a truly unknown hash,
+    // because that resolves to nothing anywhere.
+    const resolved = await deps.resolveRelease(chosen);
+    if (resolved && releaseInfoHash(resolved) === chosen) match = resolved;
+  }
   if (!match) return { ok: false, reason: "not-a-candidate" };
 
   if (chosen === current) {

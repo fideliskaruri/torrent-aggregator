@@ -561,6 +561,7 @@ function row(over: Partial<CatalogRow> = {}): CatalogRow {
     title: "Obsession",
     year: 2026,
     mediaType: "movie",
+    releaseDate: null,
     posterUrl: null,
     backdropUrl: null,
     overview: null,
@@ -865,6 +866,7 @@ assert.equal(DISCOVERY_RAIL_SIZE, 24);
     backdropUrl: "https://image.tmdb.org/t/p/w1280/shop-wide.jpg",
     overview: "A woman inherits her uncle's shop.",
     rating: 7.9,
+    releaseDate: "2024-01-17",
   };
 
   const key = catalogWorkKey(title.title, title.year, title.mediaType);
@@ -916,6 +918,7 @@ assert.equal(DISCOVERY_RAIL_SIZE, 24);
     title,
     year: null,
     mediaType: "movie",
+    releaseDate: null,
     posterUrl: null,
     backdropUrl: null,
     overview: null,

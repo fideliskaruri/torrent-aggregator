@@ -87,3 +87,183 @@ export function formatClientError(
     message: detail || `Unexpected ${label} error`,
   };
 }
+
+/**
+ * Root-cause taxonomy for a playback/stream failure.
+ *
+ * These are MACHINE codes, not user copy: a separate player agent maps each to
+ * friendly words. The whole point of the discriminated union is that the UI can
+ * branch on *why* a stream failed (a no-peer swarm is recoverable by re-trying
+ * the same release once the network is back; an undecodable file is not) rather
+ * than showing one generic "playback failed".
+ *
+ * The two axes that matter downstream:
+ *   - DELIVERY vs PLAYABILITY. Delivery failures (NO_PEERS, CONNECTION_BLOCKED,
+ *     STALLED) mean bytes are not arriving; the same infoHash can be re-announced
+ *     and retried. PLAYABILITY failures (UNPLAYABLE) mean the bytes arrived but
+ *     the file cannot be decoded; retrying the same release is pointless.
+ *   - NOT_FOUND / ENGINE_ERROR are neither: the release or engine is the problem.
+ */
+export type PlaybackFailureKind =
+  /** Swarm reachable but nobody is offering the data (0 peers, or peers that choke). */
+  | "NO_PEERS"
+  /** Network path to peers is blocked — VPN/firewall/DNS dropped the connection. */
+  | "CONNECTION_BLOCKED"
+  /** Peers connected and once delivered, but byte progress has frozen. */
+  | "STALLED"
+  /** The requested release/file/torrent is not known to the engine. */
+  | "NOT_FOUND"
+  /** Bytes arrived but the container/codec cannot be played. Not retryable. */
+  | "UNPLAYABLE"
+  /** The engine itself errored (disk, adapter, internal). */
+  | "ENGINE_ERROR";
+
+/** Whether a failure is about getting bytes (delivery) or decoding them (playability). */
+export type PlaybackFailureClass = "delivery" | "playability" | "engine" | "not-found";
+
+export interface PlaybackFailure {
+  kind: PlaybackFailureKind;
+  /** Coarse class so callers can decide "retry same release" vs "failover". */
+  failureClass: PlaybackFailureClass;
+  /** True when re-announcing/retrying the SAME infoHash can plausibly recover. */
+  retryable: boolean;
+  /**
+   * A safe, mechanism-free default the UI MAY override. Deliberately terse and
+   * free of peers/bytes/%/codec words — the player owns the real copy.
+   */
+  defaultMessage: string;
+}
+
+const PLAYBACK_FAILURE_TABLE: Record<
+  PlaybackFailureKind,
+  Omit<PlaybackFailure, "kind">
+> = {
+  NO_PEERS: {
+    failureClass: "delivery",
+    retryable: true,
+    defaultMessage: "This isn’t available to play right now. Try again in a moment.",
+  },
+  CONNECTION_BLOCKED: {
+    failureClass: "delivery",
+    retryable: true,
+    defaultMessage: "The connection was blocked. Check your network and try again.",
+  },
+  STALLED: {
+    failureClass: "delivery",
+    retryable: true,
+    defaultMessage: "This stopped loading. Try again in a moment.",
+  },
+  NOT_FOUND: {
+    failureClass: "not-found",
+    retryable: false,
+    defaultMessage: "This isn’t available.",
+  },
+  UNPLAYABLE: {
+    failureClass: "playability",
+    retryable: false,
+    defaultMessage: "This can’t be played. Try a different version.",
+  },
+  ENGINE_ERROR: {
+    failureClass: "engine",
+    retryable: false,
+    defaultMessage: "Something went wrong. Try again.",
+  },
+};
+
+/** Build a full {@link PlaybackFailure} record from a kind. */
+export function playbackFailure(kind: PlaybackFailureKind): PlaybackFailure {
+  return { kind, ...PLAYBACK_FAILURE_TABLE[kind] };
+}
+
+/**
+ * Signals a classifier can read off the engine/stream state to reach a verdict.
+ *
+ * Every field is optional so a caller supplies only what it knows; the rules are
+ * applied most-specific first. This is the single place raw conditions become a
+ * code, so the mapping can be table-tested independently of any live swarm.
+ */
+export interface PlaybackFailureSignals {
+  /** A raw thrown error, if any (connection resets, aborts, disk errors). */
+  error?: unknown;
+  /** Connected peers at the moment of failure. 0 (or null) points at NO_PEERS. */
+  peerCount?: number | null;
+  /** The stall detector's reason, when the failure came from a stall verdict. */
+  stallReason?: string | null;
+  /** True when bytes were delivered but the file could not be decoded. */
+  undecodable?: boolean;
+  /** True when the release/file/torrent was not found by the engine. */
+  notFound?: boolean;
+}
+
+/**
+ * Map raw failure signals to a single {@link PlaybackFailureKind}.
+ *
+ * Order matters — it encodes precedence:
+ *   1. not-found is structural and beats everything.
+ *   2. an undecodable file is a playability verdict; delivery is irrelevant.
+ *   3. a blocked connection (reset/abort/refused from a network layer) beats a
+ *      plain no-peer reading, because the peers may exist but be unreachable.
+ *   4. zero peers → NO_PEERS.
+ *   5. an active-download stall with peers present → STALLED.
+ *   6. anything else that threw → ENGINE_ERROR.
+ */
+export function classifyPlaybackFailure(
+  signals: PlaybackFailureSignals,
+): PlaybackFailure {
+  if (signals.notFound) return playbackFailure("NOT_FOUND");
+  if (signals.undecodable) return playbackFailure("UNPLAYABLE");
+
+  const err = signals.error;
+  if (err != null && isConnectionBlockedError(err)) {
+    return playbackFailure("CONNECTION_BLOCKED");
+  }
+
+  const peers = signals.peerCount;
+  const hasNoPeers = peers === 0 || peers == null;
+
+  if (signals.stallReason === "stalled") {
+    // A stall with peers is a true stall; a stall with no peers is really a
+    // no-peer delivery failure wearing a stall's clothes.
+    return playbackFailure(hasNoPeers ? "NO_PEERS" : "STALLED");
+  }
+
+  if (signals.stallReason != null && hasNoPeers && signals.error == null) {
+    return playbackFailure("NO_PEERS");
+  }
+
+  if (err != null) {
+    // A generic connection-level error with nobody on the wire is a no-peer
+    // delivery failure; otherwise it is an engine fault.
+    if (isClientOfflineError(err) && hasNoPeers) {
+      return playbackFailure("NO_PEERS");
+    }
+    return playbackFailure("ENGINE_ERROR");
+  }
+
+  if (hasNoPeers) return playbackFailure("NO_PEERS");
+  return playbackFailure("ENGINE_ERROR");
+}
+
+/**
+ * A network layer actively refused/reset/aborted the connection — distinct from
+ * "nobody answered". This is the VPN-off / firewall / DNS-poisoned signature,
+ * and it is retryable on the SAME release once the path is restored.
+ */
+export function isConnectionBlockedError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const cause =
+    err instanceof Error && err.cause instanceof Error ? err.cause.message : "";
+  const hay = `${msg} ${cause}`.toLowerCase();
+  return (
+    hay.includes("econnreset") ||
+    hay.includes("econnrefused") ||
+    hay.includes("enetunreach") ||
+    hay.includes("ehostunreach") ||
+    hay.includes("enetdown") ||
+    hay.includes("ehostdown") ||
+    hay.includes("blocked") ||
+    hay.includes("und_err_connect") ||
+    hay.includes("connect timeout") ||
+    hay.includes("proxy")
+  );
+}

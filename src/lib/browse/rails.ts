@@ -239,13 +239,16 @@ function engineAvailability(
 // ---------------------------------------------------------------------------
 
 /**
- * Local torrents whose bytes have started arriving, collapsed by work so a
+ * Local torrents that are genuinely playable *now*, collapsed by work so a
  * season pack is one card, not 24, and two releases of one show do not
  * duplicate.
  *
- * A partial torrent is still a playable local torrent in this app: the built-in
- * engine prioritizes the selected file's edges for streaming. Keep that state
- * honest by surfacing it as `warm`, never by pretending it is `ready`.
+ * "Ready to Play" means exactly that: a fully-present download you can open
+ * without waiting. A mid-download torrent — including a stream that is still
+ * pulling the pieces the player needs — is deliberately excluded here. It would
+ * otherwise sit in this rail badged "Streaming" or "Downloading N%", which is a
+ * download narration on a Play surface and contradicts the rail's own promise.
+ * In-progress viewing lives in Continue Watching instead.
  *
  * Poster enrichment goes through the one artwork resolver (see ./artwork.ts),
  * the same one the discovery rails use. A miss is still `null` and the card
@@ -256,7 +259,7 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
   const rows = await prisma.engineTorrent.findMany({
     where: {
       userId,
-      progress: { gt: 0 },
+      progress: 1,
       status: { notIn: ["removed", "error"] },
     },
     orderBy: { updatedAt: "desc" },
@@ -295,7 +298,7 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       // still the source of truth for identity — it is just not what a browse
       // rail should put in front of someone.
       title: work.title,
-      subtitle: readyToPlaySubtitle(work.releaseCount, torrent.progress),
+      subtitle: readyToPlaySubtitle(work.releaseCount),
       posterUrl: art?.posterUrl ?? null,
       backdropUrl: art?.backdropUrl ?? null,
       availability: engineAvailability(userId, torrent),
@@ -304,7 +307,7 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       infoHash: torrent.hash,
       filePath: null,
       watchListItemId: null,
-      mediaType: null,
+      mediaType: mediaTypeFromReleaseName(torrent.name),
       season: null,
       episode: null,
     });
@@ -317,19 +320,12 @@ export function readyToPlayTorrentCanSurface(t: {
   progress: number;
   status: string;
 }): boolean {
-  return t.progress > 0 && t.status !== "removed" && t.status !== "error";
+  return t.progress >= 1 && t.status !== "removed" && t.status !== "error";
 }
 
-function readyToPlaySubtitle(
-  releaseCount: number,
-  progress: number,
-): string | null {
-  const parts: string[] = [];
-  if (progress > 0 && progress < 1) {
-    parts.push(`Downloading ${Math.max(1, Math.round(progress * 100))}%`);
-  }
-  if (releaseCount > 1) parts.push(`${releaseCount} files`);
-  return parts.length > 0 ? parts.join(" · ") : null;
+function readyToPlaySubtitle(releaseCount: number): string | null {
+  if (releaseCount > 1) return `${releaseCount} files`;
+  return null;
 }
 
 /**
@@ -532,7 +528,7 @@ async function buildRecentlyAdded(userId: string): Promise<Rail | null> {
       infoHash: h.infoHash ?? availabilities[i].infoHash ?? null,
       filePath: null,
       watchListItemId: null,
-      mediaType: null,
+      mediaType: mediaTypeFromWorkIdentity(wi),
       season: null,
       episode: null,
     };
@@ -583,15 +579,151 @@ export async function buildBrowsePayload(
     buildDiscoveryRails(userId),
   ]);
 
-  const rails = [
-    ...personalResults.filter((r): r is Rail => r !== null),
-    ...discoveryRails,
-  ].filter((rail) => rail.items.length > 0);
+  // One item, one state. Continue Watching, Ready to Play and Recently Added
+  // read three different tables (PlaybackProgress, EngineTorrent,
+  // DownloadHistory) and the same work can surface in all three at once — the
+  // in-progress episode you are watching is also a local torrent and also a
+  // recent grab. Rendered together that reads as the same title in three
+  // contradictory states. Collapse to a single source of truth: a work is kept
+  // only in the highest-priority rail it appears in, in the order the user
+  // cares about (what I'm watching → what's ready → what just arrived).
+  const dedupedPersonal = dedupeAcrossRails(
+    personalResults.filter((r): r is Rail => r !== null),
+    ["continue-watching", "ready-to-play", "recently-added"],
+  );
+
+  // Movies and series must not jumble in one rail. Split the personal content
+  // rails on media type when they carry a genuine mix; a homogeneous or
+  // untyped rail is left exactly as it was (graceful degrade).
+  const organizedPersonal = dedupedPersonal.flatMap((rail) =>
+    SPLITTABLE_RAIL_IDS.has(rail.id) ? splitRailByMediaType(rail) : [rail],
+  );
+
+  const rails = [...organizedPersonal, ...discoveryRails].filter(
+    (rail) => rail.items.length > 0,
+  );
 
   return {
     rails,
     generatedAt: new Date().toISOString(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Media-type classification + rail organization (dedupe + movie/series split)
+// ---------------------------------------------------------------------------
+
+export type MediaGroup = "movie" | "series" | "unknown";
+
+/** Personal content rails that jumble movies and series and should be split. */
+const SPLITTABLE_RAIL_IDS = new Set(["ready-to-play", "recently-added"]);
+
+/**
+ * Coarse movie/series bucket for a mediaType string.
+ *
+ * The metadata agent guarantees rows carry a `mediaType`, but the vocabulary is
+ * open (`tv`, `anime`, `series`, `show`, `movie`, `film`). Anything that names
+ * an episodic form is a series; anything that names a film is a movie; anything
+ * absent or unrecognised is `unknown` and is never forced into either bucket.
+ */
+export function mediaGroupOf(mediaType: string | null | undefined): MediaGroup {
+  const mt = String(mediaType ?? "").trim().toLowerCase();
+  if (!mt) return "unknown";
+  if (/(^|[^a-z])(tv|anime|series|show|episode|season)([^a-z]|$)/.test(mt)) {
+    return "series";
+  }
+  if (/(^|[^a-z])(movie|film|feature)([^a-z]|$)/.test(mt)) return "movie";
+  return "unknown";
+}
+
+/** Media group derived from a work identity (series vs film). */
+function mediaTypeFromWorkIdentity(wi: { isSeries: boolean }): string {
+  return wi.isSeries ? "series" : "movie";
+}
+
+/** Media group derived straight from a raw release name. */
+function mediaTypeFromReleaseName(name: string): string {
+  return mediaTypeFromWorkIdentity(workIdentity(name));
+}
+
+/**
+ * The dedupe key for a rail card: the work it belongs to. Two cards for the
+ * same film/series collapse to one key regardless of which table produced them
+ * or which release name they carry.
+ */
+export function railItemWorkKey(item: {
+  title: string;
+  season?: number | null;
+}): string {
+  return workIdentity(item.title).key;
+}
+
+/**
+ * Keep each work in only the highest-priority rail it appears in.
+ *
+ * `order` lists rail ids from most to least important. Items are removed from a
+ * lower-priority rail when their work already appeared in a higher-priority
+ * one. Rails not named in `order` are passed through untouched (they are not
+ * part of the contradiction this resolves). A rail emptied by deduping is kept
+ * as an empty rail here; the caller drops empty rails.
+ */
+export function dedupeAcrossRails(rails: Rail[], order: string[]): Rail[] {
+  const priority = new Map(order.map((id, i) => [id, i] as const));
+  const inScope = rails.filter((r) => priority.has(r.id));
+  inScope.sort((a, b) => priority.get(a.id)! - priority.get(b.id)!);
+
+  const seen = new Set<string>();
+  const filtered = new Map<string, RailItem[]>();
+  for (const rail of inScope) {
+    const kept: RailItem[] = [];
+    for (const item of rail.items) {
+      const key = railItemWorkKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      kept.push(item);
+    }
+    filtered.set(rail.id, kept);
+  }
+
+  // Preserve the caller's original rail order.
+  return rails.map((rail) =>
+    filtered.has(rail.id)
+      ? { ...rail, items: filtered.get(rail.id)! }
+      : rail,
+  );
+}
+
+/**
+ * Split a rail that mixes movies and series into one rail per kind.
+ *
+ * Only splits when the rail genuinely holds both a movie and a series; a
+ * homogeneous rail (or one whose items are all `unknown`) is returned unchanged
+ * so nothing is renamed needlessly. Untyped items ride along with the base
+ * title so a null `mediaType` never drops a card.
+ */
+export function splitRailByMediaType(rail: Rail): Rail[] {
+  const movies: RailItem[] = [];
+  const series: RailItem[] = [];
+  const unknown: RailItem[] = [];
+  for (const item of rail.items) {
+    const group = mediaGroupOf(item.mediaType);
+    if (group === "movie") movies.push(item);
+    else if (group === "series") series.push(item);
+    else unknown.push(item);
+  }
+
+  // Not a genuine mix — leave the rail (and its title) alone.
+  if (movies.length === 0 || series.length === 0) return [rail];
+
+  const out: Rail[] = [];
+  out.push({ id: `${rail.id}-movies`, title: `${rail.title} · Movies`, items: movies });
+  out.push({ id: `${rail.id}-series`, title: `${rail.title} · Series`, items: series });
+  // Anything we could not classify keeps the plain rail rather than being
+  // forced into a bucket it does not belong to.
+  if (unknown.length > 0) {
+    out.push({ id: rail.id, title: rail.title, items: unknown });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

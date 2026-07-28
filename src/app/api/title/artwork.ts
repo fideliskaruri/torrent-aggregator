@@ -42,6 +42,7 @@ export interface CachedCatalogRow {
   synopsis: string | null;
   rating: number | null;
   year: number | null;
+  releaseDate: Date | null;
 }
 
 /**
@@ -71,6 +72,7 @@ export async function findCachedCatalogRow(
       synopsis: true,
       rating: true,
       year: true,
+      releaseDate: true,
     },
     orderBy: { updatedAt: "desc" },
     take: 200,

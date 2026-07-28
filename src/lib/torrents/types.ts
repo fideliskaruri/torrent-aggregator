@@ -113,6 +113,12 @@ export interface MediaMetadata {
   synopsis?: string | null;
   rating?: number | null;
   year?: number | null;
+  /**
+   * Primary release date (movie) or first-air date (tv/anime), ISO string.
+   * Drives future-gating (grayed poster + "Coming {date}"). Null/absent =
+   * unknown, which is never gated. See src/lib/browse/release-status.ts.
+   */
+  releaseDate?: string | null;
   genres?: string[];
   /**
    * ISO 639-1 original language reported by the catalog (TMDB), e.g. "ja".

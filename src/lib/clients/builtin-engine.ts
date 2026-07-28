@@ -64,6 +64,8 @@ type WtTorrent = {
   name: string;
   progress: number;
   length: number;
+  /** Absolute bytes fetched so far. Monotonic; the honest stall signal. */
+  downloaded?: number;
   downloadSpeed: number;
   uploadSpeed: number;
   done: boolean;
@@ -1504,37 +1506,18 @@ async function rehydrateFromDb(
             startupBitfield ? { bitfield: startupBitfield } : {},
           );
           let settled = false;
-          const fail = (err: unknown) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            try {
-              t.destroy?.({ destroyStore: false });
-            } catch {
-              /* best-effort */
-            }
-            void recordRehydrateFailure(row, err).catch(() => {
-              /* best-effort */
-            });
-          };
-          const timer = setTimeout(() => {
-            fail(
-              new Error(
-                "Timed out restoring torrent metadata; the magnet may be dead or the content may be gone. Re-add the release to retry.",
-              ),
-            );
-          }, REHYDRATE_METADATA_TIMEOUT_MS);
-          t.on("error", (err: unknown) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const onError = (err: unknown) => {
             console.warn(
               `[builtin-engine] rehydrate error for ${hash}:`,
               errorMessage(err),
             );
             fail(err);
-          });
-          t.on("ready", () => {
+          };
+          const onReady = () => {
             if (settled) return;
             settled = true;
-            clearTimeout(timer);
+            cleanup();
             const h = t.infoHash?.toLowerCase?.() || hash;
             applyPersistedStatus(t, row.status);
             scheduleRehydrateReadyPersist(row, t);
@@ -1544,7 +1527,39 @@ async function rehydrateFromDb(
               name: t.name || row.name,
               userId: row.userId,
             });
-          });
+          };
+          // I35: one settled path. Clearing the timer AND removing both listeners
+          // together means a late 'error' emitted by destroy (or a 'ready' racing
+          // the timeout) cannot re-enter and overwrite the diagnostics of
+          // whichever outcome actually settled this torrent first.
+          const cleanup = () => {
+            if (timer) clearTimeout(timer);
+            timer = undefined;
+            t.removeListener?.("error", onError);
+            t.removeListener?.("ready", onReady);
+          };
+          const fail = (err: unknown) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            try {
+              t.destroy?.({ destroyStore: false });
+            } catch {
+              /* best-effort */
+            }
+            void recordRehydrateFailure(row, err).catch(() => {
+              /* best-effort */
+            });
+          };
+          timer = setTimeout(() => {
+            fail(
+              new Error(
+                "Timed out restoring torrent metadata; the magnet may be dead or the content may be gone. Re-add the release to retry.",
+              ),
+            );
+          }, REHYDRATE_METADATA_TIMEOUT_MS);
+          t.on("error", onError);
+          t.on("ready", onReady);
         } catch (err) {
           console.warn(
             `[builtin-engine] failed to re-add ${hash}:`,
@@ -1811,7 +1826,16 @@ export type BuiltinStreamTorrent = Pick<
   | "files"
   | "emit"
   | "listenerCount"
->;
+> & {
+  /**
+   * Total byte length and absolute bytes fetched so far — the honest,
+   * monotonic byte-progress signal the stream stall guard samples (I45/I44).
+   * Optional so existing FakeTorrent fixtures that predate the guard still
+   * satisfy this type; the sampler treats `undefined` as "no reading yet".
+   */
+  length?: number;
+  downloaded?: number;
+};
 
 export type BuiltinStreamLookup =
   | { status: "found"; torrent: BuiltinStreamTorrent; file: BuiltinStreamFile }
@@ -2517,6 +2541,72 @@ export class BuiltinClient implements TorrentClientAdapter {
         }
       }
       return { ok: true, message: "Resumed" };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Retry the SAME release after a transient DELIVERY failure (I19b).
+   *
+   * A no-peer / connection-blocked failure (e.g. the user briefly turned a VPN
+   * off) is not a reason to permanently dead-mark an infoHash. This clears any
+   * "error" dead-mark so the release is eligible for rehydration/re-add again,
+   * then either re-announces the live torrent or re-adds it from the persisted
+   * magnet/torrentUrl — the SAME infoHash, never a failover to a different
+   * release. Playability failures (corrupt/undecodable) are handled by
+   * failover, not here.
+   */
+  async retryTorrent(
+    config: ClientConnectionConfig,
+    hash: string,
+  ): Promise<AddTorrentResult> {
+    const h = hash.toLowerCase();
+    try {
+      const client = await ensureClientAndRehydrate(config);
+
+      // Lift any dead-mark first so a re-add is not filtered out by rehydrate's
+      // status notIn ["removed","error"] guard.
+      if (config.userId) {
+        try {
+          await prisma.engineTorrent.updateMany({
+            where: { userId: config.userId, hash: h },
+            data: { status: "downloading", error: null },
+          });
+        } catch {
+          /* best-effort: the retry can still proceed against the live engine */
+        }
+      }
+
+      // Still live in the engine? A transient no-peer failure only needs a
+      // fresh announce; resumeTransfer re-selects and re-announces immediately.
+      const live = findTorrent(client, h);
+      if (live) {
+        resumeTransfer(live);
+        return { ok: true, message: "Re-announced" };
+      }
+
+      // Not live — re-add from the persisted source (SAME infoHash).
+      const row = config.userId
+        ? await prisma.engineTorrent.findFirst({
+            where: { userId: config.userId, hash: h },
+          })
+        : null;
+      const magnet = row?.magnet?.trim() || undefined;
+      const torrentUrl = row?.torrentUrl?.trim() || undefined;
+      if (!magnet && !torrentUrl) {
+        return { ok: false, message: "No saved source to retry this release" };
+      }
+      return this.addTorrent(config, {
+        magnet,
+        torrentUrl,
+        name: row?.name ?? undefined,
+        savePath: row?.savePath ?? undefined,
+        category: row?.category ?? undefined,
+      });
     } catch (err) {
       return {
         ok: false,

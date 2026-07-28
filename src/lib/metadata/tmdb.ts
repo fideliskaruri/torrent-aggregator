@@ -471,6 +471,7 @@ function mapTmdb(r: TmdbMultiResult): MediaMetadata {
     synopsis: r.overview || null,
     rating: r.vote_average ?? null,
     year: Number.isNaN(year as number) ? null : year,
+    releaseDate: normalizeTmdbDate(r.release_date, r.first_air_date),
     genres: (r.genre_ids ?? [])
       .map((id) => TMDB_GENRES[id])
       .filter((g): g is string => Boolean(g)),
@@ -497,8 +498,29 @@ function mapTmdbDetail(
     synopsis: r.overview || null,
     rating: r.vote_average ?? null,
     year: Number.isNaN(year as number) ? null : year,
+    releaseDate: normalizeTmdbDate(r.release_date, r.first_air_date),
     genres: (r.genres ?? []).map((g) => g.name),
     originalLanguage: r.original_language ?? null,
     originCountry: r.origin_country ?? [],
   };
+}
+
+/**
+ * The primary release / first-air date as a stored `YYYY-MM-DD`, or null.
+ *
+ * A movie's date is `release_date`, a series' is `first_air_date`; TMDB gives a
+ * full ISO date or an empty string, and only a real date survives. This feeds
+ * future-gating (grayed poster + "Coming {date}") — see release-status.ts — so
+ * an absent or malformed date is null, never a fabricated one.
+ */
+export function normalizeTmdbDate(
+  releaseDate: string | undefined,
+  firstAirDate: string | undefined,
+): string | null {
+  const raw = (releaseDate || firstAirDate || "").trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})\b/.exec(raw);
+  if (!match) return null;
+  const year = Number(match[1]);
+  if (!(year > 1800 && year < 2200)) return null;
+  return `${match[1]}-${match[2]}-${match[3]}`;
 }

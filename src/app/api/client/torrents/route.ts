@@ -9,7 +9,10 @@ import { formatClientError } from "@/lib/clients/errors";
 import { pruneEmptyParents } from "@/lib/clients/prune-empty-parents";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
 import prisma from "@/lib/prisma";
-import { retentionStateForOrigin } from "@/lib/streaming/retention";
+import {
+  isDownloadRetention,
+  retentionStateForOrigin,
+} from "@/lib/streaming/retention";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -61,12 +64,29 @@ export async function GET() {
             ).map((row) => [row.hash.toLowerCase(), row.origin] as const),
           )
         : new Map<string, string>();
-      const annotated = torrents.map((torrent) => ({
-        ...torrent,
-        retentionState: retentionStateForOrigin(
+      const annotated = torrents.map((torrent) => {
+        const retentionState = retentionStateForOrigin(
           torrent.hash ? origins.get(torrent.hash.toLowerCase()) : null,
-        ),
-      }));
+        );
+        // Fix once at the shared source: a stream/prewarm torrent is not a
+        // download, so it must expose no download progress or transfer rate to
+        // any consumer of this poll (teaser, /client, browse cards, title
+        // hero). Zeroing the download-facing numbers here means every surface
+        // agrees without each re-deciding — and a future consumer cannot
+        // reintroduce a "% downloaded" for a stream by reading a raw field.
+        if (!isDownloadRetention(retentionState)) {
+          return {
+            ...torrent,
+            progress: 0,
+            dlspeed: 0,
+            upspeed: 0,
+            eta: 0,
+            peers: 0,
+            retentionState,
+          };
+        }
+        return { ...torrent, retentionState };
+      });
       return NextResponse.json({
         torrents: annotated,
         clientType: config.clientType,

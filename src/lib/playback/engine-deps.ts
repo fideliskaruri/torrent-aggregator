@@ -24,6 +24,7 @@ import { listClientTorrents } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { normalizeTitle } from "@/lib/utils";
 import { loadSwarmVerdicts } from "@/lib/torrents/swarm-probe";
+import { releaseInfoHash } from "@/lib/prewarm/prerank";
 import type { ClientTorrent, SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import type { TransferSample } from "./stall";
@@ -53,6 +54,48 @@ export async function rankedResultsFromCache(
   } catch {
     return [];
   }
+}
+
+/**
+ * Resolve a single release by infoHash across recently cached searches.
+ *
+ * The movie fix for the manual switch (I48). {@link rankedResultsFromCache}
+ * looks a pool up by `normalizeTitle(title)`, which drops the year and so misses
+ * when a movie's switch request carries a slightly different title, or when the
+ * movie was never prewarmed into a title-keyed row at all. But the release the
+ * user picked came from a real cached search, so it lives in *some* recent
+ * `SearchCache` payload — this scans the newest rows for a result whose infoHash
+ * matches, regardless of which title keyed it. A genuinely unknown infoHash is
+ * in no payload and correctly resolves to null (keeping "not-a-candidate" honest
+ * for a bogus pick).
+ */
+export async function resolveReleaseByInfoHash(
+  chosenInfoHash: string,
+  db: typeof prisma = prisma,
+  scanRows = 40,
+): Promise<TorrentResult | null> {
+  const hash = chosenInfoHash.toLowerCase();
+  if (!hash) return null;
+  try {
+    const rows = await db.searchCache.findMany({
+      orderBy: { expiresAt: "desc" },
+      take: scanRows,
+    });
+    for (const row of rows) {
+      let payload: SearchResponse;
+      try {
+        payload = JSON.parse(row.payload) as SearchResponse;
+      } catch {
+        continue;
+      }
+      const results = Array.isArray(payload.results) ? payload.results : [];
+      const match = results.find((r) => releaseInfoHash(r) === hash);
+      if (match) return match;
+    }
+  } catch {
+    /* a cache-scan failure degrades to "not resolvable", never throws into the switch */
+  }
+  return null;
 }
 
 /**
@@ -221,6 +264,12 @@ export function buildManualSwitchDeps(
     abandon: base.abandon,
     async carryPosition(fromInfoHash, toInfoHash) {
       return carryPlaybackPosition(userId, fromInfoHash, toInfoHash);
+    },
+    // I48: resolve a movie's chosen release even when the title-keyed pool
+    // missed, so switching quality on a movie no longer errors with
+    // "not-a-candidate" for a release the user legitimately picked.
+    async resolveRelease(chosenInfoHash) {
+      return resolveReleaseByInfoHash(chosenInfoHash);
     },
   };
 }

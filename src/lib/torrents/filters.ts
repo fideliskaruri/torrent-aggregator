@@ -90,6 +90,81 @@ export function applyFilters(
   });
 }
 
+/**
+ * Release/file names that are supplementary material, not the feature itself:
+ * samples, featurettes, bonus discs, deleted scenes, behind-the-scenes,
+ * making-of, gag reels, bloopers, outtakes, B-roll (I14b).
+ *
+ * Deliberately does NOT include cut/edition words ("extended", "unrated",
+ * "theatrical", "director's cut", "imax") — those describe a *version* of the
+ * main feature, not an extra — nor collision-prone real-title words
+ * ("interview", "trailer", "teaser"), because "The Interview" and
+ * "Trailer Park Boys" are real works, not bonus material.
+ */
+const EXTRAS_NAME_RE =
+  /\b(?:samples?|featurettes?|extras?|bonus(?:[ _-]?dis[ck])?|deleted[ _-]?scenes?|behind[ _-]?the[ _-]?scenes|making[ _-]?of|gag[ _-]?reels?|bloopers?|outtakes?|b[ _-]?roll)\b/i;
+
+/**
+ * True when a release or file name looks like supplementary material rather
+ * than the main feature. Dots/underscores are normalised to spaces first so a
+ * scene name like `Movie.2020.BONUS.DISC` matches on word boundaries.
+ */
+export function isExtrasRelease(title: string | null | undefined): boolean {
+  if (!title) return false;
+  return EXTRAS_NAME_RE.test(String(title).replace(/[._]/g, " "));
+}
+
+/** The subset of a torrent file this module needs to pick the main feature. */
+export interface SelectableFile {
+  name?: string | null;
+  path?: string | null;
+  length?: number | null;
+}
+
+export interface MainFeatureSelection<T> {
+  file: T;
+  index: number;
+}
+
+const VIDEO_EXT_RE =
+  /\.(?:mkv|mp4|avi|m4v|mov|wmv|flv|webm|ts|m2ts|mpg|mpeg|vob)$/i;
+
+/**
+ * Pick the main feature video from a torrent's file list (I14b).
+ *
+ * "Play" on a movie must land on the feature, never a bonus/extra/sample even
+ * when the extra sorts first or the pack bundles both. The rule: among video
+ * files, prefer non-extras; within that class pick the largest by byte length
+ * (the feature is the big file, extras are short). Falls back to extras-only
+ * video, then to the largest file of any kind, so a single-file torrent (or one
+ * that names nothing recognisably) still resolves to something playable.
+ */
+export function selectMainFeatureFile<T extends SelectableFile>(
+  files: readonly T[],
+): MainFeatureSelection<T> | null {
+  if (!files || files.length === 0) return null;
+
+  const named = files.map((file, index) => ({
+    file,
+    index,
+    name: String(file.name ?? file.path ?? ""),
+    length: typeof file.length === "number" && file.length > 0 ? file.length : 0,
+  }));
+
+  const isVideo = (n: string) => VIDEO_EXT_RE.test(n.replace(/\\/g, "/"));
+  const videos = named.filter((f) => isVideo(f.name));
+  const pool = videos.length > 0 ? videos : named;
+
+  const mains = pool.filter((f) => !isExtrasRelease(f.name));
+  const candidates = mains.length > 0 ? mains : pool;
+
+  let best = candidates[0];
+  for (const f of candidates) {
+    if (f.length > best.length) best = f;
+  }
+  return { file: best.file, index: best.index };
+}
+
 export function parseFiltersFromParams(
   params: URLSearchParams,
 ): SearchFilters {

@@ -23,6 +23,7 @@
 import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { normalizeMediaType } from "@/lib/metadata/media-type";
+import { releaseDateToDate } from "./tmdb";
 import type { CatalogSource } from "./feeds";
 import type { Artwork } from "./artwork";
 import { resolveDetailBounded, type CatalogDetail } from "./detail";
@@ -47,6 +48,14 @@ export interface CatalogRowDraft {
   title: string;
   year: number | null;
   mediaType: string;
+  /**
+   * Primary release / first-air date, or null when unknown. Populated from
+   * TMDB (`release_date` / `first_air_date`) or a work-detail lookup; the
+   * charts-only fallback path has no date to give and leaves it null. Drives
+   * future-gating downstream — see src/lib/browse/release-status.ts — so it is
+   * never fabricated: null stays null.
+   */
+  releaseDate: Date | null;
   posterUrl: string | null;
   backdropUrl: string | null;
   overview: string | null;
@@ -82,6 +91,7 @@ export function draftFromTmdb(
     title: title.title,
     year: title.year,
     mediaType: title.mediaType,
+    releaseDate: releaseDateToDate(title.releaseDate),
     posterUrl: title.posterUrl,
     backdropUrl: title.backdropUrl,
     overview: title.overview,
@@ -108,6 +118,10 @@ export function draftFromWork(
     title: work.title,
     year: work.year,
     mediaType: work.mediaType,
+    // A work reverse-engineered from release names has no date of its own; the
+    // detail lookup (same TMDB matcher that chose the poster) supplies one when
+    // it resolved a match, else null. Never invented from a release string.
+    releaseDate: releaseDateToDate(detail?.releaseDate ?? null),
     posterUrl: work.posterUrl,
     backdropUrl: work.backdropUrl,
     // A work reverse-engineered from release names carries no synopsis of its
@@ -155,6 +169,7 @@ export function draftFromRow(row: CatalogRow): CatalogRowDraft {
     title: row.title,
     year: row.year,
     mediaType: row.mediaType,
+    releaseDate: row.releaseDate,
     posterUrl: row.posterUrl,
     backdropUrl: row.backdropUrl,
     overview: row.overview,
@@ -171,6 +186,8 @@ export interface CatalogRow {
   title: string;
   year: number | null;
   mediaType: string;
+  /** Primary release / first-air date; null when unknown. Drives future-gating. */
+  releaseDate: Date | null;
   posterUrl: string | null;
   backdropUrl: string | null;
   overview: string | null;
@@ -252,6 +269,7 @@ export async function replaceCatalogSource(
       workKey: draft.workKey,
       title: draft.title,
       year: draft.year,
+      releaseDate: draft.releaseDate,
       mediaType: draft.mediaType,
       posterUrl: draft.posterUrl,
       backdropUrl: draft.backdropUrl,

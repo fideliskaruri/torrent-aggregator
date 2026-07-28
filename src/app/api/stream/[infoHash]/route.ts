@@ -6,6 +6,7 @@ import {
   type BuiltinStreamTorrent,
 } from "@/lib/clients/builtin-engine";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import { selectMainFeatureFile } from "@/lib/torrents/filters";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -290,8 +291,14 @@ export async function handleStreamIndexRequest(
   const downloadedRangesFor = deps.downloadedRangesFor
     ? manifestPath(deps.downloadedRangesFor)
     : null;
+  const torrentFiles = lookup.torrent.files ?? [];
+  // I14b: tell the player which file is the main feature so "Play" on a movie
+  // lands on the feature, not a bonus/extra/sample bundled in the same torrent.
+  // Additive: the player MAY read `primaryVideoIndex` to pick a default file; a
+  // client that ignores it behaves exactly as before.
+  const primaryVideoIndex = selectMainFeatureFile(torrentFiles)?.index ?? null;
   return NextResponse.json({
-    files: (lookup.torrent.files ?? []).map((file, index) => {
+    files: torrentFiles.map((file, index) => {
       const path = manifestPath(file.path);
       return {
         path,
@@ -302,6 +309,7 @@ export async function handleStreamIndexRequest(
           : {}),
       };
     }),
+    primaryVideoIndex,
     clientType: "builtin",
     swarm: swarmState(lookup.torrent),
   });

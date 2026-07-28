@@ -31,6 +31,12 @@ export interface CatalogDetail {
   overview: string | null;
   /** TMDB's 0–10 vote average. Null means *unrated*, never "rated zero". */
   rating: number | null;
+  /**
+   * Primary release / first-air date (`YYYY-MM-DD`) from the same TMDB match
+   * that supplied the synopsis, or null. Lets a charts-fallback row still carry
+   * a date for future-gating. Never fabricated.
+   */
+  releaseDate: string | null;
 }
 
 /** Order-preserving nulls: the shape every failure path returns. */
@@ -69,6 +75,7 @@ export async function resolveDetailFor(
       return {
         overview: nonEmpty(detail.overview),
         rating: typeof detail.rating === "number" ? detail.rating : null,
+        releaseDate: nonEmpty(detail.releaseDate),
       };
     });
   } catch {

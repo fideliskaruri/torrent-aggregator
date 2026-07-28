@@ -41,7 +41,7 @@ function episode(overrides: Partial<EpisodeRowModel> = {}): EpisodeRowModel {
 
 console.log("\ntitle episode list");
 
-check("episode row renders distinct Stream and Download controls", () => {
+check("episode row renders distinct Play and Download controls", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
       seasons: [{ season: 1, knownEpisodes: 1, pack: null }],
@@ -60,7 +60,7 @@ check("episode row renders distinct Stream and Download controls", () => {
 
   assert.match(html, /data-action="stream"/);
   assert.match(html, /data-action="download"/);
-  assert.match(html, />Stream</);
+  assert.match(html, />Play</);
   assert.match(html, />Download</);
 });
 
@@ -81,7 +81,7 @@ check("episode actions post stream versus keep retention", async () => {
       title: "Example Show",
       mediaType: "tv",
       year: 2024,
-      action: { kind: "stream", label: "Stream", season: 1, episode: 1 },
+      action: { kind: "stream", label: "Play", season: 1, episode: 1 },
       retention: "stream",
     });
     await postTitleAction({

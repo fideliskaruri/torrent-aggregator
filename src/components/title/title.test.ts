@@ -508,6 +508,7 @@ function payload(over: Partial<TitleDetailPayload> = {}): TitleDetailPayload {
     rating: null,
     posterUrl: null,
     backdropUrl: null,
+    releaseDate: null,
     availability: null,
     infoHash: null,
     downloadFraction: null,

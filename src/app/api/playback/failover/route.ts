@@ -28,6 +28,7 @@ import type { PreRankTarget } from "@/lib/prewarm/types";
 import { describePlayback } from "@/lib/playback/narration";
 import { buildSwarmWatchDeps } from "@/lib/playback/engine-deps";
 import { swarmDeliveryTick } from "@/lib/playback/swarm-delivery-watchdog";
+import { builtinClient } from "@/lib/clients/builtin-engine";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -82,13 +83,59 @@ export async function POST(request: Request) {
   };
   const contentKey = preRankKey(target);
 
+  // I19b: retry the SAME release instead of failing over to a different one.
+  // A transient DELIVERY failure (no peers / blocked path — e.g. the user just
+  // turned a VPN off) must not permanently abandon a good torrent. Only delivery
+  // failures are retryable: a playability failure means the bytes are fine but
+  // undecodable, so re-announcing the same infoHash would change nothing.
+  if (body.action === "retry") {
+    if (reason === "playability") {
+      return json(409, {
+        ok: false,
+        code: "NOT_RETRYABLE",
+        failureClass: "playability",
+        retryable: false,
+        infoHash,
+      });
+    }
+    const retry = await builtinClient.retryTorrent(config, infoHash);
+    if (!retry.ok) {
+      // Expected outcome (no saved source, etc.) — never a 500.
+      return json(200, {
+        ok: false,
+        code: "RETRY_FAILED",
+        failureClass: "delivery",
+        retryable: false,
+        infoHash,
+        message: retry.message,
+      });
+    }
+    return json(200, {
+      ok: true,
+      code: "RETRYING",
+      failureClass: "delivery",
+      retryable: true,
+      infoHash,
+      retried: true,
+    });
+  }
+
   try {
     const deps = buildSwarmWatchDeps(config, session.user.id);
     const result = await swarmDeliveryTick(contentKey, infoHash, target, deps, {
       cause: reason,
       force: reason === "playability",
     });
+    // Discriminated status code so the client never has to parse prose (I33).
+    const code = result.exhausted
+      ? "EXHAUSTED"
+      : result.switched
+        ? "SWITCHED"
+        : result.verdict.stalled
+          ? "STALLED"
+          : "PLAYING";
     return json(200, {
+      code,
       // Structured facts — the source of truth for the client.
       narration: result.narration,
       // Rendered by the one presentation seam, for direct display.
@@ -104,7 +151,10 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
+    // Only genuinely unexpected engine faults reach here — expected no-source
+    // and exhausted outcomes are returned as 200 above (I33).
     return json(500, {
+      code: "ENGINE_ERROR",
       error: "Failover tick failed",
       message: err instanceof Error ? err.message : String(err),
     });

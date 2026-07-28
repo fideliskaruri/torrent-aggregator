@@ -3,10 +3,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { SEARCH_HREF } from "@/lib/navigation";
+import { openSearchOverlay } from "@/components/search/search-overlay";
 
 /**
  * Global shortcuts:
- * /  — focus search, or go to the search page when this one has no search box
+ * /  — open the search overlay (command palette), from any page
  * g then h/s/w/c/a/r/t — navigate package flow
  *   h home (browse) · s search · w library · c client · a activity · r rules · t settings
  */
@@ -28,17 +29,9 @@ export function useKeyboardShortcuts() {
 
       if (e.key === "/" && !editable) {
         e.preventDefault();
-        const el = document.querySelector<HTMLInputElement>(
-          'input[data-search-input="true"]',
-        );
-        if (el) {
-          el.focus();
-          el.select();
-        } else {
-          // Browse and every other page without a search box: the shortcut
-          // used to do nothing at all there, which reads as broken.
-          router.push(SEARCH_HREF);
-        }
+        // Open the command palette in place — no route change. `/search`
+        // remains reachable as a deep-link fallback via `g s`.
+        openSearchOverlay();
         return;
       }
 

@@ -73,8 +73,8 @@ async function getCachedProbe(infoHash: string, filePath: string): Promise<Probe
   }
 }
 
-/** Save a probe result to the database. */
-async function cacheProbe(infoHash: string, filePath: string, result: ProbeResult): Promise<void> {
+/** Save a probe result to the database. Returns true on a successful write. */
+async function cacheProbe(infoHash: string, filePath: string, result: ProbeResult): Promise<boolean> {
   const video = result.streams.find((s) => s.codecType === "video");
   const audio = result.streams.find((s) => s.codecType === "audio");
   try {
@@ -110,9 +110,13 @@ async function cacheProbe(infoHash: string, filePath: string, result: ProbeResul
         updatedAt: new Date(),
       },
     });
+    return true;
   } catch (err) {
-    // Cache failure is not fatal — just log and continue
+    // A cache-write failure is not fatal to THIS request, but swallowing it
+    // silently means every subsequent play cold-probes again and eats the same
+    // latency (I34). Surface it to the caller instead of hiding it behind 200.
     console.warn("[playback] Failed to cache probe:", err);
+    return false;
   }
 }
 
@@ -161,6 +165,11 @@ export async function POST(request: Request) {
 
   // ── Step 1: Probe (cached) ──
   const origin = requestOrigin(request);
+  // Diagnostics for the probe cache: "hit" served from cache (no write),
+  // "written" freshly probed and persisted, "failed" freshly probed but the
+  // cache write was rejected (so the next play will cold-probe again). Surfaced
+  // in the response so a persistently failing cache is visible, not hidden (I34).
+  let probeCache: "hit" | "written" | "failed" = "hit";
   let probeResult = await getCachedProbe(infoHash, filePath);
   if (!probeResult) {
     const url = streamUrl(infoHash, filePath, origin);
@@ -173,7 +182,7 @@ export async function POST(request: Request) {
       });
     }
     probeResult = outcome.result;
-    await cacheProbe(infoHash, filePath, probeResult);
+    probeCache = (await cacheProbe(infoHash, filePath, probeResult)) ? "written" : "failed";
   }
 
   // ── Step 2: Decide ──
@@ -250,6 +259,12 @@ export async function POST(request: Request) {
         width: video?.width ?? null,
         height: video?.height ?? null,
       },
+      /**
+       * Probe-cache write status for this request (I34): "hit" (served from
+       * cache), "written" (freshly probed + persisted) or "failed" (freshly
+       * probed but the write was rejected, so the next play cold-probes again).
+       */
+      probeCache,
     });
   }
 

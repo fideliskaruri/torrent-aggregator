@@ -94,7 +94,7 @@ export function heroStatus(item: RailItem): string {
     case "warm":
       return resumed
         ? `Resume from ${clock} — still downloading.`
-        : "Streaming now.";
+        : "Playable now.";
     case "fetchable":
       return "Not downloaded yet.";
     case "unavailable":

@@ -100,7 +100,7 @@ export function availabilityMeta(
       };
     case "warm":
       return {
-        label: "Streaming",
+        label: "Playable",
         tone: "accent",
         description: "Partly downloaded and live in the swarm. Plays now.",
       };
@@ -154,11 +154,8 @@ export interface GetAction {
 /** Hands the title to search — the affordance that always works. */
 export interface SearchAction {
   kind: "search";
-  /**
-   * "Check" for an unresolved item, "Find it" for one we know is out there.
-   * Same navigation, different promise: only one of them claims a result.
-   */
-  label: "Find it" | "Check";
+  /** "Find it" — a plain, honest handoff to search. Never narrates a check. */
+  label: "Find it";
   disabled: false;
   reason: null;
   href: string;
@@ -262,7 +259,7 @@ export function resolveCardAction(item: RailItem): CardAction {
   if (state === null) {
     return {
       kind: "search",
-      label: "Check",
+      label: "Find it",
       disabled: false,
       reason: null,
       href: searchHref(title, searchCategoryFor(item.mediaType)),

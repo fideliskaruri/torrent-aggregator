@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Rows3, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
+import { openSearchOverlay } from "@/components/search/search-overlay";
 import {
   DESKTOP_NAV,
   HEADER_SEARCH_HREF,
@@ -22,6 +23,16 @@ export function Header() {
   const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
   const { items: navRow, dividerIndex } = desktopNavRow();
   const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
+
+  // Search is an overlay, not a page. A plain click opens the command palette
+  // in place; modified clicks (new tab, middle-click) still reach `/search` as
+  // the deep-link fallback, so the affordance stays a real link.
+  function onSearchClick(e: React.MouseEvent) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
+      return;
+    e.preventDefault();
+    openSearchOverlay();
+  }
 
   return (
     <header className="app-header" data-app-header>
@@ -104,8 +115,10 @@ export function Header() {
               desktop, icon on phones where the bottom tab bar also carries it. */}
           <Link
             href={HEADER_SEARCH_HREF}
+            onClick={onSearchClick}
             aria-current={searchActive ? "page" : undefined}
             data-header-search
+            data-search-trigger
             className={cn(
               "hidden md:inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors",
               "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
@@ -122,8 +135,10 @@ export function Header() {
           </Link>
           <Link
             href={HEADER_SEARCH_HREF}
+            onClick={onSearchClick}
             aria-label="Search"
             aria-current={searchActive ? "page" : undefined}
+            data-search-trigger
             className={cn(
               "md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors",
               "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",

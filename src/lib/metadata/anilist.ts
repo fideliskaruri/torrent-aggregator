@@ -22,6 +22,8 @@ query ($search: String, $perPage: Int) {
       seasonYear
       startDate {
         year
+        month
+        day
       }
       genres
       format
@@ -42,7 +44,7 @@ interface AniListMedia {
   description?: string | null;
   averageScore?: number | null;
   seasonYear?: number | null;
-  startDate?: { year?: number | null };
+  startDate?: { year?: number | null; month?: number | null; day?: number | null };
   genres?: string[] | null;
 }
 
@@ -95,7 +97,7 @@ export async function getAniListById(id: string): Promise<MediaMetadata | null> 
         description(asHtml: false)
         averageScore
         seasonYear
-        startDate { year }
+        startDate { year month day }
         genres
       }
     }
@@ -128,8 +130,43 @@ function mapAniList(m: AniListMedia): MediaMetadata {
     synopsis: stripHtml(m.description ?? null),
     rating: m.averageScore != null ? m.averageScore / 10 : null, // normalize ~0-10
     year: m.seasonYear ?? m.startDate?.year ?? null,
+    releaseDate: anilistStartDate(m.startDate),
     genres: m.genres ?? [],
   };
+}
+
+/**
+ * AniList's `startDate` composed into a stored `YYYY-MM-DD`, or null.
+ *
+ * AniList reports the parts separately and any of them can be missing on an
+ * announced-but-undated series. A full year+month+day composes exactly; a
+ * year alone degrades to `YYYY-01-01` — the placeholder release-status.ts
+ * renders as "Coming {year}". No year at all is null, which is never gated;
+ * nothing is ever fabricated.
+ */
+export function anilistStartDate(
+  startDate: { year?: number | null; month?: number | null; day?: number | null } | null | undefined,
+): string | null {
+  const year = startDate?.year;
+  if (typeof year !== "number" || !(year > 1800 && year < 2200)) return null;
+
+  const month = startDate?.month;
+  const day = startDate?.day;
+  if (
+    typeof month === "number" && month >= 1 && month <= 12 &&
+    typeof day === "number" && day >= 1 && day <= 31
+  ) {
+    return `${pad4(year)}-${pad2(month)}-${pad2(day)}`;
+  }
+  return `${pad4(year)}-01-01`;
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function pad4(n: number): string {
+  return String(n).padStart(4, "0");
 }
 
 function stripHtml(html: string | null): string | null {

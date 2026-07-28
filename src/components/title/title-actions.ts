@@ -34,7 +34,7 @@ import type { TitleDetailPayload, TitleEpisode } from "./types";
 /** Opens the player on a file we actually hold. */
 export interface PlayTitleAction {
   kind: "play";
-  label: "Play" | "Resume" | "Stream";
+  label: "Play" | "Resume";
   infoHash: string;
   filePath: string | null;
   resumePositionSec: number | null;
@@ -76,7 +76,7 @@ export interface GetTitleAction {
  */
 export interface StreamTitleAction {
   kind: "stream";
-  label: "Play" | "Stream";
+  label: "Play";
   season: number | null;
   episode: number | null;
 }

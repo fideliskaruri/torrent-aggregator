@@ -147,17 +147,36 @@ export async function POST(request: NextRequest) {
       // already stored by the time the user presses play. Fire-and-forget:
       // this is background work, it must not add latency to the pre-rank
       // response, and it yields to any foreground stream on its own (see
-      // `preProbeUpcoming`). Errors are swallowed — an unreachable swarm is a
-      // normal `unknown`, not a route failure.
-      void preProbeUpcoming(userId).catch((err) => {
+      // `preProbeUpcoming`). An unreachable swarm is a normal `unknown`, not a
+      // route failure — but whether the pass was even DISPATCHED is surfaced in
+      // the response instead of hidden behind an unconditional 200 (I36).
+      let preProbe: "scheduled" | "unavailable" = "unavailable";
+      try {
+        const pass = preProbeUpcoming(userId);
+        preProbe = "scheduled";
+        void pass.catch((err) => {
+          console.warn(
+            "[prewarm] pre-probe pass failed:",
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      } catch (err) {
+        // A synchronous throw would otherwise escape before .catch attached.
         console.warn(
-          "[prewarm] pre-probe pass failed:",
+          "[prewarm] pre-probe pass could not start:",
           err instanceof Error ? err.message : String(err),
         );
-      });
+        preProbe = "unavailable";
+      }
 
       return NextResponse.json({
         ok: true,
+        /**
+         * Whether the background swarm pre-probe pass was dispatched for this
+         * pre-rank ("scheduled") or could not start ("unavailable"). It runs
+         * asynchronously, so "scheduled" means in-flight, not complete (I36).
+         */
+        preProbe,
         // `candidate: null` means "we looked and found nothing usable".
         // A target missing from this list means we never got an answer at all.
         // Those are different, and the response keeps them different.

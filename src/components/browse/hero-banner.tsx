@@ -19,6 +19,7 @@ import { AvailabilityChip } from "./availability-chip";
 import { heroFacts, heroPitch, type HeroPick } from "./hero";
 import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
+import { titleHrefForItem } from "@/components/title/work-key";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 
 export interface HeroBannerProps {
@@ -125,10 +126,14 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
             {action.kind === "search" ? (
+              // Unresolved: we cannot promise a result here, so the hero simply
+              // leads to the title's own page — the one surface that runs the
+              // search and offers Play/Download once it knows. No "Check", no
+              // mechanism, just "open this title".
               <Button asChild size="lg">
-                <Link href={action.href}>
-                  <Search />
-                  {label}
+                <Link href={titleHrefForItem(item) ?? action.href}>
+                  <Play className="fill-current" />
+                  Play
                 </Link>
               </Button>
             ) : action.kind === "get" && status === "done" ? (
@@ -151,7 +156,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
               </Button>
             )}
 
-            {secondary && action.kind !== "search" ? (
+            {secondary ? (
               <Button asChild size="lg" variant="secondary">
                 <Link href={secondary.href}>
                   <Search />

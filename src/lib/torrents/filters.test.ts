@@ -3,7 +3,12 @@
  * Run: npx tsx src/lib/torrents/filters.test.ts
  */
 import assert from "node:assert/strict";
-import { applyFilters, parseFiltersFromParams } from "./filters";
+import {
+  applyFilters,
+  parseFiltersFromParams,
+  isExtrasRelease,
+  selectMainFeatureFile,
+} from "./filters";
 import { extractTags, rankResults } from "./ranking";
 import type { TorrentResult } from "./types";
 
@@ -230,6 +235,94 @@ function item(
   ];
   assert.equal(applyFilters(pool, { releaseKind: "packs" }).length, 1);
   assert.equal(applyFilters(pool, { releaseKind: "episodes" }).length, 0);
+}
+
+// --- I14b: isExtrasRelease classifies supplementary material ---
+{
+  const extras = [
+    "The Movie 2019 BONUS DISC 1080p BluRay-LEGiON",
+    "Movie.2019.Bonus.Disc.1080p",
+    "Movie 2019 Extras 1080p",
+    "Movie 2019 Featurette 1080p",
+    "Movie 2019 Featurettes 1080p",
+    "Movie.2019.Deleted.Scenes.1080p",
+    "Movie 2019 Behind the Scenes",
+    "Movie 2019 Making of",
+    "Movie 2019 Gag Reel",
+    "Movie 2019 Bloopers",
+    "Movie.2019.Sample.mkv",
+    "Movie 2019 Outtakes",
+    "Movie 2019 B-Roll",
+  ];
+  for (const t of extras) {
+    assert.equal(isExtrasRelease(t), true, `should be flagged extra: "${t}"`);
+  }
+
+  // Main features and cut/edition tags must NOT be flagged, nor collision-prone
+  // real titles that merely contain an extras-ish word.
+  const notExtras = [
+    "The Movie 2019 1080p BluRay",
+    "The Movie 2019 Extended Cut 1080p",
+    "The Movie 2019 Unrated 1080p",
+    "The Movie 2019 Theatrical 1080p",
+    "The Movie 2019 IMAX 1080p",
+    "The Interview 2014 1080p BluRay",
+    "Trailer Park Boys S01E01 1080p",
+    "",
+    null,
+    undefined,
+  ];
+  for (const t of notExtras) {
+    assert.equal(
+      isExtrasRelease(t),
+      false,
+      `should NOT be flagged extra: ${JSON.stringify(t)}`,
+    );
+  }
+}
+
+// --- I14b: selectMainFeatureFile picks the feature, never a bonus/extra ---
+{
+  // Extra sorts first and (deliberately) is not the largest overall — the
+  // feature is the biggest non-extras video.
+  const files = [
+    { path: "Movie 2019/Featurettes/Behind the Scenes.mkv", length: 900_000_000 },
+    { path: "Movie 2019/Sample.mkv", length: 40_000_000 },
+    { path: "Movie 2019/The Movie 2019 1080p.mkv", length: 8_000_000_000 },
+    { path: "Movie 2019/Poster.jpg", length: 2_000_000 },
+  ];
+  const pick = selectMainFeatureFile(files);
+  assert.ok(pick, "expected a selection");
+  assert.equal(pick.index, 2, "must pick the main feature video");
+
+  // A single-file torrent still resolves to that file.
+  const single = [{ path: "The Movie 2019 1080p.mkv", length: 7_000_000_000 }];
+  assert.equal(selectMainFeatureFile(single)?.index, 0);
+
+  // When ALL video files are extras, fall back to the largest extra rather than
+  // returning nothing.
+  const allExtras = [
+    { path: "Deleted Scenes.mkv", length: 100_000_000 },
+    { path: "Bloopers.mkv", length: 300_000_000 },
+  ];
+  assert.equal(selectMainFeatureFile(allExtras)?.index, 1);
+
+  // No files → null.
+  assert.equal(selectMainFeatureFile([]), null);
+
+  // Non-video files only: pick the largest.
+  const noVideo = [
+    { path: "readme.txt", length: 100 },
+    { path: "cover.png", length: 5000 },
+  ];
+  assert.equal(selectMainFeatureFile(noVideo)?.index, 1);
+
+  // A larger EXTRA must still lose to a smaller feature when both are video.
+  const biggerExtra = [
+    { path: "Bonus Disc.mkv", length: 9_000_000_000 },
+    { path: "The Movie 1080p.mkv", length: 5_000_000_000 },
+  ];
+  assert.equal(selectMainFeatureFile(biggerExtra)?.index, 1);
 }
 
 console.log("filters.test.ts: all assertions passed");

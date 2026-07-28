@@ -72,6 +72,7 @@ import {
 } from "./store";
 import { collapseToWorks, pickRelated, seedWorkKeys, type CatalogWork, type TypedRelease } from "./works";
 import { isSeriesMediaType, normalizeMediaType, type MediaType } from "@/lib/metadata/media-type";
+import { isSlopTitle } from "@/lib/metadata/slop";
 
 /**
  * How long a cached catalog stays fresh, and how often the timer fires.
@@ -189,7 +190,11 @@ async function runRefresh(): Promise<CatalogRefreshResult> {
 
   for (const { source, titles } of tmdb) {
     if (titles.length === 0) continue;
-    const drafts = titles.slice(0, WORKS_PER_SOURCE).map((title) => {
+    // Drop TMDB's placeholder rows ("Untitled … Project" and the like) before
+    // they reach a rail. The chart is truthful — the work has no name yet — but
+    // a placeholder is not a thing anyone can decide to watch. See slop.ts.
+    const named = titles.filter((title) => !isSlopTitle(title.title));
+    const drafts = named.slice(0, WORKS_PER_SOURCE).map((title) => {
       const workKey = catalogWorkKey(title.title, title.year, title.mediaType);
       const signal = matchAvailability(index, workKey, title.year);
       if (signal) availabilityHits += 1;
@@ -465,6 +470,7 @@ async function relatedFromTmdb(
 
   const drafts: CatalogRowDraft[] = [];
   for (const candidate of titles) {
+    if (isSlopTitle(candidate.title)) continue;
     const workKey = catalogWorkKey(candidate.title, candidate.year, candidate.mediaType);
     if (!workKey) continue;
     // Never suggest the thing being watched. Checked two ways because the

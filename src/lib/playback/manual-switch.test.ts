@@ -161,6 +161,62 @@ async function run() {
     assert.deepEqual(rec.calls, [], "nothing is started or abandoned for a bogus pick");
   }
 
+  // ── I48: a movie switch whose title-keyed pool MISSED still succeeds when the
+  // chosen release resolves from the wider cache, but a truly unknown hash is
+  // still rejected even with a resolver wired. This is the whole movie fix. ────
+  {
+    resetSwarmWatch();
+    const rec: Recorder = { calls: [], started: [], abandoned: [] };
+    // The movie's ranked pool comes back empty (the real cache-miss bug), but a
+    // resolver can still find the picked release elsewhere in the cache.
+    const movie = rel(2, "Inception 720p BluRay", 50);
+    const depsWithResolver: ManualSwitchDeps = {
+      ...manualDeps(rec, { positionSec: 600 }),
+      async rankedResults() {
+        return []; // cache miss for the movie title
+      },
+      async resolveRelease(chosen) {
+        return chosen === hash(2) ? movie : null;
+      },
+    };
+    const out = await manualSwitchTo(
+      "inception::movie",
+      hash(1),
+      hash(2),
+      { title: "Inception 2010", mediaType: "movie", season: null, episode: null },
+      depsWithResolver,
+    );
+    assert.equal(out.ok, true, "a resolvable movie pick switches despite an empty pool");
+    if (!out.ok) throw new Error("unreachable");
+    assert.equal(out.infoHash, hash(2));
+    assert.equal(out.positionSec, 600, "movie switch carries position");
+    assert.deepEqual(rec.started, [hash(2)], "the resolved release was started");
+
+    // A bogus hash, even with a resolver present, still resolves to nothing.
+    resetSwarmWatch();
+    const rec2: Recorder = { calls: [], started: [], abandoned: [] };
+    const bogus: ManualSwitchDeps = {
+      ...manualDeps(rec2),
+      async rankedResults() {
+        return [];
+      },
+      async resolveRelease() {
+        return null;
+      },
+    };
+    const out2 = await manualSwitchTo(
+      "inception::movie",
+      hash(1),
+      hash(999),
+      { title: "Inception 2010", mediaType: "movie", season: null, episode: null },
+      bogus,
+    );
+    assert.equal(out2.ok, false, "an unknown hash is rejected even with a resolver");
+    if (out2.ok) throw new Error("unreachable");
+    assert.equal(out2.reason, "not-a-candidate");
+    assert.deepEqual(rec2.calls, [], "nothing runs for a bogus movie pick");
+  }
+
   // ── A chosen release that fails to start is reported, old source untouched ─
   {
     resetSwarmWatch();

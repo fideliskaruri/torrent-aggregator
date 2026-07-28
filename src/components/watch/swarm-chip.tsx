@@ -97,6 +97,21 @@ const DOT_CLASS: Record<SwarmHealth, string> = {
   live: "bg-[var(--success)]",
 };
 
+/**
+ * A number-free, mechanism-free reading of the dot for assistive tech.
+ *
+ * The player must never narrate mechanism to the viewer — no peer counts, no
+ * byte rates. The chip keeps its one honest job, "will this play", as a colour
+ * and a plain phrase; the raw swarm numbers stay in the engine where they
+ * belong and never reach the screen.
+ */
+const SWARM_READINESS: Record<SwarmHealth, string> = {
+  unknown: "Checking if it will play",
+  stalled: "Not playing yet",
+  thin: "Getting it ready",
+  live: "Playing",
+};
+
 type SwarmChipProps = {
   infoHash: string;
   /** Poll only while the player is actually mounted and showing something. */
@@ -221,36 +236,27 @@ export function SwarmChip({
 
   const sample = state.key === infoHash ? state.sample : null;
   const health = swarmHealth(sample, minimumStreamBps);
-  const peers = peerText(sample?.peers ?? null);
-  const rate = rateText(sample?.downloadSpeedBps ?? null);
+  const readiness = SWARM_READINESS[health];
 
   return (
     <span
       data-swarm-chip
       data-swarm-health={health}
-      data-swarm-peers={sample?.peers ?? "unknown"}
-      data-swarm-rate={sample?.downloadSpeedBps ?? "unknown"}
       role="status"
-      // The numbers change every few seconds; announcing each one would make the
-      // player unusable with a screen reader. The chip is readable on demand.
+      // The dot's colour is the whole message; it changes rarely and carries no
+      // number, so it is safe to leave it un-announced and readable on demand.
       aria-live="off"
-      title={swarmSummary(sample, minimumStreamBps)}
+      aria-label={readiness}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-muted)] px-2 py-0.5 text-[11px] text-[var(--text-tertiary)] tabular-nums",
+        "inline-flex shrink-0 items-center gap-1.5",
         className,
       )}
     >
-      {/* Flex drops whitespace-only text nodes, so every separator a screen
-          reader needs is a real element, not a `{" "}`. */}
-      <span className="sr-only">Swarm health: </span>
+      <span className="sr-only">{readiness}</span>
       <span
         aria-hidden="true"
         className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT_CLASS[health])}
       />
-      <span data-swarm-peers-text>{peers}</span>
-      <span className="sr-only">, </span>
-      <span aria-hidden="true">·</span>
-      <span data-swarm-rate-text>{rate}</span>
     </span>
   );
 }

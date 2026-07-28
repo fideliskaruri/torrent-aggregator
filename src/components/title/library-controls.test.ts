@@ -75,7 +75,7 @@ check("the source no longer sends acquire requests to /api/torrent/send", () => 
   assert.match(componentSource, /fetch\("\/api\/watchlist"/);
 });
 
-check("monitoring off renders as an actionable toggle with a described helper", () => {
+check("monitoring off renders as a plain product-worded toggle switch", () => {
   const html = renderToStaticMarkup(
     React.createElement(LibraryControls, {
       library: library(),
@@ -83,13 +83,17 @@ check("monitoring off renders as an actionable toggle with a described helper", 
       onChanged: () => {},
     }),
   );
-  const describedBy = /aria-describedby="([^"]+)"/.exec(html)?.[1];
-  assert.ok(describedBy, html);
-  assert.match(html, />Turn automatic checks on</);
-  assert.match(html, new RegExp(`<p id="${describedBy}"[^>]*>New episodes are fetched`));
+  // A switch, not a big CTA, and it says what it does in product terms.
+  assert.match(html, /role="switch"/);
+  assert.match(html, /aria-checked="false"/);
+  assert.match(html, />Get new episodes automatically</);
+  // No jargon ("checks") and no free-floating helper paragraph.
+  assert.doesNotMatch(html, /automatic checks/);
+  assert.doesNotMatch(html, /aria-describedby=/);
+  assert.doesNotMatch(html, /fetched as/);
 });
 
-check("monitoring on exposes the opposite toggle without a stale helper", () => {
+check("monitoring on flips the toggle label without a stale helper", () => {
   const html = renderToStaticMarkup(
     React.createElement(LibraryControls, {
       library: library({ monitored: true }),
@@ -97,9 +101,22 @@ check("monitoring on exposes the opposite toggle without a stale helper", () => 
       onChanged: () => {},
     }),
   );
-  assert.match(html, />Turn automatic checks off</);
+  assert.match(html, /aria-checked="true"/);
+  assert.match(html, />Getting new episodes automatically</);
+  assert.doesNotMatch(html, /automatic checks/);
   assert.doesNotMatch(html, /aria-describedby=/);
-  assert.doesNotMatch(html, /New episodes are fetched/);
+});
+
+check("a movie gets movie-worded monitoring copy, never episode copy", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(LibraryControls, {
+      library: library(),
+      isSeries: false,
+      onChanged: () => {},
+    }),
+  );
+  assert.match(html, />Get it automatically</);
+  assert.doesNotMatch(html, /new episodes/);
 });
 
 console.log(

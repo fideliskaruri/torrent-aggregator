@@ -38,6 +38,7 @@ import { subtitleListUrl, subtitleTrackSrc, type SubtitleTrack } from "@/lib/med
 import type { ProgressUpdateBody } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
+import type { PlaybackFailureKind, PlaybackFailureClass } from "@/lib/clients/errors";
 import Hls from "hls.js";
 
 // Re-export so existing consumers (tests, other components) keep working.
@@ -55,6 +56,13 @@ type StreamManifest = {
   files: StreamFile[];
   clientType?: string;
   swarm?: SwarmSample;
+  /**
+   * The engine's authoritative main-feature pick (index into the full file list),
+   * from the stream index route's `selectMainFeatureFile`. `null` when there is
+   * no single dominant feature. Preferred over the player's local heuristic so a
+   * movie auto-selects the same file the engine would, with no drift.
+   */
+  primaryVideoIndex?: number | null;
 };
 
 export type StreamProgress = {
@@ -305,8 +313,11 @@ export function candidateVerdictLabel(verdict: CandidateVerdict): string {
 }
 
 export function candidatePlayabilityLabel(playability: CandidatePlayability): string {
+  // No mechanism words: a viewer never needs to hear "convert"/"remux". Both a
+  // direct file and one the server prepares simply *play* — the only honest
+  // distinction a person cares about is whether it plays.
   if (playability === "direct") return "Plays instantly";
-  if (playability === "transcode") return "Needs converting";
+  if (playability === "transcode") return "Plays";
   return "Compatibility unknown";
 }
 
@@ -367,6 +378,73 @@ export function shouldShowSeekSpinner(args: {
   activeVideoAdvancing: boolean;
 }): boolean {
   return args.seeking && !args.activeVideoAdvancing;
+}
+
+/**
+ * THE one loader. There is a single spinner for the union of every "still
+ * getting there" moment — {seeking ∪ buffering ∪ preparing ∪ checking ∪ no
+ * source yet} — and it is rendered exactly once over the *active* surface.
+ *
+ * Three rules make it a single source of truth — one loader at any instant AND
+ * one loader across the whole load:
+ *  - A terminal error owns the surface instead (its own panel, no spinner), so
+ *    a loader and an error never stack.
+ *  - A picture that is *advancing* is, by definition, not loading — the motion
+ *    lease keeps `activeVideoAdvancing` true through slow-but-moving playback —
+ *    so a loader never sits over a frame whose `currentTime` is climbing.
+ *  - `playbackStarted` gives temporal continuity: from Play-press until the
+ *    active source paints its first frame it is false, and the loader is held
+ *    ON *continuously* the whole time. It does not blink off in the gap between
+ *    the preparing phase, the instant the <video> element mounts, and the first
+ *    buffer — every internal phase change is the SAME loader node, so the viewer
+ *    never sees loader → gone → a second loader → gone → a third before it plays.
+ *    It flips false exactly once, when real playback starts.
+ *
+ * The previous player rendered a status overlay (with its own spinner) *and* a
+ * separate seek spinner, which is why a seek-while-preparing showed two; and it
+ * derived the loader from transient booleans that each fell to false between
+ * phases, which is why a cold start flickered several loaders in succession.
+ * This collapses both: callers render one node gated on this one boolean.
+ */
+export function shouldShowUnifiedLoader(args: {
+  hasVisibleVideo: boolean;
+  activeVideoAdvancing: boolean;
+  seeking: boolean;
+  waiting: boolean;
+  preparing: boolean;
+  checking: boolean;
+  terminal: boolean;
+  playbackStarted: boolean;
+}): boolean {
+  if (args.terminal) return false;
+  if (args.hasVisibleVideo && args.activeVideoAdvancing) return false;
+  // Before the first frame is painted the loader is continuous — this single
+  // branch spans {no source ∪ resolving ∪ opening ∪ <video> mounted-not-yet-
+  // painted ∪ first buffer}, so none of those transitions can unmount it.
+  if (!args.playbackStarted) return true;
+  // After the first frame, the loader is only the transient seek/buffer/prepare
+  // indicator (a mid-play stall, a reconnect, a scrub).
+  return args.preparing || args.checking || args.seeking || args.waiting;
+}
+
+/**
+ * Whether a `timeupdate` may move the *displayed* playhead.
+ *
+ * The element reports positions that must not reach the scrubber:
+ *  - during an HLS session restart the outgoing element still reads the stale
+ *    pre-seek position, and
+ *  - while a user seek is still reconciling, intermediate/old positions would
+ *    bounce the playhead away from where the viewer just clicked.
+ *
+ * In both cases the requested target is already shown; hold it until the real
+ * position lands. This is what kills the "one click, then it bounces back a few
+ * times" scrub.
+ */
+export function shouldAdoptTimeUpdate(args: {
+  seekInFlight: boolean;
+  hasPendingUserSeek: boolean;
+}): boolean {
+  return !args.seekInFlight && !args.hasPendingUserSeek;
 }
 
 /**
@@ -500,6 +578,103 @@ export function nextSeekIntentAction(
 }
 
 /**
+ * A structured playback failure the player can act on, mirroring the engine's
+ * `{ code, failureClass, retryable }` (stream 503 body / classifier). Kept local
+ * so the render layer never imports engine internals beyond the two string
+ * unions it already shares.
+ */
+export type StructuredPlaybackFailure = {
+  code: PlaybackFailureKind;
+  failureClass: PlaybackFailureClass;
+  retryable: boolean;
+};
+
+/** What the recovery UI should offer for a given failure. */
+export type PlaybackFailureAffordance = "retry" | "switch";
+
+/**
+ * Turn a structured failure into viewer words + the one right next action (I19).
+ *
+ * The whole reason the engine emits codes instead of prose is so this seam can
+ * say the honest, mechanism-free sentence and offer the action that can actually
+ * recover — never a peer count, byte rate, %, codec or container name:
+ *   - a DELIVERY failure (no peers / blocked path / stall) is retryable on the
+ *     SAME release once bytes flow again → offer "Retry".
+ *   - a PLAYABILITY failure (undecodable) or a NOT_FOUND release cannot be fixed
+ *     by retrying the same bytes → offer "Try another version".
+ * `ENGINE_ERROR` is not delivery, but a fresh attempt is the only move a viewer
+ * has, so it also offers retry.
+ */
+export function playbackFailureCopy(failure: StructuredPlaybackFailure): {
+  headline: string;
+  detail: string | null;
+  affordance: PlaybackFailureAffordance;
+} {
+  switch (failure.code) {
+    case "NO_PEERS":
+      return {
+        headline: "This isn’t available to play right now.",
+        detail: "Try again in a moment.",
+        affordance: "retry",
+      };
+    case "CONNECTION_BLOCKED":
+      return {
+        headline: "The connection was blocked.",
+        detail: "Check your network, then try again.",
+        affordance: "retry",
+      };
+    case "STALLED":
+      return {
+        headline: "This stopped loading.",
+        detail: "Try again in a moment.",
+        affordance: "retry",
+      };
+    case "UNPLAYABLE":
+      return {
+        headline: "This version won’t play on your device.",
+        detail: "Try another version.",
+        affordance: "switch",
+      };
+    case "NOT_FOUND":
+      return {
+        headline: "This version isn’t available.",
+        detail: "Try another version.",
+        affordance: "switch",
+      };
+    case "ENGINE_ERROR":
+    default:
+      return {
+        headline: "Something went wrong.",
+        detail: "Try again.",
+        affordance: failure.failureClass === "playability" || failure.failureClass === "not-found" ? "switch" : "retry",
+      };
+  }
+}
+
+/** Read a structured failure off a fetch Response body, if it carries one. */
+export function structuredFailureFromBody(
+  body: { code?: unknown; failureClass?: unknown; retryable?: unknown } | null | undefined,
+): StructuredPlaybackFailure | null {
+  const code = typeof body?.code === "string" ? body.code : null;
+  const known: PlaybackFailureKind[] = [
+    "NO_PEERS",
+    "CONNECTION_BLOCKED",
+    "STALLED",
+    "NOT_FOUND",
+    "UNPLAYABLE",
+    "ENGINE_ERROR",
+  ];
+  if (!code || !known.includes(code as PlaybackFailureKind)) return null;
+  const failureClass =
+    typeof body?.failureClass === "string" ? (body.failureClass as PlaybackFailureClass) : "delivery";
+  return {
+    code: code as PlaybackFailureKind,
+    failureClass,
+    retryable: body?.retryable === true,
+  };
+}
+
+/**
  * Decide what a source-timeline seek should do when a session restart may
  * already be in flight.
  *
@@ -628,6 +803,74 @@ export function resolveVideoFileSelection(
   return matches.length === 1 ? matches[0] : null;
 }
 
+/**
+ * How much bigger the main feature must be than the next-largest video before we
+ * treat it as *the* movie rather than one item in a pack. A feature dwarfs its
+ * samples/featurettes/extras (often 10×+); a genuine multi-film pack has
+ * comparably-sized entries. 1.6× clears the "movie + a couple of extras" case
+ * without swallowing a real double-feature.
+ */
+const FEATURE_DOMINANCE_RATIO = 1.6;
+
+/**
+ * The single feature file in a movie torrent, or null when there genuinely
+ * isn't one to pick automatically.
+ *
+ * A film release is usually one big video plus junk (`sample.mkv`, a trailer, a
+ * featurette). Treating that as a "season pack" and demanding the viewer pick a
+ * file — the Star Wars regression — is wrong: pick the dominant feature. Only
+ * when no file dominates (a true multi-film pack) do we return null and let the
+ * picker stand.
+ */
+export function selectMainFeatureFile(files: StreamFile[]): StreamFile | null {
+  const videos = selectVideoFiles(files);
+  if (videos.length === 0) return null;
+  if (videos.length === 1) return videos[0];
+  const sorted = [...videos].sort((a, b) => b.length - a.length);
+  const [largest, second] = sorted;
+  if (!second || largest.length >= second.length * FEATURE_DOMINANCE_RATIO) {
+    return largest;
+  }
+  return null;
+}
+
+/**
+ * The main feature to auto-play, preferring the engine's authoritative index.
+ *
+ * The stream index route already ran `selectMainFeatureFile` server-side and put
+ * the winner's file index in `primaryVideoIndex` (I20 upgrade). Honouring it
+ * keeps the player's "is this a movie" answer identical to the engine's — no
+ * second, drifting heuristic. When the server didn't supply one (older build, or
+ * a genuine multi-feature pack where it returned null), fall back to the local
+ * dominance test so behaviour degrades to exactly what it was before.
+ */
+export function mainFeatureFile(
+  files: StreamFile[],
+  primaryVideoIndex: number | null | undefined,
+): StreamFile | null {
+  if (typeof primaryVideoIndex === "number" && primaryVideoIndex >= 0) {
+    const authoritative = selectVideoFiles(files).find((file) => file.index === primaryVideoIndex);
+    if (authoritative) return authoritative;
+  }
+  return selectMainFeatureFile(files);
+}
+
+/**
+ * A clean, mechanism-free label for the file picker.
+ *
+ * Never the raw release path (a tracker wrapper folder plus a scene filename).
+ * An episode gets its `SxxEyy`; anything else is a plain "Video N". Size is kept
+ * only as a disambiguator so a feature reads apart from a sample.
+ */
+export function fileOptionLabel(file: StreamFile, index: number): string {
+  const parsed = episodeFromFilePath(file.path);
+  const base = parsed
+    ? `S${String(parsed.season).padStart(2, "0")}E${String(parsed.episode).padStart(2, "0")}`
+    : `Video ${index + 1}`;
+  const size = Number.isFinite(file.length) && file.length > 0 ? formatBytes(file.length) : null;
+  return size ? `${base} · ${size}` : base;
+}
+
 function videoFileForPath(files: StreamFile[], path: string | null): StreamFile | null {
   if (!path) return null;
   return selectVideoFiles(files).find((file) => file.path === path) ?? null;
@@ -664,7 +907,7 @@ export function streamStatusMessage(status: number): {
   if (status === 409) {
     return {
       problem: "wrong-client",
-      message: "Streaming only works with the built-in engine.",
+      message: "This only plays through the built-in engine.",
     };
   }
   if (status === 425) {
@@ -676,7 +919,7 @@ export function streamStatusMessage(status: number): {
   if (status === 503) {
     return {
       problem: "stalled",
-      message: "No peers are currently sending this part.",
+      message: "This part isn't coming through yet.",
     };
   }
   if (status === 404) {
@@ -762,48 +1005,21 @@ function sourceChip(title: string): string | null {
   return null;
 }
 
-function audioChip(title: string): string | null {
-  const t = title.replace(/[._-]+/g, " ");
-  if (/\bddp?\s*5\s*\.?\s*1\b/i.test(t) || /\be[- ]?ac[- ]?3\b/i.test(t)) return "DDP5.1";
-  if (/\bac[- ]?3\b/i.test(t)) return "AC-3";
-  if (/\baac\s*5\s*\.?\s*1\b/i.test(t)) return "AAC 5.1";
-  if (/\baac\b/i.test(t)) return "AAC";
-  if (/\bdts(?:[- ]?hd)?\b/i.test(t)) return "DTS";
-  if (/\bflac\b/i.test(t)) return "FLAC";
-  if (/\bopus\b/i.test(t)) return "Opus";
-  return null;
-}
-
-function videoCodecChip(title: string): string | null {
-  const t = title.replace(/[._-]+/g, " ");
-  if (/\b(?:h\s*\.?\s*264|x264|avc)\b/i.test(t)) return "H.264";
-  if (/\b(?:h\s*\.?\s*265|x265|hevc)\b/i.test(t)) return "H.265";
-  if (/\bav1\b/i.test(t)) return "AV1";
-  if (/\bvp9\b/i.test(t)) return "VP9";
-  return null;
-}
-
 /**
  * Technical identity belongs in diagnostics, not as the viewer's label. The
  * release path can be a tracker wrapper folder plus a scene filename, which is
- * why the old chip read like a filesystem accident. These chips reuse the same
- * episode and quality parsers the rest of the app trusts, then show only facts a
- * viewer can use: resolution, source, audio/video shape and size.
+ * why the old chip read like a filesystem accident. These chips show only what a
+ * viewer chooses by — resolution and source — never codec/container identity
+ * (H.265, DDP5.1, MKV are mechanism, not a label a person reads).
  */
 export function releaseDetailChips(path: string, bytes: number): string[] {
   const filename = path.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? path;
   const withoutExt = filename.replace(/\.(mkv|mp4|avi|m4v|mov|webm|ts|m2ts|mpe?g)$/i, "");
-  const parsed = parseEpisode(withoutExt);
-  void parsed;
   const chips: string[] = [];
   const resolution = parseResolution(withoutExt);
   if (resolution) chips.push(`${resolution}p`);
   const source = sourceChip(withoutExt);
   if (source) chips.push(source);
-  const audio = audioChip(withoutExt);
-  if (audio) chips.push(audio);
-  const codec = videoCodecChip(withoutExt);
-  if (codec) chips.push(codec);
   if (Number.isFinite(bytes) && bytes > 0) chips.push(formatBytes(bytes));
   return chips;
 }
@@ -811,7 +1027,7 @@ export function releaseDetailChips(path: string, bytes: number): string[] {
 export function upNextStatusSentence(state: UpNextAvailability): string {
   if (state === "ready") return "Ready to play now.";
   if (state === "downloading") {
-    return "Still downloading — you can start streaming, but it may buffer.";
+    return "Still downloading — you can start now, but it may pause to catch up.";
   }
   return "Not fetched yet.";
 }
@@ -827,13 +1043,13 @@ export function streamStateSentence(args: {
 }): string {
   if (args.checking) return "Checking whether this file can play now.";
   if (args.preparing) {
-    return "Preparing playback — this usually takes under a minute once pieces arrive.";
+    return "Getting it ready…";
   }
   const health = swarmHealth(args.swarm ?? null, args.minimumStreamBps ?? 0);
   if (args.waiting && health === "thin" && (args.swarm?.downloadSpeedBps ?? 0) > 0) {
-    return "Too slow to stream — downloading in the background.";
+    return "This one's slow — still getting it ready.";
   }
-  if (args.waiting) return "Buffering — waiting for enough of the file.";
+  if (args.waiting) return "Getting it ready…";
   if (args.playing) return "Playing now.";
   if (args.playable) return "Ready to play.";
   return "Waiting for a playable file.";
@@ -1135,8 +1351,8 @@ type SubtitleStatus = "idle" | "loading" | "extracting" | "ready" | "error";
     case "remux":
     case "transcode-audio":
     case "transcode-full":
-      return "Preparing playback — this usually takes under a minute once pieces arrive.";
-    default: return "Preparing playback…";
+      return "Getting it ready…";
+    default: return "Getting it ready…";
   }
 }
 
@@ -1230,8 +1446,21 @@ function InlineStreamPlayerInner({
   const [checkingStream, setCheckingStream] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [activeVideoAdvancing, setActiveVideoAdvancing] = useState(false);
+  // Latches true the moment the active source paints its first frame / begins
+  // real playback, and resets on every source change. It is what makes the one
+  // loader temporally continuous: false ⇒ the loader is held ON without a blink
+  // through the whole prepare→first-frame sequence; true ⇒ the loader is only a
+  // transient seek/buffer indicator thereafter.
+  const [playbackStarted, setPlaybackStarted] = useState(false);
   const [copied, setCopied] = useState(false);
   const [preparingLabel, setPreparingLabel] = useState<string | null>(null);
+  // I19: the engine's structured failure for the current attempt (from a stream
+  // 503 body or a decode verdict). Drives friendly, mechanism-free terminal copy
+  // and the one right affordance (retry the same release vs try another version).
+  const [streamFailure, setStreamFailure] = useState<StructuredPlaybackFailure | null>(null);
+  // I19b: a "Retry this release" attempt is in flight (re-announcing the same
+  // infoHash). Keeps the button from double-firing and shows the calm loader.
+  const [retrying, setRetrying] = useState(false);
   const [swarmSample, setSwarmSample] = useState<SwarmSample | null>(null);
   const [upNext, setUpNext] = useState<UpNextEpisodeCard | null>(null);
   const [upNextLoading, setUpNextLoading] = useState(false);
@@ -1385,6 +1614,17 @@ function InlineStreamPlayerInner({
     return episodeFromFilePath(activeTitle);
   }, [currentSeason, currentEpisode, activeTitle]);
   const currentMediaType = currentSeason != null || currentEpisode != null ? "tv" : "movie";
+  /**
+   * Whether to offer the file picker. Only for a genuine pack: a TV pack (an
+   * episode target with several files) or a movie whose torrent has no single
+   * dominant feature. A film with a feature + extras auto-selects the feature,
+   * so a movie never demands a manual pick.
+   */
+  const showFileSelect = useMemo(() => {
+    if (videoFiles.length <= 1) return false;
+    if (requestedEpisode != null) return true;
+    return mainFeatureFile(activeManifest?.files ?? [], activeManifest?.primaryVideoIndex) == null;
+  }, [videoFiles.length, requestedEpisode, activeManifest]);
   const downloadedRanges = useMemo(
     () =>
       selectedFile
@@ -1448,6 +1688,13 @@ function InlineStreamPlayerInner({
       const active = video === videoRef.current;
       setWaiting((current) => nextViewerWaitingState(current, event, active));
       if (!active) return false;
+      // A first frame (canplay), a resumed play, or real forward motion all mean
+      // the picture has arrived — latch it once so the one loader flips off and
+      // never re-mounts for an internal prepare phase again. `waiting` (a stall)
+      // must NOT latch it.
+      if (event === "canplay" || event === "playing" || event === "advancing") {
+        setPlaybackStarted(true);
+      }
       if (event === "advancing") {
         setActiveVideoAdvancing(true);
         clearMotionLease();
@@ -1490,7 +1737,10 @@ function InlineStreamPlayerInner({
     setCheckingStream(false);
     setWaiting(false);
     setActiveVideoAdvancing(false);
+    setPlaybackStarted(false);
     setPreparingLabel(null);
+    setStreamFailure(null);
+    setRetrying(false);
     setSwarmSample(null);
     setUpNext(null);
     setUpNextLoading(false);
@@ -1535,6 +1785,7 @@ function InlineStreamPlayerInner({
   useEffect(() => {
     setWaiting(false);
     setActiveVideoAdvancing(false);
+    setPlaybackStarted(false);
     lastActiveMediaTimeRef.current = null;
     requestedSeekRef.current = null;
     clearMotionLease();
@@ -1785,11 +2036,18 @@ function InlineStreamPlayerInner({
       const data = await readJson<StreamManifest>(res);
       if (data?.clientType && data.clientType !== "builtin") {
         setProblem("wrong-client");
-        setMessage("Streaming only works with the built-in engine.");
+        setMessage("This only plays through the built-in engine.");
         return null;
       }
       const files = Array.isArray(data?.files) ? data.files : [];
-      const next: StreamManifest = { infoHash: activeInfoHash, files, clientType: data?.clientType };
+      const primaryVideoIndex =
+        typeof data?.primaryVideoIndex === "number" ? data.primaryVideoIndex : null;
+      const next: StreamManifest = {
+        infoHash: activeInfoHash,
+        files,
+        clientType: data?.clientType,
+        primaryVideoIndex,
+      };
       setManifest(next);
       const videos = selectVideoFiles(files);
       const requested = resolveVideoFileSelection(files, {
@@ -1799,8 +2057,21 @@ function InlineStreamPlayerInner({
       if (requested) {
         setSelectedPath(requested.path);
       } else if (videos.length > 1) {
-        setProblem(null);
-        setMessage("Choose the episode to play from this season pack.");
+        // No episode target means this is a movie, not a season pack. A film
+        // ships one feature plus junk (samples, trailers, featurettes); pick the
+        // dominant feature and play — never demand a manual file pick. The engine
+        // already chose it (primaryVideoIndex); honour that, falling back to the
+        // local dominance test only when the server didn't supply one. Only a
+        // genuine multi-file pack (an episode target, or no single dominant
+        // feature) falls through to the picker.
+        const feature =
+          requestedEpisode == null ? mainFeatureFile(files, primaryVideoIndex) : null;
+        if (feature) {
+          setSelectedPath(feature.path);
+        } else {
+          setProblem(null);
+          setMessage("Choose the episode to play from this pack.");
+        }
       }
       if (videos.length === 0) {
         setProblem("missing");
@@ -1838,6 +2109,10 @@ function InlineStreamPlayerInner({
             return previous?.downloadedRanges ? { ...file, downloadedRanges: previous.downloadedRanges } : file;
           }),
           clientType: body.clientType ?? prev?.clientType,
+          primaryVideoIndex:
+            typeof body.primaryVideoIndex === "number"
+              ? body.primaryVideoIndex
+              : prev?.primaryVideoIndex ?? null,
         }));
       }
       const swarm = body.swarm;
@@ -2063,6 +2338,78 @@ function InlineStreamPlayerInner({
     ],
   );
 
+  /**
+   * Clear every "this attempt failed" flag so a fresh attempt starts clean (I43).
+   * Nothing here latches "already tried": a subsequent play/retry re-runs the
+   * whole pipeline from a blank slate.
+   */
+  const resetPlaybackFailure = useCallback(() => {
+    setProblem(null);
+    setMessage(null);
+    setStreamFailure(null);
+    setPreparingLabel(null);
+  }, []);
+
+  /**
+   * I19b — retry the SAME release. POST the failover route with `action:"retry"`,
+   * which clears the engine's dead-mark and re-announces/re-adds the same
+   * infoHash. On success we reset the failure and re-arm the play pipeline
+   * (bumping `planNonce`) so it re-attempts the same file cleanly — this is also
+   * the I43 "a fresh Play re-attempts cleanly" path. If the engine has no source
+   * to retry (RETRY_FAILED) or the failure was a playability one (NOT_RETRYABLE),
+   * retrying the same bytes is pointless, so fall through to the version switch.
+   */
+  const retrySameRelease = useCallback(async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      const res = await fetch("/api/playback/failover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "retry",
+          infoHash: activeInfoHash,
+          title: activeTitle,
+          mediaType: currentMediaType,
+          season: currentSeason,
+          episode: currentEpisode,
+          reason: "delivery",
+        }),
+      });
+      const data = await readJson<{ ok?: boolean; code?: string }>(res);
+      const retried = res.ok && data?.ok === true && data?.code === "RETRYING";
+      if (!retried) {
+        // No source to retry, or a playability failure — offer another version.
+        setStreamFailure((prev) => (prev ? { ...prev, retryable: false } : prev));
+        setQualityMenuOpen(true);
+        return;
+      }
+      // Re-attempt the same infoHash + file from a clean slate.
+      resetPlaybackFailure();
+      setPlayableSrc(null);
+      setCheckingStream(true);
+      setWaiting(false);
+      setActiveVideoAdvancing(false);
+      setPlaybackStarted(false);
+      lastActiveMediaTimeRef.current = null;
+      clearMotionLease();
+      setPlanNonce((n) => n + 1);
+    } catch {
+      setQualityMenuOpen(true);
+    } finally {
+      setRetrying(false);
+    }
+  }, [
+    retrying,
+    activeInfoHash,
+    activeTitle,
+    currentMediaType,
+    currentSeason,
+    currentEpisode,
+    resetPlaybackFailure,
+    clearMotionLease,
+  ]);
+
   useEffect(() => {
     if (!qualityMenuOpen || qualityCandidates.length > 0 || qualityLoading) return;
     void loadQualityCandidates();
@@ -2115,11 +2462,26 @@ function InlineStreamPlayerInner({
           headers: { Range: "bytes=0-0" },
           signal,
         });
-        await res.body?.cancel().catch(() => {});
-        if (signal.aborted) return;
+        if (signal.aborted) {
+          await res.body?.cancel().catch(() => {});
+          return;
+        }
         if (res.ok || res.status === 206) {
+          await res.body?.cancel().catch(() => {});
           setPlaybackMode("direct");
           setPlayableSrc(streamPath(hash, filePath));
+          return;
+        }
+        // I19: the byte route answers a stall with a structured {code,
+        // failureClass, retryable} the terminal panel turns into friendly copy
+        // and the right affordance (retry same vs try another version).
+        const failure = structuredFailureFromBody(
+          await readJson<{ code?: string; failureClass?: string; retryable?: boolean }>(res),
+        );
+        if (failure) {
+          setStreamFailure(failure);
+          setProblem("stalled");
+          setMessage(null);
           return;
         }
         const mapped = streamStatusMessage(res.status);
@@ -2178,6 +2540,7 @@ function InlineStreamPlayerInner({
       setCheckingStream(true);
       setProblem(null);
       setMessage(null);
+      setStreamFailure(null);
       setPreparingLabel(null);
       setSeeking(false);
       lastActiveMediaTimeRef.current = null;
@@ -2457,19 +2820,19 @@ function InlineStreamPlayerInner({
       if (action === "settled") {
         requestedSeekRef.current = null;
         clearSeekRetry();
-        setMessage((current) => current === "Fetching that position — retrying as pieces arrive." ? null : current);
+        setMessage((current) => current === "Getting that spot ready…" ? null : current);
         setSeeking(false);
         return;
       }
       if (action === "failed") {
         requestedSeekRef.current = null;
         clearSeekRetry();
-        setMessage("That position is still arriving. The engine is fetching it; try again in a moment.");
+        setMessage("That spot isn't ready yet — try again in a moment.");
         setSeeking(false);
         return;
       }
       if (action === "retry" && !seekRetryTimerRef.current) {
-        setMessage("Fetching that position — retrying as pieces arrive.");
+        setMessage("Getting that spot ready…");
         seekRetryTimerRef.current = setTimeout(() => {
           seekRetryTimerRef.current = null;
           const latest = requestedSeekRef.current;
@@ -3027,7 +3390,7 @@ function InlineStreamPlayerInner({
         pendingSeekRef.current = Math.max(0, Number.isFinite(resumeAt) ? resumeAt : currentSourceTimeRef.current);
         setProblem(null);
         setMessage(verdict.detail);
-        setPreparingLabel("Reconnecting to the stream…");
+        setPreparingLabel("Reconnecting…");
         setWaiting(false);
         setActiveVideoAdvancing(false);
         lastActiveMediaTimeRef.current = null;
@@ -3038,6 +3401,13 @@ function InlineStreamPlayerInner({
       setProblem(verdict.problem);
       setMessage(verdict.detail);
       setPlayableSrc(null);
+      // A decode/unsupported verdict is a playability failure: the bytes arrived
+      // but this release can't be decoded here. Retrying the same file is
+      // pointless, so surface it as UNPLAYABLE → the panel offers "Try another
+      // version", never "Retry" (I19).
+      if (verdict.kind === "decode" || verdict.kind === "unsupported" || verdict.kind === "unknown") {
+        setStreamFailure({ code: "UNPLAYABLE", failureClass: "playability", retryable: false });
+      }
     },
     [clearMotionLease, playbackMode, timelineOffset],
   );
@@ -3046,16 +3416,25 @@ function InlineStreamPlayerInner({
     (video: HTMLVideoElement) => {
       if (playbackMode === "direct") checkDecodedAudio(video);
       const position = playbackMode === "hls" ? timelineOffset + video.currentTime : video.currentTime;
-      // While an HLS session restart is in flight the outgoing element still
-      // reports the pre-seek position. Honouring it would snap the scrubber and
-      // clock back to where the viewer just left — the visible "snap-back". Hold
-      // the requested target until the new session reports its own position.
-      if (!seekInFlightRef.current) {
+      // The displayed playhead only adopts the element's reported position when
+      // no seek is unsettled. While an HLS restart is in flight the outgoing
+      // element still reads the pre-seek position, and while a user seek is
+      // reconciling the element reports intermediate/old positions on the way to
+      // the target — adopting either snaps the scrubber back to where the viewer
+      // just left. Holding the requested target until the real position lands is
+      // what stops "one click, then it bounces back a few times".
+      if (shouldAdoptTimeUpdate({
+        seekInFlight: seekInFlightRef.current,
+        hasPendingUserSeek: requestedSeekRef.current != null,
+      })) {
         setCurrentSourceTime(position);
         currentSourceTimeRef.current = position;
         noteActiveMediaTime(video, position);
-        reconcileRequestedSeek(position);
       }
+      // Reconcile a pending user seek against the element's *real* position so it
+      // can settle (or retry) — but never mid HLS restart, when the reported
+      // position is stale.
+      if (!seekInFlightRef.current) reconcileRequestedSeek(position);
       readBuffered(video);
       postProgress();
     },
@@ -3337,7 +3716,7 @@ function InlineStreamPlayerInner({
         <button type="button" onClick={() => seekRelative(10)} disabled={!playableSrc} aria-label="Forward 10 seconds" className={buttonClass}>
           <RotateCw className={iconClass} />
         </button>
-        <span className={cn("tabular-nums", large ? "min-w-[84px] text-[12px] text-white/80" : "text-[11px] text-white/70")}>
+        <span className={cn("tabular-nums", large ? "min-w-[84px] text-[12px] text-white/80" : "min-w-[76px] text-[11px] text-white/70")}>
           {formatClock(currentSourceTime)} / {sourceDuration && sourceDuration > 0 ? formatClock(sourceDuration) : "0:00"}
         </span>
         {sourceDuration && sourceDuration > 0 ? (
@@ -3362,7 +3741,7 @@ function InlineStreamPlayerInner({
             />
           </span>
         ) : (
-          <span className={cn("flex-1", large ? "text-[12px] text-white/60" : "text-[11px] text-white/60")}>Resolving timeline…</span>
+          <span className={cn("flex-1", large ? "min-w-[200px] text-[12px] text-white/60" : "min-w-[180px] text-[11px] text-white/60")}>Getting it ready…</span>
         )}
         <button type="button" onClick={toggleMute} disabled={!playableSrc} aria-label={muted ? "Unmute" : "Mute"} className={buttonClass}>
           {muted ? <VolumeX className={iconClass} /> : <Volume2 className={iconClass} />}
@@ -3431,7 +3810,7 @@ function InlineStreamPlayerInner({
                         {candidate.isCurrent ? <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">Current</span> : null}
                       </span>
                       <span className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[12px] text-white/58">
-                        <span>{candidateVerdictLabel(candidate.verdict)}</span><span>·</span><span>{candidatePlayabilityLabel(candidate.playability)}</span><span>·</span><span>{candidate.seeders} seeders</span>
+                        <span>{candidateVerdictLabel(candidate.verdict)}</span><span>·</span><span>{candidatePlayabilityLabel(candidate.playability)}</span>
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] text-white/35">{candidate.title}</span>
                     </span>
@@ -3456,14 +3835,6 @@ function InlineStreamPlayerInner({
 
   if (theatre) {
     const hasVisibleVideo = Boolean(playableSrc && selectedFile);
-    const showStageStatus = shouldShowFullscreenStatusOverlay({
-      hasVisibleVideo,
-      viewerWaiting,
-      preparing: Boolean(preparingLabel),
-      activeVideoAdvancing,
-      seeking,
-    });
-    const showSeekSpinner = shouldShowSeekSpinner({ seeking, activeVideoAdvancing });
     const chromeVisible = theatreControlsVisible || controlsPinned;
     const controlsOpacity = chromeVisible ? "opacity-100" : "opacity-0";
     const pointerWhenHidden = chromeVisible ? "pointer-events-auto" : "pointer-events-none focus-within:opacity-100";
@@ -3482,29 +3853,42 @@ function InlineStreamPlayerInner({
       setVolumeMenuOpen(false);
       setQualityMenuOpen(false);
     };
-    const peerCount = swarmSample?.peers ?? null;
-    const rateBps = swarmSample?.downloadSpeedBps ?? null;
-    const deliveryDetail =
-      peerCount == null && rateBps == null
-        ? "the swarm is not sending enough data"
-        : `${peerCount === 1 ? "one peer" : `${peerCount ?? 0} peers`}, ${
-            rateBps != null && rateBps >= 1024 ? `${formatBytes(rateBps)}/s` : "almost no data"
-          }`;
+    // State language only — never peer counts or byte rates.
+    const deliveryDetail = "not enough of it has arrived to play";
     const { title: terminalTitle, detail: terminalDetail } = terminalPlaybackCopy({
       problem,
       message,
       deliveryDetail,
     });
-    const statusTitle = terminalTitle
-      ? terminalTitle
+    // I19: when the engine handed us a structured failure, its friendly copy and
+    // affordance win over the generic problem→copy mapping.
+    const failureCopy = streamFailure ? playbackFailureCopy(streamFailure) : null;
+    const panelTitle = failureCopy?.headline ?? terminalTitle;
+    const panelDetail = failureCopy?.detail ?? terminalDetail;
+    // The single loader boolean: exactly one spinner for the union of every
+    // "getting there" moment, keyed to the active surface and suppressed when a
+    // terminal error owns it or the picture is advancing.
+    const showLoader = shouldShowUnifiedLoader({
+      hasVisibleVideo,
+      activeVideoAdvancing,
+      seeking,
+      waiting,
+      preparing: Boolean(preparingLabel),
+      checking: checkingStream,
+      terminal: Boolean(panelTitle),
+      playbackStarted,
+    });
+    const statusTitle = panelTitle
+      ? panelTitle
       : transitioningTitle && !playableSrc
         ? `Preparing ${transitioningTitle}`
-      : manifestLoading
-        ? "Resolving files…"
-      : !playableSrc && selectedFile
-        ? "Preparing playback — this usually takes under a minute once pieces arrive."
-      : checkingStream || preparingLabel || !playableSrc
+      : checkingStream || preparingLabel
         ? stateSentence
+      : !playbackStarted
+        // Any moment before the first frame (manifest loading, source opening,
+        // the <video> mounted but not yet painted) keeps ONE calm status line so
+        // the paneled loader stays the same node — no bare↔panel spinner churn.
+        ? "Getting it ready…"
         : null;
 
     return (
@@ -3648,40 +4032,79 @@ function InlineStreamPlayerInner({
                 />
               ) : null}
 
-              {showStageStatus ? (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),rgba(0,0,0,0.55)_62%)] px-6 text-center">
+              {panelTitle ? (
+                <div data-stream-error className="absolute inset-0 z-10 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),rgba(0,0,0,0.55)_62%)] px-6 text-center">
                   <div className="flex max-w-md flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/45 px-6 py-5 text-white/75 shadow-2xl backdrop-blur-md">
-                    {terminalTitle ? (
-                      <X className="h-7 w-7 text-white/70" />
-                    ) : (
+                    <X className="h-7 w-7 text-white/70" />
+                    <p className="text-sm font-medium text-white">{statusTitle}</p>
+                    {panelDetail ? <p className="text-[12px] text-white/60">{panelDetail}</p> : null}
+                    <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                      {failureCopy?.affordance === "retry" ? (
+                        <button
+                          type="button"
+                          data-stream-retry
+                          disabled={retrying}
+                          onClick={() => {
+                            void retrySameRelease();
+                            showTheatreControls();
+                          }}
+                          className="inline-flex h-9 items-center rounded-full bg-white px-4 text-[12px] font-semibold text-black transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                        >
+                          {retrying ? "Retrying…" : "Retry"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        data-stream-switch
+                        onClick={() => {
+                          setQualityMenuOpen(true);
+                          showTheatreControls();
+                        }}
+                        className={cn(
+                          "inline-flex h-9 items-center rounded-full px-4 text-[12px] font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
+                          failureCopy?.affordance === "retry"
+                            ? "border border-white/15 text-white/70 hover:bg-white/10 hover:text-white"
+                            : "bg-white text-black hover:bg-white/90",
+                        )}
+                      >
+                        Try another version
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void copySelected()}
+                        className="inline-flex h-9 items-center rounded-full border border-white/15 px-4 text-[12px] font-medium text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                      >
+                        Open in your player
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : showLoader ? (
+                // THE one loader. A single spinner for {seeking ∪ buffering ∪
+                // preparing ∪ checking ∪ no-source}, rendered once over the active
+                // surface. A quick seek/buffer gets the light overlay with no text;
+                // a real "getting ready" moment gets the panel with a status line.
+                <div
+                  data-stream-loading
+                  data-stream-seeking={seeking ? "true" : undefined}
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute inset-0 z-10 grid place-items-center px-6 text-center",
+                    statusTitle
+                      ? "bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),rgba(0,0,0,0.55)_62%)]"
+                      : "bg-black/25",
+                  )}
+                >
+                  {statusTitle ? (
+                    <div className="flex max-w-md flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/45 px-6 py-5 text-white/75 shadow-2xl backdrop-blur-md">
                       <span className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/8">
                         <Loader2 className="h-6 w-6 animate-spin text-white/85" />
                       </span>
-                    )}
-                    <p className="text-sm font-medium text-white">{statusTitle}</p>
-                    {terminalDetail ? <p className="text-[12px] text-white/60">{terminalDetail}</p> : null}
-                    {terminalTitle ? (
-                      <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQualityMenuOpen(true);
-                            showTheatreControls();
-                          }}
-                          className="inline-flex h-9 items-center rounded-full bg-white px-4 text-[12px] font-semibold text-black transition hover:bg-white/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                        >
-                          Try another release
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void copySelected()}
-                          className="inline-flex h-9 items-center rounded-full border border-white/15 px-4 text-[12px] font-medium text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                        >
-                          Open in your player
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
+                      <p className="text-sm font-medium text-white">{statusTitle}</p>
+                    </div>
+                  ) : (
+                    <Loader2 className="h-6 w-6 animate-spin text-white/90" />
+                  )}
                 </div>
               ) : null}
 
@@ -3700,7 +4123,7 @@ function InlineStreamPlayerInner({
                         .join(" · ")}
                     </p>
                   </div>
-                  {videoFiles.length > 1 ? (
+                  {showFileSelect ? (
                     <label className="pointer-events-auto flex max-w-[min(26rem,45vw)] shrink-0 items-center gap-2 rounded-full border border-white/12 bg-black/45 px-3 py-2 text-[11px] text-white/70 shadow-2xl backdrop-blur-md">
                       <span className="shrink-0 font-medium uppercase tracking-[0.14em] text-white/45">
                         Episode
@@ -3712,10 +4135,10 @@ function InlineStreamPlayerInner({
                         aria-label="Video file"
                         className="min-w-0 flex-1 appearance-none truncate bg-transparent text-[12px] font-medium text-white outline-none"
                       >
-                        <option value="" className="bg-[var(--bg-elevated)]">Pick a video file…</option>
-                        {videoFiles.map((file) => (
+                        <option value="" className="bg-[var(--bg-elevated)]">Pick a video…</option>
+                        {videoFiles.map((file, i) => (
                           <option key={file.index} value={file.path} className="bg-[var(--bg-elevated)]">
-                            {file.path} · {formatBytes(file.length)}
+                            {fileOptionLabel(file, i)}
                           </option>
                         ))}
                       </select>
@@ -3824,16 +4247,6 @@ function InlineStreamPlayerInner({
                     )}
                   </span>
                 </div>
-              ) : null}
-
-              {showSeekSpinner ? (
-                <span
-                  data-stream-seeking
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-md bg-black/25"
-                >
-                  <Loader2 className="h-6 w-6 animate-spin text-white/90" />
-                </span>
               ) : null}
             </div>
           </div>
@@ -3974,11 +4387,11 @@ function InlineStreamPlayerInner({
           {!theatre && manifestLoading ? (
             <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
               <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-              Resolving files…
+              Getting it ready…
             </p>
           ) : null}
 
-          {videoFiles.length > 1 ? (
+          {showFileSelect ? (
             <label className="block space-y-1 text-[11px] text-[var(--text-tertiary)]">
               File
               <select
@@ -3987,10 +4400,10 @@ function InlineStreamPlayerInner({
                 data-stream-file-select
                 className="input-field h-8 w-full px-2 text-[12px]"
               >
-                <option value="" className="bg-[var(--bg-elevated)]">Pick a video file…</option>
-                {videoFiles.map((file) => (
+                <option value="" className="bg-[var(--bg-elevated)]">Pick a video…</option>
+                {videoFiles.map((file, i) => (
                   <option key={file.index} value={file.path} className="bg-[var(--bg-elevated)]">
-                    {file.path} · {formatBytes(file.length)}
+                    {fileOptionLabel(file, i)}
                   </option>
                 ))}
               </select>
@@ -4044,7 +4457,7 @@ function InlineStreamPlayerInner({
                   {message
                     ? "Playback cannot start yet."
                     : manifestLoading
-                    ? "Resolving files…"
+                    ? "Getting it ready…"
                     : checkingStream || preparingLabel
                       ? stateSentence
                       : "Pick a video file to start playback."}
@@ -4093,9 +4506,19 @@ function InlineStreamPlayerInner({
               {renderStreamVideo({
                 className: "w-full rounded-md bg-black",
               })}
-              {shouldShowSeekSpinner({ seeking, activeVideoAdvancing }) ? (
+              {shouldShowUnifiedLoader({
+                hasVisibleVideo: true,
+                activeVideoAdvancing,
+                seeking,
+                waiting,
+                preparing: Boolean(preparingLabel),
+                checking: checkingStream,
+                terminal: false,
+                playbackStarted,
+              }) ? (
                 <span
-                  data-stream-seeking
+                  data-stream-loading
+                  data-stream-seeking={seeking ? "true" : undefined}
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-0 grid place-items-center rounded-md bg-black/25"
                 >
@@ -4178,12 +4601,6 @@ function InlineStreamPlayerInner({
                       }}
                     />
                   </div>
-                  <p className="text-[11px] text-[var(--text-tertiary)]">
-                    <span className="text-[var(--accent-text)]">Downloaded</span> pieces are
-                    held by the torrent; <span className="text-[var(--text-secondary)]">bright</span>{" "}
-                    spans are buffered in the browser.
-                    {currentTimeHeld === false ? " This position is not downloaded yet." : ""}
-                  </p>
                 </div>
               ) : null}
               {unifiedControlBar("inline")}

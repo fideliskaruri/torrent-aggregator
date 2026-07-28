@@ -40,6 +40,9 @@ export async function getCachedMetadata(
       synopsis: row.synopsis,
       rating: row.rating,
       year: row.year,
+      releaseDate: row.releaseDate
+        ? row.releaseDate.toISOString().slice(0, 10)
+        : null,
       genres: row.genres ? (JSON.parse(row.genres) as string[]) : [],
     };
   } catch {
@@ -58,6 +61,7 @@ export async function setCachedMetadata(
     meta.externalId,
   );
   const expiresAt = new Date(Date.now() + ttlMs);
+  const releaseDate = metadataReleaseDate(meta.releaseDate);
 
   try {
     await prisma.cachedMetadata.upsert({
@@ -73,6 +77,7 @@ export async function setCachedMetadata(
         synopsis: meta.synopsis ?? null,
         rating: meta.rating ?? null,
         year: meta.year ?? null,
+        releaseDate,
         genres: JSON.stringify(meta.genres ?? []),
         rawJson: JSON.stringify(meta),
         expiresAt,
@@ -84,6 +89,7 @@ export async function setCachedMetadata(
         synopsis: meta.synopsis ?? null,
         rating: meta.rating ?? null,
         year: meta.year ?? null,
+        releaseDate,
         genres: JSON.stringify(meta.genres ?? []),
         rawJson: JSON.stringify(meta),
         expiresAt,
@@ -92,6 +98,22 @@ export async function setCachedMetadata(
   } catch {
     // ignore cache write failures
   }
+}
+
+/**
+ * A `MediaMetadata.releaseDate` (ISO date/`YYYY-MM-DD`/`YYYY`) as a UTC `Date`
+ * for the `CachedMetadata.releaseDate` column, or null.
+ *
+ * Anchored at UTC midnight and never fabricated: a missing or malformed value
+ * is null, which stays ungated. Year-only strings are already stored as
+ * `YYYY-01-01` by the providers, so slicing to the day is enough here.
+ */
+function metadataReleaseDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const dayOnly = value.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayOnly)) return null;
+  const date = new Date(`${dayOnly}T00:00:00.000Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 /** In-memory short TTL cache for query → best match (per process) */

@@ -110,6 +110,12 @@ export interface TitleDetailPayload {
   rating: number | null;
   posterUrl: string | null;
   backdropUrl: string | null;
+  /**
+   * Primary release / first-air date as an ISO string, or null when unknown.
+   * A date strictly in the future gates the page visually (grayed, "Coming
+   * {date}", disabled actions). Unknown dates are never gated.
+   */
+  releaseDate: string | null;
 
   /**
    * Title-level availability.

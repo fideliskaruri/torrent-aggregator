@@ -100,6 +100,13 @@ export interface RailItem {
   /** Media type for routing (anime | tv | movie). */
   mediaType: string | null;
   /**
+   * Primary release / first-air date (ISO string) when known. Drives
+   * future-gating: a card whose releaseDate is in the future is grayed and
+   * labelled "Coming {date}", never offered as a dead Play/Download. Null =
+   * unknown, which is never gated. See src/lib/browse/release-status.ts.
+   */
+  releaseDate?: string | null;
+  /**
    * One-paragraph synopsis of the work, when the catalog has one.
    *
    * Optional so rails that have no synopsis to give (Continue Watching, Ready

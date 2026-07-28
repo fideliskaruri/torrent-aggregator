@@ -4,9 +4,9 @@
  * Seasons and episodes — the half of the title page that is not the hero.
  *
  * The agreed shape is one row per episode, each with **its own availability
- * indicator and distinct Stream / Download controls**. That is the whole design
+ * indicator and distinct Play / Download controls**. That is the whole design
  * constraint: no row may hand the user off to a list of releases, no row may
- * claim a state it did not check, and streaming must never silently become a
+ * claim a state it did not check, and playing must never silently become a
  * kept download.
  *
  * Three judgements are baked into a row:
@@ -22,13 +22,14 @@
  *    renders as *no chip* — the row is still clickable and Get still says what
  *    it means. This is not the same as calling it `unavailable`, which is a
  *    claim, and one we never make per-episode.
- *  - **An unaired episode gets no button.** Offering "Stream" or "Download"
+ *  - **An unaired episode gets no button.** Offering "Play" or "Download"
  *    for something that does not exist yet is the app asserting a state it never checked. It
  *    prints its air date instead — plain text, so there is no disabled control
  *    for a keyboard user to land on. A local file always wins over a future
  *    date, because bad provider data must never hide a file we actually hold.
  */
 import { Check, Download, Loader2, Play } from "lucide-react";
+import type { ReactNode } from "react";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { PosterImage } from "@/components/browse/poster-image";
 import { formatClock, progressPercent } from "@/components/browse/availability";
@@ -81,6 +82,41 @@ export interface EpisodeListProps {
 /** Stable per-row key for tracking one in-flight action. */
 export function episodeActionKey(season: number, episode: number): string {
   return `s${season}e${episode}`;
+}
+
+/**
+ * Renders a button's icon + label with a spinner **overlaid** on top when
+ * pending, instead of swapping the label out for the spinner. The label stays
+ * mounted (only made invisible) so the button keeps identical width/height in
+ * both idle and loading states — no layout shift, no "jumping" controls.
+ */
+function ButtonBody({
+  pending,
+  icon,
+  children,
+}: {
+  pending: boolean;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5",
+          pending && "invisible",
+        )}
+      >
+        {icon}
+        {children}
+      </span>
+      {pending ? (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <Loader2 className="animate-spin" aria-hidden />
+        </span>
+      ) : null}
+    </>
+  );
 }
 
 export function episodeIntentKey(
@@ -176,14 +212,14 @@ export function EpisodeList({
                     "stream",
                   )
                 }
-                className="shrink-0"
+                className="relative shrink-0"
               >
-                {seasonStreamStatus.status === "pending" ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Play className="fill-current" aria-hidden />
-                )}
-                Stream season
+                <ButtonBody
+                  pending={seasonStreamStatus.status === "pending"}
+                  icon={<Play className="fill-current" aria-hidden />}
+                >
+                  Play season
+                </ButtonBody>
               </Button>
               <Button
                 type="button"
@@ -201,14 +237,14 @@ export function EpisodeList({
                     "keep",
                   )
                 }
-                className="shrink-0"
+                className="relative shrink-0"
               >
-                {seasonGrabStatus.status === "pending" ? (
-                  <Loader2 className="animate-spin" aria-hidden />
-                ) : (
-                  <Download aria-hidden />
-                )}
-                Download season
+                <ButtonBody
+                  pending={seasonGrabStatus.status === "pending"}
+                  icon={<Download aria-hidden />}
+                >
+                  Download season
+                </ButtonBody>
               </Button>
             </div>
           ) : null}
@@ -346,10 +382,10 @@ function EpisodeRow({
   const resolved = resolveEpisodeAction(episode);
   const streamAction: TitleAction =
     resolved.kind === "play"
-      ? { ...resolved, label: "Stream" }
+      ? resolved
       : {
           kind: "stream",
-          label: "Stream",
+          label: "Play",
           season: episode.season,
           episode: episode.episode,
         };
@@ -506,14 +542,14 @@ function EpisodeRow({
             aria-busy={effectiveStreamStatus === "pending" || undefined}
             disabled={!streamCanRun}
             onClick={() => onAction(streamAction, episode.label, "stream")}
-            className="shrink-0"
+            className="relative min-w-[5rem] shrink-0"
           >
-            {effectiveStreamStatus === "pending" ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : (
-              <Play className="fill-current" aria-hidden />
-            )}
-            {streamLabel}
+            <ButtonBody
+              pending={effectiveStreamStatus === "pending"}
+              icon={<Play className="fill-current" aria-hidden />}
+            >
+              {streamLabel}
+            </ButtonBody>
           </Button>
           <Button
             type="button"
@@ -526,14 +562,14 @@ function EpisodeRow({
             aria-busy={effectiveDownloadStatus === "pending" || undefined}
             disabled={!downloadCanRun}
             onClick={() => onAction(downloadAction, episode.label, "keep")}
-            className="shrink-0"
+            className="relative min-w-[6rem] shrink-0"
           >
-            {effectiveDownloadStatus === "pending" ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : (
-              <Download aria-hidden />
-            )}
-            {downloadLabel}
+            <ButtonBody
+              pending={effectiveDownloadStatus === "pending"}
+              icon={<Download aria-hidden />}
+            >
+              {downloadLabel}
+            </ButtonBody>
           </Button>
         </span>
       )}

@@ -28,6 +28,7 @@
  *    when the request had actually failed.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Download, Loader2, Play, Search } from "lucide-react";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
@@ -44,6 +45,7 @@ import { TfErrorState } from "@/components/tf/error-state";
 import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
+import { releaseStatus } from "@/lib/browse/release-status";
 import { EpisodeList, episodeActionKey, episodeIntentKey } from "./episode-list";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons } from "./merge-extras";
@@ -89,6 +91,41 @@ type PlayTarget = {
 
 const PRIMARY_KEY = "primary";
 const DOWNLOAD_KEY = "download";
+
+/**
+ * Renders a button's icon + label with the pending spinner **overlaid** rather
+ * than swapped in for the label. The label stays mounted (only invisible) so
+ * the control keeps identical width and height idle↔loading — no layout shift,
+ * no controls that resize the moment they are pressed.
+ */
+function ButtonBody({
+  pending,
+  icon,
+  children,
+}: {
+  pending: boolean;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5",
+          pending && "invisible",
+        )}
+      >
+        {icon}
+        {children}
+      </span>
+      {pending ? (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <Loader2 className="animate-spin" aria-hidden />
+        </span>
+      ) : null}
+    </>
+  );
+}
 
 export function TitleDetail(props: TitleDetailProps) {
   const [season, setSeason] = useState<number | null>(props.season ?? null);
@@ -375,6 +412,12 @@ function TitleContent({
   const downloaded = progressPercent(payload.downloadFraction);
   const downloadFraction = clampFraction(payload.downloadFraction);
 
+  // Visual availability: a title whose release date is still in the future is
+  // shown but not actionable — grayed art, a "Coming {date}" label, and no
+  // Play/Download. Unknown dates are never gated (releaseStatus says so).
+  const release = releaseStatus(payload.releaseDate);
+  const gated = release.unreleased;
+
   // The season the user is looking at, which is not always the season the
   // detail route answered with: it only knows the seasons we hold files for,
   // and the tabs also list the ones the provider says exist.
@@ -430,7 +473,7 @@ function TitleContent({
     primaryStatus,
     primarySubtitle,
   );
-  const primaryCanRun = shouldRunTitleAction(primary, primaryStatus);
+  const primaryCanRun = shouldRunTitleAction(primary, primaryStatus) && !gated;
   const primaryStatusId = "title-primary-status";
   const primaryDescribedBy =
     primaryStatusText || (downloaded != null && downloaded < 100)
@@ -462,7 +505,8 @@ function TitleContent({
   };
   const downloadStatus = statusFor(DOWNLOAD_KEY);
   const downloadLabel = titleActionButtonLabel(downloadAction, downloadStatus);
-  const downloadCanRun = shouldRunTitleAction(downloadAction, downloadStatus);
+  const downloadCanRun =
+    shouldRunTitleAction(downloadAction, downloadStatus) && !gated;
   const downloadLabelTarget = primarySubtitle
     ? `${title} ${primarySubtitle}`
     : title;
@@ -489,7 +533,10 @@ function TitleContent({
               sizes="100vw"
               priority
               variant="plain"
-              className="scale-[1.06] object-cover object-[center_22%] blur-[3px]"
+              className={cn(
+                "scale-[1.06] object-cover object-[center_22%] blur-[3px]",
+                gated && "grayscale",
+              )}
             />
           ) : null}
         </div>
@@ -516,7 +563,12 @@ function TitleContent({
             {/* The poster is a mark, not a caption: the title is printed
                 beside it, so the no-artwork tile carries no words of its own. */}
             <div className="hidden w-[168px] shrink-0 md:block lg:w-[196px]">
-              <div className="relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] shadow-[var(--shadow-md)]">
+              <div
+                className={cn(
+                  "relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] shadow-[var(--shadow-md)]",
+                  gated && "grayscale",
+                )}
+              >
                 <PosterImage
                   src={payload.posterUrl}
                   title={title}
@@ -532,12 +584,24 @@ function TitleContent({
               </h1>
 
               <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-[var(--text-secondary)]">
-                {/* Same rule as the episode rows: a chip is for a state worth
-                    acting on. "Nobody has checked" is already said, in words,
-                    under the button. */}
-                {payload.availability != null ? (
+                {/* A future title is gated visually: a plain "Coming" label
+                    instead of an availability chip, and disabled actions. */}
+                {gated ? (
+                  <span
+                    data-title-coming
+                    className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1 font-medium text-[var(--text-secondary)]"
+                  >
+                    {release.comingLabel ?? "Coming soon"}
+                  </span>
+                ) : payload.availability != null &&
+                  payload.availability !== "fetchable" ? (
                   <AvailabilityChip state={payload.availability} />
                 ) : null}
+                {/* Same rule as the episode rows: a chip is for a state worth
+                    acting on. "Nobody has checked" is already said, in words,
+                    under the button — and "Can get" is just the app narrating
+                    that a release exists, which the Download button already
+                    offers. Availability is shown visually, not spelled out. */}
                 {facts ? (
                   <span data-title-facts className="tabular-nums">
                     {facts}
@@ -580,20 +644,25 @@ function TitleContent({
                         primary.kind === "get" ? "keep" : "stream",
                       )
                     }
+                    className="relative min-w-[9rem]"
                   >
-                    {primaryStatus === "pending" ? (
-                      <Loader2 className="animate-spin" aria-hidden />
-                    ) : primary.kind === "play" || primary.kind === "stream" ? (
-                      <Play className="fill-current" aria-hidden />
-                    ) : (
-                      <Download aria-hidden />
-                    )}
-                    {primaryLabel}
-                    {primarySubtitle ? (
-                      <span className="text-[12px] opacity-80">
-                        {primarySubtitle}
-                      </span>
-                    ) : null}
+                    <ButtonBody
+                      pending={primaryStatus === "pending"}
+                      icon={
+                        primary.kind === "play" || primary.kind === "stream" ? (
+                          <Play className="fill-current" aria-hidden />
+                        ) : (
+                          <Download aria-hidden />
+                        )
+                      }
+                    >
+                      {primaryLabel}
+                      {primarySubtitle ? (
+                        <span className="text-[12px] tabular-nums opacity-80">
+                          {primarySubtitle}
+                        </span>
+                      ) : null}
+                    </ButtonBody>
                   </Button>
 
                   {showDownload ? (
@@ -618,13 +687,14 @@ function TitleContent({
                           "keep",
                         )
                       }
+                      className="relative min-w-[8rem]"
                     >
-                      {downloadStatus === "pending" ? (
-                        <Loader2 className="animate-spin" aria-hidden />
-                      ) : (
-                        <Download aria-hidden />
-                      )}
-                      {downloadLabel}
+                      <ButtonBody
+                        pending={downloadStatus === "pending"}
+                        icon={<Download aria-hidden />}
+                      >
+                        {downloadLabel}
+                      </ButtonBody>
                     </Button>
                   ) : null}
                 </div>
@@ -643,39 +713,38 @@ function TitleContent({
               ) : null}
 
               {/* Reserved height so a transient status ("Opening player…")
-                  appearing or clearing never nudges the page. Streaming shows
-                  only this line; a real download adds the bar below. */}
+                  appearing or clearing never nudges the page. The status is a
+                  short action message only — never a percentage, which is
+                  mechanism the product does not narrate. */}
               <div
                 id={primaryStatusId}
                 className="mt-3 min-h-[1.25rem] max-w-sm text-[12px] text-[var(--text-tertiary)]"
                 role={primaryStatusText ? "status" : undefined}
               >
-                {[
-                  primaryStatusText,
-                  downloaded != null && downloaded < 100
-                    ? `${downloaded}% downloaded`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" — ")}
+                {primaryStatusText}
               </div>
-              {downloadFraction != null ? (
-                <div
-                  className="mt-1.5 h-1 max-w-sm overflow-hidden rounded-full bg-[var(--bg-muted)]"
-                  role="progressbar"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(downloadFraction * 100)}
-                  aria-label={`${title} download progress`}
-                >
+              {/* The progress bar is a *visual* availability cue, but its slot
+                  is reserved whether or not it is filled, so toggling it can
+                  never shift "More like this" up or down. */}
+              <div className="mt-1.5 h-1 max-w-sm">
+                {downloadFraction != null ? (
                   <div
-                    className="h-full rounded-full bg-[var(--accent)]"
-                    style={{
-                      width: `${Math.round(downloadFraction * 100)}%`,
-                    }}
-                  />
-                </div>
-              ) : null}
+                    className="h-full overflow-hidden rounded-full bg-[var(--bg-muted)]"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(downloadFraction * 100)}
+                    aria-label={`${title} download progress`}
+                  >
+                    <div
+                      className="h-full rounded-full bg-[var(--accent)]"
+                      style={{
+                        width: `${Math.round(downloadFraction * 100)}%`,
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
 
               {notice ? (
                 <p

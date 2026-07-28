@@ -908,7 +908,7 @@ for (const tc of READY_RAIL_CASES) {
   });
 }
 
-check("ready-to-play candidates include partials but not indeterminate rows", () => {
+check("ready-to-play candidates are genuinely playable, never mid-download", () => {
   assert.equal(
     readyToPlayTorrentCanSurface({ progress: 1, status: "seeding" }),
     true,
@@ -916,8 +916,10 @@ check("ready-to-play candidates include partials but not indeterminate rows", ()
   );
   assert.equal(
     readyToPlayTorrentCanSurface({ progress: 0.23, status: "downloading" }),
-    true,
-    "partial local torrents are warm/playable, not hidden until 100%",
+    false,
+    "a mid-download torrent (incl. a stream pulling watched pieces) must not " +
+      "sit in Ready to Play badged Streaming/Downloading — it belongs in " +
+      "Continue Watching",
   );
   assert.equal(
     readyToPlayTorrentCanSurface({ progress: 0, status: "downloading" }),
@@ -925,9 +927,9 @@ check("ready-to-play candidates include partials but not indeterminate rows", ()
     "0% rows have no browse-layer evidence of playable bytes",
   );
   assert.equal(
-    readyToPlayTorrentCanSurface({ progress: 0.5, status: "error" }),
+    readyToPlayTorrentCanSurface({ progress: 1, status: "error" }),
     false,
-    "errored partials must not be offered as local playback",
+    "errored rows must not be offered as local playback",
   );
 });
 

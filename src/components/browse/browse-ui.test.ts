@@ -197,24 +197,24 @@ const ACTION_CASES: Array<{
     disabled: true,
   },
   {
-    name: "unresolved (null) is not a verdict → clickable, neutral Check",
+    name: "unresolved (null) is not a verdict → clickable, neutral Find it",
     input: item({ availability: null }),
     kind: "search",
-    label: "Check",
+    label: "Find it",
     disabled: false,
   },
   {
-    name: "unresolved + episode → still Check, never a grab we cannot justify",
+    name: "unresolved + episode → still Find it, never a grab we cannot justify",
     input: item({ availability: null, season: 4, episode: 11 }),
     kind: "search",
-    label: "Check",
+    label: "Find it",
     disabled: false,
   },
   {
-    name: "unresolved + hash it cannot play → Check, not Play",
+    name: "unresolved + hash it cannot play → Find it, not Play",
     input: item({ availability: null, infoHash: "aaa" }),
     kind: "search",
-    label: "Check",
+    label: "Find it",
     disabled: false,
   },
   {
@@ -332,7 +332,7 @@ check("action: unresolved never promises a grab or a play", () => {
         }),
       );
       assert.equal(action.kind, "search");
-      assert.equal(action.label, "Check");
+      assert.equal(action.label, "Find it");
       assert.equal(action.disabled, false);
     }
   }
@@ -646,10 +646,10 @@ const LABEL_CASES: Array<[CardAction, ActionStatus, string]> = [
   [find, "pending", "Find it"],
   [find, "error", "Find it"],
   [find, "done", "Find it"],
-  [checkIt, "idle", "Check"],
-  [checkIt, "pending", "Check"],
-  [checkIt, "error", "Check"],
-  [checkIt, "done", "Check"],
+  [checkIt, "idle", "Find it"],
+  [checkIt, "pending", "Find it"],
+  [checkIt, "error", "Find it"],
+  [checkIt, "done", "Find it"],
   [dead, "idle", "Unavailable"],
   [dead, "pending", "Unavailable"],
   [dead, "error", "Unavailable"],
@@ -732,7 +732,7 @@ check("availabilityMeta: fetchable names getting, not local readiness", () => {
 
 check("availabilityMeta: warm is playable but never labelled ready", () => {
   const warm = availabilityMeta("warm");
-  assert.equal(warm.label, "Streaming");
+  assert.equal(warm.label, "Playable");
   assert.notEqual(warm.label, availabilityMeta("ready").label);
   assert.match(
     warm.description ?? "",

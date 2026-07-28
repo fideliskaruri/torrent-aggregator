@@ -8,10 +8,15 @@ import {
   candidateQualityShape,
   candidateVerdictLabel,
   encodeStreamFilePath,
+  fileOptionLabel,
   findSidecarSubtitle,
   infoHashFromMagnet,
   interpretMediaElementError,
   isUpNextPlayableEnoughToAdvance,
+  mainFeatureFile,
+  playbackFailureCopy,
+  structuredFailureFromBody,
+  type StructuredPlaybackFailure,
   nextViewerWaitingState,
   nextSeekIntentAction,
   nextSeekRestartAction,
@@ -19,9 +24,12 @@ import {
   qualitySelectorEmptyCopy,
   releaseDetailChips,
   resolveVideoFileSelection,
+  selectMainFeatureFile,
   selectVideoFiles,
+  shouldAdoptTimeUpdate,
   shouldShowFullscreenStatusOverlay,
   shouldShowSeekSpinner,
+  shouldShowUnifiedLoader,
   shouldShowViewerBuffering,
   terminalPlaybackCopy,
   streamStateSentence,
@@ -174,7 +182,7 @@ assert(
 const statuses: [number, string][] = [
   [409, "built-in engine"],
   [425, "still resolving"],
-  [503, "No peers"],
+  [503, "coming through"],
   [404, "download it first"],
   [416, "byte range"],
 ];
@@ -200,7 +208,16 @@ assert(
   releaseDetailChips(
     "www.UIndex.org - Rick and Morty S01E02 Lawnmower Dog 1080p AMZN WEB-DL DDP5 1 H 264-Kitsune\\Rick and Morty S01E02 Lawnmower Dog 1080p AMZN WEB-DL DDP5.1 H.264-Kitsune.mkv",
     716 * 1024 ** 2,
-  ).join(" · ") === "1080p · WEB-DL · DDP5.1 · H.264 · 716 MB",
+  ).join(" · ") === "1080p · WEB-DL · 716 MB",
+);
+assert(
+  "release chips never expose codec/container identity (mechanism)",
+  !releaseDetailChips(
+    "Movie 2019 1080p BluRay x265 HEVC DTS-HD MA 5.1.mkv",
+    8_000 * 1024 ** 2,
+  )
+    .join(" ")
+    .match(/H\.26|x26|HEVC|DTS|DDP|AC-?3|AAC|MKV|MP4/i),
 );
 assert(
   "release details do not expose the raw release path as a label",
@@ -212,10 +229,10 @@ assert(
 assert(
   "preparing state names the viewer state, not the ffmpeg mechanism",
   streamStateSentence({ checking: false, preparing: true, waiting: false, playing: false }) ===
-    "Preparing playback — this usually takes under a minute once pieces arrive.",
+    "Getting it ready…",
 );
 assert(
-  "waiting on an unsustainable stream says the truth",
+  "waiting on an unsustainable stream never says 'stream' or a mechanism",
   streamStateSentence({
     checking: false,
     preparing: false,
@@ -223,7 +240,7 @@ assert(
     playing: false,
     swarm: { peers: 4, downloadSpeedBps: 1_200, progress: 0.15, observedAt: 0 },
     minimumStreamBps: 500_000,
-  }) === "Too slow to stream — downloading in the background.",
+  }) === "This one's slow — still getting it ready.",
 );
 assert(
   "moving active video suppresses the buffering overlay after a waiting event",
@@ -381,7 +398,7 @@ assert(
 );
 assert(
   "up-next status never calls an incomplete torrent ready",
-  upNextStatusSentence("downloading") === "Still downloading — you can start streaming, but it may buffer.",
+  upNextStatusSentence("downloading") === "Still downloading — you can start now, but it may pause to catch up.",
 );
 assert(
   "up-next unavailable action label names the state instead of saying switch here soon",
@@ -392,8 +409,9 @@ assert(
 assert("quality selector calls good swarms fast", candidateVerdictLabel("good") === "Fast");
 assert("quality selector keeps unknown offerable", candidateVerdictLabel("unknown") === "Untested");
 assert(
-  "quality selector does not print raw playability enums",
-  candidatePlayabilityLabel("transcode") === "Needs converting",
+  "quality selector never narrates the transcode mechanism",
+  candidatePlayabilityLabel("transcode") === "Plays" &&
+    !/convert|remux|transcod/i.test(candidatePlayabilityLabel("transcode")),
 );
 assert(
   "quality selector shows picture and swarm-relevant shape",
@@ -681,6 +699,252 @@ assert(
   "the spoken summary admits ignorance",
   /unknown/i.test(swarmSummary(null)),
   swarmSummary(null),
+);
+
+// --- I11: exactly one loader — spatially (union) AND temporally (continuous) -
+{
+  const base = {
+    hasVisibleVideo: true,
+    activeVideoAdvancing: false,
+    seeking: false,
+    waiting: false,
+    preparing: false,
+    checking: false,
+    terminal: false,
+    // Post-first-frame is the default for the union cases below; the temporal
+    // cases flip this to false to model the prepare→first-frame window.
+    playbackStarted: true,
+  };
+  const cases: Array<{ name: string; args: typeof base; expect: boolean }> = [
+    { name: "idle over a visible video shows no loader", args: { ...base }, expect: false },
+    { name: "seeking a stalled video shows the one loader", args: { ...base, seeking: true }, expect: true },
+    { name: "waiting shows the one loader", args: { ...base, waiting: true }, expect: true },
+    { name: "preparing shows the one loader", args: { ...base, preparing: true }, expect: true },
+    { name: "checking shows the one loader", args: { ...base, checking: true }, expect: true },
+    { name: "no source yet always shows the loader", args: { ...base, hasVisibleVideo: false, playbackStarted: false }, expect: true },
+    {
+      name: "an advancing picture never gets a loader (motion lease)",
+      args: { ...base, activeVideoAdvancing: true, waiting: true, seeking: true, preparing: true },
+      expect: false,
+    },
+    {
+      name: "a terminal error owns the surface instead of a loader",
+      args: { ...base, terminal: true, waiting: true, seeking: true, preparing: true },
+      expect: false,
+    },
+    {
+      name: "seek-while-preparing is still one loader, not two",
+      args: { ...base, seeking: true, preparing: true },
+      expect: true,
+    },
+    // Temporal continuity — the cold-start "3 loaders in a row" bug. Every phase
+    // between Play-press and the first painted frame must resolve to the SAME
+    // true, so the one loader is held on without a single blink.
+    {
+      name: "TEMPORAL: <video> mounted but first frame not yet painted keeps the one loader (gap closed)",
+      args: { ...base, hasVisibleVideo: true, playbackStarted: false },
+      expect: true,
+    },
+    {
+      name: "TEMPORAL: no transient flag set yet but not-started still shows the loader (no blink between phases)",
+      args: { ...base, hasVisibleVideo: true, playbackStarted: false, waiting: false, seeking: false, preparing: false, checking: false },
+      expect: true,
+    },
+    {
+      name: "TEMPORAL: pre-first-frame buffering is the same loader, not a second one",
+      args: { ...base, playbackStarted: false, waiting: true },
+      expect: true,
+    },
+    {
+      name: "TEMPORAL: the loader flips off exactly once — an idle video after the first frame drops it",
+      args: { ...base, playbackStarted: true },
+      expect: false,
+    },
+    {
+      name: "TEMPORAL: the first advancing frame drops the loader even before playbackStarted propagates",
+      args: { ...base, playbackStarted: false, activeVideoAdvancing: true },
+      expect: false,
+    },
+    {
+      name: "POST-FIRST-FRAME: a mid-play stall shows the one loader again (transient)",
+      args: { ...base, playbackStarted: true, waiting: true },
+      expect: true,
+    },
+  ];
+  for (const c of cases) {
+    assert(`unified loader — ${c.name}`, shouldShowUnifiedLoader(c.args) === c.expect, String(shouldShowUnifiedLoader(c.args)));
+  }
+}
+
+// --- SEEK: freeze the displayed playhead until the real position lands -------
+assert(
+  "timeupdate is adopted when nothing is in flight",
+  shouldAdoptTimeUpdate({ seekInFlight: false, hasPendingUserSeek: false }) === true,
+);
+assert(
+  "timeupdate is frozen while a user seek is pending (kills the bounce)",
+  shouldAdoptTimeUpdate({ seekInFlight: false, hasPendingUserSeek: true }) === false,
+);
+assert(
+  "timeupdate is frozen during an HLS session restart",
+  shouldAdoptTimeUpdate({ seekInFlight: true, hasPendingUserSeek: false }) === false,
+);
+assert(
+  "timeupdate stays frozen when both are true",
+  shouldAdoptTimeUpdate({ seekInFlight: true, hasPendingUserSeek: true }) === false,
+);
+
+// --- I20: a movie must not be treated as a season pack ----------------------
+assert(
+  "a lone feature is auto-selected",
+  selectMainFeatureFile([{ path: "The Last Jedi 2017 1080p.mkv", length: 8_000_000_000, index: 0 }])?.index === 0,
+);
+assert(
+  "a dominant feature wins over sample/extra junk",
+  selectMainFeatureFile([
+    { path: "sample.mkv", length: 60_000_000, index: 0 },
+    { path: "The Last Jedi 2017 1080p.mkv", length: 8_000_000_000, index: 1 },
+    { path: "featurette.mp4", length: 300_000_000, index: 2 },
+  ])?.index === 1,
+);
+assert(
+  "a genuine multi-film pack (comparable sizes) returns null",
+  selectMainFeatureFile([
+    { path: "Film A.mkv", length: 4_000_000_000, index: 0 },
+    { path: "Film B.mkv", length: 4_100_000_000, index: 1 },
+  ]) === null,
+);
+assert(
+  "no video files means nothing to auto-select",
+  selectMainFeatureFile([{ path: "readme.txt", length: 1_000, index: 0 }]) === null,
+);
+
+// --- file picker labels never leak the raw release path ---------------------
+assert(
+  "an episode file reads as SxxEyy plus size, never its path",
+  fileOptionLabel({ path: "www.Tracker.org/Show S02E05 1080p WEB-DL.mkv", length: 1_200 * 1024 ** 2, index: 0 }, 0) ===
+    "S02E05 · 1.2 GB",
+);
+assert(
+  "a non-episode file reads as a plain numbered video, never its path",
+  (() => {
+    const label = fileOptionLabel({ path: "Some.Movie.2019.1080p.BluRay.x265.mkv", length: 5_000 * 1024 ** 2, index: 3 }, 3);
+    return label.startsWith("Video 4") && !/BluRay|x265|\.mkv|Some\.Movie/i.test(label);
+  })(),
+);
+
+// --- I20 upgrade: authoritative primaryVideoIndex drives auto-select ---------
+const packWithTwoFeatures: StreamFile[] = [
+  { path: "Movie 1080p.mkv", length: 8_000_000_000, index: 0 },
+  { path: "Movie 2160p.mkv", length: 20_000_000_000, index: 2 },
+  { path: "sample.mkv", length: 60_000_000, index: 4 },
+];
+assert(
+  "the authoritative primaryVideoIndex is honored over the natural-largest heuristic",
+  mainFeatureFile(packWithTwoFeatures, 0)?.index === 0,
+);
+assert(
+  "a different authoritative index selects that exact video file",
+  mainFeatureFile(packWithTwoFeatures, 2)?.index === 2,
+);
+assert(
+  "a null primaryVideoIndex falls back to the local main-feature heuristic",
+  mainFeatureFile(
+    [{ path: "The Last Jedi 2017 1080p.mkv", length: 8_000_000_000, index: 0 }],
+    null,
+  )?.index === 0,
+);
+assert(
+  "an out-of-range primaryVideoIndex falls back to the heuristic rather than picking nothing",
+  mainFeatureFile(
+    [{ path: "The Last Jedi 2017 1080p.mkv", length: 8_000_000_000, index: 0 }],
+    99,
+  )?.index === 0,
+);
+assert(
+  "a primaryVideoIndex that points at a non-video file is ignored and the heuristic wins",
+  mainFeatureFile(
+    [
+      { path: "poster.jpg", length: 90_000, index: 0 },
+      { path: "The Last Jedi 2017 1080p.mkv", length: 8_000_000_000, index: 1 },
+    ],
+    0,
+  )?.index === 1,
+);
+assert(
+  "a genuine multi-film pack with no authoritative index still returns null (keeps file-select)",
+  mainFeatureFile(
+    [
+      { path: "Film A.mkv", length: 4_000_000_000, index: 0 },
+      { path: "Film B.mkv", length: 4_100_000_000, index: 1 },
+    ],
+    undefined,
+  ) === null,
+);
+
+// --- I19: structured failure copy is friendly, actionable and mechanism-free -
+const MECHANISM = /peer|kbps|\bbyte|%|transcod|remux|\bcodec\b|container|h\.?264|x26[45]|\.mkv|\.mp4|magnet|infohash|torrent|\bpeers?\b|seeder|swarm/i;
+const failureCases: Array<{
+  failure: StructuredPlaybackFailure;
+  affordance: "retry" | "switch";
+}> = [
+  { failure: { code: "NO_PEERS", failureClass: "delivery", retryable: true }, affordance: "retry" },
+  { failure: { code: "CONNECTION_BLOCKED", failureClass: "delivery", retryable: true }, affordance: "retry" },
+  { failure: { code: "STALLED", failureClass: "delivery", retryable: true }, affordance: "retry" },
+  { failure: { code: "UNPLAYABLE", failureClass: "playability", retryable: false }, affordance: "switch" },
+  { failure: { code: "NOT_FOUND", failureClass: "not-found", retryable: false }, affordance: "switch" },
+  { failure: { code: "ENGINE_ERROR", failureClass: "engine", retryable: false }, affordance: "retry" },
+  { failure: { code: "ENGINE_ERROR", failureClass: "playability", retryable: false }, affordance: "switch" },
+];
+for (const { failure, affordance } of failureCases) {
+  const copy = playbackFailureCopy(failure);
+  assert(
+    `${failure.code}/${failure.failureClass} → non-empty headline`,
+    typeof copy.headline === "string" && copy.headline.trim().length > 0,
+    copy.headline,
+  );
+  assert(
+    `${failure.code}/${failure.failureClass} → headline+detail carry no mechanism words`,
+    !MECHANISM.test(copy.headline) && !MECHANISM.test(copy.detail ?? ""),
+    `${copy.headline} / ${copy.detail ?? ""}`,
+  );
+  assert(
+    `${failure.code}/${failure.failureClass} → offers the ${affordance} affordance`,
+    copy.affordance === affordance,
+    copy.affordance,
+  );
+}
+assert(
+  "a retryable delivery failure never offers a version switch",
+  playbackFailureCopy({ code: "STALLED", failureClass: "delivery", retryable: true }).affordance === "retry",
+);
+assert(
+  "an unplayable release never offers retry-same",
+  playbackFailureCopy({ code: "UNPLAYABLE", failureClass: "playability", retryable: false }).affordance === "switch",
+);
+
+// --- I19: reading a structured failure off a 503 body ------------------------
+assert(
+  "a well-formed 503 body parses into a structured failure",
+  (() => {
+    const parsed = structuredFailureFromBody({ code: "NO_PEERS", failureClass: "delivery", retryable: true });
+    return parsed?.code === "NO_PEERS" && parsed.failureClass === "delivery" && parsed.retryable === true;
+  })(),
+);
+assert(
+  "an unknown code yields no structured failure (nothing to narrate)",
+  structuredFailureFromBody({ code: "WAT", failureClass: "delivery", retryable: true }) === null,
+);
+assert(
+  "a missing body yields no structured failure",
+  structuredFailureFromBody(null) === null && structuredFailureFromBody(undefined) === null,
+);
+assert(
+  "a body without failureClass defaults to delivery and non-retryable is honored",
+  (() => {
+    const parsed = structuredFailureFromBody({ code: "ENGINE_ERROR" });
+    return parsed?.code === "ENGINE_ERROR" && parsed.failureClass === "delivery" && parsed.retryable === false;
+  })(),
 );
 
 console.log(
