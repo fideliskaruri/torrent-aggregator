@@ -420,6 +420,39 @@ export function nextSeekIntentAction(
   return "retry";
 }
 
+/**
+ * Decide what a source-timeline seek should do when a session restart may
+ * already be in flight.
+ *
+ * In HLS mode a seek past the produced window respawns ffmpeg, which takes a
+ * moment. The old code guarded that respawn with a boolean and *dropped* any
+ * seek that arrived while it was busy, so a viewer tapping the arrow keys had to
+ * press three times: the first started a restart, the second was silently
+ * discarded, and only the third — after the restart settled — took effect.
+ *
+ * Instead, never drop: if nothing is in flight, `start`; if a restart is in
+ * flight toward a *different* target, `replan` (abort the stale plan and restart
+ * toward the newest target so the last gesture always wins); only `ignore` a
+ * repeat of the target already being planned, which would just thrash ffmpeg.
+ */
+export function nextSeekRestartAction(
+  args: {
+    inFlight: boolean;
+    inFlightTargetSec: number | null;
+    requestedTargetSec: number;
+  },
+  toleranceSec = 2,
+): "start" | "replan" | "ignore" {
+  if (!args.inFlight) return "start";
+  if (
+    args.inFlightTargetSec != null &&
+    Math.abs(args.inFlightTargetSec - args.requestedTargetSec) <= toleranceSec
+  ) {
+    return "ignore";
+  }
+  return "replan";
+}
+
 export function canAutoAdvanceToUpNext(
   next: UpNextEpisodeCard | null,
   cancelled: boolean,
@@ -1197,6 +1230,8 @@ function InlineStreamPlayerInner({
   /** Pending seek target on the source timeline, consumed by the next plan. */
   const pendingSeekRef = useRef(0);
   const seekInFlightRef = useRef(false);
+  /** Target of the HLS session restart currently in flight, for coalescing. */
+  const seekPlanTargetRef = useRef<number | null>(null);
   const controlsIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playPulseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
@@ -2105,8 +2140,14 @@ function InlineStreamPlayerInner({
           });
         }
       } finally {
-        if (!controller.signal.aborted) setCheckingStream(false);
-        seekInFlightRef.current = false;
+        // Only the plan that actually settled may clear the in-flight flag. A
+        // plan aborted because a newer seek superseded it must leave the flag
+        // set so the replacement plan stays owned and its target is not lost.
+        if (!controller.signal.aborted) {
+          setCheckingStream(false);
+          seekInFlightRef.current = false;
+          seekPlanTargetRef.current = null;
+        }
       }
     })();
 
@@ -2195,9 +2236,22 @@ function InlineStreamPlayerInner({
    * route would 404. Re-planning respawns ffmpeg with `-ss` at the new offset.
    */
   const seekToSource = useCallback((sourceSec: number) => {
-    if (seekInFlightRef.current) return;
+    const target = Math.max(0, sourceSec);
+    const decision = nextSeekRestartAction(
+      {
+        inFlight: seekInFlightRef.current,
+        inFlightTargetSec: seekPlanTargetRef.current,
+        requestedTargetSec: target,
+      },
+      SEEK_TOLERANCE_SECONDS,
+    );
+    // Only a repeat of the target already being planned is dropped; a new target
+    // aborts the stale plan (via the effect's AbortController) and restarts, so
+    // the viewer's latest press always wins instead of being silently swallowed.
+    if (decision === "ignore") return;
     seekInFlightRef.current = true;
-    pendingSeekRef.current = Math.max(0, sourceSec);
+    seekPlanTargetRef.current = target;
+    pendingSeekRef.current = target;
     setPlanNonce((n) => n + 1);
   }, []);
 
@@ -2210,15 +2264,22 @@ function InlineStreamPlayerInner({
       requestedSeekRef.current = { targetSec: target, attempts, attemptedAt: Date.now() };
       setSeeking(true);
       const video = videoRef.current;
-      if (playbackMode !== "hls" || !video) {
+      if (playbackMode !== "hls") {
         if (video) video.currentTime = target;
         return;
       }
-      const produced = Number.isFinite(video.duration) ? video.duration : 0;
-      const relative = target - timelineOffset;
-      if (relative >= 0 && relative <= produced) {
-        video.currentTime = relative;
-        return;
+      // HLS. A target inside the produced window is a plain `currentTime` write —
+      // but only when the element is present and no session restart is already
+      // in flight. If the element is mid-teardown (null) or a restart is running,
+      // fall through to `seekToSource` so this press coalesces into the (re)plan
+      // and the newest target wins instead of being dropped.
+      if (video && !seekInFlightRef.current) {
+        const produced = Number.isFinite(video.duration) ? video.duration : 0;
+        const relative = target - timelineOffset;
+        if (relative >= 0 && relative <= produced) {
+          video.currentTime = relative;
+          return;
+        }
       }
       seekToSource(target);
     },
@@ -2798,10 +2859,16 @@ function InlineStreamPlayerInner({
     (video: HTMLVideoElement) => {
       if (playbackMode === "direct") checkDecodedAudio(video);
       const position = playbackMode === "hls" ? timelineOffset + video.currentTime : video.currentTime;
-      setCurrentSourceTime(position);
-      currentSourceTimeRef.current = position;
-      noteActiveMediaTime(video, position);
-      reconcileRequestedSeek(position);
+      // While an HLS session restart is in flight the outgoing element still
+      // reports the pre-seek position. Honouring it would snap the scrubber and
+      // clock back to where the viewer just left — the visible "snap-back". Hold
+      // the requested target until the new session reports its own position.
+      if (!seekInFlightRef.current) {
+        setCurrentSourceTime(position);
+        currentSourceTimeRef.current = position;
+        noteActiveMediaTime(video, position);
+        reconcileRequestedSeek(position);
+      }
       readBuffered(video);
       postProgress();
     },

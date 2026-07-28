@@ -14,6 +14,7 @@ import {
   isUpNextPlayableEnoughToAdvance,
   nextViewerWaitingState,
   nextSeekIntentAction,
+  nextSeekRestartAction,
   playerControlsForMode,
   qualitySelectorEmptyCopy,
   releaseDetailChips,
@@ -252,6 +253,26 @@ assert(
 assert(
   "seek retries are bounded",
   nextSeekIntentAction({ targetSec: 600, actualSec: 76, attempts: 3, elapsedMs: 900 }) === "failed",
+);
+assert(
+  "a first source seek with nothing in flight starts a plan",
+  nextSeekRestartAction({ inFlight: false, inFlightTargetSec: null, requestedTargetSec: 600 }) === "start",
+);
+assert(
+  "a second seek to a new target while a restart is in flight replans (latest wins, not dropped)",
+  nextSeekRestartAction({ inFlight: true, inFlightTargetSec: 600, requestedTargetSec: 900 }) === "replan",
+);
+assert(
+  "a repeat seek to the target already being planned is ignored, not thrashed",
+  nextSeekRestartAction({ inFlight: true, inFlightTargetSec: 600, requestedTargetSec: 600.5 }) === "ignore",
+);
+assert(
+  "an in-flight restart with an unknown target still replans toward the new seek",
+  nextSeekRestartAction({ inFlight: true, inFlightTargetSec: null, requestedTargetSec: 900 }) === "replan",
+);
+assert(
+  "no in-flight seek is ever silently dropped: a busy restart to a new target replans",
+  nextSeekRestartAction({ inFlight: true, inFlightTargetSec: 120, requestedTargetSec: 300 }) !== "ignore",
 );
 assert(
   "media network errors are recoverable delivery failures, not browser incompatibility",
