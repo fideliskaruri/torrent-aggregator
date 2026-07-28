@@ -614,6 +614,41 @@ async function main(): Promise<void> {
       assert.ok(old, "the active prediction must survive");
     });
 
+    // ── Streaming is not a download — never speculate off a stream ─────
+    resetPrewarmRuntimeState();
+    await checkAsync(
+      "the episode on screen being stream-only skips the pre-warm",
+      async () => {
+        sent = [];
+        const streamHash = hex40("foreground-stream");
+        await prisma.engineTorrent.create({
+          data: {
+            userId,
+            hash: streamHash,
+            name: `${SHOW} S01E03 1080p WEB-DL`,
+            origin: "stream",
+            sizeBytes: BigInt(1_000_000_000),
+            progress: 0.4,
+            status: "downloading",
+            lastUsedAt: new Date(),
+          },
+        });
+        const streamed = await prewarmNextEpisode({
+          userId,
+          next: { ...next, episode: 14 },
+          _config: config,
+          _sendFn: fakeSend,
+          _foregroundProgress: 1,
+          protectHashes: [streamHash],
+          db: prisma,
+        });
+        assert.equal(streamed.status, "skipped");
+        assert.equal(streamed.reason, "streaming-source");
+        assert.deepEqual(sent, [], "a stream must not trigger a background download");
+        await prisma.engineTorrent.deleteMany({ where: { userId, hash: streamHash } });
+      },
+    );
+
     // ── Clients we cannot label ────────────────────────────────────────
     resetPrewarmRuntimeState();
     await checkAsync("an external client is never pre-warmed — we could not evict it", async () => {

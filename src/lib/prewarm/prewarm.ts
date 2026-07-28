@@ -79,6 +79,7 @@ import { evictPrewarmsForBytes, markPrewarmUsed } from "./eviction";
 import type { EvictOptions } from "./eviction";
 import { withoutDownloadHistory } from "./no-user-history";
 import { syncPrewarmSuspension } from "./foreground";
+import { STREAM_ORIGIN } from "@/lib/streaming/retention";
 import {
   PREWARM_GRAB_KIND,
   PREWARM_ORIGIN,
@@ -368,6 +369,20 @@ async function runPrewarm(
   base: { next: NextEpisode; title: string },
   key: string,
 ): Promise<PrewarmOutcome> {
+  // Intent gate, before anything else: the next-episode pre-warm is a download.
+  // It may continue a download the user chose — a kept grab or a season pack —
+  // but it must never shadow a stream. When the episode on screen is a
+  // stream-only torrent the user is streaming, and quietly fetching the next
+  // episode in the background is exactly what they did not ask for.
+  if (await foregroundIsStreamOnly(db, opts.userId, opts.protectHashes ?? [])) {
+    return outcome(
+      "skipped",
+      "streaming-source",
+      "Playing a stream, not a download — next episode stays on demand",
+      base,
+    );
+  }
+
   const config =
     opts._config !== undefined
       ? opts._config
@@ -714,6 +729,36 @@ async function foregroundProgress(
     return Math.min(...rows.map((r) => r.progress));
   } catch {
     return null;
+  }
+}
+
+/**
+ * Is the episode on screen a stream-only torrent?
+ *
+ * The next-episode pre-warm is a *download*: it writes a whole file to disk for
+ * something the user is not watching yet. That is fine when it continues a
+ * download the user chose, but it must never happen off the back of a stream —
+ * a stream is a consented cache of *what is being watched*, nothing more. So
+ * when the foreground torrent is stream-only we do not speculate.
+ */
+async function foregroundIsStreamOnly(
+  db: Db,
+  userId: string,
+  hashes: readonly string[],
+): Promise<boolean> {
+  const list = hashes.map((h) => h.trim().toLowerCase()).filter(Boolean);
+  if (list.length === 0) return false;
+  try {
+    const row = await db.engineTorrent.findFirst({
+      where: { userId, hash: { in: list }, origin: STREAM_ORIGIN },
+      select: { id: true },
+    });
+    return row != null;
+  } catch {
+    // A read we could not make is not permission to speculate, but the other
+    // gates (foreground-busy, concurrency, cooldown) still apply — fail open
+    // here so a transient DB blip does not silently kill a legitimate pre-warm.
+    return false;
   }
 }
 

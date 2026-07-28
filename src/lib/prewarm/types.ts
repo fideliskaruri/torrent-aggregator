@@ -112,6 +112,13 @@ export type PrewarmReason =
    * must not race the foreground for bandwidth.
    */
   | "foreground-busy"
+  /**
+   * The episode on screen is a stream-only torrent, so the user is streaming,
+   * not downloading. The next-episode pre-warm is itself a download and must
+   * not shadow a stream — it only continues a download the user chose (a kept
+   * grab or a season pack).
+   */
+  | "streaming-source"
   | "already-held"
   | "not-determined"
   | "no-release"
