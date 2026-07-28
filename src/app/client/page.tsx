@@ -68,6 +68,16 @@ interface ClientTorrent {
   peers?: number;
   category?: string;
   savePath?: string | null;
+  retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+}
+
+// A stream (or prewarm) torrent is an ephemeral playback cache — the engine
+// only ever holds the pieces needed to watch, and it is evicted like a cache.
+// It is not a download the user chose to keep, so it must never appear in the
+// downloads list or be counted in its stats. `retentionState` is annotated by
+// /api/client/torrents from EngineTorrent.origin.
+function isDownloadRow(t: ClientTorrent): boolean {
+  return t.retentionState !== "stream" && t.retentionState !== "prewarm";
 }
 
 interface NowPlaying {
@@ -375,6 +385,7 @@ export default function ClientPage() {
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return torrents.filter((t) => {
+      if (!isDownloadRow(t)) return false;
       const display = releaseDisplayFacts(t);
       if (
         q &&
@@ -428,13 +439,16 @@ export default function ClientPage() {
     let seeding = 0;
     let dlspeed = 0;
     let upspeed = 0;
+    let total = 0;
     for (const t of torrents) {
+      if (!isDownloadRow(t)) continue;
+      total += 1;
       if (isDownloading(t.state)) downloading += 1;
       else if (isSeeding(t.state)) seeding += 1;
       dlspeed += t.dlspeed || 0;
       upspeed += t.upspeed || 0;
     }
-    return { downloading, seeding, dlspeed, upspeed, total: torrents.length };
+    return { downloading, seeding, dlspeed, upspeed, total };
   }, [torrents]);
 
   async function action(act: "pause" | "resume", hash: string) {
