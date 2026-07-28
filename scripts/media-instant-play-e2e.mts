@@ -19,6 +19,11 @@
  *
  * Run: npm run test:media:instant
  */
+// MUST be first: repoints DATABASE_URL at a throwaway DB before any import pulls
+// in `@/lib/prisma`, so no fixture the harness or its spawned server writes can
+// reach the user's live `dev.db`. See the module header for the ordering rule.
+import { scratchDb, cleanupScratchDb } from "./lib/harness-db.mjs";
+
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -243,6 +248,9 @@ async function startDevServer(expectHashes: string[]): Promise<DevServer> {
         PORT: String(PORT),
         NEXT_TELEMETRY_DISABLED: "1",
         DOWNLOAD_DIR: LEECH_DIR,
+        // The spawned server must write to the same throwaway DB the harness
+        // repointed itself to — never the user's live library.
+        DATABASE_URL: scratchDb.url,
       },
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -606,6 +614,7 @@ async function cleanup(hashes: string[]) {
   }).catch(() => undefined);
   await prisma.$disconnect().catch(() => undefined);
   fs.rmSync(WORK, { recursive: true, force: true });
+  cleanupScratchDb();
 }
 
 async function main() {
@@ -774,5 +783,6 @@ main().catch(async (err) => {
   console.error("\nFAIL —", err instanceof Error ? err.stack : String(err));
   await prisma.$disconnect().catch(() => undefined);
   fs.rmSync(WORK, { recursive: true, force: true });
+  cleanupScratchDb();
   process.exit(1);
 });
