@@ -41,7 +41,11 @@ const DropdownMenuSubContent = React.forwardRef<
   <DropdownMenuPrimitive.SubContent
     ref={ref}
     className={cn(
-      "z-[100] min-w-[8rem] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 text-[var(--text)] shadow-[var(--shadow-md)]",
+      // `overflow-hidden` clipped a menu taller than the viewport with no way
+      // to reach the hidden items. Cap the height to the space Radix measured
+      // as available and scroll the overflow; keep x clipped so the rounded
+      // corners stay crisp and a stray horizontal bar never appears.
+      "z-[100] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 text-[var(--text)] shadow-[var(--shadow-md)]",
       className,
     )}
     {...props}
@@ -59,7 +63,7 @@ const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        "z-[100] min-w-[11rem] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 text-[var(--text)] shadow-[var(--shadow-md)]",
+        "z-[100] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[11rem] overflow-x-hidden overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 text-[var(--text)] shadow-[var(--shadow-md)]",
         className,
       )}
       {...props}
