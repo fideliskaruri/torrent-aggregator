@@ -58,18 +58,41 @@ process.env.DATABASE_URL = scratchDb.url;
 
 let cleaned = false;
 
-/** Remove the scratch database directory. Safe to call more than once. */
+/**
+ * Remove the scratch database directory. Safe to call more than once.
+ *
+ * On Windows the libSQL/SQLite handle can linger for a beat after
+ * `prisma.$disconnect()` returns, so an immediate `rmSync` races the OS and
+ * throws `EBUSY`/`EPERM`. Retry a few times, then give up quietly — a leftover
+ * temp directory is harmless (the OS reclaims it, and the `exit` hook tries
+ * again), and it must never turn a passing harness run into a failure.
+ */
 export function cleanupScratchDb() {
   if (cleaned) return;
-  cleaned = true;
-  fs.rmSync(scratchDb.dir, { recursive: true, force: true });
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      fs.rmSync(scratchDb.dir, { recursive: true, force: true });
+      cleaned = true;
+      return;
+    } catch (err) {
+      const code = err && typeof err === "object" ? err.code : undefined;
+      const locked = code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY";
+      if (!locked || attempt === 9) return; // give up quietly; exit hook retries
+      // Busy-wait briefly without pulling in async — cleanup runs on teardown.
+      const until = Date.now() + 100;
+      while (Date.now() < until) {
+        /* spin */
+      }
+    }
+  }
 }
 
 // A harness that dies before its own teardown still must not leak a temp DB.
 process.once("exit", () => {
+  if (cleaned) return;
   try {
     fs.rmSync(scratchDb.dir, { recursive: true, force: true });
   } catch {
-    /* best effort on exit */
+    /* best effort on exit; the OS reclaims the temp dir regardless */
   }
 });
