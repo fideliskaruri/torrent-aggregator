@@ -221,6 +221,13 @@ export async function POST(request: Request) {
           title: a.title,
         })),
         selectedAudioIndex: plan.selectedAudioIndex,
+        /**
+         * Default-subtitle decision. The player auto-enables `defaultTrackId`
+         * (embedded/sidecar) when the selected audio is not English, and shows a
+         * "no English subtitles available" state when `noEnglishAvailable` is
+         * set — never a silent Off.
+         */
+        subtitle: plan.subtitle,
       },
       playUrl: result.playUrl,
       sessionId: result.sessionId,

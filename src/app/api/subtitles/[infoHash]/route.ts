@@ -39,6 +39,7 @@ import {
   subtitleTrackSrc,
   type SubtitleTrack,
 } from "@/lib/media/subtitles";
+import { selectDefaultSubtitle, selectPreferredAudioStream } from "@/lib/media/decide";
 import {
   MAX_SUBTITLE_BYTES,
   cacheSidecarVtt,
@@ -205,8 +206,31 @@ export async function handleSubtitlesRequest(
     soleVideo,
   });
 
+  // Default-subtitle decision, server-side, so an English viewer on foreign
+  // audio never lands on a silent "Off". Uses the same auto audio selection the
+  // playback plan does, then picks a default English subtitle from the same
+  // track list the client is about to receive (ids match exactly).
+  const audioStreamList = (streams ?? []).filter((s) => s.codecType === "audio");
+  const selectedAudio = selectPreferredAudioStream(audioStreamList);
+  const subtitleDefault = selectDefaultSubtitle(
+    selectedAudio?.language ?? null,
+    tracks.map((t) => ({
+      id: t.id,
+      language: t.language,
+      forced: t.forced,
+      supported: t.supported,
+    })),
+  );
+
   return NextResponse.json({
     tracks: tracks.map((track) => withSrc(track, infoHash, filePath)),
+    /**
+     * Track id the player should auto-enable on load, or null to stay Off.
+     * `noEnglishAvailable` lets the UI say "no English subtitles available"
+     * instead of silently sitting on Off when foreign audio has no English sub.
+     */
+    defaultTrackId: subtitleDefault.defaultTrackId,
+    subtitleDefault,
     /**
      * Honest about what could not be inspected: with no probe there may be
      * embedded tracks we simply have not seen. An empty list is not the same as

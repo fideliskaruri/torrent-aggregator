@@ -12,6 +12,8 @@ import { DEFAULT_CAPABILITIES } from "./capabilities";
 import {
   decidePlayback,
   selectPreferredAudioStream,
+  selectDefaultSubtitle,
+  subtitleCandidatesFromProbe,
   type PlaybackPlan,
   type PlaybackRung,
 } from "./decide";
@@ -628,6 +630,151 @@ async function main() {
       assert.equal(selected?.index, tc.expectedStreamIndex);
     });
   }
+
+  // ── Default-subtitle decision (the English-viewer screenshot fix) ──
+  //
+  // Builds probes with explicit audio + subtitle streams so stream indices are
+  // deterministic. Audio streams follow the video (index 0); subtitle streams
+  // follow the audio, so `embedded:<index>` ids are predictable.
+  function subtitleProbe(
+    audio: Array<Partial<ProbeStream> & { codec: string }>,
+    subs: Array<Partial<ProbeStream> & { codec: string }>,
+  ): ProbeResult {
+    const streams: ProbeStream[] = [];
+    let idx = 0;
+    streams.push(makeStream({ codecType: "video", codec: "h264", index: idx++, width: 1920, height: 1080 }));
+    for (const a of audio) {
+      streams.push(makeStream({ codecType: "audio", channels: 2, ...a, index: idx++ }));
+    }
+    for (const s of subs) {
+      streams.push(makeStream({ codecType: "subtitle", ...s, index: idx++ }));
+    }
+    return { container: "matroska,webm", duration: 5400, streams };
+  }
+
+  await check("screenshot case: jpn audio + fre-only subs → no English available, nothing auto-selected", () => {
+    const probe = subtitleProbe(
+      [{ codec: "aac", channels: 2, language: "jpn", title: "Japanese" }],
+      [{ codec: "ass", language: "fre", title: "French" }],
+    );
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    // Only one audio track, and it is not English.
+    assert.equal(plan.selectedAudioIndex, 1);
+    assert.equal(plan.subtitle!.audioIsEnglish, false);
+    assert.equal(plan.subtitle!.englishSubtitleAvailable, false);
+    // Decision: never auto-force a non-English subtitle on an English viewer.
+    // Instead flag it so the UI states "no English subtitles available" rather
+    // than sitting on a silent Off.
+    assert.equal(plan.subtitle!.defaultTrackId, null);
+    assert.equal(plan.subtitle!.noEnglishAvailable, true);
+    assert.equal(plan.subtitle!.forcedFallback, false);
+  });
+
+  await check("jpn+eng audio, fre+eng subs → English audio selected, subtitles stay Off", () => {
+    const probe = subtitleProbe(
+      [
+        { codec: "aac", channels: 2, language: "jpn", title: "Japanese" },
+        { codec: "aac", channels: 2, language: "eng", title: "English" },
+      ],
+      [
+        { codec: "subrip", language: "fre", title: "French" },
+        { codec: "subrip", language: "eng", title: "English" },
+      ],
+    );
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    // English audio exists → it wins (index 2, after video 0 and jpn audio 1).
+    assert.equal(plan.selectedAudioIndex, 2);
+    assert.equal(plan.subtitle!.audioIsEnglish, true);
+    assert.equal(plan.subtitle!.defaultTrackId, null);
+    assert.equal(plan.subtitle!.noEnglishAvailable, false);
+    // The English subtitle still exists, just not auto-enabled.
+    assert.equal(plan.subtitle!.englishSubtitleAvailable, true);
+  });
+
+  await check("jpn+eng audio, fre+eng subs, viewer forces jpn audio → English sub auto-selected", () => {
+    const probe = subtitleProbe(
+      [
+        { codec: "aac", channels: 2, language: "jpn", title: "Japanese" },
+        { codec: "aac", channels: 2, language: "eng", title: "English" },
+      ],
+      [
+        { codec: "subrip", language: "fre", title: "French" }, // embedded:3
+        { codec: "subrip", language: "eng", title: "English" }, // embedded:4
+      ],
+    );
+    const plan = decidePlayback(probe, EDGE_CAPS, { audioStreamIndex: 1 });
+    assert.equal(plan.selectedAudioIndex, 1);
+    assert.equal(plan.subtitle!.audioIsEnglish, false);
+    assert.equal(plan.subtitle!.defaultTrackId, "embedded:4");
+    assert.equal(plan.subtitle!.forcedFallback, false);
+    assert.equal(plan.subtitle!.noEnglishAvailable, false);
+  });
+
+  await check("jpn-only audio, eng+fre subs → jpn audio (only option) + English sub default", () => {
+    const probe = subtitleProbe(
+      [{ codec: "aac", channels: 2, language: "jpn", title: "Japanese" }],
+      [
+        { codec: "subrip", language: "eng", title: "English" }, // embedded:2
+        { codec: "subrip", language: "fre", title: "French" }, // embedded:3
+      ],
+    );
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.selectedAudioIndex, 1);
+    assert.equal(plan.subtitle!.defaultTrackId, "embedded:2");
+    assert.equal(plan.subtitle!.audioIsEnglish, false);
+    assert.equal(plan.subtitle!.forcedFallback, false);
+    assert.equal(plan.subtitle!.noEnglishAvailable, false);
+  });
+
+  await check("jpn audio, only a forced English sub → forced fallback is used and flagged", () => {
+    const probe = subtitleProbe(
+      [{ codec: "aac", channels: 2, language: "jpn", title: "Japanese" }],
+      [{ codec: "subrip", language: "eng", title: "English (forced)" }], // embedded:2
+    );
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.subtitle!.defaultTrackId, "embedded:2");
+    assert.equal(plan.subtitle!.forcedFallback, true);
+    assert.equal(plan.subtitle!.noEnglishAvailable, false);
+  });
+
+  await check("jpn audio, full + forced English subs → non-forced full English preferred", () => {
+    const probe = subtitleProbe(
+      [{ codec: "aac", channels: 2, language: "jpn", title: "Japanese" }],
+      [
+        { codec: "subrip", language: "eng", title: "English (forced)" }, // embedded:2
+        { codec: "subrip", language: "eng", title: "English" }, // embedded:3
+      ],
+    );
+    const plan = decidePlayback(probe, EDGE_CAPS);
+    assert.equal(plan.subtitle!.defaultTrackId, "embedded:3");
+    assert.equal(plan.subtitle!.forcedFallback, false);
+  });
+
+  await check("sidecar English candidate is honored when no embedded English exists", () => {
+    const probe = subtitleProbe(
+      [{ codec: "aac", channels: 2, language: "jpn", title: "Japanese" }],
+      [{ codec: "ass", language: "fre", title: "French" }],
+    );
+    const plan = decidePlayback(probe, EDGE_CAPS, {
+      subtitleCandidates: [
+        { id: "sidecar:Movie.eng.srt", language: "eng", forced: false, supported: true },
+      ],
+    });
+    assert.equal(plan.subtitle!.defaultTrackId, "sidecar:Movie.eng.srt");
+    assert.equal(plan.subtitle!.noEnglishAvailable, false);
+  });
+
+  await check("image-based English sub is not usable → treated as no English available", () => {
+    const probe = subtitleProbe(
+      [{ codec: "aac", channels: 2, language: "jpn", title: "Japanese" }],
+      [{ codec: "hdmv_pgs_subtitle", language: "eng", title: "English" }],
+    );
+    const candidates = subtitleCandidatesFromProbe(probe.streams);
+    const decision = selectDefaultSubtitle("jpn", candidates);
+    assert.equal(decision.defaultTrackId, null);
+    assert.equal(decision.noEnglishAvailable, true);
+    assert.equal(decision.englishSubtitleAvailable, false);
+  });
 }
 
 main().then(() => {

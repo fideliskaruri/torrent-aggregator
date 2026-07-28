@@ -1074,6 +1074,10 @@ export function shouldPostProgress(args: {
 
 type SubtitleListResponse = {
   tracks?: SubtitleTrackWithSrc[];
+  /** Track id the server chose to auto-enable (English sub on foreign audio). */
+  defaultTrackId?: string | null;
+  /** Full default-subtitle decision, incl. `noEnglishAvailable`. */
+  subtitleDefault?: { noEnglishAvailable?: boolean } | null;
   embeddedInspected?: boolean;
   probeError?: string | null;
 };
@@ -2252,9 +2256,21 @@ function InlineStreamPlayerInner({
         const preselect = tracks.find(
           (t) => t.kind === "sidecar" && t.filePath === defaultSidecarPath && t.src,
         );
-        if (preselect) {
-          setSubtitleTrackId(preselect.id);
-          setSubtitleStatus("loading");
+        // Otherwise apply the server-chosen default: an English subtitle when
+        // the selected audio is not English. This is the fix for an English
+        // viewer landing on foreign audio with subtitles silently Off.
+        const serverDefault =
+          !preselect && data.defaultTrackId
+            ? tracks.find((t) => t.id === data.defaultTrackId && t.src)
+            : undefined;
+        const chosen = preselect ?? serverDefault;
+        if (chosen) {
+          setSubtitleTrackId(chosen.id);
+          setSubtitleStatus(chosen.needsExtraction ? "extracting" : "loading");
+        } else if (data.subtitleDefault?.noEnglishAvailable) {
+          // Foreign audio and no English subtitle exists: say so out loud rather
+          // than sit on a silent "Off".
+          setSubtitleNote("No English subtitles available for this release.");
         }
         if (tracks.length > 0 && data.embeddedInspected === false) {
           setSubtitleNote("Embedded tracks could not be inspected — only files are listed.");

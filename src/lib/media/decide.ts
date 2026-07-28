@@ -28,6 +28,7 @@ import {
   videoCodecTag,
   audioCodecTag,
 } from "./capabilities";
+import { embeddedSubtitleTracks } from "./subtitles";
 
 export type PlaybackRung = "direct" | "remux" | "transcode-audio" | "transcode-full";
 
@@ -84,6 +85,52 @@ export type PlaybackPlan = {
   container: string;
   /** Estimated relative CPU cost: 0 = none, 1 = copy, 2 = audio encode, 3 = full encode */
   cost: number;
+  /**
+   * Default subtitle decision. Drives whether the player auto-enables a subtitle
+   * track on load — the fix for an English viewer landing on foreign audio with
+   * subtitles silently Off. Always populated by `decidePlayback`; optional so
+   * existing plan fixtures that predate it keep type-checking.
+   */
+  subtitle?: SubtitleDecision;
+};
+
+/**
+ * A subtitle track the decision engine may auto-select. Both embedded streams
+ * and sidecar/fetched files reduce to this shape so the choice is one pure
+ * function regardless of source.
+ */
+export type SubtitleCandidate = {
+  /** Stable id the content endpoint understands (`embedded:2` / `sidecar:<path>`). */
+  id: string;
+  /** ISO code as found (any spelling); normalized internally. */
+  language: string | null;
+  /** Forced tracks carry only foreign-dialogue lines, not the full script. */
+  forced: boolean;
+  /** False for anything that cannot render (image-based, unconvertible). */
+  supported: boolean;
+};
+
+/**
+ * What the player should do about subtitles by default.
+ *
+ * The rule: English audio → leave subtitles Off (nothing to translate). Foreign
+ * audio → auto-enable an English subtitle if one exists. When no English audio
+ * *and* no English subtitle exists, `noEnglishAvailable` is set so the UI can
+ * say so out loud instead of sitting on a silent "Off".
+ */
+export type SubtitleDecision = {
+  /** Track id to auto-enable, or null when subtitles should stay Off. */
+  defaultTrackId: string | null;
+  /** The selected audio track is English, so subtitles are not needed. */
+  audioIsEnglish: boolean;
+  /** At least one usable English subtitle (embedded or sidecar) exists. */
+  englishSubtitleAvailable: boolean;
+  /** No English audio and no usable English subtitle — surface this to the user. */
+  noEnglishAvailable: boolean;
+  /** The only English subtitle available is a forced (foreign-parts-only) track. */
+  forcedFallback: boolean;
+  /** Short human-readable explanation, for UI and debugging. */
+  reason: string;
 };
 
 /** Options that steer the decision without changing the file. */
@@ -92,6 +139,12 @@ export type DecideOptions = {
   audioStreamIndex?: number | null;
   /** Preferred audio language tag. Defaults to English until settings expose it. */
   preferredAudioLanguage?: string | null;
+  /**
+   * Subtitle tracks that live outside the probe — sidecar files inside the
+   * torrent, or fetched subtitles. Considered *alongside* the embedded subtitle
+   * streams the probe already carries when choosing a default.
+   */
+  subtitleCandidates?: SubtitleCandidate[];
 };
 
 // ── Video codec support checks ──
@@ -287,6 +340,88 @@ export function selectPreferredAudioStream(
   return auto[0];
 }
 
+/** True when a language tag resolves to English. */
+export function isEnglishLanguage(tag: string | null | undefined): boolean {
+  return normalizedLanguage(tag) === "en";
+}
+
+/**
+ * Turn the probe's embedded subtitle streams into auto-select candidates. Reuses
+ * the same track-building rules the subtitles endpoint uses, so an id chosen here
+ * (`embedded:<index>`) is exactly the id the player receives in its track list.
+ */
+export function subtitleCandidatesFromProbe(streams: ProbeStream[]): SubtitleCandidate[] {
+  return embeddedSubtitleTracks(streams).map((t) => ({
+    id: t.id,
+    language: t.language,
+    forced: t.forced,
+    supported: t.supported,
+  }));
+}
+
+/**
+ * Choose the subtitle track to auto-enable.
+ *
+ * The bug this fixes: an English viewer opened a file with Japanese audio and
+ * French-only subtitles and was left on "Off". The rule now:
+ *
+ *  - English audio → no default subtitle (nothing to translate).
+ *  - Foreign audio → the first usable *English* subtitle. Full (non-forced)
+ *    English is preferred; a forced English track is used only when it is the
+ *    only English option (`forcedFallback`).
+ *  - Foreign audio with no English subtitle at all → nothing is auto-selected,
+ *    but `noEnglishAvailable` is set so the UI states it plainly rather than
+ *    sitting on a silent "Off". A non-English subtitle is never auto-forced on
+ *    an English viewer.
+ *
+ * `candidates` are considered in order, so the caller controls tie-breaking
+ * (e.g. sidecars before embedded) simply by ordering the list.
+ */
+export function selectDefaultSubtitle(
+  audioLanguage: string | null | undefined,
+  candidates: SubtitleCandidate[],
+): SubtitleDecision {
+  const audioIsEnglish = isEnglishLanguage(audioLanguage);
+  const englishSubs = candidates.filter((c) => c.supported && isEnglishLanguage(c.language));
+  const englishSubtitleAvailable = englishSubs.length > 0;
+
+  if (audioIsEnglish) {
+    return {
+      defaultTrackId: null,
+      audioIsEnglish: true,
+      englishSubtitleAvailable,
+      noEnglishAvailable: false,
+      forcedFallback: false,
+      reason: "Audio is English — subtitles off by default",
+    };
+  }
+
+  if (!englishSubtitleAvailable) {
+    return {
+      defaultTrackId: null,
+      audioIsEnglish: false,
+      englishSubtitleAvailable: false,
+      noEnglishAvailable: true,
+      forcedFallback: false,
+      reason: "No English audio and no English subtitles available",
+    };
+  }
+
+  const full = englishSubs.find((c) => !c.forced);
+  const chosen = full ?? englishSubs[0];
+  const forcedFallback = !full;
+  return {
+    defaultTrackId: chosen.id,
+    audioIsEnglish: false,
+    englishSubtitleAvailable: true,
+    noEnglishAvailable: false,
+    forcedFallback,
+    reason: forcedFallback
+      ? "Non-English audio — defaulting to the only English subtitle (forced)"
+      : "Non-English audio — defaulting to English subtitles",
+  };
+}
+
 // ── The decision ──
 
 export function decidePlayback(
@@ -303,6 +438,14 @@ export function decidePlayback(
   });
   const selectedAudioIndex = audio?.index ?? null;
 
+  // Default-subtitle decision (the English-viewer fix). Embedded subtitle
+  // streams come from the probe; any sidecar/fetched candidates are supplied by
+  // the caller and considered first so they win ties.
+  const subtitle = selectDefaultSubtitle(audio?.language ?? null, [
+    ...(options.subtitleCandidates ?? []),
+    ...subtitleCandidatesFromProbe(probe.streams),
+  ]);
+
   // No video stream at all — audio-only or corrupt
   if (!video) {
     // For audio-only files with a compatible codec, direct play
@@ -315,6 +458,7 @@ export function decidePlayback(
         selectedAudioIndex,
         container,
         cost: 0,
+        subtitle,
       };
     }
     // Audio needs remux or transcode
@@ -326,6 +470,7 @@ export function decidePlayback(
       selectedAudioIndex,
       container,
       cost: audio ? 1 : 0,
+      subtitle,
     };
   }
 
@@ -341,6 +486,7 @@ export function decidePlayback(
       selectedAudioIndex,
       container,
       cost: 0,
+      subtitle,
     };
   }
 
@@ -359,6 +505,7 @@ export function decidePlayback(
       selectedAudioIndex,
       container,
       cost: 1,
+      subtitle,
     };
   }
 
@@ -372,6 +519,7 @@ export function decidePlayback(
       selectedAudioIndex,
       container,
       cost: 2,
+      subtitle,
     };
   }
 
@@ -391,6 +539,7 @@ export function decidePlayback(
     selectedAudioIndex,
     container,
     cost: 3,
+    subtitle,
   };
 }
 
