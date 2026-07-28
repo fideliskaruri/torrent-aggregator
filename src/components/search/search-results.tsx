@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -27,13 +27,15 @@ import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import { Button } from "@/components/ui/button";
+import {
+  DEFAULT_PAGE_SIZE,
+  buildSearchQuery,
+  resultPageView,
+} from "./pagination";
 
 const ALL_SOURCES: { id: TorrentSourceId; label: string }[] = (
   ["nyaa", "apibay", "torrentscsv", "yts", "1337x"] as const
 ).map((id) => ({ id, label: sourceShortLabel(id) }));
-
-/** Fetch enough ranked results that scrolling feels like a flow, not a teaser. */
-const DEFAULT_PAGE_SIZE = 200;
 
 interface SearchResultsProps {
   query: string;
@@ -106,24 +108,21 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({
-          q: query,
-          page: String(page),
-          pageSize: String(pageSize),
+        const qs = buildSearchQuery({
+          query,
+          page,
+          pageSize,
+          category,
+          minSeeders,
+          releaseKind,
+          resolution,
+          codec,
+          maxSizeGb,
+          sources: sourcesParam,
+          refresh,
         });
-        if (category && category !== "all") params.set("category", category);
-        if (minSeeders) params.set("minSeeders", minSeeders);
-        if (releaseKind) params.set("releaseKind", releaseKind);
-        if (resolution) params.set("resolution", resolution);
-        if (codec) params.set("codec", codec);
-        if (maxSizeGb) {
-          const bytes = Math.round(parseFloat(maxSizeGb) * 1e9);
-          if (Number.isFinite(bytes)) params.set("maxSize", String(bytes));
-        }
-        if (sourcesParam) params.set("sources", sourcesParam);
-        if (refresh) params.set("refresh", "1");
 
-        const res = await fetch(`/api/search?${params.toString()}`);
+        const res = await fetch(`/api/search?${qs}`);
         const json = await res.json();
         if (!res.ok) {
           throw new Error(json.message || json.error || "Search failed");
@@ -155,6 +154,23 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  /**
+   * Everything that defines *which* results we're looking at, minus the page.
+   * When this changes it's a new search (query, category, filters, sources), so
+   * the previous page's cards are stale and we drop them to show the full
+   * skeleton. A page turn leaves this untouched, so those cards stay mounted and
+   * only dim — the toolbar and pagination keep their place, no layout shift.
+   */
+  const searchKey = `${query}\u0000${category}\u0000${minSeeders}\u0000${releaseKind}\u0000${resolution}\u0000${codec}\u0000${maxSizeGb}\u0000${sourcesParam}`;
+  const searchKeyRef = useRef(searchKey);
+  useEffect(() => {
+    if (searchKeyRef.current === searchKey) return;
+    searchKeyRef.current = searchKey;
+    // A new search invalidates the shown page; clearing it yields the skeleton.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setData(null);
+  }, [searchKey]);
 
   // Keep URL in sync if the API clamps an out-of-range page.
   useEffect(() => {
@@ -208,15 +224,16 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     router.push(buildUrl({ sources: next.length ? next.join(",") : null }));
   }
 
-  const totalCount = data?.totalCount ?? data?.results.length ?? 0;
-  const totalPages = data?.totalPages ?? 0;
-  const currentPage = data?.page ?? page;
-  const rangeStart =
-    totalCount === 0 ? 0 : (currentPage - 1) * (data?.pageSize ?? pageSize) + 1;
-  const rangeEnd = Math.min(
-    currentPage * (data?.pageSize ?? pageSize),
-    totalCount,
-  );
+  const { totalCount, totalPages, currentPage, rangeStart, rangeEnd } =
+    resultPageView(data, page, pageSize);
+
+  /**
+   * A page turn keeps the previous page's cards on screen and only dims them, so
+   * the toolbar and pagination bar hold their place while the next slice loads.
+   * `loading && !data` (initial search, or a new query that cleared the pool) is
+   * the only state that swaps in the full skeleton below.
+   */
+  const pageLoading = loading && Boolean(data);
 
   const densityLabel =
     density === "comfortable" ? "Comfortable" : "Compact";
@@ -294,7 +311,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     });
   }, [data, works, currentPage, pageSize]);
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="space-y-0 overflow-hidden rounded-[var(--radius)] border border-[var(--border)]">
         <div className="border-b border-[var(--border)] px-4 py-3 text-[12px] text-[var(--text-tertiary)]">
@@ -375,6 +392,16 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
                 </>
               )}
             </span>
+            {pageLoading && (
+              <span
+                className="inline-flex items-center gap-1 text-[var(--text-tertiary)]"
+                role="status"
+                aria-live="polite"
+              >
+                <RefreshCw className="h-3 w-3 animate-spin" aria-hidden />
+                <span className="sr-only">Loading page {currentPage}</span>
+              </span>
+            )}
             {data && (
               <>
                 {data.cached && (
@@ -652,7 +679,13 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
         </div>
       ) : (
         <>
-          <div className="grid gap-3">
+          <div
+            className={cn(
+              "grid gap-3 transition-opacity",
+              pageLoading && "pointer-events-none opacity-50",
+            )}
+            aria-busy={pageLoading}
+          >
             {resultFlow.map(({ torrent, work, index, featured, showPoster, showRoute }) => {
               const fallbackPosterUrl = work?.posterUrl
                 ? null
@@ -687,6 +720,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
               rangeStart={rangeStart}
               rangeEnd={rangeEnd}
               totalCount={totalCount}
+              busy={pageLoading}
               onPageChange={goToPage}
             />
           )}
@@ -702,6 +736,7 @@ function Pagination({
   rangeStart,
   rangeEnd,
   totalCount,
+  busy = false,
   onPageChange,
 }: {
   page: number;
@@ -709,6 +744,7 @@ function Pagination({
   rangeStart: number;
   rangeEnd: number;
   totalCount: number;
+  busy?: boolean;
   onPageChange: (page: number) => void;
 }) {
   const pages = useMemo(
@@ -734,7 +770,7 @@ function Pagination({
           variant="secondary"
           size="sm"
           className="min-h-9 min-w-9 px-2 sm:px-2.5"
-          disabled={page <= 1}
+          disabled={busy || page <= 1}
           onClick={() => onPageChange(page - 1)}
           aria-label="Previous page"
         >
@@ -758,6 +794,7 @@ function Pagination({
                 type="button"
                 size="sm"
                 variant={p === page ? "secondary" : "ghost"}
+                disabled={busy && p !== page}
                 onClick={() => onPageChange(p)}
                 aria-label={`Page ${p}`}
                 aria-current={p === page ? "page" : undefined}
@@ -774,7 +811,7 @@ function Pagination({
           variant="secondary"
           size="sm"
           className="min-h-9 min-w-9 px-2 sm:px-2.5"
-          disabled={page >= totalPages}
+          disabled={busy || page >= totalPages}
           onClick={() => onPageChange(page + 1)}
           aria-label="Next page"
         >
