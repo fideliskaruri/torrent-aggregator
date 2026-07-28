@@ -20,12 +20,15 @@ import {
   releaseDetailChips,
   resolveVideoFileSelection,
   selectVideoFiles,
+  shouldShowFullscreenStatusOverlay,
+  shouldShowSeekSpinner,
   shouldShowViewerBuffering,
   terminalPlaybackCopy,
   streamStateSentence,
   streamPath,
   streamStatusMessage,
   sourceTimeInRanges,
+  upNextUnavailableActionLabel,
   upNextStatusSentence,
   type StreamFile,
 } from "./inline-player";
@@ -227,8 +230,30 @@ assert(
   !shouldShowViewerBuffering({ waiting: true, activeVideoAdvancing: true }),
 );
 assert(
+  "fullscreen status overlay stays hidden when the visible video is advancing",
+  !shouldShowFullscreenStatusOverlay({
+    hasVisibleVideo: true,
+    viewerWaiting: false,
+    preparing: true,
+    activeVideoAdvancing: true,
+  }),
+);
+assert(
+  "fullscreen seek spinner stays hidden when the visible video is advancing",
+  !shouldShowSeekSpinner({ seeking: true, activeVideoAdvancing: true }),
+);
+assert(
   "stalled active video can show the buffering overlay",
   shouldShowViewerBuffering({ waiting: true, activeVideoAdvancing: false }),
+);
+assert(
+  "fullscreen status overlay still shows for a stalled visible video",
+  shouldShowFullscreenStatusOverlay({
+    hasVisibleVideo: true,
+    viewerWaiting: true,
+    preparing: false,
+    activeVideoAdvancing: false,
+  }),
 );
 assert(
   "waiting from a non-active media element does not raise viewer waiting",
@@ -278,14 +303,36 @@ assert(
   "media network errors are recoverable delivery failures, not browser incompatibility",
   (() => {
     const verdict = interpretMediaElementError({ code: 2, message: "" });
-    return verdict.recoverable && verdict.problem === null && verdict.title === "This release isn't delivering.";
+    return (
+      verdict.kind === "network" &&
+      verdict.recoverable &&
+      verdict.problem === null &&
+      verdict.title !== "This release won't play in the browser."
+    );
   })(),
 );
 assert(
   "media decode errors remain browser playback failures",
   (() => {
     const verdict = interpretMediaElementError({ code: 3, message: "" });
-    return !verdict.recoverable && verdict.problem === "browser-error" && verdict.title === "This release won't play in the browser.";
+    return (
+      verdict.kind === "decode" &&
+      !verdict.recoverable &&
+      verdict.problem === "browser-error" &&
+      verdict.title === "This release won't play in the browser."
+    );
+  })(),
+);
+assert(
+  "unsupported media errors remain browser playback failures",
+  (() => {
+    const verdict = interpretMediaElementError({ code: 4, message: "" });
+    return (
+      verdict.kind === "unsupported" &&
+      !verdict.recoverable &&
+      verdict.problem === "browser-error" &&
+      verdict.title === "This release won't play in the browser."
+    );
   })(),
 );
 assert(
@@ -300,8 +347,25 @@ assert(
   })(),
 );
 assert(
+  "terminal playback detail is omitted when it would only repeat the title",
+  (() => {
+    const copy = terminalPlaybackCopy({
+      problem: null,
+      message: "Playback cannot start yet.",
+      deliveryDetail: "no peers, almost no data",
+    });
+    return copy.title === "Playback cannot start yet." && copy.detail === null;
+  })(),
+);
+assert(
   "up-next status never calls an incomplete torrent ready",
   upNextStatusSentence("downloading") === "Still downloading — you can start streaming, but it may buffer.",
+);
+assert(
+  "up-next unavailable action label names the state instead of saying switch here soon",
+  upNextUnavailableActionLabel() === "Not fetched yet" &&
+    upNextUnavailableActionLabel() !== "Switch here soon",
+  upNextUnavailableActionLabel(),
 );
 assert("quality selector calls good swarms fast", candidateVerdictLabel("good") === "Fast");
 assert("quality selector keeps unknown offerable", candidateVerdictLabel("unknown") === "Untested");

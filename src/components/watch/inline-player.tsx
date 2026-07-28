@@ -345,6 +345,23 @@ export function shouldShowViewerBuffering(args: {
   return args.waiting && !args.activeVideoAdvancing;
 }
 
+export function shouldShowFullscreenStatusOverlay(args: {
+  hasVisibleVideo: boolean;
+  viewerWaiting: boolean;
+  preparing: boolean;
+  activeVideoAdvancing: boolean;
+}): boolean {
+  if (args.hasVisibleVideo && args.activeVideoAdvancing) return false;
+  return !args.hasVisibleVideo || args.viewerWaiting || args.preparing;
+}
+
+export function shouldShowSeekSpinner(args: {
+  seeking: boolean;
+  activeVideoAdvancing: boolean;
+}): boolean {
+  return args.seeking && !args.activeVideoAdvancing;
+}
+
 /**
  * Minimum forward `currentTime` growth that counts as the picture advancing.
  * Kept just above float noise and well under one frame (~0.033s) so that slow,
@@ -352,7 +369,22 @@ export function shouldShowViewerBuffering(args: {
  */
 const MEDIA_ADVANCE_EPSILON = 0.01;
 
-type MediaErrorKind = "aborted" | "network" | "decode" | "unsupported" | "unknown";
+export type MediaErrorKind = "aborted" | "network" | "decode" | "unsupported" | "unknown";
+
+export function mediaErrorKindFromCode(code: number | null | undefined): MediaErrorKind {
+  switch (code) {
+    case 1:
+      return "aborted";
+    case 2:
+      return "network";
+    case 3:
+      return "decode";
+    case 4:
+      return "unsupported";
+    default:
+      return "unknown";
+  }
+}
 
 export function interpretMediaElementError(error: Pick<MediaError, "code" | "message"> | null | undefined): {
   kind: MediaErrorKind;
@@ -361,9 +393,9 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
   title: string;
   detail: string;
 } {
-  const code = error?.code ?? 0;
+  const kind = mediaErrorKindFromCode(error?.code);
   const browserMessage = error?.message?.trim();
-  if (code === 1) {
+  if (kind === "aborted") {
     return {
       kind: "aborted",
       recoverable: true,
@@ -372,7 +404,7 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
       detail: browserMessage || "The browser interrupted the stream. Reconnecting from your current position.",
     };
   }
-  if (code === 2) {
+  if (kind === "network") {
     return {
       kind: "network",
       recoverable: true,
@@ -381,7 +413,7 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
       detail: browserMessage || "The stream connection dropped. Reconnecting from your current position.",
     };
   }
-  if (code === 3) {
+  if (kind === "decode") {
     return {
       kind: "decode",
       recoverable: false,
@@ -390,7 +422,7 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
       detail: browserMessage || "The browser reported a decode error after receiving the file.",
     };
   }
-  if (code === 4) {
+  if (kind === "unsupported") {
     return {
       kind: "unsupported",
       recoverable: false,
@@ -430,8 +462,14 @@ export function terminalPlaybackCopy(args: {
         : problem === "no-audio"
           ? "The browser cannot decode the selected audio track."
           : message;
-  const detail = message && message !== title ? message : fallback && fallback !== title ? fallback : null;
+  const repeatsTitle = (value: string | null | undefined) =>
+    Boolean(title && value && value.trim() === title.trim());
+  const detail = message && !repeatsTitle(message) ? message : fallback && !repeatsTitle(fallback) ? fallback : null;
   return { title, detail };
+}
+
+export function upNextUnavailableActionLabel(): string {
+  return "Not fetched yet";
 }
 
 export type SeekIntent = {
@@ -3323,7 +3361,14 @@ function InlineStreamPlayerInner({
   };
 
   if (theatre) {
-    const showStageStatus = !playableSrc || viewerWaiting || preparingLabel;
+    const hasVisibleVideo = Boolean(playableSrc && selectedFile);
+    const showStageStatus = shouldShowFullscreenStatusOverlay({
+      hasVisibleVideo,
+      viewerWaiting,
+      preparing: Boolean(preparingLabel),
+      activeVideoAdvancing,
+    });
+    const showSeekSpinner = shouldShowSeekSpinner({ seeking, activeVideoAdvancing });
     const chromeVisible = theatreControlsVisible || controlsPinned;
     const controlsOpacity = chromeVisible ? "opacity-100" : "opacity-0";
     const pointerWhenHidden = chromeVisible ? "pointer-events-auto" : "pointer-events-none focus-within:opacity-100";
@@ -3687,7 +3732,7 @@ function InlineStreamPlayerInner({
                 </div>
               ) : null}
 
-              {seeking ? (
+              {showSeekSpinner ? (
                 <span
                   data-stream-seeking
                   aria-hidden="true"
@@ -3955,7 +4000,7 @@ function InlineStreamPlayerInner({
               {renderStreamVideo({
                 className: "w-full rounded-md bg-black",
               })}
-              {seeking ? (
+              {shouldShowSeekSpinner({ seeking, activeVideoAdvancing }) ? (
                 <span
                   data-stream-seeking
                   aria-hidden="true"
@@ -3993,7 +4038,7 @@ function InlineStreamPlayerInner({
                         disabled
                         className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-full bg-white/20 px-3 text-[12px] font-semibold text-white/60"
                       >
-                        Not fetched yet
+                        {upNextUnavailableActionLabel()}
                       </button>
                     )}
                     {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled) ? (
