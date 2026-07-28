@@ -49,6 +49,10 @@ import {
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { isViable } from "@/lib/torrents/quality";
 import type { SearchResponse } from "@/lib/torrents/types";
+import {
+  retentionStateForOrigin,
+  type RetentionState,
+} from "@/lib/streaming/retention";
 
 import { normalizeTitle } from "@/lib/utils";
 import {
@@ -98,6 +102,13 @@ interface LocalRelease {
   episode: number | null;
   isPack: boolean;
   isMultiSeason: boolean;
+  /**
+   * Why this file is on disk. A "stream"/"prewarm" cache holds only the pieces
+   * playback touched, so its whole-file percentage is meaningless as progress
+   * and alarming as copy ("42% downloaded" under a Play button). Only a real
+   * download the user kept ("kept", or legacy "unknown") may report a fraction.
+   */
+  retentionState: RetentionState;
 }
 
 interface CachedRelease {
@@ -167,6 +178,7 @@ export async function buildTitleDetail(
       episode: ep.episode ?? null,
       isPack: ep.isSeasonPack === true,
       isMultiSeason: ep.isMultiSeason === true,
+      retentionState: retentionStateForOrigin(row.origin),
     });
   }
 
@@ -296,10 +308,7 @@ export async function buildTitleDetail(
 
     availability: titleState,
     infoHash: titleLocal?.hash ?? null,
-    downloadFraction:
-      titleLocal && titleLocal.progress > 0 && titleLocal.progress < 1
-        ? titleLocal.progress
-        : null,
+    downloadFraction: keptDownloadFraction(titleLocal),
 
     resume,
     seasons,
@@ -337,6 +346,22 @@ export async function buildTitleDetail(
 // ---------------------------------------------------------------------------
 // Availability
 // ---------------------------------------------------------------------------
+
+/**
+ * The whole-file download percentage to advertise for a release, or null.
+ *
+ * A percentage is only meaningful for a file the user is *downloading* to keep:
+ * a stream/prewarm cache holds only the pieces playback needed, so its fraction
+ * is always low and reads as a stalled download. Streaming is not downloading —
+ * the watch surfaces show state ("Buffering", "Playing"), never a percentage.
+ */
+function keptDownloadFraction(release: LocalRelease | null): number | null {
+  if (!release) return null;
+  if (release.retentionState === "stream" || release.retentionState === "prewarm") {
+    return null;
+  }
+  return release.progress > 0 && release.progress < 1 ? release.progress : null;
+}
 
 /**
  * The best local release for a title, season or episode.
@@ -476,10 +501,7 @@ function buildSeasons(
                 name: packRelease.name,
                 availability: state,
                 infoHash: packRelease.hash,
-                downloadFraction:
-                  packRelease.progress > 0 && packRelease.progress < 1
-                    ? packRelease.progress
-                    : null,
+                downloadFraction: keptDownloadFraction(packRelease),
               }
             : null,
       } satisfies TitleSeason;
@@ -615,8 +637,7 @@ function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
       availability: state,
       infoHash,
       filePath: infoHash && watched?.infoHash === infoHash ? watched.filePath : null,
-      downloadFraction:
-        local && local.progress > 0 && local.progress < 1 ? local.progress : null,
+      downloadFraction: keptDownloadFraction(local),
       watchedFraction: fraction,
       resumePositionSec:
         infoHash && watched?.infoHash === infoHash && !watched.completedAt

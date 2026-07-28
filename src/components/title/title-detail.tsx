@@ -642,39 +642,38 @@ function TitleContent({
                 </p>
               ) : null}
 
-              {primaryStatusText || (downloaded != null && downloaded < 100) ? (
+              {/* Reserved height so a transient status ("Opening player…")
+                  appearing or clearing never nudges the page. Streaming shows
+                  only this line; a real download adds the bar below. */}
+              <div
+                id={primaryStatusId}
+                className="mt-3 min-h-[1.25rem] max-w-sm text-[12px] text-[var(--text-tertiary)]"
+                role={primaryStatusText ? "status" : undefined}
+              >
+                {[
+                  primaryStatusText,
+                  downloaded != null && downloaded < 100
+                    ? `${downloaded}% downloaded`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" — ")}
+              </div>
+              {downloadFraction != null ? (
                 <div
-                  id={primaryStatusId}
-                  className="mt-3 max-w-sm space-y-1.5 text-[12px] text-[var(--text-tertiary)]"
-                  role={primaryStatusText ? "status" : undefined}
+                  className="mt-1.5 h-1 max-w-sm overflow-hidden rounded-full bg-[var(--bg-muted)]"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(downloadFraction * 100)}
+                  aria-label={`${title} download progress`}
                 >
-                  <p>
-                    {[
-                      primaryStatusText,
-                      downloaded != null && downloaded < 100
-                        ? `${downloaded}% downloaded`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" — ")}
-                  </p>
-                  {downloadFraction != null ? (
-                    <div
-                      className="h-1 overflow-hidden rounded-full bg-[var(--bg-muted)]"
-                      role="progressbar"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.round(downloadFraction * 100)}
-                      aria-label={`${title} download progress`}
-                    >
-                      <div
-                        className="h-full rounded-full bg-[var(--accent)]"
-                        style={{
-                          width: `${Math.round(downloadFraction * 100)}%`,
-                        }}
-                      />
-                    </div>
-                  ) : null}
+                  <div
+                    className="h-full rounded-full bg-[var(--accent)]"
+                    style={{
+                      width: `${Math.round(downloadFraction * 100)}%`,
+                    }}
+                  />
                 </div>
               ) : null}
 
