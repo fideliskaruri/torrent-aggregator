@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSession } from "@/components/providers/session-provider";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
@@ -28,6 +28,10 @@ import { isSeriesMediaType } from "@/lib/metadata/media-type";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { TfPathChip } from "@/components/tf/path-chip";
 import { Button } from "@/components/ui/button";
+import {
+  ActionButton,
+  type ActionButtonStatus,
+} from "@/components/ui/action-button";
 import { Input } from "@/components/ui/input";
 import { searchReleaseDisplay } from "./release-display";
 import {
@@ -69,6 +73,32 @@ export function TorrentCard({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showSendOpts, setShowSendOpts] = useState(false);
+  /**
+   * Transient status/error for the Stream/Download buttons, shown INLINE in a
+   * reserved slot on the acting button (see ActionButton) so a message never
+   * reflows the card.
+   */
+  const [actionStatus, setActionStatus] = useState<{
+    action: "stream" | "download";
+    status: ActionButtonStatus;
+  } | null>(null);
+  const actionStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (actionStatusTimer.current) clearTimeout(actionStatusTimer.current);
+    },
+    [],
+  );
+
+  function flashActionStatus(
+    action: "stream" | "download",
+    status: ActionButtonStatus,
+  ) {
+    if (actionStatusTimer.current) clearTimeout(actionStatusTimer.current);
+    setActionStatus({ action, status });
+    actionStatusTimer.current = setTimeout(() => setActionStatus(null), 4500);
+  }
   const [playback, setPlayback] = useState<{
     infoHash: string;
     title: string;
@@ -152,6 +182,9 @@ export function TorrentCard({
     target: "primary" | "external" = "primary",
     opts: { play?: boolean; retention: "stream" | "keep" },
   ) {
+    // Which primary button (if any) is acting — used to place inline status.
+    const inlineAction: "stream" | "download" | null =
+      target === "primary" ? (opts.play ? "stream" : "download") : null;
     if (!session) {
       toast.message(opts.play ? "Sign in to stream" : "Sign in to download");
       return;
@@ -205,19 +238,39 @@ export function TorrentCard({
               subtitle: playSubtitle || null,
             });
             toast.success("Starting playback");
+            flashActionStatus("stream", {
+              message: "Starting playback",
+              variant: "success",
+            });
           } else {
             toast.message("Started download", {
               description: "Playback will appear once the torrent hash is known.",
             });
+            flashActionStatus("stream", {
+              message: "Started download",
+              variant: "success",
+            });
           }
         } else {
           toast.success(msg);
+          if (inlineAction)
+            flashActionStatus(inlineAction, {
+              message: msg,
+              variant: "success",
+            });
         }
       } else {
         toast.error(msg);
+        if (inlineAction)
+          flashActionStatus(inlineAction, { message: msg, variant: "error" });
       }
     } catch {
       toast.error("Network error");
+      if (inlineAction)
+        flashActionStatus(inlineAction, {
+          message: "Network error",
+          variant: "error",
+        });
     } finally {
       setSending(false);
     }
@@ -502,8 +555,8 @@ export function TorrentCard({
 
           {/* 3. Actions — explicit intent: stream now or keep the file. */}
           <div className="torrent-actions flex shrink-0 flex-wrap items-center gap-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
+            <div className="flex flex-wrap items-start gap-2">
+              <ActionButton
                 type="button"
                 onClick={() =>
                   void sendToClient("primary", {
@@ -519,6 +572,9 @@ export function TorrentCard({
                     ? "Stream now; cached bytes can be freed later"
                     : streamUnavailableReason
                 }
+                status={
+                  actionStatus?.action === "stream" ? actionStatus.status : null
+                }
               >
                 {sending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -526,8 +582,8 @@ export function TorrentCard({
                   <Play className="h-3.5 w-3.5" />
                 )}
                 Stream
-              </button>
-              <button
+              </ActionButton>
+              <ActionButton
                 type="button"
                 onClick={() =>
                   void sendToClient("primary", {
@@ -539,6 +595,11 @@ export function TorrentCard({
                 data-action="download"
                 className="btn btn-secondary min-h-9 px-3 text-[13px]"
                 title="Download and keep the file"
+                status={
+                  actionStatus?.action === "download"
+                    ? actionStatus.status
+                    : null
+                }
               >
                 {sending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -546,7 +607,7 @@ export function TorrentCard({
                   <ArrowDownToLine className="h-3.5 w-3.5" />
                 )}
                 Download
-              </button>
+              </ActionButton>
               <button
                 type="button"
                 onClick={() => setShowSendOpts((v) => !v)}
