@@ -44,11 +44,13 @@ function affinityRank(affinity: number, steps: number[]): number {
 function encodeScore(d: ReleaseRank, steps: number[]): number {
   const good = 2 - ((d.junk ? 1 : 0) + (d.implausible ? 1 : 0));
   return (
+    (d.categoryMatch + 1) * 10_000_000 +
     d.relevance * 1_000_000 +
     good * 100_000 +
     (d.viable ? 1 : 0) * 10_000 +
     affinityRank(d.affinity, steps) * 1_000 +
-    directPlayableRank(d.directPlayable) * 100 +
+    directPlayableRank(d.directPlayable) * 300 +
+    d.languagePreference * 100 +
     Math.min(d.seeders, 9) * 10 +
     d.recency
   );
@@ -65,11 +67,12 @@ export function rankResults(
   results: TorrentResult[],
   query: string,
   target: number = DEFAULT_TARGET_RESOLUTION,
+  category: string | null | undefined = "all",
 ): TorrentResult[] {
   const steps = affinitySteps(target);
   const scored = results.map((r) => {
     const episode = r.episode ?? parseEpisode(r.title);
-    const rank = describeRelease(r, query, target);
+    const rank = describeRelease(r, query, target, category);
     return {
       rank,
       result: {

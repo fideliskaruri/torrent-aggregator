@@ -26,6 +26,7 @@ function base(partial: Partial<TorrentResult> & { title: string }): TorrentResul
     infoHash: partial.infoHash,
     publishedAt: partial.publishedAt,
     sizeLabel: partial.sizeLabel,
+    route: partial.route,
   };
 }
 
@@ -46,6 +47,51 @@ function base(partial: Partial<TorrentResult> & { title: string }): TorrentResul
     "Show",
   );
   assert.equal(ranked[0].seeders, 500);
+}
+
+// Regression: a selected category must outrank a wrong-category exact-title hit.
+{
+  const query = "Star Wars: The Rise of Skywalker";
+  const music = base({
+    id: "music",
+    title: "Star Wars: The Rise of Skywalker (Soundtrack) [2019] [320]",
+    route: {
+      kind: "music",
+      category: "Music",
+      confidence: "high",
+    },
+    sizeBytes: 179 * 1024 * 1024,
+    seeders: 1,
+    source: "apibay",
+  });
+  const movie = base({
+    id: "movie",
+    title: "Star Wars: Episode IX - The Rise of Skywalker (2019)",
+    route: {
+      kind: "movies",
+      category: "Movies",
+      confidence: "high",
+    },
+    sizeBytes: Math.round(2.6 * 1024 * 1024 * 1024),
+    seeders: 35,
+    source: "apibay",
+  });
+
+  const movies = rankResults([music, movie], query, undefined, "movies");
+  assert.equal(
+    movies[0]?.id,
+    "movie",
+    "requested Movies category must beat an exact-title Music result",
+  );
+  assert.equal(movies[0]?.bestPick, true);
+  assert.equal(movies[1]?.id, "music");
+
+  const all = rankResults([music, movie], query, undefined, "all");
+  assert.equal(
+    all[0]?.id,
+    "music",
+    "All category stays neutral and preserves relevance-first ordering",
+  );
 }
 
 // dedupe by infoHash

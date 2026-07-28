@@ -240,7 +240,8 @@ export async function searchTorrents(
     if (options.filters) {
       results = applyFilters(results, options.filters);
     }
-    results = rankResults(results, query, targetResolution);
+    results = attachDownloadRoutes(results, options.category, null);
+    results = rankResults(results, query, targetResolution, options.category);
 
     if (options.limit != null) {
       results = results.slice(0, options.limit);

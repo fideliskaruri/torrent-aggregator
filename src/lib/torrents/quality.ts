@@ -376,6 +376,49 @@ export function directPlayableRank(value: boolean | null): number {
   return 0;
 }
 
+function normalizeCategoryKind(raw: string | null | undefined): string | null {
+  const value = raw?.trim().toLowerCase();
+  if (!value || value === "all") return null;
+  if (value === "movie" || value === "film" || value === "films") {
+    return "movies";
+  }
+  if (value === "show" || value === "series" || value === "television") {
+    return "tv";
+  }
+  if (value === "app" || value === "apps" || value === "software") {
+    return "software";
+  }
+  if (value === "game") return "games";
+  return value;
+}
+
+function categoryMatchRank(
+  routeKind: string | null | undefined,
+  requestedCategory: string | null | undefined,
+): number {
+  const requested = normalizeCategoryKind(requestedCategory);
+  if (!requested) return 0;
+  const actual = normalizeCategoryKind(routeKind);
+  if (!actual) return 0;
+  return actual === requested ? 1 : -1;
+}
+
+function languagePreferenceRank(title: string): number {
+  const t = (title || "").replace(/[._()[\]\-]+/g, " ");
+
+  if (/\b(?:eng|english|dual\s+audio|multi)\b/i.test(t)) {
+    return 2;
+  }
+
+  if (
+    /\b(?:vostfr|subfrench|truefrench|french|ita|jap|jpn|vosta)\b/i.test(t)
+  ) {
+    return 0;
+  }
+
+  return 1;
+}
+
 function inferReleaseContainer(title: string): string | null {
   const lower = title.toLowerCase();
   const spaced = lower.replace(/[._-]/g, " ");
@@ -516,7 +559,9 @@ export function relevanceTier(title: string, query: string): number {
 
 /** Everything the comparator needs, computed once per release. */
 export type ReleaseRank = {
+  categoryMatch: number;
   relevance: number;
+  languagePreference: number;
   junk: boolean;
   implausible: boolean;
   viable: boolean;
@@ -539,10 +584,13 @@ export function describeRelease(
   r: TorrentResult,
   query: string,
   target: number = DEFAULT_TARGET_RESOLUTION,
+  requestedCategory: string | null | undefined = "all",
 ): ReleaseRank {
   const resolution = parseResolution(r.title);
   return {
+    categoryMatch: categoryMatchRank(r.route?.kind, requestedCategory),
     relevance: relevanceTier(r.title, query),
+    languagePreference: languagePreferenceRank(r.title),
     junk: isJunkSource(r.title),
     implausible: isImplausible(r),
     viable: isViable(r),
@@ -560,25 +608,35 @@ export function describeRelease(
  *
  * The chain is deliberate and its order is the whole design:
  *
- *  1. **relevance** — the wrong show is always wrong, at any quality.
- *  2. **junk / implausible** — a camcorder rip or a 40 MB "1080p" is worse
+ *  1. **category match** — when the user picked Movies, a routed Music result
+ *     cannot win on a prettier title string. For "all", or unknown route kind,
+ *     this is neutral.
+ *  2. **relevance** — the wrong show is always wrong, at any quality.
+ *  3. **junk / implausible** — a camcorder rip or a 40 MB "1080p" is worse
  *     than anything legitimate, at any resolution or swarm size.
- *  3. **viability** — a release that cannot finish is worth less than one that
+ *  4. **viability** — a release that cannot finish is worth less than one that
  *     can. This sits *above* resolution on purpose (see {@link isViable}).
- *  4. **resolution** — the reported bug. Compared as affinity to the user's
+ *  5. **resolution** — the reported bug. Compared as affinity to the user's
  *     target, above seeders, so no swarm size can ever buy a quality change in
  *     either direction. Unknown resolution ranks below every known one.
- *  5. **direct-play hint** — only inside the same quality bucket. A likely
+ *  6. **direct-play hint** — only inside the same quality bucket. A likely
  *     H.264/AAC MP4 beats a known MKV/HEVC/DTS obstacle, but unknown sits between
  *     them instead of being treated as bad.
- *  6. **seeders**, bucketed by order of magnitude.
- *  7. **recency**, then **size** as final tiebreaks.
+ *  7. **language hint** — best-effort title tokens only. English-inclusive
+ *     releases beat known foreign-sub-only tags, while titles with no language
+ *     signal stay neutral.
+ *  8. **seeders**, bucketed by order of magnitude.
+ *  9. **recency**, then **size** as final tiebreaks.
  *
  * Returns on the first non-zero comparison; nothing is summed, so no term can
  * ever compensate for another.
  */
 export function compareReleases(a: ReleaseRank, b: ReleaseRank): number {
   // Higher is better.
+  if (a.categoryMatch !== b.categoryMatch) {
+    return b.categoryMatch - a.categoryMatch;
+  }
+
   if (a.relevance !== b.relevance) return b.relevance - a.relevance;
 
   // Lower is better: false (0) sorts ahead of true (1).
@@ -593,6 +651,10 @@ export function compareReleases(a: ReleaseRank, b: ReleaseRank): number {
   const aDirect = directPlayableRank(a.directPlayable);
   const bDirect = directPlayableRank(b.directPlayable);
   if (aDirect !== bDirect) return bDirect - aDirect;
+
+  if (a.languagePreference !== b.languagePreference) {
+    return b.languagePreference - a.languagePreference;
+  }
 
   if (a.seeders !== b.seeders) return b.seeders - a.seeders;
   if (a.recency !== b.recency) return b.recency - a.recency;

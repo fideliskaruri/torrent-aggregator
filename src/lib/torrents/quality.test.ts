@@ -57,6 +57,7 @@ function rel(partial: Partial<TorrentResult> & { title: string }): TorrentResult
     infoHash: partial.infoHash,
     publishedAt: partial.publishedAt,
     sizeLabel: partial.sizeLabel,
+    route: partial.route,
   };
 }
 
@@ -270,6 +271,53 @@ for (const c of DIRECT_PLAY_CASES) {
     }
   });
 }
+
+console.log("\n--- language hint: English-inclusive releases win comparable ties ---");
+
+check("English-inclusive language hints beat foreign-sub-only hints inside a tie", () => {
+  const ranked = rankResults(
+    [
+      rel({ id: "foreign-subs", title: "Show S01E06 1080p WEBRip VOSTFR", seeders: 50 }),
+      rel({ id: "english", title: "Show S01E06 1080p WEB-DL DUAL AUDIO", seeders: 50 }),
+    ],
+    "Show",
+  );
+  assert.deepEqual(ranked.map((r) => r.id), ["english", "foreign-subs"]);
+});
+
+check("language hint does not override relevance", () => {
+  const ranked = rankResults(
+    [
+      rel({ id: "right-title", title: "Show S01E06 1080p WEBRip VOSTFR", seeders: 50 }),
+      rel({ id: "wrong-title", title: "Other Series S01E06 1080p WEB-DL DUAL AUDIO", seeders: 50 }),
+    ],
+    "Show",
+  );
+  assert.equal(ranked[0]?.id, "right-title");
+});
+
+check("language hint does not override selected category", () => {
+  const ranked = rankResults(
+    [
+      rel({
+        id: "wrong-category",
+        title: "Show S01E06 1080p WEB-DL DUAL AUDIO",
+        seeders: 50,
+        route: { kind: "music", category: "Music", confidence: "high" },
+      }),
+      rel({
+        id: "right-category",
+        title: "Show S01E06 1080p WEBRip VOSTFR",
+        seeders: 50,
+        route: { kind: "tv", category: "TV", confidence: "high" },
+      }),
+    ],
+    "Show",
+    DEFAULT_TARGET_RESOLUTION,
+    "tv",
+  );
+  assert.equal(ranked[0]?.id, "right-category");
+});
 
 console.log("\n--- junk sources: worse than any resolution is good ---");
 
