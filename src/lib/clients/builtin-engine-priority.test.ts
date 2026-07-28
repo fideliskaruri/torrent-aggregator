@@ -7,6 +7,7 @@ import {
   prefetchBuiltinFileEdges,
   prioritizeBuiltinStreamFile,
   resetBuiltinStreamPriorityForTests,
+  resolveStreamTailPriority,
 } from "./builtin-engine";
 
 type Selection = {
@@ -53,6 +54,7 @@ function fakeFile(path: string, start: number, end: number, offset: number): Fak
 function fakeTorrent(files: FakeFile[], pieceLength = 1024 * 1024): BuiltinStreamTorrent & {
   pieceLength: number;
   pieces: unknown[];
+  bitfield?: { get(index: number): boolean };
   selections: Selection[];
   deselections: Array<{ start: number; end: number; stream: boolean | undefined }>;
   publicDeselections: Array<{ start: number; end: number }>;
@@ -77,6 +79,7 @@ function fakeTorrent(files: FakeFile[], pieceLength = 1024 * 1024): BuiltinStrea
     files,
     pieceLength,
     pieces: new Array(60).fill({}),
+    bitfield: undefined,
     selections: [],
     deselections: [],
     publicDeselections: [],
@@ -127,7 +130,7 @@ async function main() {
     assert.deepEqual(torrent.publicDeselections, [{ start: 0, end: 59 }]);
     assert.deepEqual(torrent.selections, [
       { start: 40, end: 41, priority: 3, stream: true },
-      { start: 48, end: 49, priority: 3, stream: true },
+      { start: 48, end: 49, priority: 1, stream: true },
     ]);
     assert.deepEqual(torrent.criticalCalls, [{ start: 40, end: 41 }]);
   });
@@ -181,9 +184,9 @@ async function main() {
     assert.deepEqual(ep5.selectCalls, []);
     assert.deepEqual(torrent.selections, [
       { start: 40, end: 41, priority: 3, stream: true },
-      { start: 48, end: 49, priority: 3, stream: true },
+      { start: 48, end: 49, priority: 1, stream: true },
       { start: 50, end: 51, priority: 3, stream: true },
-      { start: 58, end: 59, priority: 3, stream: true },
+      { start: 58, end: 59, priority: 1, stream: true },
     ]);
   });
 
@@ -238,7 +241,7 @@ async function main() {
       torrent.selections,
       [
         { start: 40, end: 41, priority: 3, stream: true },
-        { start: 58, end: 59, priority: 3, stream: true },
+        { start: 58, end: 59, priority: 1, stream: true },
       ],
       "opening S01E03 must request only bounded head and tail windows",
     );
@@ -258,10 +261,53 @@ async function main() {
       torrent.selections,
       [
         { start: 40, end: 41, priority: 3, stream: true },
-        { start: 78, end: 79, priority: 3, stream: true },
+        { start: 78, end: 79, priority: 1, stream: true },
       ],
       "S01E03 must prioritise S01E03's tail pieces, not the torrent tail or a sibling",
     );
+  });
+
+  await check("resolveStreamTailPriority holds the tail below the head until the window lands", () => {
+    // Incomplete primary window: the tail must sit below the head priority so it
+    // cannot race the first frame for peer bandwidth.
+    assert.equal(resolveStreamTailPriority(false), 1);
+    // Once the head/seek window is verified, the tail is promoted to the head
+    // priority so the moov/cues finish without a second stall.
+    assert.equal(resolveStreamTailPriority(true), 3);
+    assert.ok(
+      resolveStreamTailPriority(false) < resolveStreamTailPriority(true),
+      "the deferred tail priority must be strictly below the head priority",
+    );
+  });
+
+  await check("the tail is deferred at open, then promoted once the head window is verified", () => {
+    const ep3 = fakeFile("Show/S01E03.mkv", 40, 79, 40 * 1024);
+    const torrent = fakeTorrent([ep3], 1024 * 1024);
+
+    // At open nothing is verified: head {40,41} owns the swarm and the tail
+    // {78,79} waits at the deferred priority.
+    prioritizeBuiltinStreamFile(torrent, ep3, {
+      prefetchEdges: async () => undefined,
+    });
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 41, priority: 3, stream: true },
+      { start: 78, end: 79, priority: 1, stream: true },
+    ]);
+
+    // The head pieces land. The next priority pass promotes the tail to the head
+    // priority, dropping the stale deferred selection first.
+    torrent.bitfield = { get: (index: number) => index === 40 || index === 41 };
+    prioritizeBuiltinStreamFile(torrent, ep3, {
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(torrent.deselections, [{ start: 78, end: 79, stream: true }]);
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 41, priority: 3, stream: true },
+      { start: 78, end: 79, priority: 1, stream: true },
+      { start: 40, end: 41, priority: 3, stream: true },
+      { start: 78, end: 79, priority: 3, stream: true },
+    ]);
   });
 
   await check("edge prefetch defers tail drain until head drain finishes", async () => {

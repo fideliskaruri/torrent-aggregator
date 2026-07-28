@@ -453,6 +453,24 @@ function selectAllFiles(t: WtTorrent): void {
 
 const SEEK_FILE_PRIORITY = 3;
 const STREAM_HEAD_PRIORITY_BYTES = 2 * 1024 * 1024;
+// While the head (or seek) window is still incomplete, the moov/tail prefetch
+// must not claim equal peer bandwidth. Selecting it below the head priority
+// keeps it wanted — so idle wires still fill it — without letting it race the
+// very first bytes of playback.
+const STREAM_TAIL_DEFERRED_PRIORITY = 1;
+
+/**
+ * Decide the tail's selection priority for a stream file.
+ *
+ * The head (or the seek target) must own the swarm until its window lands; only
+ * then may the tail — the MP4/MKV moov/cues the player needs to keep going —
+ * claim equal priority. Given whether that primary window is already complete,
+ * a complete window promotes the tail to the head priority; an incomplete one
+ * holds it at the deferred priority so it cannot starve the first frame.
+ */
+export function resolveStreamTailPriority(primaryWindowComplete: boolean): number {
+  return primaryWindowComplete ? SEEK_FILE_PRIORITY : STREAM_TAIL_DEFERRED_PRIORITY;
+}
 
 type StreamPriorityOptions = {
   seekOffset?: number;
@@ -465,6 +483,7 @@ type StreamPriorityState = {
   headRange: { start: number; end: number } | null;
   tailRange: { start: number; end: number } | null;
   seekRange: { start: number; end: number } | null;
+  tailDeferred: boolean;
 };
 
 let prioritizedStreamFiles = new WeakMap<object, StreamPriorityState>();
@@ -537,6 +556,29 @@ function samePieceRange(
   b: { start: number; end: number } | null,
 ): boolean {
   return a?.start === b?.start && a?.end === b?.end;
+}
+
+/**
+ * True only when every piece in the range is already verified in the torrent's
+ * bitfield. Used to decide whether the head/seek window has landed so the tail
+ * may be promoted off its deferred priority.
+ */
+function isPieceRangeComplete(
+  torrent: BuiltinStreamTorrent,
+  range: { start: number; end: number } | null,
+): boolean {
+  if (!range) return false;
+  const bitfield = readProp(() => (torrent as WtTorrent).bitfield, undefined);
+  const get = bitfield?.get;
+  if (typeof get !== "function") return false;
+  try {
+    for (let piece = range.start; piece <= range.end; piece += 1) {
+      if (!get.call(bitfield, piece)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function torrentPieceRange(
@@ -668,12 +710,21 @@ export function prioritizeBuiltinStreamFile(
   const seek = seekPieceRange(torrent, file, opts.seekOffset);
   const head = seek ? null : headPieceRange(torrent, file);
   const tail = tailPieceRange(torrent, file);
+  const wantsTail = tail != null && !samePieceRange(tail, head);
+  // The head (or seek target) must own the swarm until its window lands. Hold
+  // the tail below the head priority until then, so the moov/cues prefetch
+  // never competes with the very first frame for peer bandwidth.
+  const primaryWindow = seek ?? head;
+  const primaryComplete = primaryWindow ? isPieceRangeComplete(torrent, primaryWindow) : true;
+  const tailPriority = resolveStreamTailPriority(primaryComplete);
+  const tailDeferred = wantsTail && tailPriority !== SEEK_FILE_PRIORITY;
   const previous = prioritizedStreamFiles.get(torrent);
   if (
     previous?.key === key &&
     samePieceRange(previous.headRange, head) &&
     samePieceRange(previous.tailRange, tail) &&
-    samePieceRange(previous.seekRange, seek)
+    samePieceRange(previous.seekRange, seek) &&
+    previous.tailDeferred === tailDeferred
   ) {
     triggerPriorityEdgePrefetch(torrent, file, opts);
     return;
@@ -683,19 +734,31 @@ export function prioritizeBuiltinStreamFile(
     deselectStreamPieceRange(torrent, previous?.headRange ?? null);
   }
   deselectStreamPieceRange(torrent, previous?.seekRange ?? null);
-  if (!samePieceRange(previous?.tailRange ?? null, tail)) {
+  // Drop the old tail selection when its range changed, or when we are promoting
+  // it out of the deferred priority, so the stale low-priority selection is gone
+  // before the equal-priority one lands.
+  if (
+    !samePieceRange(previous?.tailRange ?? null, tail) ||
+    (previous?.tailDeferred ?? false) !== tailDeferred
+  ) {
     deselectStreamPieceRange(torrent, previous?.tailRange ?? null);
   }
   if (previous?.key !== key) {
     deselectAllFiles(torrent);
   }
-  prioritizedStreamFiles.set(torrent, { key, headRange: head, tailRange: tail, seekRange: seek });
+  prioritizedStreamFiles.set(torrent, {
+    key,
+    headRange: head,
+    tailRange: tail,
+    seekRange: seek,
+    tailDeferred,
+  });
 
   if (head) {
     selectPieceRange(torrent, head, SEEK_FILE_PRIORITY);
     markCriticalPieceRange(torrent, head);
   }
-  if (tail && !samePieceRange(tail, head)) selectPieceRange(torrent, tail, SEEK_FILE_PRIORITY);
+  if (tail && !samePieceRange(tail, head)) selectPieceRange(torrent, tail, tailPriority);
 
   if (seek) {
     selectPieceRange(torrent, seek, SEEK_FILE_PRIORITY);
