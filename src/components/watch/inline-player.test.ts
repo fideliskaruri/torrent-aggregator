@@ -236,6 +236,7 @@ assert(
     viewerWaiting: false,
     preparing: true,
     activeVideoAdvancing: true,
+    seeking: false,
   }),
 );
 assert(
@@ -253,6 +254,27 @@ assert(
     viewerWaiting: true,
     preparing: false,
     activeVideoAdvancing: false,
+    seeking: false,
+  }),
+);
+assert(
+  "a seek over a visible video does not stack the buffering overlay on the seek spinner",
+  !shouldShowFullscreenStatusOverlay({
+    hasVisibleVideo: true,
+    viewerWaiting: true,
+    preparing: false,
+    activeVideoAdvancing: false,
+    seeking: true,
+  }),
+);
+assert(
+  "a source still being prepared shows its status even during a seek",
+  shouldShowFullscreenStatusOverlay({
+    hasVisibleVideo: true,
+    viewerWaiting: false,
+    preparing: true,
+    activeVideoAdvancing: false,
+    seeking: true,
   }),
 );
 assert(

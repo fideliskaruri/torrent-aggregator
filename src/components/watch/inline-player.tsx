@@ -349,9 +349,17 @@ export function shouldShowFullscreenStatusOverlay(args: {
   viewerWaiting: boolean;
   preparing: boolean;
   activeVideoAdvancing: boolean;
+  seeking: boolean;
 }): boolean {
   if (args.hasVisibleVideo && args.activeVideoAdvancing) return false;
-  return !args.hasVisibleVideo || args.viewerWaiting || args.preparing;
+  // No source yet, or a source is being prepared: the stage status is the only
+  // indicator there is, so show it even mid-seek.
+  if (!args.hasVisibleVideo || args.preparing) return true;
+  // With a visible video, a seek already draws its own dedicated spinner
+  // (shouldShowSeekSpinner). Stacking the buffering overlay on top of it is the
+  // "double loader" — let the seek spinner own that moment.
+  if (args.seeking) return false;
+  return args.viewerWaiting;
 }
 
 export function shouldShowSeekSpinner(args: {
@@ -3453,6 +3461,7 @@ function InlineStreamPlayerInner({
       viewerWaiting,
       preparing: Boolean(preparingLabel),
       activeVideoAdvancing,
+      seeking,
     });
     const showSeekSpinner = shouldShowSeekSpinner({ seeking, activeVideoAdvancing });
     const chromeVisible = theatreControlsVisible || controlsPinned;
