@@ -20,6 +20,7 @@ import { preProbeUpcoming } from "@/lib/prewarm/preprobe";
 import {
   foregroundSnapshot,
   markForegroundActive,
+  releaseForeground,
   syncPrewarmSuspension,
 } from "@/lib/prewarm/foreground";
 import {
@@ -88,7 +89,17 @@ export async function GET() {
 type PrewarmRequest =
   | { action: "prerank"; limit?: number }
   | { action: "evict"; bytes: number }
-  | { action: "foreground"; infoHash?: string; beacon?: boolean }
+  | {
+      action: "foreground";
+      infoHash?: string;
+      beacon?: boolean;
+      /**
+       * The player for this stream closed. Expire its foreground clock now so
+       * its cache stops pulling pieces without waiting out the idle grace.
+       * `true` releases whatever was last in the foreground.
+       */
+      released?: string | boolean;
+    }
   | {
       action: "next";
       infoHash: string;
@@ -193,8 +204,16 @@ export async function POST(request: NextRequest) {
 
     if (body.action === "foreground") {
       // `beacon` records a live stream; omitting it just reconciles against
-      // whatever the engine is actually doing.
-      if (body.beacon !== false) markForegroundActive(body.infoHash ?? null);
+      // whatever the engine is actually doing. `released` is the player closing:
+      // expire the foreground clock for that stream now so its cache stops
+      // pulling pieces immediately instead of after the idle grace.
+      if (body.released) {
+        releaseForeground(
+          typeof body.released === "string" ? body.released : body.infoHash ?? null,
+        );
+      } else if (body.beacon !== false) {
+        markForegroundActive(body.infoHash ?? null);
+      }
       const result = await syncPrewarmSuspension({ userId });
       return NextResponse.json({
         ok: true,

@@ -18,6 +18,13 @@ import type { TorrentResult } from "@/lib/torrents/types";
 export const PREWARM_ORIGIN = "prewarm";
 /** The default — an explicit, user-requested grab. Never evictable. */
 export const USER_ORIGIN = "user";
+/**
+ * A torrent that exists only because the user pressed Play. It is an evictable
+ * cache of what is being watched, never a download the user asked to keep. The
+ * canonical home for the constant is here beside the other origins; the
+ * retention module re-exports it for its own callers.
+ */
+export const STREAM_ORIGIN = "stream";
 
 /** `GrabJob.kind` for a speculative grab, so Activity can label it honestly. */
 export const PREWARM_GRAB_KIND = "prewarm";

@@ -1773,6 +1773,33 @@ export function findLiveBuiltinTorrent(hash: string): WtTorrent | null {
   return findTorrent(s.client, normalized) ?? null;
 }
 
+/**
+ * Stop a stream-only torrent from pulling pieces once the player closes.
+ *
+ * A stream is an evictable cache of what is on screen, not a download the user
+ * asked to keep; when the viewer closes the player we must not keep pulling it
+ * into their storage without consent. Deselecting the files stops WebTorrent
+ * requesting pieces, while the torrent stays in the client so a later Play can
+ * re-select and resume from whatever already landed on disk.
+ *
+ * Clearing the stream-priority bookkeeping is load-bearing:
+ * `prioritizeBuiltinStreamFile` short-circuits when its recorded selection
+ * already matches the request and only re-marks pieces critical — it does not
+ * re-`select` them. After a raw deselect that path would leave the file with no
+ * selection and the resume would stall. Dropping the entry forces the next Play
+ * to make a fresh selection.
+ *
+ * Returns true when a live torrent was found and parked.
+ */
+export function parkBuiltinStreamTorrent(infoHash: string): boolean {
+  const torrent = findLiveBuiltinTorrent(infoHash);
+  if (!torrent) return false;
+  deselectAllFiles(torrent);
+  prioritizedStreamFiles.delete(torrent as object);
+  prioritizedEdgePrefetches.delete(torrent as object);
+  return true;
+}
+
 export type BuiltinStreamFile = WtFile;
 export type BuiltinStreamTorrent = Pick<
   WtTorrent,

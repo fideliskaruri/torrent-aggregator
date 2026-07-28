@@ -42,10 +42,11 @@ import {
   foregroundSnapshot,
   markForegroundActive,
   observeForeground,
+  releaseForeground,
   resetForegroundState,
   syncPrewarmSuspension,
 } from "./foreground";
-import { PREWARM_ORIGIN, USER_ORIGIN } from "./types";
+import { PREWARM_ORIGIN, STREAM_ORIGIN, USER_ORIGIN } from "./types";
 import type {
   BuiltinStreamFile,
   BuiltinStreamLookup,
@@ -661,6 +662,193 @@ async function main(): Promise<void> {
         );
         assert.equal(pre.paused, false);
         assert.equal(user.pauseCalls, 0, "the torrent being watched was paused");
+      },
+    );
+
+    // ── the stream cache stops when nobody is watching it ───────────────
+    // The consent model: a stream-only torrent is an evictable cache of what is
+    // on screen, never a save the user asked for. Once it is off screen it must
+    // stop pulling pieces, or it spends the user's storage without their say-so.
+    await checkAsync("a stream nobody is watching is parked", async () => {
+      resetForegroundState();
+      await seed([{ tag: "stream-ep", origin: STREAM_ORIGIN }]);
+      installEngine([new FakeTorrent("stream-ep")]);
+
+      const parked: string[] = [];
+      const result = await syncPrewarmSuspension({
+        userId,
+        _parkStream: (hash) => {
+          parked.push(hash);
+          return true;
+        },
+      });
+
+      assert.deepEqual(
+        parked,
+        [hashFor("stream-ep")],
+        "an idle stream cache must be parked",
+      );
+      assert.ok(result.parked.includes(hashFor("stream-ep")));
+    });
+
+    await checkAsync("the stream currently on screen is never parked", async () => {
+      resetForegroundState();
+      await seed([{ tag: "stream-ep", origin: STREAM_ORIGIN }]);
+      installEngine([new FakeTorrent("stream-ep")]);
+
+      // The viewer is being served this exact stream right now.
+      markForegroundActive(hashFor("stream-ep"));
+
+      const parked: string[] = [];
+      await syncPrewarmSuspension({
+        userId,
+        _parkStream: (hash) => {
+          parked.push(hash);
+          return true;
+        },
+      });
+
+      assert.deepEqual(
+        parked,
+        [],
+        "the stream being watched must keep pulling pieces",
+      );
+    });
+
+    await checkAsync(
+      "closing the player parks the stream that was on screen at once",
+      async () => {
+        resetForegroundState();
+        await seed([{ tag: "stream-ep", origin: STREAM_ORIGIN }]);
+        installEngine([new FakeTorrent("stream-ep")]);
+
+        markForegroundActive(hashFor("stream-ep"));
+        // The player closed: the release beacon expires the foreground clock for
+        // this hash without waiting out the 20s idle grace.
+        releaseForeground(hashFor("stream-ep"));
+
+        const parked: string[] = [];
+        await syncPrewarmSuspension({
+          userId,
+          _parkStream: (hash) => {
+            parked.push(hash);
+            return true;
+          },
+        });
+
+        assert.deepEqual(
+          parked,
+          [hashFor("stream-ep")],
+          "a closed stream must stop pulling pieces at once, not after the grace",
+        );
+      },
+    );
+
+    await checkAsync(
+      "a stale release beacon cannot cut off a newer stream",
+      async () => {
+        resetForegroundState();
+        await seed([{ tag: "stream-new", origin: STREAM_ORIGIN }]);
+        installEngine([new FakeTorrent("stream-new")]);
+
+        // A new stream is now on screen; a late beacon for the previous one
+        // arrives. It must be ignored, not park what is playing now.
+        markForegroundActive(hashFor("stream-new"));
+        releaseForeground(hashFor("stream-old"));
+
+        const parked: string[] = [];
+        await syncPrewarmSuspension({
+          userId,
+          _parkStream: (hash) => {
+            parked.push(hash);
+            return true;
+          },
+        });
+
+        assert.deepEqual(parked, [], "a mismatched release must not park anything");
+      },
+    );
+
+    await checkAsync(
+      "a download the user kept is never parked as a stream",
+      async () => {
+        resetForegroundState();
+        await seed([
+          { tag: "kept-movie", origin: USER_ORIGIN },
+          { tag: "stream-ep", origin: STREAM_ORIGIN },
+        ]);
+        installEngine([new FakeTorrent("kept-movie"), new FakeTorrent("stream-ep")]);
+
+        const parked: string[] = [];
+        await syncPrewarmSuspension({
+          userId,
+          _parkStream: (hash) => {
+            parked.push(hash);
+            return true;
+          },
+        });
+
+        assert.ok(
+          !parked.includes(hashFor("kept-movie")),
+          "a kept download must never be parked",
+        );
+        assert.deepEqual(parked, [hashFor("stream-ep")]);
+      },
+    );
+
+    await checkAsync(
+      "parking a stream is idempotent under repeated pings",
+      async () => {
+        resetForegroundState();
+        await seed([{ tag: "stream-ep", origin: STREAM_ORIGIN }]);
+        installEngine([new FakeTorrent("stream-ep")]);
+
+        const parked: string[] = [];
+        const park = (hash: string) => {
+          parked.push(hash);
+          return true;
+        };
+        for (let i = 0; i < 4; i += 1) {
+          await syncPrewarmSuspension({ userId, _parkStream: park });
+        }
+        assert.equal(
+          parked.length,
+          1,
+          "an already-parked stream must not be re-parked on every ping",
+        );
+      },
+    );
+
+    await checkAsync(
+      "a stream resumed then closed again is parked afresh",
+      async () => {
+        resetForegroundState();
+        await seed([{ tag: "stream-ep", origin: STREAM_ORIGIN }]);
+        installEngine([new FakeTorrent("stream-ep")]);
+
+        const parked: string[] = [];
+        const park = (hash: string) => {
+          parked.push(hash);
+          return true;
+        };
+
+        // 1. Player closed → idle → parked once.
+        await syncPrewarmSuspension({ userId, _parkStream: park });
+        assert.deepEqual(parked, [hashFor("stream-ep")]);
+
+        // 2. Played again → foreground active → the parked marker is dropped so
+        //    the stream is not treated as "already parked" forever.
+        markForegroundActive(hashFor("stream-ep"));
+        await syncPrewarmSuspension({ userId, _parkStream: park });
+
+        // 3. Closed again → idle → parked a second time, not skipped.
+        releaseForeground(hashFor("stream-ep"));
+        await syncPrewarmSuspension({ userId, _parkStream: park });
+        assert.equal(
+          parked.length,
+          2,
+          "a stream that was resumed must be parkable again when it closes",
+        );
       },
     );
 

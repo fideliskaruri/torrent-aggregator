@@ -57,7 +57,7 @@
  * nothing is parked.
  */
 import prisma from "@/lib/prisma";
-import { PREWARM_ORIGIN } from "./types";
+import { PREWARM_ORIGIN, STREAM_ORIGIN } from "./types";
 
 /**
  * How long after the last observed foreground byte we keep pre-warms parked.
@@ -96,6 +96,16 @@ type ForegroundState = {
   lastHash: string | null;
   /** Hashes this module deselected while foreground playback was active. */
   suspended: Set<string>;
+  /**
+   * Per-hash "bytes were served to the *player* for this torrent" timestamps.
+   *
+   * This is the honest playback signal, distinct from the global byte-movement
+   * backstop: only the byte-serving routes (`markForegroundActive`) write it,
+   * never `observeForeground`/`watchForeground`. A stream that is merely still
+   * downloading its own selected pieces must NOT count as watched, or a closed
+   * stream would keep itself "foreground" and never stop.
+   */
+  seen: Map<string, number>;
 };
 
 const g = globalThis as unknown as {
@@ -105,7 +115,12 @@ const g = globalThis as unknown as {
 
 function state(): ForegroundState {
   if (!g.__tfPrewarmForeground) {
-    g.__tfPrewarmForeground = { lastSeenAt: 0, lastHash: null, suspended: new Set() };
+    g.__tfPrewarmForeground = {
+      lastSeenAt: 0,
+      lastHash: null,
+      suspended: new Set(),
+      seen: new Map(),
+    };
   }
   return g.__tfPrewarmForeground;
 }
@@ -121,16 +136,31 @@ function norm(hash: string): string {
 }
 
 /**
+ * Refresh the GLOBAL foreground clock only — not the per-hash playback map.
+ *
+ * The byte-movement backstop (`observeForeground`/`watchForeground`) uses this:
+ * "some non-pre-warm torrent is moving bytes" is enough to keep pre-warms out
+ * of the way, but it is NOT proof the user is watching that specific torrent, so
+ * it must never mark a torrent as watched for the stream-park decision.
+ */
+function touchGlobal(infoHash?: string | null, now = Date.now()): void {
+  const s = state();
+  s.lastSeenAt = now;
+  if (infoHash) s.lastHash = norm(infoHash);
+}
+
+/**
  * Records that bytes are being served to the player for `infoHash`.
  *
- * Safe to call on every range request — it is a single clock read and two
- * assignments. Exported for whoever owns the stream route; see the module
- * header.
+ * Safe to call on every range request — it is a clock read and a few
+ * assignments. Exported for whoever owns the byte-serving routes; see the module
+ * header. Unlike the backstop, this is real playback, so it stamps both the
+ * global clock and the per-hash "watched" map the stream-park decision reads.
  */
 export function markForegroundActive(infoHash?: string | null): void {
-  const s = state();
-  s.lastSeenAt = Date.now();
-  if (infoHash) s.lastHash = norm(infoHash);
+  const now = Date.now();
+  touchGlobal(infoHash, now);
+  if (infoHash) state().seen.set(norm(infoHash), now);
 }
 
 /** Milliseconds since the last observed foreground byte. `Infinity` if never. */
@@ -168,6 +198,37 @@ async function prewarmHashes(
 }
 
 /**
+ * Hashes the engine holds that exist only because the user pressed Play.
+ *
+ * Same authority as {@link prewarmHashes}: `origin` is the only thing that says
+ * a torrent is a stream cache rather than a download the user asked to keep.
+ * Getting this wrong would park (stop downloading) a torrent the user is
+ * actually saving, so it is read from the database, never guessed.
+ */
+async function streamHashes(
+  userId: string,
+  db: typeof prisma,
+): Promise<Set<string>> {
+  const rows = await db.engineTorrent.findMany({
+    where: { userId, origin: STREAM_ORIGIN },
+    select: { hash: true },
+  });
+  return new Set(rows.map((r) => norm(r.hash)));
+}
+
+/**
+ * Loads the built-in engine's stream-park function lazily.
+ *
+ * A static import would close a cycle (`builtin-engine` already imports
+ * `foregroundActive` from this module); a dynamic import breaks it and is only
+ * paid when there is actually a stream to park.
+ */
+async function loadEnginePark(): Promise<(infoHash: string) => boolean> {
+  const mod = await import("@/lib/clients/builtin-engine");
+  return mod.parkBuiltinStreamTorrent;
+}
+
+/**
  * Samples the engine for foreground activity and records it.
  *
  * A torrent counts as foreground when it is moving bytes and is **not** a
@@ -184,7 +245,7 @@ export function observeForeground(prewarms: ReadonlySet<string>): string | null 
       break;
     }
   }
-  if (seen) markForegroundActive(seen);
+  if (seen) touchGlobal(seen);
   return seen;
 }
 
@@ -203,7 +264,7 @@ function watchForeground(prewarms: ReadonlySet<string>): void {
     if (typeof t.on !== "function") continue;
     try {
       if ((t.listenerCount?.("download") ?? 0) > 0) continue;
-      t.on("download", () => markForegroundActive(hash));
+      t.on("download", () => touchGlobal(hash));
     } catch {
       // A listener is an optimisation. Sampling still covers us.
     }
@@ -245,6 +306,11 @@ export interface SyncOptions {
   now?: number;
   /** Test seam: forces the foreground verdict instead of sampling the engine. */
   _foregroundActive?: boolean;
+  /**
+   * Test seam: park a stream-only torrent by hash, returning whether it acted.
+   * Defaults to the built-in engine's `parkBuiltinStreamTorrent`.
+   */
+  _parkStream?: (infoHash: string) => boolean;
 }
 
 /**
@@ -316,6 +382,62 @@ export async function syncPrewarmSuspension(
     }
   }
 
+  // Stream-only torrents are a cache of what is on screen. A stream is left
+  // alone only while it is genuinely *being watched* — i.e. a byte-serving
+  // route stamped its per-hash playback clock within the grace window. This is
+  // deliberately NOT the global foreground flag: a stream that is merely still
+  // downloading its own selected pieces would keep that flag (and itself) alive
+  // forever, and a concurrent kept download must never protect an unrelated
+  // stream. The moment a stream stops being watched — the player closed, its
+  // beacon released it, or its playback simply went idle — it stops pulling
+  // pieces into the user's storage. A later Play re-selects and resumes from
+  // disk.
+  let streams: Set<string>;
+  try {
+    streams = await streamHashes(opts.userId, db);
+  } catch {
+    // A stream cache that keeps pulling is a nuisance, never a data-loss risk,
+    // so a failed lookup here must not abort the pre-warm reconcile above.
+    streams = new Set();
+  }
+
+  if (streams.size > 0) {
+    const watchedRecently = (hash: string): boolean => {
+      const at = s.seen.get(hash);
+      return at !== undefined && now - at < FOREGROUND_IDLE_MS;
+    };
+    const toPark: string[] = [];
+    for (const t of engineTorrents()) {
+      const hash = norm(String(t.infoHash ?? ""));
+      if (!hash || !streams.has(hash)) continue;
+      if (watchedRecently(hash)) {
+        // On screen right now: drop any parked marker so it can be parked
+        // afresh once it is closed again.
+        s.suspended.delete(hash);
+        continue;
+      }
+      if (!s.suspended.has(hash)) toPark.push(hash);
+    }
+    if (toPark.length > 0) {
+      let park: (infoHash: string) => boolean;
+      try {
+        park = opts._parkStream ?? (await loadEnginePark());
+      } catch {
+        park = () => false;
+      }
+      for (const hash of toPark) {
+        try {
+          if (park(hash)) {
+            s.suspended.add(hash);
+            suspended.push(hash);
+          }
+        } catch {
+          // One torrent that refuses to park must not strand the others.
+        }
+      }
+    }
+  }
+
   return {
     foreground: active,
     suspended,
@@ -327,7 +449,33 @@ export async function syncPrewarmSuspension(
 
 /** Test seam: clears the in-process foreground bookkeeping. */
 export function resetForegroundState(): void {
-  g.__tfPrewarmForeground = { lastSeenAt: 0, lastHash: null, suspended: new Set() };
+  g.__tfPrewarmForeground = {
+    lastSeenAt: 0,
+    lastHash: null,
+    suspended: new Set(),
+    seen: new Map(),
+  };
+}
+
+/**
+ * Marks the end of foreground playback for `infoHash` (the player closed).
+ *
+ * Drops the per-hash "watched" stamp so the next `syncPrewarmSuspension` parks
+ * this stream even if it is still moving bytes of its own selected pieces — the
+ * whole point is to stop that. If the closing hash is also the global
+ * foreground, expire that clock too so pre-warming can resume. A call with no
+ * hash clears everything (the page went away).
+ */
+export function releaseForeground(infoHash?: string | null): void {
+  const s = state();
+  if (!infoHash) {
+    s.lastSeenAt = 0;
+    s.seen.clear();
+    return;
+  }
+  const h = norm(infoHash);
+  s.seen.delete(h);
+  if (s.lastHash === h) s.lastSeenAt = 0;
 }
 
 /** Diagnostics for `GET /api/prewarm`. */

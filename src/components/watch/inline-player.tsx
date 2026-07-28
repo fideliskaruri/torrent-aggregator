@@ -1678,6 +1678,59 @@ function InlineStreamPlayerInner({
   }, [expanded, postProgress]);
 
   /**
+   * Tell the server the player closed so a stream stops pulling pieces.
+   *
+   * A stream-only torrent is a cache of what is on screen, never a download the
+   * viewer asked to keep. When they close the player it is off screen, and
+   * continuing to fetch it spends their storage without consent — the exact
+   * complaint this addresses. The server expires the foreground clock for this
+   * hash and parks its cache; a later Play re-selects and resumes from disk.
+   *
+   * Best-effort by design: `sendBeacon` for the page-gone case, `keepalive`
+   * fetch otherwise, every failure swallowed. If the beacon is missed the
+   * foreground timestamp still decays on its own and the next reconcile parks
+   * the stream — this only makes the common close instant.
+   */
+  const releaseStream = useCallback(() => {
+    if (!activeInfoHash) return;
+    const payload = JSON.stringify({
+      action: "foreground",
+      released: activeInfoHash,
+    });
+    try {
+      if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+        const blob = new Blob([payload], { type: "application/json" });
+        if (navigator.sendBeacon("/api/prewarm", blob)) return;
+      }
+      void fetch("/api/prewarm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {
+        /* the idle grace + next reconcile still parks it */
+      });
+    } catch {
+      /* sendBeacon/Blob unavailable: the stream parks on the idle path */
+    }
+  }, [activeInfoHash]);
+
+  // Fire the release on the same "stopped watching" signals the progress flush
+  // uses: collapsing the player (expanded → false), unmount, and the page going
+  // away. Deliberately NOT on `visibilitychange`: a desktop tab-switch or
+  // background audio keeps issuing range requests, and tearing the stream down
+  // there would stutter what is still playing. Only an actual close should stop
+  // the cache.
+  useEffect(() => {
+    if (!expanded) return;
+    window.addEventListener("pagehide", releaseStream);
+    return () => {
+      window.removeEventListener("pagehide", releaseStream);
+      releaseStream();
+    };
+  }, [expanded, releaseStream]);
+
+  /**
    * A seek only earns a write once it has settled.
    *
    * Scrubbing produces a burst of positions the viewer never watched. Delaying

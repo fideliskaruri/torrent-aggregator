@@ -13,13 +13,13 @@ import { getClient } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
 import { onDiskBytes } from "@/lib/prewarm/eviction";
-import { PREWARM_ORIGIN, USER_ORIGIN } from "@/lib/prewarm/types";
+import { PREWARM_ORIGIN, STREAM_ORIGIN, USER_ORIGIN } from "@/lib/prewarm/types";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
 import { foregroundHash } from "@/lib/prewarm/foreground";
 
 type Db = typeof prisma;
 
-export const STREAM_ORIGIN = "stream";
+export { STREAM_ORIGIN };
 export const STREAM_CACHE_GRACE_MS = 6 * 60 * 60 * 1000;
 export const DEFAULT_STREAM_CACHE_BUDGET_BYTES = 20 * 1024 * 1024 * 1024;
 
