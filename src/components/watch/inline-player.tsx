@@ -345,6 +345,13 @@ export function shouldShowViewerBuffering(args: {
   return args.waiting && !args.activeVideoAdvancing;
 }
 
+/**
+ * Minimum forward `currentTime` growth that counts as the picture advancing.
+ * Kept just above float noise and well under one frame (~0.033s) so that slow,
+ * throttled-but-advancing playback keeps renewing the motion lease.
+ */
+const MEDIA_ADVANCE_EPSILON = 0.01;
+
 type MediaErrorKind = "aborted" | "network" | "decode" | "unsupported" | "unknown";
 
 export function interpretMediaElementError(error: Pick<MediaError, "code" | "message"> | null | undefined): {
@@ -1410,7 +1417,12 @@ function InlineStreamPlayerInner({
       if (video !== videoRef.current) return false;
       const previous = lastActiveMediaTimeRef.current;
       lastActiveMediaTimeRef.current = sourceTime;
-      if (previous != null && sourceTime > previous + 0.05) {
+      // Any real forward progress renews the motion lease. The threshold only
+      // needs to clear float/precision noise — it must stay well under a single
+      // frame (~0.033s) so that slow, throttled-but-advancing playback (where
+      // timeupdate deltas dip below a frame) still counts as advancing and never
+      // flashes the buffering overlay over a moving picture.
+      if (previous != null && sourceTime > previous + MEDIA_ADVANCE_EPSILON) {
         activeMediaEvent(video, "advancing");
       }
       return true;
