@@ -217,6 +217,7 @@ export async function POST(request: NextRequest) {
         name: body.name,
         category: cat,
         savePath,
+        streamOnly,
       });
     } catch (err) {
       // Pass clientType so builtin never gets ECONNREFUSED "offline" framing

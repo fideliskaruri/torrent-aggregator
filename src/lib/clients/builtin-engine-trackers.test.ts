@@ -10,6 +10,7 @@ import {
   configureBuiltinClientListeningWaitForTests,
   PUBLIC_TRACKERS,
   rehydrateFailureDataForTests,
+  resolveBuiltinAddSelection,
   selectBuiltinAddUriForTests,
   waitForClientListeningForTests,
   withPublicTrackers,
@@ -279,6 +280,62 @@ for (const err of [
   const data = rehydrateFailureDataForTests(err);
   assert.equal(data.status, "error");
   assert.ok(data.error.length > 0, "rehydrate failures must leave an explainable row");
+}
+
+// Stream-only must add deselected (fetch only what is played), Download must
+// select every file, and prewarm stays deselected + peer-capped. This is the
+// decision the send path threads into the WebTorrent add.
+{
+  const stream = resolveBuiltinAddSelection({ streamOnly: true });
+  assert.equal(stream.deselect, true, "stream-only adds with no whole-file selection");
+  assert.equal(stream.selectAll, false, "stream-only must NOT select every file");
+  assert.equal(stream.capPeers, false, "stream-only is a live stream, not peer-capped");
+
+  const download = resolveBuiltinAddSelection({ streamOnly: false });
+  assert.equal(download.deselect, false, "Download adds normally");
+  assert.equal(download.selectAll, true, "Download selects every file so the whole file downloads");
+
+  const noFlags = resolveBuiltinAddSelection({});
+  assert.equal(noFlags.selectAll, true, "an unflagged send defaults to Download (select-all)");
+
+  const prewarm = resolveBuiltinAddSelection({ connectOnly: true });
+  assert.equal(prewarm.deselect, true, "prewarm stays deselected");
+  assert.equal(prewarm.selectAll, false, "prewarm must NOT select every file");
+  assert.equal(prewarm.capPeers, true, "prewarm speculation stays peer-capped");
+}
+
+// The stream-only decision reaches the real add: a deselected add is issued, so
+// WebTorrent selects no pieces until the stream route explicitly does.
+{
+  const streamClient = fakeClient();
+  const streamSel = resolveBuiltinAddSelection({ streamOnly: true });
+  addTorrentWithEngineDefaults(
+    streamClient,
+    "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+    "D:\\downloads",
+    undefined,
+    streamSel.deselect ? { deselect: true } : {},
+  );
+  assert.equal(
+    streamClient.calls[0].opts.deselect,
+    true,
+    "stream-only reaches WebTorrent as a deselected add",
+  );
+
+  const dlClient = fakeClient();
+  const dlSel = resolveBuiltinAddSelection({ streamOnly: false });
+  addTorrentWithEngineDefaults(
+    dlClient,
+    "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+    "D:\\downloads",
+    undefined,
+    dlSel.deselect ? { deselect: true } : {},
+  );
+  assert.notEqual(
+    dlClient.calls[0].opts.deselect,
+    true,
+    "Download reaches WebTorrent with pieces selected (no deselect)",
+  );
 }
 
 checkClientListeningTimeoutContinues()

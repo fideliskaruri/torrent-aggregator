@@ -1190,6 +1190,35 @@ export function selectBuiltinAddUriForTests(payload: AddTorrentPayload): string 
   return payload.torrentUrl?.trim() || payload.magnet?.trim() || null;
 }
 
+export type BuiltinAddSelection = {
+  /** Add with no whole-file selection so pieces download only on demand. */
+  deselect: boolean;
+  /** Select every file and resume, downloading (and keeping) the whole torrent. */
+  selectAll: boolean;
+  /** Hold the peer count down — speculative prewarm only, never a live stream. */
+  capPeers: boolean;
+};
+
+/**
+ * Decide how a builtin send should claim pieces.
+ *
+ * - Download (default): select every file so the whole torrent downloads and is
+ *   kept on disk.
+ * - Stream-only: add deselected so nothing pre-downloads. The stream route then
+ *   selects/criticals just the head/seek/tail ranges the player asks for via
+ *   {@link prioritizeBuiltinStreamFile}, so only what is played is fetched.
+ * - Prewarm (connectOnly): deselected like stream-only, but also peer-capped so
+ *   speculative next-episode warming stays cheap.
+ */
+export function resolveBuiltinAddSelection(payload: {
+  connectOnly?: boolean;
+  streamOnly?: boolean;
+}): BuiltinAddSelection {
+  if (payload.connectOnly) return { deselect: true, selectAll: false, capPeers: true };
+  if (payload.streamOnly) return { deselect: true, selectAll: false, capPeers: false };
+  return { deselect: false, selectAll: true, capPeers: false };
+}
+
 function torrentFileDiskPath(torrent: WtTorrent, file: WtFile): string | null {
   const root = readProp(() => torrent.path, "").trim();
   const rel = (file.path || file.name || "").replace(/\\/g, "/").replace(/^\/+/, "");
@@ -1995,6 +2024,7 @@ export class BuiltinClient implements TorrentClientAdapter {
       fs.mkdirSync(dest, { recursive: true });
 
       const addUri = uri.trim();
+      const selection = resolveBuiltinAddSelection(payload);
       const existingHash =
         extractInfoHash(payload.magnet || "") ||
         extractInfoHash(payload.torrentUrl || "") ||
@@ -2014,11 +2044,11 @@ export class BuiltinClient implements TorrentClientAdapter {
             };
           }
           // Resume / re-select files — "already added" was leaving stalled torrents idle
-          if (payload.connectOnly) {
-            deselectAllFiles(existing);
-            enforcePrewarmPeerCap(existing);
-          } else {
+          if (selection.selectAll) {
             ensureDownloading(existing);
+          } else {
+            deselectAllFiles(existing);
+            if (selection.capPeers) enforcePrewarmPeerCap(existing);
           }
           state().meta.set(hash, {
             savePath: dest,
@@ -2089,8 +2119,8 @@ export class BuiltinClient implements TorrentClientAdapter {
           settled = true;
           clearTimeout(timer);
           resolve(ready);
-        }, payload.connectOnly ? { deselect: true } : {});
-        if (payload.connectOnly) enforcePrewarmPeerCap(t);
+        }, selection.deselect ? { deselect: true } : {});
+        if (selection.capPeers) enforcePrewarmPeerCap(t);
         holder.t = t;
         t.on("error", (err: unknown) => {
           if (settled) return;
@@ -2101,13 +2131,14 @@ export class BuiltinClient implements TorrentClientAdapter {
         });
       });
 
-      // Metadata ready — a normal send selects pieces; connect-only prewarm
-      // deliberately announces and handshakes without downloading content.
-      if (payload.connectOnly) {
-        deselectAllFiles(torrent);
-        enforcePrewarmPeerCap(torrent);
-      } else {
+      // Metadata ready. Download selects every file and keeps them; stream-only
+      // and connect-only prewarm stay deselected so only the pieces the player
+      // (or nothing, for prewarm) explicitly selects are ever fetched.
+      if (selection.selectAll) {
         ensureDownloading(torrent);
+      } else {
+        deselectAllFiles(torrent);
+        if (selection.capPeers) enforcePrewarmPeerCap(torrent);
       }
 
       const hash = (torrent.infoHash || existingHash || "").toLowerCase();

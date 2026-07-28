@@ -67,6 +67,13 @@ export interface AddTorrentPayload {
    * download content before the user asks.
    */
   connectOnly?: boolean;
+  /**
+   * Built-in engine only: add the torrent deselected so nothing pre-downloads.
+   * The stream route selects/criticals only the head/seek/tail ranges the player
+   * requests, so a "Stream-only" send fetches just what is played instead of the
+   * whole file. External clients ignore this flag.
+   */
+  streamOnly?: boolean;
   /** Override category for this send */
   category?: string | null;
   /** Override download folder for this send */
