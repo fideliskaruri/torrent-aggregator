@@ -190,10 +190,14 @@ export const PUBLIC_TRACKERS = [
   "wss://tracker.webtorrent.dev",
 ] as const;
 
+// Keep the normal playback working set hot: with the common 1 MiB piece size,
+// this holds roughly four minutes of 8 Mbps video plus the head/tail windows.
+export const STREAMING_STORE_CACHE_SLOTS = 256;
+
 const ADD_OPTIONS: BuiltinAddOptions = {
   strategy: "sequential",
   announce: [...PUBLIC_TRACKERS],
-  storeCacheSlots: 200,
+  storeCacheSlots: STREAMING_STORE_CACHE_SLOTS,
 };
 
 export const builtinAddOptions = ADD_OPTIONS;
@@ -760,7 +764,8 @@ export function prioritizeBuiltinStreamFile(
   const primaryWindow = seek ?? head;
   const primaryComplete = primaryWindow ? isPieceRangeComplete(torrent, primaryWindow) : true;
   const tailPriority = resolveStreamTailPriority(primaryComplete);
-  const tailDeferred = wantsTail && tailPriority !== SEEK_FILE_PRIORITY;
+  const effectiveTailPriority = tailCritical ? SEEK_FILE_PRIORITY : tailPriority;
+  const tailDeferred = wantsTail && effectiveTailPriority !== SEEK_FILE_PRIORITY;
   const previous = prioritizedStreamFiles.get(torrent);
   if (
     previous?.key === key &&
@@ -769,6 +774,9 @@ export function prioritizeBuiltinStreamFile(
     samePieceRange(previous.seekRange, seek) &&
     previous.tailDeferred === tailDeferred
   ) {
+    markCriticalPieceRange(torrent, head);
+    if (tailCritical) markCriticalPieceRange(torrent, tail);
+    markCriticalPieceRange(torrent, seek);
     triggerPriorityEdgePrefetch(torrent, file, opts);
     return;
   }
@@ -803,7 +811,7 @@ export function prioritizeBuiltinStreamFile(
     markCriticalPieceRange(torrent, head);
   }
   if (tail && !samePieceRange(tail, head)) {
-    selectPieceRange(torrent, tail, tailCritical ? SEEK_FILE_PRIORITY : tailPriority);
+    selectPieceRange(torrent, tail, effectiveTailPriority);
     if (tailCritical) markCriticalPieceRange(torrent, tail);
   }
 
@@ -1233,8 +1241,16 @@ function magnetForPersist(
   return null;
 }
 
+function selectBuiltinAddUri(payload: AddTorrentPayload): string | null {
+  // A .torrent URL/file already carries metadata, so prefer it over a magnet
+  // that would first spend cold-start time resolving metadata from peers.
+  const torrentUrl = payload.torrentUrl?.trim();
+  if (torrentUrl) return torrentUrl;
+  return payload.magnet?.trim() || null;
+}
+
 export function selectBuiltinAddUriForTests(payload: AddTorrentPayload): string | null {
-  return payload.torrentUrl?.trim() || payload.magnet?.trim() || null;
+  return selectBuiltinAddUri(payload);
 }
 
 export type BuiltinAddSelection = {
@@ -2052,7 +2068,7 @@ export class BuiltinClient implements TorrentClientAdapter {
     config: ClientConnectionConfig,
     payload: AddTorrentPayload,
   ): Promise<AddTorrentResult> {
-    const uri = selectBuiltinAddUriForTests(payload);
+    const uri = selectBuiltinAddUri(payload);
     if (!uri) {
       return { ok: false, message: "No magnet or torrent URL provided" };
     }

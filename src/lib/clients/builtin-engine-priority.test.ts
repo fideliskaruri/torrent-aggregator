@@ -115,7 +115,7 @@ async function check(name: string, fn: () => void | Promise<void>) {
 }
 
 async function main() {
-  await check("played file owns the swarm while siblings are deselected", () => {
+  await check("open marks the played file head critical while siblings are deselected", () => {
     const ep1 = fakeFile("Show/S01E01.mkv", 0, 9, 0);
     const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
     const ep6 = fakeFile("Show/S01E06.mkv", 50, 59, 50 * 1024);
@@ -137,7 +137,7 @@ async function main() {
     assert.deepEqual(torrent.criticalCalls, [{ start: 40, end: 41 }]);
   });
 
-  await check("repeat calls for the same file are a no-op", () => {
+  await check("repeat open reasserts the critical head without reselecting pieces", () => {
     const ep1 = fakeFile("Show/S01E01.mkv", 0, 9, 0);
     const ep5 = fakeFile("Show/S01E05.mkv", 40, 49, 40 * 1024);
     const torrent = fakeTorrent([ep1, ep5]);
@@ -158,6 +158,10 @@ async function main() {
     assert.equal(ep1.deselectCalls, 1);
     assert.deepEqual(torrent.publicDeselections, [{ start: 0, end: 59 }]);
     assert.equal(torrent.selections.length, 2);
+    assert.deepEqual(torrent.criticalCalls, [
+      { start: 40, end: 41 },
+      { start: 40, end: 41 },
+    ]);
     assert.equal(prefetches, 1);
   });
 
@@ -256,6 +260,32 @@ async function main() {
     ]);
     // Head (SeekHead), tail (Cues) and the seek target are all critical so the
     // index is on disk before the target cluster is decoded.
+    assert.deepEqual(torrent.criticalCalls, [
+      { start: 40, end: 41 },
+      { start: 78, end: 79 },
+      { start: 60, end: 61 },
+    ]);
+  });
+
+  await check("MKV seek promotes a previously deferred tail to critical", () => {
+    const ep3 = fakeFile("Show/S01E03.mkv", 40, 79, 40 * 1024 * 1024);
+    const torrent = fakeTorrent([ep3], 1024 * 1024);
+
+    prioritizeBuiltinStreamFile(torrent, ep3, {
+      prefetchEdges: async () => undefined,
+    });
+    prioritizeBuiltinStreamFile(torrent, ep3, {
+      seekOffset: 20 * 1024 * 1024,
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(torrent.deselections, [{ start: 78, end: 79, stream: true }]);
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 41, priority: 3, stream: true },
+      { start: 78, end: 79, priority: 1, stream: true },
+      { start: 78, end: 79, priority: 3, stream: true },
+      { start: 60, end: 61, priority: 3, stream: true },
+    ]);
     assert.deepEqual(torrent.criticalCalls, [
       { start: 40, end: 41 },
       { start: 78, end: 79 },

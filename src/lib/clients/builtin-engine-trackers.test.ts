@@ -12,6 +12,7 @@ import {
   rehydrateFailureDataForTests,
   resolveBuiltinAddSelection,
   selectBuiltinAddUriForTests,
+  STREAMING_STORE_CACHE_SLOTS,
   waitForClientListeningForTests,
   withPublicTrackers,
 } from "./builtin-engine";
@@ -138,7 +139,11 @@ for (const tracker of [
     PUBLIC_TRACKERS,
     ".torrent and other non-magnet inputs gain the same fallback announce list",
   );
-  assert.equal(client.calls[0].opts.storeCacheSlots, 200, "playback keeps a larger piece cache");
+  assert.equal(
+    client.calls[0].opts.storeCacheSlots,
+    STREAMING_STORE_CACHE_SLOTS,
+    "playback keeps the streaming piece cache",
+  );
 }
 
 {
@@ -159,23 +164,36 @@ for (const tracker of [
     PUBLIC_TRACKERS,
     "the exported probe options and engine options must agree on trackers",
   );
-  assert.equal(builtinAddOptions.storeCacheSlots, 200);
+  assert.equal(builtinAddOptions.storeCacheSlots, STREAMING_STORE_CACHE_SLOTS);
 }
 
 {
+  const torrentUrl = "https://example.test/release.torrent";
+  const magnet = "magnet:?xt=urn:btih:0123456789012345678901234567890123456789";
   assert.equal(
     selectBuiltinAddUriForTests({
-      magnet: "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
-      torrentUrl: "https://example.test/release.torrent",
+      magnet,
+      torrentUrl,
     }),
-    "https://example.test/release.torrent",
+    torrentUrl,
     ".torrent metadata is preferred when both inputs are available",
+  );
+  const client = fakeClient();
+  addTorrentWithEngineDefaults(
+    client,
+    selectBuiltinAddUriForTests({ magnet, torrentUrl })!,
+    "D:\\downloads",
+  );
+  assert.equal(
+    client.calls[0].input,
+    torrentUrl,
+    "the add path feeds WebTorrent the .torrent URL instead of the magnet round-trip",
   );
   assert.equal(
     selectBuiltinAddUriForTests({
-      magnet: "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+      magnet,
     }),
-    "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
+    magnet,
     "magnet remains the fallback when no .torrent URL is available",
   );
 }
