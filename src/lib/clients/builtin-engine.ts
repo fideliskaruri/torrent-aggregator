@@ -489,6 +489,41 @@ type StreamPriorityState = {
 let prioritizedStreamFiles = new WeakMap<object, StreamPriorityState>();
 let prioritizedEdgePrefetches = new WeakMap<object, Set<string>>();
 
+const MATROSKA_EXTENSIONS = new Set([".mkv", ".webm"]);
+
+/** True for Matroska-family containers (MKV/WebM), which seek through Cues. */
+export function isMatroskaContainer(pathOrName: string): boolean {
+  const clean = (pathOrName || "").split(/[\\/]/).pop() ?? "";
+  const dot = clean.lastIndexOf(".");
+  const ext = dot >= 0 ? clean.slice(dot).toLowerCase() : "";
+  return MATROSKA_EXTENSIONS.has(ext);
+}
+
+/**
+ * Decide how a seek should treat a container's index regions.
+ *
+ * Matroska (MKV/WebM) resolves a seek through two index elements: the SeekHead
+ * near the file head points at the Cues near the tail, and the Cues map each
+ * timestamp onto a cluster byte offset. If either is missing when the browser
+ * honours a seek, the demuxer estimates cluster positions and lands audio and
+ * video on different clusters — the A/V desync a viewer sees after tapping the
+ * arrow keys.
+ *
+ * A plain open already fetches the head window critically and prefetches the
+ * tail, so the index is present by the time playback starts. A seek is the
+ * dangerous case: the normal path drops the head window and leaves the tail
+ * non-critical, so the seek-target cluster can arrive before the index. For
+ * Matroska we therefore keep BOTH index regions selected and critical while a
+ * seek is in flight; other containers keep the existing seek-only behaviour.
+ */
+export function seekIndexPlan(args: {
+  isMatroska: boolean;
+  seeking: boolean;
+}): { holdHeadIndex: boolean; tailCritical: boolean } {
+  const indexRequired = args.isMatroska && args.seeking;
+  return { holdHeadIndex: indexRequired, tailCritical: indexRequired };
+}
+
 function fileSelectionKey(file: BuiltinStreamFile): string {
   return normalizeTorrentFilePath(file.path || file.name);
 }
@@ -708,7 +743,15 @@ export function prioritizeBuiltinStreamFile(
 ): void {
   const key = fileSelectionKey(file);
   const seek = seekPieceRange(torrent, file, opts.seekOffset);
-  const head = seek ? null : headPieceRange(torrent, file);
+  // Matroska (MKV/WebM) resolves a seek through its SeekHead (near the head) and
+  // Cues (near the tail). Keep both index regions available and critical while a
+  // seek is in flight so the demuxer maps the target timestamp onto the same
+  // audio and video cluster instead of estimating and landing them apart.
+  const { holdHeadIndex, tailCritical } = seekIndexPlan({
+    isMatroska: isMatroskaContainer(file.path || file.name),
+    seeking: seek != null,
+  });
+  const head = seek && !holdHeadIndex ? null : headPieceRange(torrent, file);
   const tail = tailPieceRange(torrent, file);
   const wantsTail = tail != null && !samePieceRange(tail, head);
   // The head (or seek target) must own the swarm until its window lands. Hold
@@ -730,7 +773,8 @@ export function prioritizeBuiltinStreamFile(
     return;
   }
 
-  if (previous?.key !== key || seek) {
+  const headChanged = !samePieceRange(previous?.headRange ?? null, head);
+  if (previous?.key !== key || headChanged) {
     deselectStreamPieceRange(torrent, previous?.headRange ?? null);
   }
   deselectStreamPieceRange(torrent, previous?.seekRange ?? null);
@@ -754,11 +798,14 @@ export function prioritizeBuiltinStreamFile(
     tailDeferred,
   });
 
-  if (head) {
+  if (head && (previous?.key !== key || headChanged)) {
     selectPieceRange(torrent, head, SEEK_FILE_PRIORITY);
     markCriticalPieceRange(torrent, head);
   }
-  if (tail && !samePieceRange(tail, head)) selectPieceRange(torrent, tail, tailPriority);
+  if (tail && !samePieceRange(tail, head)) {
+    selectPieceRange(torrent, tail, tailCritical ? SEEK_FILE_PRIORITY : tailPriority);
+    if (tailCritical) markCriticalPieceRange(torrent, tail);
+  }
 
   if (seek) {
     selectPieceRange(torrent, seek, SEEK_FILE_PRIORITY);

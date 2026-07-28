@@ -4,10 +4,12 @@ import type {
   BuiltinStreamTorrent,
 } from "./builtin-engine";
 import {
+  isMatroskaContainer,
   prefetchBuiltinFileEdges,
   prioritizeBuiltinStreamFile,
   resetBuiltinStreamPriorityForTests,
   resolveStreamTailPriority,
+  seekIndexPlan,
 } from "./builtin-engine";
 
 type Selection = {
@@ -190,7 +192,7 @@ async function main() {
     ]);
   });
 
-  await check("seek offset marks the requested pieces urgent", () => {
+  await check("seek offset marks the requested pieces urgent and keeps the MKV index", () => {
     const ep5 = fakeFile("Show/S01E05.mkv", 40, 60, 40 * 1024);
     const torrent = fakeTorrent([ep5], 1024);
 
@@ -199,13 +201,20 @@ async function main() {
       prefetchEdges: async () => undefined,
     });
 
+    // The whole small file is its own head window here, so keeping the MKV head
+    // index critical alongside the seek target is what a viewer needs to land
+    // audio and video on the same cluster.
     assert.deepEqual(torrent.selections, [
+      { start: 40, end: 60, priority: 3, stream: true },
       { start: 45, end: 60, priority: 3, stream: true },
     ]);
-    assert.deepEqual(torrent.criticalCalls, [{ start: 45, end: 60 }]);
+    assert.deepEqual(torrent.criticalCalls, [
+      { start: 40, end: 60 },
+      { start: 45, end: 60 },
+    ]);
   });
 
-  await check("seek within the same pack file drops the old head priority", () => {
+  await check("seek within the same MKV keeps the head index instead of dropping it", () => {
     const ep5 = fakeFile("Show/S01E05.mkv", 40, 60, 40 * 1024);
     const torrent = fakeTorrent([ep5], 1024);
 
@@ -217,7 +226,10 @@ async function main() {
       prefetchEdges: async () => undefined,
     });
 
-    assert.deepEqual(torrent.deselections, [{ start: 40, end: 60, stream: true }]);
+    // The SeekHead lives in the head window; dropping it on every arrow-key seek
+    // is what let the demuxer estimate cluster offsets and desync audio. The head
+    // is unchanged across the seek, so it stays selected and is never deselected.
+    assert.deepEqual(torrent.deselections, []);
     assert.deepEqual(torrent.selections, [
       { start: 40, end: 60, priority: 3, stream: true },
       { start: 48, end: 60, priority: 3, stream: true },
@@ -226,6 +238,73 @@ async function main() {
       { start: 40, end: 60 },
       { start: 48, end: 60 },
     ]);
+  });
+
+  await check("MKV seek holds head and Cues tail critical around the seek target", () => {
+    const ep3 = fakeFile("Show/S01E03.mkv", 40, 79, 40 * 1024 * 1024);
+    const torrent = fakeTorrent([ep3], 1024 * 1024);
+
+    prioritizeBuiltinStreamFile(torrent, ep3, {
+      seekOffset: 20 * 1024 * 1024,
+      prefetchEdges: async () => undefined,
+    });
+
+    assert.deepEqual(torrent.selections, [
+      { start: 40, end: 41, priority: 3, stream: true },
+      { start: 78, end: 79, priority: 3, stream: true },
+      { start: 60, end: 61, priority: 3, stream: true },
+    ]);
+    // Head (SeekHead), tail (Cues) and the seek target are all critical so the
+    // index is on disk before the target cluster is decoded.
+    assert.deepEqual(torrent.criticalCalls, [
+      { start: 40, end: 41 },
+      { start: 78, end: 79 },
+      { start: 60, end: 61 },
+    ]);
+  });
+
+  await check("non-Matroska seek drops the head and leaves the tail non-critical", () => {
+    const movie = fakeFile("Movie/Movie.mp4", 40, 79, 40 * 1024 * 1024);
+    const torrent = fakeTorrent([movie], 1024 * 1024);
+
+    prioritizeBuiltinStreamFile(torrent, movie, {
+      seekOffset: 20 * 1024 * 1024,
+      prefetchEdges: async () => undefined,
+    });
+
+    // MP4 keeps its index parsed up front, so a seek should not pin the head or
+    // escalate the tail: only the requested pieces are urgent.
+    assert.deepEqual(torrent.selections, [
+      { start: 78, end: 79, priority: 3, stream: true },
+      { start: 60, end: 61, priority: 3, stream: true },
+    ]);
+    assert.deepEqual(torrent.criticalCalls, [{ start: 60, end: 61 }]);
+  });
+
+  await check("seekIndexPlan pins the index only for a Matroska seek", () => {
+    assert.deepEqual(seekIndexPlan({ isMatroska: true, seeking: true }), {
+      holdHeadIndex: true,
+      tailCritical: true,
+    });
+    assert.deepEqual(seekIndexPlan({ isMatroska: true, seeking: false }), {
+      holdHeadIndex: false,
+      tailCritical: false,
+    });
+    assert.deepEqual(seekIndexPlan({ isMatroska: false, seeking: true }), {
+      holdHeadIndex: false,
+      tailCritical: false,
+    });
+    assert.deepEqual(seekIndexPlan({ isMatroska: false, seeking: false }), {
+      holdHeadIndex: false,
+      tailCritical: false,
+    });
+  });
+
+  await check("isMatroskaContainer recognises MKV and WebM only", () => {
+    assert.equal(isMatroskaContainer("Show/S01E05.mkv"), true);
+    assert.equal(isMatroskaContainer("Clips\\clip.WEBM"), true);
+    assert.equal(isMatroskaContainer("Movie/Movie.mp4"), false);
+    assert.equal(isMatroskaContainer("noext"), false);
   });
 
   await check("head priority is bounded instead of selecting the whole episode", () => {
