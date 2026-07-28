@@ -31,6 +31,7 @@ import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
 import { acquireSeason } from "@/lib/library/season-acquire";
+import { applySendRetention } from "@/lib/streaming/send-retention";
 import type { SeasonPlan } from "@/lib/torrents/season-plan";
 import type {
   TitleGrabRequest,
@@ -69,6 +70,7 @@ export async function grabForTitle(
       season,
       episode,
       watchListItemId: input.watchListItemId,
+      retention: input.retention ?? "keep",
     });
     return {
       ok: result.ok,
@@ -124,7 +126,10 @@ export async function grabSeasonForTitle(
       mediaType: input.resolvedMediaType ?? "tv",
       season,
       episodes,
-    }, { watchListItemId: input.watchListItemId });
+    }, {
+      watchListItemId: input.watchListItemId,
+      retention: input.retention ?? "keep",
+    });
   } catch (err) {
     // A failed plan is an error, not an empty season. Saying "no episodes
     // found" here would be the same lie the episode list used to tell.
@@ -250,6 +255,16 @@ async function grabWholeWork(input: TitleGrabInput): Promise<TitleGrabResponse> 
     },
   });
 
+  if (result.status === "sent" || result.status === "already_active") {
+    await applySendRetention({
+      userId: input.userId,
+      config,
+      infoHash: normalizeInfoHash(result.candidate?.infoHash),
+      retention: input.retention ?? "keep",
+      watchListItemId: input.watchListItemId,
+    });
+  }
+
   return {
     // An already-active grab is a success from the caller's point of view:
     // the release IS downloading. Reporting ok:false would tell the user the
@@ -324,4 +339,3 @@ function uniquePositiveInts(values: unknown): number[] {
     ),
   ).sort((a, b) => a - b);
 }
-

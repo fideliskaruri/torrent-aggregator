@@ -34,7 +34,7 @@ import type { TitleDetailPayload, TitleEpisode } from "./types";
 /** Opens the player on a file we actually hold. */
 export interface PlayTitleAction {
   kind: "play";
-  label: "Play" | "Resume";
+  label: "Play" | "Resume" | "Stream";
   infoHash: string;
   filePath: string | null;
   resumePositionSec: number | null;
@@ -45,9 +45,11 @@ export interface PlayTitleAction {
 /** Searches and sends, in one click. Never navigates to a release table. */
 export interface GetTitleAction {
   kind: "get";
-  label: "Get";
+  label: "Get" | "Download";
   season: number | null;
   episode: number | null;
+  /** Present when Download only has to keep a torrent that is already local. */
+  infoHash?: string | null;
 }
 
 /**
@@ -74,7 +76,7 @@ export interface GetTitleAction {
  */
 export interface StreamTitleAction {
   kind: "stream";
-  label: "Play";
+  label: "Play" | "Stream";
   season: number | null;
   episode: number | null;
 }

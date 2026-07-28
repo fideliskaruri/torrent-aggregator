@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!body.magnet && !body.torrentUrl) {
+    if (!body.magnet && !body.torrentUrl && !(body.infoHash && body.retention)) {
       return NextResponse.json(
         {
           error: "magnet or torrentUrl is required",
@@ -108,6 +108,30 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 },
       );
+    }
+
+    if (!body.magnet && !body.torrentUrl && body.infoHash && body.retention) {
+      const infoHash = releaseInfoHash({ infoHash: body.infoHash });
+      const existingOrigin = await existingRetentionOrigin(session.user.id, infoHash);
+      let retentionState = retentionStateForOrigin(existingOrigin);
+      if (config.clientType === "builtin" && sendTarget === "primary") {
+        if (body.retention === "stream") {
+          await markTorrentStreamOnly(session.user.id, infoHash, {
+            allowFreshDefaultOrigin: existingOrigin == null,
+          });
+          retentionState = "stream";
+        } else {
+          await promoteTorrentToKept(session.user.id, infoHash);
+          retentionState = "kept";
+        }
+      }
+      return NextResponse.json({
+        ok: true,
+        message: body.retention === "keep" ? "Kept in your library." : "Marked stream-only.",
+        clientType: config.clientType,
+        sendTarget,
+        retentionState,
+      });
     }
 
     // A watchlist grab carries the catalog's own verdict — the same record the

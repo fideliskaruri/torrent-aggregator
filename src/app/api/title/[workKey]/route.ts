@@ -106,6 +106,7 @@ export async function POST(request: Request, context: RouteContext) {
       workKey: key,
       season: body.season ?? null,
       episode: body.episode ?? null,
+      retention: body.retention ?? "keep",
       resolvedTitle: detail.title,
       resolvedMediaType: detail.mediaType,
       isSeries: detail.isSeries,
@@ -118,6 +119,7 @@ export async function POST(request: Request, context: RouteContext) {
             ...input,
             season: body.season ?? 0,
             episodes: body.episodes ?? [],
+            retention: body.retention ?? "keep",
           })
         : await grabForTitle(input);
 

@@ -4,9 +4,10 @@
  * Seasons and episodes — the half of the title page that is not the hero.
  *
  * The agreed shape is one row per episode, each with **its own availability
- * indicator and its own single Play/Get button**. That is the whole design
- * constraint: no row may hand the user off to a list of releases, and no row
- * may claim a state it did not check.
+ * indicator and distinct Stream / Download controls**. That is the whole design
+ * constraint: no row may hand the user off to a list of releases, no row may
+ * claim a state it did not check, and streaming must never silently become a
+ * kept download.
  *
  * Three judgements are baked into a row:
  *
@@ -21,8 +22,8 @@
  *    renders as *no chip* — the row is still clickable and Get still says what
  *    it means. This is not the same as calling it `unavailable`, which is a
  *    claim, and one we never make per-episode.
- *  - **An unaired episode gets no button.** Offering "Get" for something
- *    that does not exist yet is the app asserting a state it never checked. It
+ *  - **An unaired episode gets no button.** Offering "Stream" or "Download"
+ *    for something that does not exist yet is the app asserting a state it never checked. It
  *    prints its air date instead — plain text, so there is no disabled control
  *    for a keyboard user to land on. A local file always wins over a future
  *    date, because bad provider data must never hide a file we actually hold.
@@ -59,7 +60,7 @@ import {
   shouldRunSeasonGrab,
   type SeasonGrabStatus,
 } from "./season-grab-state";
-import type { TitleSeason } from "./types";
+import type { TitleRetention, TitleSeason } from "./types";
 
 export interface EpisodeListProps {
   seasons: TitleSeason[];
@@ -71,14 +72,23 @@ export interface EpisodeListProps {
   busy: boolean;
   statusFor: (key: string) => TitleActionStatus;
   seasonGrabStatus: SeasonGrabStatus;
+  seasonStreamStatus?: SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
-  onSeasonGrab: (season: number, episodes: number[]) => void;
-  onAction: (action: TitleAction, label: string) => void;
+  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention) => void;
+  onAction: (action: TitleAction, label: string, retention: TitleRetention) => void;
 }
 
 /** Stable per-row key for tracking one in-flight action. */
 export function episodeActionKey(season: number, episode: number): string {
   return `s${season}e${episode}`;
+}
+
+export function episodeIntentKey(
+  season: number,
+  episode: number,
+  retention: TitleRetention,
+): string {
+  return `${episodeActionKey(season, episode)}:${retention}`;
 }
 
 export function EpisodeList({
@@ -90,14 +100,17 @@ export function EpisodeList({
   busy,
   statusFor,
   seasonGrabStatus,
+  seasonStreamStatus = { status: "idle" },
   onSeasonChange,
   onSeasonGrab,
   onAction,
 }: EpisodeListProps) {
   const view = episodeListView(loadState, episodes.length);
   const showSeasonGrab = canOfferSeasonGrab(season, episodes.length);
-  const seasonGrabCanRun =
+  const seasonDownloadCanRun =
     showSeasonGrab && shouldRunSeasonGrab(seasonGrabStatus);
+  const seasonStreamCanRun =
+    showSeasonGrab && shouldRunSeasonGrab(seasonStreamStatus);
   const seasonGrabSummaryId =
     showSeasonGrab && season != null ? `season-${season}-grab-status` : undefined;
 
@@ -146,29 +159,58 @@ export function EpisodeList({
           ) : null}
 
           {showSeasonGrab && season != null ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              data-season-grab
-              aria-busy={seasonGrabStatus.status === "pending" || undefined}
-              aria-describedby={seasonGrabSummaryId}
-              disabled={!seasonGrabCanRun}
-              onClick={() =>
-                onSeasonGrab(
-                  season,
-                  episodes.map((episode) => episode.episode),
-                )
-              }
-              className="shrink-0"
-            >
-              {seasonGrabStatus.status === "pending" ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Download aria-hidden />
-              )}
-              Download season
-            </Button>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                data-season-grab
+                data-action="stream"
+                aria-busy={seasonStreamStatus.status === "pending" || undefined}
+                aria-describedby={seasonGrabSummaryId}
+                disabled={!seasonStreamCanRun}
+                onClick={() =>
+                  onSeasonGrab(
+                    season,
+                    episodes.map((episode) => episode.episode),
+                    "stream",
+                  )
+                }
+                className="shrink-0"
+              >
+                {seasonStreamStatus.status === "pending" ? (
+                  <Loader2 className="animate-spin" aria-hidden />
+                ) : (
+                  <Play className="fill-current" aria-hidden />
+                )}
+                Stream season
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                data-season-grab
+                data-action="download"
+                aria-busy={seasonGrabStatus.status === "pending" || undefined}
+                aria-describedby={seasonGrabSummaryId}
+                disabled={!seasonDownloadCanRun}
+                onClick={() =>
+                  onSeasonGrab(
+                    season,
+                    episodes.map((episode) => episode.episode),
+                    "keep",
+                  )
+                }
+                className="shrink-0"
+              >
+                {seasonGrabStatus.status === "pending" ? (
+                  <Loader2 className="animate-spin" aria-hidden />
+                ) : (
+                  <Download aria-hidden />
+                )}
+                Download season
+              </Button>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -209,7 +251,13 @@ export function EpisodeList({
               <EpisodeRow
                 key={episode.episode}
                 episode={episode}
-                status={statusFor(
+                streamStatus={statusFor(
+                  episodeIntentKey(episode.season, episode.episode, "stream"),
+                )}
+                downloadStatus={statusFor(
+                  episodeIntentKey(episode.season, episode.episode, "keep"),
+                )}
+                fallbackStatus={statusFor(
                   episodeActionKey(episode.season, episode.episode),
                 )}
                 onAction={onAction}
@@ -284,21 +332,52 @@ function EpisodeSkeletonRows({ rows }: { rows: number }) {
 
 function EpisodeRow({
   episode,
-  status,
+  streamStatus,
+  downloadStatus,
+  fallbackStatus,
   onAction,
 }: {
   episode: EpisodeRowModel;
-  status: TitleActionStatus;
-  onAction: (action: TitleAction, label: string) => void;
+  streamStatus: TitleActionStatus;
+  downloadStatus: TitleActionStatus;
+  fallbackStatus: TitleActionStatus;
+  onAction: (action: TitleAction, label: string, retention: TitleRetention) => void;
 }) {
-  const action = resolveEpisodeAction(episode);
-  const effectiveStatus =
-    action.kind === "play" && status === "done" ? "idle" : status;
-  const label = titleActionButtonLabel(action, effectiveStatus);
-  const canRun = shouldRunTitleAction(action, effectiveStatus);
+  const resolved = resolveEpisodeAction(episode);
+  const streamAction: TitleAction =
+    resolved.kind === "play"
+      ? { ...resolved, label: "Stream" }
+      : {
+          kind: "stream",
+          label: "Stream",
+          season: episode.season,
+          episode: episode.episode,
+        };
+  const downloadAction: TitleAction = {
+    kind: "get",
+    label: "Download",
+    season: episode.season,
+    episode: episode.episode,
+    infoHash: episode.infoHash,
+  };
+  const effectiveStreamStatus =
+    streamAction.kind === "play" && streamStatus === "done"
+      ? "idle"
+      : streamStatus;
+  const effectiveDownloadStatus = downloadStatus;
+  const streamLabel = titleActionButtonLabel(streamAction, effectiveStreamStatus);
+  const downloadLabel = titleActionButtonLabel(downloadAction, effectiveDownloadStatus);
+  const streamCanRun = shouldRunTitleAction(streamAction, effectiveStreamStatus);
+  const downloadCanRun = shouldRunTitleAction(downloadAction, effectiveDownloadStatus);
+  const displayStatus =
+    effectiveStreamStatus !== "idle"
+      ? effectiveStreamStatus
+      : effectiveDownloadStatus !== "idle"
+        ? effectiveDownloadStatus
+        : fallbackStatus;
   const actionStatusText = episodeActionStatusText(
     episode.label,
-    effectiveStatus,
+    displayStatus,
   );
   const downloaded = progressPercent(episode.downloadFraction);
   const watched = progressPercent(episode.watchedFraction);
@@ -308,7 +387,7 @@ function EpisodeRow({
 
   // A file we hold beats a future air date. Provider dates are wrong often
   // enough that letting one hide a real download would be the worse bug.
-  const unaired = action.kind !== "play" && isUnaired(meta?.airDate ?? null);
+  const unaired = resolved.kind !== "play" && isUnaired(meta?.airDate ?? null);
 
   const facts: string[] = [];
   if (!unaired && airDate) facts.push(airDate);
@@ -415,27 +494,48 @@ function EpisodeRow({
           {airDate ? `Airs ${airDate}` : "Not aired yet"}
         </span>
       ) : (
-        <Button
-          type="button"
-          size="sm"
-          variant={action.kind === "play" ? "default" : "secondary"}
-          data-episode-action
-          data-action-kind={action.kind}
-          aria-label={`${label} — ${episode.label}`}
-          aria-busy={effectiveStatus === "pending" || undefined}
-          disabled={!canRun}
-          onClick={() => onAction(action, episode.label)}
-          className="shrink-0 self-center"
-        >
-          {effectiveStatus === "pending" ? (
-            <Loader2 className="animate-spin" aria-hidden />
-          ) : action.kind === "play" ? (
-            <Play className="fill-current" aria-hidden />
-          ) : (
-            <Download aria-hidden />
-          )}
-          {label}
-        </Button>
+        <span className="flex shrink-0 flex-wrap items-center justify-end gap-2 self-center">
+          <Button
+            type="button"
+            size="sm"
+            variant="default"
+            data-episode-action
+            data-action="stream"
+            data-action-kind={streamAction.kind}
+            aria-label={`${streamLabel} — ${episode.label}`}
+            aria-busy={effectiveStreamStatus === "pending" || undefined}
+            disabled={!streamCanRun}
+            onClick={() => onAction(streamAction, episode.label, "stream")}
+            className="shrink-0"
+          >
+            {effectiveStreamStatus === "pending" ? (
+              <Loader2 className="animate-spin" aria-hidden />
+            ) : (
+              <Play className="fill-current" aria-hidden />
+            )}
+            {streamLabel}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            data-episode-action
+            data-action="download"
+            data-action-kind={downloadAction.kind}
+            aria-label={`${downloadLabel} — ${episode.label}`}
+            aria-busy={effectiveDownloadStatus === "pending" || undefined}
+            disabled={!downloadCanRun}
+            onClick={() => onAction(downloadAction, episode.label, "keep")}
+            className="shrink-0"
+          >
+            {effectiveDownloadStatus === "pending" ? (
+              <Loader2 className="animate-spin" aria-hidden />
+            ) : (
+              <Download aria-hidden />
+            )}
+            {downloadLabel}
+          </Button>
+        </span>
       )}
     </li>
   );

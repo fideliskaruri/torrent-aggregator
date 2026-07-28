@@ -15,15 +15,8 @@
  *     cached verdicts, probes at most a few top *packs* to firm up the choice,
  *     never touches the client. Safe to call to render a plan.
  *   - {@link acquireSeason} — commit: resolve the plan, then add each chosen
- *     release as `origin: "user"` (kept, never evicted as cache) through the
- *     normal grab pipeline, and report honest coverage.
- *
- * Retention: a whole-season download is the clearest possible "keep this"
- * signal, so every add is `origin: "user"`. That is the schema default for a
- * fresh `EngineTorrent` (`upsertEngineTorrent` never overrides it), so routing
- * through the standard send path — which is also the only path that inherits
- * the private-swarm tracker rule via `addTorrentWithEngineDefaults` — gets the
- * origin right for free. No stream-cache eviction can touch it.
+ *     release through the normal grab pipeline with the caller's explicit
+ *     stream/keep retention, and report honest coverage.
  */
 import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
@@ -45,6 +38,7 @@ import {
 import { planSeason, episodesFromFilenames, type PackChoice, type SeasonPlan, type SingleChoice } from "@/lib/torrents/season-plan";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
+import { applySendRetention, type SendRetention } from "@/lib/streaming/send-retention";
 
 /**
  * How many top candidates a *synchronous* resolve will probe.
@@ -212,6 +206,8 @@ export interface AcquireSeasonResult {
 export interface AcquireSeasonOptions extends ResolveSeasonOptions {
   /** Optional library item id for GrabJob externalId. */
   watchListItemId?: string | null;
+  /** "stream" = reclaimable cache; "keep" = permanent download. */
+  retention?: SendRetention;
   /** Test seam — override the send function. */
   _sendFn?: typeof import("@/lib/clients").sendToClient;
   /**
@@ -356,6 +352,13 @@ export async function acquireSeason(
     });
 
     if (res.status === "sent" || res.status === "already_active") {
+      await applySendRetention({
+        userId: target.userId,
+        config,
+        infoHash: releaseInfoHash(release),
+        retention: opts.retention ?? "keep",
+        watchListItemId: opts.watchListItemId,
+      });
       for (const e of coversEpisodes) acquired.add(e);
       return true;
     }

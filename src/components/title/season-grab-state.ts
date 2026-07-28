@@ -1,4 +1,5 @@
 import type { TitleActionStatus } from "./title-actions";
+import type { TitleRetention } from "./types";
 
 export type SeasonGrabEpisodeStatus = "covered" | "missing" | "not_measured";
 
@@ -28,8 +29,8 @@ export type SeasonGrabStatus =
   | { status: "done"; report: SeasonGrabReport }
   | { status: "error"; message: string };
 
-export function seasonGrabKey(season: number): string {
-  return `season-${season}`;
+export function seasonGrabKey(season: number, retention: TitleRetention = "keep"): string {
+  return `season-${season}:${retention}`;
 }
 
 export function canOfferSeasonGrab(

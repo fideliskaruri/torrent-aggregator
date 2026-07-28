@@ -21,6 +21,7 @@ import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
 import type { TxClient } from "@/lib/grab/types";
+import { applySendRetention, type SendRetention } from "@/lib/streaming/send-retention";
 
 export type OnDemandResult = {
   ok: boolean;
@@ -154,6 +155,8 @@ export async function grabSingleEpisode(opts: {
   episode: number;
   /** Optional library item id for GrabJob externalId + hunt-cursor advance */
   watchListItemId?: string | null;
+  /** "stream" = reclaimable cache; "keep" = permanent download. */
+  retention?: SendRetention;
 }): Promise<OnDemandResult> {
   const season = Math.max(1, Math.trunc(opts.season) || 1);
   const episode = Math.max(1, Math.trunc(opts.episode) || 1);
@@ -272,6 +275,13 @@ export async function grabSingleEpisode(opts: {
   }
 
   if (pipelineResult.status === "already_active") {
+    await applySendRetention({
+      userId: opts.userId,
+      config,
+      infoHash: normalizeInfoHash(pipelineResult.candidate?.infoHash),
+      retention: opts.retention ?? "keep",
+      watchListItemId: opts.watchListItemId,
+    });
     return {
       ok: true,
       query,
@@ -294,6 +304,13 @@ export async function grabSingleEpisode(opts: {
   }
 
   const label = formatEpisodeLabel(season, episode);
+  await applySendRetention({
+    userId: opts.userId,
+    config,
+    infoHash: normalizeInfoHash(pipelineResult.candidate?.infoHash),
+    retention: opts.retention ?? "keep",
+    watchListItemId: opts.watchListItemId,
+  });
   const message = cursorAdvance.advanced
     ? `${pipelineResult.message} · advanced past ${label}`
     : pipelineResult.message;

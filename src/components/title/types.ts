@@ -202,6 +202,8 @@ export interface TitleExtrasPayload {
   generatedAt: string;
 }
 
+export type TitleRetention = "stream" | "keep";
+
 /** Body accepted by `POST /api/title/[workKey]` — the one-click grab. */
 export interface TitleGrabRequest {
   /** Omit for the normal title/episode action; `season` plans known rows. */
@@ -211,6 +213,10 @@ export interface TitleGrabRequest {
   episode?: number | null;
   /** Known episode numbers for a one-press season grab. */
   episodes?: number[] | null;
+  /** Local torrent to promote to kept retention without re-sending it. */
+  infoHash?: string | null;
+  /** Stream-only cache or permanent keep, matching `/api/torrent/send`. */
+  retention?: TitleRetention;
   /** Passed through when the page was reached with only a title in the URL. */
   title?: string | null;
   mediaType?: string | null;

@@ -44,7 +44,7 @@ import { TfErrorState } from "@/components/tf/error-state";
 import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
-import { EpisodeList, episodeActionKey } from "./episode-list";
+import { EpisodeList, episodeActionKey, episodeIntentKey } from "./episode-list";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons } from "./merge-extras";
 import { MoreLikeThis } from "./more-like-this";
@@ -62,10 +62,12 @@ import {
   shouldRunSeasonGrab,
   type SeasonGrabStatus,
 } from "./season-grab-state";
+import { postTitleAction } from "./title-action-request";
 import type {
   TitleDetailPayload,
   TitleExtrasPayload,
   TitleSeasonGrabResponse,
+  TitleRetention,
 } from "./types";
 
 export interface TitleDetailProps {
@@ -133,10 +135,10 @@ export function TitleDetail(props: TitleDetailProps) {
   );
 
   const runAction = useCallback(
-    async (action: TitleAction, key: string, label: string) => {
+    async (action: TitleAction, key: string, label: string, retention: TitleRetention) => {
       if (!shouldRunTitleAction(action, statusFor(key))) return;
 
-      if (action.kind === "play") {
+      if (action.kind === "play" && retention === "stream") {
         setPlaying({
           infoHash: action.infoHash,
           title: label,
@@ -146,33 +148,21 @@ export function TitleDetail(props: TitleDetailProps) {
         return;
       }
 
-      const streaming = action.kind === "stream";
+      const streaming = retention === "stream";
       if (spentRemoteActions.current.has(key)) return;
       spentRemoteActions.current.add(key);
 
       setStatuses((prev) => ({ ...prev, [key]: "pending" }));
       setNotice(null);
       try {
-        const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            season: action.season,
-            episode: action.episode,
-            title: props.title ?? null,
-            mediaType: props.mediaType ?? null,
-            year: props.year ?? null,
-          }),
+        const body = await postTitleAction({
+          workKey: props.workKey,
+          title: props.title ?? null,
+          mediaType: props.mediaType ?? null,
+          year: props.year ?? null,
+          action,
+          retention,
         });
-        const body = (await res.json().catch(() => null)) as {
-          ok?: boolean;
-          message?: string;
-          infoHash?: string | null;
-        } | null;
-
-        if (!res.ok || !body?.ok) {
-          throw new Error(body?.message || `Could not get ${label}`);
-        }
         setStatuses((prev) => ({ ...prev, [key]: "done" }));
 
         // The press said Play, so the press has to end in the player. The
@@ -209,15 +199,15 @@ export function TitleDetail(props: TitleDetailProps) {
   );
 
   const seasonStatusFor = useCallback(
-    (targetSeason: number) =>
-      seasonStatuses[seasonGrabKey(targetSeason)] ?? ({ status: "idle" } as const),
+    (targetSeason: number, retention: TitleRetention = "keep") =>
+      seasonStatuses[seasonGrabKey(targetSeason, retention)] ?? ({ status: "idle" } as const),
     [seasonStatuses],
   );
 
   const runSeasonGrab = useCallback(
-    async (targetSeason: number, episodes: number[]) => {
-      const key = seasonGrabKey(targetSeason);
-      const current = seasonStatusFor(targetSeason);
+    async (targetSeason: number, episodes: number[], retention: TitleRetention) => {
+      const key = seasonGrabKey(targetSeason, retention);
+      const current = seasonStatusFor(targetSeason, retention);
       if (!shouldRunSeasonGrab(current)) return;
       if (spentSeasonGrabs.current.has(key)) return;
 
@@ -232,6 +222,7 @@ export function TitleDetail(props: TitleDetailProps) {
             mode: "season",
             season: targetSeason,
             episodes,
+            retention,
             title: props.title ?? null,
             mediaType: props.mediaType ?? null,
             year: props.year ?? null,
@@ -365,10 +356,10 @@ function TitleContent({
   refreshing: boolean;
   notice: string | null;
   statusFor: (key: string) => TitleActionStatus;
-  seasonStatusFor: (season: number) => SeasonGrabStatus;
+  seasonStatusFor: (season: number, retention?: TitleRetention) => SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
-  onSeasonGrab: (season: number, episodes: number[]) => void;
-  onAction: (action: TitleAction, key: string, label: string) => void;
+  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention) => void;
+  onAction: (action: TitleAction, key: string, label: string, retention: TitleRetention) => void;
   onLibraryChanged: () => void;
 }) {
   const title = cleanDisplayTitle(payload.title);
@@ -408,11 +399,15 @@ function TitleContent({
         ? ({ status: "loading" } as const)
         : ({ status: "ready" } as const);
   const activeSeasonGrabStatus =
-    activeSeason != null ? seasonStatusFor(activeSeason) : ({ status: "idle" } as const);
+    activeSeason != null ? seasonStatusFor(activeSeason, "keep") : ({ status: "idle" } as const);
+  const activeSeasonStreamStatus =
+    activeSeason != null ? seasonStatusFor(activeSeason, "stream") : ({ status: "idle" } as const);
   const seasonEpisodeStatuses =
     activeSeasonGrabStatus.status === "done"
       ? episodeStatusesFromSeasonReport(activeSeasonGrabStatus.report)
-      : {};
+      : activeSeasonStreamStatus.status === "done"
+        ? episodeStatusesFromSeasonReport(activeSeasonStreamStatus.report)
+        : {};
 
   const facts = titleFacts({
     year: payload.year,
@@ -557,6 +552,7 @@ function TitleContent({
                       primary,
                       PRIMARY_KEY,
                       primarySubtitle ? `${title} ${primarySubtitle}` : title,
+                      primary.kind === "get" ? "keep" : "stream",
                     )
                   }
                 >
@@ -651,15 +647,21 @@ function TitleContent({
               return direct !== "idle" ? direct : (seasonEpisodeStatuses[key] ?? "idle");
             }}
             seasonGrabStatus={activeSeasonGrabStatus}
+            seasonStreamStatus={activeSeasonStreamStatus}
             onSeasonChange={onSeasonChange}
             onSeasonGrab={onSeasonGrab}
             onAction={(action, label) =>
               onAction(
                 action,
                 action.season != null && action.episode != null
-                  ? episodeActionKey(action.season, action.episode)
+                  ? episodeIntentKey(
+                      action.season,
+                      action.episode,
+                      action.kind === "get" ? "keep" : "stream",
+                    )
                   : PRIMARY_KEY,
                 label,
+                action.kind === "get" ? "keep" : "stream",
               )
             }
           />
