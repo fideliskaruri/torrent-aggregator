@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { cn, formatBytes } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
 import { SwarmChip, swarmHealth, type SwarmSample } from "@/components/watch/swarm-chip";
@@ -161,6 +162,32 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 export function qualitySelectorEmptyCopy(loading: boolean, count: number): string | null {
   if (count > 0) return null;
   return loading ? "Checking cached releases…" : "No other cached releases yet.";
+}
+
+/**
+ * Shared box model for every quality-selector row. Pinning the same
+ * `min-h` on the loaded button and the loading skeleton keeps a row's
+ * height identical across the load transition, so the panel reserves its
+ * space up front and never jitters as candidates arrive.
+ */
+const QUALITY_ROW_BASE =
+  "flex w-full min-h-[77px] items-start gap-3 rounded-xl px-3 py-2.5 text-left";
+
+/**
+ * Placeholder row rendered while cached releases load. It mirrors the loaded
+ * row's dot + three text lines so the reserved space matches the real result.
+ */
+function QualityCandidateSkeletonRow() {
+  return (
+    <div data-quality-skeleton aria-hidden className={cn(QUALITY_ROW_BASE, "cursor-default")}>
+      <SkeletonBlock className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" />
+      <div className="min-w-0 flex-1">
+        <SkeletonBlock className="h-[15px] w-1/2 rounded" />
+        <SkeletonBlock className="mt-2 h-[13px] w-3/4 rounded" />
+        <SkeletonBlock className="mt-2 h-[12px] w-2/3 rounded" />
+      </div>
+    </div>
+  );
 }
 
 type PlaybackCandidate = {
@@ -3218,10 +3245,13 @@ function InlineStreamPlayerInner({
               </div>
               {qualityError ? <p className="mx-2 mb-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100">{qualityError}</p> : null}
               {qualityLoading && qualityCandidates.length === 0 ? (
-                <p className="flex min-h-[5.5rem] items-center gap-2 rounded-xl border border-white/8 bg-white/5 px-3 py-3 text-[13px] text-white/60">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {qualitySelectorEmptyCopy(true, qualityCandidates.length)}
-                </p>
+                <PageSkeletonFrame
+                  aria-label={qualitySelectorEmptyCopy(true, qualityCandidates.length) ?? "Loading releases"}
+                >
+                  <QualityCandidateSkeletonRow />
+                  <QualityCandidateSkeletonRow />
+                  <QualityCandidateSkeletonRow />
+                </PageSkeletonFrame>
               ) : null}
               {qualityCandidates.map((candidate) => {
                 const switching = switchingInfoHash === candidate.infoHash;
@@ -3229,9 +3259,10 @@ function InlineStreamPlayerInner({
                   <button
                     key={candidate.infoHash}
                     type="button"
+                    data-quality-candidate
                     disabled={Boolean(switchingInfoHash)}
                     onClick={() => void chooseQualityCandidate(candidate)}
-                    className={cn("flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60", candidate.isCurrent && "bg-white/10")}
+                    className={cn(QUALITY_ROW_BASE, "transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60", candidate.isCurrent && "bg-white/10")}
                   >
                     <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", candidate.verdict === "good" && "bg-emerald-400", candidate.verdict === "weak" && "bg-amber-300", candidate.verdict === "dead" && "bg-red-400", candidate.verdict === "unknown" && "bg-sky-300")} />
                     <span className="min-w-0 flex-1">
