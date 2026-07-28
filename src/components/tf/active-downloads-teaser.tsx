@@ -13,10 +13,21 @@ interface TeaserTorrent {
   progress: number;
   dlspeed: number;
   state: string;
+  retentionState?: "kept" | "stream" | "prewarm" | "unknown";
 }
 
 function isDownloading(state: string) {
   return /down|meta|stalledDL|allocat|queuedDL|checking/i.test(state);
+}
+
+// A stream-only torrent only pulls the pieces the player is watching, so its
+// whole-file progress and download speed stay low — it reads as a stalled
+// download here even while playback is smooth. Prewarm is speculative
+// background work the user never asked to "download". Neither belongs in
+// "Active downloads"; only kept downloads (and legacy/external rows whose
+// origin we cannot classify) do.
+function isDownloadRetention(retentionState: TeaserTorrent["retentionState"]) {
+  return retentionState !== "stream" && retentionState !== "prewarm";
 }
 
 /**
@@ -37,7 +48,9 @@ export function ActiveDownloadsTeaser() {
         if (!res.ok) return;
         const data = (await res.json()) as { torrents?: TeaserTorrent[] };
         const torrents = data.torrents ?? [];
-        const active = torrents.filter((t) => isDownloading(t.state));
+        const active = torrents.filter(
+          (t) => isDownloading(t.state) && isDownloadRetention(t.retentionState),
+        );
         if (cancelled) return;
         setItems(active.slice(0, 3));
         setDlspeed(
