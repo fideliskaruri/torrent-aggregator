@@ -8,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type SyntheticEvent as ReactSyntheticEvent,
 } from "react";
@@ -2840,20 +2839,36 @@ function InlineStreamPlayerInner({
   );
 
   /**
-   * Transport keys, on the player container rather than the document, so a
-   * second player on the same page never steals them.
+   * Transport keys, bound to the window while this player is expanded with
+   * something to play.
    *
-   * Typing targets are excluded: the file/audio/subtitle selects and the seek
-   * slider have their own keyboard behaviour, and stealing space or the arrows
-   * from them would break the control the viewer is actually focused on.
+   * They used to live on the container's `onKeyDown`, but the container had no
+   * `tabIndex` and nothing ever focused it, so the handler only fired in the
+   * rare instant a child control happened to hold focus — in practice, never.
+   * A window listener makes the shortcuts work the moment the player is on
+   * screen, which is what a viewer expects.
+   *
+   * `expanded` is what keeps the old "one player owns the keys" guarantee that
+   * container scope gave for free: a collapsed inline player on the same page
+   * has no listener attached, so it cannot steal a keypress from the one the
+   * viewer actually opened.
+   *
+   * Typing targets are still excluded — the file/audio/subtitle selects and the
+   * seek slider have their own keyboard behaviour, and a focused button keeps
+   * Space as its own activation — so the shortcuts never break the control the
+   * viewer is actually using.
    */
-  const handleKeyDown = useCallback(
-    (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      e.stopPropagation();
-      if (!playableSrc) return;
+  useEffect(() => {
+    if (!expanded || !playableSrc) return;
+    const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || el?.isContentEditable) {
+      if (
+        tag === "INPUT" ||
+        tag === "SELECT" ||
+        tag === "TEXTAREA" ||
+        el?.isContentEditable
+      ) {
         return;
       }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -2879,6 +2894,14 @@ function InlineStreamPlayerInner({
           e.preventDefault();
           seekRelative(key === "l" ? 10 : 5);
           return;
+        case "arrowup":
+          e.preventDefault();
+          changeVolume(Math.min(1, volume + 0.1));
+          return;
+        case "arrowdown":
+          e.preventDefault();
+          changeVolume(Math.max(0, volume - 0.1));
+          return;
         case "f":
           e.preventDefault();
           goFullscreen();
@@ -2889,9 +2912,19 @@ function InlineStreamPlayerInner({
           return;
         default:
       }
-    },
-    [playableSrc, togglePlay, seekRelative, goFullscreen, toggleMute],
-  );
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    expanded,
+    playableSrc,
+    togglePlay,
+    seekRelative,
+    changeVolume,
+    volume,
+    goFullscreen,
+    toggleMute,
+  ]);
 
   /**
    * Everything a media element has to report, in one place, for both modes.
@@ -3480,7 +3513,6 @@ function InlineStreamPlayerInner({
         data-playback-rung={playbackRung ?? undefined}
         data-strategy-reason={strategyReason ?? undefined}
         data-resume-sec={resumeTargetSec > 0 ? resumeTargetSec : undefined}
-        onKeyDown={handleKeyDown}
         onPointerMove={showTheatreControls}
         onFocusCapture={showTheatreControls}
       >
@@ -3816,7 +3848,6 @@ function InlineStreamPlayerInner({
       data-playback-rung={playbackRung ?? undefined}
       data-strategy-reason={strategyReason ?? undefined}
       data-resume-sec={resumeTargetSec > 0 ? resumeTargetSec : undefined}
-      onKeyDown={handleKeyDown}
     >
       <div className={cn("flex flex-wrap items-center gap-1.5", theatre && "hidden")}>
         <Button
