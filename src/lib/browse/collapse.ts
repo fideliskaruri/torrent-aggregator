@@ -46,6 +46,13 @@ export interface CollapsibleRelease<T> {
   /** Newest-first ordering signal. */
   sortAt: Date;
   /**
+   * A caller-known catalog/library work title. The release name still supplies
+   * the identity key unless `workKey` is also set.
+   */
+  workTitle?: string;
+  /** A caller-known work key when a catalog/library row is the identity source. */
+  workKey?: string;
+  /**
    * Whether this member already carries artwork. Rails whose rows have no
    * artwork column pass `false` for every member, which reduces the rule to
    * "newest wins" — the correct answer when nobody has a poster.
@@ -99,7 +106,8 @@ export function collapseReleasesByWork<T>(
     if (!name) continue;
 
     const display = browseWorkDisplay(name);
-    const key = display.key;
+    const key = release.workKey?.trim() || display.key;
+    const title = release.workTitle?.trim() || display.title;
     const hasArtwork = release.hasArtwork === true;
     const prefer = release.prefer === true;
     const existing = byWork.get(key);
@@ -107,7 +115,7 @@ export function collapseReleasesByWork<T>(
     if (!existing) {
       byWork.set(key, {
         workKey: key,
-        title: display.title,
+        title,
         value: release.value,
         name,
         releaseCount: 1,
@@ -133,7 +141,7 @@ export function collapseReleasesByWork<T>(
     if (winsOnPreference || winsOnArtwork || winsOnRecency) {
       existing.value = release.value;
       existing.name = name;
-      existing.title = display.title;
+      existing.title = title;
       existing.sortAt = release.sortAt;
       existing.hasArtwork = hasArtwork;
       existing.prefer = prefer;

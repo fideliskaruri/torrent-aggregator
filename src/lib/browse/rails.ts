@@ -10,8 +10,8 @@ import {
   resolveLocalAvailabilityBatch,
 } from "./availability";
 import { buildDiscoveryRails } from "./discovery";
-import { resolveArtworkForReleases } from "./artwork";
-import { collapseReleasesByWork } from "./collapse";
+import { resolveArtworkForReleases, type Artwork } from "./artwork";
+import { collapseReleasesByWork, UNKNOWN_WORK_TITLE } from "./collapse";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { getBuiltinTorrentPresenceForAvailability } from "@/lib/clients/builtin-engine";
@@ -25,6 +25,45 @@ import type {
 // ---------------------------------------------------------------------------
 // Continue Watching
 // ---------------------------------------------------------------------------
+
+interface ContinueWatchingProgressRow {
+  id: string;
+  infoHash: string;
+  filePath: string;
+  positionSec: number;
+  durationSec: number | null;
+  title: string;
+  season: number | null;
+  episode: number | null;
+  posterUrl: string | null;
+  watchListItemId: string | null;
+  updatedAt: Date;
+}
+
+interface ContinueWatchingTorrentRow {
+  hash: string;
+  name: string;
+  progress: number;
+  status: string;
+}
+
+interface ContinueWatchingWatchItemRow {
+  id: string;
+  title: string;
+  posterUrl: string | null;
+  mediaType: string | null;
+}
+
+interface ContinueWatchingWork {
+  workKey: string;
+  title: string;
+  releaseName: string;
+  artworkName: string;
+  releaseCount: number;
+  progress: ContinueWatchingProgressRow;
+  torrent: ContinueWatchingTorrentRow | undefined;
+  watchItem: ContinueWatchingWatchItemRow | undefined;
+}
 
 /**
  * In-progress episodes/movies: PlaybackProgress rows where completedAt is null,
@@ -42,7 +81,16 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
 
   if (rows.length === 0) return null;
 
-  // Resolve the real availability of each row's torrent.
+  const watchListItemIds = [
+    ...new Set(
+      rows
+        .map((r) => r.watchListItemId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+
+  // Resolve the real availability of each row's torrent and the catalog/library
+  // work it came from when playback recorded one.
   //
   // This rail used to hardcode `availability: "warm"`. `PlaybackProgress` has
   // no foreign key to `EngineTorrent` and nothing deletes progress rows when a
@@ -53,39 +101,90 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
   // this one now. `null` when there is no engine row is the honest answer and
   // the UI already renders it as a neutral affordance.
   const hashes = [...new Set(rows.map((r) => r.infoHash.trim().toLowerCase()))];
-  const torrents = await prisma.engineTorrent.findMany({
-    where: { userId, hash: { in: hashes } },
-    select: { hash: true, name: true, progress: true, status: true },
-  });
-  const byHash = new Map(torrents.map((t) => [t.hash.toLowerCase(), t]));
+  const [torrents, watchItems] = await Promise.all([
+    prisma.engineTorrent.findMany({
+      where: { userId, hash: { in: hashes } },
+      select: { hash: true, name: true, progress: true, status: true },
+    }),
+    watchListItemIds.length > 0
+      ? prisma.watchListItem.findMany({
+          where: { userId, id: { in: watchListItemIds } },
+          select: { id: true, title: true, posterUrl: true, mediaType: true },
+        })
+      : Promise.resolve([]),
+  ]);
 
   // `PlaybackProgress.title` is supplied by the player and can be just the file
-  // label (`S01E02`). Use the torrent's release name when it exists, then run
-  // the same work collapse used by the other release-backed rails. That fixes
-  // both halves of the screenshot failure: one show no longer becomes two cards,
-  // and an episode coordinate never occupies the work-title slot.
-  const works = collapseReleasesByWork(
+  // label (`S01E02`). Prefer the linked library/catalog work when present, use
+  // the torrent release for release-backed rows, enrich missing posters through
+  // the same artwork resolver as the other personal rails, and drop entries
+  // that still cannot name a work. A shorter clean rail beats a row of
+  // "Unknown title" letter tiles.
+  const works = continueWatchingWorksFromRows(rows, torrents, watchItems).slice(0, 20);
+  const artwork = await resolveArtworkForReleases(works.map((w) => w.artworkName));
+
+  return continueWatchingRailFromWorks(userId, works, artwork);
+}
+
+function continueWatchingWorksFromRows(
+  rows: readonly ContinueWatchingProgressRow[],
+  torrents: readonly ContinueWatchingTorrentRow[],
+  watchItems: readonly ContinueWatchingWatchItemRow[],
+): ContinueWatchingWork[] {
+  const byHash = new Map(torrents.map((t) => [t.hash.trim().toLowerCase(), t]));
+  const byWatchItem = new Map(watchItems.map((w) => [w.id, w]));
+
+  const collapsed = collapseReleasesByWork(
     rows.map((r) => {
       const hash = r.infoHash.trim().toLowerCase();
+      const torrent = byHash.get(hash);
+      const watchItem = r.watchListItemId
+        ? byWatchItem.get(r.watchListItemId)
+        : undefined;
+      const releaseName = torrent?.name ?? progressIdentityName(r, watchItem);
+      const workTitle = watchItem?.title?.trim() || undefined;
       return {
-        name: byHash.get(hash)?.name ?? r.title,
+        name: releaseName,
+        workTitle,
         sortAt: r.updatedAt,
-        hasArtwork: r.posterUrl != null,
-        value: r,
+        hasArtwork: r.posterUrl != null || watchItem?.posterUrl != null,
+        prefer: workTitle != null,
+        value: { progress: r, torrent, watchItem, releaseName },
       };
     }),
   );
 
-  const items: RailItem[] = works.slice(0, 20).map((work) => {
-    const r = work.value;
-    const torrent = byHash.get(r.infoHash.trim().toLowerCase());
+  return collapsed
+    .filter((work) => work.title !== UNKNOWN_WORK_TITLE)
+    .map((work) => ({
+      workKey: work.workKey,
+      title: work.title,
+      releaseName: work.name,
+      artworkName:
+        work.value.watchItem?.title?.trim() || work.value.releaseName || work.title,
+      releaseCount: work.releaseCount,
+      progress: work.value.progress,
+      torrent: work.value.torrent,
+      watchItem: work.value.watchItem,
+    }));
+}
+
+function continueWatchingRailFromWorks(
+  userId: string,
+  works: readonly ContinueWatchingWork[],
+  artwork: readonly Artwork[],
+): Rail | null {
+  const items: RailItem[] = works.map((work, i) => {
+    const r = work.progress;
+    const art = artwork[i];
     return {
       id: r.id,
       title: work.title,
       subtitle: formatEpisodeSubtitle(r.season, r.episode),
-      posterUrl: r.posterUrl,
-      backdropUrl: null,
-      availability: engineAvailability(userId, torrent),
+      posterUrl:
+        r.posterUrl ?? work.watchItem?.posterUrl ?? art?.posterUrl ?? null,
+      backdropUrl: art?.backdropUrl ?? null,
+      availability: engineAvailability(userId, work.torrent),
       progressFraction:
         r.durationSec && r.durationSec > 0
           ? Math.min(r.positionSec / r.durationSec, 1)
@@ -94,13 +193,25 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
       infoHash: r.infoHash,
       filePath: r.filePath,
       watchListItemId: r.watchListItemId,
-      mediaType: null,
+      mediaType: work.watchItem?.mediaType ?? null,
       season: r.season,
       episode: r.episode,
     };
   });
 
+  if (items.length === 0) return null;
   return { id: "continue-watching", title: "Continue Watching", items };
+}
+
+function progressIdentityName(
+  row: ContinueWatchingProgressRow,
+  watchItem: ContinueWatchingWatchItemRow | undefined,
+): string {
+  const title = watchItem?.title?.trim();
+  const episode = formatEpisodeSubtitle(row.season, row.episode);
+  if (title && episode) return `${title} ${episode}`;
+  if (title) return title;
+  return row.title;
 }
 
 /**
@@ -499,4 +610,8 @@ function formatEpisodeSubtitle(
   return null;
 }
 
-export { readyToPlayRailFromItems as _readyToPlayRailFromItems };
+export {
+  continueWatchingRailFromWorks as _continueWatchingRailFromWorks,
+  continueWatchingWorksFromRows as _continueWatchingWorksFromRows,
+  readyToPlayRailFromItems as _readyToPlayRailFromItems,
+};

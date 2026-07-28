@@ -14,6 +14,8 @@ import { COMPLETION_THRESHOLD } from "./types";
 import type { AvailabilityState, Availability, RailItem } from "./types";
 import { collapseReleasesByWork } from "./collapse";
 import {
+  _continueWatchingRailFromWorks as continueWatchingRailFromWorks,
+  _continueWatchingWorksFromRows as continueWatchingWorksFromRows,
   _readyToPlayRailFromItems as readyToPlayRailFromItems,
   readyRepresentativePreference,
   readyToPlayTorrentCanSurface,
@@ -702,6 +704,139 @@ check("release-backed rails use the shared work collapse", () => {
     [2, 2, 1],
     "only releases of the same work should be folded into a single card",
   );
+});
+
+check("continue watching resolves episode-only progress through the linked library work", () => {
+  const works = continueWatchingWorksFromRows(
+    [
+      {
+        id: "progress-silo-e2",
+        infoHash: "ABCDEF1234",
+        filePath: "Silo/S01E02.mkv",
+        positionSec: 600,
+        durationSec: 3_000,
+        title: "S01E02",
+        season: 1,
+        episode: 2,
+        posterUrl: null,
+        watchListItemId: "watch-silo",
+        updatedAt: new Date(Date.UTC(2024, 0, 2, 0, 0, 0)),
+      },
+    ],
+    [],
+    [
+      {
+        id: "watch-silo",
+        title: "Silo",
+        posterUrl: "https://images.example.test/silo.jpg",
+        mediaType: "tv",
+      },
+    ],
+  );
+  const rail = continueWatchingRailFromWorks("user-1", works, []);
+
+  assert.notEqual(rail, null, "expected a Continue Watching rail");
+  assert.deepEqual(
+    rail!.items.map((item) => ({
+      title: item.title,
+      subtitle: item.subtitle,
+      posterUrl: item.posterUrl,
+      mediaType: item.mediaType,
+      progressFraction: item.progressFraction,
+    })),
+    [
+      {
+        title: "Silo",
+        subtitle: "S01E02",
+        posterUrl: "https://images.example.test/silo.jpg",
+        mediaType: "tv",
+        progressFraction: 0.2,
+      },
+    ],
+  );
+  assert.notEqual(rail!.items[0].title, "Unknown title");
+});
+
+check("continue watching resolves episode-only progress through the torrent release and artwork", () => {
+  const works = continueWatchingWorksFromRows(
+    [
+      {
+        id: "progress-dark-e2",
+        infoHash: "darkhash",
+        filePath: "Dark/S01E02.mkv",
+        positionSec: 300,
+        durationSec: 1_500,
+        title: "S01E02",
+        season: 1,
+        episode: 2,
+        posterUrl: null,
+        watchListItemId: null,
+        updatedAt: new Date(Date.UTC(2024, 0, 2, 0, 0, 0)),
+      },
+    ],
+    [
+      {
+        hash: "darkhash",
+        name: "Dark.S01E02.1080p.WEBRip.x264-GROUP",
+        progress: 0.5,
+        status: "downloading",
+      },
+    ],
+    [],
+  );
+  const rail = continueWatchingRailFromWorks("user-1", works, [
+    {
+      posterUrl: "https://images.example.test/dark.jpg",
+      backdropUrl: "https://images.example.test/dark-backdrop.jpg",
+    },
+  ]);
+
+  assert.notEqual(rail, null, "expected a Continue Watching rail");
+  assert.deepEqual(
+    rail!.items.map((item) => ({
+      title: item.title,
+      subtitle: item.subtitle,
+      posterUrl: item.posterUrl,
+      backdropUrl: item.backdropUrl,
+      availability: item.availability,
+    })),
+    [
+      {
+        title: "Dark",
+        subtitle: "S01E02",
+        posterUrl: "https://images.example.test/dark.jpg",
+        backdropUrl: "https://images.example.test/dark-backdrop.jpg",
+        availability: "warm",
+      },
+    ],
+  );
+  assert.notEqual(rail!.items[0].title, "Unknown title");
+});
+
+check("continue watching excludes unresolved episode-only progress rows", () => {
+  const works = continueWatchingWorksFromRows(
+    [
+      {
+        id: "progress-unknown-e6",
+        infoHash: "1234ABCDEF",
+        filePath: "S01E06.mkv",
+        positionSec: 120,
+        durationSec: 1_200,
+        title: "S01E06",
+        season: 1,
+        episode: 6,
+        posterUrl: null,
+        watchListItemId: null,
+        updatedAt: new Date(Date.UTC(2024, 0, 3, 0, 0, 0)),
+      },
+    ],
+    [],
+    [],
+  );
+  const rail = continueWatchingRailFromWorks("user-1", works, []);
+
+  assert.deepEqual(works, []);
+  assert.equal(rail, null, "unresolved rows must not render Unknown title cards");
 });
 
 console.log("\n--- ready-to-play rail truthfulness ---");
