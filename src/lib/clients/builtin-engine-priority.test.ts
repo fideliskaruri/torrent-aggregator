@@ -273,9 +273,10 @@ async function main() {
     });
 
     // MP4 keeps its index parsed up front, so a seek should not pin the head or
-    // escalate the tail: only the requested pieces are urgent.
+    // escalate the tail: only the requested pieces are urgent. The non-critical
+    // tail defers below the seek window (priority 1) until the window lands.
     assert.deepEqual(torrent.selections, [
-      { start: 78, end: 79, priority: 3, stream: true },
+      { start: 78, end: 79, priority: 1, stream: true },
       { start: 60, end: 61, priority: 3, stream: true },
     ]);
     assert.deepEqual(torrent.criticalCalls, [{ start: 60, end: 61 }]);
@@ -374,7 +375,9 @@ async function main() {
     ]);
 
     // The head pieces land. The next priority pass promotes the tail to the head
-    // priority, dropping the stale deferred selection first.
+    // priority, dropping the stale deferred selection first. The head is not
+    // re-selected because its range is unchanged (headChanged guard), matching
+    // the deselection assertion above.
     torrent.bitfield = { get: (index: number) => index === 40 || index === 41 };
     prioritizeBuiltinStreamFile(torrent, ep3, {
       prefetchEdges: async () => undefined,
@@ -384,7 +387,6 @@ async function main() {
     assert.deepEqual(torrent.selections, [
       { start: 40, end: 41, priority: 3, stream: true },
       { start: 78, end: 79, priority: 1, stream: true },
-      { start: 40, end: 41, priority: 3, stream: true },
       { start: 78, end: 79, priority: 3, stream: true },
     ]);
   });
