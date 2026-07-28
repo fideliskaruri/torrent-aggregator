@@ -48,41 +48,31 @@ function library(overrides: Partial<TitleLibraryState> = {}): TitleLibraryState 
 
 console.log("\ntitle library controls");
 
-check("the hero offers a distinct stream action and download action", () => {
+check("the library side no longer renders the acquire pair (it lives in the hero)", () => {
   const html = renderToStaticMarkup(
     React.createElement(LibraryControls, {
-      library: library({ cursorSeason: 2, cursorEpisode: 6 }),
+      library: library({ inLibrary: false, watchListItemId: null }),
       isSeries: true,
       onChanged: () => {},
     }),
   );
 
-  // The stream (Play) control: a Play intent tagged retention "stream".
-  const stream = /<button[^>]*data-title-stream[^>]*>/.exec(html)?.[0];
-  assert.ok(stream, `stream button missing:\n${html}`);
-  assert.match(stream, /data-retention="stream"/);
-  assert.match(stream, /aria-label="Play — Example Show S02E06"/);
-  assert.match(html, /data-title-stream[^>]*>[\s\S]*?Play/);
+  // Play/Download moved to the hero (title-detail.tsx), which owns the player.
+  // A second, non-functional pair here was the duplicate-button regression.
+  assert.doesNotMatch(html, /data-title-stream/);
+  assert.doesNotMatch(html, /data-title-download/);
+  assert.doesNotMatch(html, /data-title-acquire/);
 
-  // The download control: a Keep intent tagged retention "keep".
-  const download = /<button[^>]*data-title-download[^>]*>/.exec(html)?.[0];
-  assert.ok(download, `download button missing:\n${html}`);
-  assert.match(download, /data-retention="keep"/);
-  assert.match(download, /aria-label="Download — Example Show S02E06"/);
-  assert.match(html, /data-title-download[^>]*>[\s\S]*?Download/);
-
-  // Two separate controls, not one Play with a download glued next to it.
-  assert.notEqual(stream, download);
+  // The library side still offers its own decision: catalogue membership.
+  assert.match(html, /data-add-to-library/);
+  assert.match(html, />Add to library</);
 });
 
-check("both hero actions are wired to /api/torrent/send with their retention", () => {
-  // Static markup cannot fire onClick, so prove the wiring at the source: one
-  // acquire() handler, hitting the same endpoint the search card uses, invoked
-  // with each retention by its own button.
-  assert.match(componentSource, /fetch\("\/api\/torrent\/send"/);
-  assert.match(componentSource, /retention,/);
-  assert.match(componentSource, /onClick=\{\(\) => acquire\("stream"\)\}/);
-  assert.match(componentSource, /onClick=\{\(\) => acquire\("keep"\)\}/);
+check("the source no longer sends acquire requests to /api/torrent/send", () => {
+  // Acquiring is the hero's job now; the library side only touches the
+  // watchlist API. Guard against the acquire handler creeping back in.
+  assert.doesNotMatch(componentSource, /\/api\/torrent\/send/);
+  assert.match(componentSource, /fetch\("\/api\/watchlist"/);
 });
 
 check("monitoring off renders as an actionable toggle with a described helper", () => {

@@ -88,6 +88,7 @@ type PlayTarget = {
 };
 
 const PRIMARY_KEY = "primary";
+const DOWNLOAD_KEY = "download";
 
 export function TitleDetail(props: TitleDetailProps) {
   const [season, setSeason] = useState<number | null>(props.season ?? null);
@@ -446,6 +447,26 @@ function TitleContent({
         } ${primarySubtitle}. Choose a different episode below.`
       : null;
 
+  // Play and Download are the two acquire intents. The primary button above is
+  // the Play/Resume path (it opens the player); Download keeps the file. We only
+  // offer a separate Download alongside a playable primary — when the primary is
+  // itself a Get (positively unavailable), it already *is* the download, so a
+  // second identical button would be noise.
+  const showDownload = primary.kind !== "get";
+  const downloadAction: TitleAction = {
+    kind: "get",
+    label: "Download",
+    season: primary.season,
+    episode: primary.episode,
+    infoHash: primary.kind === "play" ? primary.infoHash : payload.infoHash,
+  };
+  const downloadStatus = statusFor(DOWNLOAD_KEY);
+  const downloadLabel = titleActionButtonLabel(downloadAction, downloadStatus);
+  const downloadCanRun = shouldRunTitleAction(downloadAction, downloadStatus);
+  const downloadLabelTarget = primarySubtitle
+    ? `${title} ${primarySubtitle}`
+    : title;
+
   return (
     <article aria-labelledby="title-heading" className="flex grow flex-col">
       <header
@@ -533,43 +554,80 @@ function TitleContent({
                 </p>
               ) : null}
 
-              <div className="mt-5 flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  size="lg"
-                  data-title-primary
-                  data-action-kind={primary.kind}
-                  aria-label={
-                    primarySubtitle
-                      ? `${primaryLabel} — ${title} ${primarySubtitle}`
-                      : `${primaryLabel} — ${title}`
-                  }
-                  aria-busy={primaryStatus === "pending" || undefined}
-                  aria-describedby={primaryDescribedBy}
-                  disabled={!primaryCanRun}
-                  onClick={() =>
-                    onAction(
-                      primary,
-                      PRIMARY_KEY,
-                      primarySubtitle ? `${title} ${primarySubtitle}` : title,
-                      primary.kind === "get" ? "keep" : "stream",
-                    )
-                  }
+              <div className="mt-5 flex flex-col gap-3">
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  data-title-acquire
                 >
-                  {primaryStatus === "pending" ? (
-                    <Loader2 className="animate-spin" aria-hidden />
-                  ) : primary.kind === "play" || primary.kind === "stream" ? (
-                    <Play className="fill-current" aria-hidden />
-                  ) : (
-                    <Download aria-hidden />
-                  )}
-                  {primaryLabel}
-                  {primarySubtitle ? (
-                    <span className="text-[12px] opacity-80">
-                      {primarySubtitle}
-                    </span>
+                  <Button
+                    type="button"
+                    size="lg"
+                    data-title-primary
+                    data-action-kind={primary.kind}
+                    aria-label={
+                      primarySubtitle
+                        ? `${primaryLabel} — ${title} ${primarySubtitle}`
+                        : `${primaryLabel} — ${title}`
+                    }
+                    aria-busy={primaryStatus === "pending" || undefined}
+                    aria-describedby={primaryDescribedBy}
+                    disabled={!primaryCanRun}
+                    onClick={() =>
+                      onAction(
+                        primary,
+                        PRIMARY_KEY,
+                        primarySubtitle ? `${title} ${primarySubtitle}` : title,
+                        primary.kind === "get" ? "keep" : "stream",
+                      )
+                    }
+                  >
+                    {primaryStatus === "pending" ? (
+                      <Loader2 className="animate-spin" aria-hidden />
+                    ) : primary.kind === "play" || primary.kind === "stream" ? (
+                      <Play className="fill-current" aria-hidden />
+                    ) : (
+                      <Download aria-hidden />
+                    )}
+                    {primaryLabel}
+                    {primarySubtitle ? (
+                      <span className="text-[12px] opacity-80">
+                        {primarySubtitle}
+                      </span>
+                    ) : null}
+                  </Button>
+
+                  {showDownload ? (
+                    <Button
+                      type="button"
+                      size="lg"
+                      variant="secondary"
+                      data-title-download
+                      data-action-kind="get"
+                      aria-label={
+                        primarySubtitle
+                          ? `Download — ${title} ${primarySubtitle}`
+                          : `Download — ${title}`
+                      }
+                      aria-busy={downloadStatus === "pending" || undefined}
+                      disabled={!downloadCanRun}
+                      onClick={() =>
+                        onAction(
+                          downloadAction,
+                          DOWNLOAD_KEY,
+                          downloadLabelTarget,
+                          "keep",
+                        )
+                      }
+                    >
+                      {downloadStatus === "pending" ? (
+                        <Loader2 className="animate-spin" aria-hidden />
+                      ) : (
+                        <Download aria-hidden />
+                      )}
+                      {downloadLabel}
+                    </Button>
                   ) : null}
-                </Button>
+                </div>
 
                 <LibraryControls
                   library={payload.library}
