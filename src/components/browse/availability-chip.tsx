@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Check, Download, HelpCircle, Zap } from "lucide-react";
+import { AlertCircle, Check, Download, Zap } from "lucide-react";
 import type { AvailabilityState } from "@/lib/browse";
 import { cn } from "@/lib/utils";
 import {
@@ -40,12 +40,6 @@ const STATE_ICON: Record<AvailabilityState, typeof Check> = {
   unavailable: AlertCircle,
 };
 
-/**
- * A question, not a warning. `null` means nobody looked — see `availability.ts`
- * on why that must never be dressed as a problem.
- */
-const UNRESOLVED_ICON = HelpCircle;
-
 export function AvailabilityChip({
   state,
   className,
@@ -58,7 +52,33 @@ export function AvailabilityChip({
   compact?: boolean;
 }) {
   const meta = availabilityMeta(state);
-  const Icon = state === null ? UNRESOLVED_ICON : STATE_ICON[state];
+
+  // "Nobody checked yet" is a normal, expected answer — not a warning — and it
+  // was true of nearly every card, so a blue "Not checked" pill was pure noise.
+  // Render it as a faint dot: present enough to mark the unknown, quiet enough
+  // to disappear next to a real Ready / Unavailable badge. The word still
+  // reaches assistive tech and the hover title.
+  if (state === null) {
+    return (
+      <span
+        data-availability="unresolved"
+        title={meta.label}
+        className={cn(
+          "inline-flex items-center justify-center",
+          compact ? "h-4 w-4" : "h-5 w-5",
+          className,
+        )}
+      >
+        <span
+          className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)] opacity-60"
+          aria-hidden
+        />
+        <span className="sr-only">{meta.label}</span>
+      </span>
+    );
+  }
+
+  const Icon = STATE_ICON[state];
 
   return (
     <span
