@@ -76,6 +76,7 @@ export function BrowseEmptyState({
         Search still works if you know what you are looking for —{" "}
         <Link
           href={SEARCH_HREF}
+          data-dense-ui
           className="text-[var(--accent-text)] underline-offset-4 transition-colors hover:text-[var(--accent-hover)] hover:underline"
         >
           open search

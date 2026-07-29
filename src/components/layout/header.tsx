@@ -37,7 +37,10 @@ export function Header() {
   return (
     <header className="app-header" data-app-header>
       <div className="container-app flex h-14 items-center gap-3 sm:gap-4">
-        <Link href="/" className="flex items-center gap-2 shrink-0 min-w-0">
+        <Link
+          href="/"
+          className="flex min-h-[44px] items-center gap-2 shrink-0 min-w-0 lg:min-h-0"
+        >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--primary-foreground)]">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path
@@ -93,7 +96,7 @@ export function Header() {
                   href={href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "px-2.5 lg:px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
+                    "inline-flex items-center min-h-[44px] lg:min-h-0 px-2.5 lg:px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
                     "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
                     active
                       ? "text-[var(--text)] bg-[var(--bg-muted)]"
@@ -120,7 +123,7 @@ export function Header() {
             data-header-search
             data-search-trigger
             className={cn(
-              "hidden md:inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors",
+              "hidden md:inline-flex h-11 lg:h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors",
               "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
               searchActive
                 ? "border-[var(--border-strong)] bg-[var(--bg-muted)] text-[var(--text)]"
@@ -140,7 +143,7 @@ export function Header() {
             aria-current={searchActive ? "page" : undefined}
             data-search-trigger
             className={cn(
-              "md:hidden inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors",
+              "md:hidden inline-flex h-11 w-11 items-center justify-center rounded-md transition-colors",
               "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
               searchActive
                 ? "bg-[var(--bg-muted)] text-[var(--text)]"
@@ -151,7 +154,7 @@ export function Header() {
           </Link>
           <button
             type="button"
-            className="hidden md:inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
+            className="hidden md:inline-flex h-11 lg:h-8 min-w-[44px] lg:min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
             onClick={() =>
               setDensity(density === "compact" ? "comfortable" : "compact")
             }

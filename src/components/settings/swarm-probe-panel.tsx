@@ -163,7 +163,7 @@ export function SwarmProbePanel() {
                   variant={active ? "default" : "secondary"}
                   disabled={saving !== null}
                   onClick={() => void setScope(choice.value)}
-                  className="justify-center"
+                  className="justify-center min-h-[44px] lg:min-h-0"
                 >
                   {saving === choice.value ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

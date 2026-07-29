@@ -4,6 +4,7 @@ import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
 import {
   DEFAULT_STREAM_CACHE_BUDGET_BYTES,
+  EVICTING_ORIGIN,
   STREAM_CACHE_GRACE_MS,
   STREAM_ORIGIN,
 } from "@/lib/streaming/retention";
@@ -11,6 +12,7 @@ import {
   foregroundActive,
   foregroundHash,
 } from "@/lib/prewarm/foreground";
+import { newEvictLease, recoverStaleEvictionLeases } from "@/lib/streaming/evict-lease";
 import {
   RETENTION_POLICY_EPHEMERAL,
   type RetentionPolicy,
@@ -71,6 +73,20 @@ export interface RetentionSweepOptions {
     hash: () => string | null;
   };
   _beforeDeleteCheck?: (candidate: RetentionSweepCandidate) => Promise<void> | void;
+  /**
+   * Test seam: fires AFTER the safety read has passed but BEFORE the claim CAS,
+   * i.e. inside the exact window in which an explicit Download can promote a
+   * `stream` row to `user`. Used to prove the claim lease — not merely the
+   * earlier safety read — refuses to delete a just-promoted download's files.
+   */
+  _beforeClaim?: (candidate: RetentionSweepCandidate) => Promise<void> | void;
+  /**
+   * Test seam: fires AFTER the claim CAS has leased the row (stream → evicting)
+   * but BEFORE the re-check + unlink, i.e. inside the window in which an explicit
+   * Download STEALS the lease (evicting → user). Used to prove the re-check under
+   * the lease aborts the delete and keeps the files.
+   */
+  _afterClaim?: (candidate: RetentionSweepCandidate) => Promise<void> | void;
 }
 
 function norm(hash: string | null | undefined): string | null {
@@ -381,6 +397,13 @@ export async function sweepRetentionCache(
   const fgHash = norm(foreground.hash());
   if (fgHash) protectedHashes.add(fgHash);
 
+  // Reclaim any lease abandoned by a crash (issue D reviewer round 2) BEFORE
+  // listing, so a stranded `evicting` row is restored to its recorded origin
+  // rather than leaking its disk forever.
+  await recoverStaleEvictionLeases({ userId: opts.userId, db, now }).catch(() => ({
+    recovered: [],
+  }));
+
   const listed = await listRetentionSweepCandidates({
     userId: opts.userId,
     db,
@@ -469,8 +492,81 @@ export async function sweepRetentionCache(
       continue;
     }
 
+    // ── CLAIM THE ROW BEFORE TOUCHING ANY FILE (issue D) ────────────────────
+    // Atomically lease stream → evicting under the exact guard that used to gate
+    // the row delete, stamping a token. If an explicit Download promoted this
+    // hash (stream → user) between the safety read above and now, the guard no
+    // longer matches, the claim frees nothing, and we abort WITH THE FILES STILL
+    // ON DISK. `evictLease: null` also stops us re-claiming a row another sweep
+    // already leased. The old order (delete files, then guard the row delete)
+    // could destroy a just-promoted download's bytes before the row guard
+    // refused — the exact check-then-delete race that previously lost real media.
+    // Worst case now is an orphaned file (reclaimed by lease recovery), never a
+    // lost download.
+    await opts._beforeClaim?.(candidate);
+    const leaseToken = newEvictLease(now);
+    let claimed = 0;
+    try {
+      const claim = await db.engineTorrent.updateMany({
+        where: {
+          userId: opts.userId,
+          hash: candidate.hash,
+          origin: STREAM_ORIGIN,
+          evictLease: null,
+          status: { not: "downloading" },
+          progress: { gte: 1 },
+        },
+        data: { origin: EVICTING_ORIGIN, evictLease: leaseToken, evictFrom: STREAM_ORIGIN },
+      });
+      claimed = claim.count;
+    } catch (err) {
+      result.reclaimedBytes -= candidate.onDiskBytes;
+      result.skipped.push({
+        hash: candidate.hash,
+        reason: `db-claim-error: ${err instanceof Error ? err.message : String(err)}`,
+        name: candidate.name,
+      });
+      continue;
+    }
+    if (claimed === 0) {
+      result.reclaimedBytes -= candidate.onDiskBytes;
+      result.skipped.push({ hash: candidate.hash, reason: "db-guard-refused", name: candidate.name });
+      continue;
+    }
+
+    await opts._afterClaim?.(candidate);
+
+    // RE-CHECK UNDER THE LEASE, immediately before unlink. A Download that
+    // arrived after our claim STEALS the lease (evicting → user, clearing the
+    // token). If our exact token no longer owns the row, the user won: abort with
+    // the files intact. This makes an explicit Download beat a speculative sweep.
+    let stillOwn = false;
+    try {
+      const owned = await db.engineTorrent.findFirst({
+        where: {
+          userId: opts.userId,
+          hash: candidate.hash,
+          origin: EVICTING_ORIGIN,
+          evictLease: leaseToken,
+        },
+        select: { hash: true },
+      });
+      stillOwn = owned != null;
+    } catch {
+      stillOwn = false; // fail closed: never delete if we cannot prove we own it
+    }
+    if (!stillOwn) {
+      result.reclaimedBytes -= candidate.onDiskBytes;
+      result.skipped.push({ hash: candidate.hash, reason: "lease-stolen", name: candidate.name });
+      continue;
+    }
+
+    // The lease is exclusively ours (origin = evicting, token matches). Delete
+    // the files.
+    let deletedOk = false;
     try {
       const deleted = await remove(opts.config, candidate.hash);
+      deletedOk = deleted.ok;
       if (!deleted.ok) {
         result.reclaimedBytes -= candidate.onDiskBytes;
         result.skipped.push({
@@ -478,7 +574,6 @@ export async function sweepRetentionCache(
           reason: `client-refused: ${deleted.message}`,
           name: candidate.name,
         });
-        continue;
       }
     } catch (err) {
       result.reclaimedBytes -= candidate.onDiskBytes;
@@ -487,6 +582,24 @@ export async function sweepRetentionCache(
         reason: `client-error: ${err instanceof Error ? err.message : String(err)}`,
         name: candidate.name,
       });
+    }
+
+    if (!deletedOk) {
+      // Roll the lease back so the row returns to an evictable stream. Guarded on
+      // OUR token so we never clobber a steal that landed in the meantime.
+      try {
+        await db.engineTorrent.updateMany({
+          where: {
+            userId: opts.userId,
+            hash: candidate.hash,
+            origin: EVICTING_ORIGIN,
+            evictLease: leaseToken,
+          },
+          data: { origin: STREAM_ORIGIN, evictLease: null, evictFrom: null },
+        });
+      } catch {
+        /* best-effort */
+      }
       continue;
     }
 
@@ -494,9 +607,8 @@ export async function sweepRetentionCache(
       where: {
         userId: opts.userId,
         hash: candidate.hash,
-        origin: STREAM_ORIGIN,
-        status: { not: "downloading" },
-        progress: { gte: 1 },
+        origin: EVICTING_ORIGIN,
+        evictLease: leaseToken,
       },
     });
     if (row.count === 0) {

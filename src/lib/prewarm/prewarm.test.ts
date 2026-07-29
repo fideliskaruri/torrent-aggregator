@@ -57,6 +57,7 @@ import {
   shouldTriggerPrewarm,
 } from "./prewarm";
 import { PREWARM_GRAB_KIND, PREWARM_ORIGIN, USER_ORIGIN } from "./types";
+import { birthOriginForPurpose } from "@/lib/clients/add-purpose";
 import type { NextEpisode, PreRankTarget } from "./types";
 
 type SearchPayload = Parameters<typeof searchTorrents>[0];
@@ -157,16 +158,18 @@ let sent: string[] = [];
 
 /**
  * Stands in for `builtinClient.addTorrent`, including the part that matters:
- * it creates the `EngineTorrent` row with the schema default origin.
+ * it creates the `EngineTorrent` row BORN with the origin the stated purpose
+ * dictates — exactly as the real engine now does. A prewarm add is born
+ * `prewarm`, so the hook can VERIFY (not manufacture) the label.
  */
 async function fakeSend(
   _cfg: ClientConnectionConfig,
   payload: AddTorrentPayload,
 ): Promise<{ ok: boolean; message: string }> {
   assert.equal(
-    (payload as AddTorrentPayload & { connectOnly?: boolean }).connectOnly,
-    true,
-    "prewarm must connect peers only, not select/download pieces",
+    payload.purpose,
+    "prewarm",
+    "prewarm must state purpose=prewarm so the engine births an evictable row",
   );
   const hash = /btih:([0-9a-fA-F]{40})/.exec(payload.magnet ?? "")?.[1]?.toLowerCase();
   if (!hash) return { ok: false, message: "no hash in magnet" };
@@ -181,6 +184,7 @@ async function fakeSend(
       savePath: payload.savePath ?? null,
       category: payload.category ?? null,
       status: "downloading",
+      origin: birthOriginForPurpose(payload.purpose),
       sizeBytes: BigInt(1_200_000_000),
       progress: 0,
     },
@@ -444,6 +448,7 @@ async function main(): Promise<void> {
           const controlRelease = result({ title: `${SHOW} S09E09 1080p CONTROL` });
           const r = await runGrabPipeline({
             userId: controlUser,
+            purpose: "keep",
             search: prewarmSearchOptions({ ...target, episode: 9, season: 9 }),
             config,
             fallbackTitle: SHOW,

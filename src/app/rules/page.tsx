@@ -55,7 +55,7 @@ interface Rule {
 }
 
 const selectClass =
-  "flex h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-11 lg:h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
 
 export const RULE_CATEGORY_OPTIONS = [
   { value: "all", label: "All video" },
@@ -486,7 +486,7 @@ export default function RulesPage() {
                     type="button"
                     aria-pressed={active}
                     onClick={() => toggleSource(source.value)}
-                    className={`rounded-full px-2.5 py-1 text-xs ring-1 transition-colors ${
+                    className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-2.5 py-1 text-xs ring-1 transition-colors lg:min-h-0 lg:min-w-0 ${
                       active
                         ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                         : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
@@ -569,7 +569,7 @@ export default function RulesPage() {
                 <button
                   type="button"
                   onClick={() => openFilterEditor(rule)}
-                  className="text-xs text-[var(--accent-text)] hover:underline"
+                  className="inline-flex items-center min-h-[44px] text-xs text-[var(--accent-text)] hover:underline lg:min-h-0"
                   aria-expanded={filterEditRuleId === rule.id}
                 >
                   {filterEditRuleId === rule.id
@@ -594,7 +594,7 @@ export default function RulesPage() {
                               type="button"
                               aria-pressed={active}
                               onClick={() => toggleRuleFilterSource(rule, source.value)}
-                              className={`rounded-full px-2.5 py-1 text-xs ring-1 transition-colors ${
+                              className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-2.5 py-1 text-xs ring-1 transition-colors lg:min-h-0 lg:min-w-0 ${
                                 active
                                   ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                                   : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"

@@ -28,6 +28,7 @@ const baseConfig: ClientConnectionConfig = {
     category: "TV",
     savePath,
     name: "Family.Guy.S24E11.1080p.WEB.h264-playWEB",
+    purpose: "keep",
   });
   assert.equal(result.ok, true);
   if (!result.ok) throw new Error("unreachable");
@@ -60,6 +61,7 @@ const baseConfig: ClientConnectionConfig = {
     {
       magnet: "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       category: "TV",
+      purpose: "keep",
       // savePath omitted — resolveDownloadTarget uses pathRules[TV]
     },
   );
@@ -76,6 +78,7 @@ const baseConfig: ClientConnectionConfig = {
   const result = buildQbittorrentAddBody(baseConfig, {
     category: "TV",
     savePath: "D:\\Torrents\\TV",
+    purpose: "keep",
   });
   assert.equal(result.ok, false);
 }
@@ -89,6 +92,7 @@ const baseConfig: ClientConnectionConfig = {
     },
     {
       magnet: "magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      purpose: "keep",
     },
   );
   assert.equal(result.ok, true);

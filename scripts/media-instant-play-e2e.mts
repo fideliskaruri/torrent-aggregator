@@ -23,6 +23,7 @@
 // in `@/lib/prisma`, so no fixture the harness or its spawned server writes can
 // reach the user's live `dev.db`. See the module header for the ordering rule.
 import { scratchDb, cleanupScratchDb } from "./lib/harness-db.mjs";
+import { safeRmRecursive } from "./lib/safe-rm.mjs";
 
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import assert from "node:assert/strict";
@@ -613,13 +614,13 @@ async function cleanup(hashes: string[]) {
     where: { userId: LOCAL_USER_ID, title: { contains: RUN_ID } },
   }).catch(() => undefined);
   await prisma.$disconnect().catch(() => undefined);
-  fs.rmSync(WORK, { recursive: true, force: true });
+  safeRmRecursive(WORK, { repoRoot });
   cleanupScratchDb();
 }
 
 async function main() {
   console.log("── Fixture ──");
-  fs.rmSync(WORK, { recursive: true, force: true });
+  safeRmRecursive(WORK, { repoRoot });
   ensureDir(SEED_DIR);
   ensureDir(LEECH_DIR);
 
@@ -782,7 +783,7 @@ async function main() {
 main().catch(async (err) => {
   console.error("\nFAIL —", err instanceof Error ? err.stack : String(err));
   await prisma.$disconnect().catch(() => undefined);
-  fs.rmSync(WORK, { recursive: true, force: true });
+  safeRmRecursive(WORK, { repoRoot });
   cleanupScratchDb();
   process.exit(1);
 });

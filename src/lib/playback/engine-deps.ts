@@ -151,6 +151,11 @@ export function buildSwarmWatchDeps(
         const result = await builtinClient.addTorrent(config, {
           magnet,
           name: candidate.release.title,
+          // Failover is a switch-and-play: this release is being started to
+          // stream it (carrying the viewer's position), never to persist it.
+          // Labelling it "stream" is what keeps an automatic failover from
+          // being recorded as a permanent download.
+          purpose: "stream",
         });
         return result.ok;
       } catch {

@@ -31,7 +31,7 @@ import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
 import { acquireSeason } from "@/lib/library/season-acquire";
-import { applySendRetention } from "@/lib/streaming/send-retention";
+import { applySendRetention, sendRetentionToPurpose } from "@/lib/streaming/send-retention";
 import type { SeasonPlan } from "@/lib/torrents/season-plan";
 import type {
   TitleGrabRequest,
@@ -215,6 +215,7 @@ async function grabWholeWork(input: TitleGrabInput): Promise<TitleGrabResponse> 
     fallbackTitle: title,
     grabJobKind: "ondemand",
     externalId: input.watchListItemId,
+    purpose: sendRetentionToPurpose(input.retention, input.watchListItemId),
     downloadHistoryPrefix: "Title page",
     noMatchMessage: (count) =>
       count

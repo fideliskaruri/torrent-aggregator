@@ -10,12 +10,12 @@ import {
   configureBuiltinClientListeningWaitForTests,
   PUBLIC_TRACKERS,
   rehydrateFailureDataForTests,
-  resolveBuiltinAddSelection,
   selectBuiltinAddUriForTests,
   STREAMING_STORE_CACHE_SLOTS,
   waitForClientListeningForTests,
   withPublicTrackers,
 } from "./builtin-engine";
+import { resolveEffectiveAdd } from "./add-purpose";
 
 type Added = {
   input: string | Uint8Array;
@@ -174,6 +174,7 @@ for (const tracker of [
     selectBuiltinAddUriForTests({
       magnet,
       torrentUrl,
+      purpose: "keep",
     }),
     torrentUrl,
     ".torrent metadata is preferred when both inputs are available",
@@ -181,7 +182,7 @@ for (const tracker of [
   const client = fakeClient();
   addTorrentWithEngineDefaults(
     client,
-    selectBuiltinAddUriForTests({ magnet, torrentUrl })!,
+    selectBuiltinAddUriForTests({ magnet, torrentUrl, purpose: "keep" })!,
     "D:\\downloads",
   );
   assert.equal(
@@ -192,6 +193,7 @@ for (const tracker of [
   assert.equal(
     selectBuiltinAddUriForTests({
       magnet,
+      purpose: "keep",
     }),
     magnet,
     "magnet remains the fallback when no .torrent URL is available",
@@ -300,39 +302,60 @@ for (const err of [
   assert.ok(data.error.length > 0, "rehydrate failures must leave an explainable row");
 }
 
-// Stream-only must add deselected (fetch only what is played), Download must
-// select every file, and prewarm stays deselected + peer-capped. This is the
-// decision the send path threads into the WebTorrent add.
+// intent → mechanism, decided once in resolveEffectiveAdd. A Play (stream) of a
+// fresh row fetches only what is played and is born `stream`; a Download selects
+// every file and is born `user`; prewarm stays deselected + peer-capped. And the
+// two rules a naive boolean got wrong: a Play must NEVER deselect a kept `user`
+// download (issue A), and a Play of a speculative `prewarm` promotes it to
+// `stream` rather than being misread as a keep (issue B).
 {
-  const stream = resolveBuiltinAddSelection({ streamOnly: true });
-  assert.equal(stream.deselect, true, "stream-only adds with no whole-file selection");
-  assert.equal(stream.selectAll, false, "stream-only must NOT select every file");
+  const stream = resolveEffectiveAdd("stream", { status: "missing" });
+  assert.equal(stream.selection, "deselect", "stream-only adds with no whole-file selection");
+  assert.equal(stream.birthOrigin, "stream", "a fresh Play is born stream, never the user default");
   assert.equal(stream.capPeers, false, "stream-only is a live stream, not peer-capped");
 
-  const download = resolveBuiltinAddSelection({ streamOnly: false });
-  assert.equal(download.deselect, false, "Download adds normally");
-  assert.equal(download.selectAll, true, "Download selects every file so the whole file downloads");
+  const download = resolveEffectiveAdd("keep", { status: "missing" });
+  assert.equal(download.selection, "select-all", "Download selects every file so the whole file downloads");
+  assert.equal(download.birthOrigin, "user", "Download is born user (kept)");
 
-  const noFlags = resolveBuiltinAddSelection({});
-  assert.equal(noFlags.selectAll, true, "an unflagged send defaults to Download (select-all)");
-
-  const prewarm = resolveBuiltinAddSelection({ connectOnly: true });
-  assert.equal(prewarm.deselect, true, "prewarm stays deselected");
-  assert.equal(prewarm.selectAll, false, "prewarm must NOT select every file");
+  const prewarm = resolveEffectiveAdd("prewarm", { status: "missing" });
+  assert.equal(prewarm.selection, "deselect", "prewarm stays deselected");
+  assert.equal(prewarm.birthOrigin, "prewarm", "prewarm is born prewarm");
   assert.equal(prewarm.capPeers, true, "prewarm speculation stays peer-capped");
+
+  // Issue A: a Play landing on an existing kept download must LEAVE it — never
+  // deselect (halt) it, never relabel it toward eviction.
+  const playOverKeep = resolveEffectiveAdd("stream", { status: "found", origin: "user" });
+  assert.equal(playOverKeep.selection, "leave", "a Play must not deselect a kept download");
+  assert.equal(playOverKeep.promoteTo, null, "a Play must not relabel a kept download");
+
+  // Issue B: a Play of a speculative prewarm promotes it up to stream.
+  const playOverPrewarm = resolveEffectiveAdd("stream", { status: "found", origin: "prewarm" });
+  assert.equal(playOverPrewarm.promoteTo, "stream", "Play promotes a prewarm to stream");
+  assert.deepEqual(playOverPrewarm.promoteFrom, ["prewarm"], "…only from prewarm, never from user");
+
+  // Issue B: a Download of a prewarm promotes it to a kept user download.
+  const keepOverPrewarm = resolveEffectiveAdd("keep", { status: "found", origin: "prewarm" });
+  assert.equal(keepOverPrewarm.promoteTo, "user", "Download promotes prewarm to user");
+
+  // Issue D/G: a read error is NOT permission to deselect or relabel; the safe,
+  // honest branch is taken and flagged degraded.
+  const streamOnError = resolveEffectiveAdd("stream", { status: "error" });
+  assert.equal(streamOnError.selection, "leave", "a failed origin read must not deselect");
+  assert.equal(streamOnError.degraded, true, "a failed read is surfaced as degraded, not silent");
 }
 
 // The stream-only decision reaches the real add: a deselected add is issued, so
 // WebTorrent selects no pieces until the stream route explicitly does.
 {
   const streamClient = fakeClient();
-  const streamSel = resolveBuiltinAddSelection({ streamOnly: true });
+  const streamSel = resolveEffectiveAdd("stream", { status: "missing" });
   addTorrentWithEngineDefaults(
     streamClient,
     "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
     "D:\\downloads",
     undefined,
-    streamSel.deselect ? { deselect: true } : {},
+    streamSel.selection === "deselect" ? { deselect: true } : {},
   );
   assert.equal(
     streamClient.calls[0].opts.deselect,
@@ -341,13 +364,13 @@ for (const err of [
   );
 
   const dlClient = fakeClient();
-  const dlSel = resolveBuiltinAddSelection({ streamOnly: false });
+  const dlSel = resolveEffectiveAdd("keep", { status: "missing" });
   addTorrentWithEngineDefaults(
     dlClient,
     "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
     "D:\\downloads",
     undefined,
-    dlSel.deselect ? { deselect: true } : {},
+    dlSel.selection === "deselect" ? { deselect: true } : {},
   );
   assert.notEqual(
     dlClient.calls[0].opts.deselect,

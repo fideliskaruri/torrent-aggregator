@@ -149,7 +149,11 @@ export function TitleCard({
   const actionRowClass = cn(
     "absolute inset-x-0 bottom-0 z-[3] flex items-center gap-1 px-1.5 pb-1.5 pt-6",
     "opacity-100 transition-opacity duration-150",
-    "md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+    // Hide-at-rest is gated to a real hover pointer. On touch (coarse / no-hover)
+    // the query never matches, so the chip stays visible at every width and a
+    // tablet user never faces an invisible Play control; mouse/trackpad keeps the
+    // reveal-on-hover feel. Screen width is not a proxy for input capability.
+    "[@media(hover:hover)_and_(pointer:fine)]:md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
     // The row is a transparent strip across the poster. Without this it would
     // swallow every click that lands beside the badge — the card would look
     // clickable and do nothing, which is the exact defect being fixed.
@@ -175,11 +179,10 @@ export function TitleCard({
           onAction(item, action);
         }}
         className={cn(
-          badgeClass,
-          "pointer-events-auto cursor-pointer disabled:cursor-default",
+          "inline-flex min-w-0 max-w-full items-end min-h-[44px] pointer-events-auto cursor-pointer disabled:cursor-default lg:min-h-0",
         )}
       >
-        {badgeInner}
+        <span className={badgeClass}>{badgeInner}</span>
       </button>
     </span>
   ) : action.kind === "blocked" ? (
@@ -260,7 +263,7 @@ export function TitleCard({
             title={`Search releases for ${title}`}
             aria-label={`Search releases for ${title}`}
             className={cn(
-              "absolute right-1.5 top-1.5 z-[4] inline-flex h-7 w-7 items-center justify-center rounded-md",
+              "absolute right-1.5 top-1.5 z-[4] inline-flex h-11 w-11 lg:h-7 lg:w-7 items-center justify-center rounded-md",
               "border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
               "transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)]",
             )}
@@ -278,6 +281,7 @@ export function TitleCard({
         <Link
           href={titleHref}
           tabIndex={-1}
+          data-dense-ui
           className="block rounded-[6px] outline-none"
         >
           {caption}

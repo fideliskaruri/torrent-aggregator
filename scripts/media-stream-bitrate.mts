@@ -305,6 +305,7 @@ async function measureRung(rung: Rung, seedFile: string): Promise<Row> {
       magnet: seeded.magnetURI,
       savePath: LEECH_DIR,
       name: rung.file,
+      purpose: "keep",
     });
     if (!added.ok) {
       row.why = `engine refused the torrent: ${added.message}`;

@@ -1007,7 +1007,6 @@ check("heroPitch says something different, and honest, per state", () => {
     ["fetchable+ep", item({ availability: "fetchable", season: 1, episode: 2 })],
     ["unavailable", item({ availability: "unavailable" })],
     ["unavailable+monitored", item({ availability: "unavailable", watchListItemId: "w" })],
-    ["unresolved", item({ availability: null })],
   ];
   for (const [name, row] of rows) {
     const pitch = heroPitch(row);
@@ -1028,17 +1027,54 @@ check("heroPitch says something different, and honest, per state", () => {
   assert.ok(readyResume.includes("18:24"), "resume position not surfaced");
   assert.ok(readyResume.includes("42%"), "progress not surfaced");
   assert.ok(pitches.get("warm+resume")?.includes("1:01"));
-  // An unresolved item must not be described as unavailable.
-  assert.notEqual(pitches.get("unresolved"), pitches.get("unavailable"));
-  assert.ok(
-    !/nothing viable/i.test(pitches.get("unresolved") ?? ""),
-    "unresolved must not claim we looked",
-  );
   assert.notEqual(pitches.get("unavailable"), pitches.get("unavailable+monitored"));
 });
 
-check("heroPitch: every state, including null, has its own honest sentence", () => {
-  const pitches = ALL_STATES.map((s) => heroPitch(item({ availability: s })));
+/**
+ * The unresolved state is deliberately excluded from the "every state gets a
+ * sentence" rule above, and this is the test that pins the exception down.
+ *
+ * `availability: null` means our own probe has not come back yet. It is not a
+ * fact about the film. It only ever appears on first paint, so the old copy —
+ * "Not checked yet." — was seen as a *flash* that a second later was replaced
+ * by "Resume from 1:03:13.", on a title the user was 42% through and which was
+ * sitting complete on their disk. They asked for it to go.
+ *
+ * Silence is not the same as a shorter status line: an empty pitch renders no
+ * prose at all, while any sentence here reads as a claim about availability
+ * that we are about to contradict. So the assertion is emptiness, not brevity.
+ */
+check("heroPitch stays silent while availability is unresolved", () => {
+  const unresolved = item({ availability: null });
+  assert.equal(heroPitch(unresolved), "", "unresolved must render no prose");
+
+  // Not merely absent — specifically never the probe-state copy, in any state.
+  for (const state of ALL_STATES) {
+    assert.ok(
+      !/not checked/i.test(heroPitch(item({ availability: state }))),
+      `${String(state)}: hero narrates the app's own probe queue`,
+    );
+  }
+
+  // Silence is a fallback, not a blackout: a work with a synopsis still shows
+  // it while unresolved, because the synopsis is a fact about the film and
+  // does not depend on the probe at all.
+  const synopsis = "A duke's heir is drawn into a war over the desert planet.";
+  assert.equal(heroPitch(item({ availability: null, overview: synopsis })), synopsis);
+
+  // And every resolved state still says something — the exception must not
+  // leak into states that genuinely know their answer.
+  for (const state of ALL_STATES.filter((s) => s !== null)) {
+    assert.ok(
+      heroPitch(item({ availability: state })).trim().length > 0,
+      `${String(state)}: resolved state lost its copy`,
+    );
+  }
+});
+
+check("heroPitch: every resolved state has its own honest sentence", () => {
+  const resolved = ALL_STATES.filter((s) => s !== null);
+  const pitches = resolved.map((s) => heroPitch(item({ availability: s })));
   assert.equal(new Set(pitches).size, pitches.length, "two states read alike");
 });
 

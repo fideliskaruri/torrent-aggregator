@@ -174,7 +174,7 @@ export function MobileNav() {
               <button
                 type="button"
                 onClick={() => setMoreOpen(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
@@ -192,7 +192,7 @@ export function MobileNav() {
                         aria-current={active ? "page" : undefined}
                         onClick={() => setMoreOpen(false)}
                         className={cn(
-                          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors",
+                          "flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-[13px] font-medium transition-colors",
                           active
                             ? "bg-[var(--accent-dim)] text-[var(--accent-text)]"
                             : "text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
@@ -232,7 +232,7 @@ export function MobileNav() {
                       type="button"
                       onClick={() => setDensity(value)}
                       className={cn(
-                        "rounded-[5px] px-2 py-2 text-[12px] font-medium transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
+                        "rounded-[5px] px-2 py-2 min-h-[44px] text-[12px] font-medium transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
                         active
                           ? "bg-[var(--accent-dim)] text-[var(--accent-text)] shadow-[var(--shadow-sm)]"
                           : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]",

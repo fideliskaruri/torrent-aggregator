@@ -156,7 +156,7 @@ export function SearchBar({
         <div
           className={cn(
             "search-bar-shell flex items-stretch rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] overflow-hidden focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_var(--accent-dim)] transition-[border-color,box-shadow] w-full max-w-full",
-            isHero ? "sm:h-12" : "sm:h-11",
+            isHero ? "sm:h-12" : "sm:h-[46px] lg:h-11",
           )}
         >
           <div className="relative flex-1 flex items-center min-w-0 w-full">
@@ -189,7 +189,7 @@ export function SearchBar({
               }}
               placeholder="Search titles, releases…"
               className={cn(
-                "w-full min-w-0 bg-transparent border-0 pl-10 pr-9 py-3 sm:py-0 text-[var(--text)] outline-none placeholder:text-[var(--text-tertiary)]",
+                "w-full min-w-0 bg-transparent border-0 pl-10 pr-12 lg:pr-9 py-3 sm:py-0 min-h-[44px] lg:min-h-0 text-[var(--text)] outline-none placeholder:text-[var(--text-tertiary)] [&::-webkit-search-cancel-button]:appearance-none",
                 isHero ? "text-[15px]" : "text-sm",
               )}
               autoComplete="off"
@@ -199,7 +199,7 @@ export function SearchBar({
             {query && (
               <button
                 type="button"
-                className="absolute right-2.5 p-1 text-[var(--text-tertiary)] hover:text-[var(--text)]"
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center touch-manipulation text-[var(--text-tertiary)] hover:text-[var(--text)] sm:right-2.5 sm:top-auto sm:translate-y-0 lg:h-auto lg:w-auto lg:p-1"
                 onClick={() => {
                   setQuery("");
                   setSuggestions([]);

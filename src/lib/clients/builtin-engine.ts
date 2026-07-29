@@ -22,6 +22,15 @@ import { findTorrentByHash } from "./find-torrent-by-hash";
 import { haltTransfer, resumeTransfer as resumeTransferCore } from "./transfer-control";
 import prisma from "@/lib/prisma";
 import { foregroundActive } from "@/lib/prewarm/foreground";
+import { USER_ORIGIN } from "@/lib/prewarm/types";
+import {
+  purposeFromOrigin,
+  resolveEffectiveAdd,
+  resumeSelectionForLookup,
+  type AddSelection,
+  type ExistingOriginLookup,
+  type OriginValue,
+} from "./add-purpose";
 
 type WebTorrentLike = {
   torrents: Array<WtTorrent>;
@@ -859,14 +868,85 @@ function resumeTransfer(t: WtTorrent): void {
   resumeTransferCore(t, (x) => ensureDownloading(x as WtTorrent));
 }
 
-/** Apply the persisted status to a freshly re-added torrent. */
-function applyPersistedStatus(t: WtTorrent, status: string | null | undefined): void {
+/**
+ * Resume a torrent honouring its persisted acquisition intent (issue C).
+ *
+ * A bare {@link resumeTransfer} whole-file selects on every resume. Doing that
+ * to a `stream`/`prewarm` row silently converts a Play into a full download —
+ * the same restart-reclassification bug that put whole files on disk before.
+ * So the stored origin decides the shape:
+ *   - `keep`             → select all + resume (the download must continue).
+ *   - `stream`/`prewarm` → reconnect peers but leave files DESELECTED (the
+ *                          stream route re-selects only the ranges the player
+ *                          asks for); prewarm additionally keeps its peer cap.
+ *   - missing / read error → `leave`: never reselect (would convert a stream)
+ *                          and never deselect (would halt a kept download);
+ *                          just reconnect peers with selection untouched.
+ */
+function resumeTransferForLookup(t: WtTorrent, lookup: ExistingOriginLookup): void {
+  const selection = resumeSelectionForLookup(lookup);
+  if (selection === "select-all") {
+    resumeTransferCore(t, (x) => ensureDownloading(x as WtTorrent));
+    return;
+  }
+  if (selection === "leave") {
+    resumeTransferCore(t);
+    return;
+  }
+  resumeTransferCore(t, (x) => {
+    deselectAllFiles(x as WtTorrent);
+    if (selection === "deselect-cap") enforcePrewarmPeerCap(x as WtTorrent);
+  });
+}
+
+/**
+ * Apply the persisted status to a freshly re-added torrent.
+ *
+ * Origin decides the shape, not just the status: a `stream`/`prewarm` row must
+ * NEVER be whole-file selected on restart, or a Play the user made once would
+ * silently become a full download every time the process comes back. Streams
+ * stay deselected (the stream route re-selects the ranges the player asks for);
+ * prewarms stay deselected and peer-capped.
+ */
+function applyPersistedStatus(
+  t: WtTorrent,
+  status: string | null | undefined,
+  origin?: string | null,
+): void {
+  if (purposeFromOrigin(origin) !== "keep") {
+    deselectAllFiles(t);
+    if (purposeFromOrigin(origin) === "prewarm") enforcePrewarmPeerCap(t);
+    if (status === "paused") haltTransfer(t);
+    return;
+  }
   if (status === "paused") {
     selectAllFiles(t);
     haltTransfer(t);
     return;
   }
   ensureDownloading(t);
+}
+
+/**
+ * Claim (or deliberately do not claim) pieces on a live torrent for a resolved
+ * add intent. `leave` is the issue-A guard: a Play that meets a kept download,
+ * or an add whose origin could not be read, must not deselect or reselect.
+ */
+function applyAddSelection(
+  t: WtTorrent,
+  selection: AddSelection,
+  capPeers: boolean,
+): void {
+  if (selection === "select-all") {
+    ensureDownloading(t);
+    return;
+  }
+  if (selection === "deselect") {
+    deselectAllFiles(t);
+    if (capPeers) enforcePrewarmPeerCap(t);
+    return;
+  }
+  // "leave": never halt or reselect. Used for kept downloads and read errors.
 }
 
 const REHYDRATE_METADATA_TIMEOUT_MS = 90_000;
@@ -959,6 +1039,11 @@ type EngineTorrentRehydrateRow = {
   savePath: string | null;
   category: string | null;
   status: string;
+  /**
+   * Acquisition intent as persisted. Rehydrate and retry derive their purpose
+   * from this so a stream is never resurrected as a whole-file download.
+   */
+  origin: string;
   verifiedBitfield: string | null;
   verifiedFilesJson: string | null;
 };
@@ -1255,35 +1340,6 @@ export function selectBuiltinAddUriForTests(payload: AddTorrentPayload): string 
   return selectBuiltinAddUri(payload);
 }
 
-export type BuiltinAddSelection = {
-  /** Add with no whole-file selection so pieces download only on demand. */
-  deselect: boolean;
-  /** Select every file and resume, downloading (and keeping) the whole torrent. */
-  selectAll: boolean;
-  /** Hold the peer count down — speculative prewarm only, never a live stream. */
-  capPeers: boolean;
-};
-
-/**
- * Decide how a builtin send should claim pieces.
- *
- * - Download (default): select every file so the whole torrent downloads and is
- *   kept on disk.
- * - Stream-only: add deselected so nothing pre-downloads. The stream route then
- *   selects/criticals just the head/seek/tail ranges the player asks for via
- *   {@link prioritizeBuiltinStreamFile}, so only what is played is fetched.
- * - Prewarm (connectOnly): deselected like stream-only, but also peer-capped so
- *   speculative next-episode warming stays cheap.
- */
-export function resolveBuiltinAddSelection(payload: {
-  connectOnly?: boolean;
-  streamOnly?: boolean;
-}): BuiltinAddSelection {
-  if (payload.connectOnly) return { deselect: true, selectAll: false, capPeers: true };
-  if (payload.streamOnly) return { deselect: true, selectAll: false, capPeers: false };
-  return { deselect: false, selectAll: true, capPeers: false };
-}
-
 function torrentFileDiskPath(torrent: WtTorrent, file: WtFile): string | null {
   const root = readProp(() => torrent.path, "").trim();
   const rel = (file.path || file.name || "").replace(/\\/g, "/").replace(/^\/+/, "");
@@ -1368,6 +1424,30 @@ async function startupBitfieldForRow(
   }
 }
 
+/**
+ * Read the origin already persisted for a hash, distinguishing three cases that
+ * MUST NOT be conflated: the row is absent (`missing`), present (`found`), or we
+ * could not tell because the read threw (`error`). Issue D: a failed read is
+ * never permission to treat a row as absent — that is how a genuine `user`
+ * download used to get quietly demoted and made evictable.
+ */
+async function lookupExistingOrigin(
+  userId: string | null | undefined,
+  hash: string | null,
+): Promise<ExistingOriginLookup> {
+  const uid = userId?.trim();
+  if (!uid || !hash) return { status: "missing" };
+  try {
+    const row = await prisma.engineTorrent.findUnique({
+      where: { userId_hash: { userId: uid, hash } },
+      select: { origin: true },
+    });
+    return row ? { status: "found", origin: row.origin } : { status: "missing" };
+  } catch {
+    return { status: "error" };
+  }
+}
+
 async function upsertEngineTorrent(opts: {
   userId: string;
   hash: string;
@@ -1380,6 +1460,17 @@ async function upsertEngineTorrent(opts: {
   progress?: number;
   sizeBytes?: number;
   torrent?: WtTorrent | null;
+  /**
+   * Origin to stamp when the row is first created. Decided authoritatively at
+   * add time from the effective purpose. The UPDATE clause never touches origin
+   * — an existing row's classification is only ever changed by the explicit,
+   * monotonic {@link promoteTo}/{@link promoteFrom} compare-and-set below.
+   */
+  birthOrigin?: OriginValue;
+  /** Monotonic promote target, applied only when the current origin is in {@link promoteFrom}. */
+  promoteTo?: OriginValue | null;
+  /** The only origins {@link promoteTo} is allowed to overwrite. `user` is never listed → never demotes. */
+  promoteFrom?: OriginValue[];
 }): Promise<void> {
   if (!opts.hash || typeof opts.hash !== "string") {
     console.warn("[builtin-engine] upsertEngineTorrent missing hash", opts.name);
@@ -1401,6 +1492,7 @@ async function upsertEngineTorrent(opts: {
         savePath: opts.savePath,
         category: opts.category ?? null,
         status: opts.status ?? "downloading",
+        origin: opts.birthOrigin ?? USER_ORIGIN,
         progress: opts.progress ?? 0,
         sizeBytes: BigInt(Math.max(0, Math.floor(opts.sizeBytes ?? 0))),
         verifiedBitfield: verified?.verifiedBitfield ?? null,
@@ -1416,6 +1508,7 @@ async function upsertEngineTorrent(opts: {
         status: opts.status ?? "downloading",
         progress: opts.progress ?? 0,
         sizeBytes: BigInt(Math.max(0, Math.floor(opts.sizeBytes ?? 0))),
+        // NOTE: origin is deliberately absent — see promote CAS below.
         ...(verified
           ? {
               verifiedBitfield: verified.verifiedBitfield,
@@ -1426,6 +1519,19 @@ async function upsertEngineTorrent(opts: {
         error: null,
       },
     });
+    // Explicit, monotonic origin transition. Guarded so it is a no-op unless the
+    // current origin is one we are allowed to overwrite: prewarm→stream on Play,
+    // prewarm|stream→user on Download, and evicting→(stream|user) when a user add
+    // STEALS a lease a sweep is holding. `user` is never a source, so a Download
+    // or Play can never demote a genuine kept row. Clearing evictLease/evictFrom
+    // makes the steal visible to the sweep's re-check (it aborts when its token no
+    // longer owns the row); it is a harmless no-op for non-evicting sources.
+    if (opts.promoteTo && opts.promoteFrom && opts.promoteFrom.length > 0) {
+      await prisma.engineTorrent.updateMany({
+        where: { userId: opts.userId, hash, origin: { in: opts.promoteFrom } },
+        data: { origin: opts.promoteTo, evictLease: null, evictFrom: null },
+      });
+    }
   } catch (err) {
     console.warn("[builtin-engine] EngineTorrent upsert failed", err);
   }
@@ -1519,7 +1625,7 @@ async function rehydrateFromDb(
             settled = true;
             cleanup();
             const h = t.infoHash?.toLowerCase?.() || hash;
-            applyPersistedStatus(t, row.status);
+            applyPersistedStatus(t, row.status, row.origin);
             scheduleRehydrateReadyPersist(row, t);
             s.meta.set(h, {
               savePath: dest,
@@ -2138,11 +2244,22 @@ export class BuiltinClient implements TorrentClientAdapter {
       fs.mkdirSync(dest, { recursive: true });
 
       const addUri = uri.trim();
-      const selection = resolveBuiltinAddSelection(payload);
       const existingHash =
         extractInfoHash(payload.magnet || "") ||
         extractInfoHash(payload.torrentUrl || "") ||
         extractInfoHash(addUri);
+      // Resolve intent → mechanism ONCE, from the stated purpose plus the origin
+      // already on disk. This is where issue A (never halt a kept download) and
+      // issue B (monotonic origin transitions) are enforced.
+      const existingOrigin = await lookupExistingOrigin(config.userId, existingHash);
+      const eff = resolveEffectiveAdd(payload.purpose, existingOrigin);
+      if (eff.degraded) {
+        console.warn(
+          `[builtin-engine] add purpose="${payload.purpose}" hash=${existingHash || "?"} ` +
+            `existing=${existingOrigin.status} → degraded; not converting silently ` +
+            `(selection=${eff.selection}, birthOrigin=${eff.birthOrigin})`,
+        );
+      }
       if (existingHash) {
         const existing = findTorrent(client, existingHash);
         if (existing) {
@@ -2158,12 +2275,7 @@ export class BuiltinClient implements TorrentClientAdapter {
             };
           }
           // Resume / re-select files — "already added" was leaving stalled torrents idle
-          if (selection.selectAll) {
-            ensureDownloading(existing);
-          } else {
-            deselectAllFiles(existing);
-            if (selection.capPeers) enforcePrewarmPeerCap(existing);
-          }
+          applyAddSelection(existing, eff.selection, eff.capPeers);
           state().meta.set(hash, {
             savePath: dest,
             category: payload.category ?? undefined,
@@ -2183,6 +2295,9 @@ export class BuiltinClient implements TorrentClientAdapter {
               progress: readProp(() => existing.progress, 0),
               sizeBytes: readProp(() => existing.length, 0),
               torrent: existing,
+              birthOrigin: eff.birthOrigin,
+              promoteTo: eff.promoteTo,
+              promoteFrom: eff.promoteFrom,
             });
           }
           const peers = readProp(() => existing.numPeers, 0);
@@ -2233,8 +2348,8 @@ export class BuiltinClient implements TorrentClientAdapter {
           settled = true;
           clearTimeout(timer);
           resolve(ready);
-        }, selection.deselect ? { deselect: true } : {});
-        if (selection.capPeers) enforcePrewarmPeerCap(t);
+        }, eff.selection === "deselect" ? { deselect: true } : {});
+        if (eff.capPeers) enforcePrewarmPeerCap(t);
         holder.t = t;
         t.on("error", (err: unknown) => {
           if (settled) return;
@@ -2247,13 +2362,10 @@ export class BuiltinClient implements TorrentClientAdapter {
 
       // Metadata ready. Download selects every file and keeps them; stream-only
       // and connect-only prewarm stay deselected so only the pieces the player
-      // (or nothing, for prewarm) explicitly selects are ever fetched.
-      if (selection.selectAll) {
-        ensureDownloading(torrent);
-      } else {
-        deselectAllFiles(torrent);
-        if (selection.capPeers) enforcePrewarmPeerCap(torrent);
-      }
+      // (or nothing, for prewarm) explicitly selects are ever fetched. `leave`
+      // (a kept download re-added, or an unreadable origin) keeps WebTorrent's
+      // default whole-file selection without us forcing it either way.
+      applyAddSelection(torrent, eff.selection, eff.capPeers);
 
       const hash = (torrent.infoHash || existingHash || "").toLowerCase();
       if (!hash) {
@@ -2285,6 +2397,9 @@ export class BuiltinClient implements TorrentClientAdapter {
           progress: readProp(() => torrent.progress, 0),
           sizeBytes: readProp(() => torrent.length, 0),
           torrent,
+          birthOrigin: eff.birthOrigin,
+          promoteTo: eff.promoteTo,
+          promoteFrom: eff.promoteFrom,
         });
       }
 
@@ -2414,7 +2529,7 @@ export class BuiltinClient implements TorrentClientAdapter {
                   startupBitfield ? { bitfield: startupBitfield } : {},
                 );
                 t.on("ready", () => {
-                  applyPersistedStatus(t, row.status);
+                  applyPersistedStatus(t, row.status, row.origin);
                   scheduleRehydrateReadyPersist(row, t);
                 });
                 t.on("error", (err: unknown) => {
@@ -2524,7 +2639,8 @@ export class BuiltinClient implements TorrentClientAdapter {
       }
       const t = findTorrent(client, hash);
       if (!t) return { ok: false, message: "Torrent not found in engine" };
-      resumeTransfer(t);
+      const lookup = await lookupExistingOrigin(config.userId, hash.toLowerCase());
+      resumeTransferForLookup(t, lookup);
       if (config.userId) {
         try {
           await prisma.engineTorrent.updateMany({
@@ -2581,20 +2697,32 @@ export class BuiltinClient implements TorrentClientAdapter {
         }
       }
 
-      // Still live in the engine? A transient no-peer failure only needs a
-      // fresh announce; resumeTransfer re-selects and re-announces immediately.
-      const live = findTorrent(client, h);
-      if (live) {
-        resumeTransfer(live);
-        return { ok: true, message: "Re-announced" };
-      }
-
-      // Not live — re-add from the persisted source (SAME infoHash).
+      // The persisted origin decides how a retry behaves: a stream/prewarm must
+      // NOT be resurrected as a whole-file download (issue C). Read it once, up
+      // front, so both the live and the re-add path can honour it.
       const row = config.userId
         ? await prisma.engineTorrent.findFirst({
             where: { userId: config.userId, hash: h },
           })
         : null;
+      const purpose = purposeFromOrigin(row?.origin);
+
+      // Still live in the engine? A transient no-peer failure only needs a fresh
+      // announce. A kept download re-selects and re-announces; a stream/prewarm
+      // only re-announces so the stream route can re-request its ranges — it is
+      // never whole-file selected behind the user's back.
+      const live = findTorrent(client, h);
+      if (live) {
+        if (purpose === "keep") {
+          resumeTransfer(live);
+        } else {
+          resumeTransferCore(live);
+        }
+        return { ok: true, message: "Re-announced" };
+      }
+
+      // Not live — re-add from the persisted source (SAME infoHash), carrying the
+      // stored intent so a stream stays a stream.
       const magnet = row?.magnet?.trim() || undefined;
       const torrentUrl = row?.torrentUrl?.trim() || undefined;
       if (!magnet && !torrentUrl) {
@@ -2606,6 +2734,7 @@ export class BuiltinClient implements TorrentClientAdapter {
         name: row?.name ?? undefined,
         savePath: row?.savePath ?? undefined,
         category: row?.category ?? undefined,
+        purpose,
       });
     } catch (err) {
       return {

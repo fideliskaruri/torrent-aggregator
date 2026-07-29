@@ -106,7 +106,12 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             {factsText ? <span className="tabular-nums">{factsText}</span> : null}
           </div>
 
-          <p className="text-body mt-3 max-w-xl">{heroPitch(item)}</p>
+          {/* Height is reserved rather than conditional: the pitch is empty
+              only while the availability probe is outstanding, so collapsing
+              the paragraph would shift the progress bar and the buttons down
+              the instant it resolves. Reserving one line keeps the press
+              target where the eye already put it. */}
+          <p className="text-body mt-3 min-h-[1.5rem] max-w-xl">{heroPitch(item)}</p>
 
           {fraction != null ? (
             <div

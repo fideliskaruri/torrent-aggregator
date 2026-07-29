@@ -106,9 +106,9 @@ const DOT_CLASS: Record<SwarmHealth, string> = {
  * belong and never reach the screen.
  */
 const SWARM_READINESS: Record<SwarmHealth, string> = {
-  unknown: "Checking if it will play",
+  unknown: "Playback readiness unknown",
   stalled: "Not playing yet",
-  thin: "Getting it ready",
+  thin: "Almost ready",
   live: "Playing",
 };
 
@@ -242,9 +242,11 @@ export function SwarmChip({
     <span
       data-swarm-chip
       data-swarm-health={health}
-      role="status"
-      // The dot's colour is the whole message; it changes rarely and carries no
-      // number, so it is safe to leave it un-announced and readable on demand.
+      // No `role="status"`: this is a passive, on-demand health dot, not a live
+      // region (aria-live is deliberately "off"). A status role would announce
+      // nothing extra here and would register as a second "loading" node to any
+      // audit that unions [role="status"] with the spinner — the player shows
+      // exactly one loader, so the chip must not read as one.
       aria-live="off"
       aria-label={readiness}
       className={cn(

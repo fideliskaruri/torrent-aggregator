@@ -11,9 +11,16 @@
 import prisma from "@/lib/prisma";
 import { getClient } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
+import type { ExistingOriginLookup } from "@/lib/clients/add-purpose";
+import { newEvictLease, recoverStaleEvictionLeases } from "./evict-lease";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
 import { onDiskBytes } from "@/lib/prewarm/eviction";
-import { PREWARM_ORIGIN, STREAM_ORIGIN, USER_ORIGIN } from "@/lib/prewarm/types";
+import {
+  EVICTING_ORIGIN,
+  PREWARM_ORIGIN,
+  STREAM_ORIGIN,
+  USER_ORIGIN,
+} from "@/lib/prewarm/types";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
 import { foregroundHash } from "@/lib/prewarm/foreground";
 
@@ -22,6 +29,8 @@ type Db = typeof prisma;
 export { STREAM_ORIGIN };
 export const STREAM_CACHE_GRACE_MS = 6 * 60 * 60 * 1000;
 export const DEFAULT_STREAM_CACHE_BUDGET_BYTES = 20 * 1024 * 1024 * 1024;
+
+export { EVICTING_ORIGIN };
 
 export type RetentionState = "kept" | "stream" | "prewarm" | "unknown";
 
@@ -35,6 +44,9 @@ export function streamingRetentionEnabled(
 
 export function retentionStateForOrigin(origin: string | null | undefined): RetentionState {
   if (origin === STREAM_ORIGIN) return "stream";
+  // A row mid-eviction is a stream being torn down — treat it as a stream for
+  // every read surface so it stays hidden and shows no "% downloaded".
+  if (origin === EVICTING_ORIGIN) return "stream";
   if (origin === PREWARM_ORIGIN) return "prewarm";
   if (origin === USER_ORIGIN) return "kept";
   return "unknown";
@@ -104,27 +116,49 @@ export function shouldSendAsStreamOnly(input: {
   return true;
 }
 
+/**
+ * Read the origin already stored for a hash, distinguishing three outcomes:
+ * `missing` (no row), `found` (with the origin), and `error` (the read threw).
+ *
+ * `error` is deliberately NOT collapsed into `missing`. A failed read is not
+ * evidence that the row is absent, and must never be treated as permission to
+ * reclassify or default a send. Callers fail CLOSED on `error`: they leave the
+ * row untouched and choose the non-evictable outcome (see the send route and
+ * {@link resolveEffectiveAdd}). This is the line that previously let a masked
+ * read turn a genuine `user` download into an evictable stream (issue D).
+ */
 export async function existingRetentionOrigin(
   userId: string,
   hash: string | null,
   opts: { db?: Db } = {},
-): Promise<string | null> {
-  if (!hash) return null;
+): Promise<ExistingOriginLookup> {
+  if (!hash) return { status: "missing" };
   try {
     const row = await (opts.db ?? prisma).engineTorrent.findUnique({
       where: { userId_hash: { userId, hash } },
       select: { origin: true },
     });
-    return row?.origin ?? null;
+    return row ? { status: "found", origin: row.origin } : { status: "missing" };
   } catch {
-    return null;
+    return { status: "error" };
   }
 }
 
+/**
+ * Label a row as a stream (an evictable playback cache).
+ *
+ * Guarded to `origin IN [stream, prewarm]` ONLY. It can promote a speculative
+ * `prewarm` up to `stream` on Play (issue B), and is idempotent on an existing
+ * `stream`, but it can NEVER touch a `user` (kept) row or a fresh/default one.
+ * The previous `allowFreshDefaultOrigin` escape hatch — which let a failed
+ * origin read (null) demote a genuine `user` download to an evictable stream —
+ * is deliberately gone (issue D): classification now happens authoritatively at
+ * add time, and this is only a monotonic, non-destructive verification.
+ */
 export async function markTorrentStreamOnly(
   userId: string,
   hash: string | null,
-  opts: { db?: Db; allowFreshDefaultOrigin?: boolean } = {},
+  opts: { db?: Db } = {},
 ): Promise<boolean> {
   if (!hash || !streamingRetentionEnabled()) return false;
   try {
@@ -132,9 +166,7 @@ export async function markTorrentStreamOnly(
       where: {
         userId,
         hash,
-        origin: opts.allowFreshDefaultOrigin
-          ? { not: PREWARM_ORIGIN }
-          : { notIn: [USER_ORIGIN, PREWARM_ORIGIN] },
+        origin: { in: [STREAM_ORIGIN, PREWARM_ORIGIN] },
       },
       data: { origin: STREAM_ORIGIN },
     });
@@ -144,6 +176,17 @@ export async function markTorrentStreamOnly(
   }
 }
 
+/**
+ * Promote a row to a kept `user` download.
+ *
+ * Guarded to `origin IN [stream, prewarm, evicting]` → `user`. Including
+ * `prewarm` is issue B (an explicit Download of a speculative prewarm becomes a
+ * real download instead of staying hidden/evictable). Including `evicting` is
+ * issue D reviewer round 2: an explicit Download STEALS a row a sweep is
+ * mid-evicting and clears the lease, so the sweep's re-check aborts before it
+ * unlinks — the user's instruction beats the speculative sweep. `user` is never
+ * a source, so this can never demote and is safe to call as a verification.
+ */
 export async function promoteTorrentToKept(
   userId: string,
   hash: string | null,
@@ -152,8 +195,12 @@ export async function promoteTorrentToKept(
   if (!hash) return false;
   try {
     const r = await (opts.db ?? prisma).engineTorrent.updateMany({
-      where: { userId, hash, origin: STREAM_ORIGIN },
-      data: { origin: USER_ORIGIN },
+      where: {
+        userId,
+        hash,
+        origin: { in: [STREAM_ORIGIN, PREWARM_ORIGIN, EVICTING_ORIGIN] },
+      },
+      data: { origin: USER_ORIGIN, evictLease: null, evictFrom: null },
     });
     return r.count > 0;
   } catch {
@@ -185,8 +232,12 @@ export async function promoteLibraryStreamsToKept(
     const hashes = [...new Set(progress.map((p) => p.infoHash.toLowerCase()))];
     if (hashes.length === 0) return 0;
     const r = await db.engineTorrent.updateMany({
-      where: { userId, hash: { in: hashes }, origin: STREAM_ORIGIN },
-      data: { origin: USER_ORIGIN },
+      where: {
+        userId,
+        hash: { in: hashes },
+        origin: { in: [STREAM_ORIGIN, EVICTING_ORIGIN] },
+      },
+      data: { origin: USER_ORIGIN, evictLease: null, evictFrom: null },
     });
     return r.count;
   } catch {
@@ -405,6 +456,9 @@ export async function evictStreamCacheForBudget(opts: {
     hash: string,
   ) => Promise<{ ok: boolean; message: string }>;
   _beforeDeleteCheck?: (candidate: StreamEvictionCandidate) => Promise<void> | void;
+  /** Test seam: fired right after a row is CLAIMED (stream → evicting) and
+   * BEFORE the re-check + unlink, to exercise a Download stealing the lease. */
+  _afterClaim?: (candidate: StreamEvictionCandidate) => Promise<void> | void;
 }): Promise<StreamEvictionResult> {
   const db = opts.db ?? prisma;
   const now = opts.now ?? new Date();
@@ -423,6 +477,13 @@ export async function evictStreamCacheForBudget(opts: {
   const protectedHashes = new Set((opts.protectHashes ?? []).map((h) => h.toLowerCase()));
   const fg = foregroundHash();
   if (fg) protectedHashes.add(fg);
+
+  // Reclaim any lease abandoned by a crash (issue D reviewer round 2) BEFORE
+  // listing, so a stranded `evicting` row is restored to its recorded origin and
+  // becomes a normal candidate again instead of leaking its disk forever.
+  await recoverStaleEvictionLeases({ userId: opts.userId, db, now }).catch(() => ({
+    recovered: [],
+  }));
 
   const listed = await listEvictableStreams(opts.userId, {
     db,
@@ -465,30 +526,127 @@ export async function evictStreamCacheForBudget(opts: {
       continue;
     }
 
+    // ── CLAIM THE ROW BEFORE TOUCHING ANY FILE ──────────────────────────────
+    // Atomically move stream → evicting and stamp a lease token. This is the
+    // serialization point: if an explicit Download promoted this hash
+    // (stream → user) between the safety read above and here, the guard
+    // `origin = stream` no longer matches, the claim frees nothing, and we abort
+    // WITH THE FILES STILL ON DISK. `evictLease: null` in the guard also prevents
+    // re-claiming a row another sweep already leased. The old order (delete
+    // files, THEN guard the row delete) could destroy a just-promoted download's
+    // bytes before the row guard refused — the precise shape that lost real
+    // media. Worst case now is an orphaned file (a recoverable disk leak,
+    // reclaimed by lease recovery), never a download with its bytes gone.
+    const leaseToken = newEvictLease(now);
+    let claimed = 0;
+    try {
+      const claim = await db.engineTorrent.updateMany({
+        where: {
+          userId: opts.userId,
+          hash: candidate.hash,
+          origin: STREAM_ORIGIN,
+          evictLease: null,
+        },
+        data: { origin: EVICTING_ORIGIN, evictLease: leaseToken, evictFrom: STREAM_ORIGIN },
+      });
+      claimed = claim.count;
+    } catch (err) {
+      result.skipped.push({
+        hash: candidate.hash,
+        reason: `db-claim-error: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      continue;
+    }
+    if (claimed === 0) {
+      // Someone promoted or already evicted it. Files are untouched — safe.
+      result.skipped.push({ hash: candidate.hash, reason: "db-guard-refused" });
+      continue;
+    }
+
+    await opts._afterClaim?.(candidate);
+
+    // RE-CHECK UNDER THE LEASE, immediately before unlink. A Download that
+    // arrived after our claim STEALS the lease (evicting → user, clearing the
+    // token). If our exact token no longer owns the row, the user won the race:
+    // abort with the files intact. This is the enforcement point that makes an
+    // explicit Download beat a speculative sweep (issue D reviewer round 2).
+    let stillOwn = false;
+    try {
+      const owned = await db.engineTorrent.findFirst({
+        where: {
+          userId: opts.userId,
+          hash: candidate.hash,
+          origin: EVICTING_ORIGIN,
+          evictLease: leaseToken,
+        },
+        select: { hash: true },
+      });
+      stillOwn = owned != null;
+    } catch {
+      stillOwn = false; // fail closed: if we cannot prove we own it, do not delete
+    }
+    if (!stillOwn) {
+      result.skipped.push({ hash: candidate.hash, reason: "lease-stolen" });
+      continue;
+    }
+
+    // The lease is exclusively ours (origin = evicting, token matches). Delete
+    // the files. The client's own delete removes the leased row on success; on
+    // any failure we roll the lease back to `stream` so the row is neither lost
+    // nor stuck hidden — it simply becomes eligible again on a later sweep.
+    let deletedOk = false;
     try {
       const deleted = await remove(opts.config, candidate.hash);
+      deletedOk = deleted.ok;
       if (!deleted.ok) {
         result.skipped.push({
           hash: candidate.hash,
           reason: `client-refused: ${deleted.message}`,
         });
-        continue;
       }
     } catch (err) {
       result.skipped.push({
         hash: candidate.hash,
         reason: `client-error: ${err instanceof Error ? err.message : String(err)}`,
       });
+    }
+
+    if (!deletedOk) {
+      // Roll the lease back so the row returns to an evictable stream instead of
+      // being stranded in `evicting`. Guarded on OUR token so we never clobber a
+      // steal that landed in the meantime.
+      try {
+        await db.engineTorrent.updateMany({
+          where: {
+            userId: opts.userId,
+            hash: candidate.hash,
+            origin: EVICTING_ORIGIN,
+            evictLease: leaseToken,
+          },
+          data: { origin: STREAM_ORIGIN, evictLease: null, evictFrom: null },
+        });
+      } catch {
+        /* best-effort: a stranded evicting row reads as a hidden stream, not a download */
+      }
       continue;
     }
 
-    const row = await db.engineTorrent.deleteMany({
-      where: { userId: opts.userId, hash: candidate.hash, origin: STREAM_ORIGIN },
-    });
-    if (row.count === 0) {
-      result.skipped.push({ hash: candidate.hash, reason: "db-guard-refused" });
-      continue;
+    // Defensive: ensure the leased row is gone even if the client did not remove
+    // it (e.g. a delete path that keeps rows). Guarded to our exact lease so we
+    // only ever delete the row we ourselves claimed and still own.
+    try {
+      await db.engineTorrent.deleteMany({
+        where: {
+          userId: opts.userId,
+          hash: candidate.hash,
+          origin: EVICTING_ORIGIN,
+          evictLease: leaseToken,
+        },
+      });
+    } catch {
+      /* best-effort */
     }
+
     result.evicted.push(candidate);
     const bytes = onDiskBytes(candidate);
     result.freedBytes += bytes;

@@ -57,23 +57,36 @@ export function externalClientConfig(
   };
 }
 
+/**
+ * Why a torrent is being added. REQUIRED at every add boundary so an intent can
+ * never be left unstated — the type system forbids it. Exactly one value drives
+ * file selection, `EngineTorrent.origin`, download-history behaviour, restart
+ * rehydration, and eviction policy (see {@link resolveEffectiveAdd}).
+ *
+ *   - `keep`    Explicit, permanent Download. Whole file, appears in downloads,
+ *               never auto-deleted.
+ *   - `stream`  Ephemeral Play. Fetch only the pieces the player needs; an
+ *               evictable cache; never listed as a download.
+ *   - `prewarm` Speculative next-episode warming. Deselected + peer-capped;
+ *               evictable; the user never asked for it.
+ *
+ * External clients (qBittorrent / Transmission) have no per-piece model and
+ * ignore the value beyond recording it — every external send is a whole-file
+ * download by nature.
+ */
+export type TorrentPurpose = "keep" | "stream" | "prewarm";
+
 export interface AddTorrentPayload {
   magnet?: string;
   torrentUrl?: string;
   name?: string;
   /**
-   * Built-in engine only: announce/connect and keep peers warm, but start with
-   * no selected pieces. Used for next-episode prewarm so speculation does not
-   * download content before the user asks.
+   * Required acquisition intent. Replaces the old `streamOnly` / `connectOnly`
+   * boolean pair: those could be computed, carried, then never consulted, which
+   * is exactly how a Play came to be recorded as a permanent Download. There is
+   * no default — the caller must say why.
    */
-  connectOnly?: boolean;
-  /**
-   * Built-in engine only: add the torrent deselected so nothing pre-downloads.
-   * The stream route selects/criticals only the head/seek/tail ranges the player
-   * requests, so a "Stream-only" send fetches just what is played instead of the
-   * whole file. External clients ignore this flag.
-   */
-  streamOnly?: boolean;
+  purpose: TorrentPurpose;
   /** Override category for this send */
   category?: string | null;
   /** Override download folder for this send */

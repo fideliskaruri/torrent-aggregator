@@ -32,6 +32,8 @@
     "test:media:bitrate": "tsx scripts/media-stream-bitrate.mts",
     "test:media:ui": "tsx scripts/media-player-ui.mts",
     "test:media:instant": "tsx scripts/media-instant-play-e2e.mts",
+    "test:journeys": "tsx scripts/journeys/run.mts",
+    "test:journeys:gate": "tsx scripts/journeys/run.mts --gate",
     "seed": "node scripts/seed-demo.mjs",
     "seed:reset": "node scripts/seed-demo.mjs --reset",
     "test:images": "tsx scripts/check-image-hosts.mts",

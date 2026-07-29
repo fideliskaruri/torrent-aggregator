@@ -164,7 +164,7 @@ function MissingRailsNote({ rails }: { rails: BrowsePayload["rails"] }) {
             </span>
             <Link
               href={preview.href}
-              className="mt-auto self-start pt-1 text-[12px] text-[var(--accent-text)] underline-offset-4 transition-colors hover:text-[var(--accent-hover)] hover:underline"
+              className="mt-auto inline-flex items-center self-start min-h-[44px] pt-1 text-[12px] text-[var(--accent-text)] underline-offset-4 transition-colors hover:text-[var(--accent-hover)] hover:underline lg:min-h-0"
             >
               {preview.cta}
             </Link>

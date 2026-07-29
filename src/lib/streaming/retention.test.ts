@@ -23,7 +23,7 @@ import {
   shouldSendAsStreamOnly,
   streamCacheSortKey,
 } from "./retention";
-import { USER_ORIGIN } from "@/lib/prewarm/types";
+import { PREWARM_ORIGIN, USER_ORIGIN } from "@/lib/prewarm/types";
 
 let failures = 0;
 
@@ -163,12 +163,11 @@ async function main(): Promise<void> {
     });
 
     await resetRows();
-    const streamHash = await seedTorrent({ tag: "streaming-now", origin: USER_ORIGIN });
-    await markTorrentStreamOnly(userId, streamHash, {
-      db: prisma,
-      allowFreshDefaultOrigin: true,
-    });
-    await checkAsync("a new stream-only send is bookkeeping only", async () => {
+    // markTorrentStreamOnly may only ever touch a stream/prewarm row. Born
+    // `prewarm` (speculative), a Play promotes it up to an evictable `stream`.
+    const streamHash = await seedTorrent({ tag: "streaming-now", origin: PREWARM_ORIGIN });
+    await markTorrentStreamOnly(userId, streamHash, { db: prisma });
+    await checkAsync("Play promotes a speculative prewarm to an evictable stream", async () => {
       assert.equal(await originOf(streamHash), STREAM_ORIGIN);
     });
     await promoteTorrentToKept(userId, streamHash, { db: prisma });
@@ -178,6 +177,18 @@ async function main(): Promise<void> {
     await markTorrentStreamOnly(userId, streamHash, { db: prisma });
     await checkAsync("promotion is not undone by a later stream-only mark", async () => {
       assert.equal(await originOf(streamHash), USER_ORIGIN);
+    });
+
+    // ISSUE D — the safety property the removed `allowFreshDefaultOrigin` path
+    // violated: a genuine `user` download must NEVER be demoted to an evictable
+    // stream, not even by a direct mark. Demotion is precisely what would grant
+    // deletion eligibility over the user's real, kept files.
+    await resetRows();
+    const keptHash = await seedTorrent({ tag: "kept-download", origin: USER_ORIGIN });
+    const demoted = await markTorrentStreamOnly(userId, keptHash, { db: prisma });
+    await checkAsync("markTorrentStreamOnly can never demote a kept user download", async () => {
+      assert.equal(demoted, false, "the guard must refuse to touch a user row");
+      assert.equal(await originOf(keptHash), USER_ORIGIN);
     });
 
     await resetRows();

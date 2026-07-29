@@ -1,0 +1,338 @@
+/**
+ * On-demand fallback-ladder tests (the "Try again fails every time" defect).
+ *
+ * The reported bug: pressing "Try again" for Family Guy S01E02 ran ONE search
+ * shape ("Family Guy S01E02", minSeeders:1) and gave up on an empty result set.
+ * A perfectly seedable SEASON PACK that contains E02 was never surfaced, because
+ * an episode-shaped query hides packs (EZTV drops them; free-text indexers never
+ * substring-match a pack title). These tests exercise `grabSingleEpisode`
+ * through its injected search/send/prisma seams — no real DB, no real network.
+ *
+ * The load-bearing test is `pack rescues E02`: a result set with a pack but no
+ * single E02 must now produce a successful grab. It is RED with only the first
+ * rung and GREEN with the full ladder.
+ *
+ * Run: npx tsx src/lib/library/ondemand-ladder.test.ts
+ */
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { grabSingleEpisode } from "./ondemand";
+import type { TorrentResult, SearchResponse } from "@/lib/torrents/types";
+import type {
+  AddTorrentResult,
+  ClientConnectionConfig,
+} from "@/lib/clients/types";
+
+/** The exact status the acceptance probe recorded on the pre-fix build. */
+const RED_STATUS = "No seeded torrent for S01E02";
+
+let failures = 0;
+async function checkAsync(name: string, fn: () => Promise<void>) {
+  try {
+    await fn();
+    console.log(`  ok  ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.error(`  FAIL ${name}: ${(err as Error).message}`);
+  }
+}
+
+type GrabOpts = Parameters<typeof grabSingleEpisode>[0];
+type SearchFn = NonNullable<GrabOpts["_searchFn"]>;
+type SendFn = NonNullable<GrabOpts["_sendFn"]>;
+
+// getFreeSpace() mkdir's this and getDirectorySizeBytesAsync() walks it (empty →
+// 0 bytes), so the storage budget passes cheaply without touching real media.
+const SCRATCH = path.join(
+  process.cwd(),
+  "node_modules",
+  ".cache",
+  "ondemand-ladder-scratch",
+);
+
+// ── Fixtures ────────────────────────────────────────────────────────────────
+
+function hex40(seed: string): string {
+  let s = "";
+  for (let i = 0; i < 40; i += 1) {
+    s += "0123456789abcdef"[(seed.charCodeAt(i % seed.length) + i * 7) % 16];
+  }
+  return s;
+}
+
+/** A seeded single episode of Family Guy S01E02. */
+function single(n = 1, seeders = 30): TorrentResult {
+  return {
+    id: `single-${n}`,
+    title: `Family Guy S01E02 I Never Met the Dead Man v${n} 1080p WEB-DL`,
+    magnet: `magnet:?xt=urn:btih:${hex40(`single-${n}`)}&dn=fg`,
+    infoHash: hex40(`single-${n}`),
+    sizeBytes: 500_000_000,
+    seeders,
+    leechers: 2,
+    source: "torrentscsv",
+    sourceUrl: "https://example.com",
+    tags: ["1080p", "WEB-DL"],
+  };
+}
+
+/** A seeded Season 1 pack that COVERS E02 (what the season query surfaces). */
+function pack(): TorrentResult {
+  return {
+    id: "pack-1",
+    title: "Family Guy Season 1 COMPLETE 1080p WEB-DL",
+    magnet: `magnet:?xt=urn:btih:${hex40("pack-1")}&dn=fgpack`,
+    infoHash: hex40("pack-1"),
+    sizeBytes: 3_000_000_000,
+    seeders: 40,
+    leechers: 5,
+    source: "torrentscsv",
+    sourceUrl: "https://example.com",
+    tags: ["1080p", "WEB-DL"],
+  };
+}
+
+function resp(results: TorrentResult[]): SearchResponse {
+  return {
+    query: "test",
+    results,
+    groups: [],
+    tookMs: 1,
+    sources: [],
+    totalCount: results.length,
+    page: 1,
+    pageSize: Math.max(1, results.length),
+    totalPages: results.length ? 1 : 0,
+  };
+}
+
+function fakeConfig(): ClientConnectionConfig {
+  // Non-builtin on purpose: applySendRetention() early-returns for non-builtin
+  // clients, so a successful grab never reaches into real Prisma.
+  return {
+    clientType: "qbittorrent",
+    savePath: SCRATCH,
+    baseDownloadPath: SCRATCH,
+    maxStorageBytes: 100 * 1024 * 1024 * 1024,
+  } as ClientConnectionConfig;
+}
+
+/** An episode-shaped query — "...S01E02" or "...1x02" — the kind that hides packs. */
+function isEpisodeQuery(q: string): boolean {
+  return /\bS\d{1,2}E\d{1,3}\b/i.test(q) || /\b\d{1,2}x\d{1,3}\b/i.test(q);
+}
+
+// ── Instrumented search seam ──────────────────────────────────────────────────
+
+type SearchCall = { query: string; minSeeders: number | undefined };
+
+function makeSearchFn(route: (query: string) => TorrentResult[]): {
+  fn: SearchFn;
+  calls: SearchCall[];
+} {
+  const calls: SearchCall[] = [];
+  const fn = (async (options: {
+    query: string;
+    filters?: { minSeeders?: number };
+  }) => {
+    calls.push({ query: options.query, minSeeders: options.filters?.minSeeders });
+    return resp(route(options.query));
+  }) as unknown as SearchFn;
+  return { fn, calls };
+}
+
+function okSend(): SendFn {
+  return (async () =>
+    ({ ok: true, message: "Added to qBittorrent" }) as AddTorrentResult) as SendFn;
+}
+
+function failSend(message: string): SendFn {
+  return (async () => ({ ok: false, message }) as AddTorrentResult) as SendFn;
+}
+
+// ── Minimal mock Prisma (records calls + keeps enough state for the tx path) ──
+
+type MockCall = { model: string; op: string; data?: Record<string, unknown> };
+
+function mockPrisma() {
+  const calls: MockCall[] = [];
+  const store: Record<string, Array<Record<string, unknown>>> = {
+    grabJob: [],
+    downloadHistory: [],
+  };
+  let seq = 0;
+  let lock: Promise<unknown> = Promise.resolve();
+
+  const handler = {
+    get(_t: Record<string, unknown>, model: string): unknown {
+      if (model === "$transaction") {
+        return async (fn: (tx: unknown) => Promise<void>) => {
+          const run = lock.then(() => fn(new Proxy({}, handler)));
+          lock = run.catch(() => undefined);
+          return run;
+        };
+      }
+      return new Proxy(
+        {},
+        {
+          get(_t2: Record<string, unknown>, op: string) {
+            return async (args: { where?: Record<string, unknown>; data?: Record<string, unknown> }) => {
+              calls.push({ model, op, data: args?.data });
+              if (!store[model]) store[model] = [];
+              const rows = store[model];
+              if (op === "create") {
+                const row = { id: `${model}-${(seq += 1)}`, createdAt: new Date(), ...(args?.data ?? {}) };
+                rows.push(row);
+                return row;
+              }
+              if (op === "findFirst" || op === "findUnique") return null;
+              if (op === "findMany") return [];
+              if (op === "update") return {};
+              return {};
+            };
+          },
+        },
+      );
+    },
+  };
+  return { proxy: new Proxy({}, handler) as unknown as GrabOpts["_prisma"], calls };
+}
+
+function countCreate(calls: MockCall[], model: string, status?: string): number {
+  return calls.filter(
+    (c) => c.model === model && c.op === "create" && (status ? c.data?.status === status : true),
+  ).length;
+}
+
+// ── Runner ────────────────────────────────────────────────────────────────
+
+/** Drive the ladder over `rungCount` rungs (2nd arg lets the RED run use only 1). */
+async function grab(
+  searchFn: SearchFn,
+  sendFn: SendFn,
+  prisma: GrabOpts["_prisma"],
+) {
+  return grabSingleEpisode({
+    userId: "user-1",
+    showTitle: "Family Guy",
+    mediaType: "tv",
+    season: 1,
+    episode: 2,
+    _config: fakeConfig(),
+    _searchFn: searchFn,
+    _sendFn: sendFn,
+    _prisma: prisma,
+  });
+}
+
+async function main() {
+  console.log("library/ondemand — on-demand fallback ladder");
+  fs.mkdirSync(SCRATCH, { recursive: true });
+
+  try {
+    // 1. THE BUG: a season pack exists but no single E02. The ladder must reach
+    //    the season-pack rung and grab it. (RED with only rung 1, GREEN with all.)
+    await checkAsync("pack rescues E02 when no single E02 exists", async () => {
+      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? [] : [pack()]));
+      const { proxy, calls } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+
+      assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+      assert.match(res.message, /from season pack/, "message must name the pack provenance");
+      assert.equal(res.title, "Family Guy Season 1 COMPLETE 1080p WEB-DL");
+      // exact + alt (empty) then pack (hit) → 3 searches; relaxed never reached.
+      assert.equal(search.calls.length, 3, "should stop at the pack rung");
+      // GrabJob-noise (success case): exactly one sent row, one history row, no skips.
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1, "one sent GrabJob");
+      assert.equal(countCreate(calls, "downloadHistory", "sent"), 1, "one history row");
+      assert.equal(countCreate(calls, "grabJob", "skipped"), 0, "no skip rows from empty rungs");
+      // The acceptance probe's GREEN bar: the byte-identical RED status must
+      // never reappear, and the route (route.ts:126, `result.ok ? 200 : 409`)
+      // now answers 200 — so the "Could not get S01E02." copy never mounts and
+      // the 409 the probe recorded is gone.
+      assert.notEqual(res.message, RED_STATUS, "must not repeat the byte-identical RED message");
+      assert.equal(res.ok ? 200 : 409, 200, "ok:true → HTTP 200, not 409");
+    });
+
+    // 2. Stop at the first working rung — no wasted searches.
+    await checkAsync("stops at rung 1 when an exact E02 is seeded", async () => {
+      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? [single(1, 80)] : []));
+      const { proxy, calls } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+
+      assert.equal(res.ok, true);
+      assert.equal(search.calls.length, 1, "only rung 1 should have been searched");
+      assert.doesNotMatch(res.message, /season pack|low-seed/, "rung 1 needs no honesty suffix");
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+    });
+
+    // 3. Attempt cap holds: every send fails (non-offline), and the press can
+    //    never turn into an unbounded storm — it stops at MAX_SEND_ATTEMPTS (4).
+    await checkAsync("attempt cap stops at 4 send attempts", async () => {
+      const five = [1, 2, 3, 4, 5].map((n) => single(n, 40 + n));
+      // Episode-shaped rungs (exact + alt) each yield the same 5 seeded singles;
+      // the season rung would offer more, but the cap must bite first.
+      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? five : []));
+      const { proxy, calls } = mockPrisma();
+      const res = await grab(search.fn, failSend("qBittorrent rejected the add"), proxy);
+
+      assert.equal(res.ok, false);
+      assert.equal(res.noReleaseFound?.reason, "send_failed");
+      assert.equal(countCreate(calls, "grabJob", "failed"), 4, "exactly 4 attempts recorded");
+      assert.equal(search.calls.length, 2, "cap bites during rung 2 — pack rung never searched");
+      assert.equal(countCreate(calls, "grabJob", "skipped"), 0, "attempts happened → no synth skip row");
+    });
+
+    // 4. GrabJob-noise (no-release case): a totally empty ladder must write
+    //    EXACTLY ONE synthesized skip row — not one per rung — and be honest.
+    await checkAsync("exhausted ladder writes exactly one honest skip row", async () => {
+      const search = makeSearchFn(() => []); // nothing, anywhere
+      const { proxy, calls } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+
+      assert.equal(res.ok, false);
+      assert.equal(res.noReleaseFound?.reason, "no_release");
+      assert.equal(res.noReleaseFound?.triedSeasonPacks, true);
+      assert.equal(res.noReleaseFound?.searches, 4, "all four rungs searched");
+      assert.equal(res.noReleaseFound?.manualSearchQuery, "Family Guy S01E02");
+      assert.match(res.message, /including season packs/);
+      assert.match(res.message, /Search manually\?$/);
+      // Even exhausted, the outcome is *materially different* from the RED: a
+      // message that names what was tried, never the flat byte-identical string.
+      assert.notEqual(res.message, RED_STATUS, "exhausted message must differ from the RED");
+      assert.equal(countCreate(calls, "grabJob", "skipped"), 1, "one skip row total");
+      assert.equal(countCreate(calls, "downloadHistory"), 0, "no history writes");
+      assert.equal(countCreate(calls, "grabJob", "sent"), 0);
+      assert.equal(countCreate(calls, "grabJob", "failed"), 0);
+    });
+
+    // 5. Offline is environmental — stop immediately, don't burn more rungs.
+    await checkAsync("stops immediately when the client is offline", async () => {
+      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? [single(1, 90)] : []));
+      const { proxy, calls } = mockPrisma();
+      const res = await grab(search.fn, failSend("connect ECONNREFUSED 127.0.0.1:8080"), proxy);
+
+      assert.equal(res.ok, false);
+      assert.equal(res.noReleaseFound?.reason, "client_offline");
+      assert.equal(search.calls.length, 1, "no further rungs after an offline client");
+      assert.equal(countCreate(calls, "grabJob", "failed"), 1, "one attempt, then stop");
+    });
+  } finally {
+    fs.rmSync(SCRATCH, { recursive: true, force: true });
+  }
+
+  if (failures > 0) {
+    console.error(`\n${failures} failed`);
+    process.exit(1);
+  }
+  console.log("  all passed");
+}
+
+main().then(
+  () => undefined,
+  (err) => {
+    console.error(err);
+    process.exit(1);
+  },
+);

@@ -34,7 +34,12 @@ import {
   markPrewarmUsed,
   onDiskBytes,
 } from "./eviction";
-import { PREWARM_ORIGIN, USER_ORIGIN } from "./types";
+import { EVICTING_ORIGIN, PREWARM_ORIGIN, USER_ORIGIN } from "./types";
+import { promoteTorrentToKept } from "@/lib/streaming/retention";
+import {
+  newEvictLease,
+  recoverStaleEvictionLeases,
+} from "@/lib/streaming/evict-lease";
 
 let failures = 0;
 
@@ -351,6 +356,179 @@ async function main(): Promise<void> {
         assert.equal(refused.satisfied, false);
         assert.ok(
           refused.skipped.some((s) => s.reason.startsWith("client-refused")),
+        );
+      },
+    );
+
+    // ── issue-D / reviewer item 2: promote-vs-eviction race, BOTH directions ─
+    // (a) An explicit Download promoting prewarm → user in the window between
+    // the pre-claim guards and the file delete must SAVE the files: the claim
+    // CAS is guarded on origin = prewarm, so a promoted row frees nothing and
+    // the pass aborts BEFORE unlinking. RED against the old delete-then-guard
+    // order, GREEN under the lease.
+    await seed([
+      { tag: "pw-promote-race", origin: PREWARM_ORIGIN, sizeBytes: 4 * GB, progress: 1, ageMinutes: 1000 },
+    ]);
+    deleted = [];
+    const promoteRace = await evictPrewarmsForBytes({
+      userId,
+      neededBytes: 4 * GB,
+      config,
+      db: prisma,
+      _beforeClaim: async (candidate) => {
+        await prisma.engineTorrent.update({
+          where: { userId_hash: { userId, hash: candidate.hash } },
+          data: { origin: USER_ORIGIN },
+        });
+      },
+      _deleteFn: deleteFn,
+    });
+    await checkAsync(
+      "a Download promoting mid-eviction keeps its files and becomes a user row",
+      async () => {
+        assert.deepEqual(deleted, [], "the promoted download's files were deleted");
+        const after = await originsInDb();
+        assert.equal(after["pw-promote-race"], USER_ORIGIN, "row is not a user download");
+        assert.equal(promoteRace.freedBytes, 0);
+        assert.ok(
+          promoteRace.skipped.some(
+            (s) => s.hash === hashFor("pw-promote-race") && s.reason === "db-guard-refused",
+          ),
+          "the claim lease should refuse the promoted row",
+        );
+      },
+    );
+
+    // (b) With no racing promote, a genuinely evictable prewarm is STILL deleted.
+    await seed([
+      { tag: "pw-unraced", origin: PREWARM_ORIGIN, sizeBytes: 4 * GB, progress: 1, ageMinutes: 1000 },
+    ]);
+    deleted = [];
+    const unraced = await evictPrewarmsForBytes({
+      userId,
+      neededBytes: 4 * GB,
+      config,
+      db: prisma,
+      _deleteFn: deleteFn,
+    });
+    await checkAsync("an unraced evictable prewarm is still actually deleted", async () => {
+      assert.deepEqual(deleted, [hashFor("pw-unraced")]);
+      const after = await originsInDb();
+      assert.ok(!after["pw-unraced"], "the evictable prewarm should be gone");
+      assert.equal(unraced.satisfied, true);
+    });
+
+    // (a2) reviewer round 2: a Download that lands AFTER the claim — in the window
+    // between the claim and the unlink — STEALS the lease (evicting → user) and
+    // must keep the files. The re-check under the lease finds the row is no longer
+    // ours and aborts before unlinking. RED against a build without the re-check
+    // (files deleted off a stale claim); GREEN with it.
+    await seed([
+      { tag: "pw-steal-race", origin: PREWARM_ORIGIN, sizeBytes: 4 * GB, progress: 1, ageMinutes: 1000 },
+    ]);
+    deleted = [];
+    let stealFired = 0;
+    const stealRace = await evictPrewarmsForBytes({
+      userId,
+      neededBytes: 4 * GB,
+      config,
+      db: prisma,
+      _afterClaim: async (candidate) => {
+        stealFired += 1;
+        // The user presses Download on this exact title mid-eviction.
+        await promoteTorrentToKept(userId, candidate.hash, { db: prisma });
+      },
+      _deleteFn: deleteFn,
+    });
+    await checkAsync(
+      "a Download stealing the lease mid-eviction keeps its files and becomes a user row",
+      async () => {
+        assert.equal(stealFired, 1, "the steal seam fired (the row was claimed first)");
+        assert.deepEqual(deleted, [], "the stolen download's files were deleted");
+        const after = await originsInDb();
+        assert.equal(after["pw-steal-race"], USER_ORIGIN, "stolen row must end a user download");
+        assert.equal(stealRace.freedBytes, 0);
+        assert.ok(
+          stealRace.skipped.some(
+            (s) => s.hash === hashFor("pw-steal-race") && s.reason === "lease-stolen",
+          ),
+          "the re-check under the lease should refuse the stolen row",
+        );
+      },
+    );
+
+    // (c) reviewer round 2: a lease abandoned by a crash (an `evicting` row older
+    // than the stale window) is RECOVERED to its recorded prior origin — here
+    // prewarm — never orphaned forever, invisible to both the promote and evict
+    // paths. Recovery restores the EXACT recorded origin, so it can never be a
+    // backfill.
+    await prisma.engineTorrent.deleteMany({ where: { userId } });
+    const staleToken = newEvictLease(new Date(Date.now() - 20 * 60_000));
+    await prisma.engineTorrent.create({
+      data: {
+        userId,
+        hash: hashFor("pw-stale-lease"),
+        name: "pw-stale-lease",
+        origin: EVICTING_ORIGIN,
+        evictLease: staleToken,
+        evictFrom: PREWARM_ORIGIN,
+        status: "seeding",
+        progress: 1,
+        sizeBytes: BigInt(4 * GB),
+        lastUsedAt: new Date(Date.now() - 900 * 60_000),
+      },
+    });
+    const recovery = await recoverStaleEvictionLeases({ userId, db: prisma });
+    await checkAsync(
+      "a stale prewarm eviction lease is recovered to prewarm, never orphaned",
+      async () => {
+        const row = await prisma.engineTorrent.findFirst({
+          where: { userId, hash: hashFor("pw-stale-lease") },
+          select: { origin: true, evictLease: true, evictFrom: true },
+        });
+        assert.equal(row?.origin, PREWARM_ORIGIN, "stale lease restored to its recorded origin");
+        assert.equal(row?.evictLease, null, "recovery clears the abandoned token");
+        assert.equal(row?.evictFrom, null, "recovery clears the recorded prior origin");
+        assert.ok(
+          recovery.recovered.some(
+            (r) => r.hash === hashFor("pw-stale-lease") && r.restoredTo === PREWARM_ORIGIN,
+          ),
+          "recovery reports what it restored",
+        );
+      },
+    );
+
+    // …and a FRESH (not-yet-stale) lease is LEFT in-flight — recovery must never
+    // steal a live eviction out from under the sweep that owns it.
+    await prisma.engineTorrent.deleteMany({ where: { userId } });
+    const freshToken = newEvictLease();
+    await prisma.engineTorrent.create({
+      data: {
+        userId,
+        hash: hashFor("pw-fresh-lease"),
+        name: "pw-fresh-lease",
+        origin: EVICTING_ORIGIN,
+        evictLease: freshToken,
+        evictFrom: PREWARM_ORIGIN,
+        status: "seeding",
+        progress: 1,
+        sizeBytes: BigInt(4 * GB),
+        lastUsedAt: new Date(Date.now() - 900 * 60_000),
+      },
+    });
+    const freshRecovery = await recoverStaleEvictionLeases({ userId, db: prisma });
+    await checkAsync(
+      "a fresh in-flight lease is left claimed — recovery does not steal it",
+      async () => {
+        const row = await prisma.engineTorrent.findFirst({
+          where: { userId, hash: hashFor("pw-fresh-lease") },
+          select: { origin: true, evictLease: true },
+        });
+        assert.equal(row?.origin, EVICTING_ORIGIN, "a fresh lease stays claimed");
+        assert.equal(row?.evictLease, freshToken, "a fresh lease keeps its token");
+        assert.ok(
+          !freshRecovery.recovered.some((r) => r.hash === hashFor("pw-fresh-lease")),
+          "recovery does not touch a non-stale lease",
         );
       },
     );

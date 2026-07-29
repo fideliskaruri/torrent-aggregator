@@ -31,12 +31,15 @@ check("send route reads the saved retention default when no explicit choice is s
   );
 });
 
-check("explicit retention is still the decision-point input to stream-only sends", () => {
-  assert.match(source, /retention:\s*sendRetention/);
+check("the resolved retention choice is the decision-point input to the send purpose", () => {
+  // The engine now acts on ONE discriminant — purpose — derived from the RESOLVED
+  // retention choice (post-default), never the raw body value. This is the wiring
+  // that turns a Play into an ephemeral stream instead of a permanent download.
+  assert.match(source, /sendRetentionToPurpose\(\s*sendRetention/);
   assert.doesNotMatch(
     source,
-    /retention:\s*body\.retention\s*\?\?\s*null/,
-    "the route must not bypass the configured default at the final stream-only decision",
+    /sendRetentionToPurpose\(\s*body\.retention/,
+    "the route must not bypass the configured default at the final purpose decision",
   );
 });
 

@@ -502,3 +502,38 @@ html[data-density="comfortable"] .torrent-row {
   border-radius: inherit;
   transition: width 0.2s ease;
 }
+
+/* ── Reduced motion ───────────────────────────────────────────────────
+   Honor prefers-reduced-motion: collapse the app's transitions and
+   animations to near-instant so nothing sweeps, slides, scales, or
+   parallaxes for someone who asked the OS for calm. There are no
+   transitionend / animationend handlers anywhere in the app (verified), so
+   nothing depends on these durations for correctness — the collapse is
+   purely cosmetic.
+
+   Exemption: in-flight loaders must stay perceptible. A reduced-motion user
+   still needs to know the player, stream, or download is working, and a
+   small spinning icon is feedback, not a vestibular trigger. Every loader
+   in the app is a lucide spinner carrying `.animate-spin`, so that one class
+   keeps a real, continuous 1s spin. `[data-player-loader]` is exempted
+   alongside it so the player's single continuous loader stays alive even if
+   it ever stops being a lucide spinner — the exemption must not depend on
+   one component's implementation detail. Static placeholders (skeleton
+   pulses, width transitions) stay collapsed — they convey no live progress. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-spin,
+  [data-player-loader],
+  [data-player-loader] * {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

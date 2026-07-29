@@ -93,6 +93,11 @@ model GrabJob {
   category   String?
   kind       String? // rule | library | manual
   externalId String? // watchlist item id or rule id
+  /// Acquisition intent: "keep" (explicit download) | "stream" (ephemeral
+  /// playback cache) | "prewarm" (speculative). Nullable/additive: legacy rows
+  /// predate the column and read as an ordinary download. Lets Activity avoid
+  /// listing an ephemeral Play as a user download.
+  retention  String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -200,6 +205,15 @@ model EngineTorrent {
   /// playback cache) | "prewarm" (speculative). Only cache origins may be
   /// evicted, and stream eviction has its own playback/grace/watchlist guards.
   origin    String   @default("user")
+  /// Eviction lease token, set atomically when a sweep claims this row
+  /// (origin → "evicting"). Format "<claimedAtMs>:<uuid>". NULL when unleased.
+  /// An explicit user add clears it when it STEALS the lease; a stale lease
+  /// (crash between claim and delete) is recovered by age. Additive/nullable —
+  /// existing rows are NULL and are never touched.
+  evictLease String?
+  /// The origin to restore if a lease is recovered (never inferred — it is the
+  /// exact value recorded at claim time). NULL when unleased.
+  evictFrom String?
   /// Last time playback touched this torrent. Drives LRU eviction of caches.
   lastUsedAt DateTime @default(now())
   createdAt DateTime @default(now())
@@ -264,6 +278,11 @@ model DownloadHistory {
   savePath   String?
   clientType String?
   sendKind   String?
+  /// Acquisition intent: "keep" | "stream" | "prewarm". Nullable/additive:
+  /// legacy rows predate the column and read as an ordinary download. The
+  /// Recently Added rail and download log filter out "stream" so an ephemeral
+  /// Play is never surfaced as something the user chose to download.
+  retention  String?
   createdAt  DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

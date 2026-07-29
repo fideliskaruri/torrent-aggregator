@@ -8,8 +8,20 @@ import {
   ActionButton,
   type ActionButtonStatus,
 } from "@/components/ui/action-button";
-import { releaseFacts, releaseQualityName } from "./release-facts";
+import {
+  episodeLabel,
+  releaseFacts,
+  releaseQualityName,
+  seedStrength,
+} from "./release-facts";
 import { useReleaseActions } from "./use-release-actions";
+
+/** Swarm-strength dot colour by tier — token-only, never a raw hex. */
+const SEED_DOT: Record<string, string> = {
+  strong: "bg-[var(--success)]",
+  fair: "bg-[var(--accent)]",
+  weak: "bg-[var(--danger)]",
+};
 
 interface ReleaseRowProps {
   torrent: TorrentResult;
@@ -21,14 +33,16 @@ interface ReleaseRowProps {
 }
 
 /**
- * One release under an expanded title — a quality choice, not a scene name.
+ * One release under an expanded title — the row a viewer picks between.
  *
- * The product forbids narrating mechanism here: no seeders, sizes, Health %,
- * indexer names, `SxxExx`, or raw release names. A row therefore shows only
- * what a viewer picks between — a resolution and a source tier — and the two
- * actions, Play and Download. Everything else the old card carried (paths,
- * category badges, advanced-send panels, library season pickers) belonged to
- * the title page, not to a one-line choice inside a search result.
+ * A picker is not the watch surface: here the distinguishing facts *are* the
+ * product, because a series otherwise renders a dozen rows that all read
+ * "1080p · WEB-DL". So a row leads with which episode/season it is, then
+ * resolution · source · size, and a swarm-strength dot that says whether Play
+ * will actually start — each as its own element with real separators, never an
+ * adjacent-text blob. All of that string-building lives in `release-facts.ts`;
+ * this component only lays it out and wires the two actions, Play and Download.
+ * Indexer names, Health %, and raw scene names are still withheld.
  */
 export function ReleaseRow({
   torrent,
@@ -37,6 +51,7 @@ export function ReleaseRow({
   disabled = false,
 }: ReleaseRowProps) {
   const {
+    pending,
     sending,
     canPlay,
     canSend,
@@ -47,7 +62,9 @@ export function ReleaseRow({
     download,
   } = useReleaseActions(torrent, searchCategory);
 
+  const episode = episodeLabel(torrent);
   const facts = releaseFacts(torrent);
+  const strength = seedStrength(torrent);
   const quality = releaseQualityName(torrent);
   const display = { title: titleName, subtitle: quality };
   const blocked = disabled || !canSend;
@@ -61,25 +78,56 @@ export function ReleaseRow({
         className="flex items-center justify-between gap-3 py-2"
         data-release-row
       >
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          {/* Episode/season — the strongest differentiator, rendered first and
+              with emphasis so a series' rows read apart at a glance. */}
+          {episode ? (
+            <span className="text-[13px] font-medium tabular-nums text-[var(--text)]">
+              {episode}
+            </span>
+          ) : null}
+
+          {/* Resolution · source · size — the muted, curated middle facts. */}
           {facts.length ? (
-            facts.map((fact, i) => (
-              <span key={fact} className="contents">
-                {i > 0 ? (
-                  <span className="text-[var(--border-strong)]" aria-hidden>
-                    ·
-                  </span>
-                ) : null}
-                <span className="text-[13px] text-[var(--text-secondary)]">
-                  {fact}
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-[var(--text-secondary)]">
+              {facts.map((fact, i) => (
+                <span key={fact} className="contents">
+                  {i > 0 || episode ? (
+                    <span className="text-[var(--border-strong)]" aria-hidden>
+                      ·
+                    </span>
+                  ) : null}
+                  <span className="tabular-nums">{fact}</span>
                 </span>
-              </span>
-            ))
-          ) : (
+              ))}
+            </span>
+          ) : !episode ? (
             <span className="text-[13px] text-[var(--text-tertiary)]">
               Standard
             </span>
-          )}
+          ) : null}
+
+          {/* Swarm strength — will it actually play? A coloured dot plus the
+              live seeder count, so 300 seeds reads apart from 1. */}
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--bg-muted)] px-2 py-0.5 text-[12px] text-[var(--text-secondary)]"
+            title={strength.label}
+            data-seed-strength={strength.level}
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 shrink-0 rounded-full",
+                SEED_DOT[strength.level],
+              )}
+              aria-hidden
+            />
+            <span className="tabular-nums" aria-hidden>
+              {strength.count}
+            </span>
+            <span className="sr-only">
+              {strength.count === 1 ? "seeder" : "seeders"}
+            </span>
+          </span>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -89,10 +137,10 @@ export function ReleaseRow({
             aria-label={`Play ${titleName} — ${quality}`}
             disabled={sending || blocked || !canPlay}
             onClick={() => void play(display)}
-            className="btn btn-primary min-h-8 px-3 text-[13px]"
+            className="btn btn-primary min-h-11 px-3 text-[13px] sm:min-h-10"
             status={statusFor("play")}
           >
-            {sending ? (
+            {pending === "play" ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Play className="h-3.5 w-3.5" />
@@ -105,10 +153,10 @@ export function ReleaseRow({
             aria-label={`Download ${titleName} — ${quality}`}
             disabled={sending || blocked}
             onClick={() => void download(display)}
-            className="btn btn-secondary min-h-8 px-3 text-[13px]"
+            className="btn btn-secondary min-h-11 px-3 text-[13px] sm:min-h-10"
             status={statusFor("download")}
           >
-            {sending ? (
+            {pending === "download" ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <ArrowDownToLine className="h-3.5 w-3.5" />

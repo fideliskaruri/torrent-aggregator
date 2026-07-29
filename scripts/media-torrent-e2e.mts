@@ -179,6 +179,7 @@ async function runCase(
     magnet,
     savePath: LEECH_DIR,
     name: fixture.file,
+    purpose: "keep",
   });
   if (!added.ok) return fail(row, `engine refused the torrent: ${added.message}`);
 

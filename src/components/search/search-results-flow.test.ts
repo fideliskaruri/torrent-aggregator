@@ -95,7 +95,7 @@ check("no filters / refresh / density / All-Packs-Episodes toolbar", () => {
   }
 });
 
-check("no seed/size/health/indexer/SxxExx narration on cards", () => {
+check("the work card narrates no mechanism", () => {
   for (const mech of [
     /torrent\.seeders/,
     /torrent\.leechers/,
@@ -107,8 +107,29 @@ check("no seed/size/health/indexer/SxxExx narration on cards", () => {
     /S\d{2}E\d{2}/,
   ]) {
     assert.doesNotMatch(titleCard, mech, `mechanism leaked in card: ${mech}`);
-    assert.doesNotMatch(releaseRow, mech, `mechanism leaked in row: ${mech}`);
   }
+});
+
+// The release row IS the chooser: a series otherwise renders a dozen identical
+// "1080p · WEB-DL" rows. It must surface the facts a viewer picks between —
+// episode, resolution, source, size, swarm strength — which are built in the
+// pure release-facts module (and asserted by release-facts.test.ts). The row
+// consumes those helpers rather than hand-rolling torrent.seeders / formatBytes
+// / sizeLabel, and still withholds indexer names and Health %.
+check("the release row surfaces distinguishing facts for a chooser", () => {
+  assert.match(releaseRow, /releaseFacts/);
+  assert.match(releaseRow, /episodeLabel/);
+  assert.match(releaseRow, /seedStrength/);
+  for (const raw of [
+    /torrent\.seeders/,
+    /torrent\.leechers/,
+    /formatBytes/,
+    /sizeLabel/,
+  ]) {
+    assert.doesNotMatch(releaseRow, raw, `row should get ${raw} from release-facts, not inline`);
+  }
+  assert.doesNotMatch(releaseRow, /Health/, "no Health % on the row");
+  assert.doesNotMatch(releaseRow, /torrent\.source/, "no indexer name on the row");
 });
 
 check("the retention helper sentence is gone", () => {

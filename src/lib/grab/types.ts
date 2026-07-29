@@ -9,7 +9,7 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import type { TorrentResult, TorrentSourceId } from "@/lib/torrents/types";
-import type { AddTorrentPayload, ClientConnectionConfig } from "@/lib/clients/types";
+import type { AddTorrentPayload, ClientConnectionConfig, TorrentPurpose } from "@/lib/clients/types";
 
 /**
  * The Prisma transaction client passed into post-send hooks.
@@ -185,6 +185,14 @@ export type GrabPipelineOptions = {
   grabJobKind: string;
   /** GrabJob.externalId — watchlist item id or rule id */
   externalId: string | null;
+  /**
+   * REQUIRED acquisition intent for the client send. Threaded to the engine so
+   * a Play (`stream`) can never be born as, or recorded as, a permanent
+   * download — the exact defect this pipeline used to have when it omitted any
+   * stream signal. Also stamped onto GrabJob/DownloadHistory so Activity and
+   * "Recently Added" can exclude ephemeral streams.
+   */
+  purpose: TorrentPurpose;
   /**
    * Prefix for the DownloadHistory message, e.g. "Library automation" or
    * "Auto-rule: Weekly anime". Defaults to a label derived from grabJobKind.

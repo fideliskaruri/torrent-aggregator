@@ -60,7 +60,16 @@ const ROOT = path.resolve(import.meta.dirname, "..");
  */
 const MARKERS = [
   /\bDELIBERATE\s+BREAK\b/i,
-  /\bSABOTAGE\s*-?\s*\d+\s*:/i,
+  // `SABOTAGE-6:`, `SABOTAGE - 6`, and `SABOTAGE-A2` were all real markers,
+  // written by different agents. The first version required a digit *and* a
+  // trailing colon (`\d+\s*:`), so `SABOTAGE-A2` (letter token, no colon)
+  // slipped through and a data-loss break sat in the eviction path across many
+  // pauses. A marker is a terse identifier: it either contains a digit (`A2`,
+  // `6`) or is a short all-caps code (`A`, `AB`). Prose like `sabotage-proven`
+  // or "a sabotage edit" is a lowercase word and must not trip the gate.
+  /\bSABOTAGE\s*-\s*[A-Za-z]*\d/i, // token has a digit: SABOTAGE-6, SABOTAGE-A2
+  /\bSABOTAGE\s*-\s*[A-Z]{1,3}\b/, // short all-caps code: SABOTAGE-A, SABOTAGE-AB
+  /\bSABOTAGE\s*:/i, // announced with a colon: SABOTAGE:
   /\bTEMPORARY\s+BREAK\b/i,
   /\bINTENTIONAL\s+BREAK\b/i,
   /\bBREAK\s+[A-Z]\b\s*\(\s*temporary\s*\)/i,

@@ -753,6 +753,7 @@ export default function ClientPage() {
                 label: "Downloading",
                 value: stats.downloading,
                 tone: stats.downloading ? "accent" : "muted",
+                statValueHook: true,
               },
               {
                 label: "Seeding",
@@ -797,7 +798,7 @@ export default function ClientPage() {
                   type="button"
                   onClick={() => setStatusFilter(c.id)}
                   className={cn(
-                    "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+                    "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-2 py-1 text-[11px] font-medium transition-colors lg:min-h-0 lg:min-w-0",
                     statusFilter === c.id
                       ? "bg-[var(--bg-muted)] text-[var(--text)]"
                       : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
@@ -937,6 +938,7 @@ export default function ClientPage() {
                       )}
                       data-client-torrent
                       data-hash={t.hash}
+                      data-retention={t.retentionState}
                       onClick={(e) => {
                         if (
                           e.target instanceof HTMLElement &&
@@ -964,6 +966,7 @@ export default function ClientPage() {
                                 href={titleHref}
                                 tabIndex={-1}
                                 aria-hidden
+                                data-dense-ui
                                 className="shrink-0"
                               >
                                 <TfWorkThumb
@@ -983,7 +986,7 @@ export default function ClientPage() {
                               {titleHref ? (
                                 <Link
                                   href={titleHref}
-                                  className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                                  className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
                                 >
                                   <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
                                     {display.title}
@@ -1065,7 +1068,7 @@ export default function ClientPage() {
                         {formatBytes(t.upspeed)}/s
                       </p>
 
-                      <div className="flex items-center justify-end gap-0.5">
+                      <div className="flex items-center justify-end gap-2 lg:gap-0.5">
                         {isBuiltin ? (
                           <Button
                             type="button"
@@ -1099,6 +1102,7 @@ export default function ClientPage() {
                                 <DropdownMenuItem
                                   onClick={() => void copyStreamUrl(t)}
                                   data-copy-stream-url
+                                  className="min-h-[44px] lg:min-h-0"
                                 >
                                   <Copy />
                                   Copy stream URL
@@ -1110,6 +1114,7 @@ export default function ClientPage() {
                               onClick={() => void openDownloadFolder(t)}
                               disabled={openingHash === t.hash}
                               data-open-folder
+                              className="min-h-[44px] lg:min-h-0"
                             >
                               {openingHash === t.hash ? (
                                 <LoadingGlyph className="h-4 w-4" />
@@ -1121,19 +1126,21 @@ export default function ClientPage() {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => void action("pause", t.hash)}
+                              className="min-h-[44px] lg:min-h-0"
                             >
                               <Pause />
                               Pause
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={() => void action("resume", t.hash)}
+                              className="min-h-[44px] lg:min-h-0"
                             >
                               <Play />
                               Resume
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
-                              className="text-[var(--danger)] focus:text-[var(--danger)]"
+                              className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
                               onClick={() => setPendingDelete([t])}
                               data-delete-torrent
                             >

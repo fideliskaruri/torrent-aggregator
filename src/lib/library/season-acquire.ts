@@ -38,7 +38,7 @@ import {
 import { planSeason, episodesFromFilenames, type PackChoice, type SeasonPlan, type SingleChoice } from "@/lib/torrents/season-plan";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
-import { applySendRetention, type SendRetention } from "@/lib/streaming/send-retention";
+import { applySendRetention, sendRetentionToPurpose, type SendRetention } from "@/lib/streaming/send-retention";
 
 /**
  * How many top candidates a *synchronous* resolve will probe.
@@ -294,6 +294,7 @@ export async function acquireSeason(
       config,
       grabJobKind: "ondemand",
       externalId: opts.watchListItemId ?? null,
+      purpose: sendRetentionToPurpose(opts.retention, opts.watchListItemId),
       downloadHistoryPrefix:
         kind === "pack"
           ? `Season ${target.season} pack`

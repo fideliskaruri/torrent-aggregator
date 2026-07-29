@@ -35,11 +35,7 @@ import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { PosterImage } from "@/components/browse/poster-image";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { posterTint } from "@/components/browse/poster";
-import {
-  clampFraction,
-  cleanDisplayTitle,
-  progressPercent,
-} from "@/components/browse/availability";
+import { cleanDisplayTitle } from "@/components/browse/availability";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { Button } from "@/components/ui/button";
@@ -83,7 +79,12 @@ export interface TitleDetailProps {
 
 /** The player, once a Play has been pressed. */
 type PlayTarget = {
-  infoHash: string;
+  /**
+   * `null` during the opening handoff: the overlay mounts the instant a stream
+   * Play is pressed and shows its one loader while the grab runs; the resolved
+   * hash flows in afterwards. Existing-local play sets it immediately.
+   */
+  infoHash: string | null;
   title: string;
   subtitle: string | null;
   resumePositionSec: number | null;
@@ -190,7 +191,22 @@ export function TitleDetail(props: TitleDetailProps) {
       if (spentRemoteActions.current.has(key)) return;
       spentRemoteActions.current.add(key);
 
-      setStatuses((prev) => ({ ...prev, [key]: "pending" }));
+      // A stream Play opens the player NOW, in its "opening" state (no hash yet),
+      // so ONE loader owns the entire journey from the instant of the press. The
+      // button never shows its own spinner for a stream Play — that button→player
+      // spinner handoff is exactly the "two loaders" the viewer kept reporting.
+      // Non-stream actions (send to client) keep the in-button pending state
+      // because they never open a player.
+      if (streaming) {
+        setPlaying({
+          infoHash: null,
+          title: label,
+          subtitle: null,
+          resumePositionSec: null,
+        });
+      } else {
+        setStatuses((prev) => ({ ...prev, [key]: "pending" }));
+      }
       setNotice(null);
       try {
         const body = await postTitleAction({
@@ -207,11 +223,13 @@ export function TitleDetail(props: TitleDetailProps) {
         // engine fetches sequentially and primes the file's first bytes, so a
         // torrent that started a second ago is as openable as one that
         // finished last week — the only thing that was missing was being told
-        // which one it is.
+        // which one it is. The resolved hash flows into the SAME already-open
+        // player as a prop update, so the loader that has been up since the
+        // press just keeps running — it is never torn down and rebuilt.
         //
         // No hash means the grab succeeded but we cannot address what it sent.
-        // That is rare and it is not an error, so it degrades to the download
-        // notice rather than opening a player on nothing.
+        // That is rare and it is not an error, so it closes the opening player
+        // and degrades to the download notice rather than hanging on a spinner.
         const hash = body.infoHash?.trim();
         if (streaming && hash) {
           setNotice(null);
@@ -225,11 +243,14 @@ export function TitleDetail(props: TitleDetailProps) {
           return;
         }
 
+        if (streaming) setPlaying(null);
         setNotice(body.message ?? `${label} sent to your client.`);
         refetch();
       } catch (err) {
         spentRemoteActions.current.delete(key);
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
+        // Close the opening player on a grab failure so no loader is left hanging.
+        if (streaming) setPlaying(null);
         setNotice(err instanceof Error ? err.message : `Could not get ${label}`);
       }
     },
@@ -409,8 +430,6 @@ function TitleContent({
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
   // wordmark and all, behind its own H1. No backdrop is a tinted panel.
   const backdrop = payload.backdropUrl;
-  const downloaded = progressPercent(payload.downloadFraction);
-  const downloadFraction = clampFraction(payload.downloadFraction);
 
   // Visual availability: a title whose release date is still in the future is
   // shown but not actionable — grayed art, a "Coming {date}" label, and no
@@ -468,27 +487,10 @@ function TitleContent({
     primary.season != null && primary.episode != null
       ? `S${pad(primary.season)}E${pad(primary.episode)}`
       : null;
-  const primaryStatusText = primaryStatusMessage(
-    primary,
-    primaryStatus,
-    primarySubtitle,
-  );
+  // The button is the only place a pending action is narrated: ButtonBody
+  // overlays the spinner in place of the label, exactly like a normal video
+  // player. No status line, no hint, and no progress bar under the buttons.
   const primaryCanRun = shouldRunTitleAction(primary, primaryStatus) && !gated;
-  const primaryStatusId = "title-primary-status";
-  const primaryDescribedBy =
-    primaryStatusText || (downloaded != null && downloaded < 100)
-      ? primaryStatusId
-      : undefined;
-  const primaryHint =
-    payload.isSeries && primarySubtitle
-      ? `${
-          primary.kind === "get"
-            ? "Gets"
-            : primary.label === "Resume"
-              ? "Resumes"
-              : "Starts with"
-        } ${primarySubtitle}. Choose a different episode below.`
-      : null;
 
   // Play and Download are the two acquire intents. The primary button above is
   // the Play/Resume path (it opens the player); Download keeps the file. We only
@@ -634,7 +636,6 @@ function TitleContent({
                         : `${primaryLabel} — ${title}`
                     }
                     aria-busy={primaryStatus === "pending" || undefined}
-                    aria-describedby={primaryDescribedBy}
                     disabled={!primaryCanRun}
                     onClick={() =>
                       onAction(
@@ -706,46 +707,6 @@ function TitleContent({
                 />
               </div>
 
-              {primaryHint ? (
-                <p className="mt-2 text-[12px] text-[var(--text-secondary)]">
-                  {primaryHint}
-                </p>
-              ) : null}
-
-              {/* Reserved height so a transient status ("Opening player…")
-                  appearing or clearing never nudges the page. The status is a
-                  short action message only — never a percentage, which is
-                  mechanism the product does not narrate. */}
-              <div
-                id={primaryStatusId}
-                className="mt-3 min-h-[1.25rem] max-w-sm text-[12px] text-[var(--text-tertiary)]"
-                role={primaryStatusText ? "status" : undefined}
-              >
-                {primaryStatusText}
-              </div>
-              {/* The progress bar is a *visual* availability cue, but its slot
-                  is reserved whether or not it is filled, so toggling it can
-                  never shift "More like this" up or down. */}
-              <div className="mt-1.5 h-1 max-w-sm">
-                {downloadFraction != null ? (
-                  <div
-                    className="h-full overflow-hidden rounded-full bg-[var(--bg-muted)]"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(downloadFraction * 100)}
-                    aria-label={`${title} download progress`}
-                  >
-                    <div
-                      className="h-full rounded-full bg-[var(--accent)]"
-                      style={{
-                        width: `${Math.round(downloadFraction * 100)}%`,
-                      }}
-                    />
-                  </div>
-                ) : null}
-              </div>
-
               {notice ? (
                 <p
                   role="status"
@@ -812,7 +773,7 @@ function TitleContent({
           <Link
             href={payload.releasesHref}
             data-choose-release
-            className="inline-flex items-center gap-1.5 underline decoration-[var(--border-strong)] underline-offset-4 transition-colors hover:text-[var(--text)]"
+            className="inline-flex min-h-[44px] items-center gap-1.5 underline decoration-[var(--border-strong)] underline-offset-4 transition-colors hover:text-[var(--text)] lg:min-h-0"
           >
             <Search className="h-3.5 w-3.5" aria-hidden />
             Choose a different release
@@ -873,22 +834,6 @@ function buildExtrasUrl(
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
-}
-
-function primaryStatusMessage(
-  action: TitleAction,
-  status: TitleActionStatus,
-  target: string | null,
-): string | null {
-  const subject = target ?? "this title";
-  if (status === "pending") {
-    if (action.kind === "play") return "Opening player…";
-    return `Getting ${subject} ready…`;
-  }
-  if (status === "done" && action.kind === "get") {
-    return `Getting ${subject}`;
-  }
-  return null;
 }
 
 /**

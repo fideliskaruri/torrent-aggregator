@@ -207,7 +207,7 @@ function RailArrow({
       onClick={onClick}
       data-rail-arrow={direction}
       className={cn(
-        "absolute top-0 hidden h-full w-10 items-center justify-center md:flex",
+        "absolute top-0 hidden h-full w-11 items-center justify-center md:flex lg:w-10",
         "border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
         "rounded-[var(--radius)] shadow-[var(--shadow-md)] transition-opacity duration-150",
         "hover:border-[var(--border-strong)] hover:text-[var(--text)]",

@@ -246,6 +246,7 @@ function baseOpts(overrides: Partial<GrabPipelineOptions> = {}): GrabPipelineOpt
   const { proxy } = mockPrisma();
   return {
     userId: "user-1",
+    purpose: "keep",
     search: {
       query: "Family Guy S09E01",
       category: "tv",

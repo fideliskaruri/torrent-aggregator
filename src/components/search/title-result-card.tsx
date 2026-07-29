@@ -44,6 +44,7 @@ export function TitleResultCard({
 }: TitleResultCardProps) {
   const [expanded, setExpanded] = useState(false);
   const {
+    pending,
     sending,
     canPlay,
     canSend,
@@ -78,7 +79,7 @@ export function TitleResultCard({
     <>
       <article
         className={cn(
-          "surface group relative scroll-mt-24 transition-colors",
+          "surface group relative scroll-mt-24 transition-colors motion-reduce:transition-none",
           "focus-within:ring-2 focus-within:ring-[var(--accent)]",
           featured ? "border-[var(--accent)]/60 p-3 sm:p-4" : "p-3 sm:p-4",
           unreleased && "opacity-60 saturate-[0.35]",
@@ -175,10 +176,10 @@ export function TitleResultCard({
                 aria-label={`Play ${title.name}`}
                 disabled={sending || blocked || !canPlay}
                 onClick={() => void play(display)}
-                className="btn btn-primary min-h-9 px-3 text-[13px]"
+                className="btn btn-primary min-h-11 px-3 text-[13px]"
                 status={statusFor("play")}
               >
-                {sending ? (
+                {pending === "play" ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Play className="h-3.5 w-3.5" />
@@ -191,10 +192,10 @@ export function TitleResultCard({
                 aria-label={`Download ${title.name}`}
                 disabled={sending || blocked}
                 onClick={() => void download(display)}
-                className="btn btn-secondary min-h-9 px-3 text-[13px]"
+                className="btn btn-secondary min-h-11 px-3 text-[13px]"
                 status={statusFor("download")}
               >
-                {sending ? (
+                {pending === "download" ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <ArrowDownToLine className="h-3.5 w-3.5" />
@@ -210,11 +211,11 @@ export function TitleResultCard({
                     expanded ? "Hide other releases" : "Show other releases"
                   }
                   onClick={() => setExpanded((v) => !v)}
-                  className="btn btn-ghost min-h-9 px-2 text-[12px] text-[var(--text-tertiary)]"
+                  className="btn btn-ghost min-h-11 px-2 text-[12px] text-[var(--text-tertiary)]"
                 >
                   <ChevronDown
                     className={cn(
-                      "h-4 w-4 transition-transform",
+                      "h-4 w-4 transition-transform motion-reduce:transition-none",
                       expanded && "rotate-180",
                     )}
                   />

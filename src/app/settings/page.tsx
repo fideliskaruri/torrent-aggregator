@@ -619,7 +619,7 @@ export default function SettingsPage() {
               id={`settings-tab-${t.id}`}
               onClick={() => selectTab(t.id)}
               className={cn(
-                "flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex-1 flex items-center justify-center min-h-[44px] rounded-md px-3 py-2 text-sm font-medium transition-colors lg:min-h-0",
                 tab === t.id
                   ? "bg-[var(--accent-dim)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-ring)]"
                   : "text-[var(--text-secondary)] hover:text-[var(--text)]",
@@ -676,7 +676,7 @@ export default function SettingsPage() {
                       }));
                     }}
                     className={cn(
-                      "rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1",
+                      "min-h-[44px] rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1 lg:min-h-0",
                       option.stance === "advanced" && "ml-4 sm:ml-8",
                       form.clientType === option.value
                         ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-1 ring-[var(--accent-ring)]"
@@ -744,7 +744,7 @@ export default function SettingsPage() {
                         }));
                       }}
                       className={cn(
-                        "rounded-lg px-3 py-2 text-sm transition-colors",
+                        "min-h-[44px] rounded-lg px-3 py-2 text-sm transition-colors lg:min-h-0",
                         form.externalClientType === value
                           ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-1 ring-[var(--accent-ring)]"
                           : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-1 ring-[var(--border)] hover:text-[var(--text)]",
@@ -880,7 +880,7 @@ export default function SettingsPage() {
                       type="button"
                       onClick={() => openFolder(form.baseDownloadPath)}
                       disabled={!!openingPath}
-                      className="inline-flex items-center gap-1 text-[11px] text-[var(--accent-text)] hover:underline disabled:opacity-40"
+                      className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline disabled:opacity-40 lg:min-h-0"
                     >
                       {openingPath === form.baseDownloadPath ? (
                         <LoadingGlyph className="h-3 w-3" />
@@ -893,7 +893,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => openPicker("base")}
-                    className="inline-flex items-center gap-1 text-[11px] text-[var(--accent-text)] hover:underline"
+                    className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline lg:min-h-0"
                   >
                     <FolderOpen className="h-3 w-3" />
                     Browse
@@ -1072,7 +1072,7 @@ export default function SettingsPage() {
                         (form.category && form.pathRules[form.category])
                       )
                     }
-                    className="inline-flex items-center gap-1 text-[11px] text-[var(--accent-text)] hover:underline disabled:opacity-40"
+                    className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline disabled:opacity-40 lg:min-h-0"
                   >
                     {openingPath === form.savePath ||
                     openingPath === form.category ||
@@ -1086,7 +1086,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => openPicker("savePath")}
-                    className="inline-flex items-center gap-1 text-[11px] text-[var(--accent-text)] hover:underline"
+                    className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline lg:min-h-0"
                   >
                     <FolderOpen className="h-3 w-3" />
                     Browse
@@ -1128,7 +1128,7 @@ export default function SettingsPage() {
                   )
                 }
                 disabled={!!openingPath || previewPath === "(client default)"}
-                className="inline-flex items-center gap-1 text-[var(--accent-text)] hover:underline disabled:opacity-40"
+                className="inline-flex items-center gap-1 min-h-[44px] text-[var(--accent-text)] hover:underline disabled:opacity-40 lg:min-h-0"
               >
                 <FolderSearch className="h-3.5 w-3.5" />
                 Open
@@ -1195,7 +1195,7 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       onClick={() => removeCategory(c)}
-                      className="text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+                      className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-[var(--text-tertiary)] hover:text-[var(--danger)] lg:min-h-0 lg:min-w-0"
                       aria-label={`Remove ${c}`}
                     >
                       <Trash2 className="h-3 w-3" />
@@ -1234,7 +1234,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => setPathsExpanded((v) => !v)}
-                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors"
+                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 min-h-[44px] text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors lg:min-h-0"
                 aria-expanded={pathsExpanded}
               >
                 <span className="inline-flex items-center gap-2 font-medium">
@@ -1282,7 +1282,7 @@ export default function SettingsPage() {
                               prev === c ? null : c,
                             )
                           }
-                          className="flex w-full items-center gap-2 px-2.5 py-2 text-left min-w-0"
+                          className="flex w-full items-center gap-2 px-2.5 py-2 min-h-[44px] text-left min-w-0 lg:min-h-0"
                           aria-expanded={isOpen}
                         >
                           {isOpen ? (
@@ -1384,7 +1384,7 @@ export default function SettingsPage() {
                                 <button
                                   type="button"
                                   onClick={() => clearCategoryPath(c)}
-                                  className="text-[11px] text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
+                                  className="inline-flex items-center min-h-[44px] text-[11px] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] lg:min-h-0"
                                 >
                                   Reset to auto
                                 </button>

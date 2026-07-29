@@ -77,7 +77,7 @@ export default function RootLayout({
                   <div className="flex items-center gap-3 shrink-0">
                     <a
                       href="/about"
-                      className="hover:text-[var(--text-secondary)]"
+                      className="inline-flex min-h-[44px] items-center px-2 hover:text-[var(--text-secondary)] lg:min-h-0 lg:px-0"
                     >
                       About
                     </a>

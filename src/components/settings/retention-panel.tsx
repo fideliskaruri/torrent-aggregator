@@ -197,7 +197,7 @@ export function RetentionPanel() {
                 aria-pressed={policy === option.value}
                 disabled={saving !== null}
                 onClick={() => void save(option.value)}
-                className={`rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1 disabled:opacity-40 ${
+                className={`min-h-[44px] rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1 disabled:opacity-40 lg:min-h-0 ${
                   policy === option.value
                     ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                     : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
@@ -226,7 +226,7 @@ export function RetentionPanel() {
             <Button
               type="button"
               variant="secondary"
-              className="h-auto min-h-9 whitespace-normal py-2 text-center"
+              className="h-auto min-h-[44px] whitespace-normal py-2 text-center lg:min-h-9"
               disabled={sweeping !== null}
               onClick={() => void runSweep("preview")}
             >
@@ -236,7 +236,7 @@ export function RetentionPanel() {
             <Button
               type="button"
               variant="destructive"
-              className="h-auto min-h-9 whitespace-normal py-2 text-center"
+              className="h-auto min-h-[44px] whitespace-normal py-2 text-center lg:min-h-9"
               disabled={sweeping !== null}
               onClick={() => void runSweep("delete")}
             >

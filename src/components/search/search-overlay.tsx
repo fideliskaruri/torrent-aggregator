@@ -12,6 +12,7 @@ import type { SearchResponse } from "@/lib/torrents/types";
 import { groupTitles } from "./group-titles";
 import { TitleResultsList } from "./title-results-list";
 import { buildSearchQuery, DEFAULT_PAGE_SIZE } from "./pagination";
+import { cn } from "@/lib/utils";
 
 /** The window event that asks the overlay to open. */
 const OPEN_EVENT = "tf:open-search";
@@ -44,6 +45,8 @@ export function SearchOverlay() {
   const [query, setQuery] = useState("");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  // Drives a subtle scale+fade entrance; flipped on the frame after mount.
+  const [entered, setEntered] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,6 +83,19 @@ export function SearchOverlay() {
       inputRef.current?.focus();
       inputRef.current?.select();
     });
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
+  // Play a subtle scale+fade entrance the frame after the overlay mounts, and
+  // reset it on close. prefers-reduced-motion users get no animation because
+  // the transition classes carry `motion-reduce:transition-none`, so the panel
+  // simply appears — this effect stays inert for them.
+  useEffect(() => {
+    if (!open) {
+      setEntered(false);
+      return;
+    }
+    const raf = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(raf);
   }, [open]);
 
@@ -203,11 +219,26 @@ export function SearchOverlay() {
     focusCard(down ? idx + 1 : idx - 1);
   }
 
+  // Selecting a title navigates to its page; the overlay must not linger on top
+  // of the new route. The title link is the only element marked
+  // data-card-target — Play, Download and the expander are siblings of it, so a
+  // click on a control never matches and never closes. This also covers the
+  // Enter path, which reaches the same link via .click().
+  function onResultsClick(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-card-target="title"]')) {
+      close();
+    }
+  }
+
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex justify-center px-3 pt-[8vh] sm:pt-[12vh]"
+      className={cn(
+        "fixed inset-0 z-[100] flex justify-center px-4 pt-[8vh] transition-opacity duration-200 ease-out motion-reduce:transition-none sm:px-6 sm:pt-[12vh]",
+        entered ? "opacity-100" : "opacity-0",
+      )}
       role="dialog"
       aria-modal="true"
       aria-label="Search"
@@ -221,7 +252,10 @@ export function SearchOverlay() {
       />
 
       <div
-        className="relative z-[1] flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]"
+        className={cn(
+          "relative z-[1] flex max-h-[84vh] w-full max-w-3xl origin-top flex-col overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)] transition-transform duration-200 ease-out motion-reduce:transition-none",
+          entered ? "scale-100" : "scale-[0.98]",
+        )}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.preventDefault();
@@ -229,41 +263,52 @@ export function SearchOverlay() {
           }
         }}
       >
-        <div className="flex items-center gap-2 border-b border-[var(--border)] px-3">
-          <Search
-            className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]"
-            aria-hidden
-          />
-          <input
-            ref={inputRef}
-            type="search"
-            data-search-input="true"
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            onKeyDown={onInputKeyDown}
-            placeholder="Search for something to watch…"
-            aria-label="Search"
-            autoComplete="off"
-            spellCheck={false}
-            className="h-12 w-full min-w-0 bg-transparent text-[15px] text-[var(--text)] outline-none placeholder:text-[var(--text-tertiary)]"
-          />
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close search"
-            className="shrink-0 rounded-md p-1.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
+        {/* Header — the input lives in an inset shell whose focus ring is a soft
+            glow on the bar itself. Being inset, the 3px ring has room to render
+            fully and is never clipped by the modal's rounded, overflow-hidden
+            edge (the defect the old container-ring had). */}
+        <div className="border-b border-[var(--border)] p-3">
+          <div
+            role="search"
+            className="flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_var(--accent-dim)]"
           >
-            <X className="h-4 w-4" />
-          </button>
+            <Search
+              className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]"
+              aria-hidden
+            />
+            <input
+              ref={inputRef}
+              type="search"
+              data-search-input="true"
+              data-search-overlay-input="true"
+              value={query}
+              onChange={(e) => onQueryChange(e.target.value)}
+              onKeyDown={onInputKeyDown}
+              placeholder="Search for something to watch…"
+              aria-label="Search"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-11 w-full min-w-0 bg-transparent text-base text-[var(--text)] outline-none placeholder:text-[var(--text-tertiary)] [&::-webkit-search-cancel-button]:appearance-none"
+            />
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Close search"
+              className="-mr-1 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors duration-200 ease-out motion-reduce:transition-none hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div
           ref={resultsRef}
           onKeyDown={onResultsKeyDown}
-          className="min-h-0 flex-1 overflow-y-auto p-3"
+          onClick={onResultsClick}
+          className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4"
         >
           {query.trim().length < 2 ? (
-            <p className="px-1 py-6 text-center text-[13px] text-[var(--text-tertiary)]">
+            <p className="px-1 py-10 text-center text-[13px] text-[var(--text-tertiary)]">
               Type to search across everything you can watch.
             </p>
           ) : (

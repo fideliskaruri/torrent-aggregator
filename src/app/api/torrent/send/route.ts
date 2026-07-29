@@ -17,13 +17,12 @@ import {
   promoteTorrentToKept,
   releaseInfoHash,
   retentionStateForOrigin,
-  shouldSendAsStreamOnly,
-  streamingRetentionEnabled,
 } from "@/lib/streaming/retention";
 import {
   readDefaultRetentionPolicy,
   resolveSendRetentionChoice,
 } from "@/lib/library/retention-settings";
+import { sendRetentionToPurpose } from "@/lib/streaming/send-retention";
 
 export const dynamic = "force-dynamic";
 /** WebTorrent / disk I/O must run in Node, not Edge. */
@@ -112,13 +111,19 @@ export async function POST(request: NextRequest) {
 
     if (!body.magnet && !body.torrentUrl && body.infoHash && body.retention) {
       const infoHash = releaseInfoHash({ infoHash: body.infoHash });
-      const existingOrigin = await existingRetentionOrigin(session.user.id, infoHash);
-      let retentionState = retentionStateForOrigin(existingOrigin);
+      const existing = await existingRetentionOrigin(session.user.id, infoHash);
+      // A failed read shows honestly as "unknown"; it never implies a state.
+      let retentionState =
+        existing.status === "found"
+          ? retentionStateForOrigin(existing.origin)
+          : "unknown";
       if (config.clientType === "builtin" && sendTarget === "primary") {
         if (body.retention === "stream") {
-          await markTorrentStreamOnly(session.user.id, infoHash, {
-            allowFreshDefaultOrigin: existingOrigin == null,
-          });
+          // Play toggle: prewarm|stream → stream (issue B). The guard inside
+          // markTorrentStreamOnly can never touch a `user` row, so a toggle can
+          // never demote a real download; the old `allowFreshDefaultOrigin`
+          // escape hatch that let a null/failed read demote a user row is gone.
+          await markTorrentStreamOnly(session.user.id, infoHash);
           retentionState = "stream";
         } else {
           await promoteTorrentToKept(session.user.id, infoHash);
@@ -172,26 +177,44 @@ export async function POST(request: NextRequest) {
       infoHash: body.infoHash,
       magnet: body.magnet,
     });
-    const existingOrigin = await existingRetentionOrigin(session.user.id, infoHash);
+    const existingLookup = await existingRetentionOrigin(session.user.id, infoHash);
+    const existingOrigin =
+      existingLookup.status === "found" ? existingLookup.origin : null;
     let sendRetention: "stream" | "keep" | null = body.retention ?? null;
     if (body.retention == null) {
-      const defaultRetention = await readDefaultRetentionPolicy(session.user.id);
-      sendRetention = resolveSendRetentionChoice({
-        defaultPolicy: defaultRetention.policy,
-        defaultPolicyPersisted: defaultRetention.persisted,
-        explicitRetention: null,
-        watchListItemId: body.watchListItemId,
-        existingOrigin,
-      });
+      if (existingLookup.status === "error") {
+        // Fail closed (issue D / rule 3): if we cannot read the existing origin
+        // we must NOT default an untyped send to an evictable stream. A genuine
+        // `user` download would then have its history hidden and could later
+        // fall in scope of stream eviction. `keep` is the non-destructive choice
+        // under uncertainty; we never guess toward deletion.
+        sendRetention = "keep";
+      } else {
+        const defaultRetention = await readDefaultRetentionPolicy(session.user.id);
+        sendRetention = resolveSendRetentionChoice({
+          defaultPolicy: defaultRetention.policy,
+          defaultPolicyPersisted: defaultRetention.persisted,
+          explicitRetention: null,
+          watchListItemId: body.watchListItemId,
+          existingOrigin,
+        });
+      }
     }
-    const streamOnly = shouldSendAsStreamOnly({
-      enabled: streamingRetentionEnabled(),
-      clientType: config.clientType,
-      sendTarget,
-      watchListItemId: body.watchListItemId,
-      retention: sendRetention,
-      existingOrigin,
-    });
+    // The engine's authoritative add intent, derived from the resolved retention
+    // choice. The builtin engine is ALWAYS told the true intent so a fresh row
+    // is born `stream` and a Play of an existing `prewarm` promotes to `stream`
+    // rather than being (mis)classified by the engine's `user` default — the
+    // original bug. A watchlisted stream resolves to `keep` inside the helper.
+    const purpose = sendRetentionToPurpose(sendRetention, body.watchListItemId);
+    // Honesty (issue G): an external client cannot honour a stream — it always
+    // fetches the whole file — so we neither pretend it streamed nor silently
+    // relabel it. `streamDegraded` is surfaced to the caller and the row is
+    // recorded as a kept download.
+    const streamDegraded = purpose === "stream" && !isBuiltin;
+    // What actually lands on disk. Only a genuine builtin stream is tagged
+    // `stream` so Activity / Recently Added can hide it (issue E); a degraded
+    // external "stream" is an honest kept download.
+    const historyRetention = isBuiltin && purpose === "stream" ? "stream" : "keep";
 
     // Automatic storage budget (cap under download folder + free-space floor)
     {
@@ -217,8 +240,9 @@ export async function POST(request: NextRequest) {
             source: body.source,
             status: "failed",
             message: budget.message,
-          },
-        });
+                retention: historyRetention,
+              },
+            });
         return NextResponse.json(
           {
             ok: false,
@@ -241,7 +265,7 @@ export async function POST(request: NextRequest) {
         name: body.name,
         category: cat,
         savePath,
-        streamOnly,
+        purpose,
       });
     } catch (err) {
       // Pass clientType so builtin never gets ECONNREFUSED "offline" framing
@@ -260,6 +284,7 @@ export async function POST(request: NextRequest) {
           source: body.source,
           status: "failed",
           message: formatted.message,
+          retention: historyRetention,
         },
       });
       return NextResponse.json(
@@ -302,17 +327,19 @@ export async function POST(request: NextRequest) {
         savePath: savePath ?? null,
         clientType: config.clientType,
         sendKind: smart.kind,
+        retention: historyRetention,
       },
     });
 
     let retentionState = retentionStateForOrigin(
-      existingOrigin ?? (streamOnly ? "stream" : "user"),
+      existingOrigin ?? (purpose === "stream" ? "stream" : "user"),
     );
     if (result.ok && isBuiltin && sendTarget === "primary") {
-      if (streamOnly) {
-        await markTorrentStreamOnly(session.user.id, infoHash, {
-          allowFreshDefaultOrigin: existingOrigin == null,
-        });
+      if (purpose === "stream") {
+        // Verification only — the engine already birthed/kept the correct origin
+        // from `purpose`. Idempotent on a `stream` row and (issue B) promotes a
+        // `prewarm` up to `stream`; it can never touch a `user` row.
+        await markTorrentStreamOnly(session.user.id, infoHash);
         retentionState = "stream";
       } else {
         await promoteTorrentToKept(session.user.id, infoHash);
@@ -333,6 +360,7 @@ export async function POST(request: NextRequest) {
           confidence: smart.confidence,
         },
         retentionState,
+        streamDegraded,
       },
       { status: result.ok ? 200 : looksOffline ? 503 : 502 },
     );

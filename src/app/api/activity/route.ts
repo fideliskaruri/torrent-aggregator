@@ -25,12 +25,13 @@ export async function GET() {
 
     const [jobs, history] = await Promise.all([
       prisma.grabJob.findMany({
-        where: { userId },
+        // Hide ephemeral Play cache grabs; keep legacy NULL rows (issue E).
+        where: { userId, retention: { not: "stream" } },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
       prisma.downloadHistory.findMany({
-        where: { userId },
+        where: { userId, retention: { not: "stream" } },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),

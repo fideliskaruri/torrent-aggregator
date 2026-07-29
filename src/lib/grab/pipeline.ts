@@ -112,6 +112,7 @@ export async function runGrabPipeline(
     fallbackTitle,
     grabJobKind,
     externalId,
+    purpose,
     addPayload,
     onSuccess,
     onFailure,
@@ -258,6 +259,9 @@ export async function runGrabPipeline(
       category: target.category,
       savePath: target.savePath,
       ...addPayload,
+      // Purpose is authoritative and required — spread last so a stray
+      // addPayload can never leave the intent unstated or override it.
+      purpose,
     });
   } catch (err) {
     const formatted = formatClientError(err, config.clientType);
@@ -382,6 +386,7 @@ export async function runGrabPipeline(
           category: target.category,
           kind: grabJobKind,
           externalId,
+          retention: purpose,
         },
       });
 
@@ -394,6 +399,7 @@ export async function runGrabPipeline(
           infoHash: hash,
           source: candidate.source,
           status: send.ok ? "sent" : "failed",
+          retention: purpose,
           ...historyFacts(),
           message: buildHistoryMessage(),
         },

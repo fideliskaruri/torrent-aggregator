@@ -483,7 +483,10 @@ async function buildRecentlyAdded(userId: string): Promise<Rail | null> {
   // shrinks because someone grabbed two prints of one film is the same defect
   // in the other direction.
   const history = await prisma.downloadHistory.findMany({
-    where: { userId, status: "sent" },
+    // `retention: { not: "stream" }` hides ephemeral Play cache entries while
+    // still INCLUDING legacy NULL rows (a `notIn`/equality filter would drop
+    // NULLs). Streams are not downloads and must never surface here (issue E).
+    where: { userId, status: "sent", retention: { not: "stream" } },
     orderBy: { createdAt: "desc" },
     take: 60,
   });

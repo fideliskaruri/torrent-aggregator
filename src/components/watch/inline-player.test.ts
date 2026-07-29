@@ -25,6 +25,7 @@ import {
   releaseDetailChips,
   resolveVideoFileSelection,
   selectMainFeatureFile,
+  isTerminalPlayback,
   selectVideoFiles,
   shouldAdoptTimeUpdate,
   shouldShowFullscreenStatusOverlay,
@@ -32,7 +33,6 @@ import {
   shouldShowUnifiedLoader,
   shouldShowViewerBuffering,
   terminalPlaybackCopy,
-  streamStateSentence,
   streamPath,
   streamStatusMessage,
   sourceTimeInRanges,
@@ -227,22 +227,6 @@ assert(
   ).join(" ").includes("www.UIndex"),
 );
 assert(
-  "preparing state names the viewer state, not the ffmpeg mechanism",
-  streamStateSentence({ checking: false, preparing: true, waiting: false, playing: false }) ===
-    "Getting it ready…",
-);
-assert(
-  "waiting on an unsustainable stream never says 'stream' or a mechanism",
-  streamStateSentence({
-    checking: false,
-    preparing: false,
-    waiting: true,
-    playing: false,
-    swarm: { peers: 4, downloadSpeedBps: 1_200, progress: 0.15, observedAt: 0 },
-    minimumStreamBps: 500_000,
-  }) === "This one's slow — still getting it ready.",
-);
-assert(
   "moving active video suppresses the buffering overlay after a waiting event",
   !shouldShowViewerBuffering({ waiting: true, activeVideoAdvancing: true }),
 );
@@ -399,6 +383,46 @@ assert(
 assert(
   "up-next status never calls an incomplete torrent ready",
   upNextStatusSentence("downloading") === "Still downloading — you can start now, but it may pause to catch up.",
+);
+// COMPLAINT 3 / Issue 1: terminality is EXPLICIT. A recovering problem or a
+// bare diagnostic message must NOT be terminal — the single loader stays up
+// while silent auto-failover works. Only an exhausted streamFailure or a hard
+// "can't play here" problem is terminal.
+assert(
+  "recovering problem (stalled) is NOT terminal — loader stays up during auto-failover",
+  isTerminalPlayback({ problem: "stalled", hasStreamFailure: false }) === false,
+);
+assert(
+  "recovering problem (preparing) is NOT terminal — loader stays up",
+  isTerminalPlayback({ problem: "preparing", hasStreamFailure: false }) === false,
+);
+assert(
+  "recovering problem (metadata) is NOT terminal — metadata resolving keeps the loader up while it re-attempts",
+  isTerminalPlayback({ problem: "metadata", hasStreamFailure: false }) === false,
+);
+assert(
+  "metadata that exhausts its retry budget IS terminal once escalated to a streamFailure",
+  isTerminalPlayback({ problem: "metadata", hasStreamFailure: true }) === true,
+);
+assert(
+  "no problem and no failure is NOT terminal — a bare reconnect/seek note keeps the loader",
+  isTerminalPlayback({ problem: null, hasStreamFailure: false }) === false,
+);
+assert(
+  "an exhausted streamFailure IS terminal even while the problem still reads as recovering",
+  isTerminalPlayback({ problem: "stalled", hasStreamFailure: true }) === true,
+);
+assert(
+  "a hard browser-error problem IS terminal",
+  isTerminalPlayback({ problem: "browser-error", hasStreamFailure: false }) === true,
+);
+assert(
+  "a no-audio problem IS terminal",
+  isTerminalPlayback({ problem: "no-audio", hasStreamFailure: false }) === true,
+);
+assert(
+  "a generic problem IS terminal",
+  isTerminalPlayback({ problem: "generic", hasStreamFailure: false }) === true,
 );
 assert(
   "up-next unavailable action label names the state instead of saying switch here soon",
@@ -710,6 +734,7 @@ assert(
     waiting: false,
     preparing: false,
     checking: false,
+    switching: false,
     terminal: false,
     // Post-first-frame is the default for the union cases below; the temporal
     // cases flip this to false to model the prepare→first-frame window.
@@ -766,6 +791,16 @@ assert(
       expect: false,
     },
     {
+      name: "SWITCH: an explicit release switch owns the loader even over an advancing outgoing frame",
+      args: { ...base, switching: true, activeVideoAdvancing: true, playbackStarted: true },
+      expect: true,
+    },
+    {
+      name: "SWITCH: a terminal error still wins over an in-flight switch",
+      args: { ...base, switching: true, terminal: true },
+      expect: false,
+    },
+    {
       name: "POST-FIRST-FRAME: a mid-play stall shows the one loader again (transient)",
       args: { ...base, playbackStarted: true, waiting: true },
       expect: true,
@@ -792,6 +827,14 @@ assert(
 assert(
   "timeupdate stays frozen when both are true",
   shouldAdoptTimeUpdate({ seekInFlight: true, hasPendingUserSeek: true }) === false,
+);
+assert(
+  "timeupdate is frozen while the viewer is actively scrubbing (no thumb yank mid-drag)",
+  shouldAdoptTimeUpdate({ seekInFlight: false, hasPendingUserSeek: false, isUserScrubbing: true }) === false,
+);
+assert(
+  "timeupdate resumes the instant scrubbing ends and nothing else is pending",
+  shouldAdoptTimeUpdate({ seekInFlight: false, hasPendingUserSeek: false, isUserScrubbing: false }) === true,
 );
 
 // --- I20: a movie must not be treated as a season pack ----------------------

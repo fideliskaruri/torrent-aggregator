@@ -6,8 +6,12 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
-import { USER_ORIGIN } from "@/lib/prewarm/types";
-import { STREAM_ORIGIN } from "@/lib/streaming/retention";
+import { USER_ORIGIN, EVICTING_ORIGIN } from "@/lib/prewarm/types";
+import { STREAM_ORIGIN, promoteTorrentToKept } from "@/lib/streaming/retention";
+import {
+  newEvictLease,
+  recoverStaleEvictionLeases,
+} from "@/lib/streaming/evict-lease";
 import {
   listRetentionSweepCandidates,
   sweepRetentionCache,
@@ -319,6 +323,31 @@ async function main(): Promise<void> {
         findMany: async () => fakeRows,
         findFirst: async ({ where }: { where: { hash: string } }) =>
           fakeRows.find((row) => row.hash === where.hash) ?? null,
+        updateMany: async ({
+          where,
+          data,
+        }: {
+          where: {
+            userId?: string;
+            hash?: string;
+            origin?: string;
+            status?: { not?: string };
+            progress?: { gte?: number };
+          };
+          data: { origin: string };
+        }) => {
+          let count = 0;
+          for (const row of fakeRows) {
+            if (where.userId !== undefined && row.userId !== where.userId) continue;
+            if (where.hash !== undefined && row.hash !== where.hash) continue;
+            if (where.origin !== undefined && row.origin !== where.origin) continue;
+            if (where.status?.not !== undefined && row.status === where.status.not) continue;
+            if (where.progress?.gte !== undefined && !(row.progress >= where.progress.gte)) continue;
+            row.origin = data.origin;
+            count += 1;
+          }
+          return { count };
+        },
         deleteMany: async () => ({ count: 1 }),
       },
       playbackProgress: {
@@ -386,6 +415,189 @@ async function main(): Promise<void> {
     assert.deepEqual(deleted, [evictable]);
     assert.deepEqual(evicted.deleted.map((c) => c.hash), [evictable]);
     assert.equal(evicted.satisfied, true);
+
+    // ── issue-D / reviewer item 2: promote-vs-sweep race, BOTH directions ────
+    // (a) An explicit Download that promotes stream → user in the window between
+    // the safety read and the file delete must SAVE the files. The claim CAS is
+    // guarded on origin = stream, so once the row is `user` the claim frees
+    // nothing and the sweep aborts BEFORE unlinking. Under the old
+    // delete-then-guard order the bytes were already gone when the row guard
+    // refused — this assertion is RED against that order and GREEN under the lease.
+    await resetRows();
+    const promoteRace = await seedTorrent({
+      tag: "promote-race",
+      completedAt: oldComplete,
+      lastUsedMinutes: 900,
+      sizeGb: 10,
+    });
+    deleted = [];
+    const promoteRaceResult = await sweepRetentionCache({
+      userId,
+      config,
+      budgetBytes: 1,
+      now,
+      db: prisma,
+      mode: "delete",
+      _foreground: { active: () => false, hash: () => null },
+      _beforeClaim: async (candidate) => {
+        await prisma.engineTorrent.update({
+          where: { userId_hash: { userId, hash: candidate.hash } },
+          data: { origin: USER_ORIGIN },
+        });
+      },
+      _deleteFn: async (_config, hash) => {
+        deleted.push(hash);
+        return { ok: true, message: "deleted" };
+      },
+    });
+    assert.deepEqual(deleted, [], "a Download promoting mid-sweep keeps its files on disk");
+    assert.equal(await exists(promoteRace), true, "the promoted row survives the sweep");
+    const promotedRow = await prisma.engineTorrent.findFirst({
+      where: { userId, hash: promoteRace },
+      select: { origin: true },
+    });
+    assert.equal(
+      promotedRow?.origin,
+      USER_ORIGIN,
+      "the promoted row is left a user download, never stuck in evicting",
+    );
+    assert.ok(
+      promoteRaceResult.skipped.some(
+        (s) => s.hash === promoteRace && s.reason === "db-guard-refused",
+      ),
+      "the claim lease (not the earlier safety read) refuses the promoted row",
+    );
+
+    // (b) With no racing promote, a genuinely evictable stream is STILL actually
+    // deleted — the lease protects promotions without over-protecting real cache.
+    await resetRows();
+    const unracedEvictable = await seedTorrent({
+      tag: "unraced-evictable",
+      completedAt: oldComplete,
+      lastUsedMinutes: 900,
+      sizeGb: 10,
+    });
+    const unracedResult = await runSweep();
+    assert.equal(await exists(unracedEvictable), false, "an unraced evictable stream is deleted");
+    assert.deepEqual(deleted, [unracedEvictable]);
+    assert.deepEqual(unracedResult.deleted.map((c) => c.hash), [unracedEvictable]);
+
+    // (a2) reviewer round 2: a Download that lands AFTER the claim — inside the
+    // window between claim and unlink — must STEAL the lease and keep the files.
+    // The sweep claims stream → evicting, then `_afterClaim` fires a Download
+    // (promoteTorrentToKept) that steals evicting → user and clears the token.
+    // The re-check under the lease then finds it no longer owns the row and
+    // aborts BEFORE unlinking. Without the re-check (delete-on-stale-claim) the
+    // files are already gone — this is the exact "eviction wins a race it should
+    // lose" gap, and this assertion is RED against a build with the re-check
+    // removed.
+    await resetRows();
+    const stealRace = await seedTorrent({
+      tag: "steal-race",
+      completedAt: oldComplete,
+      lastUsedMinutes: 900,
+      sizeGb: 10,
+    });
+    deleted = [];
+    let stealFired = 0;
+    const stealResult = await sweepRetentionCache({
+      userId,
+      config,
+      budgetBytes: 1,
+      now,
+      db: prisma,
+      mode: "delete",
+      _foreground: { active: () => false, hash: () => null },
+      _afterClaim: async (candidate) => {
+        stealFired += 1;
+        // The user presses Download on the exact title mid-eviction.
+        await promoteTorrentToKept(userId, candidate.hash, { db: prisma });
+      },
+      _deleteFn: async (_config, hash) => {
+        deleted.push(hash);
+        return { ok: true, message: "deleted" };
+      },
+    });
+    assert.equal(stealFired, 1, "the steal seam fired (the row was actually claimed first)");
+    assert.deepEqual(deleted, [], "a Download stealing the lease mid-evict keeps its files on disk");
+    assert.equal(await exists(stealRace), true, "the stolen row survives the sweep");
+    const stolenRow = await prisma.engineTorrent.findFirst({
+      where: { userId, hash: stealRace },
+      select: { origin: true, evictLease: true },
+    });
+    assert.equal(stolenRow?.origin, USER_ORIGIN, "the stolen row ends a kept user download");
+    assert.equal(stolenRow?.evictLease, null, "the steal cleared the eviction lease token");
+    assert.ok(
+      stealResult.skipped.some((s) => s.hash === stealRace && s.reason === "lease-stolen"),
+      "the re-check under the lease (not the claim) refuses the stolen row",
+    );
+
+    // (c) reviewer round 2: a lease abandoned by a crash (an `evicting` row whose
+    // token is older than the stale window) must be RECOVERED to its recorded
+    // prior origin at sweep entry — not orphaned forever, invisible to both the
+    // promote and evict paths. Recovery restores the EXACT recorded origin; it
+    // never infers, so it can never be a backfill.
+    await resetRows();
+    const staleToken = newEvictLease(new Date(now.getTime() - 20 * 60_000));
+    const staleLease = hashFor("stale-lease");
+    await prisma.engineTorrent.create({
+      data: {
+        userId,
+        hash: staleLease,
+        name: "stale-lease",
+        origin: EVICTING_ORIGIN,
+        evictLease: staleToken,
+        evictFrom: STREAM_ORIGIN,
+        status: "seeding",
+        progress: 1,
+        sizeBytes: BigInt(10 * GB),
+        lastUsedAt: new Date(now.getTime() - 900 * 60_000),
+      },
+    });
+    const recovery = await recoverStaleEvictionLeases({ userId, db: prisma, now });
+    const recoveredRow = await prisma.engineTorrent.findFirst({
+      where: { userId, hash: staleLease },
+      select: { origin: true, evictLease: true, evictFrom: true },
+    });
+    assert.equal(await exists(staleLease), true, "a stale lease is recovered, never deleted by recovery");
+    assert.equal(recoveredRow?.origin, STREAM_ORIGIN, "a stale evicting lease is restored to its recorded origin");
+    assert.equal(recoveredRow?.evictLease, null, "recovery clears the abandoned token");
+    assert.equal(recoveredRow?.evictFrom, null, "recovery clears the recorded prior origin");
+    assert.ok(
+      recovery.recovered.some((r) => r.hash === staleLease && r.restoredTo === STREAM_ORIGIN),
+      "recovery reports what it restored",
+    );
+
+    // …and a FRESH (not-yet-stale) lease is LEFT in-flight — recovery must never
+    // steal a live eviction out from under the sweep that owns it.
+    await resetRows();
+    const freshToken = newEvictLease(now);
+    const freshLease = hashFor("fresh-lease");
+    await prisma.engineTorrent.create({
+      data: {
+        userId,
+        hash: freshLease,
+        name: "fresh-lease",
+        origin: EVICTING_ORIGIN,
+        evictLease: freshToken,
+        evictFrom: STREAM_ORIGIN,
+        status: "seeding",
+        progress: 1,
+        sizeBytes: BigInt(10 * GB),
+        lastUsedAt: new Date(now.getTime() - 900 * 60_000),
+      },
+    });
+    const freshRecovery = await recoverStaleEvictionLeases({ userId, db: prisma, now });
+    const freshRow = await prisma.engineTorrent.findFirst({
+      where: { userId, hash: freshLease },
+      select: { origin: true, evictLease: true },
+    });
+    assert.equal(freshRow?.origin, EVICTING_ORIGIN, "a fresh in-flight lease is left claimed");
+    assert.equal(freshRow?.evictLease, freshToken, "a fresh lease keeps its token");
+    assert.ok(
+      !freshRecovery.recovered.some((r) => r.hash === freshLease),
+      "recovery does not touch a non-stale lease",
+    );
 
     await resetRows();
     const old = await seedTorrent({

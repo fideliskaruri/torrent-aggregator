@@ -101,7 +101,7 @@ export function ActiveDownloadsTeaser() {
         </h2>
         <Link
           href="/client"
-          className="text-[12px] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] inline-flex items-center gap-1"
+          className="text-[12px] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] inline-flex items-center gap-1 min-h-[44px] lg:min-h-0"
         >
           Open client
           <ArrowRight className="h-3 w-3" />
@@ -114,7 +114,7 @@ export function ActiveDownloadsTeaser() {
             <li key={t.hash}>
               <Link
                 href={titleHref}
-                className="surface-interactive flex items-center gap-3 px-3 py-2.5 min-w-0"
+                className="surface-interactive flex items-center gap-3 px-3 py-2.5 min-h-[44px] min-w-0 lg:min-h-0"
                 data-teaser-item
               >
                 <p className="min-w-0 flex-1 text-[13px] font-medium text-[var(--text)] truncate">

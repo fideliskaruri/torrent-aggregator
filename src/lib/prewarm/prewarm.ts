@@ -83,7 +83,6 @@ import { STREAM_ORIGIN } from "@/lib/streaming/retention";
 import {
   PREWARM_GRAB_KIND,
   PREWARM_ORIGIN,
-  USER_ORIGIN,
 } from "./types";
 import type {
   NextEpisode,
@@ -524,7 +523,7 @@ async function runPrewarm(
     search,
     config,
     fallbackTitle: `${next.title} ${label}`,
-    addPayload: { connectOnly: true },
+    purpose: "prewarm",
     grabJobKind: PREWARM_GRAB_KIND,
     externalId: next.watchListItemId,
     downloadHistoryPrefix: `Pre-warm ${label}`,
@@ -626,18 +625,20 @@ async function runPrewarm(
     async onSuccess(tx, candidate) {
       const hash = releaseInfoHash(candidate);
       if (!hash) return;
-      const updated = await tx.engineTorrent.updateMany({
+      // The engine now births origin=prewarm directly from `purpose: "prewarm"`,
+      // so this hook VERIFIES the label rather than applying it. We count the
+      // speculative row this send created and already carrying origin=prewarm; if
+      // it is absent (0), something upstream regressed and we report labelled:false
+      // instead of pretending a non-evictable speculative download is fine.
+      const verified = await tx.engineTorrent.count({
         where: {
           userId: opts.userId,
           hash,
-          // Only a row *this send* created. If the user already owned this
-          // torrent we must not relabel their download as evictable.
-          origin: USER_ORIGIN,
+          origin: PREWARM_ORIGIN,
           createdAt: { gte: sendStartedAt },
         },
-        data: { origin: PREWARM_ORIGIN },
       });
-      stamped = updated.count;
+      stamped = verified;
     },
 
     _searchFn: wrappedSearch,

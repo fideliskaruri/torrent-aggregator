@@ -31,7 +31,7 @@ export function TfPathChip({
       onClick={onOpen}
       disabled={!onOpen}
       className={cn(
-        "inline-flex max-w-full items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg-muted)] px-1.5 py-0.5 text-[11px] text-[var(--text-tertiary)] font-mono truncate transition-colors",
+        "inline-flex max-w-full items-center gap-1 rounded border border-[var(--border)] bg-[var(--bg-muted)] px-1.5 py-0.5 min-h-[44px] text-[11px] text-[var(--text-tertiary)] font-mono truncate transition-colors lg:min-h-0",
         onOpen && "hover:border-[var(--border-strong)] hover:text-[var(--accent-text)] cursor-pointer",
         !onOpen && "cursor-default",
         className,

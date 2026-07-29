@@ -132,7 +132,7 @@ export function LibraryControls({
             aria-checked={library.monitored}
             disabled={busy}
             onClick={() => setMonitored(!library.monitored)}
-            className="text-[var(--text-secondary)]"
+            className="min-h-[44px] text-[var(--text-secondary)] lg:min-h-0"
           >
             {busy ? (
               <Loader2 className="animate-spin" aria-hidden />

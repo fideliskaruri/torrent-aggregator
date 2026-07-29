@@ -191,6 +191,7 @@ async function main() {
       savePath: leechRoot,
       name: "Rehydrate Probe S01 Complete",
       category: "tv",
+      purpose: "keep",
     });
     assert.equal(add.ok, true, add.message);
 

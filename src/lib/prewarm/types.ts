@@ -26,6 +26,18 @@ export const USER_ORIGIN = "user";
  */
 export const STREAM_ORIGIN = "stream";
 
+/**
+ * Transient lease origin. A row wears it ONLY between the moment an eviction
+ * exclusively claims it (via a guarded `stream|prewarm → evicting` compare-and-
+ * set) and the moment its files finish deleting. It is never born and never
+ * meant to persist: the sweep deletes the leased row on success or rolls it back
+ * on failure. Because the keep/promote guards only ever match `stream`/`prewarm`,
+ * a Download cannot rescue a row once eviction has leased it — so files are only
+ * ever deleted for a row we exclusively own, and a promote and an eviction can
+ * never both act on the same bytes.
+ */
+export const EVICTING_ORIGIN = "evicting";
+
 /** `GrabJob.kind` for a speculative grab, so Activity can label it honestly. */
 export const PREWARM_GRAB_KIND = "prewarm";
 

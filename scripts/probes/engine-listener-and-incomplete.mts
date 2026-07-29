@@ -196,6 +196,7 @@ async function measureIncompleteMidpackStream() {
     savePath: leechRoot,
     name: "Incomplete Probe S01 Complete",
     category: "tv",
+    purpose: "keep",
   });
   assert.equal(add.ok, true, add.message);
   const torrent = await waitForLive(seeded.infoHash.toLowerCase(), 60_000);
@@ -242,6 +243,7 @@ async function measureForcedListeningTimeoutStream() {
       savePath: leechRoot,
       name: "Forced Listener Timeout Probe S01 Complete",
       category: "tv",
+      purpose: "keep",
     });
     assert.equal(add.ok, true, add.message);
     const torrent = await waitForLive(seeded.infoHash.toLowerCase(), 60_000);

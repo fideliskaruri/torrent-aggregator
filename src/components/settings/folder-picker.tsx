@@ -190,7 +190,7 @@ export function FolderPicker({
                     <button
                       type="button"
                       onClick={() => void load(entry.path)}
-                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] transition-colors"
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 min-h-[44px] text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] transition-colors lg:min-h-0"
                     >
                       {isDrive ? (
                         <HardDrive className="h-4 w-4 shrink-0 text-[var(--accent-text)]" />

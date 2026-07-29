@@ -170,6 +170,8 @@ async function runAutoRulesUnlocked(userId?: string): Promise<RuleRunResult[]> {
 
       const pipelineResult = await runGrabPipeline({
         userId: rule.userId,
+        // A matched download rule is an explicit standing instruction to keep.
+        purpose: "keep",
         search: {
           query: rule.query,
           category: ruleCategory,

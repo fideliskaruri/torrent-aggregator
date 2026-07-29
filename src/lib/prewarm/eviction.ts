@@ -26,8 +26,9 @@
 import prisma from "@/lib/prisma";
 import { getClient } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
-import { PREWARM_ORIGIN } from "./types";
+import { EVICTING_ORIGIN, PREWARM_ORIGIN } from "./types";
 import type { EvictionCandidate, EvictionResult } from "./types";
+import { newEvictLease, recoverStaleEvictionLeases } from "@/lib/streaming/evict-lease";
 
 type Db = typeof prisma;
 
@@ -157,6 +158,20 @@ export interface EvictOptions {
     config: ClientConnectionConfig,
     hash: string,
   ) => Promise<{ ok: boolean; message: string }>;
+  /**
+   * Test seam: fires AFTER a candidate passes the pre-claim guards but BEFORE
+   * the claim CAS — the exact window in which an explicit Download can promote
+   * a `prewarm` row to `user`. Used to prove the claim lease refuses to delete
+   * a just-promoted download's files.
+   */
+  _beforeClaim?: (candidate: EvictionCandidate) => Promise<void> | void;
+  /**
+   * Test seam: fires AFTER the claim CAS has leased the row (prewarm → evicting)
+   * but BEFORE the re-check + unlink — the window in which an explicit Download
+   * STEALS the lease (evicting → user). Used to prove the re-check aborts the
+   * delete and keeps the files.
+   */
+  _afterClaim?: (candidate: EvictionCandidate) => Promise<void> | void;
 }
 
 async function deleteViaClient(
@@ -195,6 +210,13 @@ export async function evictPrewarmsForBytes(
 
   if (neededBytes === 0) return result;
 
+  // Reclaim any lease abandoned by a crash (issue D reviewer round 2) BEFORE
+  // listing, so a stranded `evicting` row is restored to its recorded origin
+  // (here, prewarm) instead of leaking its disk forever.
+  await recoverStaleEvictionLeases({ userId: opts.userId, db }).catch(() => ({
+    recovered: [],
+  }));
+
   let listed: Awaited<ReturnType<typeof listEvictablePrewarms>>;
   try {
     listed = await listEvictablePrewarms(opts.userId, {
@@ -228,32 +250,114 @@ export async function evictPrewarmsForBytes(
       continue;
     }
 
+    // ── CLAIM THE ROW BEFORE TOUCHING ANY FILE (issue D) ────────────────────
+    // Atomically lease prewarm → evicting and stamp a token. If an explicit
+    // Download promoted this hash (prewarm → user) after it was listed, the guard
+    // `origin = prewarm` no longer matches, the claim frees nothing, and we abort
+    // WITH THE FILES STILL ON DISK. `evictLease: null` also stops us re-claiming a
+    // row another sweep already leased. The old order (delete files, then guard
+    // the row delete) could destroy a just-promoted download's bytes before the
+    // row guard refused. Worst case now is an orphaned file (reclaimed by lease
+    // recovery), never a lost download.
+    await opts._beforeClaim?.(candidate);
+    const leaseToken = newEvictLease();
+    let claimed = 0;
+    try {
+      const claim = await db.engineTorrent.updateMany({
+        where: {
+          userId: opts.userId,
+          hash: candidate.hash,
+          origin: PREWARM_ORIGIN,
+          evictLease: null,
+        },
+        data: { origin: EVICTING_ORIGIN, evictLease: leaseToken, evictFrom: PREWARM_ORIGIN },
+      });
+      claimed = claim.count;
+    } catch (err) {
+      result.skipped.push({
+        hash: candidate.hash,
+        reason: `db-claim-error: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      continue;
+    }
+    if (claimed === 0) {
+      result.skipped.push({ hash: candidate.hash, reason: "db-guard-refused" });
+      continue;
+    }
+
+    await opts._afterClaim?.(candidate);
+
+    // RE-CHECK UNDER THE LEASE, immediately before unlink. A Download that
+    // arrived after our claim STEALS the lease (evicting → user, clearing the
+    // token). If our exact token no longer owns the row, the user won: abort with
+    // the files intact.
+    let stillOwn = false;
+    try {
+      const owned = await db.engineTorrent.findFirst({
+        where: {
+          userId: opts.userId,
+          hash: candidate.hash,
+          origin: EVICTING_ORIGIN,
+          evictLease: leaseToken,
+        },
+        select: { hash: true },
+      });
+      stillOwn = owned != null;
+    } catch {
+      stillOwn = false; // fail closed: never delete if we cannot prove we own it
+    }
+    if (!stillOwn) {
+      result.skipped.push({ hash: candidate.hash, reason: "lease-stolen" });
+      continue;
+    }
+
+    // The lease is exclusively ours (origin = evicting, token matches). Delete
+    // the files.
+    let deletedOk = false;
     try {
       const removed = await remove(opts.config, candidate.hash);
+      deletedOk = removed.ok;
       if (!removed.ok) {
         result.skipped.push({
           hash: candidate.hash,
           reason: `client-refused: ${removed.message}`,
         });
-        continue;
       }
     } catch (err) {
       result.skipped.push({
         hash: candidate.hash,
         reason: `client-error: ${err instanceof Error ? err.message : String(err)}`,
       });
+    }
+
+    if (!deletedOk) {
+      // Roll the lease back so the row returns to an evictable prewarm. Guarded on
+      // OUR token so we never clobber a steal that landed in the meantime.
+      try {
+        await db.engineTorrent.updateMany({
+          where: {
+            userId: opts.userId,
+            hash: candidate.hash,
+            origin: EVICTING_ORIGIN,
+            evictLease: leaseToken,
+          },
+          data: { origin: PREWARM_ORIGIN, evictLease: null, evictFrom: null },
+        });
+      } catch {
+        /* best-effort */
+      }
       continue;
     }
 
     try {
-      // Guard 3 of 3: even the cleanup delete restates the origin, so a stale
-      // in-memory candidate can never remove a row that has since become a
-      // user grab.
+      // Defensive: ensure the leased row is gone. Guarded to our exact lease so
+      // we only ever delete the row we ourselves claimed and still own.
       await db.engineTorrent.deleteMany({
         where: {
           userId: opts.userId,
           hash: candidate.hash,
-          origin: PREWARM_ORIGIN,
+          origin: EVICTING_ORIGIN,
+          evictLease: leaseToken,
         },
       });
     } catch (err) {

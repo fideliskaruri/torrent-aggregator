@@ -80,6 +80,7 @@ async function main() {
     name: best.title,
     category: target.category,
     savePath: target.savePath,
+    purpose: "keep",
   });
   console.log("send result:", result);
 

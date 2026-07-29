@@ -431,6 +431,7 @@ export default function WatchlistPage() {
             </Button>
             <p
               id={automationStateId}
+              data-dense-ui
               className="max-w-[16rem] text-left text-[11px] leading-snug text-[var(--text-tertiary)] sm:text-right"
             >
               {automationStateCopy(autoIntervalMinutes)}
@@ -467,7 +468,7 @@ export default function WatchlistPage() {
           </span>
           <Link
             href="/activity"
-            className="inline-flex items-center gap-1 font-medium text-[var(--accent-text)] hover:underline"
+            className="inline-flex items-center gap-1 min-h-[44px] font-medium text-[var(--accent-text)] hover:underline lg:min-h-0"
           >
             View in Activity
             <ArrowRight className="h-3 w-3" />
@@ -483,7 +484,7 @@ export default function WatchlistPage() {
             aria-pressed={filter === c.id}
             onClick={() => setFilter(c.id)}
             className={cn(
-              "rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors capitalize ring-1",
+              "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors capitalize ring-1 lg:min-h-0 lg:min-w-0",
               filter === c.id
                 ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                 : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
@@ -611,7 +612,7 @@ export default function WatchlistPage() {
                         <Link
                           href={titleHref}
                           data-library-card-link
-                          className="block min-w-0 rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                          className="block min-w-0 min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0"
                         >
                           <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]">
                             {item.title}
@@ -743,7 +744,7 @@ export default function WatchlistPage() {
                     {/* Secondary: season reset + space — not competing with primary */}
                     {isSeries ? (
                       <details className="w-full sm:w-auto">
-                        <summary className="cursor-pointer list-none text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1 py-1.5 inline-flex items-center gap-1">
+                        <summary className="cursor-pointer list-none text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1 py-1.5 min-h-[44px] inline-flex items-center gap-1 lg:min-h-0">
                           More options
                         </summary>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2">
@@ -788,7 +789,7 @@ export default function WatchlistPage() {
                             onChange={(e) =>
                               updateStatus(item.id, e.target.value)
                             }
-                            className="h-8 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-[11px] text-[var(--text)] capitalize"
+                            className="h-8 min-h-[44px] rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-[11px] text-[var(--text)] capitalize lg:min-h-0"
                             aria-label="Status"
                           >
                             {STATUSES.map((s) => (

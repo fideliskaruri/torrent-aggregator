@@ -103,3 +103,28 @@ fix-server.log
 /instant-*.log
 /qa-*.log
 /prod-server.log
+
+# Database snapshots. `*.db` above does NOT match these — the timestamp suffix
+# means the filename no longer ends in `.db` — so without this they show up as
+# untracked and a careless `git add .` would commit the user's real library,
+# watch positions and download history. Never commit these.
+dev.db.bak-*
+dev.db.postclean-*
+*.db-shm
+*.db-wal
+
+# Probe / sweep scratch output
+/.next-probe/
+/.next-scratch/
+# The verification gate's isolated build output. Note that /.next/ above does
+# NOT match this - same trap as *.db failing to match dev.db.bak-<timestamp>.
+/.next-gate/
+# The verification/proof build output written by the probe scripts.
+/.next-proof/
+# Previous production build, kept by promote.mjs so a bad promotion is undoable.
+/.next-rollback/
+/ui-sweep/
+/prod-3000*.log
+/loader-continuity.png
+/next-control.png
+/scripts/probes/player-owned-artifacts/

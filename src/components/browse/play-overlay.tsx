@@ -5,7 +5,13 @@ import { X } from "lucide-react";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
 
 export interface PlayOverlayProps {
-  infoHash: string;
+  /**
+   * `null` means the player opens in its "opening" state — the instant Play is
+   * pressed, before the grab has resolved a hash — so a SINGLE loader owns the
+   * whole journey with no button→player spinner handoff. The real hash flows in
+   * as a prop update (no remount) once the grab returns.
+   */
+  infoHash: string | null;
   title: string;
   subtitle?: string | null;
   /** Where playback got to last time, so the viewer can seek back to it. */

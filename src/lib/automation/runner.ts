@@ -269,6 +269,8 @@ async function runUserAutomationUnlocked(
     try {
       const pipelineResult = await runGrabPipeline({
         userId,
+        // Automation auto-acquires watchlisted content the user asked to keep.
+        purpose: "keep",
         search: {
           query,
           category: searchCategory,

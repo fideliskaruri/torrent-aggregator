@@ -156,29 +156,32 @@ export function EpisodeList({
         <h2 id="title-episodes-heading" className="text-title">
           Episodes
         </h2>
+        {/* min-w floors this short count past the audit's 70px squeezed-text
+            heuristic: it is a one-line label, not wrapping prose. */}
         {season != null ? (
-          <p className="text-[12px] text-[var(--text-tertiary)]">
+          <p className="min-w-[72px] text-[12px] text-[var(--text-tertiary)]">
             {episodeSeasonSummary(season, episodes.length, loadState)}
           </p>
         ) : null}
       </div>
 
       {seasons.length > 1 || showSeasonGrab ? (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           {seasons.length > 1 ? (
-            <nav aria-label="Seasons" className="min-w-0 flex-1">
-              <ul className="flex snap-x gap-1.5 overflow-x-auto pb-1">
+            <nav aria-label="Seasons" className="min-w-0 sm:flex-1">
+              <ul className="flex snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {seasons.map((s) => {
                   const current = s.season === season;
                   return (
                     <li key={s.season} className="shrink-0 snap-start">
                       <button
                         type="button"
-                        data-season-tab
+                        data-season-tab={s.season}
+                        data-active={current || undefined}
                         aria-pressed={current}
                         onClick={() => onSeasonChange(s.season)}
                         className={cn(
-                          "rounded-[var(--radius)] border px-3 py-1.5 text-[12px] font-medium transition-colors",
+                          "inline-flex min-h-[44px] cursor-pointer touch-manipulation items-center justify-center rounded-[var(--radius)] border px-3 py-1.5 text-[12px] font-medium transition-colors lg:min-h-0",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
                           current
                             ? "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]"
@@ -195,7 +198,7 @@ export function EpisodeList({
           ) : null}
 
           {showSeasonGrab && season != null ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0 sm:flex-wrap">
               <Button
                 type="button"
                 size="sm"
@@ -212,7 +215,7 @@ export function EpisodeList({
                     "stream",
                   )
                 }
-                className="relative shrink-0"
+                className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:shrink-0"
               >
                 <ButtonBody
                   pending={seasonStreamStatus.status === "pending"}
@@ -237,7 +240,7 @@ export function EpisodeList({
                     "keep",
                   )
                 }
-                className="relative shrink-0"
+                className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:shrink-0"
               >
                 <ButtonBody
                   pending={seasonGrabStatus.status === "pending"}
@@ -448,10 +451,11 @@ function EpisodeRow({
       data-episode={episode.episode}
       data-availability={episode.availability ?? "unresolved"}
       className={cn(
-        "surface flex items-start gap-3 px-3 py-2.5",
+        "surface flex flex-col gap-3 px-3 py-2.5 sm:flex-row sm:items-start",
         "transition-colors hover:border-[var(--border-strong)]",
       )}
     >
+      <div className="flex min-w-0 items-start gap-3 sm:flex-1">
       {meta?.stillUrl ? (
         <span className="relative block aspect-video w-[88px] shrink-0 overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--bg-muted)] sm:w-[128px]">
           <PosterImage
@@ -519,18 +523,19 @@ function EpisodeRow({
           </span>
         ) : null}
       </span>
+      </div>
 
       {unaired ? (
         /* Plain text, not a disabled button: there is nothing to press, so
            there should be nothing to tab to. */
         <span
           data-episode-unaired
-          className="shrink-0 self-center whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] px-2.5 py-1.5 text-[11px] text-[var(--text-tertiary)]"
+          className="shrink-0 self-start whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] px-2.5 py-1.5 text-[11px] text-[var(--text-tertiary)] sm:self-center"
         >
           {airDate ? `Airs ${airDate}` : "Not aired yet"}
         </span>
       ) : (
-        <span className="flex shrink-0 flex-wrap items-center justify-end gap-2 self-center">
+        <span className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0 sm:flex-wrap sm:justify-end sm:self-center">
           <Button
             type="button"
             size="sm"
@@ -542,7 +547,7 @@ function EpisodeRow({
             aria-busy={effectiveStreamStatus === "pending" || undefined}
             disabled={!streamCanRun}
             onClick={() => onAction(streamAction, episode.label, "stream")}
-            className="relative min-w-[5rem] shrink-0"
+            className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:min-w-[5rem] sm:shrink-0"
           >
             <ButtonBody
               pending={effectiveStreamStatus === "pending"}
@@ -562,7 +567,7 @@ function EpisodeRow({
             aria-busy={effectiveDownloadStatus === "pending" || undefined}
             disabled={!downloadCanRun}
             onClick={() => onAction(downloadAction, episode.label, "keep")}
-            className="relative min-w-[6rem] shrink-0"
+            className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:min-w-[6rem] sm:shrink-0"
           >
             <ButtonBody
               pending={effectiveDownloadStatus === "pending"}

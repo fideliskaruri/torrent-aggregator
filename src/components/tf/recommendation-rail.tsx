@@ -181,7 +181,7 @@ export function RecommendationRailSection({
                       }}
                       disabled={busy === key}
                       aria-label={`Add ${item.title} to library`}
-                      className="flex w-full items-center justify-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--accent-text)] disabled:opacity-50"
+                      className="flex w-full items-center justify-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 min-h-[44px] text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--accent-text)] disabled:opacity-50 lg:min-h-0"
                     >
                       <Plus className="h-3 w-3 shrink-0" aria-hidden />
                       <span className="truncate">

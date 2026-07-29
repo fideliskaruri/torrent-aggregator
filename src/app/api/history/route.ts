@@ -11,7 +11,9 @@ export async function GET() {
   }
 
   const items = await prisma.downloadHistory.findMany({
-    where: { userId: session.user.id },
+    // Streams are ephemeral Play cache, not downloads — keep them out of the
+    // history list; legacy NULL rows still show (issue E).
+    where: { userId: session.user.id, retention: { not: "stream" } },
     orderBy: { createdAt: "desc" },
     take: 100,
   });

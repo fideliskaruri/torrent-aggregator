@@ -5,6 +5,11 @@ export interface TfStatItem {
   value: string | number;
   tone?: "default" | "accent" | "success" | "muted";
   mono?: boolean;
+  /**
+   * Mirror this tile's raw value into a `data-stat-value` attribute so tests can
+   * read the count without parsing the formatted text node. Opt-in per item.
+   */
+  statValueHook?: boolean;
 }
 
 /** Columns rendered at each breakpoint. */
@@ -80,6 +85,7 @@ export function TfStatStrip({
               {item.label}
             </span>
             <span
+              data-stat-value={item.statValueHook ? item.value : undefined}
               className={cn(
                 "truncate text-sm font-semibold tabular-nums",
                 item.mono && "font-mono text-[12px] font-medium",

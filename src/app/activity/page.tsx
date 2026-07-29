@@ -119,7 +119,7 @@ function ActivityContent() {
           <div className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-[12px]">
             <Link
               href="/activity"
-              className={`rounded-full px-3 py-1 transition-colors ${
+              className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
                 !sentOnly
                   ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
                   : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
@@ -129,7 +129,7 @@ function ActivityContent() {
             </Link>
             <Link
               href="/activity?filter=sent"
-              className={`rounded-full px-3 py-1 transition-colors ${
+              className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
                 sentOnly
                   ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
                   : "text-[var(--text-tertiary)] hover:text-[var(--text)]"

@@ -30,7 +30,7 @@ export function useReleaseActions(
 ) {
   const { data: session } = useSession();
   const { prefs } = useDownloadPrefs();
-  const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState<ReleaseAction | null>(null);
   const [playback, setPlayback] = useState<ReleasePlayback | null>(null);
   const [status, setStatus] = useState<{
     action: ReleaseAction;
@@ -77,7 +77,7 @@ export function useReleaseActions(
       toast.message(play ? "Sign in to play" : "Sign in to download");
       return;
     }
-    setSending(true);
+    setPending(action);
     try {
       const res = await fetch("/api/torrent/send", {
         method: "POST",
@@ -122,12 +122,16 @@ export function useReleaseActions(
       toast.error("Network error");
       flash(action, { message: "Network error", variant: "error" });
     } finally {
-      setSending(false);
+      setPending(null);
     }
   }
 
   return {
-    sending,
+    // Which action is in flight, so only the pressed button shows a spinner
+    // while the other stays disabled-but-idle. `sending` remains the
+    // "any action in flight" flag the disabled logic reads.
+    pending,
+    sending: pending !== null,
     canPlay,
     canSend,
     status,

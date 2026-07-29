@@ -24,6 +24,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  SkipForward,
   SlidersHorizontal,
   Volume2,
   VolumeX,
@@ -33,7 +34,7 @@ import { Button } from "@/components/ui/button";
 import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { cn, formatBytes } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
-import { SwarmChip, swarmHealth, type SwarmSample } from "@/components/watch/swarm-chip";
+import { SwarmChip, type SwarmSample } from "@/components/watch/swarm-chip";
 import { subtitleListUrl, subtitleTrackSrc, type SubtitleTrack } from "@/lib/media/subtitles";
 import type { ProgressUpdateBody } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
@@ -73,7 +74,13 @@ export type StreamProgress = {
 };
 
 type InlinePlayerProps = {
-  infoHash: string;
+  /**
+   * `null` means "opening": the player mounts the instant Play is pressed, shows
+   * its one loader, and waits for the grab to resolve the real hash — so a
+   * SINGLE loader owns the whole journey with no button→player spinner handoff.
+   * A non-null hash streams immediately (existing-local play, watchlist).
+   */
+  infoHash: string | null;
   title: string;
   progress?: StreamProgress;
   /**
@@ -413,10 +420,17 @@ export function shouldShowUnifiedLoader(args: {
   waiting: boolean;
   preparing: boolean;
   checking: boolean;
+  switching: boolean;
   terminal: boolean;
   playbackStarted: boolean;
 }): boolean {
   if (args.terminal) return false;
+  // An explicit switch / next / open owns the one loader even while the OUTGOING
+  // picture is still advancing: the viewer asked for a different source, so the
+  // wait is real regardless of the frame being replaced. Without this, a quality
+  // switch would flash the outgoing video's motion-lease "no loader" for a beat
+  // before the central loader appeared — two visible states for one wait.
+  if (args.switching) return true;
   if (args.hasVisibleVideo && args.activeVideoAdvancing) return false;
   // Before the first frame is painted the loader is continuous — this single
   // branch spans {no source ∪ resolving ∪ opening ∪ <video> mounted-not-yet-
@@ -425,6 +439,41 @@ export function shouldShowUnifiedLoader(args: {
   // After the first frame, the loader is only the transient seek/buffer/prepare
   // indicator (a mid-play stall, a reconnect, a scrub).
   return args.preparing || args.checking || args.seeking || args.waiting;
+}
+
+/**
+ * THE one loader — a bare spinner and nothing else.
+ *
+ * Every "still getting there" moment in the player (no source yet, preparing,
+ * checking, buffering, seeking, switching release) renders THIS and only this,
+ * overlaid on the persistent stage. Deliberately copy-free: the viewer asked,
+ * repeatedly, to be shown one spinner and never a sentence narrating the
+ * mechanism, so the only words here are an accessible name for screen readers.
+ *
+ * Probe-integrity note. A spinner audit counts three selectors —
+ * `[data-stream-loading]`, `.animate-spin` and `[role="status"]` — as a union.
+ * All three sit on the SAME single node (the icon), so `querySelectorAll` over
+ * that union counts exactly one element. Splitting them across a wrapper and a
+ * child would read as two spinners and is precisely the mismatch that produced
+ * earlier false "there is only one loader" proofs.
+ */
+function StreamLoader({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute inset-0 z-10 grid place-items-center bg-black/25",
+        className,
+      )}
+    >
+      <Loader2
+        data-stream-loading
+        data-player-loader
+        role="status"
+        aria-label="Loading video"
+        className="h-8 w-8 animate-spin text-white/90"
+      />
+    </div>
+  );
 }
 
 /**
@@ -443,8 +492,16 @@ export function shouldShowUnifiedLoader(args: {
 export function shouldAdoptTimeUpdate(args: {
   seekInFlight: boolean;
   hasPendingUserSeek: boolean;
+  /**
+   * The viewer is actively dragging the scrubber right now. Its `onChange` owns
+   * the displayed playhead until they let go, so an element `timeupdate` landing
+   * mid-drag must not write over the thumb the finger is holding — that fight is
+   * exactly the "scrubbing feels jittery" report. Optional so existing callers
+   * (and tests) keep their two-field shape and their behaviour.
+   */
+  isUserScrubbing?: boolean;
 }): boolean {
-  return !args.seekInFlight && !args.hasPendingUserSeek;
+  return !args.seekInFlight && !args.hasPendingUserSeek && !args.isUserScrubbing;
 }
 
 /**
@@ -551,6 +608,24 @@ export function terminalPlaybackCopy(args: {
     Boolean(title && value && value.trim() === title.trim());
   const detail = message && !repeatsTitle(message) ? message : fallback && !repeatsTitle(fallback) ? fallback : null;
   return { title, detail };
+}
+
+/**
+ * The player shows exactly ONE loader across the whole button→first-frame
+ * journey (and across silent auto-failover / release switches). To keep that
+ * single loader continuous, terminality must be EXPLICIT — never inferred from
+ * a bare diagnostic `message`. A recovering `problem` ("stalled"/"preparing"/
+ * "metadata") means silent auto-recovery is still working — a byte stall being
+ * failed over, or a release whose metadata is still resolving being re-attempted
+ * — so playback stays BUSY (loader up, no panel). Only a classified
+ * `streamFailure` (silent recovery genuinely exhausted) or a hard "can't play
+ * here" problem is terminal and may replace
+ * the spinner with a panel.
+ */
+export function isTerminalPlayback(args: { problem: StreamProblem | null; hasStreamFailure: boolean }): boolean {
+  const recovering =
+    args.problem === "stalled" || args.problem === "preparing" || args.problem === "metadata";
+  return args.hasStreamFailure || (args.problem !== null && !recovering);
 }
 
 export function upNextUnavailableActionLabel(): string {
@@ -982,7 +1057,8 @@ type UpNextResponse = {
 };
 
 type CurrentTarget = {
-  infoHash: string;
+  /** `null` only during the opening handoff, before the grab resolves a hash. */
+  infoHash: string | null;
   title: string;
   resumeSec?: number;
   season?: number | null;
@@ -995,6 +1071,43 @@ const AUTO_ADVANCE_SECONDS = 8;
 const SEEK_RETRY_DELAY_MS = 700;
 const SEEK_TOLERANCE_SECONDS = 2;
 const SEEK_MAX_ATTEMPTS = 3;
+/**
+ * A seek shorter than this settles before it is worth interrupting the frame
+ * with a spinner, so the one loader waits this long before appearing for a
+ * seek. Keeps the loader from strobing on quick scrubs while still covering a
+ * genuinely slow one. Kept under the ~300ms feedback threshold so a real wait
+ * is still acknowledged promptly.
+ */
+const SEEK_LOADER_GRACE_MS = 220;
+/**
+ * The explicit ceiling on *automatic* release switches for one play session:
+ * when a source cannot start, the player silently fails over to the next best
+ * candidate at most this many times before it stops and shows one honest
+ * terminal message. Bounds the recovery so it can never loop forever.
+ */
+const MAX_AUTO_SWITCHES = 3;
+/**
+ * Torrent metadata resolving (stream 425) is the SAME release needing a moment,
+ * not a bad one — so the recovery is a short silent re-attempt of this release,
+ * never a failover to another candidate and never a question handed to the
+ * viewer (COMPLAINT 3). The loader stays up across these attempts. Bounded so a
+ * release whose metadata never resolves still surfaces one honest terminal state
+ * instead of spinning forever.
+ */
+const METADATA_RETRY_DELAY_MS = 1200;
+const MAX_METADATA_RETRIES = 8;
+/**
+ * The bare spinner (COMPLAINT 2 — no copy) is only honest if it cannot spin
+ * forever. This is the backstop watchdog: if the first frame has not been
+ * presented within this bound after a release opens — for ANY reason the more
+ * specific recovery paths did not resolve (metadata never resolved, a cold probe
+ * stalled with no failover candidate, an engine that never answers) — make one
+ * final silent failover attempt and, if that is exhausted, surface one honest
+ * terminal state. Deliberately generous: no legitimate open (including a cold
+ * torrent that must buffer) takes this long, so it only fires on a genuine hang,
+ * never on a slow-but-working start.
+ */
+const OPENING_WATCHDOG_MS = 30000;
 
 function sourceChip(title: string): string | null {
   const tier = parseSourceTier(title);
@@ -1030,29 +1143,6 @@ export function upNextStatusSentence(state: UpNextAvailability): string {
     return "Still downloading — you can start now, but it may pause to catch up.";
   }
   return "Not fetched yet.";
-}
-
-export function streamStateSentence(args: {
-  checking: boolean;
-  preparing: boolean;
-  waiting: boolean;
-  playing: boolean;
-  playable?: boolean;
-  swarm?: SwarmSample | null;
-  minimumStreamBps?: number;
-}): string {
-  if (args.checking) return "Checking whether this file can play now.";
-  if (args.preparing) {
-    return "Getting it ready…";
-  }
-  const health = swarmHealth(args.swarm ?? null, args.minimumStreamBps ?? 0);
-  if (args.waiting && health === "thin" && (args.swarm?.downloadSpeedBps ?? 0) > 0) {
-    return "This one's slow — still getting it ready.";
-  }
-  if (args.waiting) return "Getting it ready…";
-  if (args.playing) return "Playing now.";
-  if (args.playable) return "Ready to play.";
-  return "Waiting for a playable file.";
 }
 
 async function readJson<T>(res: Response): Promise<T | null> {
@@ -1345,17 +1435,6 @@ type SubtitleListResponse = {
 
 type SubtitleStatus = "idle" | "loading" | "extracting" | "ready" | "error";
 
-/** Human-readable label for what the playback ladder is doing. */function rungLabel(rung: string): string {
-  switch (rung) {
-    case "direct": return "Playing directly";
-    case "remux":
-    case "transcode-audio":
-    case "transcode-full":
-      return "Getting it ready…";
-    default: return "Getting it ready…";
-  }
-}
-
 class InlinePlayerErrorBoundary extends Component<
   { children: ReactNode; title: string },
   { failed: boolean }
@@ -1390,9 +1469,26 @@ class InlinePlayerErrorBoundary extends Component<
   }
 }
 
+/**
+ * Boundary key used for the whole life of one opening player. See the comment
+ * in {@link InlineStreamPlayer}: the key must NOT change when `infoHash`
+ * resolves from null → hash, or the single continuous loader would remount.
+ */
+const OPENING_BOUNDARY_KEY = "__inline-player-opening__";
+
 export function InlineStreamPlayer(props: InlinePlayerProps) {
+  // The error boundary is keyed so a genuinely different release mounted into a
+  // persistent parent gets a clean slate. But the opening handoff — the player
+  // opens the instant Play is pressed (infoHash null), then the grab resolves
+  // the real hash and it flows in as a prop — must NOT remount, or the ONE
+  // continuous loader would be torn down and the viewer would see it restart.
+  // So the key is latched ONCE per mount and never changes; Inner adopts a
+  // late/changed infoHash through an effect instead. A different open mounts a
+  // fresh instance (fresh boundary) from the parent.
+  const boundaryKeyRef = useRef<string | null>(null);
+  boundaryKeyRef.current ??= props.infoHash ?? OPENING_BOUNDARY_KEY;
   return (
-    <InlinePlayerErrorBoundary key={props.infoHash} title={props.title}>
+    <InlinePlayerErrorBoundary key={boundaryKeyRef.current} title={props.title}>
       <InlineStreamPlayerInner {...props} />
     </InlinePlayerErrorBoundary>
   );
@@ -1427,10 +1523,25 @@ function InlineStreamPlayerInner({
   const activeEpisode = target.episode;
   const activePosterUrl = target.posterUrl;
   const activeWatchListItemId = target.watchListItemId;
-  const searchHref = useMemo(
-    () => `/search?q=${encodeURIComponent(activeTitle.trim() || title)}`,
-    [activeTitle, title],
-  );
+  // Adopt an infoHash that arrives (or changes) via props AFTER mount. The
+  // player opens in an "opening" state (props.infoHash null) the instant Play is
+  // pressed, so ONE loader owns the whole journey; when the grab resolves the
+  // real hash it flows in here and we start streaming beneath the already-shown
+  // loader — no remount, no second spinner. Internal transitions (quality
+  // switch / auto-failover / up-next) mutate `target` directly and never touch
+  // props.infoHash, so this fires ONLY for a genuine parent-driven target change
+  // and can't fight an in-flight internal switch.
+  const externalInfoHashRef = useRef(infoHash);
+  useEffect(() => {
+    if (infoHash === externalInfoHashRef.current) return;
+    externalInfoHashRef.current = infoHash;
+    if (!infoHash) return; // reset to opening — keep the loader, nothing to stream yet
+    setTarget((prev) =>
+      prev.infoHash === infoHash
+        ? prev
+        : { infoHash, title, resumeSec, season, episode, posterUrl, watchListItemId },
+    );
+  }, [infoHash, title, resumeSec, season, episode, posterUrl, watchListItemId]);
   // Theatre is entered by an explicit "play this", so it starts open. The old
   // route into this state was an effect in the overlay that reached into the
   // player's DOM and clicked its toggle for it; a component that has to be
@@ -1453,6 +1564,9 @@ function InlineStreamPlayerInner({
   // transient seek/buffer indicator thereafter.
   const [playbackStarted, setPlaybackStarted] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Presence flag only — a non-null value means "a preparation phase is in
+  // flight" and is consumed solely as Boolean(preparingLabel). It is never
+  // rendered, so it must never carry user-facing mechanism copy.
   const [preparingLabel, setPreparingLabel] = useState<string | null>(null);
   // I19: the engine's structured failure for the current attempt (from a stream
   // 503 body or a decode verdict). Drives friendly, mechanism-free terminal copy
@@ -1509,8 +1623,8 @@ function InlineStreamPlayerInner({
    *
    * Diagnostics only: these land on the container as data attributes so a
    * stutter can be traced to the exact path that produced it. They are never
-   * rendered as prose — the viewer does not need to be told about remuxing,
-   * byte ranges or ffmpeg to watch a film.
+   * rendered as prose — the viewer does not need to be told about the
+   * conversion pipeline, byte ranges or ffmpeg to watch a film.
    */
   const [strategy, setStrategy] = useState<string | null>(null);
   const [strategyReason, setStrategyReason] = useState<string | null>(null);
@@ -1521,6 +1635,14 @@ function InlineStreamPlayerInner({
    * freeze rather than as work happening.
    */
   const [seeking, setSeeking] = useState(false);
+  /**
+   * Debounced mirror of {@link seeking} for the loader only. It arms
+   * {@link SEEK_LOADER_GRACE_MS} after a seek starts, so a quick scrub that
+   * settles first never flashes the spinner — the one loader shows for a seek
+   * only when the seek is genuinely taking a moment. Raw `seeking` still drives
+   * the freeze/pin logic; only the *visible* loader waits.
+   */
+  const [seekLoaderArmed, setSeekLoaderArmed] = useState(false);
    const [theatreControlsVisible, setTheatreControlsVisible] = useState(true);
    const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
    const [audioMenuOpen, setAudioMenuOpen] = useState(false);
@@ -1537,11 +1659,44 @@ function InlineStreamPlayerInner({
    const fullscreenSurfaceRef = useRef<HTMLDivElement | null>(null);
    const motionLeaseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
    const lastActiveMediaTimeRef = useRef<number | null>(null);
+   /**
+    * Bounded counter for the silent metadata re-attempt (stream 425). Reset when
+    * the target release/file changes — NOT on `planNonce`, or a retry that itself
+    * bumps `planNonce` would zero its own budget and loop forever.
+    */
+   const metadataRetryRef = useRef(0);
    const requestedSeekRef = useRef<{ targetSec: number; attempts: number; attemptedAt: number } | null>(null);
    const seekRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Pending seek target on the source timeline, consumed by the next plan. */
   const pendingSeekRef = useRef(0);
   const seekInFlightRef = useRef(false);
+  /**
+   * The viewer's finger is down on the scrubber. While true, the drag owns the
+   * displayed playhead and element `timeupdate`s are not adopted, so a playing
+   * source cannot yank the thumb back under the finger — the fix for the
+   * "scrubbing is jittery" report. The commit (and this flag's release) happens
+   * on pointer/key up.
+   */
+  const isScrubbingRef = useRef(false);
+  /**
+   * Automatic-failover bookkeeping for one play session. `autoSwitchCountRef`
+   * enforces {@link MAX_AUTO_SWITCHES}; `autoTriedHashesRef` remembers every
+   * source we have already auto-committed to so recovery never re-picks one;
+   * `autoFailoverInFlightRef` prevents overlapping recovery attempts. All reset
+   * when the viewer starts a fresh play or chooses a release by hand.
+   */
+  const autoSwitchCountRef = useRef(0);
+  const autoTriedHashesRef = useRef<Set<string>>(new Set());
+  const autoFailoverInFlightRef = useRef(false);
+  /**
+   * Monotonic transition token. Every explicit target change — a manual next, an
+   * autoplay advance, a hand-picked quality switch, or a silent failover — takes
+   * a fresh token; an async transition captures its token up front and refuses to
+   * apply its late `setTarget` once a newer transition has superseded it. This is
+   * the lock that stops a stale `/switch` or failover response from clobbering
+   * the episode the viewer just chose by hand (duck issue 4).
+   */
+  const transitionGenRef = useRef(0);
   /** Target of the HLS session restart currently in flight, for coalescing. */
   const seekPlanTargetRef = useRef<number | null>(null);
   const controlsIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1644,15 +1799,6 @@ function InlineStreamPlayerInner({
       ? (selectedFile.length / sourceDuration) * 1.15
       : 0;
   const viewerWaiting = shouldShowViewerBuffering({ waiting, activeVideoAdvancing });
-  const stateSentence = streamStateSentence({
-    checking: checkingStream,
-    preparing: Boolean(preparingLabel),
-    waiting: viewerWaiting,
-    playing: isPlaying,
-    playable: Boolean(playableSrc),
-    swarm: swarmSample,
-    minimumStreamBps,
-  });
   const releaseChips = selectedFile
     ? releaseDetailChips(selectedFile.path, selectedFile.length)
     : [];
@@ -1683,29 +1829,87 @@ function InlineStreamPlayerInner({
     }
   }, []);
 
+  /**
+   * First-PAINTED-frame latch (duck issue 3). `canplay`/`playing` signal
+   * readiness, not presentation; latching the one loader off on them can drop it
+   * a frame before the picture composites — a black blink. We defer those to
+   * `requestVideoFrameCallback` (the first frame actually shown) and guard it with
+   * `firstFrameAttemptRef` so a late callback from an OUTGOING source can never
+   * latch the incoming attempt. `advancing` (real forward motion) stays an
+   * immediate latch, and a short timeout backstops engines that never fire rVFC,
+   * so the loader can never get stuck on.
+   */
+  const firstFrameAttemptRef = useRef(0);
+  const firstFrameRvfcRef = useRef<number | null>(null);
+  const firstFrameTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelFirstFrameWatch = useCallback(() => {
+    const video = videoRef.current as unknown as {
+      cancelVideoFrameCallback?: (handle: number) => void;
+    } | null;
+    if (firstFrameRvfcRef.current != null && video?.cancelVideoFrameCallback) {
+      video.cancelVideoFrameCallback(firstFrameRvfcRef.current);
+    }
+    firstFrameRvfcRef.current = null;
+    if (firstFrameTimerRef.current) {
+      clearTimeout(firstFrameTimerRef.current);
+      firstFrameTimerRef.current = null;
+    }
+  }, []);
+  const latchFirstFrame = useCallback(
+    (video: HTMLVideoElement) => {
+      const attempt = firstFrameAttemptRef.current;
+      const settle = () => {
+        if (video !== videoRef.current || attempt !== firstFrameAttemptRef.current) return;
+        setPlaybackStarted(true);
+      };
+      cancelFirstFrameWatch();
+      const framed = video as unknown as {
+        requestVideoFrameCallback?: (cb: () => void) => number;
+      };
+      if (typeof framed.requestVideoFrameCallback === "function") {
+        firstFrameRvfcRef.current = framed.requestVideoFrameCallback(() => {
+          firstFrameRvfcRef.current = null;
+          settle();
+        });
+      } else {
+        // No rVFC (older Firefox): two rAFs ≈ one composited frame.
+        requestAnimationFrame(() => requestAnimationFrame(settle));
+      }
+      // Backstop: a decodable-but-paused first frame may never trigger rVFC in
+      // some engines. Latch anyway shortly after readiness so the loader cannot
+      // hang over a picture that is already visible.
+      firstFrameTimerRef.current = setTimeout(() => {
+        firstFrameTimerRef.current = null;
+        settle();
+      }, 400);
+    },
+    [cancelFirstFrameWatch],
+  );
+
   const activeMediaEvent = useCallback(
     (video: HTMLVideoElement, event: "waiting" | "playing" | "canplay" | "advancing") => {
       const active = video === videoRef.current;
       setWaiting((current) => nextViewerWaitingState(current, event, active));
       if (!active) return false;
       // A first frame (canplay), a resumed play, or real forward motion all mean
-      // the picture has arrived — latch it once so the one loader flips off and
-      // never re-mounts for an internal prepare phase again. `waiting` (a stall)
-      // must NOT latch it.
-      if (event === "canplay" || event === "playing" || event === "advancing") {
-        setPlaybackStarted(true);
-      }
+      // the picture is arriving. `advancing` is unambiguous presentation and
+      // latches now; `canplay`/`playing` are readiness, so their latch is deferred
+      // to the first PAINTED frame (duck issue 3). `waiting` (a stall) never
+      // latches.
       if (event === "advancing") {
+        setPlaybackStarted(true);
         setActiveVideoAdvancing(true);
         clearMotionLease();
         motionLeaseRef.current = setTimeout(() => {
           motionLeaseRef.current = null;
           setActiveVideoAdvancing(false);
         }, 1500);
+      } else if (event === "canplay" || event === "playing") {
+        latchFirstFrame(video);
       }
       return true;
     },
-    [clearMotionLease],
+    [clearMotionLease, latchFirstFrame],
   );
 
   const noteActiveMediaTime = useCallback(
@@ -1738,6 +1942,10 @@ function InlineStreamPlayerInner({
     setWaiting(false);
     setActiveVideoAdvancing(false);
     setPlaybackStarted(false);
+    // New source attempt → reset the first-frame latch synchronously and
+    // invalidate any pending latch from the outgoing source (duck issue 3).
+    firstFrameAttemptRef.current += 1;
+    cancelFirstFrameWatch();
     setPreparingLabel(null);
     setStreamFailure(null);
     setRetrying(false);
@@ -1768,7 +1976,7 @@ function InlineStreamPlayerInner({
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
-  }, [activeInfoHash, clearMotionLease, clearSeekRetry]);
+  }, [activeInfoHash, cancelFirstFrameWatch, clearMotionLease, clearSeekRetry]);
 
   // Clean up HLS instance on unmount or source change
   useEffect(() => {
@@ -1779,18 +1987,35 @@ function InlineStreamPlayerInner({
       }
       clearMotionLease();
       clearSeekRetry();
+      cancelFirstFrameWatch();
     };
-  }, [clearMotionLease, clearSeekRetry]);
+  }, [cancelFirstFrameWatch, clearMotionLease, clearSeekRetry]);
 
   useEffect(() => {
     setWaiting(false);
     setActiveVideoAdvancing(false);
     setPlaybackStarted(false);
+    // A new playable source is a new first-frame attempt: invalidate the previous
+    // source's pending latch synchronously so it cannot latch the incoming one.
+    firstFrameAttemptRef.current += 1;
+    cancelFirstFrameWatch();
     lastActiveMediaTimeRef.current = null;
     requestedSeekRef.current = null;
     clearMotionLease();
     clearSeekRetry();
-  }, [playableSrc, clearMotionLease, clearSeekRetry]);
+  }, [playableSrc, cancelFirstFrameWatch, clearMotionLease, clearSeekRetry]);
+
+  // Debounce the seek → loader edge so short scrubs never flash the spinner.
+  // The loader arms only if a seek is still unsettled after the grace window;
+  // any earlier `seeked`/settle clears `seeking` and disarms it first.
+  useEffect(() => {
+    if (!seeking) {
+      setSeekLoaderArmed(false);
+      return;
+    }
+    const timer = setTimeout(() => setSeekLoaderArmed(true), SEEK_LOADER_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [seeking]);
 
   /**
    * Read the element's buffered ranges into source coordinates.
@@ -2011,6 +2236,7 @@ function InlineStreamPlayerInner({
 
   const copyUrl = useCallback(
     async (path: string) => {
+      if (!activeInfoHash) return;
       const url = `${window.location.origin}${streamPath(activeInfoHash, path)}`;
       await navigator.clipboard.writeText(url);
       setCopied(true);
@@ -2021,6 +2247,7 @@ function InlineStreamPlayerInner({
   );
 
   const loadManifest = useCallback(async () => {
+    if (!activeInfoHash) return null;
     if (manifest?.infoHash === activeInfoHash) return manifest;
     setManifestLoading(true);
     setMessage(null);
@@ -2089,6 +2316,7 @@ function InlineStreamPlayerInner({
 
   const fetchPlayerSample = useCallback(
     async (signal: AbortSignal): Promise<SwarmSample | null> => {
+      if (!activeInfoHash) return null;
       const params = new URLSearchParams({ poll: "1" });
       if (effectiveSelectedPath) params.set("file", effectiveSelectedPath);
       const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}?${params}`, {
@@ -2155,6 +2383,11 @@ function InlineStreamPlayerInner({
       return;
     }
     setExpanded(true);
+    // A viewer-initiated play resets the automatic-recovery budget so a later
+    // stall gets a fresh set of {@link MAX_AUTO_SWITCHES} attempts.
+    autoSwitchCountRef.current = 0;
+    autoTriedHashesRef.current = new Set();
+    autoFailoverInFlightRef.current = false;
     void loadManifest();
   }, [expanded, loadManifest]);
 
@@ -2208,6 +2441,14 @@ function InlineStreamPlayerInner({
   const playUpNext = useCallback(
     (next: UpNextEpisodeCard | null = upNext) => {
       if (!next?.infoHash) return;
+      // A manual/autoplay advance is the newest transition — supersede any
+      // in-flight quality switch or silent failover so their late responses
+      // cannot overwrite this episode (duck issue 4).
+      transitionGenRef.current += 1;
+      // Fresh content → fresh automatic-recovery budget.
+      autoSwitchCountRef.current = 0;
+      autoTriedHashesRef.current = new Set();
+      autoFailoverInFlightRef.current = false;
       setTransitioningTitle(next.title);
       setEnded(false);
       setAutoAdvanceCancelled(false);
@@ -2285,12 +2526,22 @@ function InlineStreamPlayerInner({
 
   const chooseQualityCandidate = useCallback(
     async (candidate: PlaybackCandidate) => {
+      if (!activeInfoHash) return;
       if (candidate.isCurrent || candidate.infoHash.toLowerCase() === activeInfoHash.toLowerCase()) {
         setQualityMenuOpen(false);
         return;
       }
       setSwitchingInfoHash(candidate.infoHash);
       setQualityError(null);
+      // Claim this transition's token; a newer transition (manual next, another
+      // switch) that lands during the await will supersede us below.
+      const gen = (transitionGenRef.current += 1);
+      // A manual release pick is a fresh viewer decision → reset the automatic
+      // budget so, if the chosen release also stalls, silent recovery is free to
+      // try again.
+      autoSwitchCountRef.current = 0;
+      autoTriedHashesRef.current = new Set();
+      autoFailoverInFlightRef.current = false;
       try {
         const res = await fetch("/api/playback/switch", {
           method: "POST",
@@ -2311,6 +2562,9 @@ function InlineStreamPlayerInner({
           typeof data.positionSec === "number" && Number.isFinite(data.positionSec)
             ? data.positionSec
             : currentSourceTimeRef.current;
+        // A newer transition superseded this switch while it resolved — drop the
+        // stale result rather than yank the viewer off what they just chose.
+        if (transitionGenRef.current !== gen) return;
         setQualityMenuOpen(false);
         setTarget({
           infoHash: data.infoHash,
@@ -2349,6 +2603,105 @@ function InlineStreamPlayerInner({
     setStreamFailure(null);
     setPreparingLabel(null);
   }, []);
+
+  /**
+   * Silently recover from a source that cannot start (COMPLAINT 3).
+   *
+   * The player never narrates a health check nor hands the viewer a decision:
+   * it reads the ranked candidate pool (which already carries the cached swarm
+   * verdicts), picks the best release it has not already auto-tried, and asks
+   * the switch executor to start it — carrying the current position across so a
+   * working stream is never torn down to try another. Bounded by
+   * {@link MAX_AUTO_SWITCHES}. Returns true when a switch was started (the
+   * caller keeps the loader up and does nothing else) and false when recovery
+   * is genuinely exhausted (the caller may now surface one terminal message).
+   * Works for movies as well as episodes — the switch seam keys on content, not
+   * media type, which is why changing a movie's release mid-watch works here.
+   */
+  const attemptAutoFailover = useCallback(async (): Promise<boolean> => {
+    if (!activeInfoHash) return false;
+    if (autoFailoverInFlightRef.current) return true;
+    if (autoSwitchCountRef.current >= MAX_AUTO_SWITCHES) return false;
+    autoFailoverInFlightRef.current = true;
+    // Claim a transition token so a manual next / hand-picked switch that lands
+    // mid-recovery supersedes this silent failover instead of racing it.
+    const gen = (transitionGenRef.current += 1);
+    // Never re-pick the source that just failed.
+    autoTriedHashesRef.current.add(activeInfoHash.toLowerCase());
+    try {
+      const res = await fetch("/api/playback/candidates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(candidateRequestBody()),
+      });
+      const data = await readJson<CandidatesResponse>(res);
+      if (!res.ok) return false;
+      const pool = Array.isArray(data?.candidates) ? data.candidates : [];
+      const isUntried = (c: PlaybackCandidate) =>
+        !c.isCurrent &&
+        c.infoHash.toLowerCase() !== activeInfoHash.toLowerCase() &&
+        !autoTriedHashesRef.current.has(c.infoHash.toLowerCase());
+      // Prefer candidates the probe has not measured dead; fall back to any
+      // untried one if that would otherwise leave nothing (a 6h-old "dead" may
+      // be stale). Pool order is the ranker's, so the first match is the best.
+      const ordered = [
+        ...pool.filter((c) => isUntried(c) && c.verdict !== "dead"),
+        ...pool.filter((c) => isUntried(c) && c.verdict === "dead"),
+      ];
+      for (const candidate of ordered) {
+        if (autoSwitchCountRef.current >= MAX_AUTO_SWITCHES) break;
+        autoTriedHashesRef.current.add(candidate.infoHash.toLowerCase());
+        try {
+          const switchRes = await fetch("/api/playback/switch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(candidateRequestBody(candidate.infoHash)),
+          });
+          const switchData = await readJson<SwitchResponse>(switchRes);
+          // A failed switch never tears down current playback; just try the next
+          // candidate (or, once none remain, let the caller surface terminal).
+          if (!switchRes.ok || !switchData?.ok) continue;
+          autoSwitchCountRef.current += 1;
+          const resumeAt =
+            typeof switchData.positionSec === "number" && Number.isFinite(switchData.positionSec)
+              ? switchData.positionSec
+              : currentSourceTimeRef.current;
+          // A manual next / hand-picked switch superseded us while the switch
+          // resolved — stop, leaving the viewer's choice in place.
+          if (transitionGenRef.current !== gen) return true;
+          // Re-point at the new source. The single loader stays up across the
+          // swap: activeInfoHash changing resets `playbackStarted`, and
+          // `playableSrc` is null until the new plan resolves, so the spinner is
+          // continuous with no torn-down/rebuilt loader.
+          setTarget({
+            infoHash: switchData.infoHash,
+            title: activeTitle,
+            season: currentSeason,
+            episode: currentEpisode,
+            posterUrl: activePosterUrl,
+            watchListItemId: activeWatchListItemId,
+            resumeSec: resumeAt,
+          });
+          return true;
+        } catch {
+          continue;
+        }
+      }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      autoFailoverInFlightRef.current = false;
+    }
+  }, [
+    activeInfoHash,
+    candidateRequestBody,
+    activeTitle,
+    currentSeason,
+    currentEpisode,
+    activePosterUrl,
+    activeWatchListItemId,
+  ]);
 
   /**
    * I19b — retry the SAME release. POST the failover route with `action:"retry"`,
@@ -2473,11 +2826,16 @@ function InlineStreamPlayerInner({
           return;
         }
         // I19: the byte route answers a stall with a structured {code,
-        // failureClass, retryable} the terminal panel turns into friendly copy
-        // and the right affordance (retry same vs try another version).
+        // failureClass, retryable}. Before it ever becomes viewer-facing copy,
+        // try to recover automatically — an automated check + silent switch to
+        // the next best release, never a question handed to the viewer
+        // (COMPLAINT 3). Only when recovery is genuinely exhausted do we surface
+        // one terminal state.
         const failure = structuredFailureFromBody(
           await readJson<{ code?: string; failureClass?: string; retryable?: boolean }>(res),
         );
+        if (!signal.aborted && (await attemptAutoFailover())) return;
+        if (signal.aborted) return;
         if (failure) {
           setStreamFailure(failure);
           setProblem("stalled");
@@ -2488,13 +2846,13 @@ function InlineStreamPlayerInner({
         setProblem(mapped.problem);
         setMessage(mapped.message);
       } catch {
-        if (!signal.aborted) {
-          setProblem("generic");
-          setMessage("Could not check the stream.");
-        }
+        if (signal.aborted) return;
+        if (await attemptAutoFailover()) return;
+        setProblem("generic");
+        setMessage("Could not check the stream.");
       }
     },
-    [],
+    [attemptAutoFailover],
   );
 
   // The seek offset is a ref, so it is reset here rather than in the render-time
@@ -2525,7 +2883,7 @@ function InlineStreamPlayerInner({
   // Also re-runs on `planNonce` — bumped when the viewer seeks past what the
   // current ffmpeg session has produced, or picks a different audio track.
   useEffect(() => {
-    if (!expanded || !effectiveSelectedPath) return;
+    if (!expanded || !effectiveSelectedPath || !activeInfoHash) return;
     const controller = new AbortController();
     const filePath = effectiveSelectedPath;
     const startSec = pendingSeekRef.current;
@@ -2578,6 +2936,11 @@ function InlineStreamPlayerInner({
           // (e.g. probe failed because torrent is cold)
           const errorData = await readJson<{ error?: string; probeError?: string; message?: string }>(planRes);
           if (planRes.status === 503 && errorData?.probeError === "timeout") {
+            // A cold/dead swarm can't even be probed. Recover automatically
+            // (silent switch to the next best release) instead of narrating a
+            // probe wait and handing the viewer a "try again" (COMPLAINT 3).
+            if (!controller.signal.aborted && (await attemptAutoFailover())) return;
+            if (controller.signal.aborted) return;
             setProblem("stalled");
             setMessage("Waiting for torrent data to probe the file. Try again in a moment.");
             return;
@@ -2597,10 +2960,9 @@ function InlineStreamPlayerInner({
         setStrategyReason(planData.strategyReason ?? null);
         setPlaybackRung(planData.plan.rung);
         if (/whole-file.*failed after/i.test(planData.strategyReason ?? "")) {
-          setProblem("generic");
-          setMessage(
-            `Optimized local playback failed: ${planData.strategyReason}. Playing through the fallback stream instead.`,
-          );
+          // Optimized local playback fell back to the plain stream — an internal
+          // recovery path, not a viewer-facing failure. Stay on the ONE loader
+          // with no copy; playback continues below (COMPLAINT 2 / duck issue 1).
         }
 
         if (canPlayNatively(planData.plan.rung, planData.playUrl)) {
@@ -2631,7 +2993,7 @@ function InlineStreamPlayerInner({
           setTimelineOffset(planData.startSec);
           pendingNativeSeekRef.current = 0;
           setPlaybackMode("hls");
-          setPreparingLabel(rungLabel(planData.plan.rung));
+          setPreparingLabel("preparing");
           setPlayableSrc(planData.playUrl);
           setTransitioningTitle(null);
         }
@@ -2656,7 +3018,51 @@ function InlineStreamPlayerInner({
     })();
 
     return () => controller.abort();
-  }, [expanded, activeInfoHash, effectiveSelectedPath, planNonce, audioStreamIndex, tryDirectStream, clearMotionLease]);
+  }, [expanded, activeInfoHash, effectiveSelectedPath, planNonce, audioStreamIndex, tryDirectStream, clearMotionLease, attemptAutoFailover]);
+
+  // The metadata re-attempt budget belongs to a target, not to a plan: reset it
+  // only when the release/file actually changes, so a retry that bumps
+  // `planNonce` (re-running the plan effect) does not refill its own budget.
+  useEffect(() => {
+    metadataRetryRef.current = 0;
+  }, [activeInfoHash, effectiveSelectedPath]);
+
+  // Silent metadata recovery (stream 425). Metadata still resolving is the SAME
+  // release needing a moment — so re-attempt IT on a short delay, keeping the one
+  // loader up and never asking the viewer anything (COMPLAINT 3). When the budget
+  // is spent the release genuinely isn't delivering, so surface one honest
+  // terminal state (a classified failure) rather than spinning forever.
+  useEffect(() => {
+    if (problem !== "metadata") return;
+    if (metadataRetryRef.current >= MAX_METADATA_RETRIES) {
+      setStreamFailure({ code: "STALLED", failureClass: "delivery", retryable: true });
+      setProblem("stalled");
+      setMessage(null);
+      return;
+    }
+    metadataRetryRef.current += 1;
+    const timer = window.setTimeout(() => setPlanNonce((n) => n + 1), METADATA_RETRY_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [problem]);
+
+  // Backstop watchdog for the bare, copy-free loader (duck: a spinner with no
+  // text is acceptable ONLY if it cannot spin forever). Armed once per opened
+  // release; cleared the instant the first frame is presented. If it fires, the
+  // open is genuinely stuck past every specific recovery path, so make one last
+  // silent failover attempt and, failing that, surface ONE honest terminal
+  // state — never an endless spinner, never a question asked mid-wait.
+  useEffect(() => {
+    if (!expanded || !activeInfoHash || playbackStarted) return;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (await attemptAutoFailover()) return;
+        setStreamFailure({ code: "STALLED", failureClass: "delivery", retryable: true });
+        setProblem("stalled");
+        setMessage(null);
+      })();
+    }, OPENING_WATCHDOG_MS);
+    return () => window.clearTimeout(timer);
+  }, [expanded, activeInfoHash, effectiveSelectedPath, playbackStarted, attemptAutoFailover]);
 
   // Selecting a different file must not inherit the previous file's seek offset
   // or audio-track choice.
@@ -2699,7 +3105,7 @@ function InlineStreamPlayerInner({
    */
   const planResolved = Boolean(playableSrc);
   useEffect(() => {
-    if (!expanded || !effectiveSelectedPath || !planResolved) return;
+    if (!expanded || !effectiveSelectedPath || !planResolved || !activeInfoHash) return;
     const controller = new AbortController();
     const filePath = effectiveSelectedPath;
     void (async () => {
@@ -2973,7 +3379,7 @@ function InlineStreamPlayerInner({
    * simply never appear. Direct mode plays the file itself, so the offset is 0.
    */
   const activeSubtitleSrc = useMemo(() => {
-    if (!activeSubtitle || !effectiveSelectedPath) return null;
+    if (!activeSubtitle || !effectiveSelectedPath || !activeInfoHash) return null;
     const offset = playbackMode === "hls" ? timelineOffset : 0;
     return subtitleTrackSrc(activeInfoHash, effectiveSelectedPath, activeSubtitle.id, offset);
   }, [activeSubtitle, activeInfoHash, effectiveSelectedPath, playbackMode, timelineOffset]);
@@ -3390,7 +3796,7 @@ function InlineStreamPlayerInner({
         pendingSeekRef.current = Math.max(0, Number.isFinite(resumeAt) ? resumeAt : currentSourceTimeRef.current);
         setProblem(null);
         setMessage(verdict.detail);
-        setPreparingLabel("Reconnecting…");
+        setPreparingLabel("preparing");
         setWaiting(false);
         setActiveVideoAdvancing(false);
         lastActiveMediaTimeRef.current = null;
@@ -3398,18 +3804,29 @@ function InlineStreamPlayerInner({
         setPlanNonce((n) => n + 1);
         return;
       }
+      // A decode/unsupported verdict is a playability failure: the bytes arrived
+      // but this release can't be decoded here. Retrying the same file is
+      // pointless. Before surfacing anything, recover silently (COMPLAINT 3):
+      // keep the one loader up (playbackStarted=false) and let the automatic
+      // switch swap in the next candidate. Only when recovery is genuinely
+      // exhausted do we surface UNPLAYABLE → the panel offers "Try another
+      // version", never "Retry" (I19).
+      if (verdict.kind === "decode" || verdict.kind === "unsupported" || verdict.kind === "unknown") {
+        setPlaybackStarted(false);
+        void attemptAutoFailover().then((recovered) => {
+          if (recovered) return;
+          setProblem(verdict.problem);
+          setMessage(verdict.detail);
+          setPlayableSrc(null);
+          setStreamFailure({ code: "UNPLAYABLE", failureClass: "playability", retryable: false });
+        });
+        return;
+      }
       setProblem(verdict.problem);
       setMessage(verdict.detail);
       setPlayableSrc(null);
-      // A decode/unsupported verdict is a playability failure: the bytes arrived
-      // but this release can't be decoded here. Retrying the same file is
-      // pointless, so surface it as UNPLAYABLE → the panel offers "Try another
-      // version", never "Retry" (I19).
-      if (verdict.kind === "decode" || verdict.kind === "unsupported" || verdict.kind === "unknown") {
-        setStreamFailure({ code: "UNPLAYABLE", failureClass: "playability", retryable: false });
-      }
     },
-    [clearMotionLease, playbackMode, timelineOffset],
+    [clearMotionLease, playbackMode, timelineOffset, attemptAutoFailover],
   );
 
   const handleMediaTimeUpdate = useCallback(
@@ -3426,6 +3843,7 @@ function InlineStreamPlayerInner({
       if (shouldAdoptTimeUpdate({
         seekInFlight: seekInFlightRef.current,
         hasPendingUserSeek: requestedSeekRef.current != null,
+        isUserScrubbing: isScrubbingRef.current,
       })) {
         setCurrentSourceTime(position);
         currentSourceTimeRef.current = position;
@@ -3684,17 +4102,19 @@ function InlineStreamPlayerInner({
 
   const unifiedControlBar = (variant: "theatre" | "inline") => {
     const large = variant === "theatre";
+    // 44×44px minimum touch target on every transport control (ui-ux-pro-max
+    // touch rule): the tappable box is 44px while the glyph stays small.
     const buttonClass = cn(
       "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2",
       large
-        ? "h-10 w-10 text-white/80 hover:bg-white/12 hover:text-white focus-visible:outline-white"
-        : "h-8 w-8 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] focus-visible:outline-[var(--accent)]",
+        ? "h-11 w-11 text-white/80 hover:bg-white/12 hover:text-white focus-visible:outline-white"
+        : "h-11 w-11 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] focus-visible:outline-[var(--accent)]",
     );
     const playButtonClass = cn(
       "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2",
       large
-        ? "h-10 w-10 bg-white text-black hover:scale-105 focus-visible:outline-white"
-        : "h-8 w-8 bg-[var(--accent)] text-black hover:brightness-110 focus-visible:outline-[var(--accent)]",
+        ? "h-11 w-11 bg-white text-black hover:scale-105 focus-visible:outline-white"
+        : "h-11 w-11 bg-[var(--accent)] text-black hover:brightness-110 focus-visible:outline-[var(--accent)]",
     );
     const iconClass = large ? "h-5 w-5" : "h-4 w-4";
     return (
@@ -3709,6 +4129,25 @@ function InlineStreamPlayerInner({
       >
         <button type="button" data-stream-transport onClick={togglePlay} disabled={!playableSrc} aria-label={isPlaying ? "Pause" : "Play"} className={playButtonClass}>
           {isPlaying ? <Pause className={cn(iconClass, "fill-current")} /> : <Play className={cn(iconClass, "translate-x-px fill-current")} />}
+        </button>
+        <button
+          type="button"
+          data-stream-next
+          // Reuse the exact up-next/autoplay resolution: play the prewarmed next
+          // episode when it is ready, otherwise kick the same grab the up-next
+          // card's fetch action uses. No duplicated resolution logic. Disabled
+          // (never hidden) when there is genuinely no next item — a movie or the
+          // last episode — so the control greys out instead of appearing and
+          // disappearing. aria-label only; no `title` tooltip over the frame.
+          onClick={() => {
+            if (upNext?.infoHash) playUpNext(upNext);
+            else void fetchUpNext();
+          }}
+          disabled={!upNext}
+          aria-label="Next episode"
+          className={buttonClass}
+        >
+          <SkipForward className={iconClass} />
         </button>
         <button type="button" onClick={() => seekRelative(-10)} disabled={!playableSrc} aria-label="Back 10 seconds" className={buttonClass}>
           <RotateCcw className={iconClass} />
@@ -3735,13 +4174,41 @@ function InlineStreamPlayerInner({
               step={1}
               value={Math.min(Math.floor(currentSourceTime), Math.floor(sourceDuration))}
               onChange={(e) => setCurrentSourceTime(Number(e.target.value))}
-              onMouseUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
-              onKeyUp={(e) => handleSourceSeek(Number(e.currentTarget.value))}
-              onTouchEnd={(e) => handleSourceSeek(Number(e.currentTarget.value))}
+              onPointerDown={() => {
+                // COMPLAINT 4: while the viewer drags, gate `timeupdate` adoption
+                // so the reconcile loop can't yank the thumb back to the video's
+                // real position mid-drag. The displayed thumb tracks the drag at
+                // input speed; the actual seek commits once, on release.
+                isScrubbingRef.current = true;
+              }}
+              onMouseUp={(e) => {
+                handleSourceSeek(Number(e.currentTarget.value));
+                isScrubbingRef.current = false;
+              }}
+              onKeyUp={(e) => {
+                handleSourceSeek(Number(e.currentTarget.value));
+                isScrubbingRef.current = false;
+              }}
+              onTouchEnd={(e) => {
+                handleSourceSeek(Number(e.currentTarget.value));
+                isScrubbingRef.current = false;
+              }}
+              onPointerCancel={() => {
+                isScrubbingRef.current = false;
+              }}
+              onBlur={() => {
+                isScrubbingRef.current = false;
+              }}
             />
           </span>
         ) : (
-          <span className={cn("flex-1", large ? "min-w-[200px] text-[12px] text-white/60" : "min-w-[180px] text-[11px] text-white/60")}>Getting it ready…</span>
+          // No copy while the timeline resolves (COMPLAINT 2): reserve the exact
+          // scrubber footprint with an inert rail so the control bar doesn't shift
+          // (CLS) and no second loading indicator appears here. The single
+          // StreamLoader over the stage is the only busy signal.
+          <span aria-hidden="true" className={cn("relative flex flex-1 items-center", large ? "min-w-[200px]" : "min-w-[180px]")}>
+            <span className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
+          </span>
         )}
         <button type="button" onClick={toggleMute} disabled={!playableSrc} aria-label={muted ? "Unmute" : "Mute"} className={buttonClass}>
           {muted ? <VolumeX className={iconClass} /> : <Volume2 className={iconClass} />}
@@ -3793,7 +4260,6 @@ function InlineStreamPlayerInner({
                 </PageSkeletonFrame>
               ) : null}
               {qualityCandidates.map((candidate) => {
-                const switching = switchingInfoHash === candidate.infoHash;
                 return (
                   <button
                     key={candidate.infoHash}
@@ -3814,7 +4280,7 @@ function InlineStreamPlayerInner({
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] text-white/35">{candidate.title}</span>
                     </span>
-                    {switching ? <Loader2 className="mt-1 h-4 w-4 shrink-0 animate-spin text-white/70" /> : candidate.isCurrent ? <Check className="mt-1 h-4 w-4 shrink-0 text-[var(--accent)]" /> : null}
+                    {candidate.isCurrent ? <Check className="mt-1 h-4 w-4 shrink-0 text-[var(--accent)]" /> : null}
                   </button>
                 );
               })}
@@ -3833,8 +4299,49 @@ function InlineStreamPlayerInner({
     );
   };
 
+  // ── The single loader boolean, hoisted ABOVE the theatre/inline branch ──────
+  // Both surfaces read THIS one `showLoader`, so neither branch can invent a
+  // second spinner or restart it. It ORs every pre-first-frame moment (no source
+  // ∪ resolving ∪ opening ∪ buffering, via `!playbackStarted`) with the mid-play
+  // transient (seek/prepare/checking) and the HLS manifest fetch, and is forced
+  // off the instant a terminal error owns the surface or the picture advances.
+  const hasVisibleVideo = Boolean(playableSrc && selectedFile);
+  const deliveryDetail = "not enough of it has arrived to play";
+  const { title: terminalTitle, detail: terminalDetail } = terminalPlaybackCopy({
+    problem,
+    message,
+    deliveryDetail,
+  });
+  const failureCopy = streamFailure ? playbackFailureCopy(streamFailure) : null;
+  // Terminality is EXPLICIT — never inferred from a diagnostic message. A bare
+  // `message` (a reconnect note, a seek-retry hint, an internal fallback) or a
+  // recovering `problem` ("stalled"/"preparing" while silent auto-failover is
+  // working) keeps the ONE loader up with no panel. Only a classified
+  // `streamFailure` (silent recovery genuinely exhausted) or a hard "can't play
+  // here" problem replaces the spinner with a terminal panel. This is what stops
+  // a recoverable state from tearing the single loader down mid-journey.
+  const terminalFailure = isTerminalPlayback({ problem, hasStreamFailure: Boolean(streamFailure) });
+  const panelTitle = failureCopy?.headline ?? (terminalFailure ? terminalTitle : null);
+  const panelDetail = failureCopy?.detail ?? (terminalFailure ? terminalDetail : null);
+  // A release switch / manual next / autoplay transition owns the loader while it
+  // resolves, so it stays continuous across the source swap.
+  const switchingLoader = Boolean(switchingInfoHash) || Boolean(transitioningTitle);
+  const showLoader =
+    shouldShowUnifiedLoader({
+      hasVisibleVideo,
+      activeVideoAdvancing,
+      // Grace-armed, not raw `seeking`, so a quick scrub commits without a
+      // loader flash (COMPLAINT 4).
+      seeking: seekLoaderArmed,
+      waiting,
+      preparing: Boolean(preparingLabel),
+      checking: checkingStream,
+      switching: switchingLoader,
+      terminal: terminalFailure,
+      playbackStarted,
+    }) || manifestLoading;
+
   if (theatre) {
-    const hasVisibleVideo = Boolean(playableSrc && selectedFile);
     const chromeVisible = theatreControlsVisible || controlsPinned;
     const controlsOpacity = chromeVisible ? "opacity-100" : "opacity-0";
     const pointerWhenHidden = chromeVisible ? "pointer-events-auto" : "pointer-events-none focus-within:opacity-100";
@@ -3853,43 +4360,6 @@ function InlineStreamPlayerInner({
       setVolumeMenuOpen(false);
       setQualityMenuOpen(false);
     };
-    // State language only — never peer counts or byte rates.
-    const deliveryDetail = "not enough of it has arrived to play";
-    const { title: terminalTitle, detail: terminalDetail } = terminalPlaybackCopy({
-      problem,
-      message,
-      deliveryDetail,
-    });
-    // I19: when the engine handed us a structured failure, its friendly copy and
-    // affordance win over the generic problem→copy mapping.
-    const failureCopy = streamFailure ? playbackFailureCopy(streamFailure) : null;
-    const panelTitle = failureCopy?.headline ?? terminalTitle;
-    const panelDetail = failureCopy?.detail ?? terminalDetail;
-    // The single loader boolean: exactly one spinner for the union of every
-    // "getting there" moment, keyed to the active surface and suppressed when a
-    // terminal error owns it or the picture is advancing.
-    const showLoader = shouldShowUnifiedLoader({
-      hasVisibleVideo,
-      activeVideoAdvancing,
-      seeking,
-      waiting,
-      preparing: Boolean(preparingLabel),
-      checking: checkingStream,
-      terminal: Boolean(panelTitle),
-      playbackStarted,
-    });
-    const statusTitle = panelTitle
-      ? panelTitle
-      : transitioningTitle && !playableSrc
-        ? `Preparing ${transitioningTitle}`
-      : checkingStream || preparingLabel
-        ? stateSentence
-      : !playbackStarted
-        // Any moment before the first frame (manifest loading, source opening,
-        // the <video> mounted but not yet painted) keeps ONE calm status line so
-        // the paneled loader stays the same node — no bare↔panel spinner churn.
-        ? "Getting it ready…"
-        : null;
 
     return (
       <div
@@ -3899,6 +4369,7 @@ function InlineStreamPlayerInner({
           className,
         )}
         data-inline-player
+        data-playback-started={playbackStarted ? "true" : "false"}
         data-player-chrome={chrome}
         data-infohash={activeInfoHash}
         data-playback-mode={playbackMode}
@@ -4023,20 +4494,11 @@ function InlineStreamPlayerInner({
                 })
               ) : null}
 
-              {!playableSrc ? (
-                <div
-                  data-stream-preparing
-                  key={`preparing-${activeInfoHash}`}
-                  aria-hidden="true"
-                  className="absolute inset-0 bg-transparent"
-                />
-              ) : null}
-
               {panelTitle ? (
                 <div data-stream-error className="absolute inset-0 z-10 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),rgba(0,0,0,0.55)_62%)] px-6 text-center">
                   <div className="flex max-w-md flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/45 px-6 py-5 text-white/75 shadow-2xl backdrop-blur-md">
                     <X className="h-7 w-7 text-white/70" />
-                    <p className="text-sm font-medium text-white">{statusTitle}</p>
+                    <p className="text-sm font-medium text-white">{panelTitle}</p>
                     {panelDetail ? <p className="text-[12px] text-white/60">{panelDetail}</p> : null}
                     <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                       {failureCopy?.affordance === "retry" ? (
@@ -4080,32 +4542,12 @@ function InlineStreamPlayerInner({
                   </div>
                 </div>
               ) : showLoader ? (
-                // THE one loader. A single spinner for {seeking ∪ buffering ∪
-                // preparing ∪ checking ∪ no-source}, rendered once over the active
-                // surface. A quick seek/buffer gets the light overlay with no text;
-                // a real "getting ready" moment gets the panel with a status line.
-                <div
-                  data-stream-loading
-                  data-stream-seeking={seeking ? "true" : undefined}
-                  aria-hidden="true"
-                  className={cn(
-                    "pointer-events-none absolute inset-0 z-10 grid place-items-center px-6 text-center",
-                    statusTitle
-                      ? "bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),rgba(0,0,0,0.55)_62%)]"
-                      : "bg-black/25",
-                  )}
-                >
-                  {statusTitle ? (
-                    <div className="flex max-w-md flex-col items-center gap-3 rounded-2xl border border-white/10 bg-black/45 px-6 py-5 text-white/75 shadow-2xl backdrop-blur-md">
-                      <span className="grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-white/8">
-                        <Loader2 className="h-6 w-6 animate-spin text-white/85" />
-                      </span>
-                      <p className="text-sm font-medium text-white">{statusTitle}</p>
-                    </div>
-                  ) : (
-                    <Loader2 className="h-6 w-6 animate-spin text-white/90" />
-                  )}
-                </div>
+                // COMPLAINTS 1 & 2: exactly one spinner-only loader for the union
+                // of every "getting there" moment (no source yet ∪ preparing ∪
+                // checking ∪ buffering ∪ seeking ∪ switching release), rendered
+                // once over the persistent stage with no narration copy. All three
+                // probe selectors live on its single node so a union count is 1.
+                <StreamLoader />
               ) : null}
 
               <div
@@ -4195,7 +4637,7 @@ function InlineStreamPlayerInner({
                           disabled={upNextLoading}
                           className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-[12px] font-semibold text-white/80 disabled:cursor-wait disabled:opacity-60"
                         >
-                          {upNextLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          {upNextLoading && playbackStarted ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                           Fetch next
                         </button>
                       )}
@@ -4216,7 +4658,7 @@ function InlineStreamPlayerInner({
 
                 <div className="mt-3 flex min-h-6 items-center justify-between gap-3 text-[11px] text-white/55">
                   <div className="flex min-w-0 items-center gap-2">
-                    {selectedFile ? (
+                    {selectedFile && activeInfoHash ? (
                       <SwarmChip
                         infoHash={activeInfoHash}
                         active={Boolean(playableSrc)}
@@ -4263,6 +4705,7 @@ function InlineStreamPlayerInner({
         className,
       )}
       data-inline-player
+      data-playback-started={playbackStarted ? "true" : "false"}
       data-player-chrome={chrome}
       data-infohash={activeInfoHash}
       data-playback-mode={playbackMode}
@@ -4384,13 +4827,6 @@ function InlineStreamPlayerInner({
             }
           `}</style>
 
-          {!theatre && manifestLoading ? (
-            <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
-              <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-              Getting it ready…
-            </p>
-          ) : null}
-
           {showFileSelect ? (
             <label className="block space-y-1 text-[11px] text-[var(--text-tertiary)]">
               File
@@ -4428,68 +4864,13 @@ function InlineStreamPlayerInner({
             </div>
           ) : null}
 
-          {!theatre && checkingStream ? (
-            <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
-              <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-              {stateSentence}
-            </p>
-          ) : null}
 
-          {!theatre && preparingLabel && !checkingStream ? (
-            <p className="flex items-center gap-2 text-[12px] text-[var(--text-tertiary)]">
-              <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-hidden="true" />
-              {stateSentence}
-            </p>
-          ) : null}
 
-          {theatre && !playableSrc ? (
-            <div
-              data-stream-stage
-              className="relative mx-auto flex aspect-video w-full max-h-[calc(100dvh-13rem)] min-h-[240px] items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
-            >
-              <div className="flex flex-col items-center gap-3 px-6 text-center text-white/75">
-                {message ? (
-                  <X className="h-7 w-7 text-white/70" />
-                ) : (
-                  <Loader2 className="h-7 w-7 animate-spin text-white/80" />
-                )}
-                <p className="text-sm font-medium text-white">
-                  {message
-                    ? "Playback cannot start yet."
-                    : manifestLoading
-                    ? "Getting it ready…"
-                    : checkingStream || preparingLabel
-                      ? stateSentence
-                      : "Pick a video file to start playback."}
-                </p>
-                {message ? <p className="max-w-md text-[12px] text-white/55">{message}</p> : null}
-                {message ? (
-                  problem === "missing" ? (
-                    <a
-                      href={searchHref}
-                      className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
-                    >
-                      Find a release
-                    </a>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMessage(null);
-                        setProblem(null);
-                        void loadManifest();
-                      }}
-                      className="inline-flex h-8 items-center rounded-full bg-white px-3 text-[12px] font-semibold text-black transition hover:bg-white/90"
-                    >
-                      Try again
-                    </button>
-                  )
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {playableSrc && selectedFile ? (
+          {/* Always-mounted surface + stage while the player is expanded. The
+              <video> is a conditional CHILD and the single StreamLoader a fixed
+              sibling, so the ONE loader keeps its DOM identity across the entire
+              journey — including the playableSrc null→set transition — and never
+              restarts or hands off to a second spinner (COMPLAINT 1). */}
             <div
               ref={fullscreenSurfaceRef}
               data-player-fullscreen-surface
@@ -4498,33 +4879,17 @@ function InlineStreamPlayerInner({
               <div
                 data-stream-stage
                 className={cn(
-                  "relative",
+                  // Reserve the frame before a source exists so the loader has a
+                  // stable box and the layout never shifts (CLS-safe).
+                  "relative min-h-[160px] overflow-hidden rounded-md bg-black",
                   theatre &&
                     "mx-auto flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black shadow-[0_24px_80px_rgba(0,0,0,0.55)]",
                 )}
               >
-              {renderStreamVideo({
-                className: "w-full rounded-md bg-black",
-              })}
-              {shouldShowUnifiedLoader({
-                hasVisibleVideo: true,
-                activeVideoAdvancing,
-                seeking,
-                waiting,
-                preparing: Boolean(preparingLabel),
-                checking: checkingStream,
-                terminal: false,
-                playbackStarted,
-              }) ? (
-                <span
-                  data-stream-loading
-                  data-stream-seeking={seeking ? "true" : undefined}
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 grid place-items-center rounded-md bg-black/25"
-                >
-                  <Loader2 className="h-6 w-6 animate-spin text-white/90" />
-                </span>
-              ) : null}
+              {playableSrc && selectedFile
+                ? renderStreamVideo({ className: "w-full rounded-md bg-black" })
+                : null}
+              {showLoader ? <StreamLoader className="rounded-md" /> : null}
               {ended && upNext ? (
                 <div
                   data-up-next-card
@@ -4580,6 +4945,11 @@ function InlineStreamPlayerInner({
                 </div>
               ) : null}
               </div>
+              {/* Controls, timeline and status live BELOW the stage and exist
+                  only once a real source does. The stage above stays mounted
+                  regardless, so toggling these never disturbs the one loader. */}
+              {playableSrc && selectedFile && activeInfoHash ? (
+                <>
               {playbackMode !== "hls" && sourceDuration && sourceDuration > 0 ? (
                 <div
                   data-stream-availability
@@ -4671,20 +5041,16 @@ function InlineStreamPlayerInner({
                         disabled={upNextLoading}
                         className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-white/15 px-2.5 text-[11px] font-medium text-white/80 disabled:cursor-wait disabled:opacity-60"
                       >
-                        {upNextLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                        {upNextLoading && playbackStarted ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                         Fetch next
                       </button>
                     )}
                   </div>
                 ) : null}
               </div>
-              {viewerWaiting ? (
-                <p className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
-                  {stateSentence}
-                </p>
+                </>
               ) : null}
             </div>
-          ) : null}
         </div>
       ) : null}
     </div>
