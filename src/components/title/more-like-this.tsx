@@ -67,7 +67,7 @@ export function MoreLikeThis({
                   real element with real text so it survives — and so a screen
                   reader hears something between "2024" and "8.1". */}
               {item.year != null || item.rating != null ? (
-                <span className="mt-0.5 flex items-center text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="mt-0.5 flex items-center text-[12px] tabular-nums text-[var(--text-tertiary)]">
                   {item.year != null ? <span>{item.year}</span> : null}
                   {item.year != null && item.rating != null ? (
                     <span className="mx-1">·</span>

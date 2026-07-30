@@ -125,6 +125,32 @@ check("without a query, order stays at server rank (no relevance pass)", () => {
   assert.match(titles[0].name, /Maelstrom/i); // unchanged: first-seen wins
 });
 
+check("within a relevance tier, year+poster beats a bare name", () => {
+  // Two exact-name matches: bare "The Odyssey" arrives first (would win on
+  // release rank alone), then "The Odyssey" 1997 with a poster. Richness
+  // must promote the complete card without demoting either past Maelstrom.
+  const titles = groupTitles(
+    [
+      rel("The Odyssey 1080p WEB-DL"),
+      rel("Maelstrom The Odyssey of Waterworld 2018 1080p"),
+      rel("The Odyssey 1997 1080p BluRay", {
+        metadata: meta({
+          title: "The Odyssey",
+          year: 1997,
+          posterUrl: "https://image.tmdb.org/t/p/w342/odyssey.jpg",
+        }),
+      }),
+    ],
+    NOW,
+    "the odyssey",
+  );
+  assert.match(titles[0].name, /^The Odyssey$/i);
+  assert.equal(titles[0].year, 1997, "yeared exact match ranks first in-tier");
+  assert.ok(titles[0].posterUrl, "rich card keeps its poster");
+  const maelstromIndex = titles.findIndex((t) => /Maelstrom/i.test(t.name));
+  assert.ok(maelstromIndex > 0, "exact matches still beat substring matches");
+});
+
 check("groups a series' episodes into one card, marked as a series", () => {
   const titles = groupTitles(
     [

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import type { RecommendationRail } from "@/lib/recommend";
+import { PosterImage } from "@/components/browse/poster-image";
 import { titleHrefForName } from "@/components/title/work-key";
 
 /**
@@ -24,8 +25,7 @@ export function RecommendationRailSection({
 }) {
   const [rail, setRail] = useState<RecommendationRail | null>(null);
   const [added, setAdded] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState<string | null>(null);
-  const [broken, setBroken] = useState<Set<string>>(new Set());
+    const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,61 +100,38 @@ export function RecommendationRailSection({
             <li key={key} className="min-w-0">
               <div className="surface flex h-full flex-col overflow-hidden">
                 <div className="relative aspect-[2/3] shrink-0 bg-[var(--bg-muted)]">
-                  {item.posterUrl && !broken.has(key) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.posterUrl}
-                      alt=""
-                      loading="lazy"
-                      onError={() =>
-                        setBroken((prev) => new Set(prev).add(key))
-                      }
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    // An empty `src` makes the browser re-request the page as
-                    // an image and leaves a bare grey slab. Same initial-tile
-                    // fallback the library cards use.
-                    <div
-                      className="flex h-full w-full items-center justify-center px-1"
-                      aria-label="No poster"
-                      title="No poster"
-                    >
-                      <span
-                        aria-hidden
-                        className="select-none text-2xl font-semibold text-[var(--text-tertiary)]"
-                      >
-                        {item.title.trim().charAt(0).toUpperCase() || "?"}
-                      </span>
-                    </div>
-                  )}
-                  {titleHref ? (
-                    <Link
-                      href={titleHref}
-                      tabIndex={-1}
-                      aria-hidden
-                      className="absolute inset-0"
-                    />
-                  ) : null}
-                </div>
-                <div className="flex flex-1 flex-col p-2">
-                  {titleHref ? (
-                    <Link
-                      href={titleHref}
-                      className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-                    >
-                      <p
-                        className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]"
-                        title={item.title}
-                      >
-                        {item.title}
-                      </p>
-                      {item.year ? (
-                        <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
-                          {item.year}
-                        </p>
-                      ) : null}
-                    </Link>
+                                  <PosterImage
+                                    src={item.posterUrl}
+                                    title={item.title}
+                                    sizes="(min-width: 1024px) 14vw, 28vw"
+                                  />
+                                  {titleHref ? (
+                                    <Link
+                                      href={titleHref}
+                                      tabIndex={-1}
+                                      aria-hidden
+                                      className="absolute inset-0"
+                                    />
+                                  ) : null}
+                                </div>
+                                <div className="flex flex-1 flex-col p-2">
+                                  {titleHref ? (
+                                    <Link
+                                      href={titleHref}
+                                      className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                                    >
+                                      <p
+                                        className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]"
+                                        title={item.title}
+                                      >
+                                        {item.title}
+                                      </p>
+                                      {item.year ? (
+                                        <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">
+                                          {item.year}
+                                        </p>
+                                      ) : null}
+                                    </Link>
                   ) : (
                     <>
                       <p
@@ -164,7 +141,7 @@ export function RecommendationRailSection({
                         {item.title}
                       </p>
                       {item.year ? (
-                        <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
+                                              <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)]">
                           {item.year}
                         </p>
                       ) : null}
@@ -181,7 +158,7 @@ export function RecommendationRailSection({
                       }}
                       disabled={busy === key}
                       aria-label={`Add ${item.title} to library`}
-                      className="flex w-full items-center justify-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 min-h-[44px] text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--accent-text)] disabled:opacity-50 lg:min-h-0"
+                                            className="flex w-full items-center justify-center gap-1 rounded-md border border-[var(--border)] px-2 py-1 min-h-[44px] text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--accent-text)] disabled:opacity-50 lg:min-h-0"
                     >
                       <Plus className="h-3 w-3 shrink-0" aria-hidden />
                       <span className="truncate">

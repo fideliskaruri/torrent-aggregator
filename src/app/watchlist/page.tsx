@@ -433,7 +433,7 @@ export default function WatchlistPage() {
             <p
               id={automationStateId}
               data-dense-ui
-              className="max-w-[16rem] text-left text-[11px] leading-snug text-[var(--text-tertiary)] sm:text-right"
+                          className="max-w-[16rem] text-left text-[12px] leading-snug text-[var(--text-tertiary)] sm:text-right"
             >
               {automationStateCopy(autoIntervalMinutes)}
               {autoIntervalMinutes === 0 ? (
@@ -441,7 +441,7 @@ export default function WatchlistPage() {
                   {" "}
                   <Link
                     href="/settings"
-                    className="text-[var(--accent-text)] underline underline-offset-2"
+                                className="whitespace-nowrap text-[var(--accent-text)] underline underline-offset-2"
                   >
                     Turn on
                   </Link>
@@ -624,7 +624,7 @@ export default function WatchlistPage() {
                           <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]">
                             {item.title}
                           </h2>
-                          <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
+                          <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)] capitalize">
                             {typeLabel}
                             {item.monitored !== false
                               ? " · watching"
@@ -636,7 +636,7 @@ export default function WatchlistPage() {
                           <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2">
                             {item.title}
                           </h2>
-                          <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
+                                                    <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)] capitalize">
                             {typeLabel}
                             {item.monitored !== false
                               ? " · watching"

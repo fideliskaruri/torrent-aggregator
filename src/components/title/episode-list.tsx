@@ -166,93 +166,105 @@ export function EpisodeList({
       </div>
 
       {seasons.length > 1 || showSeasonGrab ? (
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-          {seasons.length > 1 ? (
-            <nav aria-label="Seasons" className="min-w-0 sm:flex-1">
-              <ul className="flex snap-x gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {seasons.map((s) => {
-                  const current = s.season === season;
-                  return (
-                    <li key={s.season} className="shrink-0 snap-start">
-                      <button
-                        type="button"
-                        data-season-tab={s.season}
-                        data-active={current || undefined}
-                        aria-pressed={current}
-                        onClick={() => onSeasonChange(s.season)}
-                        className={cn(
-                          "inline-flex min-h-[44px] cursor-pointer touch-manipulation items-center justify-center rounded-[var(--radius)] border px-3 py-1.5 text-[12px] font-medium transition-colors lg:min-h-0",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-                          current
-                            ? "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]"
-                            : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
-                        )}
-                      >
-                        Season {s.season}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </nav>
-          ) : null}
+              // Always stack: tabs get the full row width; season actions sit below.
+              // Side-by-side (sm:flex-row) used to steal ~300px for Play/Download and
+              // hard-slice "Season 10" mid-word on a 24-season title with no fade and
+              // a hidden scrollbar — seasons 10–24 were undiscoverable.
+              <div className="mt-3 flex flex-col gap-2">
+                {seasons.length > 1 ? (
+                  <nav aria-label="Seasons" className="relative min-w-0">
+                    {/* Edge fade advertises overflow without eating a tab when scrolled. */}
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-[var(--bg)] to-transparent"
+                    />
+                    <ul
+                      data-season-strip
+                      className="flex snap-x gap-2 overflow-x-auto pb-1 pr-8 [scrollbar-width:thin]"
+                    >
+                      {seasons.map((s) => {
+                        const current = s.season === season;
+                        return (
+                          <li key={s.season} className="shrink-0 snap-start">
+                            <button
+                              type="button"
+                              data-season-tab={s.season}
+                              data-active={current || undefined}
+                              aria-pressed={current}
+                              onClick={() => onSeasonChange(s.season)}
+                              className={cn(
+                                "inline-flex min-h-[44px] cursor-pointer touch-manipulation items-center justify-center rounded-[var(--radius)] border px-3 py-1.5 text-[12px] font-medium transition-colors lg:min-h-0",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                                current
+                                  ? "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]"
+                                  : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
+                              )}
+                            >
+                              Season {s.season}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </nav>
+                ) : null}
 
-          {showSeasonGrab && season != null ? (
-            <div className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0 sm:flex-wrap">
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                data-season-grab
-                data-action="stream"
-                aria-busy={seasonStreamStatus.status === "pending" || undefined}
-                aria-describedby={seasonGrabSummaryId}
-                disabled={!seasonStreamCanRun}
-                onClick={() =>
-                  onSeasonGrab(
-                    season,
-                    episodes.map((episode) => episode.episode),
-                    "stream",
-                  )
-                }
-                className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:shrink-0"
-              >
-                <ButtonBody
-                  pending={seasonStreamStatus.status === "pending"}
-                  icon={<Play className="fill-current" aria-hidden />}
-                >
-                  Play season
-                </ButtonBody>
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                data-season-grab
-                data-action="download"
-                aria-busy={seasonGrabStatus.status === "pending" || undefined}
-                aria-describedby={seasonGrabSummaryId}
-                disabled={!seasonDownloadCanRun}
-                onClick={() =>
-                  onSeasonGrab(
-                    season,
-                    episodes.map((episode) => episode.episode),
-                    "keep",
-                  )
-                }
-                className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:shrink-0"
-              >
-                <ButtonBody
-                  pending={seasonGrabStatus.status === "pending"}
-                  icon={<Download aria-hidden />}
-                >
-                  Download season
-                </ButtonBody>
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+                {showSeasonGrab && season != null ? (
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      data-season-grab
+                      data-action="stream"
+                      aria-busy={seasonStreamStatus.status === "pending" || undefined}
+                      aria-describedby={seasonGrabSummaryId}
+                      disabled={!seasonStreamCanRun}
+                      onClick={() =>
+                        onSeasonGrab(
+                          season,
+                          episodes.map((episode) => episode.episode),
+                          "stream",
+                        )
+                      }
+                      className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none"
+                    >
+                      <ButtonBody
+                        pending={seasonStreamStatus.status === "pending"}
+                        icon={<Play className="fill-current" aria-hidden />}
+                      >
+                        Play season
+                      </ButtonBody>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      data-season-grab
+                      data-action="download"
+                      aria-busy={seasonGrabStatus.status === "pending" || undefined}
+                      aria-describedby={seasonGrabSummaryId}
+                      disabled={!seasonDownloadCanRun}
+                      onClick={() =>
+                        onSeasonGrab(
+                          season,
+                          episodes.map((episode) => episode.episode),
+                          "keep",
+                        )
+                      }
+                      className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none"
+                    >
+                      <ButtonBody
+                        pending={seasonGrabStatus.status === "pending"}
+                        icon={<Download aria-hidden />}
+                      >
+                        Download season
+                      </ButtonBody>
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
       {showSeasonGrab && season != null ? (
         <SeasonGrabReportLine
@@ -494,7 +506,7 @@ function EpisodeRow({
               </span>
             ) : null}
             {episode.watched ? (
-              <span className="inline-flex items-center gap-1 text-[11px] text-[var(--text-tertiary)]">
+                          <span className="inline-flex items-center gap-1 text-[12px] text-[var(--text-tertiary)]">
                 <Check className="h-3 w-3" aria-hidden />
                 Watched
               </span>
@@ -503,14 +515,14 @@ function EpisodeRow({
         ) : null}
 
         {factsText ? (
-          <span className="mt-1 flex flex-wrap items-center text-[11px] text-[var(--text-tertiary)]">
+                      <span className="mt-1 flex flex-wrap items-center text-[12px] text-[var(--text-tertiary)]">
             {factsText}
           </span>
         ) : null}
 
         {actionStatusText ? (
           <span
-            className="mt-1 block text-[11px] text-[var(--text-tertiary)]"
+                        className="mt-1 block text-[12px] text-[var(--text-tertiary)]"
             data-episode-action-status
           >
             {actionStatusText}
@@ -530,7 +542,7 @@ function EpisodeRow({
            there should be nothing to tab to. */
         <span
           data-episode-unaired
-          className="shrink-0 self-start whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] px-2.5 py-1.5 text-[11px] text-[var(--text-tertiary)] sm:self-center"
+          className="shrink-0 self-start whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-tertiary)] sm:self-center"
         >
           {airDate ? `Airs ${airDate}` : "Not aired yet"}
         </span>

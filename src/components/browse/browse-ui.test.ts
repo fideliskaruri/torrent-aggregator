@@ -730,9 +730,11 @@ check("availabilityMeta: fetchable names getting, not local readiness", () => {
   assert.notEqual(availabilityMeta("fetchable").label, "Available");
 });
 
-check("availabilityMeta: warm is playable but never labelled ready", () => {
+check("availabilityMeta: warm is partial, never labelled ready", () => {
   const warm = availabilityMeta("warm");
-  assert.equal(warm.label, "Playable");
+  // "Partial" names the disk state. "Playable" used to compete with "Ready"
+  // as a second word for the same user fact ("you can press Play").
+  assert.equal(warm.label, "Partial");
   assert.notEqual(warm.label, availabilityMeta("ready").label);
   assert.match(
     warm.description ?? "",

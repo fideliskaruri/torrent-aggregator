@@ -6,6 +6,7 @@ import { ArrowDownToLine, ChevronDown, Loader2, Play } from "lucide-react";
 import type { TitleResult } from "./group-titles";
 import { cn } from "@/lib/utils";
 import { PlayOverlay } from "@/components/browse/play-overlay";
+import { PosterImage } from "@/components/browse/poster-image";
 import {
   ActionButton,
   type ActionButtonStatus,
@@ -64,9 +65,6 @@ export function TitleResultCard({
   const statusFor = (action: "play" | "download"): ActionButtonStatus | null =>
     status?.action === action ? status.status : null;
 
-  const posterInitial =
-    (title.name || "?").trim().charAt(0).toUpperCase() || "?";
-
   const accessibleName = [
     title.name,
     title.year ? String(title.year) : null,
@@ -102,31 +100,19 @@ export function TitleResultCard({
         ) : null}
 
         <div className="pointer-events-none relative z-10 flex gap-3 sm:gap-4">
-          {/* Poster */}
-          <div
-            className={cn(
-              "relative shrink-0 self-start overflow-hidden rounded-md bg-[var(--bg-muted)]",
-              featured ? "w-20 sm:w-24" : "w-14 sm:w-16",
-            )}
-          >
-            {title.posterUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={title.posterUrl}
-                alt=""
-                className="aspect-[2/3] w-full object-cover"
-              />
-            ) : (
-              <div
-                className="flex aspect-[2/3] w-full items-center justify-center"
-                aria-hidden
-              >
-                <span className="select-none text-2xl font-semibold text-[var(--text-tertiary)]">
-                  {posterInitial}
-                </span>
-              </div>
-            )}
-          </div>
+          {/* Poster — shared tile so a missing URL is a designed mark, never a grey slab. */}
+                    <div
+                      className={cn(
+                        "relative aspect-[2/3] shrink-0 self-start overflow-hidden rounded-md bg-[var(--bg-muted)]",
+                        featured ? "w-20 sm:w-24" : "w-14 sm:w-16",
+                      )}
+                    >
+                      <PosterImage
+                        src={title.posterUrl}
+                        title={title.name}
+                        sizes={featured ? "96px" : "64px"}
+                      />
+                    </div>
 
           {/* Content column */}
           <div className="flex min-w-0 flex-1 flex-col gap-2">

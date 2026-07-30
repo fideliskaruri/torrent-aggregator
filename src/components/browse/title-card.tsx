@@ -130,7 +130,7 @@ export function TitleCard({
   // Solid panel rather than a scrim gradient: the text has to stay legible
   // over artwork we have never seen.
   const badgeClass = cn(
-    "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[6px] border px-1.5 py-1 text-[11px] font-medium leading-none",
+    "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[6px] border px-1.5 py-1 text-[12px] font-medium leading-none",
     blocked
       ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
       : "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]",
@@ -214,7 +214,7 @@ export function TitleCard({
         {title}
       </p>
       {item.subtitle ? (
-        <p className="mt-0.5 truncate text-[11px] text-[var(--text-tertiary)]">
+        <p className="mt-0.5 truncate text-[12px] text-[var(--text-tertiary)]">
           {item.subtitle}
         </p>
       ) : null}

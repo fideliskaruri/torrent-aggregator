@@ -117,17 +117,30 @@ export function groupTitles(
 
   if (!query || !query.trim()) return titles;
 
-  // Stable sort: relevance tier first, original (release-rank) index as the
-  // tiebreak so equally-relevant titles keep their seeders/quality order.
-  return titles
-    .map((title, index) => ({
-      title,
-      index,
-      tier: queryRelevanceTier(query, title.name),
-    }))
-    .sort((a, b) => a.tier - b.tier || a.index - b.index)
-    .map((entry) => entry.title);
-}
+    // Stable sort: relevance tier first; within a tier prefer the card that
+    // actually looks like a title (has a year, then a poster) over a bare name
+    // with no metadata; original release-rank index is the final tiebreak.
+    return titles
+      .map((title, index) => ({
+        title,
+        index,
+        tier: queryRelevanceTier(query, title.name),
+        richness: titleRichness(title),
+      }))
+      .sort(
+        (a, b) =>
+          a.tier - b.tier || b.richness - a.richness || a.index - b.index,
+      )
+      .map((entry) => entry.title);
+  }
+
+  /** Higher = more complete card. Year beats poster: a year alone names the film. */
+  function titleRichness(title: TitleResult): number {
+    let score = 0;
+    if (title.year != null) score += 2;
+    if (title.posterUrl) score += 1;
+    return score;
+  }
 
 function normalizeForMatch(value: string): string {
   return value

@@ -99,11 +99,14 @@ export function availabilityMeta(
         description: "Downloaded in full. Plays instantly and seeks anywhere.",
       };
     case "warm":
-      return {
-        label: "Playable",
-        tone: "accent",
-        description: "Partly downloaded and live in the swarm. Plays now.",
-      };
+          // Not "Playable" — that competed with "Ready" as a second word for
+          // "you can press Play". "Partial" names the actual difference (bytes on
+          // disk) while the accent tone still marks it as live/playable.
+          return {
+            label: "Partial",
+            tone: "accent",
+            description: "Partly downloaded and live in the swarm. Plays now.",
+          };
     case "fetchable":
       return {
         label: "Can get",

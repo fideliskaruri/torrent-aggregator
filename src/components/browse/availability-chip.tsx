@@ -94,7 +94,7 @@ export function AvailabilityChip({
       title={meta.description ?? undefined}
       className={cn(
         "inline-flex max-w-full items-center gap-1 rounded-[5px] border font-medium leading-none",
-        compact ? "px-1.5 py-1 text-[10px]" : "px-2 py-1 text-[11px]",
+        compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-[12px]",
         TONE_CLASS[meta.tone],
         className,
       )}
