@@ -105,7 +105,7 @@ export function libraryItemState(
     return {
       kind: "paused",
       label: `Paused at ${nextLabel}`,
-      detail: "Turn on automatic checks when you want this fetched.",
+      detail: "Paused — new episodes won't be added until you resume.",
       nextLabel,
     };
   }
@@ -120,11 +120,11 @@ export function libraryItemState(
 
 export function automationStateCopy(minutes: number | null): string {
   if (minutes == null) return "Checking schedule…";
-  if (minutes <= 0) return "Automatic checks off";
-  if (minutes < 60) return `Automatic checks every ${minutes} minutes`;
-  if (minutes === 60) return "Automatic checks every hour";
+  if (minutes <= 0) return "New episodes won't download automatically";
+  if (minutes < 60) return `Checks for new episodes every ${minutes} minutes`;
+  if (minutes === 60) return "Checks for new episodes every hour";
   const hours = minutes / 60;
-  return `Automatic checks every ${hours} hours`;
+  return `Checks for new episodes every ${hours} hours`;
 }
 
 export function nextEpisodeLabel(item: LibraryStateItem): string | null {

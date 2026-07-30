@@ -18,6 +18,7 @@
  */
 import { useState } from "react";
 import { Bell, BellOff, Check, Loader2, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { TitleLibraryState } from "./types";
 
@@ -28,7 +29,7 @@ export interface LibraryControlsProps {
   onChanged: () => void;
 }
 
-type Phase = "idle" | "pending" | "error";
+type Phase = "idle" | "pending";
 
 export function LibraryControls({
   library,
@@ -36,11 +37,9 @@ export function LibraryControls({
   onChanged,
 }: LibraryControlsProps) {
   const [phase, setPhase] = useState<Phase>("idle");
-  const [message, setMessage] = useState<string | null>(null);
 
   async function send(request: () => Promise<Response>, failure: string) {
     setPhase("pending");
-    setMessage(null);
     try {
       const res = await request();
       if (!res.ok) {
@@ -52,8 +51,11 @@ export function LibraryControls({
       setPhase("idle");
       onChanged();
     } catch (err) {
-      setPhase("error");
-      setMessage(err instanceof Error ? err.message : failure);
+      setPhase("idle");
+      // A failure belongs next to nothing on the page — it belongs in a toast
+      // that names what went wrong, so the hero layout never jumps to make room
+      // for a red line and the message cannot strand itself away from its cause.
+      toast.error(err instanceof Error ? err.message : failure);
     }
   }
 
@@ -87,75 +89,69 @@ export function LibraryControls({
   const busy = phase === "pending";
 
   return (
-    <div data-title-library className="flex flex-col gap-3">
-      {/* The library controls — add or confirm membership, then decide
-          monitoring. Set apart from the acquire pair above rather than
-          jostling it. */}
-      <div className="flex flex-wrap items-center gap-2">
-        {library.inLibrary ? (
-          <span
-            className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-[12px] text-[var(--text-secondary)]"
-            data-in-library
-          >
-            <Check className="h-3.5 w-3.5" aria-hidden />
-            In your library
-          </span>
-        ) : (
-          <Button
-            type="button"
-            size="lg"
-            variant="secondary"
-            data-add-to-library
-            disabled={busy}
-            onClick={add}
-          >
-            {busy ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : (
-              <Plus aria-hidden />
-            )}
-            Add to library
-          </Button>
-        )}
+    <div
+      data-title-library
+      className="flex flex-wrap items-center gap-2"
+    >
+      {library.inLibrary ? (
+        <span
+          className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-[12px] text-[var(--text-secondary)]"
+          data-in-library
+        >
+          <Check className="h-3.5 w-3.5" aria-hidden />
+          In your library
+        </span>
+      ) : (
+        // A tertiary control, not a third primary button: ghost weight and
+        // compact size so it sits quietly beside Play and Download instead of
+        // stranded on its own row competing for the eye.
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          data-add-to-library
+          disabled={busy}
+          onClick={add}
+          className="min-h-[44px] text-[var(--text-secondary)] lg:min-h-0"
+        >
+          {busy ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : (
+            <Plus aria-hidden />
+          )}
+          Add to library
+        </Button>
+      )}
 
-        {library.inLibrary && library.watchListItemId ? (
-          // Monitoring is a preference, not a call to action: a plain toggle
-          // that says what it *does* in product terms, not "automatic checks".
-          // It sits quietly beside the library chip rather than posing as a
-          // third big button next to Play and Download.
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            role="switch"
-            data-monitor-toggle
-            aria-checked={library.monitored}
-            disabled={busy}
-            onClick={() => setMonitored(!library.monitored)}
-            className="min-h-[44px] text-[var(--text-secondary)] lg:min-h-0"
-          >
-            {busy ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : library.monitored ? (
-              <Bell aria-hidden />
-            ) : (
-              <BellOff aria-hidden />
-            )}
-            {library.monitored
-              ? isSeries
-                ? "Getting new episodes automatically"
-                : "Getting it automatically"
-              : isSeries
-                ? "Get new episodes automatically"
-                : "Get it automatically"}
-          </Button>
-        ) : null}
-      </div>
-
-      {phase === "error" && message ? (
-        <p role="alert" className="text-[12px] text-[var(--danger)]">
-          {message}
-        </p>
+      {library.inLibrary && library.watchListItemId ? (
+        // Monitoring is a preference, not a call to action: a plain toggle
+        // that says what it *does* in product terms, not "automatic checks".
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          role="switch"
+          data-monitor-toggle
+          aria-checked={library.monitored}
+          disabled={busy}
+          onClick={() => setMonitored(!library.monitored)}
+          className="min-h-[44px] text-[var(--text-secondary)] lg:min-h-0"
+        >
+          {busy ? (
+            <Loader2 className="animate-spin" aria-hidden />
+          ) : library.monitored ? (
+            <Bell aria-hidden />
+          ) : (
+            <BellOff aria-hidden />
+          )}
+          {library.monitored
+            ? isSeries
+              ? "Auto-downloading new episodes"
+              : "Auto-downloading when available"
+            : isSeries
+              ? "Auto-download new episodes"
+              : "Auto-download when available"}
+        </Button>
       ) : null}
     </div>
   );

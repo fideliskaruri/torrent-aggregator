@@ -68,10 +68,20 @@ function trustedMetadata(
  *
  * `now` is injectable so the future-gating decision is testable without
  * mocking the clock.
+ *
+ * When `query` is given, the grouped cards are stable-sorted by how well each
+ * work's *name* answers that query — exact/prefix matches first, then
+ * whole-word, then substring. Release rank (seeders/quality) is the wrong
+ * signal for "which title did the user mean": a well-seeded tangential release
+ * ("Maelstrom: The Odyssey of Waterworld") otherwise outranks the exact-name
+ * match ("The Odyssey"). Ordering within a relevance tier is left at release
+ * rank, so this restores "best matching on top" without touching the release
+ * ranking itself. Omitting `query` preserves the original server order.
  */
 export function groupTitles(
   results: readonly TorrentResult[],
   now: Date = new Date(),
+  query?: string,
 ): TitleResult[] {
   const groups = groupReleasesByWork(
     results,
@@ -79,7 +89,7 @@ export function groupTitles(
     (t) => t.metadata,
   );
 
-  return groups.map((group) => {
+  const titles = groups.map((group) => {
     const meta = trustedMetadata(group.name, group.items);
     const releaseDate = meta?.releaseDate ?? null;
     const status = releaseStatus(releaseDate, now);
@@ -104,4 +114,48 @@ export function groupTitles(
       releases: group.items,
     };
   });
+
+  if (!query || !query.trim()) return titles;
+
+  // Stable sort: relevance tier first, original (release-rank) index as the
+  // tiebreak so equally-relevant titles keep their seeders/quality order.
+  return titles
+    .map((title, index) => ({
+      title,
+      index,
+      tier: queryRelevanceTier(query, title.name),
+    }))
+    .sort((a, b) => a.tier - b.tier || a.index - b.index)
+    .map((entry) => entry.title);
+}
+
+function normalizeForMatch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+const LEADING_ARTICLE = /^(?:the|a|an) /;
+
+/**
+ * How well `name` answers `query`; lower is a better match. A leading article
+ * ("The") is ignored for the exact/prefix decision so "The Odyssey" still counts
+ * as an exact hit for the query "odyssey", and vice versa.
+ */
+function queryRelevanceTier(query: string, name: string): number {
+  const q = normalizeForMatch(query);
+  if (!q) return 5;
+  const n = normalizeForMatch(name);
+  const qBare = q.replace(LEADING_ARTICLE, "");
+  const nBare = n.replace(LEADING_ARTICLE, "");
+  if (n === q || nBare === qBare) return 0; // exact (article-insensitive)
+  if (n.startsWith(q) || nBare.startsWith(qBare)) return 1; // prefix
+  const phrase = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (new RegExp(`(?:^| )${phrase}(?: |$)`).test(n)) return 2; // whole-word span
+  if (n.includes(q)) return 3; // substring anywhere
+  const tokens = qBare.split(" ").filter(Boolean);
+  if (tokens.length > 0 && tokens.every((token) => n.includes(token))) return 4;
+  return 5;
 }

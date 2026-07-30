@@ -39,6 +39,7 @@ import {
 import { useDownloadPrefs } from "@/hooks/use-download-prefs";
 import {
   isSeriesMediaType,
+  normalizeMediaType,
   searchCategoryForMediaType,
 } from "@/lib/metadata/media-type";
 import {
@@ -288,9 +289,9 @@ export default function WatchlistPage() {
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, monitored: next } : i)),
       );
-      toast.success(next ? "Automatic checks on" : "Automatic checks off");
+      toast.success(next ? "Now watching" : "Paused");
     } else {
-      toast.error("Could not update monitoring");
+      toast.error("Couldn't update this show");
     }
   }
 
@@ -520,6 +521,12 @@ export default function WatchlistPage() {
         <div className="grid sm:grid-cols-2 gap-3">
           {filtered.map((item) => {
             const isSeries = isSeriesMediaType(item.mediaType);
+            // "tv" must read as "TV", not the CSS-capitalized "Tv". Derive the
+            // noun; the `capitalize` class still title-cases the status word.
+            const typeLabel =
+              normalizeMediaType(item.mediaType) === "tv"
+                ? "TV"
+                : item.mediaType;
             // A watchlist row is a monitored series unless we know otherwise,
             // so "tv" is the right fallback here — the same one the hunt uses.
             const searchCat = searchCategoryForMediaType(item.mediaType) ?? "tv";
@@ -618,9 +625,9 @@ export default function WatchlistPage() {
                             {item.title}
                           </h2>
                           <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
-                            {item.mediaType}
+                            {typeLabel}
                             {item.monitored !== false
-                              ? " · automatic checks on"
+                              ? " · watching"
                               : " · paused"}
                           </p>
                         </Link>
@@ -630,9 +637,9 @@ export default function WatchlistPage() {
                             {item.title}
                           </h2>
                           <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)] capitalize">
-                            {item.mediaType}
+                            {typeLabel}
                             {item.monitored !== false
-                              ? " · automatic checks on"
+                              ? " · watching"
                               : " · paused"}
                           </p>
                         </>
@@ -721,13 +728,13 @@ export default function WatchlistPage() {
                       aria-pressed={item.monitored !== false}
                       aria-label={
                         item.monitored !== false
-                          ? `Turn automatic checks off for ${item.title}`
-                          : `Turn automatic checks on for ${item.title}`
+                          ? `Stop watching ${item.title}`
+                          : `Start watching ${item.title}`
                       }
                       onClick={() => void toggleMonitored(item)}
                     >
                       <Radar className="h-3.5 w-3.5" />
-                      {item.monitored !== false ? "Auto on" : "Auto off"}
+                      {item.monitored !== false ? "Watching" : "Paused"}
                     </Button>
 
                     <Button asChild variant="ghost" size="sm">

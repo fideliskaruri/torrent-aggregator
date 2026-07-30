@@ -86,7 +86,7 @@ check("monitoring off renders as a plain product-worded toggle switch", () => {
   // A switch, not a big CTA, and it says what it does in product terms.
   assert.match(html, /role="switch"/);
   assert.match(html, /aria-checked="false"/);
-  assert.match(html, />Get new episodes automatically</);
+  assert.match(html, />Auto-download new episodes</);
   // No jargon ("checks") and no free-floating helper paragraph.
   assert.doesNotMatch(html, /automatic checks/);
   assert.doesNotMatch(html, /aria-describedby=/);
@@ -102,7 +102,7 @@ check("monitoring on flips the toggle label without a stale helper", () => {
     }),
   );
   assert.match(html, /aria-checked="true"/);
-  assert.match(html, />Getting new episodes automatically</);
+  assert.match(html, />Auto-downloading new episodes</);
   assert.doesNotMatch(html, /automatic checks/);
   assert.doesNotMatch(html, /aria-describedby=/);
 });
@@ -115,7 +115,7 @@ check("a movie gets movie-worded monitoring copy, never episode copy", () => {
       onChanged: () => {},
     }),
   );
-  assert.match(html, />Get it automatically</);
+  assert.match(html, />Auto-download when available</);
   assert.doesNotMatch(html, /new episodes/);
 });
 

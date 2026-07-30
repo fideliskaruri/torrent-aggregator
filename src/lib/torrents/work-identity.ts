@@ -178,6 +178,19 @@ function stripTrailingYear(name: string, year: number | null): string {
 const QUALITY_TOKEN_RE =
   /\b(?:\d{3,4}p|4k|uhd|web-?dl|web-?rip|web|blu-?ray|bd-?rip|bd-?remux|remux|hdtv|dvd-?rip|hd-?rip|cam|ts|x26[45]|h\.?26[45]|hevc|avc|xvid|divx|hdr10\+?|hdr|dv|sdr|10bit|8bit|aac|ac3|eac3|ddp?5|dts(?:-hd)?|truehd|atmos|flac|mp3|imax|proper|repack|extended|unrated|remastered|directors?\.?cut)\b/i;
 
+/**
+ * Language, audio and subtitle tokens that begin the technical tail but that
+ * `QUALITY_TOKEN_RE` does not cover. Scene order puts these after the title and
+ * often *before* the resolution, so without them a name like
+ * `The Amazing Spider-Man 2 (2014) Dual Audio 1080p …` cuts at `1080p` and
+ * keeps "Dual Audio" — which then disagrees with the catalogue title and the
+ * poster is dropped as well. Only ever used as an *additional* cut anchor and
+ * only when it is not the first word (`> 0` guard at the call site), so a real
+ * leading title such as the 2022 film *Dual* survives untouched.
+ */
+const AUDIO_EDITION_TOKEN_RE =
+  /\b(?:dual[\s.-]?audio|multi[\s.-]?audio|dual|multi|e-?subs?|m-?subs?|hard-?subs?|soft-?subs?|dubbed|subbed|hindi|tamil|telugu|kannada|malayalam)\b/i;
+
 const HOST_LABEL = String.raw`[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`;
 const TRACKER_TLD =
   "com|org|net|info|to|me|tv|cc|io|is|se|su|ru|mx|xyz|site|online|club";
@@ -252,6 +265,8 @@ function filmNameFromRelease(title: string, year: number | null): string {
   }
   const quality = t.search(QUALITY_TOKEN_RE);
   if (quality > 0) cuts.push(quality);
+  const audioEdition = t.search(AUDIO_EDITION_TOKEN_RE);
+  if (audioEdition > 0) cuts.push(audioEdition);
 
   if (cuts.length) t = t.slice(0, Math.min(...cuts));
 

@@ -66,7 +66,7 @@ export function RecommendationRailSection({
         if (!res.ok) throw new Error(await res.text());
         setAdded((prev) => new Set(prev).add(key));
         toast.success(`${item.title} added to library`, {
-          description: "Planned — not monitoring yet.",
+          description: "Saved to watch later.",
         });
         onAdded?.();
       } catch {

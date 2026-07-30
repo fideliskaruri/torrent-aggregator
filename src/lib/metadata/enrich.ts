@@ -242,6 +242,15 @@ export async function enrichResultsWithMetadata(
 
   const primary = await resolveMetadata(query, category);
 
+  // Two different limits, deliberately. TMDB/AniList *lookups* are the scarce,
+  // rate-limited resource, so we resolve metadata for at most 6 unique titles
+  // drawn from the top 16 results. *Attaching* that already-resolved metadata,
+  // by contrast, costs nothing — it is a Map read plus a string match — so it
+  // runs for every result below, not just the top 16. Capping attachment too
+  // was a bug: an unreleased work whose best release ranked past 16 came back
+  // with `metadata: null`, so grouping never saw its release date and the
+  // "not out yet" gate silently failed. Reading the cached map for all rows
+  // fixes that without a single extra network call.
   const top = results.slice(0, 16);
   const uniqueTitles = [
     ...new Set(top.map((r) => cleanTorrentTitle(r.title)).filter(Boolean)),
@@ -259,8 +268,7 @@ export async function enrichResultsWithMetadata(
     }),
   );
 
-  return results.map((r, i) => {
-    if (i >= 16) return r;
+  return results.map((r) => {
     const key = cleanTorrentTitle(r.title);
     let meta = titleMeta.get(key) ?? null;
 

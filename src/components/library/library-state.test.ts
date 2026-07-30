@@ -83,13 +83,13 @@ check("libraryItemState: paused names the control outcome", () => {
   );
 
   assert.equal(state.label, "Paused at S02E03");
-  assert.equal(state.detail, "Turn on automatic checks when you want this fetched.");
+  assert.equal(state.detail, "Paused — new episodes won't be added until you resume.");
 });
 
 check("automationStateCopy: off state belongs to the control", () => {
-  assert.equal(automationStateCopy(0), "Automatic checks off");
-  assert.equal(automationStateCopy(30), "Automatic checks every 30 minutes");
-  assert.equal(automationStateCopy(120), "Automatic checks every 2 hours");
+  assert.equal(automationStateCopy(0), "New episodes won't download automatically");
+  assert.equal(automationStateCopy(30), "Checks for new episodes every 30 minutes");
+  assert.equal(automationStateCopy(120), "Checks for new episodes every 2 hours");
 });
 
 console.log(

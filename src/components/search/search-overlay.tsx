@@ -164,7 +164,10 @@ export function SearchOverlay() {
   }
 
   const titles = useMemo(
-    () => (data?.results?.length ? groupTitles(data.results) : []),
+    () =>
+      data?.results?.length
+        ? groupTitles(data.results, new Date(), data.query)
+        : [],
     [data],
   );
 
@@ -294,7 +297,7 @@ export function SearchOverlay() {
               type="button"
               onClick={close}
               aria-label="Close search"
-              className="-mr-1 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors duration-200 ease-out motion-reduce:transition-none hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
+              className="-mr-1 flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors duration-200 ease-out motion-reduce:transition-none hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
             >
               <X className="h-4 w-4" />
             </button>

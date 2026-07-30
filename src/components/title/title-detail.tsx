@@ -31,6 +31,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { Download, Loader2, Play, Search } from "lucide-react";
+import { toast } from "sonner";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { PosterImage } from "@/components/browse/poster-image";
 import { PlayOverlay } from "@/components/browse/play-overlay";
@@ -134,7 +135,6 @@ export function TitleDetail(props: TitleDetailProps) {
   const [seasonStatuses, setSeasonStatuses] = useState<
     Record<string, SeasonGrabStatus>
   >({});
-  const [notice, setNotice] = useState<string | null>(null);
   const [playing, setPlaying] = useState<PlayTarget | null>(null);
   const spentRemoteActions = useRef(new Set<string>());
   const spentSeasonGrabs = useRef(new Set<string>());
@@ -207,7 +207,6 @@ export function TitleDetail(props: TitleDetailProps) {
       } else {
         setStatuses((prev) => ({ ...prev, [key]: "pending" }));
       }
-      setNotice(null);
       try {
         const body = await postTitleAction({
           workKey: props.workKey,
@@ -232,7 +231,6 @@ export function TitleDetail(props: TitleDetailProps) {
         // and degrades to the download notice rather than hanging on a spinner.
         const hash = body.infoHash?.trim();
         if (streaming && hash) {
-          setNotice(null);
           setPlaying({
             infoHash: hash,
             title: label,
@@ -244,14 +242,16 @@ export function TitleDetail(props: TitleDetailProps) {
         }
 
         if (streaming) setPlaying(null);
-        setNotice(body.message ?? `${label} sent to your client.`);
+        toast.success(body.message ?? `${label} sent to your client.`);
         refetch();
       } catch (err) {
         spentRemoteActions.current.delete(key);
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
         // Close the opening player on a grab failure so no loader is left hanging.
         if (streaming) setPlaying(null);
-        setNotice(err instanceof Error ? err.message : `Could not get ${label}`);
+        toast.error(
+          err instanceof Error ? err.message : `Could not get ${label}`,
+        );
       }
     },
     [props.workKey, props.title, props.mediaType, props.year, refetch, statusFor],
@@ -272,7 +272,6 @@ export function TitleDetail(props: TitleDetailProps) {
 
       spentSeasonGrabs.current.add(key);
       setSeasonStatuses((prev) => ({ ...prev, [key]: { status: "pending" } }));
-      setNotice(null);
       try {
         const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
           method: "POST",
@@ -360,7 +359,6 @@ export function TitleDetail(props: TitleDetailProps) {
           extrasError={extrasError}
           season={season}
           refreshing={refreshing}
-          notice={notice}
           statusFor={statusFor}
           seasonStatusFor={seasonStatusFor}
           onSeasonChange={setSeason}
@@ -398,7 +396,6 @@ function TitleContent({
   extrasError,
   season,
   refreshing,
-  notice,
   statusFor,
   seasonStatusFor,
   onSeasonChange,
@@ -413,7 +410,6 @@ function TitleContent({
   extrasError: string | null;
   season: number | null;
   refreshing: boolean;
-  notice: string | null;
   statusFor: (key: string) => TitleActionStatus;
   seasonStatusFor: (season: number, retention?: TitleRetention) => SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
@@ -440,9 +436,12 @@ function TitleContent({
   // The season the user is looking at, which is not always the season the
   // detail route answered with: it only knows the seasons we hold files for,
   // and the tabs also list the ones the provider says exist.
-  const activeSeason = season ?? payload.season;
-  const onKnownSeason = activeSeason === payload.season;
   const seasons = mergeSeasons(payload.seasons, extras?.seasons ?? []);
+  // Default to the first known season when neither the user nor the detail
+  // route has chosen one, so a series never renders with every season tab
+  // inactive and an empty episode list ("no default season selected").
+  const activeSeason = season ?? payload.season ?? seasons[0]?.season ?? null;
+  const onKnownSeason = activeSeason === payload.season;
   const { rows, truncated } = mergeEpisodes({
     season: activeSeason,
     episodes: onKnownSeason ? payload.episodes : [],
@@ -497,7 +496,7 @@ function TitleContent({
   // offer a separate Download alongside a playable primary — when the primary is
   // itself a Get (positively unavailable), it already *is* the download, so a
   // second identical button would be noise.
-  const showDownload = primary.kind !== "get";
+  const showDownload = primary.kind !== "get" && !gated;
   const downloadAction: TitleAction = {
     kind: "get",
     label: "Download",
@@ -620,85 +619,89 @@ function TitleContent({
                 </p>
               ) : null}
 
-              <div className="mt-5 flex flex-col gap-3">
-                <div
-                  className="flex flex-wrap items-center gap-2"
-                  data-title-acquire
+              <div
+                className="mt-5 flex flex-wrap items-center gap-2"
+                data-title-acquire
+              >
+                {/* A gated (unreleased) title offers no Play/Download at all —
+                    the "Coming {date}" label and grayed art already say why, and
+                    a disabled action is just clutter that does nothing. Tracking
+                    it via "Add to library" stays available below. */}
+                {gated ? null : (
+                <Button
+                  type="button"
+                  size="lg"
+                  data-title-primary
+                  data-action-kind={primary.kind}
+                  aria-label={
+                    primarySubtitle
+                      ? `${primaryLabel} — ${title} ${primarySubtitle}`
+                      : `${primaryLabel} — ${title}`
+                  }
+                  aria-busy={primaryStatus === "pending" || undefined}
+                  disabled={!primaryCanRun}
+                  onClick={() =>
+                    onAction(
+                      primary,
+                      PRIMARY_KEY,
+                      primarySubtitle ? `${title} ${primarySubtitle}` : title,
+                      primary.kind === "get" ? "keep" : "stream",
+                    )
+                  }
+                  className="relative min-w-[9rem]"
                 >
+                  <ButtonBody
+                    pending={primaryStatus === "pending"}
+                    icon={
+                      primary.kind === "play" || primary.kind === "stream" ? (
+                        <Play className="fill-current" aria-hidden />
+                      ) : (
+                        <Download aria-hidden />
+                      )
+                    }
+                  >
+                    {primaryLabel}
+                    {primarySubtitle ? (
+                      <span className="text-[12px] tabular-nums opacity-80">
+                        {primarySubtitle}
+                      </span>
+                    ) : null}
+                  </ButtonBody>
+                </Button>
+                )}
+
+                {showDownload ? (
                   <Button
                     type="button"
                     size="lg"
-                    data-title-primary
-                    data-action-kind={primary.kind}
+                    variant="secondary"
+                    data-title-download
+                    data-action-kind="get"
                     aria-label={
                       primarySubtitle
-                        ? `${primaryLabel} — ${title} ${primarySubtitle}`
-                        : `${primaryLabel} — ${title}`
+                        ? `Download — ${title} ${primarySubtitle}`
+                        : `Download — ${title}`
                     }
-                    aria-busy={primaryStatus === "pending" || undefined}
-                    disabled={!primaryCanRun}
+                    aria-busy={downloadStatus === "pending" || undefined}
+                    disabled={!downloadCanRun}
                     onClick={() =>
                       onAction(
-                        primary,
-                        PRIMARY_KEY,
-                        primarySubtitle ? `${title} ${primarySubtitle}` : title,
-                        primary.kind === "get" ? "keep" : "stream",
+                        downloadAction,
+                        DOWNLOAD_KEY,
+                        downloadLabelTarget,
+                        "keep",
                       )
                     }
-                    className="relative min-w-[9rem]"
+                    className="relative min-w-[8rem]"
                   >
                     <ButtonBody
-                      pending={primaryStatus === "pending"}
-                      icon={
-                        primary.kind === "play" || primary.kind === "stream" ? (
-                          <Play className="fill-current" aria-hidden />
-                        ) : (
-                          <Download aria-hidden />
-                        )
-                      }
+                      pending={downloadStatus === "pending"}
+                      icon={<Download aria-hidden />}
                     >
-                      {primaryLabel}
-                      {primarySubtitle ? (
-                        <span className="text-[12px] tabular-nums opacity-80">
-                          {primarySubtitle}
-                        </span>
-                      ) : null}
+                      {downloadLabel}
                     </ButtonBody>
                   </Button>
-
-                  {showDownload ? (
-                    <Button
-                      type="button"
-                      size="lg"
-                      variant="secondary"
-                      data-title-download
-                      data-action-kind="get"
-                      aria-label={
-                        primarySubtitle
-                          ? `Download — ${title} ${primarySubtitle}`
-                          : `Download — ${title}`
-                      }
-                      aria-busy={downloadStatus === "pending" || undefined}
-                      disabled={!downloadCanRun}
-                      onClick={() =>
-                        onAction(
-                          downloadAction,
-                          DOWNLOAD_KEY,
-                          downloadLabelTarget,
-                          "keep",
-                        )
-                      }
-                      className="relative min-w-[8rem]"
-                    >
-                      <ButtonBody
-                        pending={downloadStatus === "pending"}
-                        icon={<Download aria-hidden />}
-                      >
-                        {downloadLabel}
-                      </ButtonBody>
-                    </Button>
-                  ) : null}
-                </div>
+                ) : null}
 
                 <LibraryControls
                   library={payload.library}
@@ -706,15 +709,6 @@ function TitleContent({
                   onChanged={onLibraryChanged}
                 />
               </div>
-
-              {notice ? (
-                <p
-                  role="status"
-                  className="mt-2 max-w-md text-[12px] leading-relaxed text-[var(--text-secondary)]"
-                >
-                  {notice}
-                </p>
-              ) : null}
             </div>
           </div>
         </div>

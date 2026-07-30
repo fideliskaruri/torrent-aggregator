@@ -13,7 +13,12 @@ export function titleFacts(input: TitleFactsInput): string {
   return factsLine([
     input.year ? String(input.year) : null,
     mediaTypeLabel(input.mediaType),
-    input.rating != null ? `★ ${input.rating.toFixed(1)}` : null,
+    // TMDB reports 0 for a title with no votes yet (e.g. unreleased). A 0.0
+    // star reads as a terrible score rather than "not rated", so treat it as
+    // absent — the release date already communicates "not out yet".
+    input.rating != null && input.rating > 0
+      ? `★ ${input.rating.toFixed(1)}`
+      : null,
     input.isSeries && input.seasonCount != null && input.seasonCount > 0
       ? `${input.seasonCount} season${input.seasonCount === 1 ? "" : "s"}`
       : null,

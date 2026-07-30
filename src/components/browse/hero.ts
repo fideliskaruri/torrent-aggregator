@@ -111,7 +111,7 @@ export function heroStatus(item: RailItem): string {
       return "Not downloaded yet.";
     case "unavailable":
       return item.watchListItemId
-        ? "No release yet — monitoring."
+        ? "Not available yet."
         : "No release found.";
     default:
       return assertNeverPitch(state);

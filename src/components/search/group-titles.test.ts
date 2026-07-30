@@ -91,6 +91,40 @@ check("emits works best-match-first, preserving server rank order", () => {
   assert.match(titles[1].name, /Another Movie/i);
 });
 
+check("a query reorders cards by name relevance, not release rank", () => {
+  // Release rank (server order) would put the well-seeded substring match first;
+  // the exact-name match arrived last. With the query, the exact title wins and
+  // the tangential substring match ("Maelstrom …") sinks below it.
+  const titles = groupTitles(
+    [
+      rel("Maelstrom The Odyssey of Waterworld 2018 1080p WEB-DL"),
+      rel("Troy The Odyssey 2017 1080p BluRay"),
+      rel("The Odyssey XXX Part 1 2026 1080p"),
+      rel("The Odyssey 1997 1080p BluRay"),
+    ],
+    NOW,
+    "the odyssey",
+  );
+  assert.match(titles[0].name, /^The Odyssey$/i); // exact name is now best match
+  const exactIndex = titles.findIndex((t) => /^The Odyssey$/i.test(t.name));
+  const maelstromIndex = titles.findIndex((t) => /Maelstrom/i.test(t.name));
+  assert.ok(
+    exactIndex < maelstromIndex,
+    "exact-name match must rank above the tangential substring match",
+  );
+});
+
+check("without a query, order stays at server rank (no relevance pass)", () => {
+  const titles = groupTitles(
+    [
+      rel("Maelstrom The Odyssey of Waterworld 2018 1080p"),
+      rel("The Odyssey 1997 1080p"),
+    ],
+    NOW,
+  );
+  assert.match(titles[0].name, /Maelstrom/i); // unchanged: first-seen wins
+});
+
 check("groups a series' episodes into one card, marked as a series", () => {
   const titles = groupTitles(
     [

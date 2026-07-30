@@ -1,9 +1,12 @@
 /**
  * Search UI product-shape tests.
  *
- * These deliberately pin the seam that has regressed twice: the empty search
- * page must be built from the viewer's own data, not from frozen marketing copy
- * or fake starter queries.
+ * These deliberately pin two seams that have regressed:
+ *  1. the empty search experience must never resurrect frozen marketing copy or
+ *     fake starter queries (the sin cleaned up in Z4); and
+ *  2. `/search` must NOT render a second, standalone search UI with its own
+ *     input — search is one overlay, opened from anywhere. The route survives
+ *     only as a deep-link that forwards to the board and opens that overlay.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -47,11 +50,14 @@ check("empty search page has no fake starter queries", () => {
   }
 });
 
-check("empty search page keeps personal-data entry points", () => {
-  assert.match(searchPage, /From your library/i);
-  assert.match(searchPage, /Continue watching/i);
-  assert.match(searchPage, /watchListItem/i);
-  assert.match(searchPage, /playbackProgress/i);
+check("/search forwards to the single overlay, not a duplicate page UI", () => {
+  // It opens the one shared search overlay…
+  assert.match(searchPage, /openSearchOverlay/);
+  // …and navigates away rather than rendering a second full-page experience…
+  assert.match(searchPage, /router\.replace|redirect\(/);
+  // …so it must not mount its own search input or the old results firehose.
+  assert.doesNotMatch(searchPage, /<SearchBar\b/);
+  assert.doesNotMatch(searchPage, /<SearchResults\b/);
 });
 
 check("search category picker only exposes video-browsable categories", () => {

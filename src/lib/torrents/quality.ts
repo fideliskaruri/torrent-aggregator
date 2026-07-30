@@ -529,12 +529,39 @@ export function stripEpisodeTokens(query: string): string {
 }
 
 /**
+ * The show/film name at the head of a release, with any episode tail removed.
+ *
+ * A query answers a *work*, not one episode's subtitle. Left whole, the title
+ * "Little House on the Prairie S05E24 The Odyssey" contains "the odyssey", so
+ * `relevanceTier` scores it the top tier for that query and a 1980s sitcom
+ * episode outranks the film the user actually searched for. Cutting at the
+ * first episode marker keeps the show name ("Little House on the Prairie") and
+ * drops the subtitle, so only a work whose *name* answers the query wins the
+ * top tier. Films carry no marker and are returned whole.
+ */
+const EPISODE_HEAD_MARKER_RE =
+  /\b(?:s\d{1,3}\s?e\d{1,4}|season\s*\d{1,3}|episode\s*\d{1,4})\b/i;
+
+export function workNameHead(title: string): string {
+  const cleaned = (title || "").replace(/[._]+/g, " ");
+  const at = cleaned.search(EPISODE_HEAD_MARKER_RE);
+  // `> 0`, not `>= 0`: a title that *opens* with an episode-like token (rare,
+  // but e.g. a mislabelled file) must not be cut to an empty name.
+  return at > 0 ? cleaned.slice(0, at) : cleaned;
+}
+
+/**
  * How well the release name answers the query, in coarse tiers.
  *
  * This outranks everything, including resolution: a 2160p copy of the wrong
  * show is not a better answer than a 720p copy of the right one. Tiers rather
  * than a continuous score, so near-identical relevance falls through to the
  * quality comparisons instead of being decided by token-count noise.
+ *
+ * Relevance is judged against {@link workNameHead}, not the raw title, so a
+ * query that only matches an episode's *subtitle* ("the odyssey" against
+ * "Little House on the Prairie S05E24 The Odyssey") cannot claim the top tier
+ * over the work actually named that.
  *
  * There is deliberately **no "exact title" tier**. `normalizeTitle` already
  * strips resolution, codec and episode tokens, so "exact" would only mean
@@ -547,7 +574,7 @@ export function stripEpisodeTokens(query: string): string {
 export function relevanceTier(title: string, query: string): number {
   const q = normalizeTitle(stripEpisodeTokens(query));
   if (!q) return 0; // no query (browse/RSS): everything is equally relevant
-  const t = normalizeTitle(title || "");
+  const t = normalizeTitle(workNameHead(title || ""));
   if (t.includes(q)) return 3; // the show name appears contiguously
   const tokens = q.split(" ").filter(Boolean);
   if (tokens.length === 0) return 0;

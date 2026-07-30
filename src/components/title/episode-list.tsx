@@ -469,14 +469,14 @@ function EpisodeRow({
       ) : null}
 
       <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-[12px] font-medium tabular-nums text-[var(--text-secondary)]">
+        <span className="flex items-baseline gap-x-2">
+          <span className="shrink-0 text-[12px] font-medium tabular-nums text-[var(--text-secondary)]">
             {episode.label}
           </span>
           {meta?.name ? (
             <span
               data-episode-name
-              className="min-w-0 text-[13px] font-medium text-[var(--text)]"
+              className="min-w-0 truncate text-[13px] font-medium text-[var(--text)]"
             >
               {meta.name}
             </span>
@@ -518,7 +518,7 @@ function EpisodeRow({
         ) : null}
 
         {meta?.overview ? (
-          <span className="mt-1 line-clamp-2 block text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+          <span className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
             {meta.overview}
           </span>
         ) : null}

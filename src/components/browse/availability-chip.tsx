@@ -53,6 +53,14 @@ export function AvailabilityChip({
 }) {
   const meta = availabilityMeta(state);
 
+  // "Can get" is not a state worth a chip. It only says a viable release
+  // exists — which the Play/Download action right next to it already offers —
+  // so as a badge it is the app narrating its own plumbing. The title hero
+  // suppresses it for this exact reason; doing it here at the shared seam means
+  // the word never appears on rail cards, episode rows, or the browse hero
+  // either. The meaningful states (Ready, Playable, Unavailable) still render.
+  if (state === "fetchable") return null;
+
   // "Nobody checked yet" is a normal, expected answer — not a warning — and it
   // was true of nearly every card, so a blue "Not checked" pill was pure noise.
   // Render it as a faint dot: present enough to mark the unknown, quiet enough

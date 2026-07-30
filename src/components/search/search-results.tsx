@@ -64,7 +64,10 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
   }, [load]);
 
   const titles = useMemo(
-    () => (data?.results?.length ? groupTitles(data.results) : []),
+    () =>
+      data?.results?.length
+        ? groupTitles(data.results, new Date(), data.query)
+        : [],
     [data],
   );
 
