@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
+import { makeScratchDir } from "@/lib/test-support/scratch-dir";
 import path from "node:path";
 import {
   afterSuccessfulGrab,
@@ -69,7 +69,7 @@ async function main() {
     );
   }
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-cap-"));
+  const dir = makeScratchDir("tf-cap");
   try {
     fs.writeFileSync(path.join(dir, "big.bin"), Buffer.alloc(5000));
     const blocked = await assertStorageBudget({

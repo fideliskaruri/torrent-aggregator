@@ -16,6 +16,7 @@ import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
 import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import { activityKindLabel } from "./presentation";
 
 interface ActivityItem {
   id: string;
@@ -56,29 +57,25 @@ function statusVariant(
 function ActivityContent() {
   const searchParams = useSearchParams();
   const sentOnly = searchParams.get("filter") === "sent";
+  const activityUrl = sentOnly
+    ? "/api/activity?filter=sent"
+    : "/api/activity";
   const { data, loading, error, refetch } = useApiQuery<ActivityItem[]>(
-    "/api/activity",
+    activityUrl,
     { select: (json) => (json as { items?: ActivityItem[] }).items ?? [] },
   );
-  const { data: historyRows } = useApiQuery<ActivityItem[]>("/api/history", {
-    select: (json) => (json as { items?: ActivityItem[] }).items ?? [],
-  });
   const showLoading = useStableLoading(loading && data == null && !error);
   // `data ?? []` is a fresh array on every render, which would make the memo
   // below — and therefore the artwork lookup — recompute forever.
   const items = useMemo(() => {
-    const historyById = new Map<string, ActivityItem>(
-      (historyRows ?? []).map((row) => [`hist-${row.id}`, row] as const),
-    );
     const normalized = (data ?? []).map((item) => {
-      const row = item.type === "history" ? historyById.get(item.id) : null;
       const facts = parseHistoryFacts({
-        message: row?.message ?? item.message,
-        context: row?.context ?? item.context,
-        category: row?.category ?? item.category,
-        savePath: row?.savePath ?? item.savePath,
-        clientType: row?.clientType ?? item.clientType,
-        sendKind: row?.sendKind ?? item.sendKind,
+        message: item.message,
+        context: item.context,
+        category: item.category,
+        savePath: item.savePath,
+        clientType: item.clientType,
+        sendKind: item.sendKind,
       });
       return {
         ...item,
@@ -93,10 +90,10 @@ function ActivityContent() {
     return sentOnly
       ? normalized.filter((item) => item.status === "sent")
       : normalized;
-  }, [data, historyRows, sentOnly]);
+  }, [data, sentOnly]);
 
-  // One lookup per work, not per row: the log lists a grab and a send for the
-  // same episode, and a show usually appears several times over.
+  // One lookup per work, not per row: a show usually appears several times
+  // across episodes and legitimate re-sends.
   const artwork = useReleaseArtwork(
     useMemo(
       () => items.map((item) => ({ name: item.title, category: item.category })),
@@ -167,6 +164,7 @@ function ActivityContent() {
         <ul className="space-y-2">
           {items.map((item) => {
             const location = formatSaveLocation(item.savePath, item.category);
+            const kindLabel = activityKindLabel(item);
             return (
               <li
                 key={item.id}
@@ -193,13 +191,8 @@ function ActivityContent() {
                     >
                       {item.status}
                     </Badge>
-                    {item.kind ? (
-                      <Badge variant="accent" className="capitalize">
-                        {item.kind}
-                      </Badge>
-                    ) : null}
-                    {item.context ? (
-                      <Badge variant="outline">{item.context}</Badge>
+                    {kindLabel ? (
+                      <Badge variant="accent">{kindLabel}</Badge>
                     ) : null}
                     {item.source ? (
                       <span className="text-[var(--text-secondary)]">

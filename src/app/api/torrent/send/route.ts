@@ -57,6 +57,11 @@ export async function POST(request: NextRequest) {
       target?: "primary" | "external";
       /** "stream" = cache entry, "keep" = permanent. */
       retention?: "stream" | "keep";
+      /**
+       * The owner was shown the real figures and chose to exceed their own cap.
+       * Only the cap can be overridden — the free-space floor ignores this.
+       */
+      overrideStorageCap?: boolean;
     };
 
     try {
@@ -216,18 +221,26 @@ export async function POST(request: NextRequest) {
     // external "stream" is an honest kept download.
     const historyRetention = isBuiltin && purpose === "stream" ? "stream" : "keep";
 
-    // Automatic storage budget (cap under download folder + free-space floor)
+    // Automatic storage budget (cap under download folder + free-space floor).
+    // Play reclaims stream cache before refusing; Download still obeys the cap.
     {
-      const { assertStorageBudget } = await import("@/lib/library/disk-space");
+      const { checkSendStorage } = await import("@/lib/library/storage-gate");
       const root =
         config.baseDownloadPath?.trim() ||
         savePath ||
         config.savePath?.trim() ||
         process.cwd();
-      const budget = await assertStorageBudget({
+      const budget = await checkSendStorage({
+        userId: session.user.id,
+        config,
         root,
-        maxStorageBytes: config.maxStorageBytes,
         incomingBytes: null,
+        retention: sendRetention,
+        // Never reclaim the very thing being sent: the viewer may be re-playing
+        // a stalled allocation, and freeing it to make room for itself would
+        // delete the request out from under the request.
+        protectHashes: body.infoHash ? [body.infoHash] : undefined,
+        overrideCap: body.overrideStorageCap === true,
       });
       if (!budget.ok) {
         await prisma.downloadHistory.create({
@@ -240,9 +253,9 @@ export async function POST(request: NextRequest) {
             source: body.source,
             status: "failed",
             message: budget.message,
-                retention: historyRetention,
-              },
-            });
+            retention: historyRetention,
+          },
+        });
         return NextResponse.json(
           {
             ok: false,
@@ -251,6 +264,10 @@ export async function POST(request: NextRequest) {
             message: budget.message,
             clientType: config.clientType,
             target: { category: cat, savePath },
+            // The facts the client needs to offer a real choice instead of a
+            // dead end: which limit, whether it may be overridden, the numbers,
+            // and where the control that changes it lives.
+            storage: budget.override,
           },
           { status: 507 },
         );
@@ -266,6 +283,9 @@ export async function POST(request: NextRequest) {
         category: cat,
         savePath,
         purpose,
+        // The gate above already decided this may proceed. Without carrying
+        // that forward the engine's own check refuses it again.
+        overrideStorageCap: body.overrideStorageCap === true,
       });
     } catch (err) {
       // Pass clientType so builtin never gets ECONNREFUSED "offline" framing

@@ -49,6 +49,8 @@ import {
   SOURCE_TIER,
 } from "@/lib/torrents/quality";
 import type { TorrentResult } from "@/lib/torrents/types";
+import { normalizeMediaType } from "@/lib/metadata/media-type";
+import { filterReleasesForWork } from "@/lib/torrents/work-match";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { rankedResultsFromCache } from "./engine-deps";
 
@@ -206,6 +208,12 @@ export interface ListCandidatesOptions {
  * A release with no resolvable infoHash is dropped: it cannot be selected,
  * committed, or measured, so it cannot be a menu item. Duplicate infoHashes are
  * collapsed to the first (highest-ranked) occurrence.
+ *
+ * Releases that are not this *work* are dropped too. The pool comes from a
+ * free-text search, so for a film it happily contains other films of the same
+ * name and things that are not films at all — the reported bug listed a 1997
+ * print, a documentary and an audiobook under the 2026 *Odyssey*. A menu of
+ * releases for something else is worse than a short menu. See `work-match.ts`.
  */
 export async function listCandidates(
   target: PreRankTarget,
@@ -216,10 +224,22 @@ export async function listCandidates(
   const current = options.currentInfoHash?.toLowerCase() ?? null;
 
   const pool = await getPool(target);
+  // Only a CONFIRMED film is filtered by name/year. A series' releases are
+  // already constrained by season/episode and their names legitimately
+  // disagree with the catalogue, and an unrecognised media type is not
+  // something to guess about — see `selectBestRelease`.
+  const sameWork =
+    normalizeMediaType(target.mediaType) === "movie"
+      ? filterReleasesForWork(pool, {
+          title: target.title,
+          year: target.year,
+          isSeries: false,
+        })
+      : pool;
 
   const seen = new Set<string>();
   const usable: Array<{ release: TorrentResult; infoHash: string }> = [];
-  for (const release of pool) {
+  for (const release of sameWork) {
     const infoHash = releaseInfoHash(release);
     if (!infoHash || seen.has(infoHash)) continue;
     seen.add(infoHash);

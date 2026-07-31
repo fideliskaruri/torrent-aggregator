@@ -176,8 +176,19 @@ const GAMES_RE =
 const MUSIC_RE =
   /\b(flac|alac|320kbps|vinyl|discography|ost|soundtrack|album|single|lossless|cd\s*rip)\b/i;
 
+/**
+ * Unambiguous book/ebook/audiobook markers.
+ *
+ * `unabridged`/`abridged` earn their place: they are audiobook-only vocabulary
+ * that appears in titles carrying no other book marker at all. Measured on a
+ * real result — *"Atomic Habits - James Clear (Unabridged)"* matched nothing
+ * here and fell all the way through to **Other**, so a book the owner searched
+ * for from the Books scope landed in a junk drawer.
+ *
+ * `m4b` is the audiobook container and is equally unambiguous.
+ */
 const BOOKS_RE =
-  /\b(epub|mobi|azw3|ebook|audiobook|comic|cbr|cbz)\b/i;
+  /\b(epub|mobi|azw3?|djvu|ebook|e-book|audiobook|audio\s?book|unabridged|abridged|m4b|comic|cbr|cbz)\b/i;
 
 /** Product/version style common on app releases (v25.5.1, v2024.1) */
 const APP_VERSION_RE = /\bv\d{1,2}(?:\.\d{1,3}){1,3}\b/i;
@@ -222,6 +233,26 @@ export function isStrongGamesSignal(title: string, tags: string[] = []): boolean
  * 5. Search category hint (weak)
  * 6. Score-based residual heuristics
  */
+/**
+ * Markers that only appear on a video release.
+ *
+ * Used to stop a non-video *search scope* from claiming something that is
+ * plainly a film or an episode. Deliberately narrow: a resolution, a video
+ * source tier, or a video codec. Each is vocabulary an album, a book or an
+ * installer has no reason to carry.
+ *
+ * `HDR`/`Atmos`/`DTS` are intentionally absent — audio releases legitimately
+ * use those words, and a false positive here is the more damaging direction: it
+ * would push a real FLAC album out of Music.
+ */
+function hasVideoReleaseMarkers(hay: string): boolean {
+  return (
+    /\b(?:2160p|1080p|720p|576p|480p)\b/i.test(hay) ||
+    /\b(?:blu[-_. ]?ray|bluray|bdrip|brrip|remux|web[-_. ]?dl|webdl|webrip|hdtv|dvdrip|hdrip)\b/i.test(hay) ||
+    /\b(?:x264|x265|h\.?264|h\.?265|hevc|xvid|divx|avc)\b/i.test(hay)
+  );
+}
+
 export function detectContentKind(input: {
   title: string;
   tags?: string[];
@@ -238,6 +269,21 @@ export function detectContentKind(input: {
   const strongTv = hasStrongTvStructure(title, ep);
   const strongSoftware = isStrongSoftwareSignal(title, tags);
   const strongGames = isStrongGamesSignal(title, tags);
+  /**
+   * An explicit book format is as unambiguous as a software or games signal.
+   *
+   * It has to be computed here, alongside the other strong signals, because the
+   * structural-TV block below returns before the old books check could run.
+   * Measured: *"Brandon Sanderson - Mistborn Series 1-6(EPUB)"* filed as **TV**,
+   * because "Series 1-6" reads as seasons 1-6 to the episode parser. A file
+   * ending `.epub` is not a television programme, and the word "series" in a
+   * book title means a book series.
+   *
+   * The same video-cue guard the old check used still applies, so a genuine
+   * documentary *about* comics keeps its resolution markers and stays video.
+   */
+  const strongBooks =
+    BOOKS_RE.test(hay) && !/\b(1080p|720p|bluray|webrip|x264|x265)\b/i.test(hay);
 
   // Metadata only counts if it plausibly matches THIS torrent title
   // (enrichment used to stamp the query match onto every result)
@@ -247,6 +293,8 @@ export function detectContentKind(input: {
   // Western packs on TPB/etc: "Atlantis 2013 S01-S02 ... BONE" → TV
   // Nyaa + season markers: still anime-first (fansub SxxEyy is normal)
   if (strongTv) {
+    // A book that merely *says* "Series 1-6" never reaches the TV branch.
+    if (strongBooks) return "books";
     if (
       metaBelongsToTitle &&
       (isExplicitAniListAnime(meta) || meta?.mediaType === "anime")
@@ -268,6 +316,30 @@ export function detectContentKind(input: {
       // explicitly live-action. (Western TV rarely appears on Nyaa.)
       return "anime";
     }
+    /**
+     * The owner chose the Anime scope for *this* download **and** the release
+     * actually looks like anime.
+     *
+     * Both halves are required, and the second is what keeps the older rule
+     * intact. Season numbering is completely normal for anime, so treating
+     * SxxEyy as evidence *against* it was backwards — measured on the real
+     * result *"[TatakaeFuniSubs] Attack on Titan S01-04 (BD 1080p) [Dual
+     * Audio]"*, which filed as **TV**. But the scope alone is not enough
+     * either: someone searching Anime and finding *"Atlantis 2013 S01-S02 720p
+     * BluRay x265 BONE"* — a Welsh fantasy drama with no anime cue anywhere —
+     * must still get TV. That case has its own long-standing test, and it
+     * should keep passing.
+     *
+     * So the precedence reads: authoritative metadata (already returned above)
+     * > the owner's explicit scope corroborated by the release name > a purely
+     * structural guess.
+     */
+    if (
+      (input.searchCategory ?? "").toLowerCase() === "anime" &&
+      isJapaneseAnimeSignal(title, tags, meta)
+    ) {
+      return "anime";
+    }
     // apibay / 1337x / torrentscsv / unknown → TV for S01-S02 packs
     return "tv";
   }
@@ -285,10 +357,7 @@ export function detectContentKind(input: {
     return "music";
   }
 
-  if (
-    BOOKS_RE.test(hay) &&
-    !/\b(1080p|720p|bluray|webrip|x264|x265)\b/i.test(hay)
-  ) {
+  if (strongBooks) {
     return "books";
   }
 
@@ -336,10 +405,29 @@ export function detectContentKind(input: {
   // this is anime". Anything authoritative — a watchlist row, an enriched
   // result, a catalog lookup — arrives as `metadata` and has already decided
   // above. See `lib/metadata/catalog-identity.ts`.
+  //
+  // The non-video hints additionally refuse to claim something that is plainly
+  // a video release. Measured when Search gained scopes: with Music selected,
+  // *"Dune Part Two (2024) [1080p] [BluRay]"* routed to **Music/** — and the
+  // same film routed to **Books/**, **Games/** or **Software/** depending only
+  // on which shelf the owner happened to be looking at. Indexers do not filter
+  // reliably, so a scoped search always returns some off-category results; the
+  // hint must not turn "this came back while you were in Music" into "this is
+  // music". A 30 GB BluRay REMUX is not an album, whatever tab was open.
+  //
+  // Anime is exempt because anime *is* video: 1080p is completely normal there
+  // and excluding it would break the scope entirely.
   const sc = (input.searchCategory ?? "").toLowerCase();
-  if (sc === "apps" || sc === "software") return "software";
-  if (sc === "games") return "games";
-  if (sc === "music") return "music";
+  const looksLikeVideo = hasVideoReleaseMarkers(hay);
+  if (!looksLikeVideo) {
+    if (sc === "apps" || sc === "software") return "software";
+    if (sc === "games") return "games";
+    if (sc === "music") return "music";
+    // Books is a scope the owner picks deliberately, and a book that states no
+    // format at all ("Atomic Habits - James Clear") has nothing else to go on.
+    // Without this the hint was ignored and such releases fell through to Other.
+    if (sc === "books") return "books";
+  }
   // `strongTv` is necessarily false here — the block above returns on every
   // path — so no `!strongTv` guard. It used to read as though the hint could
   // beat SxxEyy numbering; it never could, which is how monitored anime ended

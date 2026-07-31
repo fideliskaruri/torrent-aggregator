@@ -24,12 +24,45 @@ import type { TitleSimilar } from "./types";
 
 export function MoreLikeThis({
   items,
+  loading = false,
   heading = "More like this",
 }: {
   items: TitleSimilar[];
+  /**
+   * True while the extras round trip is in flight.
+   *
+   * Space reservation mirrors the pattern from `hero-banner.tsx` (which uses
+   * `min-h-[1.5rem]` on the pitch line): the section must occupy the same
+   * vertical footprint before and after the items arrive, or the hero above
+   * it changes height and the Play button shifts under the cursor — the exact
+   * bug that caused accidental navigations to wrong films.
+   */
+  loading?: boolean;
   heading?: string;
 }) {
-  if (items.length === 0) return null;
+  if (!loading && items.length === 0) return null;
+
+  if (loading && items.length === 0) {
+    return (
+      <section aria-labelledby="title-similar-heading" data-title-similar aria-busy="true">
+        <div className="skeleton h-5 w-28 rounded" aria-hidden />
+        {/* Skeleton grid: same grid-cols and aspect-ratio as the real grid so
+            the section's height matches exactly once items arrive. */}
+        <ul
+          className="mt-3 grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8"
+          aria-hidden
+        >
+          {Array.from({ length: 8 }, (_, i) => (
+            <li key={i}>
+              <div className="skeleton aspect-[2/3] w-full rounded-[var(--radius)]" />
+              <div className="skeleton mt-1.5 h-3 w-4/5 rounded" />
+              <div className="skeleton mt-1 h-2.5 w-1/2 rounded" />
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby="title-similar-heading" data-title-similar>

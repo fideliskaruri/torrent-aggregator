@@ -52,6 +52,12 @@ export interface PreRankTarget {
   title: string;
   /** Raw media type as stored (`anime` / `tv` / `movie` / …). */
   mediaType?: string | null;
+  /**
+   * Release year, when the caller knows it. A film's year is part of its
+   * identity, so this is what stops *The Odyssey* (2026) from being served a
+   * 1997 print. Absent means unknown and never narrows anything.
+   */
+  year?: number | null;
   season?: number | null;
   episode?: number | null;
 }

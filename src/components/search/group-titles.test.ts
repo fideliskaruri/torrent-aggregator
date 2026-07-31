@@ -63,7 +63,7 @@ check("collapses many releases of one film into a single card", () => {
     NOW,
   );
   assert.equal(titles.length, 1, "one work, one card");
-  assert.equal(titles[0].releases.length, 3, "all prints kept under the card");
+  assert.equal(titles[0]?.releases?.length, 3, "all prints kept under the card");
 });
 
 check("keeps two films that share a name but differ by year apart", () => {
@@ -161,8 +161,8 @@ check("groups a series' episodes into one card, marked as a series", () => {
     NOW,
   );
   assert.equal(titles.length, 1);
-  assert.equal(titles[0].isSeries, true);
-  assert.equal(titles[0].releases.length, 3);
+  assert.equal(titles[0]?.isSeries, true);
+  assert.equal(titles[0]?.releases?.length, 3);
 });
 
 check("future-dated work is gated: unreleased + Coming label, actions blocked", () => {
@@ -229,8 +229,8 @@ check("named works expose a title-page href; best is the top release", () => {
     NOW,
   );
   assert.equal(titles.length, 1);
-  assert.ok(titles[0].href && titles[0].href.startsWith("/title/"));
-  assert.equal(titles[0].best.id, titles[0].releases[0].id, "best = rank #1");
+  assert.ok(titles[0]?.href && titles[0].href.startsWith("/title/"));
+  assert.equal(titles[0]?.best?.id, titles[0]?.releases?.[0]?.id, "best = rank #1");
 });
 
 if (failures > 0) {

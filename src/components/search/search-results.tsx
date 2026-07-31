@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import type { SearchResponse } from "@/lib/torrents/types";
 import { Button } from "@/components/ui/button";
-import { groupTitles } from "./group-titles";
 import { TitleResultsList } from "./title-results-list";
-import { buildSearchQuery, DEFAULT_PAGE_SIZE } from "./pagination";
+import { titlesFromSearchHits } from "./title-search";
+import type { TitleResult } from "./group-titles";
 
 interface SearchResultsProps {
   query: string;
@@ -14,48 +13,42 @@ interface SearchResultsProps {
 }
 
 /**
- * Search results — title-centric.
- *
- * A query yields one card per work (best match first, the rest in server rank
- * order), releases hidden behind each card's expander. There is deliberately
- * no toolbar: no result count, no source/quality filters, no density toggle,
- * no refresh, no season/pack tabs, no "cached" — that chrome narrated
- * mechanism the two-action product does not want on this surface.
+ * Full-page title results (legacy surface). Same TMDB discovery path as the
+ * overlay — never hits torrent indexers.
  */
-export function SearchResults({ query, category = "all" }: SearchResultsProps) {
-  const [data, setData] = useState<SearchResponse | null>(null);
+export function SearchResults({ query }: SearchResultsProps) {
+  const [titles, setTitles] = useState<TitleResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     if (!query) {
-      setData(null);
+      setTitles([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const qs = buildSearchQuery({
-        query,
-        page: 1,
-        pageSize: DEFAULT_PAGE_SIZE,
-        category,
-      });
-      const res = await fetch(`/api/search?${qs}`);
-      const json = await res.json();
+      const qs = new URLSearchParams({ q: query, limit: "20" });
+      const res = await fetch(`/api/search/titles?${qs}`);
+      const json = (await res.json()) as {
+        results?: Parameters<typeof titlesFromSearchHits>[0];
+        message?: string;
+        error?: string;
+      };
       if (!res.ok) {
         throw new Error(json.message || json.error || "Search failed");
       }
-      setData(json as SearchResponse);
+      setTitles(titlesFromSearchHits(json.results ?? []));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      setData(null);
+      setTitles([]);
     } finally {
       setLoading(false);
     }
-  }, [query, category]);
+  }, [query]);
 
   useEffect(() => {
     // Results are external API state keyed on the query; fetch them in an effect.
@@ -63,16 +56,6 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
     void load();
   }, [load]);
 
-  const titles = useMemo(
-    () =>
-      data?.results?.length
-        ? groupTitles(data.results, new Date(), data.query)
-        : [],
-    [data],
-  );
-
-  // Keyboard: arrow/j/k move focus through cards, Enter opens (the focused
-  // card's body link handles Enter itself).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (
@@ -132,12 +115,7 @@ export function SearchResults({ query, category = "all" }: SearchResultsProps) {
 
   return (
     <div ref={listRef}>
-      <TitleResultsList
-        titles={titles}
-        loading={loading}
-        query={query}
-        searchCategory={category}
-      />
+      <TitleResultsList titles={titles} loading={loading} query={query} />
     </div>
   );
 }

@@ -71,3 +71,120 @@ export function isUnreleased(
 ): boolean {
   return releaseStatus(input, now).unreleased;
 }
+
+// ---------------------------------------------------------------------------
+// Theatrical-window gate
+// ---------------------------------------------------------------------------
+
+export interface TheatricalStatus {
+  /**
+   * True when the film is in its theatrical window: it has had a premiere or
+   * theatrical release but no Digital/Physical/TV home release yet.
+   *
+   * Only ever true when the TMDB release_dates endpoint actually responded —
+   * if the check was skipped or the endpoint failed, this stays false so the
+   * film remains playable. Absence of evidence is not evidence of absence.
+   */
+  inTheatricalWindow: boolean;
+  /**
+   * Short chip label when the film is in its theatrical window.
+   *
+   * - "In cinemas" — no future home release date is known.
+   * - "Digital Aug 2026" — the earliest upcoming home release date is known.
+   *
+   * Null when `inTheatricalWindow` is false.
+   */
+  theatricalLabel: string | null;
+}
+
+const MONTHS_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+function formatHomeDate(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})/.exec(isoDate);
+  if (!match) return "In cinemas";
+  const [, year, monthStr] = match;
+  const idx = Number.parseInt(monthStr, 10) - 1;
+  if (idx < 0 || idx > 11) return "In cinemas";
+  return `Digital ${MONTHS_SHORT[idx]} ${year}`;
+}
+
+/**
+ * Theatrical-window status for a movie.
+ *
+ * A film in its theatrical window receives the same visual gate as an
+ * unreleased title (greyscale, chip, no Play/Download), but with copy that
+ * names the real reason — "In cinemas" — rather than pretending the premiere
+ * has not happened yet.
+ *
+ * `inTheatricalWindow` comes from the extras round trip. The server sets it
+ * true only when:
+ *   1. The work is a movie (series are never gated by this rule).
+ *   2. The TMDB release_dates endpoint responded successfully.
+ *   3. The film's primary release date is in the past (theatrically released).
+ *   4. No Digital (4), Physical (5) or TV (6) release date is in the past.
+ *
+ * The default is false, so this function never gates when data is absent.
+ */
+export function theatricalWindowStatus(
+  inTheatricalWindow: boolean,
+  nextHomeReleaseAt: string | null | undefined,
+): TheatricalStatus {
+  if (!inTheatricalWindow) {
+    return { inTheatricalWindow: false, theatricalLabel: null };
+  }
+  const label = nextHomeReleaseAt ? formatHomeDate(nextHomeReleaseAt) : "In cinemas";
+  return { inTheatricalWindow: true, theatricalLabel: label };
+}
+
+export interface BrowseReleaseGate {
+  gated: boolean;
+  label: string | null;
+  reason: "future" | "theatrical" | null;
+}
+
+/**
+ * The one release gate used by Browse cards and the Browse hero.
+ *
+ * Future primary dates apply to any media type. The cinema-to-home rule applies
+ * only to a known movie; an unknown type or a series can never inherit a bad
+ * theatrical cache flag.
+ */
+export function browseReleaseGate(
+  item: {
+    releaseDate?: Date | string | number | null;
+    mediaType?: string | null;
+    inTheatricalWindow?: boolean;
+    nextHomeReleaseAt?: string | null;
+  },
+  now: Date = new Date(),
+): BrowseReleaseGate {
+  const primary = releaseStatus(item.releaseDate, now);
+  if (primary.unreleased) {
+    return {
+      gated: true,
+      label: primary.comingLabel ?? "Coming soon",
+      reason: "future",
+    };
+  }
+
+  const mediaType = item.mediaType?.trim().toLowerCase();
+  const movie = ["movie", "movies", "film", "feature"].includes(
+    mediaType ?? "",
+  );
+  const theatrical = theatricalWindowStatus(
+    movie && item.inTheatricalWindow === true,
+    item.nextHomeReleaseAt,
+  );
+  if (theatrical.inTheatricalWindow) {
+    return {
+      gated: true,
+      label: theatrical.theatricalLabel ?? "In cinemas",
+      reason: "theatrical",
+    };
+  }
+
+  return { gated: false, label: null, reason: null };
+}

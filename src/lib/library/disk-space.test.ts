@@ -3,7 +3,7 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
+import { makeScratchDir } from "@/lib/test-support/scratch-dir";
 import path from "node:path";
 import {
   assertStorageBudget,
@@ -37,7 +37,21 @@ async function main() {
     assert.equal(gbToBytes(100), 100e9);
   }
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-stor-"));
+  {
+    const unconfigured = await assertStorageBudget({
+      root: "",
+      maxStorageBytes: null,
+      incomingBytes: 1,
+    });
+    assert.equal(unconfigured.ok, false);
+    assert.equal(unconfigured.maxStorageBytes, null);
+    assert.match(
+      unconfigured.message,
+      /choose a download folder.*storage cap.*Settings.*Downloads/i,
+    );
+  }
+
+  const dir = makeScratchDir("tf-stor");
   try {
     fs.writeFileSync(path.join(dir, "a.bin"), Buffer.alloc(1024));
     fs.mkdirSync(path.join(dir, "sub"));
@@ -67,7 +81,7 @@ async function main() {
   // The async walk must agree with the sync one on every tree shape, since it
   // is what the server actually uses.
   {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "tf-async-"));
+    const root = makeScratchDir("tf-async");
     const cases: { name: string; build: (d: string) => void }[] = [
       { name: "empty", build: () => {} },
       {

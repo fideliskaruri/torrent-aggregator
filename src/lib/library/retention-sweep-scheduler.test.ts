@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
-import { RETENTION_POLICY_EPHEMERAL, RETENTION_POLICY_KEPT } from "./retention-settings";
+import { RETENTION_POLICY_EPHEMERAL } from "./retention-settings";
 import {
   RETENTION_SWEEP_DISABLED_POLL_MS,
   RETENTION_SWEEP_FOREGROUND_RETRY_MS,
@@ -21,7 +21,11 @@ import {
 } from "./retention-sweep-scheduler";
 import type { RetentionSweepResult } from "./retention-sweep";
 
-const config = { clientType: "builtin", host: "" } as ClientConnectionConfig;
+const config = {
+  clientType: "builtin",
+  host: "",
+  maxStorageBytes: 100,
+} as ClientConnectionConfig;
 let failures = 0;
 
 async function checkAsync(name: string, fn: () => Promise<void>) {
@@ -54,7 +58,6 @@ function harness(over: Partial<RetentionSweepTickDeps> = {}) {
   const logs: string[] = [];
   const deps: RetentionSweepTickDeps = {
     userId: "local",
-    resolvePolicy: async () => RETENTION_POLICY_EPHEMERAL,
     isForeground: () => false,
     getConfig: async () => config,
     sweep: async ({ mode }) => {
@@ -87,11 +90,13 @@ async function main(): Promise<void> {
     assert.equal(o.delayMs, RETENTION_SWEEP_INTERVAL_MS);
   });
 
-  await checkAsync("keep-everything setting disables automatic deletion", async () => {
-    const { deps, calls } = harness({ resolvePolicy: async () => RETENTION_POLICY_KEPT });
+  await checkAsync("an unset storage cap disables automatic deletion", async () => {
+    const { deps, calls } = harness({
+      getConfig: async () => ({ ...config, maxStorageBytes: null }),
+    });
     const o = await runRetentionSweepTick(deps);
     assert.deepEqual(calls, []);
-    assert.equal(o.skipped, "disabled");
+    assert.equal(o.skipped, "unconfigured");
     assert.equal(o.delayMs, RETENTION_SWEEP_DISABLED_POLL_MS);
   });
 
@@ -131,6 +136,7 @@ async function main(): Promise<void> {
                   onDiskBytes: 10,
                   progress: 1,
                   status: "seeding",
+                  kind: "watched",
                   lastUsedAt: new Date(0),
                   completedAt: new Date(0),
                   fullyWatched: true,

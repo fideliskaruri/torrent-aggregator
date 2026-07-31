@@ -35,6 +35,14 @@ import { ensureCatalogFresh, refreshRelatedForSeed } from "@/lib/catalog/refresh
 import { readWatchSeed, type CatalogSeed } from "@/lib/catalog/seed";
 import { normalizeMediaType } from "@/lib/metadata/media-type";
 import { isSlopTitle } from "@/lib/metadata/slop";
+import {
+  readHomeReleaseSignals,
+  scheduleHomeReleaseRefresh,
+} from "./home-release-cache";
+import {
+  theatricalGateFromSignal,
+  type HomeReleaseSignal,
+} from "./home-release";
 import type { Rail, RailItem } from "./types";
 
 /** How many cards a discovery rail shows. */
@@ -63,6 +71,9 @@ export async function buildDiscoveryRails(userId: string): Promise<Rail[]> {
     safeRows("trending"),
     safeRows("popular"),
   ]);
+  const chartRows = [...trending, ...popular];
+  const homeReleases = await readHomeReleaseSignals(chartRows);
+  scheduleHomeReleaseRefresh(chartRows, homeReleases);
 
   const rails: Rail[] = [];
 
@@ -73,7 +84,7 @@ export async function buildDiscoveryRails(userId: string): Promise<Rail[]> {
     rails.push({
       id: TRENDING_RAIL_ID,
       title: "Trending now",
-      items: trending.map(toRailItem),
+      items: trending.map((row) => toRailItem(row, homeReleases.get(row.workKey))),
     });
   }
 
@@ -81,7 +92,7 @@ export async function buildDiscoveryRails(userId: string): Promise<Rail[]> {
     rails.push({
       id: POPULAR_RAIL_ID,
       title: "Popular series",
-      items: popular.map(toRailItem),
+      items: popular.map((row) => toRailItem(row, homeReleases.get(row.workKey))),
     });
   }
 
@@ -138,11 +149,13 @@ async function buildBecauseRail(
   }
 
   if (rows.length === 0) return null;
+  const homeReleases = await readHomeReleaseSignals(rows);
+  scheduleHomeReleaseRefresh(rows, homeReleases);
 
   return {
     id: BECAUSE_RAIL_ID,
     title: `Because you're watching ${seed.title}`,
-    items: rows.map(toRailItem),
+    items: rows.map((row) => toRailItem(row, homeReleases.get(row.workKey))),
   };
 }
 
@@ -154,7 +167,12 @@ async function buildBecauseRail(
  * because nothing has been watched, and no availability because nothing has
  * been searched for.
  */
-export function toRailItem(row: CatalogRow): RailItem {
+export function toRailItem(
+  row: CatalogRow,
+  homeRelease: HomeReleaseSignal | null | undefined = null,
+  now: Date = new Date(),
+): RailItem {
+  const theatrical = theatricalGateFromSignal(row, homeRelease, now);
   return {
     id: `catalog-${row.id}`,
     title: row.title,
@@ -180,6 +198,11 @@ export function toRailItem(row: CatalogRow): RailItem {
     // and label "Coming {date}" via release-status.ts instead of offering a dead
     // Play. Null (unknown) is never gated.
     releaseDate: row.releaseDate ? row.releaseDate.toISOString().slice(0, 10) : null,
+    // Loaded from one persistent local cache read for the rail. A missing or
+    // unchecked signal leaves this false; only confirmed movie evidence closes
+    // the gate. The refresh that fills misses runs behind this response.
+    inTheatricalWindow: theatrical.inTheatricalWindow,
+    nextHomeReleaseAt: theatrical.nextHomeReleaseAt,
     progressFraction: null,
     resumePositionSec: null,
     infoHash: null,

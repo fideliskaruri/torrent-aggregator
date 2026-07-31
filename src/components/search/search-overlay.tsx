@@ -3,15 +3,26 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import { Search, X } from "lucide-react";
-import type { SearchResponse } from "@/lib/torrents/types";
-import { groupTitles } from "./group-titles";
 import { TitleResultsList } from "./title-results-list";
-import { buildSearchQuery, DEFAULT_PAGE_SIZE } from "./pagination";
+import { ArtifactRow } from "./artifact-row";
+import { titlesFromSearchHits } from "./title-search";
+import type { TitleResult } from "./group-titles";
+import type { TorrentResult } from "@/lib/torrents/types";
+import {
+  DEFAULT_SCOPE_ID,
+  SEARCH_SCOPES,
+  type SearchScopeId,
+} from "@/lib/torrents/search-scopes";
+import {
+  placeholderFor,
+  searchDisplayFor,
+  searchErrorMessage,
+  searchRequestFor,
+} from "./search-overlay-state";
 import { cn } from "@/lib/utils";
 
 /** The window event that asks the overlay to open. */
@@ -33,17 +44,25 @@ export function openSearchOverlay(initialQuery?: string) {
 /**
  * Search as an overlay, not a page.
  *
- * Pressing `/` anywhere (or clicking the header Search) opens a single focused
- * input with live title cards rendered inline as you type — no navigation, no
- * second input. Esc closes it. Selecting a card navigates to that title page;
- * opening/closing the palette itself never changes the route.
+ * Two flows behind one input, chosen by scope:
  *
- * `/search` still exists as a deep-link fallback, but this is the primary UX.
+ *  - **Films & TV** (default) — TMDB discovery. Poster cards link to the title
+ *    page; torrents never run from this surface. Unchanged.
+ *  - **Music, games, software, books, anime** — these have no metadata provider
+ *    behind them, so the release *is* the artifact and rows are actionable
+ *    here. Sending the owner to a "title page" for an album that has no title
+ *    record would be a dead end, which is why the two flows differ.
+ *
+ * See `search-scopes.ts` for why that split exists rather than one uniform
+ * results list.
  */
 export function SearchOverlay() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [data, setData] = useState<SearchResponse | null>(null);
+  const [scopeId, setScopeId] = useState<SearchScopeId>(DEFAULT_SCOPE_ID);
+  const [titles, setTitles] = useState<TitleResult[]>([]);
+  const [releases, setReleases] = useState<TorrentResult[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // Drives a subtle scale+fade entrance; flipped on the frame after mount.
   const [entered, setEntered] = useState(false);
@@ -51,10 +70,12 @@ export function SearchOverlay() {
   const resultsRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reqIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const close = useCallback(() => {
     setOpen(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
   }, []);
 
   // Open on the global event; set the query if one was passed. Focus is handled
@@ -65,7 +86,7 @@ export function SearchOverlay() {
       setOpen(true);
       if (detail?.query) {
         setQuery(detail.query);
-        runSearch(detail.query);
+        runSearch(detail.query, DEFAULT_SCOPE_ID);
       }
     }
     window.addEventListener(OPEN_EVENT, onOpen as EventListener);
@@ -74,9 +95,7 @@ export function SearchOverlay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Focus the input once the overlay has actually rendered. Doing this in an
-  // effect (not the open event) guarantees the input ref exists — scheduling
-  // focus straight from the event races React's commit.
+  // Focus the input once the overlay has actually rendered.
   useEffect(() => {
     if (!open) return;
     const raf = requestAnimationFrame(() => {
@@ -86,10 +105,6 @@ export function SearchOverlay() {
     return () => cancelAnimationFrame(raf);
   }, [open]);
 
-  // Play a subtle scale+fade entrance the frame after the overlay mounts, and
-  // reset it on close. prefers-reduced-motion users get no animation because
-  // the transition classes carry `motion-reduce:transition-none`, so the panel
-  // simply appears — this effect stays inert for them.
   useEffect(() => {
     if (!open) {
       setEntered(false);
@@ -99,8 +114,7 @@ export function SearchOverlay() {
     return () => cancelAnimationFrame(raf);
   }, [open]);
 
-  // Esc closes from anywhere while open — a global listener means focus does not
-  // have to be inside the palette for the key to work.
+  // Esc closes from anywhere while open.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -123,59 +137,119 @@ export function SearchOverlay() {
     };
   }, [open]);
 
-  const runSearch = useCallback((q: string) => {
-    const trimmed = q.trim();
-    if (trimmed.length < 2) {
-      setData(null);
-      setLoading(false);
-      return;
-    }
-    const reqId = ++reqIdRef.current;
-    setLoading(true);
-    const qs = buildSearchQuery({
-      query: trimmed,
-      page: 1,
-      pageSize: DEFAULT_PAGE_SIZE,
-      category: "all",
-    });
-    fetch(`/api/search?${qs}`)
-      .then((res) => res.json())
-      .then((json: SearchResponse) => {
-        if (reqId !== reqIdRef.current) return;
-        setData(json);
+  const runSearch = useCallback(
+    (q: string, scope: SearchScopeId) => {
+      const request = searchRequestFor(scope, q);
+      if (!request) {
+        setTitles([]);
+        setReleases([]);
+        setError(null);
         setLoading(false);
-      })
-      .catch(() => {
-        if (reqId !== reqIdRef.current) return;
-        setData(null);
-        setLoading(false);
-      });
-  }, []);
+        return;
+      }
+      const reqId = ++reqIdRef.current;
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      setLoading(true);
+      setError(null);
+
+      fetch(request.url, { signal: ac.signal })
+        .then(async (res) => {
+          const json = (await res.json().catch(() => null)) as {
+            results?: unknown;
+            error?: string | null;
+          } | null;
+          if (reqId !== reqIdRef.current) return;
+
+          if (!res.ok) {
+            // A refusal is not an empty corpus. Saying "no results" for a
+            // rate-limited request sends the owner hunting for a spelling
+            // mistake that was never the problem.
+            setTitles([]);
+            setReleases([]);
+            setError(searchErrorMessage(res.status, json));
+            setLoading(false);
+            return;
+          }
+
+          if (request.kind === "work") {
+            setReleases([]);
+            setTitles(
+              titlesFromSearchHits(
+                (json?.results ?? []) as Parameters<typeof titlesFromSearchHits>[0],
+              ),
+            );
+          } else {
+            setTitles([]);
+            setReleases(((json?.results ?? []) as TorrentResult[]) ?? []);
+          }
+          setLoading(false);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
+          if (reqId !== reqIdRef.current) return;
+          setTitles([]);
+          setReleases([]);
+          setError("Could not reach the server.");
+          setLoading(false);
+        });
+    },
+    [],
+  );
 
   function onQueryChange(value: string) {
     setQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (value.trim().length < 2) {
-      setData(null);
+      abortRef.current?.abort();
+      setTitles([]);
+      setReleases([]);
+      setError(null);
       setLoading(false);
       return;
     }
-    debounceRef.current = setTimeout(() => runSearch(value), 220);
+    debounceRef.current = setTimeout(() => runSearch(value, scopeId), 220);
   }
 
-  const titles = useMemo(
-    () =>
-      data?.results?.length
-        ? groupTitles(data.results, new Date(), data.query)
-        : [],
-    [data],
-  );
+  /**
+   * Switching scope re-runs immediately rather than waiting for another
+   * keystroke: the owner has already told us what they want by typing, and
+   * picking "Music" is itself the instruction to search again.
+   */
+  function onScopeChange(next: SearchScopeId) {
+    if (next === scopeId) return;
+    setScopeId(next);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
+    setTitles([]);
+    setReleases([]);
+    setError(null);
+    if (query.trim().length >= 2) runSearch(query, next);
+    else setLoading(false);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  /**
+   * Every keyboard-reachable result, whichever flow rendered them.
+   *
+   * A title card is one focusable link; an artifact row's equivalent is its
+   * primary Download button. Without the second selector, arrow-key navigation
+   * silently stopped working the moment the owner picked Music — the palette
+   * would look identical and simply not respond, which is the worst kind of
+   * regression to notice.
+   */
+  function resultTargets(): HTMLElement[] {
+    return Array.from(
+      resultsRef.current?.querySelectorAll<HTMLElement>(
+        '[data-card-target="title"], [data-artifact-row] [data-action="download"]',
+      ) ?? [],
+    );
+  }
 
   function focusCard(index: number) {
-    const cards = resultsRef.current?.querySelectorAll<HTMLElement>(
-      '[data-card-target="title"]',
-    );
-    if (!cards || !cards.length) return;
+    const cards = resultTargets();
+    if (!cards.length) return;
     const i = Math.max(0, Math.min(index, cards.length - 1));
     cards[i].focus();
     cards[i].scrollIntoView({ block: "nearest" });
@@ -189,27 +263,23 @@ export function SearchOverlay() {
       e.preventDefault();
       focusCard(0);
     } else if (e.key === "Enter") {
-      // Enter from the input opens the top (best-match) result.
-      const first = resultsRef.current?.querySelector<HTMLElement>(
-        '[data-card-target="title"]',
-      );
-      if (first) {
-        e.preventDefault();
-        first.click();
-      }
+      // Enter from the input opens the top result. For films that navigates to
+      // the title page; for an artifact it focuses Download rather than firing
+      // it — starting a download on a stray Enter is not a recoverable action.
+      const [first] = resultTargets();
+      if (!first) return;
+      e.preventDefault();
+      if (first.closest('[data-card-target="title"]')) first.click();
+      else first.focus();
     }
   }
 
-  // Arrow-key run through the result cards; ArrowUp from the top returns to
-  // the input. Enter is handled by each card link itself.
   function onResultsKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "j" && e.key !== "k")
       return;
-    const cards = Array.from(
-      resultsRef.current?.querySelectorAll<HTMLElement>(
-        '[data-card-target="title"]',
-      ) ?? [],
-    );
+    // `j`/`k` are text in a search box, but this handler only ever sees keys
+    // that reached the results region, so they are safe as vim-style motions.
+    const cards = resultTargets();
     if (!cards.length) return;
     const focused = document.activeElement as HTMLElement | null;
     const idx = cards.findIndex((c) => c === focused || c.contains(focused));
@@ -222,11 +292,7 @@ export function SearchOverlay() {
     focusCard(down ? idx + 1 : idx - 1);
   }
 
-  // Selecting a title navigates to its page; the overlay must not linger on top
-  // of the new route. The title link is the only element marked
-  // data-card-target — Play, Download and the expander are siblings of it, so a
-  // click on a control never matches and never closes. This also covers the
-  // Enter path, which reaches the same link via .click().
+  // Selecting a title navigates; close the overlay so it doesn't linger.
   function onResultsClick(e: React.MouseEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement | null;
     if (target?.closest('[data-card-target="title"]')) {
@@ -247,7 +313,6 @@ export function SearchOverlay() {
       aria-label="Search"
       data-search-overlay
     >
-      {/* Backdrop — click to dismiss. */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={close}
@@ -266,10 +331,6 @@ export function SearchOverlay() {
           }
         }}
       >
-        {/* Header — the input lives in an inset shell whose focus ring is a soft
-            glow on the bar itself. Being inset, the 3px ring has room to render
-            fully and is never clipped by the modal's rounded, overflow-hidden
-            edge (the defect the old container-ring had). */}
         <div className="border-b border-[var(--border)] p-3">
           <div
             role="search"
@@ -287,7 +348,7 @@ export function SearchOverlay() {
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               onKeyDown={onInputKeyDown}
-              placeholder="Search for something to watch…"
+              placeholder={placeholderFor(scopeId)}
               aria-label="Search"
               autoComplete="off"
               spellCheck={false}
@@ -302,26 +363,153 @@ export function SearchOverlay() {
               <X className="h-4 w-4" />
             </button>
           </div>
+
+          {/*
+            Scope chips. A horizontal scroller rather than a wrapping grid so the
+            row's height never changes as scopes are added — the input must not
+            jump under the cursor mid-type. `role="tablist"` because these select
+            between views of one search, which is what a screen reader needs to
+            hear; the results region is labelled by the active chip.
+          */}
+          <div
+            role="tablist"
+            aria-label="What to search"
+            className="mt-2.5 -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {SEARCH_SCOPES.map((s) => {
+              const active = s.id === scopeId;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="tab"
+                  id={`search-scope-${s.id}`}
+                  aria-selected={active}
+                  aria-controls="search-results-region"
+                  title={s.blurb}
+                  onClick={() => onScopeChange(s.id)}
+                  className={cn(
+                    "shrink-0 touch-manipulation rounded-full border px-3 text-[13px] transition-colors duration-200 ease-out motion-reduce:transition-none",
+                    // 44px on touch, tighter on pointer devices — the repo-wide
+                    // convention, so the chip row does not eat the palette.
+                    "min-h-[44px] sm:min-h-8",
+                    active
+                      ? "border-[var(--accent)] bg-[var(--accent-dim)] font-medium text-[var(--text)]"
+                      : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
+                  )}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div
           ref={resultsRef}
+          id="search-results-region"
+          role="tabpanel"
+          aria-labelledby={`search-scope-${scopeId}`}
           onKeyDown={onResultsKeyDown}
           onClick={onResultsClick}
           className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4"
         >
-          {query.trim().length < 2 ? (
-            <p className="px-1 py-10 text-center text-[13px] text-[var(--text-tertiary)]">
-              Type to search across everything you can watch.
-            </p>
-          ) : (
-            <TitleResultsList
-              titles={titles}
-              loading={loading}
-              query={query}
-              skeletonCount={4}
-            />
-          )}
+          {(() => {
+            const display = searchDisplayFor({
+              scopeId,
+              query,
+              loading,
+              error,
+              resultCount: titles.length + releases.length,
+            });
+
+            switch (display.state) {
+              case "prompt":
+              case "typing":
+                // Never a blank panel: the scope says what it holds, so picking
+                // "Books" and pausing still teaches what a good query looks like.
+                return (
+                  <div className="px-1 py-10 text-center">
+                    <p className="text-[13px] text-[var(--text-secondary)]">
+                      {display.scope.blurb}
+                    </p>
+                    <p className="mt-1.5 text-[12px] text-[var(--text-tertiary)]">
+                      Try “{display.scope.placeholder.split(",")[0].trim()}”
+                    </p>
+                  </div>
+                );
+
+              case "error":
+                return (
+                  <div
+                    className="px-1 py-10 text-center"
+                    role="status"
+                    data-search-error
+                  >
+                    <p className="text-[13px] text-[var(--text-secondary)]">
+                      {display.message}
+                    </p>
+                  </div>
+                );
+
+              case "empty":
+                return (
+                  <div className="px-1 py-10 text-center" data-results-empty>
+                    <p className="text-[13px] text-[var(--text-secondary)]">
+                      Nothing in {display.scope.label} matched “{display.query}”.
+                    </p>
+                    <p className="mt-1.5 text-[12px] text-[var(--text-tertiary)]">
+                      Try another spelling, or a different category above.
+                    </p>
+                  </div>
+                );
+
+              case "loading":
+                return display.scope.kind === "work" ? (
+                  <TitleResultsList
+                    titles={[]}
+                    loading
+                    query={query}
+                    skeletonCount={4}
+                  />
+                ) : (
+                  <p
+                    className="px-1 py-10 text-center text-[13px] text-[var(--text-tertiary)]"
+                    aria-busy
+                  >
+                    Searching {display.scope.label.toLowerCase()}…
+                  </p>
+                );
+
+              case "results":
+                return display.kind === "work" ? (
+                  <TitleResultsList
+                    titles={titles}
+                    loading={loading}
+                    query={query}
+                    skeletonCount={4}
+                  />
+                ) : (
+                  <div data-results-list>
+                    {/* Where these land, said before the download starts —
+                        not knowing has been a recurring complaint. */}
+                    {display.scope.downloadCategory ? (
+                      <p className="pb-2 text-[12px] text-[var(--text-tertiary)]">
+                        Downloads go to your {display.scope.downloadCategory}{" "}
+                        folder.
+                      </p>
+                    ) : null}
+                    {releases.map((t) => (
+                      <ArtifactRow
+                        key={`${t.source}:${t.infoHash ?? t.sourceUrl ?? t.title}`}
+                        torrent={t}
+                        scope={display.scope}
+                      />
+                    ))}
+                  </div>
+                );
+            }
+          })()}
         </div>
       </div>
     </div>

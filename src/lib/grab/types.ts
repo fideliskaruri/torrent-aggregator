@@ -10,6 +10,7 @@
 import type { PrismaClient } from "@prisma/client";
 import type { TorrentResult, TorrentSourceId } from "@/lib/torrents/types";
 import type { AddTorrentPayload, ClientConnectionConfig, TorrentPurpose } from "@/lib/clients/types";
+import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 
 /**
  * The Prisma transaction client passed into post-send hooks.
@@ -105,7 +106,19 @@ export type CheckViability = (
 export type StorageBudgetCheck = (
   candidate: TorrentResult,
   target: { savePath: string | null; category: string | null },
-) => Promise<{ ok: true } | { ok: false; message: string }>;
+) => Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      message: string;
+      /**
+       * Which limit refused and whether the owner may knowingly override it.
+       * Carried up so the caller can offer a real choice instead of a dead end;
+       * the pipeline itself never interprets it.
+       */
+      storage?: StorageOverrideFacts | null;
+    }
+>;
 
 // ---------------------------------------------------------------------------
 // Smart path resolution
@@ -239,4 +252,6 @@ export type GrabPipelineResult = {
   target: { category: string | null; savePath: string | null } | null;
   /** Whether the torrent client appeared offline. */
   offline: boolean;
+  /** Set only when a storage limit refused the grab. @see StorageBudgetCheck */
+  storage?: StorageOverrideFacts | null;
 };

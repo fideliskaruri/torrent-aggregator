@@ -237,7 +237,14 @@ export async function runGrabPipeline(
         },
       });
       // Storage failures are pre-send: no tx needed, no cursor to protect.
-      return { status: "failed", message: space.message, candidate, target, offline: false };
+      return {
+        status: "failed",
+        message: space.message,
+        candidate,
+        target,
+        offline: false,
+        storage: space.storage ?? null,
+      };
     }
   }
 
@@ -311,6 +318,7 @@ export async function runGrabPipeline(
   const buildHistoryMessage = () => historyMessageFromFacts(historyFacts());
 
   const hash = normalizeInfoHash(candidate.infoHash);
+  const eventCreatedAt = new Date();
   let alreadyActive = false;
   let alreadyActiveMessage = "";
 
@@ -387,6 +395,7 @@ export async function runGrabPipeline(
           kind: grabJobKind,
           externalId,
           retention: purpose,
+          createdAt: eventCreatedAt,
         },
       });
 
@@ -400,6 +409,7 @@ export async function runGrabPipeline(
           source: candidate.source,
           status: send.ok ? "sent" : "failed",
           retention: purpose,
+          createdAt: eventCreatedAt,
           ...historyFacts(),
           message: buildHistoryMessage(),
         },

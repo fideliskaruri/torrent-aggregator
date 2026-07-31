@@ -18,9 +18,9 @@
  *     to a *stream* Play, which searches and sends before opening the player,
  *     rather than to a button that dead-ends.
  *  2. **`null` is not `unavailable`.** Nobody having searched is not the same
- *     as having searched and found nothing. Unchecked gets Play: the click
- *     runs the search it is waiting for and plays the result. Only a state we
- *     have positive evidence about — `unavailable` — degrades to Get.
+ *     as having searched and found nothing — but both still get Play. Unchecked
+ *     runs the search; a prior miss retries the (improved) ladder. A thin miss
+ *     must never demote the primary control to Get forever.
  *
  * Pure and DOM-free on purpose: `title.test.ts` drives it as a table.
  */
@@ -94,16 +94,16 @@ export type TitleAction = PlayTitleAction | GetTitleAction | StreamTitleAction;
  * `fetchable` means we have searched and a seeded release exists. That is not
  * "come back later", it is "press play"; it moves to `stream`.
  *
- * `unavailable` is the one state that stays a Get. We searched and found
- * nothing, so offering Play would dead-end — and rule 1 above says we never
- * offer Play for something that will not play. Get is honest: it retries
- * the search and reports plainly when there is still nothing.
+ * `unavailable` used to stay a Get after one miss. That poisoned titles the
+ * ladder can now find (anime aliases, dual Nyaa categories). Play retries the
+ * search; if it still finds nothing, the failure copy on the control says so.
+ * Download remains a separate keep-intent control — never the only way in.
  */
 const STATE_POLICY: Record<AvailabilityState, "local" | "stream" | "remote"> = {
   ready: "local",
   warm: "local",
   fetchable: "stream",
-  unavailable: "remote",
+  unavailable: "stream",
 };
 
 /** The minimum a thing needs for this module to decide about it. */
@@ -121,11 +121,9 @@ export interface Playable {
  *
  * Ordering matters:
  *  1. Local *and* addressable → Play/Resume, straight into the player.
- *  2. Positively unavailable → Get. The only state where we hold evidence
- *     that pressing Play would dead-end.
- *  3. Everything else — fetchable, unchecked, or a local claim with no info
- *     hash — → Play, via a grab. Not knowing is not a reason to make the
- *     viewer do the work.
+ *  2. Everything else — fetchable, unchecked, prior miss, or a local claim
+ *     with no info hash — → Play via a grab. A thin earlier search is not a
+ *     reason to demote the primary control to Get.
  */
 export function resolvePlayableAction(item: Playable): TitleAction {
   const state = item.availability;

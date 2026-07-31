@@ -43,3 +43,22 @@ export function episodeSeasonSummary(
   }
   return rowCount > 0 ? `${rowCount} in season ${season}` : `Season ${season}`;
 }
+
+/**
+ * Count label for the season toolbar, where the season is already named by the
+ * select. Avoids "Season 1 · 7 in season 1".
+ */
+export function episodeSeasonCountLabel(
+  rowCount: number,
+  state: EpisodeListLoadState,
+  season: number,
+): string {
+  if (state.status === "loading" && rowCount === 0) {
+    return `Loading season ${season}…`;
+  }
+  if (state.status === "error" && rowCount === 0) {
+    return `Could not load season ${season}`;
+  }
+  if (rowCount <= 0) return "No episodes yet";
+  return rowCount === 1 ? "1 episode" : `${rowCount} episodes`;
+}

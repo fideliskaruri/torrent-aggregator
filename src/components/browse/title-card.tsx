@@ -4,6 +4,7 @@ import { useId } from "react";
 import Link from "next/link";
 import { Play, Search } from "lucide-react";
 import type { RailItem } from "@/lib/browse";
+import { browseReleaseGate } from "@/lib/browse/release-status";
 import { cn } from "@/lib/utils";
 import {
   actionLabel,
@@ -60,38 +61,63 @@ export function TitleCard({
   onAction,
   priority = false,
 }: TitleCardProps) {
+  // Future primary dates and confirmed cinema-only movies share one Browse
+  // gate. Unknown evidence and series always stay open.
+  const releaseGate = browseReleaseGate(item);
+  const unreleased = releaseGate.gated;
+
   const action = resolveCardAction(item);
-  const fallbackSearch = action.kind === "blocked" ? searchAction(item) : null;
+  // Search fallback is for unavailable library rows, not unreleased catalog
+  // cards — a "find it" affordance on something that does not exist yet is the
+  // same dead end as Play.
+  const fallbackSearch =
+    !unreleased && action.kind === "blocked" ? searchAction(item) : null;
   const title = cleanDisplayTitle(item.title);
-  const fraction = clampFraction(item.progressFraction);
-  const label = actionLabel(action, status);
+  const fraction = unreleased ? null : clampFraction(item.progressFraction);
+  // Theatrical-window films show "In cinemas" (or "Digital Aug 2026");
+  // future-dated films show "Coming {date}". Both take priority over actions.
+  const label = unreleased
+    ? (releaseGate.label ?? "Coming soon")
+    : actionLabel(action, status);
   const blocked = action.disabled;
 
   // Every card goes to the same place: the page about this work. Null only
   // when the row has no usable title — then the card falls back to being the
   // action itself, because a title page with nothing to name is worse.
+  // Unreleased cards keep the link: the title page is the library surface
+  // (overview, track) — only Play/Get/Download are withheld.
   const titleHref = titleHrefForItem(item);
 
   // Only `play` and `get` are *performed*. `search` and `blocked` describe
   // where the card already goes, so they render as a caption rather than a
-  // second control competing with the link underneath them.
+  // second control competing with the link underneath them. Unreleased never
+  // runs either — a dead Play that resolves to nothing is the defect this gate
+  // exists to prevent.
   const runnable =
-    !blocked && (action.kind === "play" || action.kind === "get");
+    !unreleased &&
+    !blocked &&
+    (action.kind === "play" || action.kind === "get");
 
   // A row id is not unique on the page — the same episode legitimately appears
   // in Continue Watching and Ready to Play — and two elements sharing an id
   // break `aria-describedby` for whichever one loses.
   const reactId = useId();
-  const describedBy = blocked ? `${reactId}-reason` : undefined;
+  const describedBy =
+    unreleased || blocked ? `${reactId}-reason` : undefined;
+  const gatedLabel = releaseGate.label;
   const accessibleName = [
     label,
     title,
     item.subtitle,
-    blocked ? action.reason : null,
+    unreleased ? gatedLabel : blocked ? action.reason : null,
   ]
     .filter(Boolean)
     .join(" — ");
-  const linkName = [title, item.subtitle, blocked ? action.reason : null]
+  const linkName = [
+    title,
+    item.subtitle,
+    unreleased ? gatedLabel : blocked ? action.reason : null,
+  ]
     .filter(Boolean)
     .join(" — ");
 
@@ -102,7 +128,10 @@ export function TitleCard({
         "transition-[transform,border-color,box-shadow] duration-150 ease-out",
         "group-hover:border-[var(--border-strong)] group-hover:shadow-[var(--shadow-md)]",
         "motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1",
-        blocked && "opacity-75",
+        // Future art is present but inert: greyscale + muted so it never reads
+        // as something you can press Play on. Matches the title-page hero gate.
+        unreleased && "grayscale opacity-80",
+        !unreleased && blocked && "opacity-75",
       )}
     >
       <PosterImage
@@ -112,8 +141,20 @@ export function TitleCard({
         priority={priority}
       />
 
+      {/* A gated chip replaces the availability chip. Theatrical-window films
+          show "In cinemas" (or "Digital Aug 2026"); future-dated films show
+          "Coming {date}". The label is also used by the action row badge. */}
       <span className="absolute left-1.5 top-1.5 z-[1]">
-        <AvailabilityChip state={item.availability} compact />
+        {unreleased ? (
+          <span
+            data-card-coming
+            className="inline-flex max-w-[calc(100%-0.25rem)] items-center truncate rounded-[6px] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 py-1 text-[11px] font-medium leading-none text-[var(--text-secondary)]"
+          >
+            {releaseGate.label ?? "Coming soon"}
+          </span>
+        ) : (
+          <AvailabilityChip state={item.availability} compact />
+        )}
       </span>
 
       {fraction != null ? (
@@ -131,7 +172,7 @@ export function TitleCard({
   // over artwork we have never seen.
   const badgeClass = cn(
     "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[6px] border px-1.5 py-1 text-[12px] font-medium leading-none",
-    blocked
+    blocked || unreleased
       ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
       : "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]",
   );
@@ -139,7 +180,7 @@ export function TitleCard({
     <>
       {status === "pending" ? (
         <LoadingGlyph className="h-3 w-3" />
-      ) : action.kind === "play" ? (
+      ) : !unreleased && action.kind === "play" ? (
         <Play className="h-3 w-3 shrink-0 fill-current" aria-hidden />
       ) : null}
       <span className="truncate">{label}</span>
@@ -161,7 +202,9 @@ export function TitleCard({
     fraction != null && "pb-2.5",
   );
 
-  const actionRow = runnable ? (
+  // Unreleased: Coming lives on the top chip only. A second badge on the action
+  // row would compete with it, and there is no control to reveal on hover.
+  const actionRow = unreleased ? null : runnable ? (
     <span className={actionRowClass}>
       <button
         type="button"
@@ -222,7 +265,10 @@ export function TitleCard({
   );
 
   return (
-    <li className={cn("relative shrink-0 snap-start", CARD_WIDTH)}>
+    <li
+      className={cn("relative shrink-0 snap-start", CARD_WIDTH)}
+      data-unreleased={unreleased ? "true" : undefined}
+    >
       <div className="group relative">
         {titleHref ? (
           <Link
@@ -242,14 +288,17 @@ export function TitleCard({
             // `aria-disabled` rather than `disabled`: a blocked card must stay
             // in the tab order and inside the rail's arrow-key run, or the row
             // develops holes a keyboard user has to jump over.
-            aria-disabled={blocked || undefined}
+            aria-disabled={blocked || unreleased || undefined}
             aria-describedby={describedBy}
             aria-label={accessibleName}
             onClick={() => {
-              if (blocked || status === "pending") return;
+              if (unreleased || blocked || status === "pending") return;
               onAction(item, action);
             }}
-            className={cn(controlClass, blocked && "cursor-default")}
+            className={cn(
+              controlClass,
+              (blocked || unreleased) && "cursor-default",
+            )}
           >
             {surface}
           </button>
@@ -292,7 +341,11 @@ export function TitleCard({
 
       {/* Outside the caption link on purpose: `aria-describedby` has to point
           at something a screen reader will reach on its own. */}
-      {blocked ? (
+      {unreleased ? (
+        <p id={describedBy} className="sr-only">
+          {gatedLabel ?? "Coming soon"}
+        </p>
+      ) : blocked ? (
         <p id={describedBy} className="sr-only">
           {action.reason}
         </p>

@@ -1,5 +1,23 @@
 import type { TitleAction } from "./title-actions";
 import type { TitleGrabResponse, TitleRetention } from "./types";
+import {
+  parseStorageOverrideFacts,
+  StorageLimitError,
+} from "@/lib/library/storage-override";
+
+/**
+ * Throw the most specific error the response supports.
+ *
+ * Deliberately re-derives overridability through `parseStorageOverrideFacts`
+ * rather than trusting the wire: a server that starts marking free-space
+ * refusals overridable must not be able to talk the client into offering it.
+ */
+function throwGrabFailure(body: TitleGrabResponse | null, fallback: string): never {
+  const storage = parseStorageOverrideFacts(body?.storage);
+  const message = body?.message || fallback;
+  if (storage) throw new StorageLimitError(message, storage);
+  throw new Error(message);
+}
 
 export interface PostTitleActionInput {
   workKey: string;
@@ -8,7 +26,24 @@ export interface PostTitleActionInput {
   year?: number | null;
   action: TitleAction;
   retention: TitleRetention;
+  /** Preferred download resolution in pixels (480/720/1080/2160). Only set for
+   *  keep-it grabs — Play never prompts for quality. */
+  resolution?: number | null;
+  /**
+   * Re-issue of a grab the storage cap refused, after the owner was shown the
+   * real figures and chose to proceed. Never set on the first attempt, and
+   * never honoured for the free-space floor.
+   */
+  overrideStorageCap?: boolean;
 }
+
+/**
+ * Hard ceiling on how long a single grab round trip may take before we report
+ * an error and re-enable the row.  30 s is long enough for a slow server to
+ * respond but short enough that a dead connection does not leave a row disabled
+ * for the remainder of the session.
+ */
+const FETCH_TIMEOUT_MS = 30_000;
 
 export async function postTitleAction({
   workKey,
@@ -17,20 +52,25 @@ export async function postTitleAction({
   year,
   action,
   retention,
+  resolution,
+  overrideStorageCap,
 }: PostTitleActionInput): Promise<TitleGrabResponse> {
   if (retention === "keep" && action.kind === "get" && action.infoHash?.trim()) {
     const res = await fetch("/api/torrent/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       body: JSON.stringify({
         infoHash: action.infoHash,
         name: title ?? undefined,
         retention,
+        ...(resolution != null ? { resolution } : {}),
+        ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
       }),
     });
     const body = (await res.json().catch(() => null)) as TitleGrabResponse | null;
     if (!res.ok || !body?.ok) {
-      throw new Error(body?.message || "Could not keep this episode");
+      throwGrabFailure(body, "Could not keep this episode");
     }
     return body;
   }
@@ -38,6 +78,7 @@ export async function postTitleAction({
   const res = await fetch(`/api/title/${encodeURIComponent(workKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       season: action.season,
       episode: action.episode,
@@ -45,11 +86,13 @@ export async function postTitleAction({
       mediaType: mediaType ?? null,
       year: year ?? null,
       retention,
+      ...(resolution != null ? { resolution } : {}),
+      ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
     }),
   });
   const body = (await res.json().catch(() => null)) as TitleGrabResponse | null;
   if (!res.ok || !body?.ok) {
-    throw new Error(body?.message || "Could not send this episode");
+    throwGrabFailure(body, "Could not send this episode");
   }
   return body;
 }

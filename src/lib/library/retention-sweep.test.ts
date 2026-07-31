@@ -3,6 +3,7 @@
  * Run: node node_modules\tsx\dist\cli.mjs src/lib/library/retention-sweep.test.ts
  */
 import assert from "node:assert/strict";
+import { runDbTest } from "@/lib/test-support/db-teardown";
 import { createHash, randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
@@ -159,6 +160,11 @@ async function main(): Promise<void> {
     assert.equal(await exists(downloading), true, "still downloading item survives");
     assert.deepEqual(deleted, []);
     assert.ok(downloadingResult.skipped.some((s) => s.hash === downloading && s.reason === "downloading"));
+    assert.equal(
+      downloadingResult.usedBytes,
+      10 * GB,
+      "preallocated stream files count at full size even before network completion",
+    );
 
     await resetRows();
     const kept = await seedTorrent({
@@ -171,6 +177,50 @@ async function main(): Promise<void> {
     assert.equal(await exists(kept), true, "KEPT item survives even when over budget");
     assert.deepEqual(deleted, []);
     assert.ok(keptResult.skipped.some((s) => s.hash === kept && s.reason === "kept"));
+
+    await resetRows();
+    const permanentMixed = await seedTorrent({
+      tag: "permanent-mixed",
+      origin: USER_ORIGIN,
+      completedAt: oldComplete,
+      sizeGb: 100,
+    });
+    const reclaimableMixed = await seedTorrent({
+      tag: "reclaimable-mixed",
+      completedAt: oldComplete,
+      lastUsedMinutes: 900,
+      sizeGb: 10,
+    });
+    deleted = [];
+    const configuredCapResult = await sweepRetentionCache({
+      userId,
+      config: { ...config, maxStorageBytes: 5 * GB },
+      now,
+      db: prisma,
+      mode: "delete",
+      _foreground: { active: () => false, hash: () => null },
+      _deleteFn: async (_config, hash) => {
+        deleted.push(hash);
+        return { ok: true, message: "deleted" };
+      },
+    });
+    assert.equal(
+      await exists(permanentMixed),
+      true,
+      "configured budget enforcement never deletes a kept release",
+    );
+    assert.equal(
+      await exists(reclaimableMixed),
+      false,
+      "configured budget enforcement reclaims eligible stream cache",
+    );
+    assert.deepEqual(deleted, [reclaimableMixed]);
+    assert.ok(
+      configuredCapResult.skipped.some(
+        (s) => s.hash === permanentMixed && s.reason === "kept",
+      ),
+    );
+    assert.equal(configuredCapResult.satisfied, true);
 
     await resetRows();
     const item = await prisma.watchListItem.create({
@@ -631,7 +681,4 @@ async function main(): Promise<void> {
   console.log("retention-sweep.test.ts: all assertions passed");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+runDbTest(main);

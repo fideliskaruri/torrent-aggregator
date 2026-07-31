@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { activityWhere } from "@/app/api/activity/feed";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,7 @@ export async function GET() {
   }
 
   const items = await prisma.downloadHistory.findMany({
-    // Streams are ephemeral Play cache, not downloads — keep them out of the
-    // history list; legacy NULL rows still show (issue E).
-    where: { userId: session.user.id, retention: { not: "stream" } },
+    where: activityWhere(session.user.id, "all"),
     orderBy: { createdAt: "desc" },
     take: 100,
   });

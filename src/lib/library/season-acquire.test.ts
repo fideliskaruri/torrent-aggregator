@@ -17,6 +17,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
+import { DEFAULT_MAX_STORAGE_BYTES } from "./disk-space";
 import { resolveSeasonPlan, acquireSeason, seasonSearchQuery } from "./season-acquire";
 import type { TorrentResult } from "@/lib/torrents/types";
 
@@ -146,6 +147,15 @@ async function main(): Promise<void> {
       const sentTitles: string[] = [];
       const userId = `u_${randomUUID()}`;
       await prisma.user.create({ data: { id: userId } });
+      await prisma.clientSettings.create({
+        data: {
+          userId,
+          clientType: "builtin",
+          baseDownloadPath: process.cwd(),
+          maxStorageBytes: BigInt(DEFAULT_MAX_STORAGE_BYTES),
+          storageCapConfigured: true,
+        },
+      });
       let res;
       try {
         res = await acquireSeason(

@@ -46,6 +46,9 @@ export async function POST(request: Request) {
   const target: PreRankTarget = {
     title,
     mediaType: typeof body.mediaType === "string" ? body.mediaType : "tv",
+    // A film's year is part of its identity, so pass it through: without it the
+    // quality menu lists every same-named work ever released.
+    year: num(body.year),
     season: num(body.season),
     episode: num(body.episode),
   };

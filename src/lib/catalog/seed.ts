@@ -51,32 +51,21 @@ export async function readWatchSeed(userId: string): Promise<CatalogSeed | null>
       season: true,
       episode: true,
       watchListItemId: true,
+      filePath: true,
+      infoHash: true,
     },
   });
 
-  if (watching?.title?.trim()) {
-    let title = seedTitleOf(watching.title);
-    // A progress row whose title is only an episode coordinate — created from a
-    // raw magnet named "…S01E05…" or a bare file name — reduces to something
-    // like "S01E05", and "Because you're watching S01E05" is a heading no
-    // product would ship. When that happens, the row's linked library item
-    // carries the real show name; prefer it. This is I9: the rail must expose
-    // the show's TITLE, never an SxxExx code.
-    if (isUnusableSeedTitle(title) && watching.watchListItemId) {
-      const linked = await prisma.watchListItem.findUnique({
-        where: { id: watching.watchListItemId },
-        select: { title: true },
-      });
-      const linkedTitle = linked?.title?.trim();
-      if (linkedTitle) {
-        const cleaned = seedTitleOf(linkedTitle);
-        if (!isUnusableSeedTitle(cleaned)) title = cleaned;
-      }
+  if (watching) {
+    const title = await resolveProgressSeedTitle(watching);
+    // Never ship "Because you're watching S01E08". Prefer no rail over a
+    // coordinate heading — the rest of discovery still renders without it.
+    if (title) {
+      return {
+        title,
+        mediaType: await progressMediaType(watching),
+      };
     }
-    return {
-      title,
-      mediaType: await progressMediaType(watching),
-    };
   }
 
   const library = await prisma.watchListItem.findFirst({
@@ -86,13 +75,74 @@ export async function readWatchSeed(userId: string): Promise<CatalogSeed | null>
   });
 
   if (library?.title?.trim()) {
-    return {
-      title: seedTitleOf(library.title),
-      mediaType: normalizeMediaType(library.mediaType),
-    };
+    const title = usableSeedTitle(library.title);
+    if (title) {
+      return {
+        title,
+        mediaType: normalizeMediaType(library.mediaType),
+      };
+    }
   }
 
   return null;
+}
+
+/**
+ * Recover a real work name from a progress row.
+ *
+ * Playback often stores the episode label (`S01E08`) as `title` while the show
+ * lives only on `filePath` / the engine torrent name. Walk every identity we
+ * already have before giving up — never invent one.
+ */
+async function resolveProgressSeedTitle(watching: {
+  title: string | null;
+  filePath: string | null;
+  infoHash: string;
+  watchListItemId: string | null;
+}): Promise<string | null> {
+  const candidates: string[] = [];
+  if (watching.title?.trim()) candidates.push(watching.title);
+  if (watching.filePath?.trim()) {
+    // Prefer the leaf file name; pack paths look like
+    // `Show S01E08 …/Show S01E08 ….mkv` and workIdentity wants the release shape.
+    const path = watching.filePath.replace(/\\/g, "/");
+    const leaf = path.split("/").filter(Boolean).at(-1);
+    if (leaf) candidates.push(leaf);
+    candidates.push(watching.filePath);
+  }
+
+  for (const raw of candidates) {
+    const title = usableSeedTitle(raw);
+    if (title) return title;
+  }
+
+  if (watching.watchListItemId) {
+    const linked = await prisma.watchListItem.findUnique({
+      where: { id: watching.watchListItemId },
+      select: { title: true },
+    });
+    const title = usableSeedTitle(linked?.title);
+    if (title) return title;
+  }
+
+  const hash = watching.infoHash?.trim().toLowerCase();
+  if (hash) {
+    const torrent = await prisma.engineTorrent.findFirst({
+      where: { hash },
+      select: { name: true },
+    });
+    const title = usableSeedTitle(torrent?.name);
+    if (title) return title;
+  }
+
+  return null;
+}
+
+/** Reduce + reject coordinates/placeholders. Null when nothing usable remains. */
+function usableSeedTitle(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const title = seedTitleOf(raw);
+  return isUnusableSeedTitle(title) ? null : title;
 }
 
 /**

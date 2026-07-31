@@ -6,22 +6,18 @@
  * cache, and only if that preview proves the stream cache is over budget does it
  * run the destructive pass. No pressure, no deletion.
  *
- * The user-facing opt-out is the existing retention default: choosing
- * "Keep everything" means new sends are permanent and this scheduler is disabled
- * for that user. The default remains stream-only/automatic reclamation because
- * that is the owner's stated product intent: streamed content is transient;
- * tracked/watchlisted/explicitly-kept content is retained.
+ * The new-download retention default does not disable this sweep: changing that
+ * setting to "Keep" cannot turn already-classified stream cache into permanent
+ * media. Only rows that still pass the destructive stream-only guards can be
+ * reclaimed.
  */
 import { LOCAL_USER_ID } from "@/lib/auth-constants";
 import { getUserClientConfig } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { foregroundActive } from "@/lib/prewarm/foreground";
-import { STREAM_CACHE_GRACE_MS } from "@/lib/streaming/retention";
 import {
-  RETENTION_POLICY_KEPT,
-  readDefaultRetentionPolicy,
-  type RetentionPolicy,
-} from "./retention-settings";
+  streamCacheBudgetForStorageCap,
+} from "@/lib/streaming/retention";
 import {
   sweepRetentionCache,
   type RetentionSweepResult,
@@ -60,7 +56,6 @@ function state(): SchedulerState {
 export interface RetentionSweepTickDeps {
   userId?: string;
   isForeground?: () => boolean;
-  resolvePolicy?: (userId: string) => Promise<RetentionPolicy>;
   getConfig?: (userId: string) => Promise<ClientConnectionConfig | null>;
   sweep?: (opts: {
     userId: string;
@@ -74,7 +69,7 @@ export interface RetentionSweepTickOutcome {
   delayMs: number;
   ran: boolean;
   skipped?:
-    | "disabled"
+    | "unconfigured"
     | "foreground"
     | "settings-error"
     | "no-client"
@@ -100,8 +95,6 @@ export async function runRetentionSweepTick(
   const userId = deps.userId ?? LOCAL_USER_ID;
   const log = deps.log ?? console;
   const isForeground = deps.isForeground ?? foregroundActive;
-  const resolvePolicy =
-    deps.resolvePolicy ?? (async (u) => (await readDefaultRetentionPolicy(u)).policy);
   const getConfig = deps.getConfig ?? ((u) => getUserClientConfig(u));
   const sweep =
     deps.sweep ??
@@ -111,18 +104,6 @@ export async function runRetentionSweepTick(
         config: opts.config,
         mode: opts.mode,
       }));
-
-  let policy: RetentionPolicy;
-  try {
-    policy = await resolvePolicy(userId);
-  } catch (err) {
-    log.error("[retention-sweep] could not read retention setting", err);
-    return { delayMs: RETENTION_SWEEP_DISABLED_POLL_MS, ran: false, skipped: "settings-error" };
-  }
-
-  if (policy === RETENTION_POLICY_KEPT) {
-    return { delayMs: RETENTION_SWEEP_DISABLED_POLL_MS, ran: false, skipped: "disabled" };
-  }
 
   if (isForeground()) {
     return { delayMs: RETENTION_SWEEP_FOREGROUND_RETRY_MS, ran: false, skipped: "foreground" };
@@ -137,6 +118,13 @@ export async function runRetentionSweepTick(
   }
   if (!config) {
     return { delayMs: RETENTION_SWEEP_DISABLED_POLL_MS, ran: false, skipped: "no-client" };
+  }
+  if (streamCacheBudgetForStorageCap(config.maxStorageBytes) == null) {
+    return {
+      delayMs: RETENTION_SWEEP_DISABLED_POLL_MS,
+      ran: false,
+      skipped: "unconfigured",
+    };
   }
 
   let preview: RetentionSweepResult;

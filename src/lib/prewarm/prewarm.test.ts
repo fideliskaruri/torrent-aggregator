@@ -58,6 +58,7 @@ import {
 } from "./prewarm";
 import { PREWARM_GRAB_KIND, PREWARM_ORIGIN, USER_ORIGIN } from "./types";
 import { birthOriginForPurpose } from "@/lib/clients/add-purpose";
+import { DEFAULT_MAX_STORAGE_BYTES } from "@/lib/library/disk-space";
 import type { NextEpisode, PreRankTarget } from "./types";
 
 type SearchPayload = Parameters<typeof searchTorrents>[0];
@@ -129,6 +130,7 @@ const config = {
   host: "",
   savePath: "/downloads",
   baseDownloadPath: process.cwd(),
+  maxStorageBytes: DEFAULT_MAX_STORAGE_BYTES,
   categories: ["TV"],
 } as ClientConnectionConfig;
 

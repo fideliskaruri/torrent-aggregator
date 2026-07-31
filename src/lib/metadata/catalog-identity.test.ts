@@ -60,9 +60,19 @@ assert.equal(
 }
 
 // --- The regression this exists to prevent ---
-// Ordinary SxxEyy numbering is "strong TV structure". Without the catalog
-// record it outranks the search-category hint and a monitored anime lands in
-// TV/; with the record, the catalog wins.
+// Ordinary SxxEyy numbering is "strong TV structure". The catalog record is
+// what lets a monitored anime beat it, and this asserts the record does its job
+// on every release-name shape a monitored show throws at it.
+//
+// The *precondition* half of this block used to assert the opposite for all
+// three titles: that without the record the hint always lost, so a monitored
+// anime landed in TV/. That is no longer true across the board, and the change
+// was deliberate — a release whose own name says "Dual Audio" or carries a
+// fansub group now beats the structural guess when the owner searched Anime
+// (see `smart-category.ts`). The clean, cue-free name is the case that still
+// genuinely needs the catalog record, so that is where the precondition
+// belongs now. Weakening the test to "expect anime either way" would have
+// thrown away the only assertion proving the record matters at all.
 {
   const titles = [
     "[EMBER] Solo Leveling (2024-2025) (Season 1 + 2) [BDRip] [1080p Dual Audio HEVC 10 bits DDP] (Batch)",
@@ -70,12 +80,19 @@ assert.equal(
     "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER",
   ];
 
+  // No anime cue anywhere in the name: this is the release the catalog record
+  // exists for, and without it the structural TV reading still wins.
+  assert.equal(
+    detectContentKind({
+      title: "Solo Leveling S02E05 1080p WEB-DL x265-GRP",
+      source: "watchlist",
+      searchCategory: "anime",
+    }),
+    "tv",
+    "precondition: a cue-free SxxEyy name still needs the catalog record",
+  );
+
   for (const title of titles) {
-    assert.equal(
-      detectContentKind({ title, source: "watchlist", searchCategory: "anime" }),
-      "tv",
-      `precondition: the hint alone loses to SxxEyy — ${title}`,
-    );
     assert.equal(
       detectContentKind({
         title,

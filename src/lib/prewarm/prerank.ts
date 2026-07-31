@@ -42,9 +42,10 @@ import {
   SearchThrottledError,
 } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { filterReleasesForWork } from "@/lib/torrents/work-match";
 import { infoHashFromMagnet, normalizeInfoHash } from "@/lib/torrents/infohash";
 import { advanceCursor, episodeSearchQuery, resolveHuntCursor } from "@/lib/library/cursor";
-import { isSeriesMediaType, searchCategoryForMediaType } from "@/lib/metadata/media-type";
+import { isSeriesMediaType, normalizeMediaType, searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { normalizeTitle } from "@/lib/utils";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PipelineSearchOptions } from "@/lib/grab/types";
@@ -255,6 +256,11 @@ export function orderByVerdict(
  * pre-warm budget is sized for one episode, and quietly pulling forty is the
  * kind of surprise a background feature must never spring.
  *
+ * A film additionally has to BE the film. Without that test the whole
+ * episode-matching branch is skipped and `ordered[0]` wins, which is how the
+ * title page for *The Odyssey* (2026) came to offer a 1997 print, a Waterworld
+ * documentary and an audiobook. See `work-match.ts`.
+ *
  * `verdictOf` is optional and pure. When omitted, the ranker's order stands
  * untouched — so the fast memo/cache path (no DB) behaves exactly as before,
  * and only callers with a measurement to offer change the outcome.
@@ -276,7 +282,25 @@ export function selectBestRelease(
     ? orderByVerdict(usable, opts.verdictOf)
     : usable;
 
-  if (season == null || episode == null) return ordered[0] ?? null;
+  if (season == null || episode == null) {
+    // Nothing structural constrains this match, so work identity is the only
+    // thing standing between the viewer and a different work entirely.
+    //
+    // The guard runs only on a CONFIRMED film. Series-ness is not inferred
+    // from the absence of a season/episode — callers legitimately pre-rank a
+    // *show* by name alone (failover does) — and an unrecognised media type is
+    // left alone too, because a name test on something we cannot classify is a
+    // guess that can only cost the viewer playback.
+    const isFilm = normalizeMediaType(target.mediaType) === "movie";
+    const sameWork = isFilm
+      ? filterReleasesForWork(ordered, {
+          title: target.title,
+          year: target.year,
+          isSeries: false,
+        })
+      : ordered;
+    return sameWork[0] ?? null;
+  }
 
   return (
     ordered.find((r) => {

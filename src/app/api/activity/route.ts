@@ -1,17 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import {
-  infoHashFromMagnet,
-  deduplicateActivity,
+  loadActivityItems,
   type ActivityItem,
-} from "@/lib/activity/dedup";
+} from "./feed";
 
 export const dynamic = "force-dynamic";
 
 export type { ActivityItem };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -21,60 +20,9 @@ export async function GET() {
       );
     }
 
-    const userId = session.user.id;
-
-    const [jobs, history] = await Promise.all([
-      prisma.grabJob.findMany({
-        // Hide ephemeral Play cache grabs; keep legacy NULL rows (issue E).
-        where: { userId, retention: { not: "stream" } },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      }),
-      prisma.downloadHistory.findMany({
-        where: { userId, retention: { not: "stream" } },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      }),
-    ]);
-
-    const grabItems: ActivityItem[] = jobs.map((j) => ({
-      id: `grab-${j.id}`,
-      type: "grab" as const,
-      title: j.title,
-      status: j.status,
-      message: j.message,
-      source: j.source,
-      kind: j.kind,
-      query: j.query,
-      magnet: j.magnet,
-      infoHash: j.infoHash ?? infoHashFromMagnet(j.magnet),
-      savePath: j.savePath,
-      category: j.category,
-      createdAt: j.createdAt.toISOString(),
-    }));
-
-    const historyItems: ActivityItem[] = history.map((h) => ({
-      id: `hist-${h.id}`,
-      type: "history" as const,
-      title: h.title,
-      status: h.status,
-      message: h.message,
-      source: h.source,
-      kind: null,
-      query: null,
-      magnet: h.magnet,
-      infoHash: h.infoHash ?? infoHashFromMagnet(h.magnet),
-      savePath: null,
-      category: null,
-      createdAt: h.createdAt.toISOString(),
-    }));
-
-    const merged = [...grabItems, ...historyItems].sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-
-    const items = deduplicateActivity(merged, 50);
+    const filter =
+      request.nextUrl.searchParams.get("filter") === "sent" ? "sent" : "all";
+    const items = await loadActivityItems(prisma, session.user.id, filter);
 
     return NextResponse.json({ items, count: items.length });
   } catch (err) {

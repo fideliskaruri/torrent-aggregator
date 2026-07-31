@@ -1,16 +1,13 @@
 /**
  * The product shape of the search results surface, pinned against the files.
  *
- * The results rework has one thesis: title-centric cards with two actions
- * (Play, Download), no mechanism, no chrome. These assertions fail if any of
- * the stripped tokens crawl back — seed counts, sizes, Health %, indexer
- * names, SxxExx, the All/Packs/Episodes tabs, the density/filters/refresh
- * toolbar, the range count, "cached", the retention helper sentence, or the
- * word "Stream".
+ * Search is TMDB title discovery only: clickable title cards, no torrent
+ * actions on the search surface. Play/Download live on the title page.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { rankTitleHitsByRelevance } from "./title-search";
 
 const root = process.cwd();
 const readRaw = (p: string) =>
@@ -18,8 +15,7 @@ const readRaw = (p: string) =>
 
 /**
  * These rules are about what the *rendered* surface says, not what the source
- * prose documents. A comment may legitimately name a banished token ("no
- * seeders, sizes, Health %") while explaining the subtraction, so strip
+ * prose documents. A comment may legitimately name a banished token, so strip
  * comments before scanning for mechanism leaks.
  */
 const stripComments = (src: string) =>
@@ -31,8 +27,10 @@ const searchResults = read("components/search/search-results.tsx");
 const titleCard = read("components/search/title-result-card.tsx");
 const releaseRow = read("components/search/torrent-card.tsx");
 const overlay = read("components/search/search-overlay.tsx");
+const overlayState = read("components/search/search-overlay-state.ts");
 const header = read("components/layout/header.tsx");
 const shortcuts = read("hooks/use-keyboard-shortcuts.ts");
+const titlesApi = read("app/api/search/titles/route.ts");
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -46,15 +44,100 @@ function check(name: string, fn: () => void) {
   }
 }
 
-console.log("search-results-flow: title-centric, two actions, no mechanism…");
+console.log("search-results-flow: TMDB title discovery, click-only cards…");
 
 // ---------------------------------------------------------------------------
-// I23 — one card per work, best match first
+// Title discovery API — not torrent grouping
 // ---------------------------------------------------------------------------
-check("results render grouped title cards, not raw torrent rows", () => {
-  assert.match(searchResults, /groupTitles/);
+check("the Films & TV scope still searches TMDB, never the indexers", () => {
+  // The rule this has always protected: typing a film name must not fire a
+  // torrent search on every keystroke. That rule is unchanged and still
+  // load-bearing — it is why the film flow is fast and why the shared indexer
+  // budget is not spent on discovery.
+  //
+  // What HAS changed is its scope. Music, games, software and books have no
+  // metadata provider behind them, so for those the indexers are the only
+  // source and searching them is correct.
+  //
+  // The URL choice now lives in `search-overlay-state.ts`, and the *behaviour*
+  // — that a films search carries no category and a music search does — is
+  // asserted directly in `search-overlay-state.test.ts`, which can call the
+  // function instead of reading around it. What source inspection is still good
+  // for is the structural half: the overlay must delegate rather than grow a
+  // second copy of either URL, because a hand-built fetch is exactly how the
+  // film path would quietly regain an indexer call.
+  assert.match(overlayState, /\/api\/search\/titles/);
+  assert.doesNotMatch(overlay, /fetch\(`\/api\/search/);
+  assert.doesNotMatch(overlay, /fetch\("\/api\/search/);
+  assert.match(overlay, /searchRequestFor/);
+  assert.doesNotMatch(overlay, /groupTitles/);
+});
+
+check("non-film scopes reach the aggregator with their own category", () => {
+  // The other half of the same rule: a scope that has no TMDB record must not
+  // silently fall back to a film search, which would return films for "daft
+  // punk" and look like the feature simply does not work.
+  assert.match(overlayState, /category: scope\.category/);
+});
+
+check("search-results fetches /api/search/titles", () => {
+  assert.match(searchResults, /\/api\/search\/titles/);
+  assert.doesNotMatch(searchResults, /groupTitles/);
   assert.match(searchResults, /TitleResultsList/);
-  assert.doesNotMatch(searchResults, /data\.results\.map/);
+});
+
+check("titles API calls searchTmdb only", () => {
+  assert.match(titlesApi, /searchTmdb/);
+  assert.doesNotMatch(titlesApi, /searchTorrents/);
+});
+
+// The live defect: TMDB returns by popularity, so searching "atlantis" put
+// Stargate Atlantis (2004) above the exact-title Atlantis (2013). Ranking
+// existed in the grouping path but the titles API never applied it, so the
+// bug survived a "fix". Assert the API actually ranks, and assert the rule
+// behaviourally below — a source grep alone would not have caught this.
+check("titles API ranks results by relevance", () => {
+  assert.match(titlesApi, /rankTitleHitsByRelevance/);
+});
+
+check("exact title beats a longer substring match", () => {
+  const hits = [
+    { title: "Stargate Atlantis" },
+    { title: "Atlantis" },
+    { title: "Man from Atlantis" },
+    { title: "Atlantis Rising" },
+  ];
+  const ranked = rankTitleHitsByRelevance(hits, "atlantis");
+  assert.equal(ranked[0].title, "Atlantis", "the exact title must win");
+});
+
+check("leading articles do not break an exact match", () => {
+  const ranked = rankTitleHitsByRelevance(
+    [{ title: "Maelstrom: The Odyssey of Waterworld" }, { title: "The Odyssey" }],
+    "odyssey",
+  );
+  assert.equal(ranked[0].title, "The Odyssey");
+});
+
+check("within one relevance tier the source order is preserved", () => {
+  const hits = [{ title: "Atlantis" }, { title: "Atlantis" }];
+  const ranked = rankTitleHitsByRelevance(
+    hits.map((h, i) => ({ ...h, id: i })),
+    "atlantis",
+  );
+  assert.deepEqual(
+    ranked.map((r) => r.id),
+    [0, 1],
+    "equal relevance keeps TMDB's popularity order",
+  );
+});
+
+check("an empty query never reorders", () => {
+  const hits = [{ title: "B" }, { title: "A" }];
+  assert.deepEqual(
+    rankTitleHitsByRelevance(hits, "  ").map((h) => h.title),
+    ["B", "A"],
+  );
 });
 
 check("a best-match card is marked featured", () => {
@@ -63,15 +146,24 @@ check("a best-match card is marked featured", () => {
 });
 
 // ---------------------------------------------------------------------------
-// I24 — the whole card opens the title page
+// The whole card opens the title page
 // ---------------------------------------------------------------------------
 check("the card body is a link to the title page", () => {
   assert.match(titleCard, /data-card-target="title"/);
   assert.match(titleCard, /href=\{title\.href\}/);
 });
 
+check("search cards have no Play / Download / Releases", () => {
+  assert.doesNotMatch(titleCard, /data-action="play"/);
+  assert.doesNotMatch(titleCard, /data-action="download"/);
+  assert.doesNotMatch(titleCard, /data-action="expand-releases"/);
+  assert.doesNotMatch(titleCard, /useReleaseActions/);
+  assert.doesNotMatch(titleCard, /ReleaseRow/);
+  assert.doesNotMatch(titleCard, /PlayOverlay/);
+});
+
 // ---------------------------------------------------------------------------
-// I25 / I26 — mechanism + chrome stripped
+// Mechanism + chrome stripped
 // ---------------------------------------------------------------------------
 check("no result count, timing, or 'cached' on the results surface", () => {
   assert.doesNotMatch(searchResults, /tookMs/);
@@ -110,12 +202,7 @@ check("the work card narrates no mechanism", () => {
   }
 });
 
-// The release row IS the chooser: a series otherwise renders a dozen identical
-// "1080p · WEB-DL" rows. It must surface the facts a viewer picks between —
-// episode, resolution, source, size, swarm strength — which are built in the
-// pure release-facts module (and asserted by release-facts.test.ts). The row
-// consumes those helpers rather than hand-rolling torrent.seeders / formatBytes
-// / sizeLabel, and still withholds indexer names and Health %.
+// Release row still exists for title-page chooser surfaces — keep mechanism rules.
 check("the release row surfaces distinguishing facts for a chooser", () => {
   assert.match(releaseRow, /releaseFacts/);
   assert.match(releaseRow, /episodeLabel/);
@@ -137,42 +224,23 @@ check("the retention helper sentence is gone", () => {
   assert.doesNotMatch(titleCard, /reclaimed later/);
 });
 
-// ---------------------------------------------------------------------------
-// I32 — two actions: Play + Download; the word "Stream" is gone
-// ---------------------------------------------------------------------------
-check("cards offer Play and Download, never Stream", () => {
-  assert.match(titleCard, /data-action="play"/);
-  assert.match(titleCard, /data-action="download"/);
-  assert.match(releaseRow, /data-action="play"/);
-  assert.match(releaseRow, /data-action="download"/);
-  assert.match(titleCard, /\bPlay\b/);
-  assert.match(releaseRow, /\bPlay\b/);
-  // No user-facing "Stream" anywhere in these surfaces.
+check("no user-facing Stream on search surfaces", () => {
   assert.doesNotMatch(titleCard, /\bStream\b/);
-  assert.doesNotMatch(releaseRow, /\bStream\b/);
   assert.doesNotMatch(searchResults, /\bStream\b/);
   assert.doesNotMatch(overlay, /\bStream\b/);
 });
 
-check("releases hide behind an expander, collapsed by default", () => {
-  assert.match(titleCard, /data-action="expand-releases"/);
-  assert.match(titleCard, /useState\(false\)/);
-  assert.match(titleCard, /ReleaseRow/);
-});
-
 // ---------------------------------------------------------------------------
-// I10-SEARCH — visual future-gating
+// Visual future-gating still available when status is unreleased
 // ---------------------------------------------------------------------------
-check("future-dated works are visually gated with actions disabled", () => {
+check("future-dated works can be visually gated", () => {
   assert.match(titleCard, /unreleased/);
   assert.match(titleCard, /comingLabel/);
   assert.match(titleCard, /data-unreleased/);
-  // Play/Download are disabled when blocked (unreleased folds into blocked).
-  assert.match(titleCard, /disabled=\{sending \|\| blocked/);
 });
 
 // ---------------------------------------------------------------------------
-// I22 — search is an overlay opened by "/" or the header, no route change
+// Search is an overlay opened by "/" or the header
 // ---------------------------------------------------------------------------
 check("the '/' shortcut opens the overlay, not a route", () => {
   assert.match(shortcuts, /openSearchOverlay/);
@@ -184,7 +252,6 @@ check("the overlay is a single focused input that closes on Esc", () => {
   assert.match(overlay, /data-search-input="true"/);
   assert.match(overlay, /Escape/);
   assert.match(overlay, /aria-modal="true"/);
-  // Exactly one text/search input in the overlay.
   const inputs = overlay.match(/<input\b/g) ?? [];
   assert.equal(inputs.length, 1, "overlay must have a single input");
 });

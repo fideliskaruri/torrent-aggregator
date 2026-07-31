@@ -14,7 +14,6 @@ import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { ExistingOriginLookup } from "@/lib/clients/add-purpose";
 import { newEvictLease, recoverStaleEvictionLeases } from "./evict-lease";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
-import { onDiskBytes } from "@/lib/prewarm/eviction";
 import {
   EVICTING_ORIGIN,
   PREWARM_ORIGIN,
@@ -31,6 +30,32 @@ export const STREAM_CACHE_GRACE_MS = 6 * 60 * 60 * 1000;
 export const DEFAULT_STREAM_CACHE_BUDGET_BYTES = 20 * 1024 * 1024 * 1024;
 
 export { EVICTING_ORIGIN };
+
+/**
+ * The stream cache gets at most 20 GiB, and never more than the owner-approved
+ * library cap. No storage cap means no deletion budget and no new downloads.
+ */
+export function streamCacheBudgetForStorageCap(
+  maxStorageBytes: number | null | undefined,
+): number | null {
+  if (
+    maxStorageBytes == null ||
+    !Number.isFinite(maxStorageBytes) ||
+    maxStorageBytes <= 0
+  ) {
+    return null;
+  }
+  return Math.min(DEFAULT_STREAM_CACHE_BUDGET_BYTES, maxStorageBytes);
+}
+
+function streamCacheAllocatedBytes(row: {
+  sizeBytes: bigint | number;
+  progress: number;
+}): number {
+  const size =
+    typeof row.sizeBytes === "bigint" ? Number(row.sizeBytes) : row.sizeBytes;
+  return Number.isFinite(size) && size > 0 ? Math.round(size) : 0;
+}
 
 export type RetentionState = "kept" | "stream" | "prewarm" | "unknown";
 
@@ -187,12 +212,32 @@ export async function markTorrentStreamOnly(
  * unlinks — the user's instruction beats the speculative sweep. `user` is never
  * a source, so this can never demote and is safe to call as a verification.
  */
+/**
+ * Turn a stream (or prewarm) into a kept download.
+ *
+ * Two things have to change and only one of them is in the database. The stored
+ * origin decides what the retention sweep is allowed to reclaim; the *live*
+ * torrent's piece selection decides what actually gets fetched. A Play adds its
+ * torrent with every file deselected so the stream route can claim only the
+ * window around the playhead — so flipping the row alone left the engine still
+ * fetching that sliver while the UI showed a download in progress.
+ *
+ * Measured symptom: *"when i stream but want to download it, it tracks the
+ * download but it's not fast... it's being limited."* Nothing throttles download
+ * rate in this app; the file was simply never fully selected.
+ *
+ * The DB write stays authoritative — it is what survives a restart, and
+ * `applyPersistedStatus` re-selects from the stored origin on rehydrate. The
+ * engine call is best-effort on top, so a promotion still succeeds when the
+ * engine is mid-restart or the torrent is external.
+ */
 export async function promoteTorrentToKept(
   userId: string,
   hash: string | null,
-  opts: { db?: Db } = {},
+  opts: { db?: Db; config?: ClientConnectionConfig | null } = {},
 ): Promise<boolean> {
   if (!hash) return false;
+  let promoted = false;
   try {
     const r = await (opts.db ?? prisma).engineTorrent.updateMany({
       where: {
@@ -202,10 +247,29 @@ export async function promoteTorrentToKept(
       },
       data: { origin: USER_ORIGIN, evictLease: null, evictFrom: null },
     });
-    return r.count > 0;
+    promoted = r.count > 0;
   } catch {
     return false;
   }
+
+  if (promoted) {
+    // Dynamic import: `builtin-engine` pulls in WebTorrent, and this module is
+    // reached from paths (and tests) that must not boot the engine to update a
+    // row.
+    try {
+      const config =
+        opts.config ??
+        (await (await import("@/lib/clients")).getUserClientConfig(userId));
+      if (config?.clientType === "builtin") {
+        const { resumeFullDownload } = await import("@/lib/clients/builtin-engine");
+        await resumeFullDownload(config, hash);
+      }
+    } catch {
+      /* best-effort: the row is correct, and a rehydrate will re-select */
+    }
+  }
+
+  return promoted;
 }
 
 export async function promoteLibraryStreamsToKept(
@@ -317,7 +381,10 @@ export async function listEvictableStreams(
     orderBy: { lastUsedAt: "asc" },
     take: 500,
   });
-  const usedBytes = rows.reduce((sum, row) => sum + onDiskBytes(row), 0);
+  const usedBytes = rows.reduce(
+    (sum, row) => sum + streamCacheAllocatedBytes(row),
+    0,
+  );
   if (rows.length === 0) return { candidates: [], skipped: [], usedBytes };
 
   const hashes = rows.map((r) => r.hash);
@@ -463,7 +530,23 @@ export async function evictStreamCacheForBudget(opts: {
   const db = opts.db ?? prisma;
   const now = opts.now ?? new Date();
   const graceMs = opts.graceMs ?? STREAM_CACHE_GRACE_MS;
-  const budgetBytes = opts.budgetBytes ?? DEFAULT_STREAM_CACHE_BUDGET_BYTES;
+  const configuredBudget =
+    opts.budgetBytes != null &&
+    Number.isFinite(opts.budgetBytes) &&
+    opts.budgetBytes > 0
+      ? opts.budgetBytes
+      : streamCacheBudgetForStorageCap(opts.config.maxStorageBytes);
+  if (configuredBudget == null) {
+    return {
+      evicted: [],
+      freedBytes: 0,
+      budgetBytes: 0,
+      usedBytes: 0,
+      satisfied: false,
+      skipped: [{ hash: "*", reason: "unconfigured-storage-cap" }],
+    };
+  }
+  const budgetBytes = configuredBudget;
   if (!streamingRetentionEnabled()) {
     return {
       evicted: [],
@@ -648,7 +731,7 @@ export async function evictStreamCacheForBudget(opts: {
     }
 
     result.evicted.push(candidate);
-    const bytes = onDiskBytes(candidate);
+    const bytes = streamCacheAllocatedBytes(candidate);
     result.freedBytes += bytes;
     remaining -= bytes;
     resetDirectorySizeCache();

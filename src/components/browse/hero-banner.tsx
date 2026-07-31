@@ -21,6 +21,7 @@ import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
 import { titleHrefForItem } from "@/components/title/work-key";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
+import { browseReleaseGate } from "@/lib/browse/release-status";
 
 export interface HeroBannerProps {
   pick: HeroPick;
@@ -44,22 +45,35 @@ export interface HeroBannerProps {
 export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps) {
   const { item, eyebrow } = pick;
   const action = resolveCardAction(item);
-  const secondary = searchAction(item);
+  const releaseGate = browseReleaseGate(item);
+  const secondary = releaseGate.gated ? null : searchAction(item);
   const title = cleanDisplayTitle(item.title);
   const facts = heroFacts(item);
   const factsText = factsLine(facts);
-  const fraction = clampFraction(item.progressFraction);
-  const label = actionLabel(action, status);
+  const fraction = releaseGate.gated
+    ? null
+    : clampFraction(item.progressFraction);
+  const label = releaseGate.gated
+    ? (releaseGate.label ?? "Coming soon")
+    : actionLabel(action, status);
+  const titleHref = titleHrefForItem(item);
   const image = item.backdropUrl ?? item.posterUrl;
   const reduceMotion = useReducedMotion();
 
   return (
     <section
       data-browse-hero
+      data-unreleased={releaseGate.gated ? "true" : undefined}
       aria-labelledby="browse-hero-title"
       className="relative isolate overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]"
     >
-      <div className="absolute inset-0 -z-10" style={{ background: posterTint(title) }}>
+      <div
+        className={cn(
+          "absolute inset-0 -z-10",
+          releaseGate.gated && "grayscale",
+        )}
+        style={{ background: posterTint(title) }}
+      >
         {image ? (
           <PosterImage
             src={image}
@@ -102,7 +116,13 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           </h1>
 
           <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-[var(--text-secondary)]">
-            <AvailabilityChip state={item.availability} />
+            {releaseGate.gated ? (
+              <span className="inline-flex items-center rounded-[6px] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[11px] font-medium leading-none text-[var(--text-secondary)]">
+                {label}
+              </span>
+            ) : (
+              <AvailabilityChip state={item.availability} />
+            )}
             {factsText ? <span className="tabular-nums">{factsText}</span> : null}
           </div>
 
@@ -130,13 +150,19 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           ) : null}
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            {action.kind === "search" ? (
+            {releaseGate.gated ? (
+              titleHref ? (
+                <Button asChild size="lg" variant="secondary">
+                  <Link href={titleHref}>View details</Link>
+                </Button>
+              ) : null
+            ) : action.kind === "search" ? (
               // Unresolved: we cannot promise a result here, so the hero simply
               // leads to the title's own page — the one surface that runs the
               // search and offers Play/Download once it knows. No "Check", no
               // mechanism, just "open this title".
               <Button asChild size="lg">
-                <Link href={titleHrefForItem(item) ?? action.href}>
+                <Link href={titleHref ?? action.href}>
                   <Play className="fill-current" />
                   Play
                 </Link>
@@ -171,7 +197,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             ) : null}
           </div>
 
-          {action.disabled ? (
+          {!releaseGate.gated && action.disabled ? (
             <p
               className={cn(
                 "mt-2.5 max-w-md text-[12px] leading-relaxed",

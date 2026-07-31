@@ -4,6 +4,7 @@ import { ArrowDownToLine, Loader2, Play } from "lucide-react";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { cn } from "@/lib/utils";
 import { PlayOverlay } from "@/components/browse/play-overlay";
+import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
 import {
   ActionButton,
   type ActionButtonStatus,
@@ -58,6 +59,7 @@ export function ReleaseRow({
     status,
     playback,
     closePlayback,
+    storageDialogProps,
     play,
     download,
   } = useReleaseActions(torrent, searchCategory);
@@ -187,6 +189,8 @@ export function ReleaseRow({
           onClose={closePlayback}
         />
       ) : null}
+
+      <StorageCapDialog {...storageDialogProps} />
     </>
   );
 }

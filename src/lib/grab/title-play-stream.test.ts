@@ -29,6 +29,7 @@
  * Run: npx tsx src/lib/grab/title-play-stream.test.ts
  */
 import assert from "node:assert/strict";
+import { runDbTest } from "@/lib/test-support/db-teardown";
 import { randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { runGrabPipeline } from "./pipeline";
@@ -244,7 +245,4 @@ async function main(): Promise<void> {
   console.log("\nPASS title-play-stream: a Play stays an ephemeral stream");
 }
 
-main().catch((err) => {
-  console.error("FAIL title-play-stream (threw):", err);
-  process.exit(1);
-});
+runDbTest(main);

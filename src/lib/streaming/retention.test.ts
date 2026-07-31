@@ -21,6 +21,7 @@ import {
   releaseInfoHash,
   retentionStateForOrigin,
   shouldSendAsStreamOnly,
+  streamCacheBudgetForStorageCap,
   streamCacheSortKey,
 } from "./retention";
 import { PREWARM_ORIGIN, USER_ORIGIN } from "@/lib/prewarm/types";
@@ -170,9 +171,42 @@ async function main(): Promise<void> {
     await checkAsync("Play promotes a speculative prewarm to an evictable stream", async () => {
       assert.equal(await originOf(streamHash), STREAM_ORIGIN);
     });
-    await promoteTorrentToKept(userId, streamHash, { db: prisma });
+    await promoteTorrentToKept(userId, streamHash, { db: prisma, config: null });
     await checkAsync("explicit keep promotes existing bytes without a transfer", async () => {
       assert.equal(await originOf(streamHash), USER_ORIGIN);
+    });
+
+    // The other half of a promotion, and the half that was missing.
+    //
+    // A Play adds its torrent with every file DESELECTED, so the stream route
+    // can claim only the window around the playhead. Flipping the stored origin
+    // makes the retention sweep treat it as kept — but the live torrent keeps
+    // the stream's selection, so the engine goes on fetching a sliver while the
+    // UI shows a download in progress. Reported as: "when i stream but want to
+    // download it, it tracks the download but it's not fast... it's being
+    // limited." Nothing throttles download RATE in this app; the file was
+    // simply never fully selected.
+    //
+    // Asserted at the source level because the engine seam needs a live
+    // WebTorrent handle to exercise, and what must not regress is that the
+    // promotion reaches for it at all.
+    await checkAsync("promotion also re-selects the live torrent", async () => {
+      const src = await import("node:fs").then((fs) =>
+        fs.readFileSync(
+          new URL("./retention.ts", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
+          "utf8",
+        ),
+      );
+      const fn = src.slice(
+        src.indexOf("export async function promoteTorrentToKept"),
+        src.indexOf("export async function promoteLibraryStreamsToKept"),
+      );
+      assert.match(
+        fn,
+        /resumeFullDownload/,
+        "promoting a stream must re-select the whole file, not just rewrite the row",
+      );
+      assert.match(fn, /clientType === "builtin"/, "only the built-in engine has the seam");
     });
     await markTorrentStreamOnly(userId, streamHash, { db: prisma });
     await checkAsync("promotion is not undone by a later stream-only mark", async () => {
@@ -359,6 +393,12 @@ async function main(): Promise<void> {
       });
       assert.ok(b[2] < a[2]);
       assert.ok(DEFAULT_STREAM_CACHE_BUDGET_BYTES > 0);
+      assert.equal(streamCacheBudgetForStorageCap(null), null);
+      assert.equal(streamCacheBudgetForStorageCap(5 * GB), 5 * GB);
+      assert.equal(
+        streamCacheBudgetForStorageCap(100 * GB),
+        DEFAULT_STREAM_CACHE_BUDGET_BYTES,
+      );
     });
 
     await resetRows();

@@ -41,6 +41,10 @@ import type { AvailabilityState } from "@/lib/browse";
 import { searchHref } from "@/components/browse/availability";
 import { formatEpisodeLabel } from "@/lib/library/cursor";
 import {
+  fileConfirmedMissing,
+  localFilePresence,
+} from "@/lib/library/local-file-presence";
+import {
   isSeriesMediaType,
   normalizeMediaType,
   searchCategoryForMediaType,
@@ -109,6 +113,24 @@ interface LocalRelease {
    * download the user kept ("kept", or legacy "unknown") may report a fraction.
    */
   retentionState: RetentionState;
+  /**
+   * The filesystem says the recorded file is gone — the owner deleted it
+   * outside the app. Nothing deletes `EngineTorrent` when that happens, so the
+   * row survives and would keep offering Play/Resume for a file that cannot be
+   * opened. Rows are kept (they still scope playback history to this work) but
+   * may not make a local claim. `unknown` presence is not `missing`; see
+   * `library/local-file-presence.ts`.
+   */
+  fileMissing: boolean;
+}
+
+/**
+ * May this row assert "we have this locally"? Every Play/Resume/pack surface
+ * asks here rather than testing the flag itself, so a new surface cannot
+ * quietly forget the check.
+ */
+function canMakeLocalClaim(release: LocalRelease): boolean {
+  return !release.fileMissing;
 }
 
 interface CachedRelease {
@@ -179,6 +201,7 @@ export async function buildTitleDetail(
       isPack: ep.isSeasonPack === true,
       isMultiSeason: ep.isMultiSeason === true,
       retentionState: retentionStateForOrigin(row.origin),
+      fileMissing: fileConfirmedMissing(localFilePresence(row)),
     });
   }
 
@@ -398,7 +421,9 @@ function pickLocal(
   season: number | null,
   episode: number | null,
 ): LocalRelease | null {
-  const matching = releases.filter((r) => coversEpisode(r, season, episode));
+  const matching = releases.filter(
+    (r) => canMakeLocalClaim(r) && coversEpisode(r, season, episode),
+  );
   const ready = matching.find((r) => r.progress >= 1 && r.status !== "error");
   if (ready) return ready;
   const warm = matching.find(
@@ -506,7 +531,8 @@ function buildSeasons(
     .sort((a, b) => a - b)
     .map((season) => {
       const packRelease = localReleases.find(
-        (r) => r.isPack && r.season === season && r.progress > 0,
+        (r) =>
+          canMakeLocalClaim(r) && r.isPack && r.season === season && r.progress > 0,
       );
       const state = localState(packRelease ?? null);
       return {
@@ -743,7 +769,9 @@ export function resolveResume(
   localReleases: LocalRelease[],
 ): TitleDetailPayload["resume"] {
   const live = new Map(
-    localReleases.map((r) => [r.hash.trim().toLowerCase(), r] as const),
+    localReleases
+      .filter(canMakeLocalClaim)
+      .map((r) => [r.hash.trim().toLowerCase(), r] as const),
   );
 
   for (const row of progress) {

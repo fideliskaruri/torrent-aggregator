@@ -14,7 +14,10 @@ import { resolveArtworkForReleases, type Artwork } from "./artwork";
 import { collapseReleasesByWork, UNKNOWN_WORK_TITLE } from "./collapse";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import { parseEpisode } from "@/lib/torrents/episodes";
-import { getBuiltinTorrentPresenceForAvailability } from "@/lib/clients/builtin-engine";
+import {
+  getBuiltinTorrentPresenceForAvailability,
+  type BuiltinTorrentPresence,
+} from "@/lib/clients/builtin-engine";
 import type {
   Rail,
   RailItem,
@@ -173,6 +176,7 @@ function continueWatchingRailFromWorks(
   userId: string,
   works: readonly ContinueWatchingWork[],
   artwork: readonly Artwork[],
+  presence: TorrentPresenceLookup = torrentPresenceForUser(userId),
 ): Rail | null {
   const items: RailItem[] = works.map((work, i) => {
     const r = work.progress;
@@ -184,7 +188,7 @@ function continueWatchingRailFromWorks(
       posterUrl:
         r.posterUrl ?? work.watchItem?.posterUrl ?? art?.posterUrl ?? null,
       backdropUrl: art?.backdropUrl ?? null,
-      availability: engineAvailability(userId, work.torrent),
+      availability: engineAvailability(work.torrent, presence),
       progressFraction:
         r.durationSec && r.durationSec > 0
           ? Math.min(r.positionSec / r.durationSec, 1)
@@ -217,20 +221,29 @@ function progressIdentityName(
 /**
  * Map an EngineTorrent row to an availability state, or `null` when the
  * torrent is gone. `null` means "we cannot say", which is deliberately not the
- * same as `unavailable` — see ./availability.ts.
+ * same as `unavailable` — see ./availability.ts. A completed DB row missing
+ * from the live process is also `null` here: unlike the general availability
+ * resolver, Continue Watching must not turn a stale resume into a Get action.
  */
+type TorrentPresenceLookup = (hash: string) => BuiltinTorrentPresence;
+
+function torrentPresenceForUser(userId: string): TorrentPresenceLookup {
+  return (hash) => getBuiltinTorrentPresenceForAvailability(userId, hash);
+}
+
 function engineAvailability(
-  userId: string,
   t: { hash: string; progress: number; status: string } | undefined,
+  presence: TorrentPresenceLookup,
 ): AvailabilityState | null {
   if (!t || t.status === "removed") return null;
+  const live = presence(t.hash);
   if (t.progress === 1) {
-    const presence = getBuiltinTorrentPresenceForAvailability(userId, t.hash);
-    if (presence === "present") return "ready";
-    if (presence === "absent") return "fetchable";
+    if (live === "present") return "ready";
     return null;
   }
-  if (t.progress > 0 && t.status !== "error") return "warm";
+  if (t.progress > 0 && t.status !== "error" && live === "present") {
+    return "warm";
+  }
   return null;
 }
 
@@ -301,7 +314,10 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       subtitle: readyToPlaySubtitle(work.releaseCount),
       posterUrl: art?.posterUrl ?? null,
       backdropUrl: art?.backdropUrl ?? null,
-      availability: engineAvailability(userId, torrent),
+      availability: engineAvailability(
+        torrent,
+        torrentPresenceForUser(userId),
+      ),
       progressFraction: null,
       resumePositionSec: null,
       infoHash: torrent.hash,
@@ -339,12 +355,11 @@ export function readyRepresentativePreference(name: string): boolean {
 }
 
 function readyToPlayRailFromItems(items: RailItem[]): Rail | null {
-  // `fetchable` here means the rehydrated engine definitively lacks the hash, so
-  // it is not local. `warm` stays: partial local torrents are playable and the
-  // card labels them as still downloading. `null` means cold-start / still
-  // checking; keep the card so the rail does not vanish for content the DB says
-  // the user completed.
-  const readyItems = items.filter((item) => item.availability !== "fetchable");
+  // Only a live-engine `ready` result belongs here. A DB row that completed in a
+  // previous process is not "Ready to Play" until rehydrate has restored it;
+  // keeping neutral/fetchable rows would preserve the stale rail claim that
+  // prompted this reconciliation.
+  const readyItems = items.filter((item) => item.availability === "ready");
 
   if (readyItems.length === 0) return null;
 
@@ -748,5 +763,6 @@ function formatEpisodeSubtitle(
 export {
   continueWatchingRailFromWorks as _continueWatchingRailFromWorks,
   continueWatchingWorksFromRows as _continueWatchingWorksFromRows,
+  engineAvailability as _engineAvailability,
   readyToPlayRailFromItems as _readyToPlayRailFromItems,
 };

@@ -34,7 +34,7 @@ import { Button } from "@/components/ui/button";
 import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { cn, formatBytes } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
-import { SwarmChip, type SwarmSample } from "@/components/watch/swarm-chip";
+import { SwarmChip, deadEvidenceFromSamples, type SwarmSample } from "@/components/watch/swarm-chip";
 import { subtitleListUrl, subtitleTrackSrc, type SubtitleTrack } from "@/lib/media/subtitles";
 import type { ProgressUpdateBody } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
@@ -93,6 +93,14 @@ type InlinePlayerProps = {
   /** Season/episode/poster carried into progress writes when known. */
   season?: number | null;
   episode?: number | null;
+  /**
+   * The work's release year, when the opener knows it.
+   *
+   * A film's year is part of its identity, so this is what keeps the quality
+   * selector from offering a 1997 print (or an audiobook) for a 2026 film.
+   * Optional: callers that do not know it are unchanged.
+   */
+  year?: number | null;
   posterUrl?: string | null;
   watchListItemId?: string | null;
   className?: string;
@@ -628,8 +636,40 @@ export function isTerminalPlayback(args: { problem: StreamProblem | null; hasStr
   return args.hasStreamFailure || (args.problem !== null && !recovering);
 }
 
+/**
+ * What the on-demand grab endpoint tells the player.
+ *
+ * Only the fields the Next button acts on. `infoHash` is the whole point: it is
+ * what turns "a grab happened somewhere" into "play this now".
+ */
+export type OnDemandGrabResponse = {
+  ok?: boolean;
+  message?: string | null;
+  infoHash?: string | null;
+  /** Present only when a storage limit refused it. */
+  storage?: unknown;
+};
+
+/**
+ * Turn a failed next-episode grab into something worth reading.
+ *
+ * The rule: never invent a reason, and never fall silent. The server almost
+ * always explains itself (no seeded release, storage refused, no client
+ * configured) and that sentence is more useful than any wording here. The
+ * fallback exists only for a response that arrived with nothing to say — and
+ * even that names the actual outcome rather than "something went wrong".
+ */
+export function upNextFailureMessage(body: OnDemandGrabResponse | null): string {
+  const message = body?.message?.trim();
+  if (message) return message;
+  return "Could not find a playable release for the next episode.";
+}
+
 export function upNextUnavailableActionLabel(): string {
-  return "Not fetched yet";
+  // A verb, because it is a button that does something. "Not fetched yet" was a
+  // status pretending to be an action, which is part of why pressing it and
+  // seeing nothing change read as broken.
+  return "Fetch and play";
 }
 
 export type SeekIntent = {
@@ -662,6 +702,12 @@ export type StructuredPlaybackFailure = {
   code: PlaybackFailureKind;
   failureClass: PlaybackFailureClass;
   retryable: boolean;
+  /**
+   * When true, the auto-failover pool has been fully exhausted — every
+   * available candidate was tried and none delivered. "Try again in a moment"
+   * is false hope here; use honest terminal copy instead.
+   */
+  candidatesExhausted?: boolean;
 };
 
 /** What the recovery UI should offer for a given failure. */
@@ -699,6 +745,15 @@ export function playbackFailureCopy(failure: StructuredPlaybackFailure): {
         affordance: "retry",
       };
     case "STALLED":
+      // When the candidate pool is genuinely exhausted, waiting does not help —
+      // say something true and let the viewer open in their own player.
+      if (failure.candidatesExhausted) {
+        return {
+          headline: "No source is connecting right now.",
+          detail: "We tried every version available and none delivered any content.",
+          affordance: "switch",
+        };
+      }
       return {
         headline: "This stopped loading.",
         detail: "Try again in a moment.",
@@ -1501,6 +1556,7 @@ function InlineStreamPlayerInner({
   resumeSec,
   season,
   episode,
+  year,
   posterUrl,
   watchListItemId,
   className,
@@ -1572,12 +1628,20 @@ function InlineStreamPlayerInner({
   // 503 body or a decode verdict). Drives friendly, mechanism-free terminal copy
   // and the one right affordance (retry the same release vs try another version).
   const [streamFailure, setStreamFailure] = useState<StructuredPlaybackFailure | null>(null);
+  // Task 4: verbose diagnostics — default OFF; consumed from /api/settings/client.
+  const [verboseDiagnostics, setVerboseDiagnostics] = useState(false);
+  // Elapsed seconds since the current source started opening (verbose mode only).
+  const [verboseElapsedSec, setVerboseElapsedSec] = useState(0);
   // I19b: a "Retry this release" attempt is in flight (re-announcing the same
   // infoHash). Keeps the button from double-firing and shows the calm loader.
   const [retrying, setRetrying] = useState(false);
   const [swarmSample, setSwarmSample] = useState<SwarmSample | null>(null);
   const [upNext, setUpNext] = useState<UpNextEpisodeCard | null>(null);
   const [upNextLoading, setUpNextLoading] = useState(false);
+  // Why a failure needs its own state: the Next button used to fire a request
+  // and swallow the answer, so a refusal looked exactly like a no-op. The
+  // viewer's report was simply "the next episode button doesn't work".
+  const [upNextError, setUpNextError] = useState<string | null>(null);
   const [ended, setEnded] = useState(false);
   const [transitioningTitle, setTransitioningTitle] = useState<string | null>(null);
   const [autoAdvanceCancelled, setAutoAdvanceCancelled] = useState(false);
@@ -1688,6 +1752,10 @@ function InlineStreamPlayerInner({
   const autoSwitchCountRef = useRef(0);
   const autoTriedHashesRef = useRef<Set<string>>(new Set());
   const autoFailoverInFlightRef = useRef(false);
+  /** Startup swarm samples accumulated for dead-evidence detection (Task 1). */
+  const startupSamplesRef = useRef<SwarmSample[]>([]);
+  /** Start time for verbose elapsed display (Task 4). */
+  const verboseStartTimeRef = useRef<number | null>(null);
   /**
    * Monotonic transition token. Every explicit target change — a manual next, an
    * autoplay advance, a hand-picked quality switch, or a silent failover — takes
@@ -1762,6 +1830,22 @@ function InlineStreamPlayerInner({
   }, [selectedFile, activeTitle]);
   const currentSeason = activeSeason ?? parsedCurrentEpisode?.season ?? null;
   const currentEpisode = activeEpisode ?? parsedCurrentEpisode?.episode ?? null;
+  /**
+   * Task 5: The title shown in the player header.
+   *
+   * When we know the season/episode (subtitle line already shows S01E01), the
+   * episode code and anything after it in the torrent title is noise on the title
+   * line. Strip it so the header reads "Show Name" / "S01E01 · WEB-DL" rather
+   * than "Show Name S01E01 1080p WEB-DL" / "S01E01 · WEB-DL".
+   */
+  const displayTitle = useMemo(() => {
+    if (currentSeason == null || currentEpisode == null) return activeTitle;
+    const ep = `S${String(currentSeason).padStart(2, "0")}E${String(currentEpisode).padStart(2, "0")}`;
+    const upper = activeTitle.toUpperCase();
+    const idx = upper.indexOf(ep.toUpperCase());
+    if (idx <= 0) return activeTitle;
+    return activeTitle.slice(0, idx).replace(/[\s._-]+$/, "").trim() || activeTitle;
+  }, [activeTitle, currentSeason, currentEpisode]);
   const requestedEpisode = useMemo(() => {
     if (currentSeason != null && currentEpisode != null) {
       return { season: currentSeason, episode: currentEpisode };
@@ -1952,6 +2036,7 @@ function InlineStreamPlayerInner({
     setSwarmSample(null);
     setUpNext(null);
     setUpNextLoading(false);
+    setUpNextError(null);
     setEnded(false);
     setAutoAdvanceCancelled(false);
     setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
@@ -2466,29 +2551,67 @@ function InlineStreamPlayerInner({
     [upNext, currentSeason, currentEpisode, activeWatchListItemId, activePosterUrl],
   );
 
+  /**
+   * Acquire the next episode and play it.
+   *
+   * ## Why this does not use the pre-warm endpoint
+   *
+   * It used to POST `action: "trigger"`, and that is why the button appeared
+   * dead. `runPrewarm` is *speculative* background work and opens with a stack
+   * of intent gates — `streaming-source` (the thing on screen is a stream),
+   * `foreground-busy` (playback is active), a minimum-progress check, and a
+   * concurrency cap. During playback at least one of those always matches, so
+   * the request returned `{ ok: true, outcome: { status: "skipped" } }`,
+   * acquired nothing, and the old code then discarded the body and re-read the
+   * unchanged up-next card. A 200 that did nothing, reported as nothing.
+   *
+   * Those gates are right for speculation and wrong here: a click on Next is
+   * not the app guessing, it is the viewer asking. So this takes the same
+   * on-demand path an explicit episode Play takes, which has no such gates.
+   *
+   * `retention: "stream"` matters — advancing an episode while watching should
+   * behave like the Play that got the viewer here, not quietly convert their
+   * viewing into permanent downloads. `protectHashes` keeps reclamation from
+   * evicting the episode still on screen to make room for its own successor.
+   */
   const fetchUpNext = useCallback(async () => {
     if (!upNext || upNext.infoHash) return;
     setUpNextLoading(true);
+    setUpNextError(null);
     try {
-      await fetch("/api/prewarm", {
+      const res = await fetch("/api/library/ondemand", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "trigger",
-          next: {
-            title: upNext.title,
-            season: upNext.season,
-            episode: upNext.episode,
-            source: "playing-episode",
-          },
-          protectHashes: [activeInfoHash],
+          title: upNext.title,
+          mediaType: "tv",
+          season: upNext.season,
+          episode: upNext.episode,
+          watchListItemId: activeWatchListItemId ?? undefined,
+          retention: "stream",
+          protectHashes: activeInfoHash ? [activeInfoHash] : [],
         }),
-      }).catch(() => null);
+      });
+      const data = (await res.json().catch(() => null)) as OnDemandGrabResponse | null;
+
+      if (data?.ok && data.infoHash) {
+        // Straight into the player. Waiting for the next poll of the up-next
+        // card would leave the viewer looking at an unchanged screen after a
+        // click that did succeed.
+        playUpNext({ ...upNext, infoHash: data.infoHash, availability: "downloading" });
+        return;
+      }
+
+      setUpNextError(upNextFailureMessage(data));
+      // Re-read regardless: the grab may have landed even though this response
+      // could not say so, and a stale card would then be the lie.
       await loadUpNext();
+    } catch {
+      setUpNextError("Could not reach the server to fetch the next episode.");
     } finally {
       setUpNextLoading(false);
     }
-  }, [upNext, activeInfoHash, loadUpNext]);
+  }, [upNext, activeInfoHash, activeWatchListItemId, loadUpNext, playUpNext]);
 
   const candidateRequestBody = useCallback(
     (chosenInfoHash?: string) => ({
@@ -2496,10 +2619,13 @@ function InlineStreamPlayerInner({
       mediaType: currentMediaType,
       season: currentSeason,
       episode: currentEpisode,
+      // Identity, not a filter preference: without it "The Odyssey" matches
+      // every work ever given that name.
+      ...(typeof year === "number" ? { year } : {}),
       currentInfoHash: activeInfoHash,
       ...(chosenInfoHash ? { chosenInfoHash } : {}),
     }),
-    [activeTitle, currentMediaType, currentSeason, currentEpisode, activeInfoHash],
+    [activeTitle, currentMediaType, currentSeason, currentEpisode, year, activeInfoHash],
   );
 
   const loadQualityCandidates = useCallback(async () => {
@@ -2837,7 +2963,7 @@ function InlineStreamPlayerInner({
         if (!signal.aborted && (await attemptAutoFailover())) return;
         if (signal.aborted) return;
         if (failure) {
-          setStreamFailure(failure);
+          setStreamFailure({ ...failure, candidatesExhausted: true });
           setProblem("stalled");
           setMessage(null);
           return;
@@ -3056,13 +3182,111 @@ function InlineStreamPlayerInner({
     const timer = window.setTimeout(() => {
       void (async () => {
         if (await attemptAutoFailover()) return;
-        setStreamFailure({ code: "STALLED", failureClass: "delivery", retryable: true });
+        setStreamFailure({
+          code: "STALLED",
+          failureClass: "delivery",
+          retryable: true,
+          candidatesExhausted: true,
+        });
         setProblem("stalled");
         setMessage(null);
       })();
     }, OPENING_WATCHDOG_MS);
     return () => window.clearTimeout(timer);
   }, [expanded, activeInfoHash, effectiveSelectedPath, playbackStarted, attemptAutoFailover]);
+
+  // Task 1 + 2: Evidence-based dead-swarm detection during startup.
+  //
+  // SwarmChip uses `active={Boolean(playableSrc)}` so it does NOT poll during
+  // the loading/startup phase. This independent effect fills that gap: it polls
+  // the stream-info endpoint every 5 s, accumulates samples, and applies the
+  // same dead-swarm rule that `classifySwarm` in swarm-probe.ts uses —
+  //   peers > 0 (swarm reached) AND bytes delivered = 0 (nothing arriving).
+  // On confirmed evidence of a dead swarm it immediately attempts a silent
+  // failover (Task 2) rather than spinning for the full OPENING_WATCHDOG_MS.
+  // "Unknown" (null peers / null speed) is never treated as dead.
+  useEffect(() => {
+    if (!expanded || !activeInfoHash || playbackStarted || streamFailure) return;
+    startupSamplesRef.current = [];
+    let stopped = false;
+
+    const poll = async () => {
+      if (stopped) return;
+      try {
+        const res = await fetch(`/api/stream/${activeInfoHash}?poll=1`);
+        if (!res.ok || stopped) return;
+        const data = (await res.json()) as Partial<SwarmSample>;
+        if (stopped) return;
+        // Only accumulate samples where every field is a concrete measurement.
+        if (
+          data.peers != null &&
+          data.downloadSpeedBps != null &&
+          data.progress != null
+        ) {
+          startupSamplesRef.current = [...startupSamplesRef.current, data as SwarmSample];
+        }
+        if (deadEvidenceFromSamples(startupSamplesRef.current)) {
+          stopped = true;
+          const advanced = await attemptAutoFailover();
+          if (!advanced) {
+            setStreamFailure({
+              code: "STALLED",
+              failureClass: "delivery",
+              retryable: true,
+              candidatesExhausted: true,
+            });
+            setProblem("stalled");
+            setMessage(null);
+          }
+          return;
+        }
+        scheduleNext();
+      } catch {
+        // Network error during startup probe — silently retry next tick.
+        scheduleNext();
+      }
+    };
+
+    let timerId: ReturnType<typeof setTimeout> = null as unknown as ReturnType<typeof setTimeout>;
+    const scheduleNext = () => {
+      if (!stopped) timerId = setTimeout(() => void poll(), 5000);
+    };
+
+    // Kick off first poll after the first 5-second window.
+    timerId = setTimeout(() => void poll(), 5000);
+
+    return () => {
+      stopped = true;
+      clearTimeout(timerId);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, activeInfoHash, playbackStarted, !!streamFailure, attemptAutoFailover]);
+
+  // Task 4: Fetch verbose-diagnostics flag from settings once on mount.
+  useEffect(() => {
+    fetch("/api/settings/client")
+      .then((r) => r.json())
+      .then((s: Record<string, unknown>) => {
+        if (s.verboseDiagnostics === true) setVerboseDiagnostics(true);
+      })
+      .catch(() => {/* non-critical — default stays false */});
+  }, []);
+
+  // Task 4: Track elapsed seconds for verbose display; resets per source.
+  useEffect(() => {
+    if (!verboseDiagnostics || !expanded || !activeInfoHash) return;
+    verboseStartTimeRef.current = Date.now();
+    setVerboseElapsedSec(0);
+    const id = setInterval(() => {
+      setVerboseElapsedSec(
+        Math.floor((Date.now() - (verboseStartTimeRef.current ?? Date.now())) / 1000),
+      );
+    }, 1000);
+    return () => {
+      clearInterval(id);
+      verboseStartTimeRef.current = null;
+    };
+  }, [verboseDiagnostics, expanded, activeInfoHash]);
 
   // Selecting a different file must not inherit the previous file's seek offset
   // or audio-track choice.
@@ -4143,11 +4367,15 @@ function InlineStreamPlayerInner({
             if (upNext?.infoHash) playUpNext(upNext);
             else void fetchUpNext();
           }}
-          disabled={!upNext}
+          disabled={!upNext || upNextLoading}
           aria-label="Next episode"
           className={buttonClass}
         >
-          <SkipForward className={iconClass} />
+          {upNextLoading ? (
+            <Loader2 className={cn(iconClass, "animate-spin")} />
+          ) : (
+            <SkipForward className={iconClass} />
+          )}
         </button>
         <button type="button" onClick={() => seekRelative(-10)} disabled={!playableSrc} aria-label="Back 10 seconds" className={buttonClass}>
           <RotateCcw className={iconClass} />
@@ -4550,6 +4778,25 @@ function InlineStreamPlayerInner({
                 <StreamLoader />
               ) : null}
 
+              {verboseDiagnostics && showLoader && !terminalFailure ? (
+                <div
+                  data-verbose-diagnostics
+                  className="pointer-events-none absolute bottom-20 left-0 right-0 z-40 flex justify-center"
+                >
+                  <div className="rounded-lg bg-black/75 px-4 py-2 font-mono text-[11px] text-white/70 backdrop-blur-sm">
+                    <div>{displayTitle}</div>
+                    <div>
+                      src {autoSwitchCountRef.current + 1}
+                      {swarmSample?.peers != null ? ` · ${swarmSample.peers} peer${swarmSample.peers !== 1 ? "s" : ""}` : null}
+                      {swarmSample?.downloadSpeedBps != null
+                        ? ` · ${swarmSample.downloadSpeedBps > 0 ? `${Math.round(swarmSample.downloadSpeedBps / 1024)} KB/s` : "0 KB/s"}`
+                        : null}
+                      {` · ${verboseElapsedSec}s`}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div
                 className={cn(
                   "pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-5 transition-opacity duration-200",
@@ -4558,7 +4805,7 @@ function InlineStreamPlayerInner({
               >
                 <div className="pointer-events-auto flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <p className="truncate text-base font-semibold text-white drop-shadow">{activeTitle}</p>
+                    <p className="truncate text-base font-semibold text-white drop-shadow">{displayTitle}</p>
                     <p className="mt-0.5 truncate text-[12px] text-white/65">
                       {[currentSeason != null && currentEpisode != null ? `S${String(currentSeason).padStart(2, "0")}E${String(currentEpisode).padStart(2, "0")}` : null, releaseChips[0]]
                         .filter(Boolean)
@@ -4614,9 +4861,11 @@ function InlineStreamPlayerInner({
                         <p className="mt-1 truncate text-sm font-semibold">{upNext.title}</p>
                         <p className="text-[12px] text-white/65">{upNext.label}</p>
                         <p className="mt-1 text-[12px] text-white/65">
-                          {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled)
-                            ? `Playing in ${advanceCountdown}…`
-                            : upNextStatusSentence(upNext.availability)}
+                          {upNextError
+                            ? upNextError
+                            : canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled)
+                              ? `Playing in ${advanceCountdown}…`
+                              : upNextStatusSentence(upNext.availability)}
                         </p>
                       </div>
                     </div>
@@ -4638,7 +4887,7 @@ function InlineStreamPlayerInner({
                           className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-[12px] font-semibold text-white/80 disabled:cursor-wait disabled:opacity-60"
                         >
                           {upNextLoading && playbackStarted ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                          Fetch next
+                          {upNextError ? "Try again" : upNextUnavailableActionLabel()}
                         </button>
                       )}
                       {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled) ? (
@@ -4901,7 +5150,7 @@ function InlineStreamPlayerInner({
                   <p className="mt-1 truncate text-sm font-semibold">{upNext.title}</p>
                   <p className="text-[12px] text-white/70">{upNext.label}</p>
                   <p className="mt-1 text-[12px] text-white/70">
-                    {upNextStatusSentence(upNext.availability)}
+                    {upNextError ? upNextError : upNextStatusSentence(upNext.availability)}
                   </p>
                   <div className="mt-3 flex items-center gap-2">
                     {upNext.infoHash ? (
@@ -4914,12 +5163,21 @@ function InlineStreamPlayerInner({
                         Play now
                       </button>
                     ) : (
+                      // Was `disabled` with no handler: at the one moment the
+                      // viewer most wants to move on, the only control on the
+                      // card did nothing and looked like it never would.
                       <button
                         type="button"
-                        disabled
-                        className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-full bg-white/20 px-3 text-[12px] font-semibold text-white/60"
+                        onClick={() => void fetchUpNext()}
+                        disabled={upNextLoading}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black disabled:cursor-wait disabled:opacity-60"
                       >
-                        {upNextUnavailableActionLabel()}
+                        {upNextLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Play className="h-3.5 w-3.5 fill-current" />
+                        )}
+                        {upNextError ? "Try again" : upNextUnavailableActionLabel()}
                       </button>
                     )}
                     {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled) ? (
@@ -5023,7 +5281,9 @@ function InlineStreamPlayerInner({
                     )}
                   >
                     <span className="min-w-0 truncate">
-                      Next: {upNext.title} {upNext.label} — {upNextStatusSentence(upNext.availability)}
+                      {upNextError
+                        ? upNextError
+                        : `Next: ${upNext.title} ${upNext.label} — ${upNextStatusSentence(upNext.availability)}`}
                     </span>
                     {upNext.infoHash ? (
                       <button
@@ -5042,7 +5302,7 @@ function InlineStreamPlayerInner({
                         className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-white/15 px-2.5 text-[11px] font-medium text-white/80 disabled:cursor-wait disabled:opacity-60"
                       >
                         {upNextLoading && playbackStarted ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                        Fetch next
+                        {upNextError ? "Try again" : "Fetch next"}
                       </button>
                     )}
                   </div>

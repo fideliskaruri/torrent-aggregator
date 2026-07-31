@@ -17,6 +17,10 @@ const CATEGORY_SLUG: Record<string, string> = {
   music: "Music",
   apps: "Apps",
   games: "Games",
+  // 1337x files ebooks, audiobooks and comics under "Other" rather than giving
+  // books a category of their own. Omitting the key entirely would fall through
+  // to an unscoped search, which is strictly worse than the site's own bucket.
+  books: "Other",
 };
 
 /**

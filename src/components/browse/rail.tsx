@@ -128,17 +128,12 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
         ease: "easeOut",
       }}
     >
-      <div className="mb-2.5 flex items-baseline justify-between gap-3">
-        <h2
-          id={`rail-${rail.id}`}
-          className="text-[13px] font-medium text-[var(--text-secondary)]"
-        >
-          {rail.title}
-        </h2>
-        <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
-          {rail.items.length}
-        </span>
-      </div>
+      <h2
+        id={`rail-${rail.id}`}
+        className="mb-2.5 text-[13px] font-medium text-[var(--text-secondary)]"
+      >
+        {rail.title}
+      </h2>
 
       <div className="relative">
         <ul
@@ -183,11 +178,11 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
 }
 
 /**
- * Desktop-only arrow affordance.
+ * Desktop-only edge control — Netflix-style fade + chevron, not a tall pill.
  *
- * Hidden below `md` because a touch device scrolls the row by swiping, and an
- * arrow there would sit on top of a card and steal the tap. Kept out of the tab
- * order: every card it could scroll to is already reachable with Left/Right.
+ * The old bordered box sat beside the item-count and read as broken chrome
+ * ("24" stacked over a chevron). Touch devices swipe the row; arrows stay out
+ * of the tab order because cards already handle Left/Right.
  */
 function RailArrow({
   direction,
@@ -207,17 +202,19 @@ function RailArrow({
       onClick={onClick}
       data-rail-arrow={direction}
       className={cn(
-        "absolute top-0 hidden h-full w-11 items-center justify-center md:flex lg:w-10",
-        "border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
-        "rounded-[var(--radius)] shadow-[var(--shadow-md)] transition-opacity duration-150",
-        "hover:border-[var(--border-strong)] hover:text-[var(--text)]",
-        direction === "left" ? "-left-3" : "-right-3",
+        "absolute inset-y-0 z-[1] hidden w-12 items-center md:flex",
+        "text-[var(--text)] transition-opacity duration-150",
+        direction === "left"
+          ? "left-0 justify-start bg-gradient-to-r from-[var(--bg)] via-[var(--bg)]/80 to-transparent pl-1"
+          : "right-0 justify-end bg-gradient-to-l from-[var(--bg)] via-[var(--bg)]/80 to-transparent pr-1",
         hidden
           ? "pointer-events-none opacity-0"
           : "opacity-0 group-hover/rail:opacity-100 group-focus-within/rail:opacity-100",
       )}
     >
-      <Icon className="h-4 w-4" aria-hidden />
+      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--bg-elevated)]/90 text-[var(--text-secondary)] shadow-[var(--shadow-sm)] ring-1 ring-[var(--border)]/60 backdrop-blur-sm hover:text-[var(--text)]">
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
     </button>
   );
 }

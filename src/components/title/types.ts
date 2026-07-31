@@ -14,6 +14,7 @@
  * `unavailable` is a claim, and is only ever set where a real check was made.
  */
 import type { AvailabilityState } from "@/lib/browse";
+import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import type { SeasonGrabReport } from "./season-grab-state";
 
 /** One row in the episode list. */
@@ -210,6 +211,30 @@ export interface TitleExtrasPayload {
    */
   overview: string | null;
   rating: number | null;
+  /**
+   * Primary release / first-air date from the resolved provider entity. The
+   * base payload carries one only for works already in the local catalog, so
+   * this is what gates a future title opened straight from search.
+   */
+  releaseDate: string | null;
+  /**
+   * True when this is a movie that has had a theatrical/premiere release but
+   * no past Digital (4), Physical (5) or TV (6) home release.
+   *
+   * Only set to true when the TMDB release_dates endpoint actually responded
+   * AND the film's primary release date is in the past. The default (false)
+   * means "unknown or not applicable" — the UI must never gate on this flag
+   * unless the server explicitly set it.
+   *
+   * Series are never in a theatrical window; this is always false for them.
+   */
+  inTheatricalWindow: boolean;
+  /**
+   * The earliest upcoming home release date (YYYY-MM-DD) when the film is in
+   * its theatrical window, or null when none is known. When present, the chip
+   * reads "Digital Aug 2026" rather than the generic "In cinemas".
+   */
+  nextHomeReleaseAt: string | null;
   /** False when there was no usable provider match — drives nothing but copy. */
   resolved: boolean;
   generatedAt: string;
@@ -230,10 +255,21 @@ export interface TitleGrabRequest {
   infoHash?: string | null;
   /** Stream-only cache or permanent keep, matching `/api/torrent/send`. */
   retention?: TitleRetention;
+  /**
+   * Preferred resolution in pixels (480 / 720 / 1080 / 2160).
+   * Only sent when the user has chosen a quality via the Download picker.
+   * Play never sends this — it is instant and never prompts.
+   */
+  resolution?: number | null;
   /** Passed through when the page was reached with only a title in the URL. */
   title?: string | null;
   mediaType?: string | null;
   year?: number | null;
+  /**
+   * The owner saw the real figures and chose to exceed their own storage cap.
+   * Only the cap can be overridden this way — the free-space floor cannot.
+   */
+  overrideStorageCap?: boolean;
 }
 
 /** What `POST /api/title/[workKey]` answers. */
@@ -251,6 +287,12 @@ export interface TitleGrabResponse {
    * caller wants to open the player on.
    */
   infoHash?: string | null;
+  /**
+   * Set only when a storage limit refused the grab. Carries which limit it was,
+   * whether the owner may knowingly override it, the real figures, and where
+   * the setting lives — so the UI can offer a choice instead of a dead end.
+   */
+  storage?: StorageOverrideFacts | null;
 }
 
 /** What a season-level one-click grab answers. */

@@ -54,3 +54,23 @@ export function isInsideRoot(target: string, root: string): boolean {
 export function isWithinLibrary(target: string, roots: string[]): boolean {
   return roots.some((root) => isInsideRoot(target, root));
 }
+
+/**
+ * The one folder the storage cap is measured against, and the only tree the
+ * disk inventory walks.
+ *
+ * `baseDownloadPath` is the configured base; `savePath` is the legacy fallback
+ * the app still writes into when no base is set. Anything else (per-category
+ * rules) lives *under* one of these in every supported layout, so a single root
+ * is what the owner sees in Explorer and what `getDirectorySizeBytesAsync`
+ * already measures.
+ */
+export function primaryDownloadRoot(config: {
+  baseDownloadPath?: string | null;
+  savePath?: string | null;
+}): string | null {
+  const base = config.baseDownloadPath?.trim();
+  if (base) return base;
+  const save = config.savePath?.trim();
+  return save || null;
+}

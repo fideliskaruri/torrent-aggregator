@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  Boxes,
+  Circle,
   Clapperboard,
   HardDriveDownload,
   Info,
@@ -18,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import {
+  EVERYTHING_HREF,
   MORE_ACTIVE_PREFIXES,
   PRIMARY_NAV,
   SECONDARY_NAV,
@@ -29,6 +32,7 @@ import {
 const NAV_ICONS: Record<string, typeof Search> = {
   "/": Clapperboard,
   [SEARCH_HREF]: Search,
+  [EVERYTHING_HREF]: Boxes,
   "/watchlist": Library,
   "/client": HardDriveDownload,
   "/activity": Activity,
@@ -37,14 +41,21 @@ const NAV_ICONS: Record<string, typeof Search> = {
   "/about": Info,
 };
 
+/**
+ * A nav entry with no icon must still render. The model is the source of truth
+ * for *what* the nav contains, so a new entry there cannot be allowed to crash
+ * the tab bar just because this presentation map has not caught up.
+ */
+const NAV_ICON_FALLBACK = Circle;
+
 const PRIMARY_TABS = PRIMARY_NAV.map((item) => ({
   ...item,
-  icon: NAV_ICONS[item.href],
+  icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK,
 }));
 
 const MORE_ITEMS = SECONDARY_NAV.map((item) => ({
   ...item,
-  icon: NAV_ICONS[item.href],
+  icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK,
 }));
 
 const DENSITY_OPTIONS = [

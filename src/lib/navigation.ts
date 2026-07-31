@@ -13,8 +13,9 @@
  *  - Search is its own entry rather than the home page. It is still one click
  *    away everywhere: the header renders the Search entry as a compact search
  *    affordance (see {@link desktopNavRow}) and it holds a mobile tab.
- *  - Browse, Search, Library and Client are the primary path: see it, find it,
- *    monitor it, watch it download.
+ *  - Browse, Search, Everything, Library and Client are the primary path: see
+ *    it, find it, find the things that are not films, monitor it, watch it
+ *    download.
  *  - History is not a peer of the others. It is the download log, reached from
  *    Activity.
  *  - "Run automation" lives on Library only; duplicating it on Client or
@@ -45,10 +46,27 @@ export const SEARCH_HREF = "/search";
  */
 export const HEADER_SEARCH_HREF = SEARCH_HREF;
 
-/** Always visible on desktop, and the bottom tab bar on mobile. */
+/**
+ * The section for everything TMDB cannot describe.
+ *
+ * Browse and Search are both title-shaped, so music, games, software, books and
+ * anime had no way in even though the indexers, the classifier and the download
+ * routing all handled them. This is that way in.
+ */
+export const EVERYTHING_HREF = "/everything";
+
+/**
+ * Always visible on desktop, and the bottom tab bar on mobile.
+ *
+ * Everything sits directly after Search because the two answer the same
+ * question — "find me a thing" — and differ only in what kind of thing that is.
+ * Putting it after Library would file it as an afterthought, which is precisely
+ * how the feature came to be invisible.
+ */
 export const PRIMARY_NAV: readonly NavItem[] = [
   { href: "/", label: "Browse" },
   { href: SEARCH_HREF, label: "Search" },
+  { href: EVERYTHING_HREF, label: "Everything" },
   { href: "/watchlist", label: "Library" },
   { href: "/client", label: "Client" },
 ] as const;

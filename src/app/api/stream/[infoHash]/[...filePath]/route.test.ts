@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { makeScratchDir } from "@/lib/test-support/scratch-dir";
 import type { ClientConnectionConfig } from "@/lib/clients";
 import type {
   BuiltinStreamFile,
@@ -155,7 +156,7 @@ async function makeDiskBackedTorrent(opts: {
   file: BuiltinStreamFile;
   cleanup: () => Promise<void>;
 }> {
-  const root = await fs.mkdtemp(path.join(process.cwd(), ".test-disk-fastpath-"));
+  const root = makeScratchDir("disk-fastpath");
   const rel = opts.filePath ?? "Folder/Movie.mkv";
   const fullPath = path.join(root, ...rel.split("/"));
   await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -682,7 +683,7 @@ async function main() {
 
     await check("disk hash verification covers pieces that span pack files", async () => {
       resetStreamPrefetchForTests();
-      const root = await fs.mkdtemp(path.join(process.cwd(), ".test-disk-fastpath-pack-"));
+      const root = makeScratchDir("disk-fastpath-pack");
       try {
         const prevRel = "Folder/Previous.mkv";
         const curRel = "Folder/Movie.mkv";

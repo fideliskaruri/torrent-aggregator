@@ -37,10 +37,12 @@ import {
   streamStatusMessage,
   sourceTimeInRanges,
   upNextUnavailableActionLabel,
+  upNextFailureMessage,
+  type OnDemandGrabResponse,
   upNextStatusSentence,
   type StreamFile,
 } from "./inline-player";
-import { peerText, rateText, swarmHealth, swarmSummary } from "./swarm-chip";
+import { peerText, rateText, swarmHealth, swarmSummary, deadEvidenceFromSamples } from "./swarm-chip";
 
 let failures = 0;
 
@@ -425,11 +427,38 @@ assert(
   isTerminalPlayback({ problem: "generic", hasStreamFailure: false }) === true,
 );
 assert(
-  "up-next unavailable action label names the state instead of saying switch here soon",
-  upNextUnavailableActionLabel() === "Not fetched yet" &&
-    upNextUnavailableActionLabel() !== "Switch here soon",
+  "the up-next action label is a verb, not a status masquerading as a button",
+  // It sits on a control that fetches and plays. "Not fetched yet" described
+  // the state and offered nothing, which is half of why pressing it read as
+  // broken. A label that names no action is the bug, whatever the wording.
+  /^(fetch|play|get|load|start|watch)/i.test(upNextUnavailableActionLabel()) &&
+    upNextUnavailableActionLabel() !== "Not fetched yet",
   upNextUnavailableActionLabel(),
 );
+{
+  // A failed next-episode grab must always say something, and must prefer the
+  // server's own explanation over any wording invented here.
+  const cases: Array<{ name: string; body: OnDemandGrabResponse | null }> = [
+    { name: "a null response", body: null },
+    { name: "an empty object", body: {} },
+    { name: "ok:false with no message", body: { ok: false } },
+    { name: "a blank message", body: { ok: false, message: "   " } },
+    { name: "a null message", body: { ok: false, message: null } },
+  ];
+  for (const c of cases) {
+    const msg = upNextFailureMessage(c.body);
+    assert(
+      `next-episode failure explains itself for ${c.name}`,
+      msg.trim().length > 0 && !/undefined|null|NaN|\[object/i.test(msg),
+      msg,
+    );
+  }
+  assert(
+    "the server's own reason wins over the fallback",
+    upNextFailureMessage({ ok: false, message: "No seeded release for S02E05" }) ===
+      "No seeded release for S02E05",
+  );
+}
 assert("quality selector calls good swarms fast", candidateVerdictLabel("good") === "Fast");
 assert("quality selector keeps unknown offerable", candidateVerdictLabel("unknown") === "Untested");
 assert(
@@ -987,6 +1016,126 @@ assert(
   (() => {
     const parsed = structuredFailureFromBody({ code: "ENGINE_ERROR" });
     return parsed?.code === "ENGINE_ERROR" && parsed.failureClass === "delivery" && parsed.retryable === false;
+  })(),
+);
+
+// --- Task 1: deadEvidenceFromSamples — mirrors classifySwarm dead-swarm rule -
+
+// Helper: build a SwarmSample with all fields measured.
+function deadSample(peers = 1, speed = 0, progress = 0) {
+  return { peers, downloadSpeedBps: speed, progress, observedAt: Date.now() };
+}
+
+assert(
+  "deadEvidenceFromSamples: 2 dead samples → true",
+  deadEvidenceFromSamples([deadSample(), deadSample()]),
+);
+assert(
+  "deadEvidenceFromSamples: 1 sample only → false (not enough evidence)",
+  !deadEvidenceFromSamples([deadSample()]),
+);
+assert(
+  "deadEvidenceFromSamples: 0 samples → false",
+  !deadEvidenceFromSamples([]),
+);
+assert(
+  "deadEvidenceFromSamples: unknown peers (null) → false (unknown ≠ dead)",
+  !deadEvidenceFromSamples([
+    { peers: null, downloadSpeedBps: 0, progress: 0, observedAt: Date.now() },
+    { peers: null, downloadSpeedBps: 0, progress: 0, observedAt: Date.now() },
+  ]),
+);
+assert(
+  "deadEvidenceFromSamples: 0 peers → false (no peers means swarm not reached, not dead)",
+  !deadEvidenceFromSamples([deadSample(0), deadSample(0)]),
+);
+assert(
+  "deadEvidenceFromSamples: speed > 0 → false (bytes flowing, not dead)",
+  !deadEvidenceFromSamples([deadSample(2, 50000), deadSample(2, 50000)]),
+);
+assert(
+  "deadEvidenceFromSamples: progress > 0 → false (data arrived earlier)",
+  !deadEvidenceFromSamples([deadSample(1, 0, 0.05), deadSample(1, 0, 0.05)]),
+);
+assert(
+  "deadEvidenceFromSamples: null downloadSpeedBps → false (unmeasured)",
+  !deadEvidenceFromSamples([
+    { peers: 1, downloadSpeedBps: null, progress: 0, observedAt: Date.now() },
+    { peers: 1, downloadSpeedBps: null, progress: 0, observedAt: Date.now() },
+  ]),
+);
+assert(
+  "deadEvidenceFromSamples: null progress → false (unmeasured)",
+  !deadEvidenceFromSamples([
+    { peers: 1, downloadSpeedBps: 0, progress: null, observedAt: Date.now() },
+    { peers: 1, downloadSpeedBps: 0, progress: null, observedAt: Date.now() },
+  ]),
+);
+assert(
+  "deadEvidenceFromSamples: custom minSamples=3, only 2 dead → false",
+  !deadEvidenceFromSamples([deadSample(), deadSample()], 3),
+);
+assert(
+  "deadEvidenceFromSamples: custom minSamples=3, 3 dead → true",
+  deadEvidenceFromSamples([deadSample(), deadSample(), deadSample()], 3),
+);
+assert(
+  "deadEvidenceFromSamples: one non-dead in a mixed sequence → false",
+  !deadEvidenceFromSamples([deadSample(), deadSample(1, 80000), deadSample()]),
+);
+
+// --- Task 3: candidatesExhausted copy is honest and avoids false hope --------
+
+assert(
+  "STALLED without candidatesExhausted → 'retry' affordance (unchanged)",
+  playbackFailureCopy({ code: "STALLED", failureClass: "delivery", retryable: true }).affordance === "retry",
+);
+assert(
+  "STALLED with candidatesExhausted:true → 'switch' affordance (nothing to retry)",
+  playbackFailureCopy({
+    code: "STALLED",
+    failureClass: "delivery",
+    retryable: true,
+    candidatesExhausted: true,
+  }).affordance === "switch",
+);
+assert(
+  "exhausted headline is non-empty",
+  (() => {
+    const copy = playbackFailureCopy({
+      code: "STALLED",
+      failureClass: "delivery",
+      retryable: true,
+      candidatesExhausted: true,
+    });
+    return typeof copy.headline === "string" && copy.headline.trim().length > 0;
+  })(),
+);
+assert(
+  "exhausted copy contains no mechanism words",
+  (() => {
+    const copy = playbackFailureCopy({
+      code: "STALLED",
+      failureClass: "delivery",
+      retryable: true,
+      candidatesExhausted: true,
+    });
+    return !MECHANISM.test(copy.headline) && !MECHANISM.test(copy.detail ?? "");
+  })(),
+);
+// "Try again in a moment" and "a moment" are false hope for a genuinely dead
+// swarm — the exhausted copy must never say "moment" or "later".
+assert(
+  "exhausted copy avoids false-hope 'moment'/'later' language",
+  (() => {
+    const FALSE_HOPE = /moment|later|soon|wait/i;
+    const copy = playbackFailureCopy({
+      code: "STALLED",
+      failureClass: "delivery",
+      retryable: true,
+      candidatesExhausted: true,
+    });
+    return !FALSE_HOPE.test(copy.headline) && !FALSE_HOPE.test(copy.detail ?? "");
   })(),
 );
 

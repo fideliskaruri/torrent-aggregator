@@ -150,9 +150,14 @@ model ClientSettings {
   savePath   String? // default download directory
   /// Base folder; when set, missing pathRules resolve to base/Category
   baseDownloadPath String?
-  /// Cap on total size under baseDownloadPath (bytes). Null = default 100GB cap.
-  /// Enforced automatically on every send / automation / on-demand grab.
+  /// Cap on total size under baseDownloadPath (bytes). Null = unset.
+  /// Downloads are refused until the user explicitly configures this value.
   maxStorageBytes BigInt?
+  /// True only after the user explicitly saves a positive storage cap.
+  /// Null marks legacy guessed defaults as unconfigured.
+  storageCapConfigured Boolean?
+  /// Enables additional playback diagnostics. Null is treated as false.
+  verboseDiagnostics Boolean?
   /// Target vertical resolution for ranking (e.g. 1080). Null = 1080p default.
   /// This is a *target*, not a floor: releases are ordered by closeness to it,
   /// below-target degrading gracefully and above-target sinking below all of

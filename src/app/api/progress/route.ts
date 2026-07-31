@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { COMPLETION_THRESHOLD } from "@/lib/browse/types";
+import { isSlopTitle } from "@/lib/metadata/slop";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import { workIdentity } from "@/lib/torrents/work-identity";
 import type { ProgressUpdateBody, ProgressEntry } from "@/lib/browse/types";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +81,9 @@ export async function POST(request: NextRequest) {
   const userId = session.user.id;
   const fraction = body.durationSec > 0 ? body.positionSec / body.durationSec : 0;
   const isComplete = fraction >= COMPLETION_THRESHOLD;
+  // Player often posts the episode label ("S01E08") as title. Prefer a real
+  // work name from the file path so rails never say "watching S01E08".
+  const title = resolveProgressTitle(body.title, body.filePath);
 
   // Check if there's an existing record that is already completed — don't
   // un-complete it if the player scrubs backwards.
@@ -113,7 +118,7 @@ export async function POST(request: NextRequest) {
       positionSec: body.positionSec,
       durationSec: body.durationSec,
       completedAt: isComplete ? new Date() : null,
-      title: body.title,
+      title,
       season: body.season ?? null,
       episode: body.episode ?? null,
       posterUrl: body.posterUrl ?? null,
@@ -123,7 +128,7 @@ export async function POST(request: NextRequest) {
       positionSec: body.positionSec,
       durationSec: body.durationSec,
       completedAt,
-      title: body.title,
+      title,
       season: body.season ?? null,
       episode: body.episode ?? null,
       posterUrl: body.posterUrl ?? null,
@@ -145,7 +150,7 @@ export async function POST(request: NextRequest) {
     await onPlaybackProgress({
       userId,
       infoHash: infoHashKey,
-      title: body.title,
+      title,
       season: body.season ?? null,
       episode: body.episode ?? null,
       watchListItemId: body.watchListItemId ?? null,
@@ -157,6 +162,24 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, id: row.id, completedAt: row.completedAt });
+}
+
+/**
+ * Keep a real work name when the player only knows the episode coordinate.
+ * Falls back to the posted title when the path cannot improve it.
+ */
+export function resolveProgressTitle(posted: string, filePath: string): string {
+  const trimmed = posted.trim();
+  if (trimmed && !isSlopTitle(trimmed) && !isSlopTitle(workIdentity(trimmed).name)) {
+    return workIdentity(trimmed).name || trimmed;
+  }
+  const path = filePath.replace(/\\/g, "/");
+  const leaf = path.split("/").filter(Boolean).at(-1) ?? filePath;
+  for (const raw of [leaf, filePath]) {
+    const name = workIdentity(raw).name?.trim();
+    if (name && !isSlopTitle(name)) return name;
+  }
+  return trimmed || posted;
 }
 
 /**

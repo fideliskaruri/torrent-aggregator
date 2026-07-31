@@ -65,7 +65,7 @@ export type TorrentSourceId =
 
 export interface SearchOptions {
   query: string;
-  category?: "all" | "anime" | "movies" | "tv" | "music" | "apps" | "games";
+  category?: "all" | "anime" | "movies" | "tv" | "music" | "apps" | "games" | "books";
   /** Optional max ranked results (e.g. rules/watchlist). Not a page size. */
   limit?: number;
   /** 1-based page index (default 1). */

@@ -221,6 +221,13 @@ export async function resolveTmdbRef(query: {
 export interface TmdbWorkBlurb {
   overview: string | null;
   rating: number | null;
+  /**
+   * Primary release / first-air date, `YYYY-MM-DD`. The base payload knows this
+   * only for works already in the local catalog, so a title opened straight
+   * from search would otherwise have no date to gate on and would offer Play
+   * for something that is not out yet.
+   */
+  releaseDate: string | null;
 }
 
 /**
@@ -238,8 +245,10 @@ export async function fetchWorkBlurb(ref: TmdbRef): Promise<TmdbWorkBlurb> {
     const raw = await tmdbGet<{
       overview?: string | null;
       vote_average?: number | null;
+      release_date?: string | null;
+      first_air_date?: string | null;
     }>(`/${ref.mediaType}/${ref.id}`);
-    if (!raw) return { overview: null, rating: null };
+    if (!raw) return { overview: null, rating: null, releaseDate: null };
     const overview =
       typeof raw.overview === "string" && raw.overview.trim()
         ? raw.overview.trim()
@@ -248,7 +257,12 @@ export async function fetchWorkBlurb(ref: TmdbRef): Promise<TmdbWorkBlurb> {
       typeof raw.vote_average === "number" && raw.vote_average > 0
         ? raw.vote_average
         : null;
-    return { overview, rating };
+    const rawDate = raw.release_date || raw.first_air_date || null;
+    const releaseDate =
+      typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())
+        ? rawDate.trim()
+        : null;
+    return { overview, rating, releaseDate };
   });
 }
 
@@ -339,6 +353,105 @@ export async function fetchSeasonEpisodes(
 }
 
 // ---------------------------------------------------------------------------
+// Home release dates (movies only)
+// ---------------------------------------------------------------------------
+
+/**
+ * TMDB release type codes that constitute a "home release".
+ *
+ * 1 = Premiere, 2 = Theatrical (limited), 3 = Theatrical
+ * 4 = Digital, 5 = Physical, 6 = TV
+ *
+ * Only types 4–6 bring the film out of its theatrical window.
+ */
+const HOME_RELEASE_TYPES = new Set([4, 5, 6]);
+
+type RawCountryRelease = {
+  iso_3166_1?: string;
+  release_dates?: Array<{
+    release_date?: string | null;
+    type?: number | null;
+  }>;
+};
+
+type RawReleaseDates = {
+  results?: RawCountryRelease[];
+};
+
+export interface TmdbHomeRelease {
+  /**
+   * True when the TMDB release_dates endpoint responded with parseable data.
+   *
+   * Callers must not gate on a film when `checked` is false — an unreachable
+   * endpoint is not evidence that the film has no home release.
+   */
+  checked: boolean;
+  /** Earliest ISO date (YYYY-MM-DD) of a past home release, or null. */
+  releasedAt: string | null;
+  /** Earliest ISO date of a future home release (Digital/Physical/TV), or null. */
+  nextHomeReleaseAt: string | null;
+}
+
+/**
+ * Classify a TMDB release_dates result into past and future home release dates.
+ *
+ * Pure — no I/O, testable in isolation.
+ *
+ * `today` is a `YYYY-MM-DD` string representing the caller's "now".
+ * Home-release types are Digital (4), Physical (5), and TV (6).
+ * Premiere (1), Theatrical-limited (2), and Theatrical (3) do not count.
+ */
+export function classifyHomeReleaseDates(
+  results: RawCountryRelease[],
+  today: string,
+): Pick<TmdbHomeRelease, "releasedAt" | "nextHomeReleaseAt"> {
+  const past: string[] = [];
+  const future: string[] = [];
+
+  for (const country of results) {
+    for (const entry of country.release_dates ?? []) {
+      const type = entry.type;
+      if (!HOME_RELEASE_TYPES.has(type ?? 0)) continue;
+      const dateStr = parseTmdbDate(entry.release_date);
+      if (!dateStr) continue;
+      if (dateStr <= today) {
+        past.push(dateStr);
+      } else {
+        future.push(dateStr);
+      }
+    }
+  }
+
+  past.sort();
+  future.sort();
+  return {
+    releasedAt: past[0] ?? null,
+    nextHomeReleaseAt: future[0] ?? null,
+  };
+}
+
+/**
+ * Whether the film has had a home release (Digital/Physical/TV) yet.
+ *
+ * TMDB's primary `release_date` is the EARLIEST theatrical or premiere date.
+ * A film that opened in cinemas last week has a past `release_date` but no
+ * home release, and must not be offered for Play or Download.
+ *
+ * Returns `checked: false` when the endpoint failed or returned nothing.
+ * Callers must treat an unchecked film as gettable — unknown data never gates.
+ */
+export async function fetchHomeRelease(id: number): Promise<TmdbHomeRelease> {
+  return memo(`homerelease:${id}`, async () => {
+    const raw = await tmdbGet<RawReleaseDates>(`/movie/${id}/release_dates`);
+    if (!raw?.results) {
+      return { checked: false, releasedAt: null, nextHomeReleaseAt: null };
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    return { checked: true, ...classifyHomeReleaseDates(raw.results, today) };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // More like this
 // ---------------------------------------------------------------------------
 
@@ -421,4 +534,17 @@ function text(value: string | null | undefined): string | null {
 function isoDate(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Extract a `YYYY-MM-DD` date from a TMDB date string.
+ *
+ * TMDB release_dates carry full ISO-8601 timestamps like
+ * `"2026-07-15T00:00:00.000Z"`. Taking the first 10 characters works for
+ * both that format and bare `"YYYY-MM-DD"` strings.
+ */
+function parseTmdbDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = /^\d{4}-\d{2}-\d{2}/.exec(value.trim());
+  return match ? match[0] : null;
 }

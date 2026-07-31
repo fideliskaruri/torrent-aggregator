@@ -7,6 +7,7 @@ import type {
   TitleSimilar,
 } from "@/components/title/types";
 import {
+  fetchHomeRelease,
   fetchMoreLikeThis,
   fetchSeasonEpisodes,
   fetchShowShape,
@@ -61,6 +62,9 @@ export async function GET(request: Request, context: RouteContext) {
     moreLikeThis: [],
     overview: null,
     rating: null,
+    releaseDate: null,
+    inTheatricalWindow: false,
+    nextHomeReleaseAt: null,
     resolved: false,
     generatedAt: new Date().toISOString(),
   };
@@ -75,12 +79,16 @@ export async function GET(request: Request, context: RouteContext) {
 
     const series = ref.mediaType === "tv";
 
-    // The season shape, the neighbours and the blurb have no dependency on each
-    // other, so serialising them would multiply the wait for no reason.
-    const [shape, similar, blurb] = await Promise.all([
+    // The season shape, the neighbours, the blurb, and (for movies only) the
+    // home-release dates have no dependency on each other, so serialising them
+    // would multiply the wait for no reason.
+    const [shape, similar, blurb, homeRelease] = await Promise.all([
       series ? fetchShowShape(ref.id) : Promise.resolve(null),
       fetchMoreLikeThis(ref),
       fetchWorkBlurb(ref),
+      // Home-release gating applies to movies only. Series episodes are already
+      // gated individually via air dates (isUnaired in merge-extras.ts).
+      series ? Promise.resolve(null) : fetchHomeRelease(ref.id),
     ]);
 
     // Which season to describe: what the page asked for, else the first one
@@ -93,6 +101,22 @@ export async function GET(request: Request, context: RouteContext) {
     const episodes =
       series && wanted != null ? await fetchSeasonEpisodes(ref.id, wanted) : [];
 
+    // A film is in its theatrical window when:
+    //   1. It is a movie (series are never gated by this rule).
+    //   2. The release_dates endpoint actually responded (checked).
+    //   3. Its primary release date is in the past (theatrically released).
+    //   4. No Digital/Physical/TV release date is in the past.
+    //
+    // If any of these is unknown, the gate stays open — false is the safe default.
+    const today = new Date().toISOString().slice(0, 10);
+    const primaryDate = blurb.releaseDate;
+    const primaryInPast = primaryDate != null && primaryDate <= today;
+    const inTheatricalWindow =
+      !series &&
+      primaryInPast &&
+      homeRelease?.checked === true &&
+      homeRelease.releasedAt === null;
+
     const payload: TitleExtrasPayload = {
       workKey: key,
       season: series ? wanted : null,
@@ -102,6 +126,9 @@ export async function GET(request: Request, context: RouteContext) {
       moreLikeThis: similar.map(toSimilarLink),
       overview: blurb.overview,
       rating: blurb.rating,
+      releaseDate: blurb.releaseDate,
+      inTheatricalWindow,
+      nextHomeReleaseAt: inTheatricalWindow ? (homeRelease?.nextHomeReleaseAt ?? null) : null,
       resolved: true,
       generatedAt: new Date().toISOString(),
     };

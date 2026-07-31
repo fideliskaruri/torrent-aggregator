@@ -560,5 +560,191 @@ const CATS = ["Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "O
   );
 }
 
+// ---------------------------------------------------------------------------
+// Non-video scopes must land in their own folders.
+//
+// Added when Search gained scopes for Music / Games / Software / Books / Anime.
+// Until then `books` was not a search category at all, so nothing exercised
+// these paths and two of them were quietly wrong. Every title below is a REAL
+// result returned by the live aggregator while building that feature — invented
+// names would not have carried the ambiguities that caused the misfiling.
+//
+// The UI now states the destination folder *before* the download starts
+// ("Downloads go to your Books folder"), which turns each of these from a
+// filing preference into a promise the app has to keep.
+// ---------------------------------------------------------------------------
+{
+  const routing: Array<{ title: string; searchCategory: string; expect: string; why: string }> = [
+    {
+      title: "Daft Punk - Discovery (2001) [FLAC] 88",
+      searchCategory: "music",
+      expect: "music",
+      why: "lossless album",
+    },
+    {
+      title: "Daft Punk - Discovery (2001) Mp3 320kbps [PMEDIA]",
+      searchCategory: "music",
+      expect: "music",
+      why: "a bitrate is not a resolution",
+    },
+    {
+      title: "Stardew Valley [FitGirl Repack]",
+      searchCategory: "games",
+      expect: "games",
+      why: "repack marker",
+    },
+    {
+      title: "stardew_valley_windows_gog_(78674)",
+      searchCategory: "games",
+      expect: "games",
+      why: "underscore-separated names must still classify",
+    },
+    {
+      title: "Blender 2.8 addons pack 2.8-2.91.2 [ENG]",
+      searchCategory: "apps",
+      expect: "software",
+      why: "versioned application",
+    },
+    {
+      // Measured misfiling: "Series 1-6" reads as seasons 1-6, so this landed
+      // in TV/. A file ending .epub is not a television programme.
+      title: "Brandon Sanderson - Mistborn Series 1-6(EPUB)",
+      searchCategory: "books",
+      expect: "books",
+      why: "an explicit book format outranks a structural TV guess",
+    },
+    {
+      // Measured misfiling: matched no book marker at all and fell through to
+      // Other/ — a junk drawer for something the owner searched Books for.
+      title: "Atomic Habits - James Clear (Unabridged)",
+      searchCategory: "books",
+      expect: "books",
+      why: "'unabridged' is audiobook-only vocabulary",
+    },
+    {
+      title: "Atomic Habits - James Clear (2018)",
+      searchCategory: "books",
+      expect: "books",
+      why: "a book stating no format falls back to the chosen scope",
+    },
+    {
+      // Measured misfiling: season numbering is normal for anime, so treating
+      // it as evidence AGAINST anime was backwards.
+      title: "[TatakaeFuniSubs] Attack on Titan S01-04 (BD 1080p) [Dual Audio]",
+      searchCategory: "anime",
+      expect: "anime",
+      why: "fansub group + dual audio corroborate the chosen scope",
+    },
+    {
+      // The other half of the same rule, and the reason the scope alone is not
+      // enough: a Welsh fantasy drama found while browsing Anime is still TV.
+      title: "Atlantis 2013 S01-S02 720p BluRay HEVC x265 BONE",
+      searchCategory: "anime",
+      expect: "tv",
+      why: "no anime cue anywhere — the scope must not override that",
+    },
+    {
+      title: "Severance S02E06 1080p WEB H264-SuccessfulCrab",
+      searchCategory: "tv",
+      expect: "tv",
+      why: "ordinary television is unaffected",
+    },
+    {
+      title: "Dune Part Two (2024) [1080p] [BluRay]",
+      searchCategory: "movies",
+      expect: "movies",
+      why: "films are unaffected",
+    },
+  ];
+
+  for (const row of routing) {
+    const kind = detectContentKind({
+      title: row.title,
+      tags: [],
+      searchCategory: row.searchCategory,
+    });
+    assert.equal(
+      kind,
+      row.expect,
+      `${row.searchCategory} "${row.title}" → ${kind}, expected ${row.expect} (${row.why})`,
+    );
+    // And the folder the UI promises actually exists in the category list.
+    const label = pickCategoryLabel(kind, CATS);
+    assert.ok(
+      CATS.includes(label),
+      `"${row.title}" routed to ${label}, which is not a configured folder`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// A shelf you are browsing must not relabel what comes back.
+//
+// Indexers do not filter reliably, so every scoped search returns some
+// off-category results. Measured with the new Search scopes: the SAME film,
+// "Dune Part Two (2024) [1080p] [BluRay]", routed to Music/, Books/, Games/ or
+// Software/ depending only on which tab happened to be open — because the
+// search-category hint had no video guard.
+//
+// The rule: a hint says "the owner was looking at Music", never "this is
+// music". A release carrying plain video markers keeps its own identity.
+// Anime is exempt, because anime IS video and 1080p is normal there.
+// ---------------------------------------------------------------------------
+{
+  const film = "Dune Part Two (2024) [1080p] [BluRay]";
+  for (const scope of ["music", "books", "games", "apps", "software"]) {
+    const kind = detectContentKind({ title: film, tags: [], searchCategory: scope });
+    assert.equal(
+      kind,
+      "movies",
+      `a 1080p BluRay film searched from ${scope} became ${kind}`,
+    );
+  }
+
+  // Every video marker family, so removing one from the guard fails here.
+  const videoish = [
+    "Some Thing 2160p WEB-DL",
+    "Some Thing 720p HDTV",
+    "Some Thing BDRip x264",
+    "Some Thing 1080p REMUX AVC",
+    "Some Thing WEBRip HEVC",
+  ];
+  for (const title of videoish) {
+    assert.notEqual(
+      detectContentKind({ title, tags: [], searchCategory: "music" }),
+      "music",
+      `"${title}" was claimed by the Music scope`,
+    );
+  }
+
+  // The guard must not be so wide that it evicts genuine non-video releases.
+  const genuine: Array<[string, string, string]> = [
+    ["Dune - Original Soundtrack (2021) [FLAC]", "music", "music"],
+    ["Daft Punk - Discovery (2001) [FLAC] 88", "music", "music"],
+    ["Atomic Habits - James Clear (Unabridged)", "books", "books"],
+    ["Atomic Habits - James Clear (2018)", "books", "books"],
+    ["Stardew Valley [FitGirl Repack]", "games", "games"],
+    ["Blender 2.8 addons pack", "apps", "software"],
+  ];
+  for (const [title, scope, expect] of genuine) {
+    assert.equal(
+      detectContentKind({ title, tags: [], searchCategory: scope }),
+      expect,
+      `the video guard wrongly evicted "${title}" from ${scope}`,
+    );
+  }
+
+  // Anime keeps working with video markers — that exemption is load-bearing.
+  assert.equal(
+    detectContentKind({
+      title: "Frieren 1080p Dual Audio",
+      tags: [],
+      searchCategory: "anime",
+    }),
+    "anime",
+    "the video guard must not break the Anime scope",
+  );
+}
+
 console.log("smart-category.test.ts: all assertions passed");
 

@@ -65,9 +65,26 @@ function estimatedEpisodeCount(coverage: SeasonCoverage): number {
   return seasons * MAX_EPISODES_PER_SEASON_ESTIMATE;
 }
 
-function exactEpisode(result: TorrentResult, target: TargetEpisode): boolean {
+/**
+ * Does this release name the hunt target?
+ *
+ * Exact `SxxEyy` always matches. Absolute-numbered anime releases
+ * (`[SubsPlease] Re Zero - 01`, season omitted) match only when the hunt is
+ * season 1 — "01" means the first episode of the series, not S05E01.
+ */
+export function matchesTargetEpisode(
+  result: TorrentResult,
+  target: TargetEpisode,
+): boolean {
   const ep = parsed(result);
-  return ep.season === target.season && ep.episode === target.episode;
+  if (ep.episode !== target.episode) return false;
+  if (ep.season === target.season) return true;
+  if (ep.season == null && target.season === 1) return true;
+  return false;
+}
+
+function exactEpisode(result: TorrentResult, target: TargetEpisode): boolean {
+  return matchesTargetEpisode(result, target);
 }
 
 function packTier(result: TorrentResult, target: TargetEpisode): number | null {

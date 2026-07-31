@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
+import { makeScratchDir, removeScratchDir } from "@/lib/test-support/scratch-dir";
 import path from "node:path";
 import { describe, it, afterEach } from "node:test";
 import {
@@ -15,19 +15,13 @@ import {
 const tmpRoots: string[] = [];
 
 function mkTmp(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tf-prune-"));
+  const dir = makeScratchDir("tf-prune");
   tmpRoots.push(dir);
   return dir;
 }
 
 afterEach(() => {
-  for (const d of tmpRoots.splice(0)) {
-    try {
-      fs.rmSync(d, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-  }
+  for (const d of tmpRoots.splice(0)) removeScratchDir(d);
 });
 
 describe("isPathInsideOrEqual", () => {

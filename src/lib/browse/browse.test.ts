@@ -16,6 +16,7 @@ import { collapseReleasesByWork } from "./collapse";
 import {
   _continueWatchingRailFromWorks as continueWatchingRailFromWorks,
   _continueWatchingWorksFromRows as continueWatchingWorksFromRows,
+  _engineAvailability as engineAvailability,
   _readyToPlayRailFromItems as readyToPlayRailFromItems,
   readyRepresentativePreference,
   readyToPlayTorrentCanSurface,
@@ -27,6 +28,7 @@ import {
   _hasViableMatch as hasViableMatch,
   _resolveLocalOnly as resolveLocalOnly,
   _resolveFromSearchCache as resolveFromSearchCache,
+  _resolveWithSearchCache as resolveWithSearchCache,
   type _ReadyTorrentPresence as ReadyTorrentPresence,
   type _TorrentRow as TorrentRow,
 } from "./availability";
@@ -377,7 +379,7 @@ const AVAIL_LOCAL_CASES: AvailLocalCase[] = [
     expected: { state: "ready", infoHash: "severance201" },
   },
   {
-    name: "completed row absent from rehydrated engine → fetchable, not ready",
+    name: "completed row absent from rehydrated engine → not checked",
     torrents: [
       torrent({
         name: "Silo S02E10 1080p WEB-DL",
@@ -388,7 +390,7 @@ const AVAIL_LOCAL_CASES: AvailLocalCase[] = [
     ],
     query: { title: "Silo", season: 2, episode: 10 },
     engine: enginePresence({ silo210: "absent" }),
-    expected: { state: "fetchable" },
+    expected: { state: null },
   },
   {
     name: "completed row while engine state is unknown → null, not unavailable",
@@ -405,7 +407,7 @@ const AVAIL_LOCAL_CASES: AvailLocalCase[] = [
     expected: { state: null },
   },
   {
-    name: "partially downloaded torrent with peers → warm",
+    name: "partially downloaded torrent present in live engine → warm",
     torrents: [
       torrent({
         name: "Frieren S01E12 1080p",
@@ -415,7 +417,36 @@ const AVAIL_LOCAL_CASES: AvailLocalCase[] = [
       }),
     ],
     query: { title: "Frieren", season: 1, episode: 12 },
+    engine: enginePresence({ frieren12hash: "present" }),
     expected: { state: "warm", infoHash: "frieren12hash", progress: 0.45 },
+  },
+  {
+    name: "stale partial row absent from live engine → unknown, never unavailable",
+    torrents: [
+      torrent({
+        name: "Silo S02E10 1080p WEB-DL",
+        hash: "stale-silo",
+        progress: 0.63,
+        status: "downloading",
+      }),
+    ],
+    query: { title: "Silo", season: 2, episode: 10 },
+    engine: enginePresence({ "stale-silo": "absent" }),
+    expected: { state: null },
+  },
+  {
+    name: "partial row while live engine is still rehydrating → unknown",
+    torrents: [
+      torrent({
+        name: "Guardians of the Galaxy 2014 1080p",
+        hash: "guardians-cold",
+        progress: 0.21,
+        status: "downloading",
+      }),
+    ],
+    query: { title: "Guardians of the Galaxy" },
+    engine: enginePresence({ "guardians-cold": "unknown" }),
+    expected: { state: null },
   },
   {
     name: "torrent at 0% progress → null (no usable data yet)",
@@ -784,12 +815,17 @@ check("continue watching resolves episode-only progress through the torrent rele
     ],
     [],
   );
-  const rail = continueWatchingRailFromWorks("user-1", works, [
-    {
-      posterUrl: "https://images.example.test/dark.jpg",
-      backdropUrl: "https://images.example.test/dark-backdrop.jpg",
-    },
-  ]);
+  const rail = continueWatchingRailFromWorks(
+    "user-1",
+    works,
+    [
+      {
+        posterUrl: "https://images.example.test/dark.jpg",
+        backdropUrl: "https://images.example.test/dark-backdrop.jpg",
+      },
+    ],
+    engineHoldsEverything,
+  );
 
   assert.notEqual(rail, null, "expected a Continue Watching rail");
   assert.deepEqual(
@@ -839,6 +875,76 @@ check("continue watching excludes unresolved episode-only progress rows", () => 
   assert.equal(rail, null, "unresolved rows must not render Unknown title cards");
 });
 
+console.log("\n--- continue-watching live-engine reconciliation ---");
+
+const CONTINUE_AVAILABILITY_CASES: Array<{
+  name: string;
+  torrent: { hash: string; progress: number; status: string };
+  presence: ReadyTorrentPresence;
+  expected: AvailabilityState | null;
+}> = [
+  {
+    name: "completed torrent present in live engine remains ready",
+    torrent: { hash: "severance", progress: 1, status: "seeding" },
+    presence: "present",
+    expected: "ready",
+  },
+  {
+    name: "stale completed DB row becomes not checked on Continue Watching",
+    torrent: { hash: "silo-complete", progress: 1, status: "seeding" },
+    presence: "absent",
+    expected: null,
+  },
+  {
+    name: "live partial torrent remains warm",
+    torrent: { hash: "family-guy", progress: 0.52, status: "downloading" },
+    presence: "present",
+    expected: "warm",
+  },
+  {
+    name: "stale partial DB row becomes not checked",
+    torrent: { hash: "silo", progress: 0.52, status: "downloading" },
+    presence: "absent",
+    expected: null,
+  },
+  {
+    name: "partial DB row during engine rehydrate stays not checked",
+    torrent: { hash: "guardians", progress: 0.52, status: "downloading" },
+    presence: "unknown",
+    expected: null,
+  },
+];
+
+for (const tc of CONTINUE_AVAILABILITY_CASES) {
+  check(tc.name, () => {
+    const result = engineAvailability(
+      tc.torrent,
+      enginePresence({ [tc.torrent.hash]: tc.presence }),
+    );
+    assert.equal(result, tc.expected);
+    assert.notEqual(
+      result,
+      "unavailable",
+      "missing live state is uncertainty, not evidence that no release exists",
+    );
+  });
+}
+
+check("stale partial local evidence cannot fall through to unavailable", () => {
+  const staleLocal: Availability = { state: null };
+  const checkedButEmpty = searchResponse([]);
+  const result = resolveWithSearchCache(
+    { title: "Silo" },
+    staleLocal,
+    checkedButEmpty,
+  );
+  assert.equal(
+    result.state,
+    null,
+    "the stale local row must remain not checked, not inherit unavailable",
+  );
+});
+
 console.log("\n--- ready-to-play rail truthfulness ---");
 
 const READY_RAIL_CASES: Array<{
@@ -848,13 +954,12 @@ const READY_RAIL_CASES: Array<{
   expectedStates?: Array<AvailabilityState | null>;
 }> = [
   {
-    name: "cold start keeps completed DB rows with neutral availability",
+    name: "cold start with only stale completed DB rows removes the rail",
     items: [
       railItem({ id: "dune", title: "Dune Part Two", availability: null }),
       railItem({ id: "bear", title: "The Bear", availability: null }),
     ],
-    expectedTitles: ["Dune Part Two", "The Bear"],
-    expectedStates: [null, null],
+    expectedTitles: null,
   },
   {
     name: "definitively absent row is dropped while live row remains ready",
@@ -866,7 +971,7 @@ const READY_RAIL_CASES: Array<{
     expectedStates: ["ready"],
   },
   {
-    name: "partially downloaded local row stays playable and labelled warm",
+    name: "partial local rows do not enter the Ready to Play rail",
     items: [
       railItem({
         id: "partial",
@@ -876,8 +981,7 @@ const READY_RAIL_CASES: Array<{
         infoHash: "frieren12hash",
       }),
     ],
-    expectedTitles: ["Frieren"],
-    expectedStates: ["warm"],
+    expectedTitles: null,
   },
   {
     name: "engine up with no present hashes removes the rail",

@@ -358,11 +358,11 @@ const ACTION_CASES: {
     expectLabel: "Play",
   },
   {
-    name: "unavailable still gets — it looks again",
+    name: "unavailable still plays — retries the ladder",
     availability: "unavailable",
     infoHash: null,
-    expectKind: "get",
-    expectLabel: "Get",
+    expectKind: "stream",
+    expectLabel: "Play",
   },
   {
     name: "null is not unavailable, and is not a dead end",
@@ -447,20 +447,18 @@ check("copy: no self-narrating sentence rides along with the action", () => {
   }
 });
 
-check("null is not unavailable: both stay actionable, and they differ", () => {
+check("null is not unavailable: both stay actionable as Play", () => {
   const unchecked = resolvePlayableAction({ availability: null, infoHash: null });
-  const dead = resolvePlayableAction({
+  const priorMiss = resolvePlayableAction({
     availability: "unavailable",
     infoHash: null,
   });
-  // Both are actionable — neither is a dead end. But they are no longer the
-  // same button: not having looked is one search away from playing, whereas
-  // having looked and found nothing is not, and offering Play there would
-  // dead-end on the one state where we hold evidence that it would.
+  // Both are Play-via-grab. A prior miss is not a permanent demotion to Get —
+  // the ladder may have improved (anime aliases, dual categories).
   assert.equal(unchecked.kind, "stream");
   assert.equal(unchecked.label, "Play");
-  assert.equal(dead.kind, "get");
-  assert.equal(dead.label, "Get");
+  assert.equal(priorMiss.kind, "stream");
+  assert.equal(priorMiss.label, "Play");
 });
 
 // ---------------------------------------------------------------------------
@@ -632,7 +630,7 @@ check("primary action: a series keeps its Play when it needs an episode", () => 
   assert.equal(action.episode, 7);
 });
 
-check("primary action: an unavailable series still degrades to Get", () => {
+check("primary action: an unavailable series still offers Play (retry)", () => {
   const action = resolvePrimaryAction(
     payload({
       availability: "unavailable",
@@ -643,7 +641,8 @@ check("primary action: an unavailable series still degrades to Get", () => {
       },
     }),
   );
-  assert.equal(action.kind, "get");
+  assert.equal(action.kind, "stream");
+  assert.equal(action.label, "Play");
   assert.equal(action.season, 3);
   assert.equal(action.episode, 1);
 });
@@ -885,11 +884,11 @@ check("resolveEpisodeAction: a partly-watched episode resumes", () => {
 // ---------------------------------------------------------------------------
 
 check("titleActionButtonLabel: primary slot keeps the action word while status moves below", () => {
-  const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
-  assert.equal(titleActionButtonLabel(get, "idle"), "Get");
-  assert.equal(titleActionButtonLabel(get, "pending"), "Get");
-  assert.equal(titleActionButtonLabel(get, "done"), "Get");
-  assert.equal(titleActionButtonLabel(get, "error"), "Try again");
+  const play = resolvePlayableAction({ availability: "unavailable", infoHash: null });
+  assert.equal(titleActionButtonLabel(play, "idle"), "Play");
+  assert.equal(titleActionButtonLabel(play, "pending"), "Play");
+  assert.equal(titleActionButtonLabel(play, "done"), "Play");
+  assert.equal(titleActionButtonLabel(play, "error"), "Try again");
 });
 
 check("titleActionButtonLabel: a stream stays a Play action while it looks", () => {
@@ -909,13 +908,13 @@ check("titleActionButtonLabel: play never says Search in any status", () => {
   }
 });
 
-check("shouldRunTitleAction: pressing get twice after success submits one grab", () => {
-  const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
+check("shouldRunTitleAction: pressing stream twice after success submits one grab", () => {
+  const stream = resolvePlayableAction({ availability: "unavailable", infoHash: null });
   let status: TitleActionStatus = "idle";
   let grabs = 0;
 
   const press = () => {
-    if (!shouldRunTitleAction(get, status)) return;
+    if (!shouldRunTitleAction(stream, status)) return;
     grabs += 1;
     status = "done";
   };
@@ -929,12 +928,12 @@ check("shouldRunTitleAction: pressing get twice after success submits one grab",
 check("shouldRunTitleAction: done only spends remote grab actions", () => {
   const play = resolvePlayableAction({ availability: "ready", infoHash: "h" });
   const stream = resolvePlayableAction({ availability: "fetchable", infoHash: null });
-  const get = resolvePlayableAction({ availability: "unavailable", infoHash: null });
+  const priorMiss = resolvePlayableAction({ availability: "unavailable", infoHash: null });
 
   assert.equal(shouldRunTitleAction(play, "done"), true);
   assert.equal(shouldRunTitleAction(stream, "done"), false);
-  assert.equal(shouldRunTitleAction(get, "done"), false);
-  assert.equal(shouldRunTitleAction(get, "error"), true);
+  assert.equal(shouldRunTitleAction(priorMiss, "done"), false);
+  assert.equal(shouldRunTitleAction(priorMiss, "error"), true);
   assert.equal(shouldRunTitleAction(stream, "pending"), false);
 });
 

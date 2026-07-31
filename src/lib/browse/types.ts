@@ -107,6 +107,17 @@ export interface RailItem {
    */
   releaseDate?: string | null;
   /**
+   * True when this is a movie that has had a theatrical release but no past
+   * home release (Digital/Physical/TV). When set, the card shows "In cinemas"
+   * instead of a Play/Download action, mirroring the title-page treatment.
+   *
+   * Populated from persisted Browse home-release evidence. Undefined/false
+   * means unknown — never gate on this.
+   */
+  inTheatricalWindow?: boolean;
+  /** Earliest known upcoming Digital/Physical/TV date for the cinema chip. */
+  nextHomeReleaseAt?: string | null;
+  /**
    * One-paragraph synopsis of the work, when the catalog has one.
    *
    * Optional so rails that have no synopsis to give (Continue Watching, Ready

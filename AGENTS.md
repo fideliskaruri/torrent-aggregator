@@ -1,5 +1,29 @@
 # Agent instructions (TorrentFlow)
 
+## MANDATORY SKILLS — load these, do not improvise around them
+
+These are installed at user scope (`~/.copilot/skills/`). They are **not optional suggestions**.
+Invoke the skill via the `skill` tool *before* doing the work it covers, not after.
+
+| Trigger — the moment this happens | Skill to invoke FIRST | Why it exists here |
+|---|---|---|
+| User posts a screenshot / says "this looks wrong", "this isn't out yet", "wrong torrents" | `bug-reproduction-brief` | Stop jumping straight to a patch. Prove the smallest failing case with evidence, THEN fix. Prevents fixing the symptom in the screenshot while the rule class stays broken. |
+| Building, restyling, or restructuring any screen or component | `anti-ui-slop` | Run its finish gate before declaring UI done. No generic cards, no inert controls, no missing states. |
+| Claiming any UI behaviour works | `webapp-testing` | Verify in a real browser against the running app. A passing unit test is not evidence the screen behaves. |
+| Needing before/after or "show me the state" visuals | `ui-screenshots` | Consistent capture + crop-iterate; do not hand-roll a new Playwright script each time. |
+| Auditing a page for layout/responsive/a11y/consistency defects | `web-design-reviewer` | Find the defects *before* the user does, at every breakpoint. |
+
+**Hard rules that follow from the above**
+
+1. **Never fix a user-reported UI bug from the screenshot alone.** Reproduce it against the running
+   app first, in the browser, and say what the minimal failing case is.
+2. **Never report a UI fix as done on unit tests alone.** Unit tests prove the rule; a screenshot or
+   a live DOM assertion proves the product. Provide both.
+3. **Never leave the user to find the next defect.** After a fix, sweep the same surface with
+   `web-design-reviewer` at desktop and mobile widths and report what else is wrong.
+4. **Verify against the build the user is actually running.** Check `BUILD_ID` and the port before
+   claiming anything is live; a fix in `.next-gate` is not a fix the user can see.
+
 ## Operating mode
 - **Do not stop after a “slice.”** Finish the full objective, run tests, fix failures, continue until green.
 - **Main orchestrator must spawn subagents** for implementation, exploration, and verification. Prefer not to hand-edit large code paths in the parent turn.

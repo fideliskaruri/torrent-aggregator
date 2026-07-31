@@ -107,6 +107,9 @@ export async function POST(request: Request, context: RouteContext) {
       season: body.season ?? null,
       episode: body.episode ?? null,
       retention: body.retention ?? "keep",
+      // The owner's informed decision to exceed their own cap. Only ever
+      // honoured for the cap — never the free-space floor.
+      overrideStorageCap: body.overrideStorageCap === true,
       resolvedTitle: detail.title,
       resolvedMediaType: detail.mediaType,
       isSeries: detail.isSeries,

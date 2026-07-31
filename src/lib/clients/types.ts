@@ -17,8 +17,8 @@ export interface ClientConnectionConfig {
    */
   baseDownloadPath?: string | null;
   /**
-   * Max total bytes under baseDownloadPath. Null = default policy cap (100GB).
-   * Enforced automatically before every download.
+   * Max total bytes under baseDownloadPath. Null/0 means setup is incomplete,
+   * and new downloads must be refused.
    */
   maxStorageBytes?: number | null;
   /** Quick-pick categories */
@@ -91,6 +91,20 @@ export interface AddTorrentPayload {
   category?: string | null;
   /** Override download folder for this send */
   savePath?: string | null;
+  /**
+   * A storage limit already refused this send, the owner was shown the real
+   * figures, and they chose to proceed.
+   *
+   * This has to travel with the payload because the engine runs its **own**
+   * storage check before adding (`checkStoragePolicy`). Without the flag that
+   * second check re-refused everything the caller had just been given
+   * permission for, so "Download anyway" passed the route gate and then failed
+   * anyway — measured live as a 502 still carrying the cap message.
+   *
+   * It is not a bypass: the engine re-derives what may be overridden through
+   * `isOverridableLimit`, so this can never get past `wont-fit` or `setup`.
+   */
+  overrideStorageCap?: boolean;
 }
 
 export type AddTorrentDetails =

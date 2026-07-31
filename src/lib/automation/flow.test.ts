@@ -30,6 +30,7 @@ import type { ClientConnectionConfig } from "@/lib/clients/types";
 import {
   DESKTOP_NAV,
   DESKTOP_NAV_DIVIDER_INDEX,
+  EVERYTHING_HREF,
   HEADER_SEARCH_HREF,
   HISTORY_HREF,
   MORE_ACTIVE_PREFIXES,
@@ -212,8 +213,24 @@ console.log("flow: navigation model contracts…");
 
   assert.deepEqual(
     primaryHrefs,
-    ["/", SEARCH_HREF, "/watchlist", "/client"],
-    "primary path is Browse → Search → Library → Client",
+    ["/", SEARCH_HREF, EVERYTHING_HREF, "/watchlist", "/client"],
+    "primary path is Browse → Search → Everything → Library → Client",
+  );
+
+  /**
+   * `/everything` is the section for music, games, software, books and anime.
+   * The indexers, the classifier and the download routing always handled those;
+   * the only thing missing was a way in, so the nav entry is the feature. It
+   * sits next to Search because both answer "find me a thing".
+   */
+  assert.equal(
+    primaryHrefs.indexOf(EVERYTHING_HREF),
+    primaryHrefs.indexOf(SEARCH_HREF) + 1,
+    "Everything sits beside Search, not filed away after Library",
+  );
+  assert.equal(
+    PRIMARY_NAV.find((i: NavItem) => i.href === EVERYTHING_HREF)?.label,
+    "Everything",
   );
 
   // `/` is the catalog now, not the search box. Search is a peer route, and it
@@ -334,6 +351,7 @@ console.log("flow: navigation model contracts…");
     const allRoutes = [
       "/",
       SEARCH_HREF,
+      EVERYTHING_HREF,
       "/watchlist",
       "/client",
       "/activity",

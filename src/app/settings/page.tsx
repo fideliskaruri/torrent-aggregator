@@ -1,12 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   FolderOpen,
   FolderSearch,
+  HardDrive,
   Plus,
   Tags,
   Trash2,
@@ -16,14 +18,22 @@ import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RetentionPanel } from "@/components/settings/retention-panel";
 import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
+import { FirstRunSetup } from "./first-run-setup";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfErrorState } from "@/components/tf/error-state";
 import { cn } from "@/lib/utils";
+import { STORAGE_CAP_FOCUS_PARAM } from "@/lib/library/storage-override";
 import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import {
+  detectUnsafeDownloadPath,
+  unsafeDownloadPathMessage,
+  type UnsafeDownloadPathReason,
+} from "./download-path-safety";
 
 interface ClientForm {
   clientType: "qbittorrent" | "transmission" | "builtin";
@@ -41,8 +51,18 @@ interface ClientForm {
   preferredResolution: number;
   /** Minutes between automatic watchlist runs; 0 = never. */
   automationIntervalMinutes: number;
+  /** Show extra playback diagnostics for troubleshooting. */
+  verboseDiagnostics: boolean;
   categories: string[];
   pathRules: Record<string, string>;
+}
+
+interface DownloadPathWarning {
+  field: "baseDownloadPath" | "savePath" | "pathRule";
+  category?: string;
+  path: string;
+  reasons: UnsafeDownloadPathReason[];
+  message: string;
 }
 
 type SettingsTab = "connection" | "folders" | "categories";
@@ -129,6 +149,8 @@ const AUTOMATION_INTERVAL_CHOICES: { value: number; label: string }[] = [
   { value: 360, label: "6h" },
 ];
 
+const SETUP_DISMISSED_KEY = "torrentflow:first-run-setup-dismissed";
+
 function formatInterval(minutes: number): string {
   if (minutes < 60) return `${minutes} minutes`;
   const hours = minutes / 60;
@@ -144,9 +166,10 @@ const EMPTY_FORM: ClientForm = {
   category: "",
   savePath: "",
   baseDownloadPath: "",
-  maxStorageGb: "100",
+  maxStorageGb: "0",
   preferredResolution: 1080,
   automationIntervalMinutes: 0,
+  verboseDiagnostics: false,
   categories: [
     "Anime",
     "Movies",
@@ -205,22 +228,50 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>("connection");
   const [pathsExpanded, setPathsExpanded] = useState(false);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [setupBrowsing, setSetupBrowsing] = useState(false);
+  const [setupSaving, setSetupSaving] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [persistedPathWarnings, setPersistedPathWarnings] = useState<
+    DownloadPathWarning[]
+  >([]);
   /** Connection test succeeded — cleared when connection fields change */
   const [connectionOk, setConnectionOk] = useState(false);
   const showLoading = useStableLoading(loading && !loadError);
+  /**
+   * `?focus=cap` — arriving from the over-cap confirmation. Landing on the page
+   * is not enough: the owner pressed "Raise the cap", so the caret belongs in
+   * the cap field, not wherever the tab happens to start.
+   */
+  const [pendingCapFocus, setPendingCapFocus] = useState(false);
+  const capInputRef = useRef<HTMLInputElement | null>(null);
 
   // Deep-link: ?tab=connection|folders|categories
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const fromUrl = parseSettingsTab(
-      new URLSearchParams(window.location.search).get("tab"),
-    );
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = parseSettingsTab(params.get("tab"));
     if (fromUrl) {
       // The URL is an external store; syncing the active tab on mount belongs in an effect.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTab(fromUrl);
     }
+    if (params.get("focus") === STORAGE_CAP_FOCUS_PARAM) {
+      setPendingCapFocus(true);
+    }
   }, []);
+
+  // The field does not exist until the folders tab has rendered its loaded
+  // state, so this waits for the ref rather than firing once on mount.
+  useEffect(() => {
+    if (!pendingCapFocus) return;
+    const el = capInputRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+    setPendingCapFocus(false);
+  }, [pendingCapFocus, tab, loading]);
 
   function selectTab(next: SettingsTab) {
     setTab(next);
@@ -269,10 +320,14 @@ export default function SettingsPage() {
             savePath?: string | null;
             baseDownloadPath?: string | null;
             maxStorageGb?: number | null;
+            storageCapConfigured?: boolean;
+            setupComplete?: boolean;
+            verboseDiagnostics?: boolean;
             preferredResolution?: number | null;
             automationIntervalMinutes?: number | null;
             categories?: string[];
             pathRules?: Record<string, string>;
+            pathWarnings?: DownloadPathWarning[];
             hasPassword?: boolean;
           } | null;
           defaults?: { categories?: string[] };
@@ -292,19 +347,35 @@ export default function SettingsPage() {
             maxStorageGb:
               s.maxStorageGb != null && s.maxStorageGb > 0
                 ? String(s.maxStorageGb)
-                : "100",
+                : "0",
             preferredResolution: s.preferredResolution ?? f.preferredResolution,
             automationIntervalMinutes: s.automationIntervalMinutes ?? 0,
+            verboseDiagnostics: s.verboseDiagnostics === true,
             categories: s.categories ?? f.categories,
             pathRules: s.pathRules ?? {},
             password: "",
           }));
           setHasPassword(Boolean(s.hasPassword));
+          const configured = s.setupComplete === true;
+          setSetupComplete(configured);
+          setPersistedPathWarnings(s.pathWarnings ?? []);
+          if (configured) {
+            window.localStorage.removeItem(SETUP_DISMISSED_KEY);
+            setSetupOpen(false);
+          } else {
+            setSetupOpen(
+              window.localStorage.getItem(SETUP_DISMISSED_KEY) !== "1",
+            );
+          }
         } else if (data.defaults?.categories) {
           setForm((f) => ({
             ...f,
             categories: data.defaults!.categories ?? f.categories,
           }));
+          setSetupComplete(false);
+          setSetupOpen(
+          window.localStorage.getItem(SETUP_DISMISSED_KEY) !== "1",
+          );
         }
       } catch (err) {
         // Without this the form would render its *defaults* as though they
@@ -338,6 +409,59 @@ export default function SettingsPage() {
     [form.categories, form.pathRules],
   );
 
+  const currentPathEntries = useMemo(
+    () => [
+      ...(form.baseDownloadPath.trim()
+        ? [
+            {
+              field: "baseDownloadPath" as const,
+              path: form.baseDownloadPath.trim(),
+            },
+          ]
+        : []),
+      ...(form.savePath.trim()
+        ? [{ field: "savePath" as const, path: form.savePath.trim() }]
+        : []),
+      ...Object.entries(form.pathRules)
+        .filter(([, value]) => value.trim())
+        .map(([category, value]) => ({
+          field: "pathRule" as const,
+          category,
+          path: value.trim(),
+        })),
+    ],
+    [form.baseDownloadPath, form.savePath, form.pathRules],
+  );
+
+  const visiblePathWarnings = useMemo(() => {
+    const currentPaths = new Set(
+      currentPathEntries.map((entry) => entry.path.toLowerCase()),
+    );
+    const warnings = new Map<string, DownloadPathWarning>();
+
+    for (const warning of persistedPathWarnings) {
+      const key = warning.path.trim().toLowerCase();
+      if (currentPaths.has(key)) warnings.set(key, warning);
+    }
+    for (const entry of currentPathEntries) {
+      const safety = detectUnsafeDownloadPath(entry.path);
+      const key = entry.path.toLowerCase();
+      if (safety.unsafe && !warnings.has(key)) {
+        warnings.set(key, {
+          ...entry,
+          reasons: safety.reasons,
+          message: unsafeDownloadPathMessage(safety.reasons),
+        });
+      }
+    }
+    return [...warnings.values()];
+  }, [currentPathEntries, persistedPathWarnings]);
+
+  const setupFolderWarning = useMemo(() => {
+    const safety = detectUnsafeDownloadPath(form.baseDownloadPath);
+    return safety.unsafe ? unsafeDownloadPathMessage(safety.reasons) : null;
+  }, [form.baseDownloadPath]);
+
   const pickerInitialPath = useMemo(() => {
     if (pickerTarget === "base") return form.baseDownloadPath;
     if (pickerTarget === "savePath") return form.savePath || form.baseDownloadPath;
@@ -355,7 +479,22 @@ export default function SettingsPage() {
     setPickerOpen(true);
   }
 
+  function openSetupPicker() {
+    setSetupBrowsing(true);
+    setSetupOpen(false);
+    openPicker("base");
+  }
+
+  function closePicker() {
+    const reopenSetup = setupBrowsing;
+    setPickerOpen(false);
+    setPickerTarget(null);
+    setSetupBrowsing(false);
+    if (reopenSetup) setSetupOpen(true);
+  }
+
   function handlePickerSelect(path: string) {
+    const reopenSetup = setupBrowsing;
     if (pickerTarget === "base") {
       setForm((f) => ({
         ...f,
@@ -373,6 +512,8 @@ export default function SettingsPage() {
     }
     setPickerOpen(false);
     setPickerTarget(null);
+    setSetupBrowsing(false);
+    if (reopenSetup) setSetupOpen(true);
   }
 
   async function save(e: FormEvent, test: boolean) {
@@ -399,8 +540,9 @@ export default function SettingsPage() {
           baseDownloadPath: form.baseDownloadPath,
           maxStorageGb: (() => {
             const n = parseFloat(form.maxStorageGb);
-            return Number.isFinite(n) && n > 0 ? n : 100;
+            return Number.isFinite(n) && n > 0 ? n : 0;
           })(),
+          verboseDiagnostics: form.verboseDiagnostics,
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
           categories: form.categories,
@@ -431,8 +573,11 @@ export default function SettingsPage() {
           savePath?: string | null;
           baseDownloadPath?: string | null;
           maxStorageGb?: number | null;
+          setupComplete?: boolean;
+          verboseDiagnostics?: boolean;
           preferredResolution?: number | null;
           automationIntervalMinutes?: number | null;
+          pathWarnings?: DownloadPathWarning[];
         };
         testResult?: { ok: boolean; message: string };
       };
@@ -463,12 +608,21 @@ export default function SettingsPage() {
           maxStorageGb:
             saved.maxStorageGb != null && saved.maxStorageGb > 0
               ? String(saved.maxStorageGb)
-              : f.maxStorageGb,
+              : "0",
+          verboseDiagnostics:
+            saved.verboseDiagnostics ?? f.verboseDiagnostics,
           preferredResolution:
             saved.preferredResolution ?? f.preferredResolution,
           automationIntervalMinutes:
             saved.automationIntervalMinutes ?? f.automationIntervalMinutes,
         }));
+        const configured = saved.setupComplete === true;
+        setSetupComplete(configured);
+        setPersistedPathWarnings(saved.pathWarnings ?? []);
+        if (configured) {
+          setSetupOpen(false);
+          window.localStorage.removeItem(SETUP_DISMISSED_KEY);
+        }
       }
       if (data.testResult) {
         setMessage({
@@ -487,6 +641,80 @@ export default function SettingsPage() {
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  function dismissSetup() {
+    window.localStorage.setItem(SETUP_DISMISSED_KEY, "1");
+    setSetupOpen(false);
+  }
+
+  function reopenSetup() {
+    setSetupError(null);
+    setSetupOpen(true);
+  }
+
+  async function saveFirstRunSetup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const folder = form.baseDownloadPath.trim();
+    const maxStorageGb = Number(form.maxStorageGb);
+    if (!folder || !Number.isFinite(maxStorageGb) || maxStorageGb <= 0) {
+      setSetupError("Choose a download folder and enter a storage cap above 0 GB.");
+      return;
+    }
+
+    setSetupSaving(true);
+    setSetupError(null);
+    try {
+      const res = await fetch("/api/settings/client", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseDownloadPath: folder,
+          savePath: folder,
+          maxStorageGb,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        message?: string;
+        settings?: {
+          baseDownloadPath?: string | null;
+          savePath?: string | null;
+          maxStorageGb?: number | null;
+          setupComplete?: boolean;
+          pathWarnings?: DownloadPathWarning[];
+        };
+      };
+      if (!res.ok || data.settings?.setupComplete !== true) {
+        throw new Error(
+          data.message || data.error || "Could not finish storage setup",
+        );
+      }
+
+      const saved = data.settings;
+      setForm((current) => ({
+        ...current,
+        baseDownloadPath: saved.baseDownloadPath ?? folder,
+        savePath: saved.savePath ?? folder,
+        maxStorageGb:
+          saved.maxStorageGb != null && saved.maxStorageGb > 0
+            ? String(saved.maxStorageGb)
+            : current.maxStorageGb,
+      }));
+      setPersistedPathWarnings(saved.pathWarnings ?? []);
+      setSetupComplete(true);
+      setSetupOpen(false);
+      window.localStorage.removeItem(SETUP_DISMISSED_KEY);
+      invalidateDownloadPrefs();
+      selectTab("folders");
+      setMessage({ ok: true, text: "Download folder and storage cap saved" });
+    } catch (err) {
+      setSetupError(
+        err instanceof Error ? err.message : "Could not finish storage setup",
+      );
+    } finally {
+      setSetupSaving(false);
     }
   }
 
@@ -602,6 +830,34 @@ export default function SettingsPage() {
           ) : null
         }
       />
+
+      {!setupComplete ? (
+        <section
+          aria-label="Storage setup incomplete"
+          className="surface flex flex-col gap-3 rounded-xl border border-[var(--warning)]/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <HardDrive className="mt-0.5 h-5 w-5 shrink-0 text-[var(--warning)]" />
+            <div>
+              <h2 className="text-sm font-medium text-[var(--text)]">
+                Downloads are paused until storage is set up
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--text-tertiary)]">
+                Choose a permanent folder and the maximum space TorrentFlow may
+                use. The app will not invent either value.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full shrink-0 sm:w-auto"
+            onClick={reopenSetup}
+          >
+            Finish setup
+          </Button>
+        </section>
+      ) : null}
 
       <form onSubmit={(e) => save(e, false)} className="space-y-5">
         {/* Tab nav */}
@@ -841,6 +1097,35 @@ export default function SettingsPage() {
                 </div>
               </>
             ) : null}
+
+            <label
+              htmlFor="verbose-diagnostics"
+              className="flex min-h-11 cursor-pointer items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 px-3 py-2.5"
+            >
+              <Checkbox
+                id="verbose-diagnostics"
+                checked={form.verboseDiagnostics}
+                onCheckedChange={(checked) =>
+                  setForm((current) => ({
+                    ...current,
+                    verboseDiagnostics: checked === true,
+                  }))
+                }
+                aria-describedby="verbose-diagnostics-help"
+              />
+              <span className="min-w-0 pt-1 lg:pt-0">
+                <span className="block text-sm font-medium text-[var(--text)]">
+                  Verbose diagnostics
+                </span>
+                <span
+                  id="verbose-diagnostics-help"
+                  className="mt-1 block text-xs leading-relaxed text-[var(--text-tertiary)]"
+                >
+                  Show extra live playback details while troubleshooting. Off by
+                  default.
+                </span>
+              </span>
+            </label>
           </section>
         )}
 
@@ -868,6 +1153,30 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+
+            {visiblePathWarnings.length > 0 ? (
+              <div
+                role="status"
+                className="flex items-start gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" />
+                <div className="min-w-0 space-y-2">
+                  <h3 className="text-sm font-medium text-[var(--text)]">
+                    This download folder may be disposable
+                  </h3>
+                  {visiblePathWarnings.map((warning) => (
+                    <div key={warning.path.toLowerCase()} className="space-y-1">
+                      <p className="break-all font-mono text-xs text-[var(--warning)]">
+                        {warning.path}
+                      </p>
+                      <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                        {warning.message}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
@@ -941,8 +1250,9 @@ export default function SettingsPage() {
                 Max library size (GB)
               </label>
               <Input
+                ref={capInputRef}
                 type="number"
-                min={1}
+                min={0}
                 step={1}
                 className="h-11 max-w-[12rem]"
                 value={form.maxStorageGb}
@@ -950,13 +1260,16 @@ export default function SettingsPage() {
                   touchForm();
                   setForm((f) => ({ ...f, maxStorageGb: e.target.value }));
                 }}
-                placeholder="100"
+                placeholder="0"
               />
               <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-                Automatic hard cap under the base download folder. New downloads
-                are refused when usage would exceed this — no manual storage
-                check. Default 100 GB. Also keeps at least ~500 MB free on the
-                drive.
+                Budget for kept downloads under the base download folder. Going
+                over it asks you to confirm rather than refusing — streaming
+                reclaims its own cache and is never blocked. 0 means unset, and
+                downloads stay paused until you choose a cap. TorrentFlow also
+                prefers to leave ~500 MB free on the drive, and will ask before
+                dipping into it. The only download it will not do at all is one
+                that is bigger than the space left.
               </p>
             </div>
 
@@ -1401,13 +1714,17 @@ export default function SettingsPage() {
           </section>
         )}
 
-        <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed px-0.5">
-          Paths must be valid on the machine running your torrent client (not
-          necessarily this app server). Browse only works for folders on the
-          TorrentFlow host. For Docker clients use container paths like{" "}
-          <code className="text-[var(--text-secondary)]">/downloads/anime</code>
-          .
-        </p>
+        {tab === "folders" ? (
+          <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed px-0.5">
+            Paths must be valid on the machine running your torrent client (not
+            necessarily this app server). Browse only works for folders on the
+            TorrentFlow host. For Docker clients use container paths like{" "}
+            <code className="text-[var(--text-secondary)]">
+              /downloads/anime
+            </code>
+            .
+          </p>
+        ) : null}
 
         {/* Sticky save bar — sits above mobile bottom nav; flush on desktop */}
         <div className="fixed inset-x-0 bottom-[calc(var(--mobile-nav-h)+var(--safe-bottom))] md:bottom-0 z-30 border-t border-[var(--border)] bg-[var(--bg)]/95 backdrop-blur-sm">
@@ -1454,6 +1771,27 @@ export default function SettingsPage() {
 
       <SwarmProbePanel />
 
+      <FirstRunSetup
+        open={setupOpen}
+        folder={form.baseDownloadPath}
+        storageCapGb={form.maxStorageGb}
+        saving={setupSaving}
+        error={setupError}
+        folderWarning={setupFolderWarning}
+        onFolderChange={(value) =>
+          setForm((current) => ({
+            ...current,
+            baseDownloadPath: value,
+          }))
+        }
+        onStorageCapChange={(value) =>
+          setForm((current) => ({ ...current, maxStorageGb: value }))
+        }
+        onBrowse={openSetupPicker}
+        onSkip={dismissSetup}
+        onSave={saveFirstRunSetup}
+      />
+
       <FolderPicker
         open={pickerOpen}
         initialPath={pickerInitialPath}
@@ -1466,10 +1804,7 @@ export default function SettingsPage() {
                 ? `Choose folder for ${pickerTarget}`
                 : "Choose folder"
         }
-        onClose={() => {
-          setPickerOpen(false);
-          setPickerTarget(null);
-        }}
+        onClose={closePicker}
         onSelect={handlePickerSelect}
       />
     </div>

@@ -2,20 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { searchTorrents, listAvailableSources, SearchThrottledError } from "@/lib/torrents/aggregator";
 import type { TorrentSourceId } from "@/lib/torrents/types";
 import { parseFiltersFromParams } from "@/lib/torrents/filters";
+import { parseAggregatorCategory } from "@/lib/torrents/search-scopes";
 import { auth } from "@/lib/auth";
 import { getUserClientConfig } from "@/lib/clients";
 
 export const dynamic = "force-dynamic";
-
-const VALID_CATEGORIES = new Set([
-  "all",
-  "anime",
-  "movies",
-  "tv",
-  "music",
-  "apps",
-  "games",
-]);
 
 const VALID_SOURCES = new Set<TorrentSourceId>([
   "nyaa",
@@ -44,17 +35,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Query too long" }, { status: 400 });
   }
 
-  const categoryRaw = searchParams.get("category") ?? "all";
-  const category = VALID_CATEGORIES.has(categoryRaw)
-    ? (categoryRaw as
-        | "all"
-        | "anime"
-        | "movies"
-        | "tv"
-        | "music"
-        | "apps"
-        | "games")
-    : "all";
+  const category = parseAggregatorCategory(searchParams.get("category")) ?? "all";
 
   const page = Math.max(
     parseInt(searchParams.get("page") ?? "1", 10) || 1,

@@ -5,8 +5,7 @@
  */
 import prisma from "@/lib/prisma";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
-import { selectSeriesCandidateWithPackPreference } from "@/lib/torrents/pack-preference";
-import { parseEpisode } from "@/lib/torrents/episodes";
+import { selectSeriesCandidateWithPackPreference, matchesTargetEpisode } from "@/lib/torrents/pack-preference";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { ClientConnectionConfig } from "@/lib/clients";
@@ -17,13 +16,17 @@ import {
   padEp,
   resolveHuntCursor,
 } from "@/lib/library/cursor";
-import { assertStorageBudget } from "@/lib/library/disk-space";
+import { checkSendStorage } from "@/lib/library/storage-gate";
+import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import {
   getUserClientConfig,
 } from "@/lib/clients";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
-import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
+import {
+  searchCategoryForMediaType,
+  type CatalogSearchCategory,
+} from "@/lib/metadata/media-type";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
 import type {
   GrabPipelineResult,
@@ -48,6 +51,12 @@ export type OnDemandResult = {
    * to come back later.
    */
   infoHash?: string | null;
+  /**
+   * Set only when a storage limit refused the grab. @see StorageOverrideFacts —
+   * lets the caller offer "raise the cap" or an informed override rather than
+   * ending the interaction with a toast.
+   */
+  storage?: StorageOverrideFacts | null;
   /** True when grab matched hunt cursor and cursor was advanced */
   advanced?: boolean;
   lastEpisode?: string;
@@ -183,21 +192,44 @@ export async function advanceLibraryItemIfHuntMatch(
 // indexer names a release, and it structurally hides season packs: EZTV drops
 // every pack when the query names an episode (torrents/eztv.ts), and free-text
 // indexers never substring-match a pack title against "SxxEyy". So a perfectly
-// seedable pack that CONTAINS the episode is invisible to rung 1. The ladder
-// relaxes the search one rung at a time and STOPS at the first working send.
+// seedable pack that CONTAINS the episode is invisible to rung 1.
+//
+// Anime adds two more failure modes the first ladder missed:
+//   1. Catalog titles are formal ("Re:ZERO -Starting Life in Another World-")
+//      while indexers list "Re Zero" / "ReZERO" / romaji. The formal string
+//      returns ZERO hits on Nyaa; the short alias finds dozens.
+//   2. TMDB often labels anime as mediaType "tv", which routes Nyaa to Live
+//      Action (4_0) instead of Anime (1_0). Dual-category rungs fix that.
+//   3. Fansubs number absolutely ("- 01") with no Sxx — selectors must accept
+//      season-less episode N when hunting S01EN (see matchesTargetEpisode).
+//
+// The ladder relaxes one rung at a time and STOPS at the first working send.
 
 /** Distinct indexer searches allowed per press (at most one per rung). */
-const MAX_LADDER_SEARCHES = 4;
+/**
+ * Distinct indexer searches allowed per press.
+ *
+ * Eight was not enough for anime: with the old alias×category cross-product it
+ * spent the whole budget on SxxEyy shapes and never asked for "Show - 01" at
+ * all. The rungs are now ordered by shape diversity, and the ceiling is raised
+ * so the tail (second alias, remaining categories) is reachable on hard titles.
+ */
+const MAX_LADDER_SEARCHES = 10;
 /** Total pipeline send attempts allowed per press (across all rungs). */
-const MAX_SEND_ATTEMPTS = 4;
+const MAX_SEND_ATTEMPTS = 6;
 /** Next-best-candidate retries within a single rung before moving on. */
-const MAX_CANDIDATES_PER_RUNG = 2;
+const MAX_CANDIDATES_PER_RUNG = 3;
+/** Per-rung indexer page size — anime titles need more than 15 to surface packs. */
+const LADDER_SEARCH_LIMIT = 40;
 
-type RungKind = "exact" | "alt" | "pack" | "relaxed";
+type RungKind = "exact" | "alt" | "pack" | "absolute" | "relaxed";
+type LadderCategory = CatalogSearchCategory | "all";
 
 type EpisodeRung = {
   kind: RungKind;
   query: string;
+  /** Indexer category for this rung (anime vs tv matters on Nyaa). */
+  category: LadderCategory;
   filters: PipelineSearchOptions["filters"];
   /** Ordered pick, skipping any candidate key already attempted this press. */
   select: (
@@ -209,6 +241,58 @@ type EpisodeRung = {
 /** Stable identity for cross-rung dedupe: infohash, else magnet, else id. */
 function candidateKey(r: TorrentResult): string {
   return normalizeInfoHash(r.infoHash) ?? r.magnet ?? r.id;
+}
+
+/**
+ * Titles worth searching, formal first then the short forms indexers actually
+ * use. Live proof (Re:ZERO): the full TMDB name → 0 hits; "Re Zero S01E01" on
+ * anime → seeded Nyaa results.
+ *
+ * Exported for unit tests — keep the rule class here, not re-derived in tests.
+ */
+export function searchTitleVariants(title: string): string[] {
+  const raw = title.trim();
+  if (!raw) return [];
+  const out: string[] = [];
+  const add = (value: string) => {
+    const v = value.replace(/\s+/g, " ").trim();
+    if (v.length < 2) return;
+    if (out.some((x) => x.toLowerCase() === v.toLowerCase())) return;
+    out.push(v);
+  };
+
+  add(raw);
+  // Drop parenthetical years: "Show (2016)" → "Show"
+  const noYear = raw
+    .replace(/\(\s*(?:19|20)\d{2}\s*\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  add(noYear);
+
+  // Head before a dash subtitle. TMDB often writes "-Starting" with NO space
+  // after the dash (`Re:ZERO -Starting Life in Another World-`), so require
+  // whitespace only *before* the dash; trailing spaces are optional.
+  const dashHead = (noYear.split(/\s+[-–—]\s*/)[0] ?? noYear)
+    .replace(/[-–—]+$/g, "")
+    .trim();
+  add(dashHead);
+
+  // Prefer short cleaned heads — these are what Nyaa ranks ("Re Zero", "ReZero").
+  for (const base of [dashHead, noYear]) {
+    add(base.replace(/:/g, " "));
+    add(base.replace(/:/g, ""));
+    const alnum = base
+      .replace(/[:._]/g, " ")
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    add(alnum);
+    // Compact token users type into search: "rezero"
+    add(alnum.replace(/\s+/g, ""));
+  }
+
+  // Cap — ladder budget is finite; formal + short aliases is enough.
+  return out.slice(0, 6);
 }
 
 /** "Show 1x02" — the other common single-episode naming indexers use. */
@@ -226,7 +310,15 @@ function seasonPackQuery(title: string, season: number): string {
 }
 
 /**
- * Last-resort selector: accept the EXACT episode even with zero seeders (a
+ * Anime absolute episode: "Show - 01" / "Show - 1". Fansubs almost never use
+ * SxxEyy; the dash form is what Nyaa ranks.
+ */
+function absoluteEpisodeQuery(title: string, episode: number): string {
+  return `${title.trim()} - ${padEp(episode)}`;
+}
+
+/**
+ * Last-resort selector: accept the target episode even with zero seeders (a
  * stalled magnet the engine may still resolve from the DHT), healthiest first.
  * Never returns a pack or a wrong episode. Kept local so the shared
  * pack-preference selector's `seeders > 0` floor stays intact for everyone else.
@@ -237,10 +329,7 @@ function selectRelaxedEpisode(
 ): TorrentResult | null {
   const exact = results
     .filter((r) => Boolean(r.magnet))
-    .filter((r) => {
-      const ep = parseEpisode(r.title);
-      return ep.season === target.season && ep.episode === target.episode;
-    })
+    .filter((r) => matchesTargetEpisode(r, target))
     .sort((a, b) => (b.seeders ?? 0) - (a.seeders ?? 0));
   return exact[0] ?? null;
 }
@@ -263,19 +352,33 @@ function pinnedResponse(
   };
 }
 
+function ladderCategories(mediaType: string): LadderCategory[] {
+  // searchCategoryForMediaType never returns "all" — only anime|movies|tv.
+  const primary: LadderCategory = searchCategoryForMediaType(mediaType) ?? "tv";
+  const cats: LadderCategory[] = [primary];
+  // Anime indexers (Nyaa) are the right place for a lot of series TMDB labels
+  // as plain "tv". Always try anime as a second category for series hunts.
+  if (primary !== "anime") cats.push("anime");
+  cats.push("all");
+  return cats;
+}
+
 /**
- * The rungs, in relaxation order. Rungs 1-2 vary the single-episode NAME; rung
- * 3 switches to a season query so packs can finally appear (the high-value rung
- * that rescues the Family Guy S01E02 case); rung 4 drops the seeder floor.
+ * The rungs, in relaxation order.
  *
- * A `102`-style scene-number rung was deliberately NOT added: parseEpisode
- * cannot turn a bare "102" back into S01E02, so those results would never pass
- * the season/episode filter or be selectable — it would be a wasted search.
+ * Fast path for ordinary TV (Family Guy etc.) is unchanged at the front:
+ *   1 exact SxxEyy · 2 alt 1x02 · 3 season pack
+ * on the primary category with the formal catalog title.
+ *
+ * Then alias + anime/all categories + absolute-episode forms rescue titles
+ * whose catalog name does not appear on indexers (Re:ZERO and most anime).
+ * Relaxed (0-seeder floor) stays last.
  */
 function buildEpisodeRungs(
   title: string,
   season: number,
   episode: number,
+  mediaType: string,
 ): EpisodeRung[] {
   const target = { season, episode };
   const packPreferred = (results: TorrentResult[], attempted: Set<string>) =>
@@ -283,38 +386,132 @@ function buildEpisodeRungs(
       results.filter((r) => !attempted.has(candidateKey(r))),
       target,
     );
-  return [
-    {
-      kind: "exact",
-      query: episodeSearchQuery(title, season, episode),
-      filters: { hasMagnet: true, minSeeders: 1, season, episode },
-      select: packPreferred,
-    },
-    {
-      kind: "alt",
-      query: altEpisodeQuery(title, season, episode),
-      filters: { hasMagnet: true, minSeeders: 1, season, episode },
-      select: packPreferred,
-    },
-    {
-      kind: "pack",
-      // No episode filter: a pack carries no episode number, but the season
-      // filter keeps a "Show S01" query from grabbing the wrong season.
-      query: seasonPackQuery(title, season),
-      filters: { hasMagnet: true, minSeeders: 1, season },
-      select: packPreferred,
-    },
-    {
-      kind: "relaxed",
-      query: episodeSearchQuery(title, season, episode),
-      filters: { hasMagnet: true, minSeeders: 0, season, episode },
-      select: (results, attempted) =>
-        selectRelaxedEpisode(
-          results.filter((r) => !attempted.has(candidateKey(r))),
-          target,
-        ),
-    },
-  ];
+  const relaxedSelect = (results: TorrentResult[], attempted: Set<string>) =>
+    selectRelaxedEpisode(
+      results.filter((r) => !attempted.has(candidateKey(r))),
+      target,
+    );
+
+  const titles = searchTitleVariants(title);
+  const primaryTitle = titles[0] ?? title.trim();
+  const aliases = rankAliases(
+    titles.filter((t) => t.toLowerCase() !== primaryTitle.toLowerCase()),
+  );
+
+  // A *rescue* alias is one that changes the name, not just its punctuation:
+  // "Re ZERO" for "Re:ZERO -Starting Life in Another World-". "FamilyGuy" for
+  // "Family Guy" is the same token with a space removed, and must not push the
+  // season pack — the universal rescue — down the ladder for ordinary TV.
+  const squash = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const primarySquashed = squash(primaryTitle);
+  const rescues = aliases.filter(
+    (a) =>
+      squash(a) !== primarySquashed || a.length <= primaryTitle.length * 0.6,
+  );
+  const spellings = aliases.filter((a) => !rescues.includes(a));
+  const bestAlias = rescues[0] ?? null;
+  const secondAlias = rescues[1] ?? spellings[0] ?? null;
+
+  const cats = ladderCategories(mediaType);
+  const primaryCat = cats[0] ?? "tv";
+  const animeCat: LadderCategory | null = cats.includes("anime") ? "anime" : null;
+  const extraCats = cats.filter((c) => c !== primaryCat && c !== "anime");
+
+  const rungs: EpisodeRung[] = [];
+  // The budget is spent per (query, category); asking the same thing twice is a
+  // rung the user paid for and learned nothing from.
+  const seen = new Set<string>();
+  const push = (
+    kind: RungKind,
+    query: string,
+    category: LadderCategory | null,
+    filters: PipelineSearchOptions["filters"],
+    select: EpisodeRung["select"] = packPreferred,
+  ) => {
+    if (!category) return;
+    const key = `${category}::${query.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rungs.push({ kind, query, category, filters, select });
+  };
+
+  const epFilters = { hasMagnet: true, minSeeders: 1, season, episode };
+  const packFilters = { hasMagnet: true, minSeeders: 1, season };
+  const absFilters = { hasMagnet: true, minSeeders: 1, episode };
+  const exact = (t: string | null, cat: LadderCategory | null) =>
+    t && push("exact", episodeSearchQuery(t, season, episode), cat, epFilters);
+  const alt = (t: string | null, cat: LadderCategory | null) =>
+    t && push("alt", altEpisodeQuery(t, season, episode), cat, epFilters);
+  const pack = (t: string | null, cat: LadderCategory | null) =>
+    t && push("pack", seasonPackQuery(t, season), cat, packFilters);
+  const absolute = (t: string | null, cat: LadderCategory | null) => {
+    // "Show - 01" numbers episodes from the start of the show, so it is only
+    // the same episode as SxxEyy while we are hunting season one.
+    if (!t || season !== 1) return;
+    push("absolute", absoluteEpisodeQuery(t, episode), cat, absFilters);
+  };
+
+  // The canonical query always leads: ordinary TV resolves on it.
+  exact(primaryTitle, primaryCat);
+
+  if (bestAlias) {
+    // Anime-shaped title. The catalog string is frequently a zero-hit query
+    // (measured on Re:ZERO), so the rescue name comes second rather than after
+    // the whole formal-title sweep, and the dash form has to land inside the
+    // budget instead of behind an alias×category cross-product.
+    exact(bestAlias, animeCat);
+    exact(bestAlias, primaryCat);
+    pack(primaryTitle, primaryCat);
+    absolute(bestAlias, animeCat);
+    alt(primaryTitle, primaryCat);
+    pack(bestAlias, animeCat);
+    absolute(bestAlias, primaryCat);
+  } else {
+    // Ordinary TV: the classic relaxation order, untouched. A season pack is
+    // the universal rescue and must not queue behind anime-only shapes.
+    alt(primaryTitle, primaryCat);
+    pack(primaryTitle, primaryCat);
+    exact(primaryTitle, animeCat);
+    absolute(primaryTitle, animeCat);
+  }
+
+  // Whatever name and category are left.
+  exact(secondAlias, animeCat);
+  exact(secondAlias, primaryCat);
+  absolute(secondAlias, animeCat);
+  for (const cat of extraCats) {
+    exact(bestAlias ?? primaryTitle, cat);
+    absolute(bestAlias ?? primaryTitle, cat);
+  }
+  pack(bestAlias ?? primaryTitle, primaryCat);
+
+  push(
+    "relaxed",
+    episodeSearchQuery(bestAlias ?? primaryTitle, season, episode),
+    animeCat ?? primaryCat,
+    { hasMagnet: true, minSeeders: 0, season, episode },
+    relaxedSelect,
+  );
+
+  return rungs;
+}
+
+/**
+ * Aliases in the order indexers actually reward.
+ *
+ * Punctuation is the enemy: `Re:ZERO` is one colon away from matching nothing,
+ * while `Re ZERO` is what Nyaa ranks. Short names beat long formal ones, which
+ * is the whole reason the ladder has aliases at all; space-separated names beat
+ * compacted ones (`ReZERO`); and word-jamming artifacts left behind by stripping
+ * a colon (`Star WarsThe Clone Wars`) rank below the readable form.
+ */
+export function rankAliases(aliases: string[]): string[] {
+  const cost = (t: string) =>
+    (/[:;,]/.test(t) ? 2 : 0) +
+    (/\s/.test(t) ? 0 : 1) +
+    (/\p{Ll}\p{Lu}/u.test(t) ? 0.5 : 0) +
+    Math.min(t.length, 60) / 12;
+  return [...aliases].sort((a, b) => cost(a) - cost(b));
 }
 
 export async function grabSingleEpisode(opts: {
@@ -327,6 +524,16 @@ export async function grabSingleEpisode(opts: {
   watchListItemId?: string | null;
   /** "stream" = reclaimable cache; "keep" = permanent download. */
   retention?: SendRetention;
+  /**
+   * Hashes reclamation must never touch — the stream the viewer is watching
+   * right now, when the caller knows it.
+   */
+  protectHashes?: readonly string[];
+  /**
+   * The owner was shown the real figures and chose to exceed their own cap.
+   * Honoured for the cap only — never for the free-space floor.
+   */
+  overrideStorageCap?: boolean;
   /** Test seam — bypass getUserClientConfig with a pinned client config. */
   _config?: ClientConnectionConfig;
   /** Test seam — override the per-rung aggregator search. */
@@ -339,9 +546,6 @@ export async function grabSingleEpisode(opts: {
   const season = Math.max(1, Math.trunc(opts.season) || 1);
   const episode = Math.max(1, Math.trunc(opts.episode) || 1);
   const query = episodeSearchQuery(opts.showTitle, season, episode);
-  // Unknown media type falls back to "tv": this path only runs for a library
-  // row we are hunting episode-by-episode, which is a series by construction.
-  const searchCategory = searchCategoryForMediaType(opts.mediaType) ?? "tv";
 
   const config = opts._config ?? (await getUserClientConfig(opts.userId));
   if (!config) {
@@ -355,15 +559,21 @@ export async function grabSingleEpisode(opts: {
   const label = formatEpisodeLabel(season, episode);
   const searchFn = opts._searchFn ?? searchTorrents;
   const db = opts._prisma ?? prisma;
-  const rungs = buildEpisodeRungs(opts.showTitle, season, episode);
+  const rungs = buildEpisodeRungs(
+    opts.showTitle,
+    season,
+    episode,
+    opts.mediaType,
+  );
 
   let cursorAdvance: Awaited<
     ReturnType<typeof advanceLibraryItemIfHuntMatch>
   > = { advanced: false };
 
-  // Memoize by (query + filters) so two rungs that resolve to the same search
-  // never double-hit the indexers, and so `searchMemo.size` is an honest count
-  // of DISTINCT searches for both the exhausted message and the search cap.
+  // Memoize by (query + category + filters) so two rungs that resolve to the
+  // same search never double-hit the indexers, and so `searchMemo.size` is an
+  // honest count of DISTINCT searches for both the exhausted message and the
+  // search cap.
   const searchMemo = new Map<string, Promise<SearchResponse>>();
   const attempted = new Set<string>();
   let sendAttempts = 0;
@@ -372,14 +582,14 @@ export async function grabSingleEpisode(opts: {
   let winner: { result: GrabPipelineResult; rung: EpisodeRung } | null = null;
 
   const runRungSearch = (rung: EpisodeRung): Promise<SearchResponse> | null => {
-    const key = `${rung.query}|${JSON.stringify(rung.filters)}`;
+    const key = `${rung.query}|${rung.category}|${JSON.stringify(rung.filters)}`;
     const existing = searchMemo.get(key);
     if (existing) return existing;
     if (searchMemo.size >= MAX_LADDER_SEARCHES) return null;
     const p = searchFn({
       query: rung.query,
-      category: searchCategory,
-      limit: 15,
+      category: rung.category,
+      limit: LADDER_SEARCH_LIMIT,
       enrich: false,
       skipCache: true,
       background: false,
@@ -413,7 +623,7 @@ export async function grabSingleEpisode(opts: {
         userId: opts.userId,
         search: {
           query,
-          category: searchCategory,
+          category: rung.category,
           limit: 1,
           enrich: false,
           skipCache: true,
@@ -426,6 +636,10 @@ export async function grabSingleEpisode(opts: {
         externalId: opts.watchListItemId ?? null,
         purpose: sendRetentionToPurpose(opts.retention, opts.watchListItemId),
         downloadHistoryPrefix: `On-demand ${label}`,
+        // `checkStorageBudget` below honours the override, but the engine runs
+        // its own storage check when the payload reaches it. Both have to know,
+        // or a confirmed over-cap grab passes here and is refused there.
+        addPayload: { overrideStorageCap: opts.overrideStorageCap === true },
         selectCandidate: () => candidate,
         async checkStorageBudget(cand, target) {
           const root =
@@ -433,20 +647,31 @@ export async function grabSingleEpisode(opts: {
             target.savePath ||
             config.savePath?.trim() ||
             process.cwd();
-          const space = await assertStorageBudget({
+          // Play reclaims before it refuses; Download still obeys the cap.
+          const space = await checkSendStorage({
+            userId: opts.userId,
+            config,
             root,
-            maxStorageBytes: config.maxStorageBytes,
             incomingBytes: cand.sizeBytes ?? null,
+            retention: opts.retention ?? "keep",
+            // The candidate itself is never collateral: reclaiming a stalled
+            // allocation to make room for that same allocation would delete the
+            // request out from under the request.
+            protectHashes: [
+              ...(opts.protectHashes ?? []),
+              ...(cand.infoHash ? [cand.infoHash] : []),
+            ],
+            overrideCap: opts.overrideStorageCap === true,
           });
           return space.ok
             ? { ok: true as const }
-            : { ok: false as const, message: space.message };
+            : { ok: false as const, message: space.message, storage: space.override };
         },
         resolveTarget(cfg, cand) {
           const t = resolveSmartSendTarget(cfg, {
             name: cand.title,
             source: cand.source,
-            searchCategory,
+            searchCategory: rung.category,
             metadata: catalogMetadata({
               mediaType: opts.mediaType,
               title: opts.showTitle,
@@ -545,6 +770,7 @@ export async function grabSingleEpisode(opts: {
       title: lastFailure.candidate?.title,
       savePath: lastFailure.target?.savePath,
       magnet: lastFailure.candidate?.magnet,
+      storage: lastFailure.storage ?? null,
       noReleaseFound: {
         reason,
         searches,
@@ -556,10 +782,12 @@ export async function grabSingleEpisode(opts: {
 
   // ── Exhausted: NOTHING was ever selectable (the reported-bug path) ────────
   // No pipeline call happened, so nothing is in Activity yet. Write EXACTLY ONE
-  // honest skip row — not one per rung — and tell the user what they can do.
-  const message = `Couldn't find a working release for ${label} — tried ${searches} search${
+  // honest skip row — not one per rung. Do NOT push the user to "search
+  // manually": the title page already *is* the search, and a dead CTA that
+  // opens the same indexer path is noise (user report on Re:ZERO S01E01).
+  const message = `Couldn't find a working release for ${label} after ${searches} search${
     searches === 1 ? "" : "es"
-  }${triedPacks ? " including season packs" : ""}. Search manually?`;
+  }${triedPacks ? " (including season packs)" : ""}. Try again in a bit — more seeders may show up.`;
   await db.grabJob.create({
     data: {
       userId: opts.userId,

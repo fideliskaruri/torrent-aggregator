@@ -28,7 +28,8 @@
  *    for a keyboard user to land on. A local file always wins over a future
  *    date, because bad provider data must never hide a file we actually hold.
  */
-import { Check, Download, Loader2, Play } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronDown, Download, Loader2, Play } from "lucide-react";
 import type { ReactNode } from "react";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { PosterImage } from "@/components/browse/poster-image";
@@ -44,7 +45,7 @@ import {
 import {
   EMPTY_EPISODES_COPY,
   episodeListView,
-  episodeSeasonSummary,
+  episodeSeasonCountLabel,
   type EpisodeListLoadState,
 } from "./episode-list-state";
 import {
@@ -61,6 +62,9 @@ import {
   shouldRunSeasonGrab,
   type SeasonGrabStatus,
 } from "./season-grab-state";
+import { QualityPicker } from "./quality-picker";
+import { shouldAskForQuality } from "./quality-picker-state";
+import { usePreferredQuality } from "./use-preferred-quality";
 import type { TitleRetention, TitleSeason } from "./types";
 
 export interface EpisodeListProps {
@@ -74,9 +78,16 @@ export interface EpisodeListProps {
   statusFor: (key: string) => TitleActionStatus;
   seasonGrabStatus: SeasonGrabStatus;
   seasonStreamStatus?: SeasonGrabStatus;
+  /**
+   * The whole work is future-dated. Every episode of it is unaired by
+   * definition, so the season controls are withheld exactly like the hero's —
+   * a "Download season" for a show that has not started is a button that can
+   * only ever fail.
+   */
+  gated?: boolean;
   onSeasonChange: (season: number) => void;
-  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention) => void;
-  onAction: (action: TitleAction, label: string, retention: TitleRetention) => void;
+  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention, resolution?: number) => void;
+  onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
 }
 
 /** Stable per-row key for tracking one in-flight action. */
@@ -137,12 +148,45 @@ export function EpisodeList({
   statusFor,
   seasonGrabStatus,
   seasonStreamStatus = { status: "idle" },
+  gated = false,
   onSeasonChange,
   onSeasonGrab,
   onAction,
 }: EpisodeListProps) {
+  const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
+
+  // Single quality picker for the whole list. One picker serves all Download
+  // buttons — opening the picker records what triggered it, and on confirm
+  // the right action is dispatched.
+  type PendingDownload =
+    | { kind: "episode"; action: TitleAction; label: string }
+    | { kind: "season"; targetSeason: number; episodeNums: number[] };
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
+
+  function openPickerFor(pending: PendingDownload) {
+    setPendingDownload(pending);
+    setPickerOpen(true);
+  }
+
+  function handlePickerConfirm(resolution: number) {
+    setPickerOpen(false);
+    if (!pendingDownload) return;
+    if (pendingDownload.kind === "episode") {
+      onAction(pendingDownload.action, pendingDownload.label, "keep", resolution);
+    } else {
+      onSeasonGrab(pendingDownload.targetSeason, pendingDownload.episodeNums, "keep", resolution);
+    }
+    setPendingDownload(null);
+  }
+
+  function handlePickerOpenChange(open: boolean) {
+    setPickerOpen(open);
+    if (!open) setPendingDownload(null);
+  }
+
   const view = episodeListView(loadState, episodes.length);
-  const showSeasonGrab = canOfferSeasonGrab(season, episodes.length);
+  const showSeasonGrab = !gated && canOfferSeasonGrab(season, episodes.length);
   const seasonDownloadCanRun =
     showSeasonGrab && shouldRunSeasonGrab(seasonGrabStatus);
   const seasonStreamCanRun =
@@ -150,121 +194,133 @@ export function EpisodeList({
   const seasonGrabSummaryId =
     showSeasonGrab && season != null ? `season-${season}-grab-status` : undefined;
 
+  // Episode count next to the season control — the select already names the
+  // season, so "7 episodes" beats the old "7 in season 1" echo.
+  const seasonCountLabel =
+    season != null
+      ? episodeSeasonCountLabel(episodes.length, loadState, season)
+      : null;
+
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h2 id="title-episodes-heading" className="text-title">
-          Episodes
-        </h2>
-        {/* min-w floors this short count past the audit's 70px squeezed-text
-            heuristic: it is a one-line label, not wrapping prose. */}
-        {season != null ? (
-          <p className="min-w-[72px] text-[12px] text-[var(--text-tertiary)]">
-            {episodeSeasonSummary(season, episodes.length, loadState)}
-          </p>
-        ) : null}
-      </div>
+      <h2 id="title-episodes-heading" className="text-title">
+        Episodes
+      </h2>
 
-      {seasons.length > 1 || showSeasonGrab ? (
-              // Always stack: tabs get the full row width; season actions sit below.
-              // Side-by-side (sm:flex-row) used to steal ~300px for Play/Download and
-              // hard-slice "Season 10" mid-word on a 24-season title with no fade and
-              // a hidden scrollbar — seasons 10–24 were undiscoverable.
-              <div className="mt-3 flex flex-col gap-2">
-                {seasons.length > 1 ? (
-                  <nav aria-label="Seasons" className="relative min-w-0">
-                    {/* Edge fade advertises overflow without eating a tab when scrolled. */}
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute inset-y-0 right-0 z-10 w-10 bg-gradient-to-l from-[var(--bg)] to-transparent"
-                    />
-                    <ul
-                      data-season-strip
-                      className="flex snap-x gap-2 overflow-x-auto pb-1 pr-8 [scrollbar-width:thin]"
-                    >
-                      {seasons.map((s) => {
-                        const current = s.season === season;
-                        return (
-                          <li key={s.season} className="shrink-0 snap-start">
-                            <button
-                              type="button"
-                              data-season-tab={s.season}
-                              data-active={current || undefined}
-                              aria-pressed={current}
-                              onClick={() => onSeasonChange(s.season)}
-                              className={cn(
-                                "inline-flex min-h-[44px] cursor-pointer touch-manipulation items-center justify-center rounded-[var(--radius)] border px-3 py-1.5 text-[12px] font-medium transition-colors lg:min-h-0",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-                                current
-                                  ? "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]"
-                                  : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
-                              )}
-                            >
-                              Season {s.season}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </nav>
-                ) : null}
+      {/*
+        One toolbar, not a pill strip.
+        24× "Season N" chips forced horizontal scroll and looked like a browser
+        tab bar. Netflix/Plex use a select: every season is one click away, the
+        row stays one line, and Play/Download sit next to the choice they act on.
+      */}
+      {seasons.length > 1 || showSeasonGrab || season != null ? (
+        <div
+          data-season-toolbar
+          className="mt-3 flex flex-wrap items-center gap-2 sm:gap-3"
+        >
+          {seasons.length > 1 ? (
+            <label className="relative inline-flex min-w-0 shrink-0 items-center">
+              <span className="sr-only">Season</span>
+              <select
+                data-season-select
+                value={season ?? ""}
+                onChange={(event) => {
+                  const next = Number(event.target.value);
+                  if (Number.isFinite(next)) onSeasonChange(next);
+                }}
+                className={cn(
+                  "h-11 min-h-[44px] cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors lg:h-9 lg:min-h-0",
+                  "hover:border-[var(--border-strong)]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                )}
+              >
+                {seasons.map((s) => (
+                  <option key={s.season} value={s.season}>
+                    Season {s.season}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[var(--text-tertiary)]"
+                aria-hidden
+              />
+            </label>
+          ) : season != null ? (
+            <span
+              data-season-label
+              className="text-[13px] font-medium text-[var(--text)]"
+            >
+              Season {season}
+            </span>
+          ) : null}
 
-                {showSeasonGrab && season != null ? (
-                  <div className="flex w-full items-center gap-2 sm:w-auto">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="default"
-                      data-season-grab
-                      data-action="stream"
-                      aria-busy={seasonStreamStatus.status === "pending" || undefined}
-                      aria-describedby={seasonGrabSummaryId}
-                      disabled={!seasonStreamCanRun}
-                      onClick={() =>
-                        onSeasonGrab(
-                          season,
-                          episodes.map((episode) => episode.episode),
-                          "stream",
-                        )
-                      }
-                      className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none"
-                    >
-                      <ButtonBody
-                        pending={seasonStreamStatus.status === "pending"}
-                        icon={<Play className="fill-current" aria-hidden />}
-                      >
-                        Play season
-                      </ButtonBody>
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      data-season-grab
-                      data-action="download"
-                      aria-busy={seasonGrabStatus.status === "pending" || undefined}
-                      aria-describedby={seasonGrabSummaryId}
-                      disabled={!seasonDownloadCanRun}
-                      onClick={() =>
-                        onSeasonGrab(
-                          season,
-                          episodes.map((episode) => episode.episode),
-                          "keep",
-                        )
-                      }
-                      className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none"
-                    >
-                      <ButtonBody
-                        pending={seasonGrabStatus.status === "pending"}
-                        icon={<Download aria-hidden />}
-                      >
-                        Download season
-                      </ButtonBody>
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+          {seasonCountLabel ? (
+            <p
+              data-season-count
+              className="min-w-[72px] text-[12px] tabular-nums text-[var(--text-tertiary)]"
+            >
+              {seasonCountLabel}
+            </p>
+          ) : null}
+
+          {showSeasonGrab && season != null ? (
+            <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                data-season-grab
+                data-action="stream"
+                aria-busy={seasonStreamStatus.status === "pending" || undefined}
+                aria-describedby={seasonGrabSummaryId}
+                disabled={!seasonStreamCanRun}
+                onClick={() =>
+                  onSeasonGrab(
+                    season,
+                    episodes.map((episode) => episode.episode),
+                    "stream",
+                  )
+                }
+                className="relative min-h-[44px] flex-1 sm:flex-none lg:min-h-0"
+              >
+                <ButtonBody
+                  pending={seasonStreamStatus.status === "pending"}
+                  icon={<Play className="fill-current" aria-hidden />}
+                >
+                  Play season
+                </ButtonBody>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                data-season-grab
+                data-action="download"
+                aria-busy={seasonGrabStatus.status === "pending" || undefined}
+                aria-describedby={seasonGrabSummaryId}
+                disabled={!seasonDownloadCanRun}
+                onClick={() => {
+                  if (season == null) return;
+                  const episodeNums = episodes.map((e) => e.episode);
+                  if (shouldAskForQuality("keep", alwaysPreferred)) {
+                    openPickerFor({ kind: "season", targetSeason: season, episodeNums });
+                  } else {
+                    onSeasonGrab(season, episodeNums, "keep", preferredResolution);
+                  }
+                }}
+                className="relative min-h-[44px] flex-1 sm:flex-none lg:min-h-0"
+              >
+                <ButtonBody
+                  pending={seasonGrabStatus.status === "pending"}
+                  icon={<Download aria-hidden />}
+                >
+                  Download season
+                </ButtonBody>
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {showSeasonGrab && season != null ? (
         <SeasonGrabReportLine
@@ -302,6 +358,7 @@ export function EpisodeList({
               <EpisodeRow
                 key={episode.episode}
                 episode={episode}
+                gated={gated}
                 streamStatus={statusFor(
                   episodeIntentKey(episode.season, episode.episode, "stream"),
                 )}
@@ -311,7 +368,16 @@ export function EpisodeList({
                 fallbackStatus={statusFor(
                   episodeActionKey(episode.season, episode.episode),
                 )}
-                onAction={onAction}
+                onAction={(action, label, retention) => {
+                  // Play is always instant — never ask for quality.
+                  // Download earns a quality question unless the user has
+                  // elected "always preferred".
+                  if (retention === "keep" && shouldAskForQuality("keep", alwaysPreferred)) {
+                    openPickerFor({ kind: "episode", action, label });
+                  } else {
+                    onAction(action, label, retention, retention === "keep" ? preferredResolution : undefined);
+                  }
+                }}
               />
             ))}
           </ul>
@@ -322,6 +388,17 @@ export function EpisodeList({
           ) : null}
         </>
       )}
+
+      {/* One quality picker for the entire episode list. Episode Download and
+          Download season both route through it. Play never does. */}
+      <QualityPicker
+        open={pickerOpen}
+        onOpenChange={handlePickerOpenChange}
+        preferredResolution={preferredResolution}
+        alwaysPreferred={alwaysPreferred}
+        onAlwaysPreferredChange={setAlwaysPreferred}
+        onConfirm={handlePickerConfirm}
+      />
     </section>
   );
 }
@@ -383,16 +460,19 @@ function EpisodeSkeletonRows({ rows }: { rows: number }) {
 
 function EpisodeRow({
   episode,
+  gated = false,
   streamStatus,
   downloadStatus,
   fallbackStatus,
   onAction,
 }: {
   episode: EpisodeRowModel;
+  /** The whole work is future-dated — see `EpisodeListProps.gated`. */
+  gated?: boolean;
   streamStatus: TitleActionStatus;
   downloadStatus: TitleActionStatus;
   fallbackStatus: TitleActionStatus;
-  onAction: (action: TitleAction, label: string, retention: TitleRetention) => void;
+  onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
 }) {
   const resolved = resolveEpisodeAction(episode);
   const streamAction: TitleAction =
@@ -437,8 +517,11 @@ function EpisodeRow({
   const airDate = formatAirDate(meta?.airDate ?? null);
 
   // A file we hold beats a future air date. Provider dates are wrong often
-  // enough that letting one hide a real download would be the worse bug.
-  const unaired = resolved.kind !== "play" && isUnaired(meta?.airDate ?? null);
+  // enough that letting one hide a real download would be the worse bug. A
+  // future-dated *work* gates every row, including ones the provider has not
+  // given an air date for at all.
+  const unaired =
+    resolved.kind !== "play" && (gated || isUnaired(meta?.airDate ?? null));
 
   const facts: string[] = [];
   if (!unaired && airDate) facts.push(airDate);
@@ -452,9 +535,10 @@ function EpisodeRow({
   else if (watched != null && watched < 100) facts.push(`${watched}% watched`);
   const factsText = factsLine(facts);
 
-  // Only actionable states get a badge. `null` means nobody has looked, and a
-  // chip saying so on every row of a season conveys nothing.
-  const showChip = episode.availability != null;
+  // Only local states earn a badge. "Unavailable" beside a Play retry is
+  // contradictory, and "Can get" only repeats the row's controls.
+  const showChip =
+    episode.availability === "ready" || episode.availability === "warm";
   const showTags = showChip || episode.nextUp || episode.watched;
 
   return (
@@ -598,8 +682,11 @@ function episodeActionStatusText(
   label: string,
   status: TitleActionStatus,
 ): string | null {
-  if (status === "pending") return `Getting ${label} ready…`;
-  if (status === "done") return `Getting ${label}`;
-  if (status === "error") return `Could not get ${label}.`;
+  // "Getting" and "Sending" are downloader jargon. These copies use plain
+  // language. The `done` state means the API responded but the episode has
+  // not yet appeared as playable — it is on its way, not stuck.
+  if (status === "pending") return `Loading ${label}…`;
+  if (status === "done") return `${label} is on its way…`;
+  if (status === "error") return `Could not start ${label}. Try again.`;
   return null;
 }

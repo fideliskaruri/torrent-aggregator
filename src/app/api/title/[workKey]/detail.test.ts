@@ -49,6 +49,7 @@ function local(hash: string) {
     isPack: false,
     isMultiSeason: false,
     retentionState: "kept" as const,
+    fileMissing: false as boolean,
   };
 }
 

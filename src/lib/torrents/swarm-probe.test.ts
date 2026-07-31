@@ -552,9 +552,9 @@ async function main(): Promise<void> {
     const target: PreRankTarget = { title: "Zzqx", mediaType: "movie" };
 
     check("orderByVerdict promotes good, demotes dead, keeps unknown neutral", () => {
-      const a = result({ title: "A" });
-      const b = result({ title: "B" });
-      const c = result({ title: "C" });
+      const a = result({ title: "Zzqx A" });
+      const b = result({ title: "Zzqx B" });
+      const c = result({ title: "Zzqx C" });
       const v = new Map<string, SwarmVerdict>([
         [a.infoHash!, "dead"],
         [b.infoHash!, "unknown"],
@@ -563,7 +563,7 @@ async function main(): Promise<void> {
       const ordered = orderByVerdict([a, b, c], (r) => v.get(r.infoHash!) ?? "unknown");
       assert.deepEqual(
         ordered.map((r) => r.title),
-        ["C", "B", "A"],
+        ["Zzqx C", "Zzqx B", "Zzqx A"],
         "good first, unknown (neutral) next, dead last",
       );
     });
@@ -571,43 +571,43 @@ async function main(): Promise<void> {
     check("a measured good beats a release merely advertising more seeders", () => {
       // `claim` is first in rank order (more advertised seeders); `measured` is
       // second but has been probed good. The measurement must win.
-      const claim = result({ title: "Claim 999 seeders", seeders: 999 });
-      const measured = result({ title: "Measured good", seeders: 30 });
+      const claim = result({ title: "Zzqx Claim 999 seeders", seeders: 999 });
+      const measured = result({ title: "Zzqx Measured good", seeders: 30 });
       const v = new Map<string, SwarmVerdict>([[measured.infoHash!, "good"]]);
       const pick = selectBestRelease([claim, measured], target, {
         verdictOf: (r) => v.get(r.infoHash!) ?? "unknown",
       });
-      assert.equal(pick?.title, "Measured good");
+      assert.equal(pick?.title, "Zzqx Measured good");
     });
 
     check("a dead release is demoted behind an unknown one, but not removed", () => {
-      const dead = result({ title: "Dead but top-ranked", seeders: 500 });
-      const unknown = result({ title: "Unknown", seeders: 5 });
+      const dead = result({ title: "Zzqx Dead but top-ranked", seeders: 500 });
+      const unknown = result({ title: "Zzqx Unknown", seeders: 5 });
       const v = new Map<string, SwarmVerdict>([[dead.infoHash!, "dead"]]);
       const pick = selectBestRelease([dead, unknown], target, {
         verdictOf: (r) => v.get(r.infoHash!) ?? "unknown",
       });
-      assert.equal(pick?.title, "Unknown", "dead is demoted below neutral");
+      assert.equal(pick?.title, "Zzqx Unknown", "dead is demoted below neutral");
     });
 
     check("a dead release that is the ONLY release is still returned", () => {
-      const dead = result({ title: "Only option, measured dead", seeders: 500 });
+      const dead = result({ title: "Zzqx Only option, measured dead", seeders: 500 });
       const v = new Map<string, SwarmVerdict>([[dead.infoHash!, "dead"]]);
       const pick = selectBestRelease([dead], target, {
         verdictOf: (r) => v.get(r.infoHash!) ?? "unknown",
       });
       assert.equal(
         pick?.title,
-        "Only option, measured dead",
+        "Zzqx Only option, measured dead",
         "demote never filters: the alternative is offering the user nothing",
       );
     });
 
     check("with no verdicts supplied the ranker order is untouched", () => {
-      const a = result({ title: "A" });
-      const b = result({ title: "B" });
-      assert.equal(selectBestRelease([a, b], target)?.title, "A");
-      assert.equal(selectBestRelease([b, a], target)?.title, "B");
+      const a = result({ title: "Zzqx A" });
+      const b = result({ title: "Zzqx B" });
+      assert.equal(selectBestRelease([a, b], target)?.title, "Zzqx A");
+      assert.equal(selectBestRelease([b, a], target)?.title, "Zzqx B");
     });
   } finally {
     clearInterval(keepAlive);

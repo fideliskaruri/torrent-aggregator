@@ -175,14 +175,47 @@ for (const file of files) {
   // the assertions already passed, so trust explicit FAIL markers over the code.
   const sawFail = /\bFAIL\b/.test(out);
   const sawPass = /\bPASS\b/.test(out);
-  const ok = !sawFail && (r.status === 0 || sawPass);
+
+  // But leniency must stop at the line between "exited untidily" and "died".
+  //
+  // The original rule forgave ANY non-zero exit that had printed a PASS, which
+  // meant a file that crashed halfway through — after some assertions had
+  // printed and before the rest ever ran — was reported as green. The suite
+  // would then claim to cover behaviour it had not actually executed, which is
+  // worse than a red run because it is trusted.
+  //
+  // A hard crash is distinguishable and is never forgiven:
+  //   - a signal (SIGSEGV / SIGABRT) killed it;
+  //   - the runner's own timeout fired, so the file never finished;
+  //   - the code is an NTSTATUS-shaped value (>= 0xC0000000), which on Windows
+  //     means access violation, stack overflow, heap corruption and friends.
+  //     Node's own `process.exit(n)` can never produce one, so seeing one here
+  //     is unambiguous.
+  const NTSTATUS_FLOOR = 0xc0000000;
+  const crashed =
+    r.signal != null ||
+    r.error?.code === "ETIMEDOUT" ||
+    (typeof r.status === "number" && r.status >= NTSTATUS_FLOOR);
+
+  const ok = !sawFail && !crashed && (r.status === 0 || sawPass);
   // That leniency is justified, but it must never be silent: a file counted
   // green on a non-zero exit is green because of this rule, not because the
   // process succeeded. Track it so "N/N passed" can state how much of itself
   // rests on the exception.
   const forgiven = ok && r.status !== 0;
+  if (crashed) {
+    console.log(
+      `        crashed: ${
+        r.signal
+          ? `signal ${r.signal}`
+          : r.error?.code === "ETIMEDOUT"
+            ? "timed out — the file never finished"
+            : `exit 0x${(r.status >>> 0).toString(16).toUpperCase()}`
+      } — PASS markers before a crash do not count`,
+    );
+  }
 
-  results.push({ file, ok, took, out, forgiven, status: r.status });
+  results.push({ file, ok, took, out, forgiven, status: r.status, crashed });
   console.log(`${ok ? "PASS" : "FAIL"}${forgiven ? "*" : " "} ${file}  (${took}ms)${forgiven ? `  [exit ${r.status}, counted green on PASS marker]` : ""}`);
   if (!ok) {
     console.log(

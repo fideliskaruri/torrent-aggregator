@@ -601,6 +601,12 @@ async function main() {
     const histories = calls.filter((c) => c.model === "downloadHistory" && c.op === "create");
     assert.ok(grabJobs.length >= 1, "must write at least one GrabJob");
     assert.ok(histories.length >= 1, "must write at least one DownloadHistory");
+    assert.ok(grabJobs[0].data?.createdAt instanceof Date);
+    assert.equal(
+      grabJobs[0].data?.createdAt,
+      histories[0].data?.createdAt,
+      "both durable records must carry the same logical-event timestamp",
+    );
   });
 
   await checkAsync("send failure still writes GrabJob + DownloadHistory", async () => {

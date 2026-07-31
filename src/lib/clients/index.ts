@@ -93,8 +93,14 @@ export async function getUserClientConfig(
 
   const maxRaw = (settings as { maxStorageBytes?: bigint | number | null })
     .maxStorageBytes;
+  const capWasConfigured =
+    (settings as { storageCapConfigured?: boolean | null })
+      .storageCapConfigured === true;
+  const hasConfiguredFolder = Boolean(
+    settings.baseDownloadPath?.trim() || settings.savePath?.trim(),
+  );
   const maxStorageBytes =
-    maxRaw == null
+    !capWasConfigured || !hasConfiguredFolder || maxRaw == null
       ? null
       : typeof maxRaw === "bigint"
         ? Number(maxRaw)

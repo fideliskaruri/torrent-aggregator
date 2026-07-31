@@ -17,19 +17,13 @@ interface TitleResultsListProps {
 }
 
 /**
- * The shared results surface — one card per work, best match first, the rest
- * in server rank order. No toolbar, no counts, no filters: the query is the
- * control, and the cards are the answer.
- *
- * Skeletons occupy the real cards' geometry so results swapping in never shift
- * the page (no CLS). The full skeleton shows only on a cold load (`loading`
- * with nothing to show yet); once cards exist a refetch leaves them in place.
+ * Shared results surface — one TMDB title card per work, best match first.
+ * No torrent actions: click opens the title page.
  */
 export function TitleResultsList({
   titles,
   loading,
   query,
-  searchCategory,
   skeletonCount = 6,
 }: TitleResultsListProps) {
   if (loading && titles.length === 0) {
@@ -51,7 +45,7 @@ export function TitleResultsList({
           <SearchX className="h-5 w-5" aria-hidden />
         </div>
         <p className="mt-3 text-sm text-[var(--text-secondary)]">
-          Nothing found for “{query.trim()}”
+          No titles found for “{query.trim()}”
         </p>
         <p className="mt-1.5 text-[12px] text-[var(--text-tertiary)]">
           Try another spelling.
@@ -66,7 +60,6 @@ export function TitleResultsList({
         <TitleResultCard
           key={title.key}
           title={title}
-          searchCategory={searchCategory}
           featured={i === 0}
         />
       ))}

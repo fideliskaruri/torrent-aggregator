@@ -6,6 +6,11 @@ import { useSession } from "@/components/providers/session-provider";
 import { useDownloadPrefs } from "@/hooks/use-download-prefs";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { ActionButtonStatus } from "@/components/ui/action-button";
+import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
+import {
+  parseStorageOverrideFacts,
+  StorageLimitError,
+} from "@/lib/library/storage-override";
 
 export type ReleaseAction = "play" | "download";
 
@@ -37,6 +42,10 @@ export function useReleaseActions(
     status: ActionButtonStatus;
   } | null>(null);
   const statusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Synchronous in-flight latch — see the guard in `run`. */
+  const inFlightRef = useRef(false);
+  // Over-cap Download asks instead of refusing. Play never gets here.
+  const cap = useStorageCapOverride();
 
   useEffect(
     () => () => {
@@ -77,25 +86,50 @@ export function useReleaseActions(
       toast.message(play ? "Sign in to play" : "Sign in to download");
       return;
     }
+    // A ref, not the `pending` state, because state updates are async: two
+    // clicks inside one tick both read `pending === null` and both send. The
+    // `disabled` attribute has the same hole — it only takes effect after the
+    // re-render. This closes it synchronously, on the first line that runs.
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setPending(action);
     try {
-      const res = await fetch("/api/torrent/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          magnet: torrent.magnet,
-          torrentUrl: torrent.torrentUrl,
-          name: torrent.title,
-          source: torrent.source,
-          infoHash: torrent.infoHash,
-          tags: torrent.tags,
-          searchCategory: searchCategory ?? null,
-          metadata: torrent.metadata ?? null,
-          target: "primary",
-          retention: play ? "stream" : "keep",
-        }),
+      const outcome = await cap.run(async ({ overrideStorageCap }) => {
+        const res = await fetch("/api/torrent/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            magnet: torrent.magnet,
+            torrentUrl: torrent.torrentUrl,
+            name: torrent.title,
+            source: torrent.source,
+            infoHash: torrent.infoHash,
+            tags: torrent.tags,
+            searchCategory: searchCategory ?? null,
+            metadata: torrent.metadata ?? null,
+            target: "primary",
+            retention: play ? "stream" : "keep",
+            ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
+          }),
+        });
+        const body = await res.json();
+        // A storage refusal is thrown, not returned, so the shared rule can
+        // decide whether it is the owner's cap (offer a choice) or the disk's
+        // wont-fit refusal (never overridable). Every other failure keeps its
+        // existing shape and falls through to the inline error below.
+        if (!body?.ok) {
+          const storage = parseStorageOverrideFacts(body?.storage);
+          if (storage?.overridable) {
+            throw new StorageLimitError(body?.message || "Storage limit", storage);
+          }
+        }
+        return body as { ok?: boolean; message?: string };
       });
-      const data = await res.json();
+
+      // Declined the confirmation: nothing was sent, so leave no error state.
+      if (outcome.status === "cancelled") return;
+
+      const data = outcome.value;
       if (data.ok) {
         if (play) {
           const infoHash = infoHashForPlayback();
@@ -118,10 +152,20 @@ export function useReleaseActions(
         toast.error(msg);
         flash(action, { message: msg, variant: "error" });
       }
-    } catch {
-      toast.error("Network error");
-      flash(action, { message: "Network error", variant: "error" });
+    } catch (err) {
+      // A refusal that survived the override (or any transport failure) lands
+      // here. Report what actually happened rather than always blaming the
+      // network — a second storage refusal is not a connectivity problem.
+      const msg =
+        err instanceof StorageLimitError
+          ? err.message
+          : err instanceof Error && err.message
+            ? err.message
+            : "Network error";
+      toast.error(msg);
+      flash(action, { message: msg, variant: "error" });
     } finally {
+      inFlightRef.current = false;
       setPending(null);
     }
   }
@@ -136,6 +180,8 @@ export function useReleaseActions(
     canSend,
     status,
     playback,
+    /** Spread onto `<StorageCapDialog />` on whichever surface renders this. */
+    storageDialogProps: cap.dialogProps,
     closePlayback: () => setPlayback(null),
     play: (display: { title: string; subtitle?: string | null }) =>
       run("play", display),

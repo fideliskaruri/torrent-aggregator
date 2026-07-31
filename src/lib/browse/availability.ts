@@ -20,6 +20,11 @@ import {
   getBuiltinTorrentPresenceForAvailability,
   type BuiltinTorrentPresence,
 } from "@/lib/clients/builtin-engine";
+import {
+  fileConfirmedMissing,
+  localFilePresenceLookup,
+  type LocalFilePresence,
+} from "@/lib/library/local-file-presence";
 import type { SearchResponse } from "@/lib/torrents/types";
 import type { Availability } from "./types";
 
@@ -46,7 +51,17 @@ function getCached(key: string): Availability | null {
 }
 
 function setCached(key: string, value: Availability): void {
-  if (value.state === null) return;
+  // Local playability is a live-engine fact, not a 30-second fact. Caching
+  // ready/warm lets a removed or failed torrent keep advertising Play until
+  // this memo expires. Search-derived states are safe to memoise; local states
+  // are cheap to re-check against the engine on every browse payload.
+  if (
+    value.state === null ||
+    value.state === "ready" ||
+    value.state === "warm"
+  ) {
+    return;
+  }
   memoryCache.set(key, { expires: Date.now() + MEMORY_TTL_MS, value });
 }
 
@@ -91,7 +106,7 @@ export async function resolveAvailability(
 
   const torrents = await prisma.engineTorrent.findMany({
     where: { userId },
-    select: { hash: true, name: true, progress: true, status: true },
+    select: TORRENT_SELECT,
   });
 
   const result = await computeAvailabilityWithTorrents(
@@ -119,15 +134,16 @@ export async function resolveAvailabilityBatch(
   // Single DB query for all user torrents
   const allTorrents = await prisma.engineTorrent.findMany({
     where: { userId },
-    select: { hash: true, name: true, progress: true, status: true },
+    select: TORRENT_SELECT,
   });
+  const filePresence = localFilePresenceLookup(allTorrents);
 
   // Resolve local state first; collect queries that need the search cache
   const localResults: (Availability | null)[] = queries.map((q) => {
     const cacheKey = availCacheKey(userId, q);
     const cached = getCached(cacheKey);
     if (cached) return cached;
-    return resolveLocalOnly(q, allTorrents, readyPresenceForUser(userId));
+    return resolveLocalOnly(q, allTorrents, readyPresenceForUser(userId), filePresence);
   });
 
   // Identify which queries still need the search-cache check (got null above,
@@ -147,15 +163,15 @@ export async function resolveAvailabilityBatch(
   // Resolve the remaining items
   const results: Availability[] = [];
   for (let i = 0; i < queries.length; i++) {
-    if (localResults[i] !== null) {
-      const result = localResults[i]!;
-      setCached(availCacheKey(userId, queries[i]), result);
-      results.push(result);
-      continue;
-    }
-
-    const cached = searchCacheMap.get(normalizeTitle(queries[i].title)) ?? null;
-    const result = resolveFromSearchCache(queries[i], cached);
+    const cached =
+      localResults[i] === null
+        ? (searchCacheMap.get(normalizeTitle(queries[i].title)) ?? null)
+        : null;
+    const result = resolveWithSearchCache(
+      queries[i],
+      localResults[i],
+      cached,
+    );
     setCached(availCacheKey(userId, queries[i]), result);
     results.push(result);
   }
@@ -180,11 +196,17 @@ export async function resolveLocalAvailabilityBatch(
 
   const allTorrents = await prisma.engineTorrent.findMany({
     where: { userId },
-    select: { hash: true, name: true, progress: true, status: true },
+    select: TORRENT_SELECT,
   });
+  const filePresence = localFilePresenceLookup(allTorrents);
 
   return queries.map((q) => {
-    const local = resolveLocalOnly(q, allTorrents, readyPresenceForUser(userId));
+    const local = resolveLocalOnly(
+      q,
+      allTorrents,
+      readyPresenceForUser(userId),
+      filePresence,
+    );
     // null means no local torrent — report unknown, NOT unavailable
     return local ?? { state: null };
   });
@@ -212,10 +234,24 @@ interface TorrentRow {
   name: string;
   progress: number;
   status: string;
+  /** Presence evidence — see `library/local-file-presence.ts`. */
+  savePath?: string | null;
+  verifiedFilesJson?: string | null;
 }
 
 type ReadyTorrentPresence = BuiltinTorrentPresence;
 type ReadyPresenceLookup = (hash: string) => ReadyTorrentPresence;
+type FilePresenceLookup = (hash: string) => LocalFilePresence;
+
+/** Columns every availability read needs, including file-presence evidence. */
+const TORRENT_SELECT = {
+  hash: true,
+  name: true,
+  progress: true,
+  status: true,
+  savePath: true,
+  verifiedFilesJson: true,
+} as const;
 
 function readyPresenceForUser(userId: string): ReadyPresenceLookup {
   return (hash) => getBuiltinTorrentPresenceForAvailability(userId, hash);
@@ -268,13 +304,22 @@ function torrentMatchesQuery(
  * Resolve local (EngineTorrent) availability only. Returns `null` when no
  * matching local torrent exists — the caller decides whether that means
  * `unknown` (cheap path) or needs the search cache (full path).
+ *
+ * A row whose file the filesystem says is gone (the owner deleted it by hand)
+ * is dropped before classification rather than downgraded: a claim must not
+ * outlive its file, and pretending the row never existed is what lets the
+ * search cache answer honestly instead of offering a Resume that cannot work.
+ * `unknown` presence is left alone — see `library/local-file-presence.ts`.
  */
 function resolveLocalOnly(
   query: AvailabilityQuery,
   torrents: TorrentRow[],
   readyPresence: ReadyPresenceLookup,
+  filePresence: FilePresenceLookup = () => "unknown",
 ): Availability | null {
-  const matching = torrents.filter((t) => torrentMatchesQuery(t, query));
+  const matching = torrents.filter(
+    (t) => torrentMatchesQuery(t, query) && !fileConfirmedMissing(filePresence(t.hash)),
+  );
 
   const readyCandidates = matching.filter(
     (t) => t.progress === 1 && t.status !== "removed",
@@ -290,24 +335,36 @@ function resolveLocalOnly(
     if (presence === "absent") sawAbsentReady = true;
   }
 
-  if (sawUnknownReady) return { state: null };
-
-  const warm = matching.find(
+  const warmCandidates = matching.filter(
     (t) =>
       t.progress > 0 &&
       t.progress < 1 &&
       t.status !== "removed" &&
       t.status !== "error",
   );
-  if (warm) {
-    return { state: "warm", infoHash: warm.hash, progress: warm.progress };
+  let sawUnknownWarm = false;
+  let sawAbsentWarm = false;
+  for (const warm of warmCandidates) {
+    const presence = readyPresence(warm.hash);
+    if (presence === "present") {
+      return { state: "warm", infoHash: warm.hash, progress: warm.progress };
+    }
+    if (presence === "unknown") sawUnknownWarm = true;
+    if (presence === "absent") sawAbsentWarm = true;
   }
 
-  if (sawAbsentReady) {
-    // A completed DB row proves the user acquired this once, but a rehydrated
-    // engine without the hash cannot serve bytes now. `fetchable` is the honest
-    // downgrade: try to recover/re-get it, without falsely claiming it is gone.
-    return { state: "fetchable" };
+  if (
+    sawUnknownReady ||
+    sawUnknownWarm ||
+    sawAbsentReady ||
+    sawAbsentWarm
+  ) {
+    // A DB row is only playable while the live engine owns its hash. During
+    // rehydrate, or once rehydrate proves it absent, the honest result is "not
+    // checked". Returning an Availability (rather than `null`) also prevents
+    // the full resolver from replacing this local uncertainty with an unrelated
+    // stale indexer-cache claim.
+    return { state: null };
   }
 
   return null;
@@ -322,12 +379,17 @@ async function computeAvailabilityWithTorrents(
   query: AvailabilityQuery,
   torrents: TorrentRow[],
 ): Promise<Availability> {
-  const local = resolveLocalOnly(query, torrents, readyPresenceForUser(userId));
-  if (local) return local;
+  const local = resolveLocalOnly(
+    query,
+    torrents,
+    readyPresenceForUser(userId),
+    localFilePresenceLookup(torrents),
+  );
+  if (local !== null) return resolveWithSearchCache(query, local, null);
 
   // No local torrent — check the search cache
   const cached = await getSingleSearchByTitle(query.title);
-  return resolveFromSearchCache(query, cached);
+  return resolveWithSearchCache(query, null, cached);
 }
 
 /**
@@ -346,6 +408,19 @@ function resolveFromSearchCache(
 
   // We checked and found nothing viable — this IS a real unavailable claim
   return { state: "unavailable" };
+}
+
+/**
+ * Preserve a local resolver's distinction between "no matching row" (`null`)
+ * and "a matching row exists but live state is unknown" (`{ state: null }`).
+ * Only the former may fall through to indexer evidence.
+ */
+function resolveWithSearchCache(
+  query: AvailabilityQuery,
+  local: Availability | null,
+  cached: SearchResponse | null,
+): Availability {
+  return local ?? resolveFromSearchCache(query, cached);
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +571,7 @@ export {
   hasViableMatch as _hasViableMatch,
   resolveLocalOnly as _resolveLocalOnly,
   resolveFromSearchCache as _resolveFromSearchCache,
+  resolveWithSearchCache as _resolveWithSearchCache,
   type ReadyTorrentPresence as _ReadyTorrentPresence,
   type TorrentRow as _TorrentRow,
 };

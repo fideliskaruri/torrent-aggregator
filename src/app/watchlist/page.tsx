@@ -28,6 +28,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
+import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
+import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
+import {
+  parseStorageOverrideFacts,
+  StorageLimitError,
+} from "@/lib/library/storage-override";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -133,6 +139,8 @@ export default function WatchlistPage() {
   const [runningAuto, setRunningAuto] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [sendingId, setSendingId] = useState<string | null>(null);
+  // Over-cap sends ask instead of refusing; free space stays a hard stop.
+  const capOverride = useStorageCapOverride();
   const [pendingRemove, setPendingRemove] = useState<WatchItem | null>(null);
   const [removing, setRemoving] = useState(false);
   const [lastAuto, setLastAuto] = useState<LastAutoSummary | null>(null);
@@ -368,17 +376,34 @@ export default function WatchlistPage() {
     }
     setSendingId(item.id);
     try {
-      const res = await fetch("/api/torrent/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          magnet: item.latestReleaseMagnet,
-          name: item.latestReleaseTitle || item.title,
-          source: "watchlist",
-          watchListItemId: item.id,
-        }),
+      const outcome = await capOverride.run(async ({ overrideStorageCap }) => {
+        const res = await fetch("/api/torrent/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            magnet: item.latestReleaseMagnet,
+            name: item.latestReleaseTitle || item.title,
+            source: "watchlist",
+            watchListItemId: item.id,
+            ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
+          }),
+        });
+        const body = await res.json();
+        // Throw an over-cap refusal so the shared rule can offer the choice;
+        // a wont-fit refusal is not overridable and falls through unchanged.
+        if (!res.ok || body?.ok === false) {
+          const storage = parseStorageOverrideFacts(body?.storage);
+          if (storage?.overridable) {
+            throw new StorageLimitError(body?.message || "Storage limit", storage);
+          }
+        }
+        return { res, data: body };
       });
-      const data = await res.json();
+
+      // Declined: nothing was sent and nothing failed.
+      if (outcome.status === "cancelled") return;
+
+      const { res, data } = outcome.value;
       if (res.ok && data.ok !== false) {
         toast.success(data.message || "Sent to client");
       } else {
@@ -386,8 +411,10 @@ export default function WatchlistPage() {
           data.message || data.error || "Failed to send to client",
         );
       }
-    } catch {
-      toast.error("Network error");
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message ? err.message : "Network error",
+      );
     } finally {
       setSendingId(null);
     }
@@ -438,12 +465,21 @@ export default function WatchlistPage() {
               {automationStateCopy(autoIntervalMinutes)}
               {autoIntervalMinutes === 0 ? (
                 <>
-                  {" "}
+                  {". "}
+                  {/*
+                    A real tap target, not inline text. WCAG exempts links
+                    inside a sentence from the target-size rule, but this is the
+                    only control that turns automation on, and at 16px on a
+                    phone it was the hardest thing on the page to hit. The
+                    inline-block plus vertical padding gives it a 44px box on
+                    touch without breaking the sentence flow, and collapses on
+                    pointer devices where a mouse makes the box unnecessary.
+                  */}
                   <Link
                     href="/settings"
-                                className="whitespace-nowrap text-[var(--accent-text)] underline underline-offset-2"
+                    className="inline-flex min-h-[44px] items-center whitespace-nowrap py-2 align-middle text-[var(--accent-text)] underline underline-offset-2 lg:min-h-0 lg:py-0"
                   >
-                    Turn on
+                    Turn on automatic checks
                   </Link>
                 </>
               ) : null}
@@ -861,6 +897,8 @@ export default function WatchlistPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <StorageCapDialog {...capOverride.dialogProps} />
     </div>
   );
 }

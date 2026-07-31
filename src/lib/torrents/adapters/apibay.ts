@@ -77,6 +77,13 @@ function categoryToApibay(category?: string): string {
       return "401";
     case "apps":
       return "301";
+    // 601 is E-books. Audiobooks live under Audio (102) and comics under 602,
+    // so a books search that pinned 601 would drop two of the three things the
+    // owner means by "books". `0` searches everything and lets ranking and the
+    // title itself sort it out, which measurably returns ebooks, audiobooks and
+    // comics together.
+    case "books":
+      return "0";
     case "anime":
       return "0"; // no dedicated anime cat that maps cleanly
     default:

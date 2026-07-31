@@ -10,10 +10,9 @@
  * page about the title → press play*, and that page did not exist here.
  *
  * So the whole layout is built around one control. It is **Play**, **Resume**
- * or **Get** — never "Search". Getting is one press, performed by the
- * server, and does not navigate anywhere. The release table survives exactly
- * once, as a discreet "Choose a different release" link at the bottom of the
- * facts column: power features move one level deeper, they are not deleted.
+ * or **Get** — never "Search" and never a releases table. Getting is one press,
+ * performed by the server, and does not navigate anywhere. The user picks a
+ * title, sees info, and watches or downloads — torrent plumbing stays off-stage.
  *
  * Three things about the states on this page:
  *
@@ -27,7 +26,7 @@
  *    blocks — the bug that told `/watchlist` users their library was empty
  *    when the request had actually failed.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { Download, Loader2, Play, Search } from "lucide-react";
@@ -42,11 +41,14 @@ import { TfErrorState } from "@/components/tf/error-state";
 import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
-import { releaseStatus } from "@/lib/browse/release-status";
+import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-status";
 import { EpisodeList, episodeActionKey, episodeIntentKey } from "./episode-list";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons } from "./merge-extras";
 import { MoreLikeThis } from "./more-like-this";
+import { QualityPicker } from "./quality-picker";
+import { shouldAskForQuality } from "./quality-picker-state";
+import { usePreferredQuality } from "./use-preferred-quality";
 import { titleFacts } from "./title-facts";
 import {
   resolvePrimaryAction,
@@ -62,6 +64,8 @@ import {
   type SeasonGrabStatus,
 } from "./season-grab-state";
 import { postTitleAction } from "./title-action-request";
+import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
+import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
 import type {
   TitleDetailPayload,
   TitleExtrasPayload,
@@ -136,8 +140,27 @@ export function TitleDetail(props: TitleDetailProps) {
     Record<string, SeasonGrabStatus>
   >({});
   const [playing, setPlaying] = useState<PlayTarget | null>(null);
+  // The cap is a guardrail, not a wall: an over-cap Download raises an informed
+  // confirmation instead of a dead-end toast. Play never reaches it — the
+  // server-side gate reclaims stream cache and proceeds.
+  const cap = useStorageCapOverride();
   const spentRemoteActions = useRef(new Set<string>());
   const spentSeasonGrabs = useRef(new Set<string>());
+  // Recovery timers: if a streaming grab stays in "done" for 90 s without the
+  // episode becoming playable, re-enable the row so the user has a path to
+  // retry. This fixes the class of stuck state where the API responded but the
+  // client refetch never arrived (Task 3).
+  const recoveryTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  // Clear all recovery timers on unmount to prevent state updates on an
+  // unmounted component.
+  useEffect(() => {
+    const timers = recoveryTimers.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
 
   const url = useMemo(
     () => buildDetailUrl({ ...props, season }),
@@ -174,7 +197,7 @@ export function TitleDetail(props: TitleDetailProps) {
   );
 
   const runAction = useCallback(
-    async (action: TitleAction, key: string, label: string, retention: TitleRetention) => {
+    async (action: TitleAction, key: string, label: string, retention: TitleRetention, resolution?: number) => {
       if (!shouldRunTitleAction(action, statusFor(key))) return;
 
       if (action.kind === "play" && retention === "stream") {
@@ -208,14 +231,30 @@ export function TitleDetail(props: TitleDetailProps) {
         setStatuses((prev) => ({ ...prev, [key]: "pending" }));
       }
       try {
-        const body = await postTitleAction({
-          workKey: props.workKey,
-          title: props.title ?? null,
-          mediaType: props.mediaType ?? null,
-          year: props.year ?? null,
-          action,
-          retention,
-        });
+        const outcome = await cap.run(({ overrideStorageCap }) =>
+          postTitleAction({
+            workKey: props.workKey,
+            title: props.title ?? null,
+            mediaType: props.mediaType ?? null,
+            year: props.year ?? null,
+            action,
+            retention,
+            resolution,
+            overrideStorageCap,
+          }),
+        );
+
+        // The owner was shown the real figures and said no. Nothing was sent, so
+        // the row goes back to idle — a declined confirmation is not a failure
+        // and must not leave an error state or a hanging player behind.
+        if (outcome.status === "cancelled") {
+          spentRemoteActions.current.delete(key);
+          setStatuses((prev) => ({ ...prev, [key]: "idle" }));
+          if (streaming) setPlaying(null);
+          return;
+        }
+
+        const body = outcome.value;
         setStatuses((prev) => ({ ...prev, [key]: "done" }));
 
         // The press said Play, so the press has to end in the player. The
@@ -244,6 +283,28 @@ export function TitleDetail(props: TitleDetailProps) {
         if (streaming) setPlaying(null);
         toast.success(body.message ?? `${label} sent to your client.`);
         refetch();
+
+        // For streaming grabs that did not immediately resolve a hash: the
+        // episode will become playable once the refetch arrives and the library
+        // maps the info hash. But if that never happens (slow network, torrent
+        // client unreachable), the row stays disabled with no path forward.
+        // Schedule a recovery that resets to idle so the user can try again.
+        if (streaming && !hash) {
+          if (recoveryTimers.current.has(key)) {
+            clearTimeout(recoveryTimers.current.get(key)!);
+          }
+          const timer = setTimeout(() => {
+            recoveryTimers.current.delete(key);
+            setStatuses((prev) => {
+              if (prev[key] === "done") {
+                spentRemoteActions.current.delete(key);
+                return { ...prev, [key]: "idle" };
+              }
+              return prev;
+            });
+          }, 90_000);
+          recoveryTimers.current.set(key, timer);
+        }
       } catch (err) {
         spentRemoteActions.current.delete(key);
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
@@ -254,7 +315,7 @@ export function TitleDetail(props: TitleDetailProps) {
         );
       }
     },
-    [props.workKey, props.title, props.mediaType, props.year, refetch, statusFor],
+    [props.workKey, props.title, props.mediaType, props.year, refetch, statusFor, cap],
   );
 
   const seasonStatusFor = useCallback(
@@ -264,7 +325,7 @@ export function TitleDetail(props: TitleDetailProps) {
   );
 
   const runSeasonGrab = useCallback(
-    async (targetSeason: number, episodes: number[], retention: TitleRetention) => {
+    async (targetSeason: number, episodes: number[], retention: TitleRetention, resolution?: number) => {
       const key = seasonGrabKey(targetSeason, retention);
       const current = seasonStatusFor(targetSeason, retention);
       if (!shouldRunSeasonGrab(current)) return;
@@ -276,6 +337,7 @@ export function TitleDetail(props: TitleDetailProps) {
         const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(30_000),
           body: JSON.stringify({
             mode: "season",
             season: targetSeason,
@@ -284,6 +346,7 @@ export function TitleDetail(props: TitleDetailProps) {
             title: props.title ?? null,
             mediaType: props.mediaType ?? null,
             year: props.year ?? null,
+            ...(resolution != null ? { resolution } : {}),
           }),
         });
         const body = (await res.json().catch(() => null)) as
@@ -373,6 +436,7 @@ export function TitleDetail(props: TitleDetailProps) {
           infoHash={playing.infoHash}
           title={playing.title}
           subtitle={playing.subtitle}
+          year={data?.year ?? null}
           resumePositionSec={playing.resumePositionSec}
           onClose={() => {
             setPlaying(null);
@@ -380,6 +444,8 @@ export function TitleDetail(props: TitleDetailProps) {
           }}
         />
       ) : null}
+
+      <StorageCapDialog {...cap.dialogProps} />
     </div>
   );
 }
@@ -413,10 +479,14 @@ function TitleContent({
   statusFor: (key: string) => TitleActionStatus;
   seasonStatusFor: (season: number, retention?: TitleRetention) => SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
-  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention) => void;
-  onAction: (action: TitleAction, key: string, label: string, retention: TitleRetention) => void;
+  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention, resolution?: number) => void;
+  onAction: (action: TitleAction, key: string, label: string, retention: TitleRetention, resolution?: number) => void;
   onLibraryChanged: () => void;
 }) {
+  const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
+  // Quality picker for the hero Download button. Play is always instant.
+  const [heroPicker, setHeroPicker] = useState(false);
+
   const title = cleanDisplayTitle(payload.title);
   const primary = resolvePrimaryAction(payload);
   const primaryStatus = statusFor(PRIMARY_KEY);
@@ -430,8 +500,19 @@ function TitleContent({
   // Visual availability: a title whose release date is still in the future is
   // shown but not actionable — grayed art, a "Coming {date}" label, and no
   // Play/Download. Unknown dates are never gated (releaseStatus says so).
-  const release = releaseStatus(payload.releaseDate);
-  const gated = release.unreleased;
+  // The local catalog only knows dates for works it already holds, so a title
+  // opened straight from search falls back to the date the provider returned
+  // with the rest of the extras.
+  const release = releaseStatus(payload.releaseDate ?? extras?.releaseDate ?? null);
+  // A movie in its theatrical window is also gated: it has a past primary
+  // release (theatrically showing) but no past home release (Digital/Physical/
+  // TV). Only fires when extras explicitly set inTheatricalWindow — unknown
+  // data (extras not yet loaded, endpoint failed) never gates.
+  const theatrical = theatricalWindowStatus(
+    extras?.inTheatricalWindow ?? false,
+    extras?.nextHomeReleaseAt ?? null,
+  );
+  const gated = release.unreleased || theatrical.inTheatricalWindow;
 
   // The season the user is looking at, which is not always the season the
   // detail route answered with: it only knows the seasons we hold files for,
@@ -585,24 +666,23 @@ function TitleContent({
               </h1>
 
               <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-[var(--text-secondary)]">
-                {/* A future title is gated visually: a plain "Coming" label
-                    instead of an availability chip, and disabled actions. */}
+                {/* A gated title shows a chip instead of an availability chip and
+                    disabled actions. Theatrical-window films get "In cinemas" (or
+                    "Digital Aug 2026"); future-dated films get "Coming {date}". */}
                 {gated ? (
                   <span
                     data-title-coming
                     className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1 font-medium text-[var(--text-secondary)]"
                   >
-                    {release.comingLabel ?? "Coming soon"}
+                    {theatrical.theatricalLabel ?? release.comingLabel ?? "Coming soon"}
                   </span>
-                ) : payload.availability != null &&
-                  payload.availability !== "fetchable" ? (
+                ) : payload.availability === "ready" ||
+                  payload.availability === "warm" ? (
                   <AvailabilityChip state={payload.availability} />
                 ) : null}
-                {/* Same rule as the episode rows: a chip is for a state worth
-                    acting on. "Nobody has checked" is already said, in words,
-                    under the button — and "Can get" is just the app narrating
-                    that a release exists, which the Download button already
-                    offers. Availability is shown visually, not spelled out. */}
+                {/* Only local states earn a chip. A stale "Unavailable" beside
+                    Play is self-contradictory, while "Can get" only repeats the
+                    controls already visible below. */}
                 {facts ? (
                   <span data-title-facts className="tabular-nums">
                     {facts}
@@ -617,6 +697,15 @@ function TitleContent({
                 >
                   {payload.overview ?? extras?.overview}
                 </p>
+              ) : !extras ? (
+                // Reserve the paragraph's space while the extras round trip is
+                // still in flight. The hero is justify-end, so the buttons are
+                // pinned to the bottom: adding content above them does not move
+                // the buttons. What this prevents is the HEADER shrinking once
+                // MoreLikeThis loads — that is a separate guard (below).
+                // This placeholder keeps the hero looking composed on first
+                // paint even when the detail endpoint returned no overview.
+                <p aria-hidden data-title-overview-placeholder className="mt-3 min-h-[5.25rem]" />
               ) : null}
 
               <div
@@ -684,14 +773,21 @@ function TitleContent({
                     }
                     aria-busy={downloadStatus === "pending" || undefined}
                     disabled={!downloadCanRun}
-                    onClick={() =>
-                      onAction(
-                        downloadAction,
-                        DOWNLOAD_KEY,
-                        downloadLabelTarget,
-                        "keep",
-                      )
-                    }
+                    onClick={() => {
+                      // Play is instant and never prompts. Download is the
+                      // deliberate keep-it action — it earns a quality question.
+                      if (shouldAskForQuality("keep", alwaysPreferred)) {
+                        setHeroPicker(true);
+                      } else {
+                        onAction(
+                          downloadAction,
+                          DOWNLOAD_KEY,
+                          downloadLabelTarget,
+                          "keep",
+                          preferredResolution,
+                        );
+                      }
+                    }}
                     className="relative min-w-[8rem]"
                   >
                     <ButtonBody
@@ -714,6 +810,23 @@ function TitleContent({
         </div>
       </header>
 
+      {/* Quality picker for the hero Download button.
+          Mounted outside the header so it renders in its own stacking context
+          and does not interfere with the hero's z-index layers. Radix manages
+          scroll-lock with body padding compensation, so opening it does not
+          shift the page behind it. */}
+      <QualityPicker
+        open={heroPicker}
+        onOpenChange={setHeroPicker}
+        preferredResolution={preferredResolution}
+        alwaysPreferred={alwaysPreferred}
+        onAlwaysPreferredChange={setAlwaysPreferred}
+        onConfirm={(resolution) => {
+          setHeroPicker(false);
+          onAction(downloadAction, DOWNLOAD_KEY, downloadLabelTarget, "keep", resolution);
+        }}
+      />
+
       <div className="container-app space-y-10 py-8 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] md:pb-8">
         {payload.isSeries ? (
           <EpisodeList
@@ -729,9 +842,10 @@ function TitleContent({
             }}
             seasonGrabStatus={activeSeasonGrabStatus}
             seasonStreamStatus={activeSeasonStreamStatus}
+            gated={gated}
             onSeasonChange={onSeasonChange}
             onSeasonGrab={onSeasonGrab}
-            onAction={(action, label) =>
+            onAction={(action, label, _retention, resolution) =>
               onAction(
                 action,
                 action.season != null && action.episode != null
@@ -743,6 +857,7 @@ function TitleContent({
                   : PRIMARY_KEY,
                 label,
                 action.kind === "get" ? "keep" : "stream",
+                resolution,
               )
             }
           />
@@ -750,35 +865,23 @@ function TitleContent({
 
         {/* Somewhere to go next. On a film this is the whole reason the space
             under the hero is not empty; on a series it follows the episodes.
-            Renders nothing when there is nothing — a heading over an empty
-            grid is the same void with a label on it. */}
-        <MoreLikeThis items={similar} />
+            The `loading` prop tells MoreLikeThis to render a skeleton grid when
+            items have not arrived yet, which keeps the bottom section the same
+            height before and after the extras round trip. Without this, the
+            hero (which is flex-grow) shrinks when the grid appears — causing
+            the Play/Download buttons to jump up under the cursor, which is how
+            clicking Play silently navigated to the wrong film (Task 1). */}
+        <MoreLikeThis
+          items={similar}
+          loading={extrasLoading && !extrasError}
+        />
 
-        {/* The old release table, kept exactly once and kept quiet. It is the
-            override for someone who wants a specific encode, not the way in. */}
-        <footer
-          className={cn(
-            "flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-[var(--text-tertiary)]",
-            payload.isSeries || similar.length > 0
-              ? "border-t border-[var(--border)] pt-5"
-              : "",
-          )}
-        >
-          <Link
-            href={payload.releasesHref}
-            data-choose-release
-            className="inline-flex min-h-[44px] items-center gap-1.5 underline decoration-[var(--border-strong)] underline-offset-4 transition-colors hover:text-[var(--text)] lg:min-h-0"
-          >
-            <Search className="h-3.5 w-3.5" aria-hidden />
-            Choose a different release
-          </Link>
-          {!payload.known ? (
-            <span>
-              Nothing local knows this title yet — everything above comes from
-              the link you followed.
-            </span>
-          ) : null}
-        </footer>
+        {!payload.known ? (
+          <p className="text-[12px] text-[var(--text-tertiary)]">
+            Nothing local knows this title yet — everything above comes from
+            the link you followed.
+          </p>
+        ) : null}
       </div>
     </article>
   );

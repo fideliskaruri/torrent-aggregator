@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { X } from "lucide-react";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
+import { parseEpisode } from "@/lib/torrents/episodes";
 
 export interface PlayOverlayProps {
   /**
@@ -14,6 +15,12 @@ export interface PlayOverlayProps {
   infoHash: string | null;
   title: string;
   subtitle?: string | null;
+  /**
+   * The work's release year, when the opener knows it. Passed straight through
+   * to the player so the quality selector can tell this film from every other
+   * film that shares its name.
+   */
+  year?: number | null;
   /** Where playback got to last time, so the viewer can seek back to it. */
   resumePositionSec?: number | null;
   onClose: () => void;
@@ -39,10 +46,19 @@ export function PlayOverlay({
   infoHash,
   title,
   subtitle,
+  year,
   resumePositionSec,
   onClose,
 }: PlayOverlayProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // Task 5: parse the subtitle (e.g. "S01E01" or "Season 1, Episode 1") so the
+  // player can show the show name on the title line and the episode code on the
+  // subtitle line, instead of displaying the episode code twice.
+  const parsedEp = useMemo(
+    () => (subtitle ? parseEpisode(subtitle) : null),
+    [subtitle],
+  );
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -143,6 +159,9 @@ export function PlayOverlay({
         <InlineStreamPlayer
           infoHash={infoHash}
           title={title}
+          year={year}
+          season={parsedEp?.season ?? undefined}
+          episode={parsedEp?.episode ?? undefined}
           resumeSec={resumePositionSec ?? undefined}
           chrome="theatre"
           className="min-h-0"

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import os from "node:os";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { readStorageCapInput } from "@/lib/library/storage-cap-input";
 import {
   externalClientConfig,
   testClientConnection,
@@ -9,8 +11,12 @@ import {
 import {
   DEFAULT_CATEGORIES,
   ensureDefaultClientSettings,
-  defaultDownloadDir,
 } from "@/lib/clients/defaults";
+import {
+  detectUnsafeDownloadPath,
+  unsafeDownloadPathMessage,
+  type UnsafeDownloadPathReason,
+} from "@/app/settings/download-path-safety";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
 import { DEFAULT_TARGET_RESOLUTION } from "@/lib/torrents/quality";
 import {
@@ -23,8 +29,17 @@ import {
   SELECTABLE_RESOLUTIONS,
   invalidateTargetResolution,
 } from "@/lib/torrents/target-resolution";
+import { primaryDownloadRoot } from "@/lib/download/path-containment";
 
 export const dynamic = "force-dynamic";
+
+/** The tree the disk inventory walks for this user's settings row. */
+function downloadRootFor(settings: {
+  baseDownloadPath?: string | null;
+  savePath?: string | null;
+}): string | null {
+  return primaryDownloadRoot(settings);
+}
 
 /**
  * Intervals the UI offers. 0 means "never on a timer".
@@ -69,6 +84,71 @@ function parseJsonRecord(
   }
 }
 
+interface DownloadPathWarning {
+  field: "baseDownloadPath" | "savePath" | "pathRule";
+  category?: string;
+  path: string;
+  reasons: UnsafeDownloadPathReason[];
+  message: string;
+}
+
+function collectDownloadPathWarnings(settings: {
+  baseDownloadPath: string | null;
+  savePath: string | null;
+  pathRules: Record<string, string>;
+}): DownloadPathWarning[] {
+  const configured: Array<{
+    field: DownloadPathWarning["field"];
+    category?: string;
+    path: string;
+  }> = [
+    ...(settings.baseDownloadPath?.trim()
+      ? [
+          {
+            field: "baseDownloadPath" as const,
+            path: settings.baseDownloadPath.trim(),
+          },
+        ]
+      : []),
+    ...(settings.savePath?.trim()
+      ? [{ field: "savePath" as const, path: settings.savePath.trim() }]
+      : []),
+    ...Object.entries(settings.pathRules).map(([category, path]) => ({
+      field: "pathRule" as const,
+      category,
+      path,
+    })),
+  ];
+
+  return configured.flatMap((item) => {
+    const safety = detectUnsafeDownloadPath(item.path, {
+      repoRoot: process.cwd(),
+      tempRoots: [os.tmpdir()],
+    });
+    return safety.unsafe
+      ? [
+          {
+            ...item,
+            reasons: safety.reasons,
+            message: unsafeDownloadPathMessage(safety.reasons),
+          },
+        ]
+      : [];
+  });
+}
+
+function configuredStorageCap(settings: {
+  maxStorageBytes?: bigint | number | null;
+  storageCapConfigured?: boolean | null;
+}): number | null {
+  if (settings.storageCapConfigured !== true) return null;
+  const value =
+    typeof settings.maxStorageBytes === "bigint"
+      ? Number(settings.maxStorageBytes)
+      : Number(settings.maxStorageBytes);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 function publicSettings(settings: {
   clientType: string;
   externalClientType?: string | null;
@@ -79,6 +159,8 @@ function publicSettings(settings: {
   savePath: string | null;
   baseDownloadPath: string | null;
   maxStorageBytes?: bigint | number | null;
+  storageCapConfigured?: boolean | null;
+  verboseDiagnostics?: boolean | null;
   preferredResolution?: number | null;
   automationIntervalMinutes?: number | null;
   categories: string | null;
@@ -88,22 +170,21 @@ function publicSettings(settings: {
   storageUsage?: Awaited<ReturnType<typeof getRetentionSettingsSnapshot>>["storageUsage"] | null;
 }) {
   const categories = parseJsonArray(settings.categories);
+  const pathRules = parseJsonRecord(settings.pathRules);
   const external =
     settings.externalClientType === "qbittorrent" ||
     settings.externalClientType === "transmission"
       ? settings.externalClientType
       : null;
-  const maxRaw = settings.maxStorageBytes;
-  const maxStorageBytes =
-    maxRaw == null
-      ? null
-      : typeof maxRaw === "bigint"
-        ? Number(maxRaw)
-        : Number(maxRaw);
+  const maxStorageBytes = configuredStorageCap(settings);
+  const storageCapConfigured = maxStorageBytes != null;
   const maxStorageGb =
     maxStorageBytes != null && Number.isFinite(maxStorageBytes)
       ? Math.round((maxStorageBytes / 1e9) * 10) / 10
-      : null;
+      : 0;
+  const hasDownloadFolder = Boolean(
+    settings.baseDownloadPath?.trim() || settings.savePath?.trim(),
+  );
   return {
     clientType: settings.clientType,
     externalClientType: external,
@@ -118,6 +199,13 @@ function publicSettings(settings: {
         ? maxStorageBytes
         : null,
     maxStorageGb,
+    storageCapConfigured,
+    setupComplete:
+      hasDownloadFolder &&
+      storageCapConfigured &&
+      maxStorageBytes != null &&
+      maxStorageBytes > 0,
+    verboseDiagnostics: settings.verboseDiagnostics === true,
     preferredResolution:
       settings.preferredResolution != null &&
       SELECTABLE_RESOLUTIONS.includes(
@@ -129,7 +217,12 @@ function publicSettings(settings: {
       settings.automationIntervalMinutes,
     ),
     categories: categories.length ? categories : DEFAULT_CATEGORIES,
-    pathRules: parseJsonRecord(settings.pathRules),
+    pathRules,
+    pathWarnings: collectDownloadPathWarnings({
+      baseDownloadPath: settings.baseDownloadPath,
+      savePath: settings.savePath,
+      pathRules,
+    }),
     hasExternal: Boolean(external),
     defaultRetentionPolicy:
       settings.defaultRetentionPolicy ?? normalizeRetentionPolicy(null),
@@ -148,13 +241,18 @@ export async function GET() {
     }
 
     const settings = await ensureDefaultClientSettings(session.user.id);
-    const retention = await getRetentionSettingsSnapshot(session.user.id);
+    const retention = await getRetentionSettingsSnapshot(
+      session.user.id,
+      prisma,
+      configuredStorageCap(settings),
+      downloadRootFor(settings),
+    );
 
     return NextResponse.json({
       settings: publicSettings({ ...settings, ...retention }),
       defaults: {
         categories: DEFAULT_CATEGORIES,
-        baseDownloadPath: defaultDownloadDir(),
+        baseDownloadPath: null,
         clientType: "builtin",
       },
     });
@@ -189,6 +287,8 @@ export async function PUT(request: NextRequest) {
       /** Max download library size in GB (converted to maxStorageBytes). */
       maxStorageGb?: number | null;
       maxStorageBytes?: number | null;
+      /** Whether live playback should expose verbose diagnostics. */
+      verboseDiagnostics?: boolean;
       /** Target vertical resolution for ranking: 480 | 720 | 1080 | 2160. */
       preferredResolution?: number | null;
       /** Minutes between automatic automation runs; 0 = off. */
@@ -236,8 +336,10 @@ export async function PUT(request: NextRequest) {
           password: existing?.password ?? null,
           category: existing?.category ?? null,
           savePath: existing?.savePath ?? null,
-          baseDownloadPath:
-            existing?.baseDownloadPath ?? defaultDownloadDir(),
+          baseDownloadPath: existing?.baseDownloadPath ?? null,
+          maxStorageBytes: existing?.maxStorageBytes ?? null,
+          storageCapConfigured: existing?.storageCapConfigured ?? null,
+          verboseDiagnostics: existing?.verboseDiagnostics ?? null,
           categories:
             existing?.categories ?? JSON.stringify(DEFAULT_CATEGORIES),
           pathRules: existing?.pathRules ?? null,
@@ -247,7 +349,12 @@ export async function PUT(request: NextRequest) {
           externalClientType: keepExternal,
         },
       });
-      const retention = await getRetentionSettingsSnapshot(session.user.id);
+      const retention = await getRetentionSettingsSnapshot(
+        session.user.id,
+        prisma,
+        configuredStorageCap(settings),
+        downloadRootFor(settings),
+      );
       return NextResponse.json({
         settings: publicSettings({ ...settings, ...retention }),
         message:
@@ -320,7 +427,7 @@ export async function PUT(request: NextRequest) {
     const baseDownloadPath =
       body.baseDownloadPath !== undefined
         ? body.baseDownloadPath?.trim() || null
-        : (existing?.baseDownloadPath ?? defaultDownloadDir());
+        : (existing?.baseDownloadPath ?? null);
 
     const category =
       body.category !== undefined
@@ -332,22 +439,46 @@ export async function PUT(request: NextRequest) {
         ? body.savePath?.trim() || null
         : (existing?.savePath ?? null);
 
-    // Storage cap: maxStorageGb from UI, or raw bytes
+    // Storage cap: maxStorageGb from UI, or raw bytes.
+    // @see readStorageCapInput — absent, cleared and malformed are three
+    // different things, and conflating the last two silently blocked every
+    // download on this install.
     let maxStorageBytes: bigint | null | undefined;
-    if (body.maxStorageGb !== undefined) {
-      if (body.maxStorageGb == null || body.maxStorageGb <= 0) {
-        maxStorageBytes = null; // null → engine uses DEFAULT_MAX_STORAGE_BYTES
-      } else {
-        maxStorageBytes = BigInt(Math.round(body.maxStorageGb * 1e9));
+    let storageCapConfigured: boolean | undefined;
+    {
+      const raw =
+        body.maxStorageGb !== undefined
+          ? ([body.maxStorageGb, "maxStorageGb", 1e9] as const)
+          : ([body.maxStorageBytes, "maxStorageBytes", 1] as const);
+      const parsed = readStorageCapInput(raw[0], raw[1], raw[2]);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          { ok: false, error: parsed.reason, message: parsed.reason },
+          { status: 400 },
+        );
       }
-    } else if (body.maxStorageBytes !== undefined) {
-      maxStorageBytes =
-        body.maxStorageBytes == null || body.maxStorageBytes <= 0
-          ? null
-          : BigInt(Math.round(body.maxStorageBytes));
-    } else {
-      maxStorageBytes = undefined; // leave existing
+      if (parsed.action === "keep") {
+        maxStorageBytes = undefined;
+        storageCapConfigured = undefined;
+      } else if (parsed.action === "clear") {
+        maxStorageBytes = null;
+        storageCapConfigured = false;
+      } else {
+        maxStorageBytes = BigInt(parsed.bytes);
+        storageCapConfigured = true;
+      }
     }
+
+    if (
+      body.verboseDiagnostics !== undefined &&
+      typeof body.verboseDiagnostics !== "boolean"
+    ) {
+      return NextResponse.json(
+        { error: "verboseDiagnostics must be a boolean" },
+        { status: 400 },
+      );
+    }
+    const verboseDiagnostics = body.verboseDiagnostics;
 
     // Only accept a value the UI actually offers. An arbitrary number would
     // make every release "above target" and quietly invert the ordering.
@@ -379,10 +510,10 @@ export async function PUT(request: NextRequest) {
         category,
         savePath,
         baseDownloadPath,
-        maxStorageBytes:
-          maxStorageBytes === undefined
-            ? BigInt(100 * 1e9) // default 100 GB
-            : maxStorageBytes,
+        maxStorageBytes: maxStorageBytes === undefined ? null : maxStorageBytes,
+        storageCapConfigured:
+          storageCapConfigured === undefined ? null : storageCapConfigured,
+        verboseDiagnostics: verboseDiagnostics ?? null,
         preferredResolution: preferredResolution ?? DEFAULT_TARGET_RESOLUTION,
         automationIntervalMinutes: automationIntervalMinutes ?? 0,
         categories: categoriesJson,
@@ -401,8 +532,9 @@ export async function PUT(request: NextRequest) {
         savePath,
         baseDownloadPath,
         ...(maxStorageBytes !== undefined
-          ? { maxStorageBytes }
+          ? { maxStorageBytes, storageCapConfigured }
           : {}),
+        ...(verboseDiagnostics !== undefined ? { verboseDiagnostics } : {}),
         ...(preferredResolution !== undefined ? { preferredResolution } : {}),
         ...(automationIntervalMinutes !== undefined
           ? { automationIntervalMinutes }
@@ -419,7 +551,12 @@ export async function PUT(request: NextRequest) {
         normalizeRetentionPolicy(body.defaultRetentionPolicy),
       );
     }
-    const retention = await getRetentionSettingsSnapshot(session.user.id);
+    const retention = await getRetentionSettingsSnapshot(
+      session.user.id,
+      prisma,
+      configuredStorageCap(settings),
+      downloadRootFor(settings),
+    );
 
     // Ranking reads this through a short-lived memo; without this the user
     // would change the quality target, hit Search, and see the old order.
@@ -449,7 +586,10 @@ export async function PUT(request: NextRequest) {
     let testResult = null;
     if (body.test) {
       try {
-        const maxB = settings.maxStorageBytes;
+        const maxB =
+          settings.storageCapConfigured === true
+            ? settings.maxStorageBytes
+            : null;
         const base: ClientConnectionConfig = {
           clientType: settings.clientType as ClientConnectionConfig["clientType"],
           externalClientType:

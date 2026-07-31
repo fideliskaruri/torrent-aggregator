@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
+import { makeScratchDir, removeScratchDir } from "@/lib/test-support/scratch-dir";
 import path from "node:path";
 
 import { liftWrapperFolder, repairContentLayout } from "./content-layout-repair";
 
-const tmpdir = () => fs.mkdtempSync(path.join(os.tmpdir(), "tf-layout-"));
+const scratch = () => makeScratchDir("tf-layout");
 
 const write = (file: string, body: string) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -29,7 +29,7 @@ const tree = (root: string): string[] => {
 
 // --- A single release folder is lifted ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "Movies", "Dune Part Two");
     const wrapper = "Dune Part Two (2024) [2160p] [4K] [WEB] [5.1] [YTS.MX]";
@@ -40,13 +40,13 @@ const tree = (root: string): string[] => {
     assert.equal(result.flattened, true, JSON.stringify(result));
     assert.deepEqual(tree(dest), ["Dune.mp4", "subs/en.srt"]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- A flat folder is a no-op, and repeated calls stay a no-op ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "Movies", "X");
     write(path.join(dest, "movie.mkv"), "video");
@@ -54,13 +54,13 @@ const tree = (root: string): string[] => {
     assert.equal(repairContentLayout(dest, "X 2024").moved, 0);
     assert.deepEqual(tree(dest), ["movie.mkv"]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- Several folders and none is ours → leave it alone ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "TV", "Show");
     fs.mkdirSync(path.join(dest, "A.Release.S01E01.1080p"), { recursive: true });
@@ -70,13 +70,13 @@ const tree = (root: string): string[] => {
       false,
     );
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- Structural folders are never lifted (shared with the planner) ---
 for (const name of ["Season 02", "Disc 1", "CD2", "Volume 03", "Subs", "Sample"]) {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "TV", "Show");
     write(path.join(dest, name, "file.mkv"), "video");
@@ -86,13 +86,13 @@ for (const name of ["Season 02", "Disc 1", "CD2", "Volume 03", "Subs", "Sample"]
       `${name} must survive`,
     );
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- …but a season folder that merely repeats the destination goes ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "TV", "Show", "Season 01");
     write(path.join(dest, "Season 01", "ep.mkv"), "video");
@@ -100,13 +100,13 @@ for (const name of ["Season 02", "Disc 1", "CD2", "Volume 03", "Subs", "Sample"]
     assert.equal(result.flattened, true, JSON.stringify(result));
     assert.deepEqual(tree(dest), ["ep.mkv"]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- Protected media structures are never lifted ---
 for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "Movies", "Film");
     write(path.join(dest, name, "data.bin"), "x");
@@ -116,13 +116,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
       `${name} must survive`,
     );
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- A collision aborts the ENTIRE lift, never half of it (duck #2) ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "TV", "Show", "Season 03");
     const wrapper = "Show S03E02 1080p WEB";
@@ -152,13 +152,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
       "episode one",
     );
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- Directories merge when nothing actually collides ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "TV", "Show", "Season 03");
     const wrapper = "Show S03E02 1080p WEB";
@@ -174,13 +174,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
       "episode.mkv",
     ]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- An identical duplicate is NOT deleted; the lift aborts instead ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "TV", "Show", "Season 03");
     const wrapper = "Show S03E02 1080p WEB";
@@ -200,13 +200,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
       "no file is ever deleted on sampled evidence",
     );
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- Without a name match nothing is lifted, even a lone child (duck #8) ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "Movies", "Blade Runner");
     write(path.join(dest, "Director's Cut", "movie.mkv"), "video");
@@ -214,13 +214,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
     assert.equal(result.flattened, false, "Director's Cut must survive");
     assert.ok(fs.existsSync(path.join(dest, "Director's Cut", "movie.mkv")));
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- A file where a folder should go aborts rather than guessing ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "Movies", "X");
     const wrapper = "X 2024 1080p WEB";
@@ -231,13 +231,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
     assert.equal(liftWrapperFolder(dest, wrapper).flattened, false);
     assert.ok(!fs.existsSync(path.join(dest, "movie.mkv")));
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- A pack wrapped twice, as reported under Anime\Solo Leveling ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "Anime", "Solo Leveling", "Season 01");
     const outer = "Solo Leveling 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
@@ -250,13 +250,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
     assert.deepEqual(roots, [outer, inner]);
     assert.deepEqual(tree(dest), ["S01E01.mkv", "Subs/S01E01.eng.srt"]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- A meaningful inner folder survives the second pass (duck #4) ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const dest = path.join(tmp, "Music", "Artist", "Album");
     const outer = "Artist Album 2024 FLAC 24bit";
@@ -267,13 +267,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
     assert.deepEqual(roots, [outer], "the disc folder is not a duplicate");
     assert.deepEqual(tree(dest), [`${inner}/01.flac`]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- Season folders migrate to `Season NN`, but only the torrent's own ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const S01 = "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
     const S02 = "Solo Leveling S02 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
@@ -290,7 +290,7 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
       "Season 02/S02E01.mkv",
     ]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
@@ -299,7 +299,7 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
 // season-shaped folder there pulls the ground out from under a torrent that
 // is still writing to it.
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const S01 = "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
     const dest = path.join(tmp, "Other");
@@ -313,13 +313,13 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
     assert.deepEqual(repairContentLayout(dest, null).renamed, []);
     assert.deepEqual(tree(dest), [`${S01}/S01E01.mkv`]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 
 // --- A name already taken is never merged into ---
 {
-  const tmp = tmpdir();
+  const tmp = scratch();
   try {
     const S01 = "Solo Leveling S01 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
     const PACK = "Solo Leveling 1080p Dual Audio BDRip 10 bits DD+ x265-EMBER";
@@ -333,7 +333,7 @@ for (const name of ["VIDEO_TS", "BDMV", "PS3_GAME"]) {
       `${S01}/S01E01.mkv`,
     ]);
   } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
+    removeScratchDir(tmp);
   }
 }
 

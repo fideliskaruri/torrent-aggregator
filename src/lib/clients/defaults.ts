@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import prisma from "@/lib/prisma";
 
 export const DEFAULT_CATEGORIES = [
@@ -13,18 +11,15 @@ export const DEFAULT_CATEGORIES = [
   "Other",
 ];
 
-/** Portable download root: DOWNLOAD_DIR env or ./downloads under cwd. */
+/**
+ * There is no safe download-folder default.
+ *
+ * A server working directory, test fixture, or environment inherited from an
+ * end-to-end run is not a durable media library. Keep this compatibility
+ * helper explicit and side-effect free: first-run setup must collect the path.
+ */
 export function defaultDownloadDir(): string {
-  const fromEnv = process.env.DOWNLOAD_DIR?.trim();
-  const root = fromEnv
-    ? path.resolve(fromEnv)
-    : path.resolve(process.cwd(), "downloads");
-  try {
-    fs.mkdirSync(root, { recursive: true });
-  } catch {
-    /* best-effort */
-  }
-  return root;
+  return "";
 }
 
 /**
@@ -37,7 +32,8 @@ export function defaultDownloadDir(): string {
  * recovery button into dead code. Recovering from an unreachable external
  * primary is that button's job, not this function's.
  *
- * Soft backfill: baseDownloadPath when missing.
+ * Folder and storage limits are deliberately not backfilled. Both require an
+ * explicit owner decision during setup.
  */
 export async function ensureDefaultClientSettings(userId: string) {
   const existing = await prisma.clientSettings.findUnique({
@@ -45,7 +41,6 @@ export async function ensureDefaultClientSettings(userId: string) {
   });
 
   if (!existing) {
-    const baseDownloadPath = defaultDownloadDir();
     return prisma.clientSettings.create({
       data: {
         userId,
@@ -53,7 +48,9 @@ export async function ensureDefaultClientSettings(userId: string) {
         externalClientType: null,
         // Placeholder for optional external — builtin ignores host
         host: "http://127.0.0.1:8080",
-        baseDownloadPath,
+        baseDownloadPath: null,
+        maxStorageBytes: null,
+        storageCapConfigured: null,
         // No default label. Every send is categorised from the release's own
         // identity, so seeding "TV" here only lets uncategorised content be
         // asserted as a TV series and written into the real TV/ folder that
@@ -64,26 +61,5 @@ export async function ensureDefaultClientSettings(userId: string) {
       },
     });
   }
-
-  const data: {
-    baseDownloadPath?: string;
-  } = {};
-
-  // Soft backfill download root
-  if (!existing.baseDownloadPath?.trim()) {
-    data.baseDownloadPath = defaultDownloadDir();
-  }
-
-  if (Object.keys(data).length === 0) {
-    return existing;
-  }
-
-  try {
-    return await prisma.clientSettings.update({
-      where: { userId },
-      data,
-    });
-  } catch {
-    return existing;
-  }
+  return existing;
 }

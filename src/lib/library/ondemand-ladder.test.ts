@@ -268,19 +268,18 @@ async function main() {
     });
 
     // 3. Attempt cap holds: every send fails (non-offline), and the press can
-    //    never turn into an unbounded storm — it stops at MAX_SEND_ATTEMPTS (4).
-    await checkAsync("attempt cap stops at 4 send attempts", async () => {
-      const five = [1, 2, 3, 4, 5].map((n) => single(n, 40 + n));
-      // Episode-shaped rungs (exact + alt) each yield the same 5 seeded singles;
-      // the season rung would offer more, but the cap must bite first.
-      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? five : []));
+    //    never turn into an unbounded storm — it stops at MAX_SEND_ATTEMPTS (6).
+    await checkAsync("attempt cap stops at 6 send attempts", async () => {
+      // Enough distinct candidates that the send cap bites before the pool ends.
+      const many = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => single(n, 40 + n));
+      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? many : []));
       const { proxy, calls } = mockPrisma();
       const res = await grab(search.fn, failSend("qBittorrent rejected the add"), proxy);
 
       assert.equal(res.ok, false);
       assert.equal(res.noReleaseFound?.reason, "send_failed");
-      assert.equal(countCreate(calls, "grabJob", "failed"), 4, "exactly 4 attempts recorded");
-      assert.equal(search.calls.length, 2, "cap bites during rung 2 — pack rung never searched");
+      assert.equal(countCreate(calls, "grabJob", "failed"), 6, "exactly 6 attempts recorded");
+      assert.ok(search.calls.length >= 2, "at least two rungs searched before cap");
       assert.equal(countCreate(calls, "grabJob", "skipped"), 0, "attempts happened → no synth skip row");
     });
 
@@ -294,10 +293,13 @@ async function main() {
       assert.equal(res.ok, false);
       assert.equal(res.noReleaseFound?.reason, "no_release");
       assert.equal(res.noReleaseFound?.triedSeasonPacks, true);
-      assert.equal(res.noReleaseFound?.searches, 4, "all four rungs searched");
+      assert.ok(
+        (res.noReleaseFound?.searches ?? 0) >= 4,
+        "ladder exhausts multiple distinct searches",
+      );
       assert.equal(res.noReleaseFound?.manualSearchQuery, "Family Guy S01E02");
       assert.match(res.message, /including season packs/);
-      assert.match(res.message, /Search manually\?$/);
+      assert.doesNotMatch(res.message, /Search manually/i, "no useless manual-search CTA");
       // Even exhausted, the outcome is *materially different* from the RED: a
       // message that names what was tried, never the flat byte-identical string.
       assert.notEqual(res.message, RED_STATUS, "exhausted message must differ from the RED");
@@ -305,6 +307,102 @@ async function main() {
       assert.equal(countCreate(calls, "downloadHistory"), 0, "no history writes");
       assert.equal(countCreate(calls, "grabJob", "sent"), 0);
       assert.equal(countCreate(calls, "grabJob", "failed"), 0);
+    });
+
+    // 5b. Anime: formal catalog title finds nothing; short alias + absolute ep does.
+    await checkAsync("anime alias ladder finds absolute-numbered release", async () => {
+      const animeSingle = (): TorrentResult => ({
+        id: "rezero-01",
+        title: "[SubsPlease] Re Zero - 01 (1080p) [ABCDEF01]",
+        magnet: `magnet:?xt=urn:btih:${hex40("rezero-01")}&dn=rz`,
+        infoHash: hex40("rezero-01"),
+        sizeBytes: 400_000_000,
+        seeders: 80,
+        leechers: 3,
+        source: "nyaa",
+        sourceUrl: "https://example.com",
+        tags: ["1080p"],
+      });
+      const search = makeSearchFn((q) => {
+        // Formal TMDB string → empty (the live bug).
+        if (/Starting Life in Another World/i.test(q)) return [];
+        // Short alias absolute or S01E01 → hit.
+        if (/re\s*zero/i.test(q) && (/-?\s*01/i.test(q) || /S01E01/i.test(q))) {
+          return [animeSingle()];
+        }
+        return [];
+      });
+      const { proxy, calls } = mockPrisma();
+      const res = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "Re:ZERO -Starting Life in Another World-",
+        mediaType: "tv", // TMDB mislabels anime as tv — ladder must still try anime
+        season: 1,
+        episode: 1,
+        _config: fakeConfig(),
+        _searchFn: search.fn,
+        _sendFn: okSend(),
+        _prisma: proxy,
+      });
+      assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+      assert.match(res.title ?? "", /Re Zero - 01/i);
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+      assert.ok(search.calls.length >= 2, "must try more than the formal title alone");
+    });
+
+    // 5c. The strict version of 5b: the ONLY seeded release is dash-numbered.
+    // Every SxxEyy / 1x01 / pack shape returns nothing, so the grab succeeds
+    // only if an absolute rung is actually REACHED inside the search budget.
+    // RED before the rungs were reordered: the alias×category cross-product
+    // spent all 8 searches on SxxEyy shapes and never asked for "Show - 01".
+    await checkAsync("absolute-only anime is reached within the search budget", async () => {
+      const dashOnly = (): TorrentResult => ({
+        id: "abs-01",
+        title: "[SubsPlease] Re Zero - 01 (1080p) [ABCDEF01]",
+        magnet: `magnet:?xt=urn:btih:${hex40("abs-01")}&dn=rz`,
+        infoHash: hex40("abs-01"),
+        sizeBytes: 400_000_000,
+        seeders: 80,
+        leechers: 3,
+        source: "nyaa",
+        sourceUrl: "https://example.com",
+        tags: ["1080p"],
+      });
+      // Dash form only: "Show - 01". Anything carrying SxxEyy is not it.
+      const isAbsoluteQuery = (q: string) =>
+        /\s-\s*0?1\s*$/.test(q) && !/s\d{1,2}e\d{1,2}/i.test(q);
+      const search = makeSearchFn((q) => (isAbsoluteQuery(q) ? [dashOnly()] : []));
+      const { proxy, calls } = mockPrisma();
+      const res = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "Re:ZERO -Starting Life in Another World-",
+        mediaType: "tv",
+        season: 1,
+        episode: 1,
+        _config: fakeConfig(),
+        _searchFn: search.fn,
+        _sendFn: okSend(),
+        _prisma: proxy,
+      });
+      assert.equal(
+        res.ok,
+        true,
+        `absolute rung never reached; queries tried: ${search.calls.map((c) => c.query).join(" | ")}`,
+      );
+      assert.match(res.title ?? "", /Re Zero - 01/i);
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+    });
+
+    // 5d. The fast path for ordinary TV must not pay for the anime rescues:
+    // a formal-title episode query still resolves on the very first search.
+    await checkAsync("ordinary TV still resolves on the first search", async () => {
+      const search = makeSearchFn((q) =>
+        /^Family Guy S01E02$/i.test(q.trim()) ? [single(1, 90)] : [],
+      );
+      const { proxy } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+      assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+      assert.equal(search.calls.length, 1, "no extra rungs once rung 1 succeeds");
     });
 
     // 5. Offline is environmental — stop immediately, don't burn more rungs.

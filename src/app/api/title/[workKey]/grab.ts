@@ -21,8 +21,8 @@
  */
 import { getUserClientConfig } from "@/lib/clients";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
-import { assertStorageBudget } from "@/lib/library/disk-space";
 import { grabSingleEpisode } from "@/lib/library/ondemand";
+import { checkSendStorage } from "@/lib/library/storage-gate";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
@@ -71,6 +71,7 @@ export async function grabForTitle(
       episode,
       watchListItemId: input.watchListItemId,
       retention: input.retention ?? "keep",
+      overrideStorageCap: input.overrideStorageCap === true,
     });
     return {
       ok: result.ok,
@@ -78,6 +79,7 @@ export async function grabForTitle(
       title: result.title ?? null,
       savePath: result.savePath ?? null,
       infoHash: result.infoHash ?? null,
+      storage: result.storage ?? null,
     };
   }
 
@@ -232,14 +234,22 @@ async function grabWholeWork(input: TitleGrabInput): Promise<TitleGrabResponse> 
         target.savePath ||
         config.savePath?.trim() ||
         process.cwd();
-      const space = await assertStorageBudget({
+      // Same gate as every other send: Play reclaims the stream cache before it
+      // refuses, Download obeys the cap but offers an informed override. A film
+      // is not a special case — using the bare assert here made Play refusable
+      // on exactly the path a film takes.
+      const space = await checkSendStorage({
+        userId: input.userId,
+        config,
         root,
-        maxStorageBytes: config.maxStorageBytes,
         incomingBytes: candidate.sizeBytes ?? null,
+        retention: input.retention ?? "keep",
+        protectHashes: candidate.infoHash ? [candidate.infoHash] : undefined,
+        overrideCap: input.overrideStorageCap === true,
       });
       return space.ok
         ? { ok: true as const }
-        : { ok: false as const, message: space.message };
+        : { ok: false as const, message: space.message, storage: space.override };
     },
 
     resolveTarget(cfg, candidate) {
@@ -275,6 +285,7 @@ async function grabWholeWork(input: TitleGrabInput): Promise<TitleGrabResponse> 
     title: result.candidate?.title ?? null,
     savePath: result.target?.savePath ?? null,
     infoHash: normalizeInfoHash(result.candidate?.infoHash),
+    storage: result.storage ?? null,
   };
 }
 

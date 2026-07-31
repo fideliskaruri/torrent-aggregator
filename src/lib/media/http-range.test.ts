@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { makeScratchDir } from "@/lib/test-support/scratch-dir";
 import { serveFileRange } from "./http-range";
 
 let failures = 0;
@@ -19,7 +20,7 @@ async function check(name: string, fn: () => Promise<void>) {
 
 async function main() {
   await check("aborting a range body closes the file descriptor exactly once", async () => {
-    const root = await fsp.mkdtemp(path.join(process.cwd(), ".test-http-range-"));
+    const root = makeScratchDir("http-range");
     const file = path.join(root, "movie.mp4");
     const originalClose = fs.close;
     let closeCount = 0;

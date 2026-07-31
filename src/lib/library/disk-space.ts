@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { formatBytesShort, type StorageLimitKind } from "./storage-format";
 
 /** How long a measured directory size stays valid. */
 export const DIR_SIZE_TTL_MS = 30_000;
@@ -20,8 +21,74 @@ const dirSizeInFlight = new Map<string, Promise<number>>();
 /** Hard floor: refuse any send if free space below this. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024; // 500 MB
 
-/** Default cap when user has not set one (100 GB under download root). */
+/**
+ * Legacy explicit test/configuration preset. It is never selected implicitly;
+ * an absent user setting is unconfigured, not 100 GB.
+ */
 export const DEFAULT_MAX_STORAGE_BYTES = 100 * 1024 * 1024 * 1024; // 100 GB
+
+export const STORAGE_SETUP_REQUIRED_MESSAGE =
+  "Downloads need setup first — choose a download folder and set a storage cap in Settings → Downloads.";
+
+/**
+ * What a viewer is told when the cap refuses a download, and what they can do.
+ *
+ * Both halves of the ORIGINAL copy were wrong. It pointed at a **Settings →
+ * Folders** tab that does not exist (the tabs are Connection / Downloads /
+ * Categories), and it told the user to "delete old downloads" at a moment when
+ * the Client page listed zero live transfers while ~37 GB sat under the
+ * download folder — advice with no control behind it.
+ *
+ * The rewrite fixed the advice and left a different lie in place. It reported
+ * only *usage*, so a 1 GB cap on an EMPTY folder produced:
+ *
+ *     "Storage cap reached — using 0 B of 1.0 GB"
+ *
+ * Measured verbatim against the running server. Nothing is stored, nothing is
+ * "reached", and the owner is told their empty library is full — the same
+ * complaint they had already raised once ("says full but i have no downloads").
+ *
+ * The missing fact is the incoming release. A refusal is
+ * `used + incoming > cap`, and when the release size is unknown the app
+ * reserves {@link DEFAULT_INCOMING_RESERVE_BYTES} against the budget. That
+ * reserve is usually the whole reason a nearly-empty folder refuses a download,
+ * and it was never mentioned. So the message now states all three numbers, and
+ * names the reserve as an assumption when that is what it is.
+ */
+export function storageCapMessage(
+  usedBytes: number,
+  maxStorageBytes: number,
+  incomingBytes?: number | null,
+  /** True when `incomingBytes` is the default reserve, not a measured size. */
+  incomingEstimated?: boolean,
+): string {
+  const used = formatBytesShort(usedBytes);
+  const cap = formatBytesShort(maxStorageBytes);
+  const free = formatBytesShort(Math.max(0, maxStorageBytes - usedBytes));
+  const advice =
+    `Raise the cap in Settings → Downloads, or free space there with ` +
+    `"Delete reclaimable stream-only files".`;
+
+  if (incomingBytes == null || !Number.isFinite(incomingBytes) || incomingBytes <= 0) {
+    // No size to speak of: the old shape is honest here, since usage really is
+    // the only fact involved.
+    return `Storage cap reached — using ${used} of ${cap} under the download folder. ${advice}`;
+  }
+
+  const needs = formatBytesShort(incomingBytes);
+  if (incomingEstimated) {
+    // Naming the assumption matters: without it the arithmetic looks broken,
+    // and the owner cannot tell that supplying a real size might fix it.
+    return (
+      `This release does not report its size, so TorrentFlow sets aside ${needs} for it — ` +
+      `more than the ${free} left under your ${cap} cap (${used} in use). ${advice}`
+    );
+  }
+  return (
+    `This needs about ${needs}, but only ${free} is left under your ${cap} cap ` +
+    `(${used} in use). ${advice}`
+  );
+}
 
 /** When torrent size unknown, reserve this much headroom against the budget. */
 export const DEFAULT_INCOMING_RESERVE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
@@ -45,7 +112,52 @@ export type StoragePolicyResult =
       maxStorageBytes: number | null;
       remainingBudgetBytes: number | null;
       message: string;
+      /**
+       * Bytes the policy counted for the incoming release, and whether that was
+       * measured or assumed.
+       *
+       * A refusal is `used + incoming > cap`, so a caller that only knows
+       * `usedBytes` cannot explain itself. Measured live with a 1 MB cap on an
+       * empty folder, the confirmation dialog read *"You are using 0 B of
+       * 1 MB"* — arithmetic that looks broken, because the 2 GB the app had
+       * reserved for a release of unknown size was the entire reason and was
+       * never mentioned. The server message was fixed for exactly this; the
+       * dialog has its own copy and needs the same facts to say the same thing.
+       */
+      incomingBytes: number;
+      /** True when `incomingBytes` is the default reserve, not a real size. */
+      incomingEstimated: boolean;
+      /**
+       * WHICH limit refused, so callers never have to read the prose to find out.
+       *
+       * This distinction is the whole reason the cap can be overridden safely:
+       *
+       *  - `cap` — the owner's own budget for how much media to keep. It is a
+       *    guardrail about their preference. Overriding it costs disk space they
+       *    chose to reserve; nothing breaks.
+       *  - `reserve` — the app's 500 MB comfort margin on the volume. The item
+       *    *does* fit; it would just leave the drive tighter than this app likes.
+       *    That is still an opinion the app invented, so it is the owner's call.
+       *  - `wont-fit` — arithmetic, not opinion: the release needs more bytes
+       *    than the volume physically has free. No amount of consent creates
+       *    disk, so this is the one true hard stop.
+       *  - `setup` — no download folder / no cap configured yet. There is nothing
+       *    to override; the answer is to finish setup.
+       *
+       * `reserve` and `wont-fit` were once a single `free-space` kind, which made
+       * the app refuse a download that fit perfectly well merely because it
+       * disliked the leftovers. Splitting them is what lets the product keep one
+       * genuine hard stop while every self-imposed limit stays negotiable.
+       *
+       * Without this field a consumer would have to regex the message to decide
+       * whether to offer "download anyway", and a copy edit would silently turn a
+       * hard stop into an overridable prompt.
+       */
+      limit: StorageLimitKind;
     };
+
+/** @see StoragePolicyResult */
+export type { StorageLimitKind };
 
 /**
  * Best-effort free space for a path (or its parent if missing).
@@ -246,10 +358,55 @@ export async function assertMinFreeSpace(
 }
 
 /**
+ * Tell apart the two very different things the free-space check catches.
+ *
+ * The old code called both "free-space" and refused both outright, which meant
+ * a 700 MB episode on a drive with 900 MB free was rejected with no way
+ * forward — not because it did not fit, but because it would leave less than
+ * the 500 MB this app decided to keep spare. The owner's objection was exactly
+ * this: *"it should not be non-negotiable.. maybe i want to download that..
+ * unless my storage is full that is when it shouldn't continue"*.
+ *
+ * So the question is only ever: does it fit at all?
+ *
+ *   - `incoming > freeBytes` — it does not. That is arithmetic. Consent cannot
+ *     manufacture disk, and a torrent that runs the volume to zero mid-write can
+ *     corrupt in-flight files, so this stays a hard refusal.
+ *   - otherwise — it fits, and the objection is purely to the leftover margin.
+ *     That is the app's own preference, so the owner gets to overrule it.
+ *
+ * Callers that never look at `limit` still read correctly: both messages lead
+ * with the same two numbers.
+ */
+function freeSpaceRefusal(
+  incoming: number,
+  freeBytes: number,
+  minFree: number,
+): { message: string; limit: StorageLimitKind } {
+  if (incoming > freeBytes) {
+    return {
+      message:
+        `Not enough space on the drive — this needs about ${formatBytesShort(incoming)} ` +
+        `and only ${formatBytesShort(freeBytes)} is free. ` +
+        `Free up space or choose a download folder on another drive.`,
+      limit: "wont-fit",
+    };
+  }
+  return {
+    message:
+      `This needs about ${formatBytesShort(incoming)} and would leave under ` +
+      `${formatBytesShort(minFree)} free on the drive, which is the safety margin ` +
+      `this app keeps. It does fit — you can continue anyway, free up space, or ` +
+      `choose another download folder.`,
+    limit: "reserve",
+  };
+}
+
+/**
  * Automatic storage policy — call before every send.
  *
  * @param root download base folder (budget is measured under this tree)
- * @param maxStorageBytes cap for that tree; null/0 = use DEFAULT_MAX_STORAGE_BYTES
+ * @param maxStorageBytes cap for that tree; null/0 = setup is incomplete
  * @param incomingBytes expected size of this download (or reserve default)
  * @param minFreeBytes hard floor of free space on the volume
  * @param unlimited if true, only enforce min free space (no size cap)
@@ -261,21 +418,56 @@ export async function assertStorageBudget(opts: {
   minFreeBytes?: number;
   /** When true, skip the max-budget check (only min free). */
   unlimited?: boolean;
+  /**
+   * Test seams. The reserve/wont-fit boundary is arithmetic on two numbers, and
+   * it decides whether the owner is offered a choice or a wall — worth pinning
+   * exactly, which needs a volume that reports what the test says rather than
+   * whatever the machine running CI happens to have free.
+   */
+  _getFreeSpace?: (root: string) => Promise<FreeSpaceResult>;
+  _getDirectorySize?: (root: string) => Promise<number>;
 }): Promise<StoragePolicyResult> {
-  const root = opts.root?.trim() || process.cwd();
-  const minFree = opts.minFreeBytes ?? MIN_FREE_BYTES;
-  const incoming =
+  const maxRaw = opts.maxStorageBytes;
+  const incomingKnownEarly =
     opts.incomingBytes != null &&
     Number.isFinite(opts.incomingBytes) &&
-    opts.incomingBytes > 0
-      ? opts.incomingBytes
-      : DEFAULT_INCOMING_RESERVE_BYTES;
+    opts.incomingBytes > 0;
+  if (maxRaw == null || !Number.isFinite(maxRaw) || maxRaw <= 0) {
+    return {
+      ok: false,
+      freeBytes: null,
+      usedBytes: 0,
+      maxStorageBytes: null,
+      remainingBudgetBytes: null,
+      message: STORAGE_SETUP_REQUIRED_MESSAGE,
+      limit: "setup",
+      incomingBytes: incomingKnownEarly
+        ? (opts.incomingBytes as number)
+        : DEFAULT_INCOMING_RESERVE_BYTES,
+      incomingEstimated: !incomingKnownEarly,
+    };
+  }
 
-  const space = await getFreeSpace(root);
+  const root = opts.root?.trim() || process.cwd();
+  const minFree = opts.minFreeBytes ?? MIN_FREE_BYTES;
+  const incomingKnown =
+    opts.incomingBytes != null &&
+    Number.isFinite(opts.incomingBytes) &&
+    opts.incomingBytes > 0;
+  const incoming = incomingKnown
+    ? (opts.incomingBytes as number)
+    : DEFAULT_INCOMING_RESERVE_BYTES;
+
+  const space = await (opts._getFreeSpace ?? getFreeSpace)(root);
   const freeBytes = space.ok ? space.freeBytes : null;
-  const usedBytes = await getDirectorySizeBytesAsync(root);
+  const usedBytes = await (opts._getDirectorySize ?? getDirectorySizeBytesAsync)(root);
 
-  // 1) Absolute free-space floor
+  // 1) The app's free-space comfort margin.
+  //
+  // Note this fires on the state of the volume *before* adding anything, so it
+  // can refuse a 50 MB episode on a drive with 400 MB free — a case where the
+  // file fits with room to spare. That is a preference about headroom, not a
+  // physical limit, so it is classified by whether the item actually fits.
   if (freeBytes != null && freeBytes < minFree) {
     return {
       ok: false,
@@ -283,7 +475,9 @@ export async function assertStorageBudget(opts: {
       usedBytes,
       maxStorageBytes: null,
       remainingBudgetBytes: null,
-      message: `Disk almost full — need ~${formatBytesShort(minFree)} free, have ~${formatBytesShort(freeBytes)}. Free space or change download folder.`,
+      ...freeSpaceRefusal(incoming, freeBytes, minFree),
+      incomingBytes: incoming,
+      incomingEstimated: !incomingKnown,
     };
   }
 
@@ -297,12 +491,8 @@ export async function assertStorageBudget(opts: {
     };
   }
 
-  // 2) Soft default cap if user never configured one
-  const maxRaw = opts.maxStorageBytes;
-  const maxStorageBytes =
-    maxRaw == null || maxRaw <= 0
-      ? DEFAULT_MAX_STORAGE_BYTES
-      : maxRaw;
+  // 2) Explicit user cap
+  const maxStorageBytes = maxRaw;
 
   const remainingBudget = Math.max(0, maxStorageBytes - usedBytes);
 
@@ -313,7 +503,11 @@ export async function assertStorageBudget(opts: {
       usedBytes,
       maxStorageBytes,
       remainingBudgetBytes: remainingBudget,
-      message: `Storage cap reached — using ${formatBytesShort(usedBytes)} of ${formatBytesShort(maxStorageBytes)} under download folder. Raise the limit in Settings → Folders, or delete old downloads.`,
+      message: storageCapMessage(usedBytes, maxStorageBytes, incoming, !incomingKnown),
+      incomingBytes: incoming,
+      incomingEstimated: !incomingKnown,
+      // The owner's own budget — a guardrail they may knowingly override.
+      limit: "cap",
     };
   }
 
@@ -325,7 +519,9 @@ export async function assertStorageBudget(opts: {
       usedBytes,
       maxStorageBytes,
       remainingBudgetBytes: remainingBudget,
-      message: `Not enough free space for this download (~${formatBytesShort(incoming)} needed with safety margin; ${formatBytesShort(freeBytes)} free).`,
+      ...freeSpaceRefusal(incoming, freeBytes, minFree),
+      incomingBytes: incoming,
+      incomingEstimated: !incomingKnown,
     };
   }
 
@@ -338,14 +534,8 @@ export async function assertStorageBudget(opts: {
   };
 }
 
-/** Human-readable bytes. */
-export function formatBytesShort(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return "?";
-  if (n >= 1e12) return `${(n / 1e12).toFixed(1)} TB`;
-  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(0)} MB`;
-  return `${Math.round(n)} B`;
-}
+/** Human-readable bytes. Defined in `storage-format.ts` so client code can use it. */
+export { formatBytesShort };
 
 export function gbToBytes(gb: number): number {
   return Math.round(gb * 1e9);
@@ -381,12 +571,17 @@ export function canFitEstimate(
   freeBytes: number | null,
   estimatedBytes: number,
   usedBytes = 0,
-  maxStorageBytes: number | null = DEFAULT_MAX_STORAGE_BYTES,
+  maxStorageBytes: number | null = null,
 ): { canFit: boolean; headroomBytes: number; message: string } {
+  if (maxStorageBytes == null || maxStorageBytes <= 0) {
+    return {
+      canFit: false,
+      headroomBytes: 0,
+      message: STORAGE_SETUP_REQUIRED_MESSAGE,
+    };
+  }
   const budgetLeft =
-    maxStorageBytes != null && maxStorageBytes > 0
-      ? Math.max(0, maxStorageBytes - usedBytes)
-      : null;
+    Math.max(0, maxStorageBytes - usedBytes);
 
   if (freeBytes == null && budgetLeft == null) {
     return {

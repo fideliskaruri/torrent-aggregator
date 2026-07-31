@@ -23,11 +23,11 @@ import { releaseStatus, type ReleaseStatus } from "@/lib/browse/release-status";
 import { titleHrefForName } from "@/components/title/work-key";
 
 export interface TitleResult {
-  /** Opaque work key from `groupReleasesByWork`. Stable React key. */
+  /** Opaque work key. Stable React key. */
   key: string;
-  /** Display name (catalog spelling when it agrees, else the release name). */
+  /** Display name (catalog spelling). */
   name: string;
-  /** Film year; always null for series. */
+  /** Film year when known; series may still carry a first-air year for display. */
   year: number | null;
   isSeries: boolean;
   /** Catalog media type ("movie" | "tv" | "anime"), when known. */
@@ -39,10 +39,14 @@ export interface TitleResult {
   status: ReleaseStatus;
   /** Title-page href, or null when there is nothing to open. */
   href: string | null;
-  /** The top-ranked release — what Play/Download act on from the card. */
-  best: TorrentResult;
-  /** Every release for this work, still in server rank order. */
-  releases: TorrentResult[];
+  /** One-line synopsis when the catalog has one. */
+  overview?: string | null;
+  /**
+   * Legacy torrent fields — only filled by `groupTitles` (indexer path).
+   * Catalog search never sets these; the title page owns torrent matching.
+   */
+  best?: TorrentResult;
+  releases?: TorrentResult[];
 }
 
 /**
@@ -156,8 +160,13 @@ const LEADING_ARTICLE = /^(?:the|a|an) /;
  * How well `name` answers `query`; lower is a better match. A leading article
  * ("The") is ignored for the exact/prefix decision so "The Odyssey" still counts
  * as an exact hit for the query "odyssey", and vice versa.
+ *
+ * Exported because the TMDB title search (`/api/search/titles`) must rank by
+ * the same rule. TMDB returns by its own popularity, which put *Stargate
+ * Atlantis* above the exact-title *Atlantis* for the query "atlantis". One
+ * implementation, two callers — a second copy would drift.
  */
-function queryRelevanceTier(query: string, name: string): number {
+export function queryRelevanceTier(query: string, name: string): number {
   const q = normalizeForMatch(query);
   if (!q) return 5;
   const n = normalizeForMatch(name);

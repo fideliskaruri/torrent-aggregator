@@ -17,8 +17,18 @@ import type {
 } from "./types";
 import { repairContentLayout } from "./content-layout-repair";
 import { releasePaths } from "./layout-ownership";
-import { pruneEmptyParents } from "./prune-empty-parents";
+import { pruneEmptyDescendants, pruneEmptyParents } from "./prune-empty-parents";
 import { findTorrentByHash } from "./find-torrent-by-hash";
+import {
+  releaseFailedAllocation,
+  snapshotAllocation,
+  type AllocationTorrent,
+} from "./add-allocation";
+import {
+  forgetTorrentMetadata,
+  preferredAddInput,
+  saveTorrentMetadata,
+} from "./torrent-metadata-cache";
 import { haltTransfer, resumeTransfer as resumeTransferCore } from "./transfer-control";
 import prisma from "@/lib/prisma";
 import { foregroundActive } from "@/lib/prewarm/foreground";
@@ -85,6 +95,8 @@ type WtTorrent = {
   timeRemaining: number;
   path: string;
   magnetURI?: string;
+  /** Bencoded info dictionary; available once `ready`. Cached for offline adds. */
+  torrentFile?: Uint8Array;
   pieces?: Array<unknown>;
   bitfield?: { buffer?: Uint8Array; get?: (index: number) => boolean };
   files?: Array<WtFile>;
@@ -1297,13 +1309,56 @@ async function getWtClient(): Promise<WebTorrentLike> {
   }
 }
 
-/** Automatic storage budget + free-space floor (see library/disk-space). */
+/**
+ * Freeing bytes changes the answer to "how big is the download folder", and the
+ * folder-size memo would otherwise serve the pre-release figure for another 30s
+ * — long enough for the very next Play to be refused over space that no longer
+ * exists. Fire-and-forget so cleanup paths stay synchronous.
+ */
+function invalidateDirectorySizeCache(): void {
+  void import("@/lib/library/disk-space")
+    .then((m) => m.resetDirectorySizeCache())
+    .catch(() => {
+      /* best-effort */
+    });
+}
+
+/**
+ * Remember this torrent's info dictionary so it never has to be fetched again.
+ *
+ * Called on every path that reaches `ready`, because that is precisely the
+ * moment metadata is known to be complete and correct. Best-effort: a failure
+ * here costs a future offline start, never the current add.
+ */
+function cacheTorrentMetadata(root: string, hash: string, torrent: WtTorrent): void {
+  const bytes = readProp(() => torrent.torrentFile, undefined);
+  if (!bytes) return;
+  saveTorrentMetadata(root, hash, bytes);
+}
+
+/**
+ * Automatic storage budget + free-space floor (see library/disk-space).
+ *
+ * This is the *second* place a send is checked — the route-level gate
+ * (`library/storage-gate`) runs first and is the one that reclaims cache for a
+ * Play and asks the owner about the cap. This check exists because callers can
+ * reach the engine directly, so it must stay.
+ *
+ * What it must not do is re-litigate a decision the owner already made. It used
+ * to: an over-cap Download the owner had explicitly confirmed passed the gate
+ * and was then refused here, with the gate's own message, as a 502. Honouring
+ * `overrideStorageCap` — through the same `isOverridableLimit` rule, so a
+ * `wont-fit` or `setup` refusal is still absolute — is what makes the two
+ * checks agree.
+ */
 async function checkStoragePolicy(
   config: ClientConnectionConfig,
   dest: string,
   incomingBytes?: number | null,
+  overrideStorageCap?: boolean,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const { assertStorageBudget } = await import("@/lib/library/disk-space");
+  const { isOverridableLimit } = await import("@/lib/library/storage-override");
   const root =
     config.baseDownloadPath?.trim() ||
     config.savePath?.trim() ||
@@ -1313,8 +1368,9 @@ async function checkStoragePolicy(
     maxStorageBytes: config.maxStorageBytes,
     incomingBytes: incomingBytes ?? null,
   });
-  if (!r.ok) return { ok: false, message: r.message };
-  return { ok: true };
+  if (r.ok) return { ok: true };
+  if (overrideStorageCap && isOverridableLimit(r.limit)) return { ok: true };
+  return { ok: false, message: r.message };
 }
 
 function magnetForPersist(
@@ -1338,6 +1394,72 @@ function selectBuiltinAddUri(payload: AddTorrentPayload): string | null {
 
 export function selectBuiltinAddUriForTests(payload: AddTorrentPayload): string | null {
   return selectBuiltinAddUri(payload);
+}
+
+/**
+ * Make a live torrent fetch its WHOLE content at full speed.
+ *
+ * ## The bug this exists for
+ *
+ * A Play adds a torrent with every file **deselected** — deliberately, so the
+ * stream route can select only the window around the playhead and a Play never
+ * silently becomes a full download. Pressing Download on that same release
+ * promotes it: `promoteTorrentToKept` flips the stored origin to `user`.
+ *
+ * But that only rewrote a database row. The *live* torrent kept the stream's
+ * piece selection, so the engine went on fetching a narrow window around the
+ * playhead while the Client page showed a download in progress and the progress
+ * bar crawled. The owner's words: *"when i stream but want to download it, it
+ * tracks the download but it's not fast... it's being limited."* It was not
+ * bandwidth-limited — nothing throttles download rate — it was only ever being
+ * asked for a sliver of the file.
+ *
+ * Selecting every file and clearing the stream-priority bookkeeping is what
+ * turns the intent into actual bytes. Safe to call when nothing matches: an
+ * unknown hash is a no-op, so callers never have to check first.
+ *
+ * @returns true when a live torrent was found and re-selected.
+ */
+export async function resumeFullDownload(
+  config: ClientConnectionConfig,
+  hash: string | null | undefined,
+): Promise<boolean> {
+  const h = hash?.trim().toLowerCase();
+  if (!h) return false;
+  try {
+    const client = await ensureClientAndRehydrate(config);
+    const t = findTorrent(client, h);
+    if (!t) return false;
+    // Drop the stream window bookkeeping first. `applyStreamPriority` short
+    // -circuits when its cached state already matches the request and only
+    // re-marks pieces critical — without clearing it, a later Play on this same
+    // torrent could reason from a window that no longer describes the selection.
+    prioritizedStreamFiles.delete(t as unknown as object);
+    selectAllFiles(t);
+    ensureDownloading(t);
+    return true;
+  } catch {
+    // Never let a promotion fail because the engine was mid-restart: the DB row
+    // is already correct, and a rehydrate re-selects from the stored origin.
+    return false;
+  }
+}
+
+/**
+ * Test seam for the engine-side storage check.
+ *
+ * Exported specifically because this check is *invisible* from the route: the
+ * gate says yes, and then this said no, and the only symptom was a 502 carrying
+ * the gate's own message. A rule that can disagree with another rule silently
+ * needs to be assertable on its own.
+ */
+export function checkStoragePolicyForTests(
+  config: ClientConnectionConfig,
+  dest: string,
+  incomingBytes: number | null,
+  overrideStorageCap?: boolean,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  return checkStoragePolicy(config, dest, incomingBytes, overrideStorageCap);
 }
 
 function torrentFileDiskPath(torrent: WtTorrent, file: WtFile): string | null {
@@ -1604,9 +1726,15 @@ async function rehydrateFromDb(
           });
 
           const startupBitfield = await startupBitfieldForRow(row);
+          // Prefer the cached info dictionary over the magnet. A magnet asks the
+          // swarm for metadata we already have, so under network restrictions
+          // `ready` never fires, the timeout below destroys this handle, and the
+          // stream route answers 404 for a file sitting complete on disk —
+          // which is exactly why the disk fast path never got a chance to run.
+          const addInput = preferredAddInput(dest, hash, addUri);
           const t = addTorrentWithEngineDefaults(
             client,
-            addUri,
+            addInput.input,
             dest,
             undefined,
             startupBitfield ? { bitfield: startupBitfield } : {},
@@ -1626,6 +1754,7 @@ async function rehydrateFromDb(
             cleanup();
             const h = t.infoHash?.toLowerCase?.() || hash;
             applyPersistedStatus(t, row.status, row.origin);
+            cacheTorrentMetadata(dest, h, t);
             scheduleRehydrateReadyPersist(row, t);
             s.meta.set(h, {
               savePath: dest,
@@ -2236,7 +2365,12 @@ export class BuiltinClient implements TorrentClientAdapter {
         payload.savePath?.trim() ||
         defaultDownloadRoot(config);
 
-      const space = await checkStoragePolicy(config, dest, null);
+      const space = await checkStoragePolicy(
+        config,
+        dest,
+        null,
+        payload.overrideStorageCap,
+      );
       if (!space.ok) {
         return { ok: false, message: space.message };
       }
@@ -2321,14 +2455,42 @@ export class BuiltinClient implements TorrentClientAdapter {
         // Existing bytes may still sit under a release root from before the
         // layout rewrite. Lift them now, while nothing has the files open.
         repairExistingLayout(dest, payload.name);
+        // Taken *before* the add so that anything appearing under `dest`
+        // afterwards is unambiguously this add's own preallocation. Without it
+        // a failed add cannot tell its own full-length placeholder apart from
+        // media the owner already had.
+        const existedBefore = snapshotAllocation(dest);
         let settled = false;
         // A magnet that never resolves metadata stays in client.torrents
         // forever unless we destroy it, leaking handles/sockets and showing up
         // as a permanent "Fetching metadata…" row.
         const holder: { t?: WtTorrent } = {};
         const reap = () => {
+          // WebTorrent preallocates every file at full length as soon as
+          // metadata parses — which routinely happens on the way to a timeout.
+          // `destroyStore: false` alone abandoned that allocation with no
+          // EngineTorrent row to reach it by, so every failed add leaked its
+          // whole size. Release exactly what this add created, and nothing the
+          // owner already had, before tearing the handle down.
+          const t = holder.t;
+          if (!t) return;
           try {
-            holder.t?.destroy?.({ destroyStore: false });
+            const released = releaseFailedAllocation(
+              t as unknown as AllocationTorrent,
+              existedBefore,
+            );
+            if (released.freedBytes > 0) {
+              console.warn(
+                `[builtin-engine] released ${released.freedBytes} bytes from a failed add ` +
+                  `(${released.removed.length} file(s); kept ${released.keptPreexisting} pre-existing)`,
+              );
+              invalidateDirectorySizeCache();
+            }
+          } catch {
+            /* best-effort */
+          }
+          try {
+            t.destroy?.({ destroyStore: false });
           } catch {
             /* best-effort */
           }
@@ -2381,6 +2543,9 @@ export class BuiltinClient implements TorrentClientAdapter {
         name: payload.name || torrent.name,
         userId: config.userId ?? undefined,
       });
+      // Metadata resolved. Cache it now so this release can be brought back
+      // into the engine — and played from disk — with no swarm at all.
+      cacheTorrentMetadata(dest, hash, torrent);
 
       // Multi-file → often savePath/torrentName/…; flatten junk root when done
 
@@ -2521,15 +2686,20 @@ export class BuiltinClient implements TorrentClientAdapter {
               if (!findTorrent(client, h)) {
                 repairExistingLayout(dest, row.name);
                 const startupBitfield = await startupBitfieldForRow(row);
+                // Same rule as rehydrateFromDb: cached metadata beats a magnet,
+                // so a listing that re-adds a finished torrent does not depend
+                // on the swarm to learn what it already knows.
+                const addInput = preferredAddInput(dest, h, addUri);
                 const t = addTorrentWithEngineDefaults(
                   client,
-                  addUri,
+                  addInput.input,
                   dest,
                   undefined,
                   startupBitfield ? { bitfield: startupBitfield } : {},
                 );
                 t.on("ready", () => {
                   applyPersistedStatus(t, row.status, row.origin);
+                  cacheTorrentMetadata(dest, h, t);
                   scheduleRehydrateReadyPersist(row, t);
                 });
                 t.on("error", (err: unknown) => {
@@ -2815,7 +2985,10 @@ export class BuiltinClient implements TorrentClientAdapter {
         }
         // Still prune if files were already gone but empty season/show remain
         if (deleteFiles && leafPath) {
-          pruneEmptyParents(leafPath, defaultDownloadRoot(config));
+          forgetTorrentMetadata(leafPath, h);
+          const base = defaultDownloadRoot(config);
+          pruneEmptyDescendants(leafPath, base);
+          pruneEmptyParents(leafPath, base);
         }
         return { ok: true, message: "Already removed" };
       }
@@ -2826,19 +2999,27 @@ export class BuiltinClient implements TorrentClientAdapter {
 
         // Remove empty Season NN / Show folders left after file delete
         if (deleteFiles && leafPath) {
+          // The cached .torrent describes media that no longer exists, so it
+          // goes with it. Before the prune, so the now-empty cache folders are
+          // themselves prunable. Deliberately NOT done when files are kept:
+          // that release is still playable offline and needs its metadata.
+          forgetTorrentMetadata(leafPath, h);
           try {
-            const pruned = pruneEmptyParents(
-              leafPath,
-              defaultDownloadRoot(config),
-            );
-            if (pruned.removed.length) {
+            const base = defaultDownloadRoot(config);
+            // DOWN first, then UP. A multi-file torrent owns a folder *below*
+            // savePath; leaving it there also blocks the upward walk, because
+            // savePath then still looks non-empty.
+            const below = pruneEmptyDescendants(leafPath, base);
+            const pruned = pruneEmptyParents(leafPath, base);
+            const removed = [...below.removed, ...pruned.removed];
+            if (removed.length) {
               console.info(
-                `[builtin-engine] pruned empty parents: ${pruned.removed.join(" → ")}`,
+                `[builtin-engine] pruned empty folders: ${removed.join(" → ")}`,
               );
             }
           } catch (err) {
             console.warn(
-              "[builtin-engine] prune empty parents failed",
+              "[builtin-engine] prune empty folders failed",
               err instanceof Error ? err.message : err,
             );
           }

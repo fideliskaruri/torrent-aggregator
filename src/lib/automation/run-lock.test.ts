@@ -6,6 +6,7 @@
  * actually overlap. These assertions exercise the lock directly.
  */
 import prisma from "@/lib/prisma";
+import { endTestProcess } from "@/lib/test-support/db-teardown";
 import {
   acquireRunLock,
   releaseRunLock,
@@ -112,8 +113,10 @@ async function main() {
   process.exit(failures === 0 ? 0 : 1);
 }
 
-main().catch(async (err) => {
-  console.error("FAIL run-lock:", err);
-  await cleanup().catch(() => {});
-  process.exit(1);
-});
+main()
+  .catch(async (err) => {
+    console.error("FAIL run-lock:", err);
+    await cleanup().catch(() => {});
+    await endTestProcess(1);
+  })
+  .then(() => endTestProcess(0));
