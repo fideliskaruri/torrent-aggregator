@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { searchTmdbByType } from "@/lib/metadata/tmdb";
 import { searchAniListWorks } from "@/lib/metadata/anilist";
 import { rankTitleHitsByRelevance } from "@/components/search/title-search";
@@ -8,6 +8,10 @@ import {
   workSearchHitFromMetadata,
   type WorkSearchHit,
 } from "@/lib/search/work-search";
+import {
+  jsonResponse,
+  observeRequest,
+} from "@/lib/observability/logging";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +22,12 @@ export const dynamic = "force-dynamic";
  * dedicated TMDB endpoints; anime uses AniList and preserves its format.
  */
 export async function GET(request: NextRequest) {
+  const observer = observeRequest(request, "title-search", "search-titles");
   const ip =
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (!rateLimit(`search-titles:${ip}`, 60)) {
-    return NextResponse.json(
+    return jsonResponse(
+      observer,
       { error: "Too many requests", results: [] as WorkSearchHit[] },
       { status: 429 },
     );
@@ -31,13 +37,15 @@ export async function GET(request: NextRequest) {
   const q = searchParams.get("q")?.trim() ?? "";
   const category = parseWorkSearchCategory(searchParams.get("category"));
   if (!q) {
-    return NextResponse.json(
+    return jsonResponse(
+      observer,
       { error: "Missing query parameter `q`", results: [] as WorkSearchHit[] },
       { status: 400 },
     );
   }
   if (q.length > 200) {
-    return NextResponse.json(
+    return jsonResponse(
+      observer,
       { error: "Query too long", results: [] as WorkSearchHit[] },
       { status: 400 },
     );
@@ -82,17 +90,25 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      results: rankTitleHitsByRelevance(results, q),
+    const ranked = rankTitleHitsByRelevance(results, q);
+    observer.success("TITLE_SEARCH_SUCCEEDED", {
+      category,
+      resultCount: ranked.length,
+      limit,
+    }, { emit: false });
+    return jsonResponse(observer, {
+      results: ranked,
       query: q,
       category,
     });
   } catch (err) {
-    console.error("[search/titles]", err);
-    return NextResponse.json(
+    const safeError = observer.failure("TITLE_SEARCH_FAILED", err, { category });
+    return jsonResponse(
+      observer,
       {
         error: "Title search failed",
-        message: err instanceof Error ? err.message : String(err),
+        code: safeError.code,
+        message: safeError.message,
         results: [] as WorkSearchHit[],
       },
       { status: 500 },

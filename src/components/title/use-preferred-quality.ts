@@ -12,7 +12,7 @@
  * settings round trip happens once per page load, not once per component.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
   ALWAYS_PREFERRED_KEY,
   nearestQuality,
@@ -23,6 +23,8 @@ const DEFAULT_RESOLUTION: QualityValue = 1080;
 
 let cachedResolution: QualityValue | null = null;
 let inflight: Promise<QualityValue> | null = null;
+let alwaysPreferredOverride: boolean | null = null;
+const ALWAYS_PREFERRED_EVENT = "torrentflow:always-preferred";
 
 async function fetchPreferredResolution(): Promise<QualityValue> {
   if (cachedResolution !== null) return cachedResolution;
@@ -50,6 +52,7 @@ async function fetchPreferredResolution(): Promise<QualityValue> {
 /** Read whether the user has toggled "Always use my preferred quality". */
 function readAlwaysPreferred(): boolean {
   if (typeof window === "undefined") return false;
+  if (alwaysPreferredOverride !== null) return alwaysPreferredOverride;
   try {
     return localStorage.getItem(ALWAYS_PREFERRED_KEY) === "true";
   } catch {
@@ -60,6 +63,7 @@ function readAlwaysPreferred(): boolean {
 /** Persist the "always preferred" toggle. */
 export function writeAlwaysPreferred(value: boolean): void {
   if (typeof window === "undefined") return;
+  alwaysPreferredOverride = value;
   try {
     if (value) {
       localStorage.setItem(ALWAYS_PREFERRED_KEY, "true");
@@ -69,12 +73,33 @@ export function writeAlwaysPreferred(value: boolean): void {
   } catch {
     // Ignore storage errors (private browsing, quota exceeded, etc.)
   }
+  window.dispatchEvent(new Event(ALWAYS_PREFERRED_EVENT));
+}
+
+function subscribeAlwaysPreferred(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== ALWAYS_PREFERRED_KEY) return;
+    alwaysPreferredOverride = null;
+    onStoreChange();
+  };
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener(ALWAYS_PREFERRED_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener(ALWAYS_PREFERRED_EVENT, onStoreChange);
+  };
 }
 
 export function usePreferredQuality() {
   const [preferredResolution, setPreferredResolution] =
     useState<QualityValue>(cachedResolution ?? DEFAULT_RESOLUTION);
-  const [alwaysPreferred, setAlwaysPreferredState] = useState(false);
+  const alwaysPreferred = useSyncExternalStore(
+    subscribeAlwaysPreferred,
+    readAlwaysPreferred,
+    () => false,
+  );
   const [loaded, setLoaded] = useState(Boolean(cachedResolution));
 
   useEffect(() => {
@@ -84,8 +109,6 @@ export function usePreferredQuality() {
       setPreferredResolution(r);
       setLoaded(true);
     });
-    // Read localStorage after mount (avoid hydration mismatch).
-    setAlwaysPreferredState(readAlwaysPreferred());
     return () => {
       cancelled = true;
     };
@@ -93,7 +116,6 @@ export function usePreferredQuality() {
 
   function setAlwaysPreferred(value: boolean) {
     writeAlwaysPreferred(value);
-    setAlwaysPreferredState(value);
   }
 
   return { preferredResolution, alwaysPreferred, setAlwaysPreferred, loaded };

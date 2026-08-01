@@ -19,7 +19,6 @@
  * a terminal "no working source" instead of a bare spinner. See `narration.ts`
  * and commit `badaf94`.
  */
-import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserClientConfig } from "@/lib/clients";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
@@ -29,19 +28,34 @@ import { describePlayback } from "@/lib/playback/narration";
 import { buildSwarmWatchDeps } from "@/lib/playback/engine-deps";
 import { swarmDeliveryTick } from "@/lib/playback/swarm-delivery-watchdog";
 import { builtinClient } from "@/lib/clients/builtin-engine";
+import {
+  jsonResponse,
+  observeRequest,
+} from "@/lib/observability/logging";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function json(status: number, body: Record<string, unknown>): Response {
-  return NextResponse.json(body, { status });
-}
-
 export async function POST(request: Request) {
+  const observer = observeRequest(request, "playback", "playback-failover");
+  const json = (status: number, body: Record<string, unknown>): Response =>
+    jsonResponse(observer, body, { status });
   const session = await auth();
   if (!session?.user?.id) return json(401, { error: "Not authenticated" });
 
-  const config = await getUserClientConfig(session.user.id);
+  let config: Awaited<ReturnType<typeof getUserClientConfig>>;
+  try {
+    config = await getUserClientConfig(session.user.id);
+  } catch (error) {
+    const safeError = observer.failure("PLAYBACK_FAILOVER_FAILED", error, {
+      status: "client-config",
+    });
+    return json(500, {
+      code: safeError.code,
+      error: "Failover could not start",
+      message: safeError.message,
+    });
+  }
   if (!config) return json(503, { error: "No torrent client configured" });
   if (config.clientType !== "builtin") {
     return json(409, {
@@ -99,18 +113,37 @@ export async function POST(request: Request) {
         infoHash,
       });
     }
-    const retry = await builtinClient.retryTorrent(config, infoHash);
+    let retry: Awaited<ReturnType<typeof builtinClient.retryTorrent>>;
+    try {
+      retry = await builtinClient.retryTorrent(config, infoHash);
+    } catch (error) {
+      const safeError = observer.failure("PLAYBACK_FAILOVER_FAILED", error, {
+        action: "retry",
+      });
+      return json(500, {
+        ok: false,
+        code: safeError.code,
+        failureClass: "delivery",
+        retryable: false,
+        message: safeError.message,
+      });
+    }
     if (!retry.ok) {
       // Expected outcome (no saved source, etc.) — never a 500.
+      observer.degraded("PLAYBACK_FAILOVER_FAILED", { action: "retry" });
       return json(200, {
         ok: false,
         code: "RETRY_FAILED",
         failureClass: "delivery",
         retryable: false,
         infoHash,
-        message: retry.message,
+        message: "This source could not be retried.",
       });
     }
+    observer.success("PLAYBACK_FAILOVER_SUCCEEDED", {
+      action: "retry",
+      status: "retrying",
+    });
     return json(200, {
       ok: true,
       code: "RETRYING",
@@ -135,6 +168,17 @@ export async function POST(request: Request) {
         : result.verdict.stalled
           ? "STALLED"
           : "PLAYING";
+    if (result.exhausted || code === "STALLED") {
+      observer.degraded("PLAYBACK_FAILOVER_FAILED", {
+        action: "failover",
+        status: result.exhausted ? "exhausted" : "stalled",
+      });
+    } else {
+      observer.success("PLAYBACK_FAILOVER_SUCCEEDED", {
+        action: "failover",
+        status: code.toLowerCase(),
+      });
+    }
     return json(200, {
       code,
       // Structured facts — the source of truth for the client.
@@ -154,10 +198,13 @@ export async function POST(request: Request) {
   } catch (err) {
     // Only genuinely unexpected engine faults reach here — expected no-source
     // and exhausted outcomes are returned as 200 above (I33).
+    const safeError = observer.failure("PLAYBACK_FAILOVER_FAILED", err, {
+      action: "failover",
+    });
     return json(500, {
-      code: "ENGINE_ERROR",
+      code: safeError.code,
       error: "Failover tick failed",
-      message: err instanceof Error ? err.message : String(err),
+      message: safeError.message,
     });
   }
 }

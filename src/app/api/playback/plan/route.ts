@@ -25,7 +25,6 @@
  * port 3000, and because the probe is bounded by `-rw_timeout` + an execFile
  * timeout so a cold torrent cannot hold the request open indefinitely.
  */
-import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserClientConfig } from "@/lib/clients";
 import { parseCapabilities } from "@/lib/media/capabilities";
@@ -55,16 +54,22 @@ import {
   stringField,
 } from "@/lib/http/request";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import {
+  CORRELATION_HEADER,
+  jsonResponse,
+  observeRequest,
+  type OperationObserver,
+} from "@/lib/observability/logging";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-function json(status: number, body: Record<string, unknown>): Response {
-  return NextResponse.json(body, { status });
-}
-
 /** Try to load a cached probe result from the database. */
-async function getCachedProbe(infoHash: string, filePath: string): Promise<ProbeResult | null> {
+async function getCachedProbe(
+  infoHash: string,
+  filePath: string,
+  observer: OperationObserver,
+): Promise<ProbeResult | null> {
   try {
     const cached = await prisma.mediaProbe.findUnique({
       where: { infoHash_filePath: { infoHash, filePath } },
@@ -77,12 +82,18 @@ async function getCachedProbe(infoHash: string, filePath: string): Promise<Probe
       streams,
     };
   } catch {
+    observer.degraded("PLAYBACK_CACHE_FAILED", { status: "read" });
     return null;
   }
 }
 
 /** Save a probe result to the database. Returns true on a successful write. */
-async function cacheProbe(infoHash: string, filePath: string, result: ProbeResult): Promise<boolean> {
+async function cacheProbe(
+  infoHash: string,
+  filePath: string,
+  result: ProbeResult,
+  observer: OperationObserver,
+): Promise<boolean> {
   const video = result.streams.find((s) => s.codecType === "video");
   const audio = result.streams.find((s) => s.codecType === "audio");
   try {
@@ -119,30 +130,40 @@ async function cacheProbe(infoHash: string, filePath: string, result: ProbeResul
       },
     });
     return true;
-  } catch (err) {
+  } catch {
     // A cache-write failure is not fatal to THIS request, but swallowing it
     // silently means every subsequent play cold-probes again and eats the same
     // latency (I34). Surface it to the caller instead of hiding it behind 200.
-    console.warn("[playback] Failed to cache probe:", err);
+    observer.degraded("PLAYBACK_CACHE_FAILED", { status: "write" });
     return false;
   }
 }
 
 export async function POST(request: Request) {
+  const observer = observeRequest(request, "playback", "plan-playback");
+  const json = (status: number, body: Record<string, unknown>): Response =>
+    jsonResponse(observer, body, { status });
+  const requestError = (
+    failure: Parameters<typeof requestFailureResponse>[0],
+  ): Response => {
+    const response = requestFailureResponse(failure);
+    response.headers.set(CORRELATION_HEADER, observer.correlationId);
+    return response;
+  };
   // Auth — same pattern as the stream route
   const session = await auth();
   if (!session?.user?.id) {
     return json(401, { error: "Not authenticated" });
   }
   const parsedBody = await readMutationObject(request);
-  if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+  if (!parsedBody.ok) return requestError(parsedBody);
   const body = parsedBody.value;
 
   const rawInfoHash = stringField(body, "infoHash", {
     required: true,
     maxLength: 64,
   });
-  if (!rawInfoHash.ok) return requestFailureResponse(rawInfoHash);
+  if (!rawInfoHash.ok) return requestError(rawInfoHash);
   const infoHash = normalizeInfoHash(rawInfoHash.value);
   if (!infoHash) {
     return json(400, {
@@ -154,7 +175,7 @@ export async function POST(request: Request) {
     required: true,
     maxLength: 4096,
   });
-  if (!filePathResult.ok) return requestFailureResponse(filePathResult);
+  if (!filePathResult.ok) return requestError(filePathResult);
   const filePath = filePathResult.value ?? "";
   const pathSegments = filePath.replace(/\\/g, "/").split("/");
   if (
@@ -174,18 +195,18 @@ export async function POST(request: Request) {
     min: 0,
     max: 10_000,
   });
-  if (!audioStreamIndexResult.ok) return requestFailureResponse(audioStreamIndexResult);
+  if (!audioStreamIndexResult.ok) return requestError(audioStreamIndexResult);
   const startSecResult = numberField(body, "startSec", {
     min: 0,
     max: 1_000_000_000,
   });
-  if (!startSecResult.ok) return requestFailureResponse(startSecResult);
+  if (!startSecResult.ok) return requestError(startSecResult);
 
   const capabilitiesObject = objectField(body, "capabilities");
-  if (!capabilitiesObject.ok) return requestFailureResponse(capabilitiesObject);
+  if (!capabilitiesObject.ok) return requestError(capabilitiesObject);
   if (capabilitiesObject.value) {
     const ua = stringField(capabilitiesObject.value, "ua", { maxLength: 2000 });
-    if (!ua.ok) return requestFailureResponse(ua);
+    if (!ua.ok) return requestError(ua);
     const mseSupported = capabilitiesObject.value.get("mseSupported");
     if (mseSupported !== undefined && typeof mseSupported !== "boolean") {
       return json(400, {
@@ -218,8 +239,8 @@ export async function POST(request: Request) {
         const entryFields = new Map(Object.entries(entry));
         const mime = stringField(entryFields, "mime", { required: true, maxLength: 500 });
         const canPlay = stringField(entryFields, "canPlay", { required: true, maxLength: 32 });
-        if (!mime.ok) return requestFailureResponse(mime);
-        if (!canPlay.ok) return requestFailureResponse(canPlay);
+        if (!mime.ok) return requestError(mime);
+        if (!canPlay.ok) return requestError(canPlay);
         const mse = entryFields.get("mse");
         if (typeof mse !== "boolean") {
           return json(400, {
@@ -232,7 +253,19 @@ export async function POST(request: Request) {
   }
 
   installSessionCleanup();
-  const config = await getUserClientConfig(session.user.id);
+  let config: Awaited<ReturnType<typeof getUserClientConfig>>;
+  try {
+    config = await getUserClientConfig(session.user.id);
+  } catch (error) {
+    const safeError = observer.failure("PLAYBACK_PLAN_FAILED", error, {
+      status: "client-config",
+    });
+    return json(500, {
+      error: "Playback planning failed",
+      code: safeError.code,
+      message: safeError.message,
+    });
+  }
   if (!config) {
     return json(503, { error: "No torrent client configured" });
   }
@@ -254,19 +287,41 @@ export async function POST(request: Request) {
   // cache write was rejected (so the next play will cold-probe again). Surfaced
   // in the response so a persistently failing cache is visible, not hidden (I34).
   let probeCache: "hit" | "written" | "failed" = "hit";
-  let probeResult = await getCachedProbe(infoHash, filePath);
+  let probeResult = await getCachedProbe(infoHash, filePath, observer);
   if (!probeResult) {
     const url = streamUrl(infoHash, filePath, origin);
-    const outcome = await probeUrl(url);
-    if (!outcome.ok) {
+    let outcome: Awaited<ReturnType<typeof probeUrl>>;
+    try {
+      outcome = await probeUrl(url);
+    } catch (error) {
+      const safeError = observer.failure("PLAYBACK_PLAN_FAILED", error, {
+        status: "probe",
+      });
       return json(503, {
         error: "Could not probe file",
+        code: safeError.code,
+        message: safeError.message,
+        probeError:
+          safeError.code === "OPERATION_TIMEOUT" ? "timeout" : "probe_failed",
+      });
+    }
+    if (!outcome.ok) {
+      const safeError = observer.failure(
+        "PLAYBACK_PLAN_FAILED",
+        new Error(outcome.error.error),
+        { status: "probe" },
+      );
+      return json(503, {
+        error: "Could not probe file",
+        code: safeError.code,
+        message: safeError.message,
         probeError: outcome.error.error,
-        message: outcome.error.message,
       });
     }
     probeResult = outcome.result;
-    probeCache = (await cacheProbe(infoHash, filePath, probeResult)) ? "written" : "failed";
+    probeCache = (await cacheProbe(infoHash, filePath, probeResult, observer))
+      ? "written"
+      : "failed";
   }
 
   // ── Step 2: Decide ──
@@ -298,7 +353,11 @@ export async function POST(request: Request) {
     const video = probeResult!.streams.find((s) => s.codecType === "video");
     const primaryAudio = probeResult!.streams.find((s) => s.codecType === "audio");
 
-    return NextResponse.json({
+    observer.success("PLAYBACK_PLAN_SUCCEEDED", {
+      status: plan.rung,
+      strategy: result.strategy,
+    });
+    return jsonResponse(observer, {
       plan: {
         rung: plan.rung,
         reason: plan.reason,
@@ -366,7 +425,19 @@ export async function POST(request: Request) {
   // instead, and a seek becomes an ordinary byte range.
   //
   // Anything this cannot serve falls through to the session path untouched.
-  const local = await resolveCompleteLocalFile({ config, infoHash, filePath });
+  let local: Awaited<ReturnType<typeof resolveCompleteLocalFile>>;
+  try {
+    local = await resolveCompleteLocalFile({ config, infoHash, filePath });
+  } catch (error) {
+    const safeError = observer.failure("PLAYBACK_PLAN_FAILED", error, {
+      status: "local-file",
+    });
+    return json(500, {
+      error: "Playback planning failed",
+      code: safeError.code,
+      message: safeError.message,
+    });
+  }
   const decision = chooseStrategy({ complete: local.ok, plan, duration });
   let strategy = decision.strategy;
   let strategyReason = local.ok ? decision.reason : `${decision.reason}: ${local.reason}`;
@@ -440,7 +511,11 @@ export async function POST(request: Request) {
     }
     const result = getOrCreateSession(infoHash, filePath, plan, sourceUrl, { startSec });
     if (!result.ok) {
-      return json(503, { error: result.error });
+      observer.degraded("PLAYBACK_PLAN_FAILED", { status: "session" });
+      return json(503, {
+        error: "Playback session could not be started",
+        code: "UPSTREAM_UNAVAILABLE",
+      });
     }
     sessionId = result.session.id;
     playUrl = `/api/playback/hls/${result.session.id}/playlist.m3u8`;

@@ -114,8 +114,7 @@ test("readWithStallGuard resolves ok when read wins", async () => {
 
 test("readWithStallGuard reports stalled on a frozen torrent and clears its timer", async () => {
   const controller = new AbortController();
-  let cleared = false;
-  let bytes = 1_000_000; // static: no progress ever
+  const bytes = 1_000_000; // static: no progress ever
   const start = 1_000_000;
   let clock = start;
   const result = await readWithStallGuard<string>(
@@ -136,8 +135,6 @@ test("readWithStallGuard reports stalled on a frozen torrent and clears its time
   assert.equal(result.ok === false && result.reason, "stalled");
   // A stall verdict must carry diagnostics for the classifier.
   assert.ok(result.ok === false && result.verdict);
-  void bytes;
-  void start;
 });
 
 test("readWithStallGuard reports aborted when the signal fires first", async () => {

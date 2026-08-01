@@ -10,7 +10,7 @@
  * something the user asked for. A pre-warm that could not run is reported as a
  * skip with a reason, with HTTP 200, because nothing the user did went wrong.
  */
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getUserClientConfig } from "@/lib/clients";
@@ -42,6 +42,11 @@ import {
   guardBrowserMutation,
   requestFailureResponse,
 } from "@/lib/http/request";
+import {
+  CORRELATION_HEADER,
+  jsonResponse,
+  observeRequest,
+} from "@/lib/observability/logging";
 
 export const dynamic = "force-dynamic";
 
@@ -51,10 +56,13 @@ export const dynamic = "force-dynamic";
  * Read-only. Resolves nothing and searches nothing — a status page must not
  * become a reason to hit an indexer.
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const observer = observeRequest(request, "prewarm", "prewarm-status");
+  const reply = (body: unknown, init?: ResponseInit) =>
+    jsonResponse(observer, body, init);
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return reply({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = session.user.id;
 
@@ -69,7 +77,7 @@ export async function GET() {
       upcomingTargets(userId),
     ]);
 
-    return NextResponse.json({
+    return reply({
       prewarms: prewarms.map((t) => ({
         hash: t.hash,
         name: t.name,
@@ -84,11 +92,11 @@ export async function GET() {
       foreground: foregroundSnapshot(),
     });
   } catch (err) {
-    console.error("[prewarm GET]", err);
-    return NextResponse.json(
+    const safeError = observer.failure("PREWARM_FAILED", err);
+    return reply(
       {
         error: "Failed to load pre-warm status",
-        message: "Pre-warm status could not be loaded. Check the server logs.",
+        message: safeError.message,
         prewarms: [],
         evictableCount: 0,
         upcoming: [],
@@ -138,26 +146,34 @@ type PrewarmRequest =
     };
 
 export async function POST(request: NextRequest) {
+  const observer = observeRequest(request, "prewarm", "prewarm-action");
+  const reply = (body: unknown, init?: ResponseInit) =>
+    jsonResponse(observer, body, init);
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return reply({ error: "Unauthorized" }, { status: 401 });
   }
   const userId = session.user.id;
 
   const origin = guardBrowserMutation(request);
-  if (!origin.ok) return requestFailureResponse(origin);
+  if (!origin.ok) {
+    const response = requestFailureResponse(origin);
+    response.headers.set(CORRELATION_HEADER, observer.correlationId);
+    return response;
+  }
   let body: PrewarmRequest;
   try {
     body = (await request.json()) as PrewarmRequest;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return reply({ error: "Invalid JSON" }, { status: 400 });
   }
 
   try {
     if (body.action === "prerank") {
       const releaseLease = tryAcquirePreProbeLease(userId);
       if (!releaseLease) {
-        return NextResponse.json({
+        observer.degraded("PREWARM_SKIPPED", { status: "busy" });
+        return reply({
           ok: true,
           preProbe: "busy",
           preRanked: [],
@@ -181,24 +197,23 @@ export async function POST(request: NextRequest) {
             const pass = preProbeUpcoming(userId);
             preProbe = "scheduled";
             leaseHandedToProbe = true;
+            observer.success("PREWARM_DISPATCHED", { status: "scheduled" });
             void pass
               .catch((err) => {
-                console.warn(
-                  "[prewarm] pre-probe pass failed:",
-                  err instanceof Error ? err.message : String(err),
-                );
+                observer.failure("PREWARM_FAILED", err, {
+                  status: "background",
+                });
               })
               .finally(releaseLease);
           } catch (err) {
             // A synchronous throw would otherwise escape before .catch attached.
-            console.warn(
-              "[prewarm] pre-probe pass could not start:",
-              err instanceof Error ? err.message : String(err),
-            );
+            observer.failure("PREWARM_FAILED", err, { status: "dispatch" });
           }
+        } else {
+          observer.degraded("PREWARM_SKIPPED", { status: "foreground" });
         }
 
-        return NextResponse.json({
+        return reply({
           ok: true,
           /**
            * Whether the background swarm pre-probe pass was dispatched for this
@@ -233,18 +248,18 @@ export async function POST(request: NextRequest) {
     if (body.action === "evict") {
       const config = await getUserClientConfig(userId);
       if (!config) {
-        return NextResponse.json({ ok: false, reason: "no-client", evicted: [] });
+        return reply({ ok: false, reason: "no-client", evicted: [] });
       }
       const bytes = Number(body.bytes);
       if (!Number.isFinite(bytes) || bytes <= 0) {
-        return NextResponse.json({ error: "bytes must be positive" }, { status: 400 });
+        return reply({ error: "bytes must be positive" }, { status: 400 });
       }
       const result = await evictPrewarmsForBytes({
         userId,
         neededBytes: bytes,
         config,
       });
-      return NextResponse.json({
+      return reply({
         ok: true,
         satisfied: result.satisfied,
         freedBytes: result.freedBytes,
@@ -268,7 +283,7 @@ export async function POST(request: NextRequest) {
         markForegroundActive(body.infoHash ?? null);
       }
       const result = await syncPrewarmSuspension({ userId });
-      return NextResponse.json({
+      return reply({
         ok: true,
         foreground: result.foreground,
         suspended: result.suspended,
@@ -281,7 +296,7 @@ export async function POST(request: NextRequest) {
     if (body.action === "next") {
       const infoHash = normalizeInfoHash(body.infoHash);
       if (!infoHash || typeof body.title !== "string") {
-        return NextResponse.json(
+        return reply(
           { error: "infoHash and title are required" },
           { status: 400 },
         );
@@ -295,7 +310,7 @@ export async function POST(request: NextRequest) {
         watchListItemId: body.watchListItemId ?? null,
       });
       if (!next) {
-        return NextResponse.json({ ok: true, next: null });
+        return reply({ ok: true, next: null });
       }
 
       const targetName = normalizeTitle(next.title);
@@ -326,7 +341,7 @@ export async function POST(request: NextRequest) {
             ? "ready"
             : "downloading";
 
-      return NextResponse.json({
+      return reply({
         ok: true,
         next: {
           title: next.title,
@@ -350,7 +365,7 @@ export async function POST(request: NextRequest) {
         typeof next.season !== "number" ||
         typeof next.episode !== "number"
       ) {
-        return NextResponse.json(
+        return reply(
           { error: "next requires title, season and episode" },
           { status: 400 },
         );
@@ -371,7 +386,7 @@ export async function POST(request: NextRequest) {
         protectHashes: body.protectHashes,
         force: body.force,
       });
-      return NextResponse.json({ ok: true, outcome });
+      return reply({ ok: true, outcome });
     }
 
     if (body.action === "progress") {
@@ -379,7 +394,7 @@ export async function POST(request: NextRequest) {
         typeof body.infoHash !== "string" ||
         typeof body.title !== "string"
       ) {
-        return NextResponse.json(
+        return reply(
           { error: "infoHash and title are required" },
           { status: 400 },
         );
@@ -394,16 +409,19 @@ export async function POST(request: NextRequest) {
         positionSec: Number(body.positionSec),
         durationSec: Number(body.durationSec),
       });
-      return NextResponse.json({ ok: true, outcome });
+      return reply({ ok: true, outcome });
     }
 
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+    return reply({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
-    console.error("[prewarm POST]", err);
-    return NextResponse.json(
+    const safeError = observer.failure("PREWARM_FAILED", err, {
+      action: body.action,
+    });
+    return reply(
       {
         error: "Pre-warm action failed",
-        message: "The pre-warm action failed. Check the server logs.",
+        code: safeError.code,
+        message: safeError.message,
       },
       { status: 500 },
     );

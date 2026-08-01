@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DATABASE_URL: file:${{ runner.temp }}/torrentflow-ci.db
+      DOWNLOAD_DIR: ${{ runner.temp }}/torrentflow-downloads
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm run audit:prod
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript checks
+        run: npm run typecheck
+
+      - name: Apply and verify Prisma migrations
+        run: |
+          npm run db:migrate:deploy
+          npm run db:migrate:status
+
+      - name: Run offline unit tests
+        run: npm run test:unit
+
+      - name: Build production app
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run built-app UI gate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          server_log="$RUNNER_TEMP/torrentflow-server.log"
+          setsid npm run start >"$server_log" 2>&1 &
+          server_pid=$!
+
+          cleanup() {
+            kill -TERM -- "-$server_pid" 2>/dev/null || true
+            for _ in {1..10}; do
+              if ! kill -0 -- "-$server_pid" 2>/dev/null; then
+                break
+              fi
+              sleep 0.2
+            done
+            kill -KILL -- "-$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT INT TERM
+
+          ready=0
+          for _ in {1..60}; do
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat "$server_log"
+              echo "Built app exited before becoming ready."
+              exit 1
+            fi
+            if curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+
+          if [[ "$ready" -ne 1 ]]; then
+            cat "$server_log"
+            echo "Built app did not become ready within 60 seconds."
+            exit 1
+          fi
+
+          if ! npm run test:ui; then
+            cat "$server_log"
+            exit 1
+          fi

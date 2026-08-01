@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth";
 import {
   getUserClientConfig,
@@ -13,20 +13,28 @@ import {
   isDownloadRetention,
   retentionStateForOrigin,
 } from "@/lib/streaming/retention";
+import {
+  jsonResponse,
+  observeRequest,
+} from "@/lib/observability/logging";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const observer = observeRequest(request, "torrent-client", "list-torrents");
+  const reply = (body: unknown, init?: ResponseInit) =>
+    jsonResponse(observer, body, init);
   try {
     const session = await auth();
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return reply({ error: "Unauthorized" }, { status: 401 });
     }
 
     const config = await getUserClientConfig(session.user.id);
     if (!config) {
-      return NextResponse.json(
+      observer.degraded("TORRENT_LIST_FAILED", { status: "not-configured" });
+      return reply(
         {
           error: "No torrent client configured",
           message:
@@ -130,7 +138,11 @@ export async function GET() {
         }
         return { ...torrent, retentionState };
       });
-      return NextResponse.json({
+      observer.success("TORRENT_LIST_SUCCEEDED", {
+        clientType: config.clientType,
+        count: annotated.length,
+      }, { emit: false });
+      return reply({
         torrents: annotated,
         clientType: config.clientType,
         host: publicHost,
@@ -140,11 +152,17 @@ export async function GET() {
       });
     } catch (err) {
       const formatted = formatClientError(err, config.clientType);
+      const safeError = observer.failure("TORRENT_LIST_FAILED", err, {
+        clientType: config.clientType,
+        offline: formatted.offline,
+      });
       // 503 = external client unavailable. Builtin failures are engine errors (502).
-      return NextResponse.json(
+      return reply(
         {
           error: "Failed to list torrents",
-          message: formatted.message,
+          message: formatted.offline
+            ? "The configured torrent client is unavailable."
+            : safeError.message,
           code: formatted.code,
           offline: formatted.offline,
           clientType: config.clientType,
@@ -157,10 +175,12 @@ export async function GET() {
       );
     }
   } catch (err) {
-    return NextResponse.json(
+    const safeError = observer.failure("TORRENT_LIST_FAILED", err);
+    return reply(
       {
         error: "Client API error",
-        message: err instanceof Error ? err.message : String(err),
+        code: safeError.code,
+        message: safeError.message,
         torrents: [],
       },
       { status: 500 },
@@ -169,15 +189,21 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const observer = observeRequest(request, "torrent-client", "control-torrent");
+  const reply = (body: unknown, init?: ResponseInit) =>
+    jsonResponse(observer, body, init);
   try {
     const session = await auth();
     if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return reply({ error: "Unauthorized" }, { status: 401 });
     }
 
     const config = await getUserClientConfig(session.user.id);
     if (!config) {
-      return NextResponse.json(
+      observer.degraded("TORRENT_CONTROL_FAILED", {
+        status: "not-configured",
+      });
+      return reply(
         {
           error: "No torrent client configured",
           message:
@@ -196,11 +222,11 @@ export async function POST(request: NextRequest) {
     try {
       body = (await request.json()) as typeof body;
     } catch {
-      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      return reply({ error: "Invalid JSON body" }, { status: 400 });
     }
 
     if (!body.action || !body.hash) {
-      return NextResponse.json(
+      return reply(
         { error: "action and hash required" },
         { status: 400 },
       );
@@ -265,17 +291,24 @@ export async function POST(request: NextRequest) {
           }
         }
       } else {
-        return NextResponse.json(
-          { error: `Action ${body.action} not supported` },
+        return reply(
+          { error: "Action not supported" },
           { status: 400 },
         );
       }
     } catch (err) {
       const formatted = formatClientError(err, config.clientType);
-      return NextResponse.json(
+      const safeError = observer.failure("TORRENT_CONTROL_FAILED", err, {
+        action: body.action,
+        clientType: config.clientType,
+        offline: formatted.offline,
+      });
+      return reply(
         {
           ok: false,
-          message: formatted.message,
+          message: formatted.offline
+            ? "The configured torrent client is unavailable."
+            : safeError.message,
           offline: formatted.offline,
           code: formatted.code,
         },
@@ -283,16 +316,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(
-      { ...result, offline: false },
+    if (result.ok) {
+      observer.success("TORRENT_CONTROL_SUCCEEDED", {
+        action: body.action,
+        clientType: config.clientType,
+      });
+    } else {
+      observer.degraded("TORRENT_CONTROL_FAILED", {
+        action: body.action,
+        clientType: config.clientType,
+      });
+    }
+    return reply(
+      {
+        ...result,
+        message: result.ok ? result.message : "Torrent action failed.",
+        offline: false,
+      },
       { status: result.ok ? 200 : 502 },
     );
   } catch (err) {
-    return NextResponse.json(
+    const safeError = observer.failure("TORRENT_CONTROL_FAILED", err);
+    return reply(
       {
         ok: false,
         error: "Client action failed",
-        message: err instanceof Error ? err.message : String(err),
+        code: safeError.code,
+        message: safeError.message,
       },
       { status: 500 },
     );

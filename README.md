@@ -10,7 +10,7 @@ Optional: connect your own **qBittorrent** or **Transmission** in Settings if yo
 cd torrent-aggregator
 npm install
 cp .env.example .env   # only DATABASE_URL is required
-npx prisma migrate deploy
+npm run db:migrate:deploy
 npm run dev
 ```
 
@@ -77,6 +77,10 @@ saved passwords will not decrypt after a move.
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for required CI gates, migration rules,
+and the offline-test policy. Release maintainers should also read
+[docs/releasing.md](docs/releasing.md).
+
 ```bash
 npm run test:unit    # fast, offline — no network required
 npm run test:api     # contract-checks every API route against a running server
@@ -85,6 +89,8 @@ npm run test:live    # the indexer-backed tests (needs unblocked network)
 npm test             # everything: units, library, API contract, browse gates
 npm run test:all     # same as npm test
 npm run lint
+npm run typecheck
+npm run audit:prod   # fails on unreviewed high/critical production findings
 ```
 
 `test:unit` discovers every `src/**/*.test.ts` and reports all of them, so one

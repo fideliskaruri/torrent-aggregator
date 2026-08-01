@@ -17,7 +17,7 @@
  *     <body> when it locks scroll, so the layout stays identical.
  *   - Touch targets: each option row is min-h-[44px] (matches the app's rule).
  */
-import { useState, useEffect, useId } from "react";
+import { useId, useState } from "react";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -44,7 +44,17 @@ export interface QualityPickerProps {
   onAlwaysPreferredChange: (value: boolean) => void;
 }
 
-export function QualityPicker({
+export function QualityPicker(props: QualityPickerProps) {
+  const { open, preferredResolution } = props;
+  return (
+    <QualityPickerDialog
+      key={`${open}:${preferredResolution}`}
+      {...props}
+    />
+  );
+}
+
+function QualityPickerDialog({
   open,
   onOpenChange,
   onConfirm,
@@ -54,12 +64,6 @@ export function QualityPicker({
 }: QualityPickerProps) {
   const [selected, setSelected] = useState<QualityValue>(preferredResolution);
   const groupName = useId();
-
-  // Reset selection to the current preference each time the picker opens so it
-  // always arrives pre-selected on the "most likely" choice.
-  useEffect(() => {
-    if (open) setSelected(preferredResolution);
-  }, [open, preferredResolution]);
 
   function handleConfirm() {
     onConfirm(selected);
