@@ -49,12 +49,23 @@ export default async function TitlePage({
       year={intOrNull(firstValue(sp.y))}
       mediaType={firstValue(sp.type) ?? null}
       season={intOrNull(firstValue(sp.s))}
+      provider={firstValue(sp.provider) ?? null}
+      providerId={firstValue(sp.providerId) ?? null}
+      sourceType={firstValue(sp.sourceType) ?? null}
+      format={firstValue(sp.format) ?? null}
+      seriesHint={firstValue(sp.series) ?? null}
+      aliases={allValues(sp.alias)}
     />
   );
 }
 
 function firstValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function allValues(value: string | string[] | undefined): string[] {
+  if (Array.isArray(value)) return value;
+  return value ? [value] : [];
 }
 
 function intOrNull(raw: string | undefined): number | null {

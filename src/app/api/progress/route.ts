@@ -5,7 +5,14 @@ import { COMPLETION_THRESHOLD } from "@/lib/browse/types";
 import { isSlopTitle } from "@/lib/metadata/slop";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { workIdentity } from "@/lib/torrents/work-identity";
-import type { ProgressUpdateBody, ProgressEntry } from "@/lib/browse/types";
+import type { ProgressEntry } from "@/lib/browse/types";
+import {
+  numberField,
+  queryString,
+  readMutationObject,
+  requestFailureResponse,
+  stringField,
+} from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
@@ -21,20 +28,79 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let body: ProgressUpdateBody;
-  try {
-    body = (await request.json()) as ProgressUpdateBody;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  // Validate required fields
-  if (!body.infoHash || typeof body.infoHash !== "string") {
+  const parsedBody = await readMutationObject(request);
+  if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+  const fields = parsedBody.value;
+  const infoHash = stringField(fields, "infoHash", { required: true, maxLength: 64 });
+  if (!infoHash.ok) return requestFailureResponse(infoHash);
+  const filePath = stringField(fields, "filePath", { required: true, maxLength: 4096 });
+  if (!filePath.ok) return requestFailureResponse(filePath);
+  const normalizedFilePath = (filePath.value ?? "").replace(/\\/g, "/");
+  if (
+    normalizedFilePath.includes("\0") ||
+    normalizedFilePath.startsWith("/") ||
+    /^[a-zA-Z]:\//.test(normalizedFilePath) ||
+    normalizedFilePath.split("/").some((segment) => segment === "..")
+  ) {
     return NextResponse.json(
-      { error: "infoHash is required" },
+      {
+        error: "filePath must be a safe path inside the torrent",
+        field: "filePath",
+      },
       { status: 400 },
     );
   }
+  const titleField = stringField(fields, "title", { required: true, maxLength: 500 });
+  if (!titleField.ok) return requestFailureResponse(titleField);
+  const positionSec = numberField(fields, "positionSec", {
+    required: true,
+    min: 0,
+    max: 1_000_000_000,
+  });
+  if (!positionSec.ok) return requestFailureResponse(positionSec);
+  const durationSec = numberField(fields, "durationSec", {
+    required: true,
+    min: Number.EPSILON,
+    max: 1_000_000_000,
+  });
+  if (!durationSec.ok) return requestFailureResponse(durationSec);
+  const season = numberField(fields, "season", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 10_000,
+  });
+  if (!season.ok) return requestFailureResponse(season);
+  const episode = numberField(fields, "episode", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 100_000,
+  });
+  if (!episode.ok) return requestFailureResponse(episode);
+  const posterUrl = stringField(fields, "posterUrl", {
+    nullable: true,
+    maxLength: 2048,
+  });
+  if (!posterUrl.ok) return requestFailureResponse(posterUrl);
+  const watchListItemId = stringField(fields, "watchListItemId", {
+    nullable: true,
+    maxLength: 128,
+  });
+  if (!watchListItemId.ok) return requestFailureResponse(watchListItemId);
+
+  const body = {
+    infoHash: infoHash.value ?? "",
+    filePath: normalizedFilePath,
+    title: titleField.value ?? "",
+    positionSec: positionSec.value ?? 0,
+    durationSec: durationSec.value ?? 0,
+    season: season.value,
+    episode: episode.value,
+    posterUrl: posterUrl.value,
+    watchListItemId: watchListItemId.value,
+  };
+
   // Normalise before it touches the [userId, infoHash, filePath] unique key.
   // `EngineTorrent.hash` is stored lowercase and the playback-plan route
   // normalises too, so a player posting a mixed-case or base32 hash here would
@@ -44,30 +110,6 @@ export async function POST(request: NextRequest) {
   if (!infoHashKey) {
     return NextResponse.json(
       { error: "infoHash is not a valid torrent info hash" },
-      { status: 400 },
-    );
-  }
-  if (!body.filePath || typeof body.filePath !== "string") {
-    return NextResponse.json(
-      { error: "filePath is required" },
-      { status: 400 },
-    );
-  }
-  if (!body.title || typeof body.title !== "string") {
-    return NextResponse.json(
-      { error: "title is required" },
-      { status: 400 },
-    );
-  }
-  if (typeof body.positionSec !== "number" || body.positionSec < 0) {
-    return NextResponse.json(
-      { error: "positionSec must be a non-negative number" },
-      { status: 400 },
-    );
-  }
-  if (typeof body.durationSec !== "number" || body.durationSec <= 0) {
-    return NextResponse.json(
-      { error: "durationSec must be a positive number" },
       { status: 400 },
     );
   }
@@ -196,14 +238,27 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = request.nextUrl;
-  const activeOnly = searchParams.get("active") === "1";
-  const infoHash = searchParams.get("infoHash");
+  const active = queryString(searchParams, "active", { allowed: ["0", "1"] });
+  if (!active.ok) return requestFailureResponse(active);
+  const infoHashParam = queryString(searchParams, "infoHash", { maxLength: 64 });
+  if (!infoHashParam.ok) return requestFailureResponse(infoHashParam);
+  const activeOnly = active.value === "1";
+  const infoHash = infoHashParam.value;
 
   const where: Record<string, unknown> = { userId: session.user.id };
   if (activeOnly) where.completedAt = null;
   // Normalise so a caller filtering with the hash the UI shows still matches
   // the lowercase form POST stores.
-  if (infoHash) where.infoHash = normalizeInfoHash(infoHash) ?? infoHash;
+  if (infoHash) {
+    const normalized = normalizeInfoHash(infoHash);
+    if (!normalized) {
+      return NextResponse.json(
+        { error: "infoHash is not a valid torrent info hash", field: "infoHash" },
+        { status: 400 },
+      );
+    }
+    where.infoHash = normalized;
+  }
 
   const rows = await prisma.playbackProgress.findMany({
     where,

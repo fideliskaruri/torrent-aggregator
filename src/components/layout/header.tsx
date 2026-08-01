@@ -24,9 +24,8 @@ export function Header() {
   const { items: navRow, dividerIndex } = desktopNavRow();
   const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
 
-  // Search is an overlay, not a page. A plain click opens the command palette
-  // in place; modified clicks (new tab, middle-click) still reach `/search` as
-  // the deep-link fallback, so the affordance stays a real link.
+  // A plain click opens the palette and gives it the durable `/search` URL;
+  // modified clicks still open that fallback route in a new tab.
   function onSearchClick(e: React.MouseEvent) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
       return;
@@ -52,7 +51,7 @@ export function Header() {
               />
             </svg>
           </span>
-          <span className="text-sm font-semibold tracking-tight text-[var(--text)] truncate">
+          <span className="hidden text-sm font-semibold tracking-tight text-[var(--text)] truncate lg:inline">
             TorrentFlow
           </span>
         </Link>
@@ -96,7 +95,7 @@ export function Header() {
                   href={href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "inline-flex items-center min-h-[44px] lg:min-h-0 px-2.5 lg:px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
+                    "inline-flex items-center min-h-[44px] lg:min-h-0 px-2 lg:px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
                     "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
                     active
                       ? "text-[var(--text)] bg-[var(--bg-muted)]"
@@ -123,7 +122,7 @@ export function Header() {
             data-header-search
             data-search-trigger
             className={cn(
-              "hidden md:inline-flex h-11 lg:h-8 items-center gap-2 rounded-md border px-2.5 text-[12px] transition-colors",
+              "hidden md:inline-flex h-11 w-11 lg:h-8 lg:w-auto items-center justify-center lg:justify-start gap-2 rounded-md border px-2.5 text-[12px] transition-colors",
               "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
               searchActive
                 ? "border-[var(--border-strong)] bg-[var(--bg-muted)] text-[var(--text)]"
@@ -131,7 +130,7 @@ export function Header() {
             )}
           >
             <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="lg:min-w-[7rem] text-left">Search</span>
+            <span className="hidden lg:inline lg:min-w-[7rem] text-left">Search</span>
             <kbd className="hidden lg:inline rounded border border-[var(--border)] bg-[var(--bg)] px-1 font-mono text-[10px] text-[var(--text-tertiary)]">
               /
             </kbd>
@@ -154,7 +153,7 @@ export function Header() {
           </Link>
           <button
             type="button"
-            className="hidden md:inline-flex h-11 lg:h-8 min-w-[44px] lg:min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
+            className="hidden xl:inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
             onClick={() =>
               setDensity(density === "compact" ? "comfortable" : "compact")
             }

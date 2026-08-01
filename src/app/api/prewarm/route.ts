@@ -19,6 +19,7 @@ import { preRankUpcoming, upcomingTargets } from "@/lib/prewarm/prerank";
 import { preProbeUpcoming } from "@/lib/prewarm/preprobe";
 import {
   foregroundSnapshot,
+  foregroundActive,
   markForegroundActive,
   releaseForeground,
   syncPrewarmSuspension,
@@ -36,6 +37,11 @@ import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import { normalizeTitle } from "@/lib/utils";
 import { getPreRanked, releaseInfoHash } from "@/lib/prewarm/prerank";
+import { tryAcquirePreProbeLease } from "@/lib/prewarm/preprobe-lock";
+import {
+  guardBrowserMutation,
+  requestFailureResponse,
+} from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
@@ -78,9 +84,15 @@ export async function GET() {
       foreground: foregroundSnapshot(),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    console.error("[prewarm GET]", err);
     return NextResponse.json(
-      { error: message, prewarms: [], evictableCount: 0, upcoming: [] },
+      {
+        error: "Failed to load pre-warm status",
+        message: "Pre-warm status could not be loaded. Check the server logs.",
+        prewarms: [],
+        evictableCount: 0,
+        upcoming: [],
+      },
       { status: 500 },
     );
   }
@@ -132,6 +144,8 @@ export async function POST(request: NextRequest) {
   }
   const userId = session.user.id;
 
+  const origin = guardBrowserMutation(request);
+  if (!origin.ok) return requestFailureResponse(origin);
   let body: PrewarmRequest;
   try {
     body = (await request.json()) as PrewarmRequest;
@@ -141,61 +155,79 @@ export async function POST(request: NextRequest) {
 
   try {
     if (body.action === "prerank") {
-      const choices = await preRankUpcoming(userId, { limit: body.limit });
-
-      // Speculatively measure the top candidates' swarms so the verdict is
-      // already stored by the time the user presses play. Fire-and-forget:
-      // this is background work, it must not add latency to the pre-rank
-      // response, and it yields to any foreground stream on its own (see
-      // `preProbeUpcoming`). An unreachable swarm is a normal `unknown`, not a
-      // route failure — but whether the pass was even DISPATCHED is surfaced in
-      // the response instead of hidden behind an unconditional 200 (I36).
-      let preProbe: "scheduled" | "unavailable" = "unavailable";
-      try {
-        const pass = preProbeUpcoming(userId);
-        preProbe = "scheduled";
-        void pass.catch((err) => {
-          console.warn(
-            "[prewarm] pre-probe pass failed:",
-            err instanceof Error ? err.message : String(err),
-          );
+      const releaseLease = tryAcquirePreProbeLease(userId);
+      if (!releaseLease) {
+        return NextResponse.json({
+          ok: true,
+          preProbe: "busy",
+          preRanked: [],
+          message: "A bounded pre-rank/probe pass is already running.",
         });
-      } catch (err) {
-        // A synchronous throw would otherwise escape before .catch attached.
-        console.warn(
-          "[prewarm] pre-probe pass could not start:",
-          err instanceof Error ? err.message : String(err),
-        );
-        preProbe = "unavailable";
       }
+      let leaseHandedToProbe = false;
+      try {
+        const choices = await preRankUpcoming(userId, { limit: body.limit });
 
-      return NextResponse.json({
-        ok: true,
-        /**
-         * Whether the background swarm pre-probe pass was dispatched for this
-         * pre-rank ("scheduled") or could not start ("unavailable"). It runs
-         * asynchronously, so "scheduled" means in-flight, not complete (I36).
-         */
-        preProbe,
-        // `candidate: null` means "we looked and found nothing usable".
-        // A target missing from this list means we never got an answer at all.
-        // Those are different, and the response keeps them different.
-        preRanked: choices.map((c) => ({
-          query: c.query,
-          season: c.season,
-          episode: c.episode,
-          resultCount: c.resultCount,
-          source: c.source,
-          candidate: c.candidate
-            ? {
-                title: c.candidate.title,
-                seeders: c.candidate.seeders,
-                sizeBytes: c.candidate.sizeBytes,
-                source: c.candidate.source,
-              }
-            : null,
-        })),
-      });
+        // Speculatively measure the top candidates' swarms so the verdict is
+        // already stored by the time the user presses play. Fire-and-forget:
+        // this is background work, it must not add latency to the pre-rank
+        // response, and it yields to any foreground stream on its own (see
+        // `preProbeUpcoming`). An unreachable swarm is a normal `unknown`, not a
+        // route failure — but whether the pass was even DISPATCHED is surfaced in
+        // the response instead of hidden behind an unconditional 200 (I36).
+        let preProbe: "scheduled" | "unavailable" = "unavailable";
+        if (!foregroundActive()) {
+          try {
+            const pass = preProbeUpcoming(userId);
+            preProbe = "scheduled";
+            leaseHandedToProbe = true;
+            void pass
+              .catch((err) => {
+                console.warn(
+                  "[prewarm] pre-probe pass failed:",
+                  err instanceof Error ? err.message : String(err),
+                );
+              })
+              .finally(releaseLease);
+          } catch (err) {
+            // A synchronous throw would otherwise escape before .catch attached.
+            console.warn(
+              "[prewarm] pre-probe pass could not start:",
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+        }
+
+        return NextResponse.json({
+          ok: true,
+          /**
+           * Whether the background swarm pre-probe pass was dispatched for this
+           * pre-rank ("scheduled") or could not start ("unavailable"). It runs
+           * asynchronously, so "scheduled" means in-flight, not complete (I36).
+           */
+          preProbe,
+          // `candidate: null` means "we looked and found nothing usable".
+          // A target missing from this list means we never got an answer at all.
+          // Those are different, and the response keeps them different.
+          preRanked: choices.map((c) => ({
+            query: c.query,
+            season: c.season,
+            episode: c.episode,
+            resultCount: c.resultCount,
+            source: c.source,
+            candidate: c.candidate
+              ? {
+                  title: c.candidate.title,
+                  seeders: c.candidate.seeders,
+                  sizeBytes: c.candidate.sizeBytes,
+                  source: c.candidate.source,
+                }
+              : null,
+          })),
+        });
+      } finally {
+        if (!leaseHandedToProbe) releaseLease();
+      }
     }
 
     if (body.action === "evict") {
@@ -228,7 +260,9 @@ export async function POST(request: NextRequest) {
       // pulling pieces immediately instead of after the idle grace.
       if (body.released) {
         releaseForeground(
-          typeof body.released === "string" ? body.released : body.infoHash ?? null,
+          typeof body.released === "string"
+            ? body.released
+            : body.infoHash ?? null,
         );
       } else if (body.beacon !== false) {
         markForegroundActive(body.infoHash ?? null);
@@ -329,7 +363,10 @@ export async function POST(request: NextRequest) {
           season: next.season,
           episode: next.episode,
           watchListItemId: next.watchListItemId ?? null,
-          source: next.source === "hunt-cursor" ? "hunt-cursor" : "playing-episode",
+          source:
+            next.source === "hunt-cursor"
+              ? "hunt-cursor"
+              : "playing-episode",
         },
         protectHashes: body.protectHashes,
         force: body.force,
@@ -338,7 +375,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "progress") {
-      if (typeof body.infoHash !== "string" || typeof body.title !== "string") {
+      if (
+        typeof body.infoHash !== "string" ||
+        typeof body.title !== "string"
+      ) {
         return NextResponse.json(
           { error: "infoHash and title are required" },
           { status: 400 },
@@ -359,7 +399,13 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[prewarm POST]", err);
+    return NextResponse.json(
+      {
+        error: "Pre-warm action failed",
+        message: "The pre-warm action failed. Check the server logs.",
+      },
+      { status: 500 },
+    );
   }
 }

@@ -491,6 +491,7 @@ function episode(over: Partial<TitleEpisode> = {}): TitleEpisode {
     watched: false,
     nextUp: false,
     fromPack: false,
+    transfer: null,
     ...over,
   };
 }
@@ -531,7 +532,6 @@ function payload(over: Partial<TitleDetailPayload> = {}): TitleDetailPayload {
         rating: null,
       },
     },
-    releasesHref: "/search?q=Severance",
     known: true,
     generatedAt: new Date().toISOString(),
     ...over,
@@ -959,6 +959,7 @@ function localEpisode(
     watched: false,
     nextUp: false,
     fromPack: false,
+    transfer: null,
     ...extra,
   };
 }

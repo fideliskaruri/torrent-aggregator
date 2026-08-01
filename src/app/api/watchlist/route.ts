@@ -7,8 +7,18 @@ import {
   resolveHuntCursor,
 } from "@/lib/library/cursor";
 import { resolveMetadata } from "@/lib/metadata/enrich";
-import { isSeriesMediaType } from "@/lib/metadata/media-type";
+import { isSeriesMediaType, normalizeMediaType } from "@/lib/metadata/media-type";
 import { promoteLibraryStreamsToKept } from "@/lib/streaming/retention";
+import {
+  booleanField,
+  enumField,
+  guardBrowserMutation,
+  numberField,
+  queryString,
+  readMutationObject,
+  requestFailureResponse,
+  stringField,
+} from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
@@ -32,31 +42,71 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await request.json()) as {
-    mediaType?: string;
-    externalId?: string;
-    title?: string;
-    posterUrl?: string | null;
-    synopsis?: string | null;
-    rating?: number | null;
-    status?: string;
-    /**
-     * Defaults to true. A recommendation added as "planned" passes false: it
-     * has not earned disk, and automation hunts every monitored row.
-     */
-    monitored?: boolean;
-    /** Library aggregator: start monitoring from this season (TV/anime) */
-    fromSeason?: number | null;
-    fromEpisode?: number | null;
-    monitorMode?: string;
-  };
-
-  if (!body.mediaType || !body.externalId || !body.title) {
+  const parsedBody = await readMutationObject(request);
+  if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+  const fields = parsedBody.value;
+  const mediaTypeInput = stringField(fields, "mediaType", {
+    required: true,
+    maxLength: 32,
+  });
+  if (!mediaTypeInput.ok) return requestFailureResponse(mediaTypeInput);
+  const mediaType = normalizeMediaType(mediaTypeInput.value);
+  if (!mediaType) {
     return NextResponse.json(
-      { error: "mediaType, externalId, and title are required" },
+      { error: "mediaType must be anime, movie, or tv", field: "mediaType" },
       { status: 400 },
     );
   }
+  const externalId = stringField(fields, "externalId", {
+    required: true,
+    maxLength: 128,
+  });
+  if (!externalId.ok) return requestFailureResponse(externalId);
+  const title = stringField(fields, "title", { required: true, maxLength: 500 });
+  if (!title.ok) return requestFailureResponse(title);
+  const posterUrl = stringField(fields, "posterUrl", { nullable: true, maxLength: 2048 });
+  if (!posterUrl.ok) return requestFailureResponse(posterUrl);
+  const synopsis = stringField(fields, "synopsis", { nullable: true, maxLength: 20_000 });
+  if (!synopsis.ok) return requestFailureResponse(synopsis);
+  const rating = numberField(fields, "rating", { nullable: true, min: 0, max: 10 });
+  if (!rating.ok) return requestFailureResponse(rating);
+  const status = enumField(
+    fields,
+    "status",
+    ["watching", "planned", "completed", "dropped"] as const,
+  );
+  if (!status.ok) return requestFailureResponse(status);
+  const monitored = booleanField(fields, "monitored");
+  if (!monitored.ok) return requestFailureResponse(monitored);
+  const fromSeasonInput = numberField(fields, "fromSeason", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 10_000,
+  });
+  if (!fromSeasonInput.ok) return requestFailureResponse(fromSeasonInput);
+  const fromEpisodeInput = numberField(fields, "fromEpisode", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 100_000,
+  });
+  if (!fromEpisodeInput.ok) return requestFailureResponse(fromEpisodeInput);
+  const monitorMode = enumField(fields, "monitorMode", ["ongoing"] as const);
+  if (!monitorMode.ok) return requestFailureResponse(monitorMode);
+  const body = {
+    mediaType,
+    externalId: externalId.value ?? "",
+    title: title.value ?? "",
+    posterUrl: posterUrl.value,
+    synopsis: synopsis.value,
+    rating: rating.value,
+    status: status.value,
+    monitored: monitored.value,
+    fromSeason: fromSeasonInput.value,
+    fromEpisode: fromEpisodeInput.value,
+    monitorMode: monitorMode.value,
+  };
 
   const isSeries = isSeriesMediaType(body.mediaType);
   let fromSeason: number | null = null;
@@ -168,10 +218,14 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const id = request.nextUrl.searchParams.get("id");
-  if (!id) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 });
-  }
+  const origin = guardBrowserMutation(request);
+  if (!origin.ok) return requestFailureResponse(origin);
+  const idResult = queryString(request.nextUrl.searchParams, "id", {
+    required: true,
+    maxLength: 128,
+  });
+  if (!idResult.ok) return requestFailureResponse(idResult);
+  const id = idResult.value ?? "";
 
   await prisma.watchListItem.deleteMany({
     where: { id, userId: session.user.id },
@@ -186,21 +240,65 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await request.json()) as {
-    id?: string;
-    status?: string;
-    lastEpisode?: string | null;
-    monitored?: boolean;
-    fromSeason?: number | null;
-    fromEpisode?: number | null;
-    cursorSeason?: number | null;
-    cursorEpisode?: number | null;
-    monitorMode?: string;
+  const parsedBody = await readMutationObject(request);
+  if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+  const fields = parsedBody.value;
+  const id = stringField(fields, "id", { required: true, maxLength: 128 });
+  if (!id.ok) return requestFailureResponse(id);
+  const status = enumField(
+    fields,
+    "status",
+    ["watching", "planned", "completed", "dropped"] as const,
+  );
+  if (!status.ok) return requestFailureResponse(status);
+  const lastEpisode = stringField(fields, "lastEpisode", {
+    nullable: true,
+    maxLength: 100,
+  });
+  if (!lastEpisode.ok) return requestFailureResponse(lastEpisode);
+  const monitored = booleanField(fields, "monitored");
+  if (!monitored.ok) return requestFailureResponse(monitored);
+  const fromSeason = numberField(fields, "fromSeason", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 10_000,
+  });
+  if (!fromSeason.ok) return requestFailureResponse(fromSeason);
+  const fromEpisode = numberField(fields, "fromEpisode", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 100_000,
+  });
+  if (!fromEpisode.ok) return requestFailureResponse(fromEpisode);
+  const cursorSeason = numberField(fields, "cursorSeason", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 10_000,
+  });
+  if (!cursorSeason.ok) return requestFailureResponse(cursorSeason);
+  const cursorEpisode = numberField(fields, "cursorEpisode", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 100_000,
+  });
+  if (!cursorEpisode.ok) return requestFailureResponse(cursorEpisode);
+  const monitorMode = enumField(fields, "monitorMode", ["ongoing"] as const);
+  if (!monitorMode.ok) return requestFailureResponse(monitorMode);
+  const body = {
+    id: id.value ?? "",
+    status: status.value,
+    lastEpisode: lastEpisode.value,
+    monitored: monitored.value,
+    fromSeason: fromSeason.value,
+    fromEpisode: fromEpisode.value,
+    cursorSeason: cursorSeason.value,
+    cursorEpisode: cursorEpisode.value,
+    monitorMode: monitorMode.value,
   };
-
-  if (!body.id) {
-    return NextResponse.json({ error: "Missing id" }, { status: 400 });
-  }
 
   const existing = await prisma.watchListItem.findFirst({
     where: { id: body.id, userId: session.user.id },

@@ -332,6 +332,40 @@ async function main(): Promise<void> {
       assert.equal(m.verdict, "good");
     });
 
+    await checkAsync("an abort tears down an active fresh probe immediately", async () => {
+      const hash = sha1();
+      const torrent = fakeTorrent({ numPeers: 1 });
+      const controller = new AbortController();
+      const probe = probeSwarm(
+        { infoHash: hash },
+        {
+          signal: controller.signal,
+          getClient: async () => ({ add: () => torrent, torrents: [] }),
+          addTorrent: () => torrent,
+          findLive: () => null,
+          windowMs: 60_000,
+        },
+      );
+
+      await tick();
+      controller.abort();
+      const measurement = await probe;
+
+      assert.equal(measurement.verdict, "unknown");
+      assert.equal(torrent.destroyCalls, 1, "the active probe torrent is destroyed");
+      assert.equal(
+        torrent.lastDestroyStore,
+        true,
+        "the aborted probe removes only its throwaway partial data",
+      );
+      assert.ok(
+        torrent.removedListeners.includes("download") &&
+          torrent.removedListeners.includes("wire") &&
+          torrent.removedListeners.includes("error"),
+        "abort removes every probe listener",
+      );
+    });
+
     // ── The guard: a live download is never probed or destroyed ─────────
     await checkAsync("a live download is read, never added or destroyed", async () => {
       const hash = sha1();

@@ -253,6 +253,44 @@ await check(
   },
 );
 
+await check(
+  "each mirror receives a fresh abort budget",
+  async () => {
+    const controllers: AbortController[] = [];
+    const seenSignals: AbortSignal[] = [];
+    const fetchFn = async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      if (!init?.signal) throw new Error("missing signal");
+      seenSignals.push(init.signal);
+      if (String(input).startsWith("https://slow")) {
+        controllers[0].abort();
+        throw new DOMException("timed out", "AbortError");
+      }
+      assert.equal(init.signal.aborted, false, "fallback budget must start live");
+      return apiOk();
+    };
+    const response = await fetchFromMirrors({
+      key: "t-fresh-budget",
+      hosts: ["https://slow", "https://live"],
+      path: (host) => `${host}/q`,
+      timeoutMs: 50,
+      createSignal: () => {
+        const controller = new AbortController();
+        controllers.push(controller);
+        return controller.signal;
+      },
+      fetchFn,
+    });
+    assert.equal(response.status, 200);
+    assert.equal(seenSignals.length, 2);
+    assert.notEqual(seenSignals[0], seenSignals[1]);
+    assert.equal(seenSignals[0].aborted, true);
+    assert.equal(seenSignals[1].aborted, false);
+  },
+);
+
 }
 
 main().then(() => {

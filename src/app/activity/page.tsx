@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Radar } from "lucide-react";
@@ -9,14 +9,16 @@ import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
-import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { useReleaseArtwork } from "@/hooks/use-release-artwork";
-import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
 import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
-import { activityKindLabel } from "./presentation";
+import {
+  ACTIVITY_BATCH_SIZE,
+  activityKindLabel,
+  boundedActivityItems,
+  groupActivityByDay,
+} from "./presentation";
 
 interface ActivityItem {
   id: string;
@@ -54,9 +56,11 @@ function statusVariant(
   }
 }
 
-function ActivityContent() {
+function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean }) {
   const searchParams = useSearchParams();
-  const sentOnly = searchParams.get("filter") === "sent";
+  const sentOnly =
+    sentOnlyOverride ?? searchParams.get("filter") === "sent";
+  const [visibleLimit, setVisibleLimit] = useState(ACTIVITY_BATCH_SIZE);
   const activityUrl = sentOnly
     ? "/api/activity?filter=sent"
     : "/api/activity";
@@ -92,13 +96,43 @@ function ActivityContent() {
       : normalized;
   }, [data, sentOnly]);
 
-  // One lookup per work, not per row: a show usually appears several times
-  // across episodes and legitimate re-sends.
-  const artwork = useReleaseArtwork(
-    useMemo(
-      () => items.map((item) => ({ name: item.title, category: item.category })),
-      [items],
-    ),
+  const visibleItems = boundedActivityItems(items, visibleLimit);
+  const dayGroups = groupActivityByDay(visibleItems);
+  const hasOlder = visibleItems.length < items.length;
+
+  const title = sentOnly ? "Download log" : "Activity";
+  const description = sentOnly
+    ? "Releases successfully sent to a download client."
+    : "Recent sends and automation outcomes.";
+
+  const filterControls = (
+    <div
+      className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-[12px]"
+      aria-label="Activity view"
+    >
+      <Link
+        href="/activity"
+        aria-current={!sentOnly ? "page" : undefined}
+        className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
+          !sentOnly
+            ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
+            : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
+        }`}
+      >
+        All activity
+      </Link>
+      <Link
+        href="/history"
+        aria-current={sentOnly ? "page" : undefined}
+        className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
+          sentOnly
+            ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
+            : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
+        }`}
+      >
+        Download log
+      </Link>
+    </div>
   );
 
   if (loading && data == null && !error) return <ActivitySkeleton visible={showLoading} />;
@@ -106,36 +140,9 @@ function ActivityContent() {
   return (
     <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
-        title="Activity"
-        description={
-          <span>
-            Recent sends and automation results.
-          </span>
-        }
-        actions={
-          <div className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-[12px]">
-            <Link
-              href="/activity"
-              className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
-                !sentOnly
-                  ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
-                  : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
-              }`}
-            >
-              All
-            </Link>
-            <Link
-              href="/activity?filter=sent"
-              className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
-                sentOnly
-                  ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
-                  : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
-              }`}
-            >
-              Sent only
-            </Link>
-          </div>
-        }
+        title={title}
+        description={description}
+        actions={filterControls}
       />
 
       {error ? (
@@ -161,83 +168,95 @@ function ActivityContent() {
           actionHref="/watchlist"
         />
       ) : (
-        <ul className="space-y-2">
-          {items.map((item) => {
-            const location = formatSaveLocation(item.savePath, item.category);
-            const kindLabel = activityKindLabel(item);
-            return (
-              <li
-                key={item.id}
-                className="surface px-3.5 py-3 flex items-start gap-3"
-                data-activity-type={item.type}
-                data-activity-status={item.status}
+        <div className="space-y-4" data-activity-groups>
+          {dayGroups.map((group) => (
+            <section key={group.key} aria-labelledby={`activity-day-${group.key}`}>
+              <h2
+                id={`activity-day-${group.key}`}
+                className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
               >
-                <TfWorkThumb
-                  title={item.title}
-                  posterUrl={
-                    artwork[artworkQueryForRelease(item.title, item.category).key]
-                      ?.posterUrl
-                  }
-                  sizePx={38}
-                />
-                <div className="flex-1 min-w-0 space-y-1">
-                  <p className="text-sm text-[var(--text)] line-clamp-2">
-                    {item.title}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
-                    <Badge
-                      variant={statusVariant(item.status)}
-                      className="capitalize"
+                {group.label}
+              </h2>
+              <ul className="surface divide-y divide-[var(--border)] overflow-hidden">
+                {group.items.map((item) => {
+                  const location = formatSaveLocation(item.savePath, item.category);
+                  const kindLabel = activityKindLabel(item);
+                  return (
+                    <li
+                      key={item.id}
+                      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-1 px-3 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+                      data-activity-type={item.type}
+                      data-activity-status={item.status}
                     >
-                      {item.status}
-                    </Badge>
-                    {kindLabel ? (
-                      <Badge variant="accent">{kindLabel}</Badge>
-                    ) : null}
-                    {item.source ? (
-                      <span className="text-[var(--text-secondary)]">
-                        {item.source}
-                      </span>
-                    ) : null}
-                    {item.category ? (
-                      <span className="text-[var(--text-secondary)]">
-                        {item.category}
-                      </span>
-                    ) : null}
-                    <span>{formatRelativeTime(item.createdAt)}</span>
-                  </div>
-                  {item.message ? (
-                    <p className="text-[11px] text-[var(--text-tertiary)] line-clamp-2">
-                      {item.message}
-                    </p>
-                  ) : null}
-                  {location ? (
-                    <p
-                      className="text-[11px] text-[var(--text-tertiary)] truncate"
-                      title={item.savePath ?? undefined}
-                      data-save-path
-                    >
-                      Saved to {location}
-                    </p>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                      <Badge
+                        variant={statusVariant(item.status)}
+                        className="mt-0.5 capitalize"
+                      >
+                        {item.status}
+                      </Badge>
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px] font-medium text-[var(--text)]">
+                          {item.title}
+                        </p>
+                        <p className="truncate text-[11px] text-[var(--text-tertiary)]">
+                          {[kindLabel, item.source, item.category]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                        {item.message ? (
+                          <p className="truncate text-[11px] text-[var(--text-secondary)]">
+                            {item.message}
+                          </p>
+                        ) : null}
+                        {location ? (
+                          <p
+                            className="truncate font-mono text-[11px] text-[var(--text-tertiary)]"
+                            title={item.savePath ?? undefined}
+                            data-save-path
+                          >
+                            Saved to {location}
+                          </p>
+                        ) : null}
+                      </div>
+                      <time
+                        dateTime={item.createdAt}
+                        className="col-start-2 whitespace-nowrap text-[11px] text-[var(--text-tertiary)] sm:col-start-3 sm:row-start-1"
+                      >
+                        {formatRelativeTime(item.createdAt)}
+                      </time>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+          {hasOlder ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-md"
+              onClick={() =>
+                setVisibleLimit((limit) => limit + ACTIVITY_BATCH_SIZE)
+              }
+            >
+              Show older activity
+            </button>
+          ) : null}
+        </div>
       )}
     </div>
   );
 }
 
-export default function ActivityPage() {
+export function ActivityView({ sentOnly }: { sentOnly?: boolean }) {
   return (
-    <Suspense
-      fallback={<ActivitySkeleton />}
-    >
-      <ActivityContent />
+    <Suspense fallback={<ActivitySkeleton />}>
+      <ActivityContent sentOnly={sentOnly} />
     </Suspense>
   );
+}
+
+export default function ActivityPage() {
+  return <ActivityView />;
 }
 
 function ActivitySkeleton({ visible = true }: { visible?: boolean }) {

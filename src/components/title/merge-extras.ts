@@ -108,6 +108,7 @@ function blankEpisode(season: number, episode: number): TitleEpisode {
     watched: false,
     nextUp: false,
     fromPack: false,
+    transfer: null,
   };
 }
 

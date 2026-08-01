@@ -13,7 +13,12 @@
  */
 
 /** @see StoragePolicyResult in `disk-space.ts` */
-export type StorageLimitKind = "setup" | "reserve" | "wont-fit" | "cap";
+export type StorageLimitKind =
+  | "setup"
+  | "reserve"
+  | "wont-fit"
+  | "cap"
+  | "inventory";
 
 /** Human-readable bytes. */
 export function formatBytesShort(n: number): string {

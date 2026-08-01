@@ -8,19 +8,7 @@ import type { TitleResult } from "./group-titles";
 import { queryRelevanceTier } from "./group-titles";
 import { releaseStatus } from "@/lib/browse/release-status";
 import { titlePath, workKeyFor } from "@/components/title/work-key";
-
-export interface TitleSearchHit {
-  workKey: string;
-  title: string;
-  year: number | null;
-  mediaType: string;
-  posterUrl?: string | null;
-  posterPath?: string | null;
-  overview?: string | null;
-  popularity?: number | null;
-  href?: string | null;
-  releaseDate?: string | null;
-}
+import type { WorkSearchHit } from "@/lib/search/work-search";
 
 /**
  * Order title hits by how well each answers the query, then keep source order.
@@ -47,17 +35,17 @@ export function rankTitleHitsByRelevance<T extends { title: string }>(
 
 /** Map API hits into the card model. Pure — safe for tests. */
 export function titlesFromSearchHits(
-  hits: readonly TitleSearchHit[],
+  hits: readonly WorkSearchHit[],
   now: Date = new Date(),
 ): TitleResult[] {
   const out: TitleResult[] = [];
   for (const hit of hits) {
     const mediaType = (hit.mediaType || "movie").toLowerCase();
-    const isSeries = mediaType === "tv" || mediaType === "anime";
+    const isSeries = hit.isSeries;
     const year = hit.year ?? null;
     const workKey =
       hit.workKey ||
-      workKeyFor(hit.title, mediaType === "movie" ? year : null);
+      workKeyFor(hit.title, isSeries ? null : year);
     if (!workKey || !hit.title?.trim()) continue;
 
     const href =
@@ -65,7 +53,7 @@ export function titlesFromSearchHits(
       titlePath(workKey, {
         title: hit.title,
         year,
-        mediaType,
+        mediaType: hit.titleMediaType || mediaType,
       });
 
     const releaseDate = hit.releaseDate ?? null;
@@ -77,6 +65,7 @@ export function titlesFromSearchHits(
       year,
       isSeries,
       mediaType,
+      format: hit.format,
       posterUrl: hit.posterUrl ?? null,
       releaseDate,
       status,

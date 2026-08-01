@@ -1,5 +1,8 @@
 import type { TitleAction } from "./title-actions";
-import type { TitleGrabResponse, TitleRetention } from "./types";
+import type {
+  TitleGrabResponse,
+  TitleRetention,
+} from "./types";
 import {
   parseStorageOverrideFacts,
   StorageLimitError,
@@ -55,38 +58,22 @@ export async function postTitleAction({
   resolution,
   overrideStorageCap,
 }: PostTitleActionInput): Promise<TitleGrabResponse> {
-  if (retention === "keep" && action.kind === "get" && action.infoHash?.trim()) {
-    const res = await fetch("/api/torrent/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      body: JSON.stringify({
-        infoHash: action.infoHash,
-        name: title ?? undefined,
-        retention,
-        ...(resolution != null ? { resolution } : {}),
-        ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
-      }),
-    });
-    const body = (await res.json().catch(() => null)) as TitleGrabResponse | null;
-    if (!res.ok || !body?.ok) {
-      throwGrabFailure(body, "Could not keep this episode");
-    }
-    return body;
-  }
-
   const res = await fetch(`/api/title/${encodeURIComponent(workKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     body: JSON.stringify({
+      scope:
+        action.season != null && action.episode != null
+          ? "episode"
+          : "title",
       season: action.season,
       episode: action.episode,
       title: title ?? null,
       mediaType: mediaType ?? null,
       year: year ?? null,
       retention,
-      ...(resolution != null ? { resolution } : {}),
+      ...(resolution != null ? { preferredResolution: resolution } : {}),
       ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
     }),
   });

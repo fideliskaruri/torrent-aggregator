@@ -1,6 +1,8 @@
 export interface EpisodeInfo {
   season?: number;
   episode?: number;
+  /** Absolute series number when a release also states a seasonal episode. */
+  absoluteEpisode?: number;
   /** Normalized label like S02E05 or Ep 12 */
   label: string | null;
   isBatch: boolean;
@@ -10,6 +12,8 @@ export interface EpisodeInfo {
    * Path rules: multi-season → show root only; single season → Season N.
    */
   isMultiSeason?: boolean;
+  /** Explicit companion material, separate from numbered series episodes. */
+  specialType?: "ova" | "movie" | "recap" | "special";
 }
 
 /**
@@ -46,8 +50,38 @@ export interface EpisodeInfo {
 export const SEASON_RANGE_RE =
   /\bS(?:easons?|eries)?[\s._]*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?|eries)?[\s._]*)?\d{1,3}(?!\d))+/i;
 
-export function parseEpisode(title: string): EpisodeInfo {
+function parseEpisodeBase(title: string): EpisodeInfo {
   const t = title;
+
+  // Anime often publishes both numbering systems:
+  // "4th Season - 15 ... Episode 87". The number after the ordinal season is
+  // the seasonal episode; the trailing value is the absolute series number.
+  // Parse this before season ranges, which would otherwise call 4-15 a pack.
+  const ordinalSeasonEpisode = t.match(
+    /\b(\d{1,3})(?:st|nd|rd|th)\s+Season\s*[-–—]\s*(\d{1,4})\b/i,
+  );
+  if (ordinalSeasonEpisode) {
+    const season = parseInt(ordinalSeasonEpisode[1], 10);
+    const episode = parseInt(ordinalSeasonEpisode[2], 10);
+    const absolute = t.match(
+      /\b(?:absolute\s*)?(?:episode|ep)\s*\.?\s*(\d{1,4})\b/i,
+    );
+    const absoluteEpisode = absolute ? parseInt(absolute[1], 10) : undefined;
+    return {
+      season,
+      episode,
+      ...(absoluteEpisode != null && absoluteEpisode !== episode
+        ? { absoluteEpisode }
+        : {}),
+      label:
+        absoluteEpisode != null && absoluteEpisode !== episode
+          ? `S${pad(season)}E${pad(episode)} · absolute ${absoluteEpisode}`
+          : `S${pad(season)}E${pad(episode)}`,
+      isBatch: false,
+      isSeasonPack: false,
+      isMultiSeason: false,
+    };
+  }
 
   const multiSeason = t.match(SEASON_RANGE_RE);
   if (multiSeason) {
@@ -201,7 +235,7 @@ export function parseEpisode(title: string): EpisodeInfo {
   // A container extension counts as the end of the title: "One Piece - 1170.mkv"
   // is the same numbering, and refusing it split one episode across groups.
   const dash = t.match(
-    /[-–]\s*(\d{1,4})\s*(?:\.(?:mkv|mp4|avi|m4v|ts)\s*$|[[(]|$)/i,
+    /[-–]\s*(\d{1,4})\s*(?=\.(?:mkv|mp4|avi|m4v|ts)\s*$|[[(]|$|\b(?:480p|720p|1080p|2160p|4k|web-?dl|webrip|bluray|hdtv)\b)/i,
   );
   if (dash) {
     const episode = parseInt(dash[1], 10);
@@ -305,11 +339,33 @@ export function parseEpisode(title: string): EpisodeInfo {
   };
 }
 
+export function parseEpisode(title: string): EpisodeInfo {
+  const parsed = parseEpisodeBase(title);
+  const specialType = classifySpecialRelease(title);
+  return specialType ? { ...parsed, specialType } : parsed;
+}
+
 export function compareEpisodes(a: EpisodeInfo, b: EpisodeInfo): number {
   const sa = a.season ?? 0;
   const sb = b.season ?? 0;
   if (sa !== sb) return sa - sb;
   return (a.episode ?? 0) - (b.episode ?? 0);
+}
+
+/**
+ * Explicit companion-material marker. This is intentionally lexical: file
+ * size, category and episode zero are not enough evidence to call a release an
+ * OVA, film or recap.
+ */
+export function classifySpecialRelease(
+  title: string,
+): "ova" | "movie" | "recap" | "special" | undefined {
+  const normalized = title.replace(/[._-]+/g, " ").toLowerCase();
+  if (/\b(?:ova|oad)\b/.test(normalized)) return "ova";
+  if (/\brecap\b/.test(normalized)) return "recap";
+  if (/\bmovie\b/.test(normalized)) return "movie";
+  if (/\bspecials?\b/.test(normalized)) return "special";
+  return undefined;
 }
 
 /** Suggest next episode search string from last known episode label */

@@ -51,6 +51,7 @@ export async function POST(request: Request) {
     year: num(body.year),
     season: num(body.season),
     episode: num(body.episode),
+    preferredResolution: num(body.preferredResolution),
   };
 
   const currentInfoHash = normalizeInfoHash(

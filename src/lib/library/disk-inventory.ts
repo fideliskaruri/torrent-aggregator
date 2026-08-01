@@ -143,6 +143,12 @@ export interface DiskInventoryReport {
   /** Links skipped so they are neither followed out of the root nor counted twice. */
   linksSkipped: number;
   scannedAtMs: number;
+  /**
+   * `diskBytes` is authoritative only when complete. `partial` is a measured
+   * lower bound; `unavailable` means even the root could not be inspected.
+   */
+  status: "complete" | "partial" | "unavailable";
+  authoritative: boolean;
 }
 
 export interface DiskInventoryOptions {
@@ -385,7 +391,12 @@ function buildGroups(
 // The walk
 // ---------------------------------------------------------------------------
 
-function emptyReport(root: string, scannedAtMs: number): DiskInventoryReport {
+function emptyReport(
+  root: string,
+  scannedAtMs: number,
+  status: "complete" | "unavailable",
+  unreadablePaths: string[] = [],
+): DiskInventoryReport {
   return {
     root,
     diskBytes: 0,
@@ -401,9 +412,11 @@ function emptyReport(root: string, scannedAtMs: number): DiskInventoryReport {
     truncated: false,
     truncatedBy: [],
     entriesScanned: 0,
-    unreadablePaths: [],
+    unreadablePaths,
     linksSkipped: 0,
     scannedAtMs,
+    status,
+    authoritative: status === "complete",
   };
 }
 
@@ -422,15 +435,17 @@ export async function scanDiskInventory(
   const rawRoot = options.root?.trim();
   const scannedAtMs = Date.now();
   if (!rawRoot) {
-    return emptyReport("", scannedAtMs);
+    return emptyReport("", scannedAtMs, "unavailable");
   }
 
   let root: string;
   try {
     root = await fsp.realpath(path.resolve(rawRoot));
   } catch {
-    // Root missing or unreadable: nothing is on disk as far as we can prove.
-    return emptyReport(path.resolve(rawRoot), scannedAtMs);
+    // Zero would be a dangerous claim here: the root may be full but temporarily
+    // unreadable. Preserve the observed lower bound while marking it unavailable.
+    const resolved = path.resolve(rawRoot);
+    return emptyReport(resolved, scannedAtMs, "unavailable", [resolved]);
   }
 
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
@@ -539,6 +554,7 @@ export async function scanDiskInventory(
     maxFilesPerGroup,
   );
 
+  const partial = truncatedBy.size > 0 || unreadable.length > 0;
   return {
     root,
     diskBytes,
@@ -557,6 +573,8 @@ export async function scanDiskInventory(
     unreadablePaths: unreadable,
     linksSkipped,
     scannedAtMs,
+    status: partial ? "partial" : "complete",
+    authoritative: !partial,
   };
 }
 
@@ -615,6 +633,7 @@ export type OrphanTargetRefusal =
   | "missing"
   | "tracked"
   | "contains-tracked"
+  | "inventory-incomplete"
   | "unsupported-type";
 
 export type OrphanTargetResolution =
@@ -641,6 +660,8 @@ const REFUSAL_MESSAGES: Record<OrphanTargetRefusal, string> = {
   tracked: "A live transfer still owns that file. Remove the transfer instead.",
   "contains-tracked":
     "That folder still holds files a live transfer owns, so it cannot be removed as a whole.",
+  "inventory-incomplete":
+    "The folder could not be inspected completely. Check folder permissions or remove a smaller subfolder, then try again.",
   "unsupported-type": "Only regular files and folders can be removed.",
 };
 
@@ -683,6 +704,8 @@ export async function resolveOrphanTarget(options: {
   tracked?: readonly TrackedTorrentRef[];
   maxEntries?: number;
   maxDepth?: number;
+  /** Test seam for incomplete-inventory authorization cases. */
+  _scanInventory?: typeof scanDiskInventory;
 }): Promise<OrphanTargetResolution> {
   const rawRoot = options.root?.trim();
   if (!rawRoot) return refuse("no-root");
@@ -746,7 +769,8 @@ export async function resolveOrphanTarget(options: {
 
   if (!stat.isDirectory()) return refuse("unsupported-type");
 
-  const inventory = await scanDiskInventory({
+  const scanInventory = options._scanInventory ?? scanDiskInventory;
+  const inventory = await scanInventory({
     root: real,
     tracked: options.tracked,
     maxEntries: options.maxEntries,
@@ -757,12 +781,15 @@ export async function resolveOrphanTarget(options: {
     // the folder's reclaimable bytes and refuse the delete.
     internalTopLevelDot: false,
   });
+  // Recursive deletion needs positive proof that every descendant was seen.
+  // Truncation, unreadable directories, and stat failures all make a scan
+  // non-authoritative; "probably orphaned" is not a licence to delete.
+  if (!inventory.authoritative || inventory.status !== "complete") {
+    return refuse("inventory-incomplete");
+  }
   if (inventory.trackedBytes > 0 || inventory.trackedFileCount > 0) {
     return refuse("contains-tracked");
   }
-  // A walk that did not finish cannot prove the folder is free of tracked
-  // files, and "probably orphaned" is not a licence to delete.
-  if (inventory.truncated) return refuse("contains-tracked");
 
   return {
     ok: true,

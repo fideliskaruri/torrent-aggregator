@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 
 import { resetSwarmWatch, swarmDeliveryTick, type SwarmWatchDeps } from "./swarm-delivery-watchdog";
-import { MAX_FAILOVER_ATTEMPTS } from "./failover";
 import type { SwarmVerdict } from "./candidates";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
@@ -164,7 +163,7 @@ async function run() {
     assert.equal(current, hash(1), "stays on the original source");
   }
 
-  // ── Attempt cap is honored even if the pool were bottomless ────────────
+  // ── Every unique candidate in a deep pool is attempted ─────────────────
   {
     resetSwarmWatch();
     const big = Array.from({ length: 12 }, (_, i) => release(i + 1, 20 - i));
@@ -179,12 +178,9 @@ async function run() {
       current = r.currentHash;
       exhausted = r.exhausted;
     }
-    assert.ok(exhausted, "reaches terminal state despite a bottomless pool");
-    // Opened on #1, then at most (cap - 1) switches before the cap stops us.
-    assert.ok(
-      h.started.length <= MAX_FAILOVER_ATTEMPTS - 1,
-      `bounded by the attempt cap (${h.started.length} switches)`,
-    );
+    assert.ok(exhausted, "reaches terminal state after the actual pool is exhausted");
+    assert.equal(h.started.length, 11, "all remaining candidates were attempted");
+    assert.equal(new Set(h.started).size, 11, "no candidate was attempted twice");
   }
 
   // ── A playability failure moves off a HEALTHY swarm (forced switch) ────

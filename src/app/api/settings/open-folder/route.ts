@@ -6,6 +6,12 @@ import path from "node:path";
 import { getUserClientConfig } from "@/lib/clients";
 import { resolveDownloadTarget } from "@/lib/clients";
 import { isWithinLibrary, libraryRoots } from "@/lib/download/path-containment";
+import {
+  booleanField,
+  readMutationObject,
+  requestFailureResponse,
+  stringField,
+} from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +25,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await request.json()) as {
-    path?: string | null;
-    category?: string | null;
-    /** When false, validate only — do not spawn Explorer/Finder (used by e2e). Default true. */
-    reveal?: boolean;
+  const parsedBody = await readMutationObject(request, 16 * 1024);
+  if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+  const pathResult = stringField(parsedBody.value, "path", {
+    nullable: true,
+    maxLength: 4096,
+  });
+  if (!pathResult.ok) return requestFailureResponse(pathResult);
+  const categoryResult = stringField(parsedBody.value, "category", {
+    nullable: true,
+    maxLength: 100,
+  });
+  if (!categoryResult.ok) return requestFailureResponse(categoryResult);
+  const revealResult = booleanField(parsedBody.value, "reveal");
+  if (!revealResult.ok) return requestFailureResponse(revealResult);
+  const body = {
+    path: pathResult.value,
+    category: categoryResult.value,
+    reveal: revealResult.value,
   };
 
   // Never leave Explorer open during automated tests
@@ -131,12 +150,13 @@ async function openPath(
       revealed: reveal,
     });
   } catch (err) {
+    console.error("[open-folder] File manager launch failed:", err);
     return NextResponse.json(
       {
         ok: false,
         path: displayPath,
         error: "Could not open folder",
-        message: err instanceof Error ? err.message : String(err),
+        message: "The server could not launch its file manager.",
         pathOnly: displayPath,
       },
       { status: 500 },

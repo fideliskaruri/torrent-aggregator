@@ -5,8 +5,8 @@
  *  1. the empty search experience must never resurrect frozen marketing copy or
  *     fake starter queries (the sin cleaned up in Z4); and
  *  2. `/search` must NOT render a second, standalone search UI with its own
- *     input — search is one overlay, opened from anywhere. The route survives
- *     only as a deep-link that forwards to the board and opens that overlay.
+ *     input — search is one overlay, opened from anywhere. The route is the
+ *     durable deep-link that opens that shared overlay without erasing `q`.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -50,21 +50,22 @@ check("empty search page has no fake starter queries", () => {
   }
 });
 
-check("/search forwards to the single overlay, not a duplicate page UI", () => {
+check("/search hosts the single overlay without erasing the durable URL", () => {
   // It opens the one shared search overlay…
   assert.match(searchPage, /openSearchOverlay/);
-  // …and navigates away rather than rendering a second full-page experience…
-  assert.match(searchPage, /router\.replace|redirect\(/);
+  // …while preserving the shareable /search?q=… URL…
+  assert.match(searchPage, /preserveUrl:\s*true/);
+  assert.doesNotMatch(searchPage, /router\.replace|redirect\(/);
   // …so it must not mount its own search input or the old results firehose.
   assert.doesNotMatch(searchPage, /<SearchBar\b/);
   assert.doesNotMatch(searchPage, /<SearchResults\b/);
 });
 
-check("search category picker only exposes video-browsable categories", () => {
+check("search category picker exposes exactly title-first product categories", () => {
   assert.match(searchBar, /Anime/);
   assert.match(searchBar, /Movies/);
-  assert.match(searchBar, /TV/);
-  for (const nonVideo of ["Music", "Games", "Apps"]) {
+  assert.match(searchBar, /Series/);
+  for (const nonVideo of ["All", "TV", "Music", "Games", "Apps", "Books"]) {
     assert.doesNotMatch(searchBar, new RegExp(`label:\\s*"${nonVideo}"`));
   }
 });

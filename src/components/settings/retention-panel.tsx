@@ -50,6 +50,9 @@ interface OrphanGroup {
 
 interface DiskScan {
   root: string;
+  status: "complete" | "partial" | "unavailable";
+  authoritative: boolean;
+  observedBytes: number;
   trackedBytes: number;
   internalBytes: number;
   fileCount: number;
@@ -144,12 +147,16 @@ interface PendingOrphanDelete {
 }
 
 function retentionLabel(policy: RetentionPolicy | "INDETERMINATE"): string {
-  if (policy === "EPHEMERAL") return "stream cache";
+  if (policy === "EPHEMERAL") return "temporary stream";
   if (policy === "KEPT") return "kept";
   return "unknown";
 }
 
-export function RetentionPanel() {
+export function RetentionPanel({
+  showPolicy = true,
+}: {
+  showPolicy?: boolean;
+} = {}) {
   const [policy, setPolicy] = useState<RetentionPolicy>("EPHEMERAL");
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [persisted, setPersisted] = useState(true);
@@ -228,7 +235,7 @@ export function RetentionPanel() {
     if (
       mode === "delete" &&
       !window.confirm(
-        "Delete reclaimable stream-only files now? Kept, tracked, watchlisted, active, downloading, and unknown items are skipped.",
+        "Delete temporary streams now? Downloads you chose to keep, active transfers, and unknown files are skipped.",
       )
     ) {
       return;
@@ -353,10 +360,10 @@ export function RetentionPanel() {
       <div className="flex items-start gap-3">
         <ShieldCheck className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
         <div>
-          <h2 className="text-sm font-medium text-[var(--text)]">Retention</h2>
+          <h2 className="text-sm font-medium text-[var(--text)]">Storage cleanup</h2>
           <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
-            Streamed files can be treated like a cache. Tracked, watchlisted,
-            or explicitly kept releases stay permanent.
+            Review storage use and remove temporary streams. Files you chose to
+            keep are not removed here.
           </p>
         </div>
       </div>
@@ -364,10 +371,11 @@ export function RetentionPanel() {
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-[var(--text-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading retention usage…
+          Loading storage details…
         </div>
       ) : (
         <>
+          {showPolicy ? (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {RETENTION_OPTIONS.map((option) => (
               <button
@@ -394,8 +402,9 @@ export function RetentionPanel() {
               </button>
             ))}
           </div>
+          ) : null}
  
-          {!persisted ? (
+          {showPolicy && !persisted ? (
             <p className="text-[11px] text-[var(--color-warning)] leading-relaxed">
               The app needs the pending database migration before this default can be saved persistently.
             </p>
@@ -410,7 +419,7 @@ export function RetentionPanel() {
               onClick={() => void runSweep("preview")}
             >
               {sweeping === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Preview reclaimable files
+              Preview files that can be removed
             </Button>
             <Button
               type="button"
@@ -420,7 +429,7 @@ export function RetentionPanel() {
               onClick={() => void runSweep("delete")}
             >
               {sweeping === "delete" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Delete reclaimable stream-only files
+              Delete temporary streams now
             </Button>
           </div>
 
@@ -454,7 +463,15 @@ export function RetentionPanel() {
 
           {usage ? (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3 space-y-3">
-              {usage.diskBytes != null && usage.disk ? (
+              {usage.disk && !usage.disk.authoritative ? (
+                <div
+                  role="status"
+                  className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs leading-relaxed text-[var(--text-secondary)]"
+                >
+                  Download-folder usage is unavailable because the scan was
+                  incomplete. Check folder access and try again.
+                </div>
+              ) : usage.diskBytes != null && usage.disk ? (
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <span className="text-xs text-[var(--text-tertiary)]">
@@ -484,10 +501,10 @@ export function RetentionPanel() {
                 </div>
               ) : null}
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <UsageStat label="Stream cache" value={formatBytes(usage.ephemeralBytes)} />
-                <UsageStat label="Kept" value={formatBytes(usage.keptBytes)} />
-                <UsageStat label="Unknown" value={formatBytes(usage.indeterminateBytes)} />
-                <UsageStat label="Cache budget" value={formatBytes(usage.budgetBytes)} />
+                <UsageStat label="Temporary streams" value={formatBytes(usage.ephemeralBytes)} />
+                <UsageStat label="Kept downloads" value={formatBytes(usage.keptBytes)} />
+                <UsageStat label="Unclassified" value={formatBytes(usage.indeterminateBytes)} />
+                <UsageStat label="Temporary file limit" value={formatBytes(usage.budgetBytes)} />
               </div>
               {topItems.length ? (
                 <ul className="space-y-1.5">

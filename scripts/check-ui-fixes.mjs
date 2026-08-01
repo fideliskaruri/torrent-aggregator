@@ -23,111 +23,58 @@ function check(name, fn) {
   }
 }
 
-/** WCAG relative luminance / contrast ratio. */
-function luminance([r, g, b]) {
-  const f = (c) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-}
-function contrast(fg, bg) {
-  const a = luminance(fg);
-  const b = luminance(bg);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-}
-function parseRgb(s) {
-  const m = s.match(/-?\d+(\.\d+)?/g);
-  if (!m) throw new Error(`unparseable colour: ${s}`);
-  return [Number(m[0]), Number(m[1]), Number(m[2]), m[3] ? Number(m[3]) : 1];
-}
-
-/** Composite a possibly-translucent colour over an opaque backdrop. */
-function flatten(fg, bg) {
-  const a = fg[3] ?? 1;
-  return [0, 1, 2].map((i) => Math.round(fg[i] * a + bg[i] * (1 - a)));
-}
-
 const browser = await chromium.launch();
 
 try {
-  // --- Preferred-quality segmented control -------------------------------
+  // --- Preferred quality and mobile form text -----------------------------
   {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.goto(`${BASE}/settings?tab=folders`, { waitUntil: "networkidle" });
 
-    const group = page.locator('button[aria-pressed]').filter({
-      hasText: /^(480p|720p|1080p|4K)$/,
+    const quality = page.locator("#preferred-quality");
+    const qualityCount = await quality.count();
+    check("quality control is one labelled native select", () => {
+      if (qualityCount !== 1) {
+        throw new Error(`expected one #preferred-quality, found ${qualityCount}`);
+      }
     });
-    const n = await group.count();
-
-    check("quality control renders all four options", () => {
-      if (n !== 4) throw new Error(`expected 4 buttons, found ${n}`);
+    const options = await quality.locator("option").allTextContents();
+    check("quality control preserves all four choices", () => {
+      if (options.length !== 4) {
+        throw new Error(`expected 4 options, found ${options.length}`);
+      }
+      if (!options.some((label) => label.startsWith("4K"))) {
+        throw new Error(`4K missing from ${JSON.stringify(options)}`);
+      }
     });
-
-    const pageBg = parseRgb(
-      await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
-    );
-
-    for (let i = 0; i < n; i += 1) {
-      const btn = group.nth(i);
-      const label = (await btn.innerText()).trim();
-      const info = await btn.evaluate((el) => {
-        const cs = getComputedStyle(el);
-        return {
-          color: cs.color,
-          bg: cs.backgroundColor,
-          pressed: el.getAttribute("aria-pressed"),
-        };
-      });
-      const bg = flatten(parseRgb(info.bg), pageBg);
-      const fg = flatten(parseRgb(info.color), bg);
-      const ratio = contrast(fg, bg);
-
-      check(`${label}: label contrast >= 4.5:1 (was 2.12:1 when selected)`, () => {
-        if (ratio < 4.5) {
-          throw new Error(
-            `${label} pressed=${info.pressed} contrast ${ratio.toFixed(2)}:1 (${info.color} on ${info.bg})`,
-          );
-        }
-      });
-
-      check(`${label}: has a visible chip, so it reads as a button`, () => {
-        const alpha = parseRgb(info.bg)[3] ?? 1;
-        if (alpha === 0) {
-          throw new Error(`${label} background is fully transparent`);
-        }
-        // Must be distinguishable from the page behind it.
-        if (contrast(bg, pageBg) < 1.05) {
-          throw new Error(
-            `${label} chip is indistinguishable from the page background`,
-          );
-        }
-      });
-    }
-
-    check("exactly one option is selected", async () => {});
-    const pressed = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('button[aria-pressed="true"]'))
-        .map((b) => b.textContent.trim())
-        .filter((t) => /^(480p|720p|1080p|4K)$/.test(t)),
-    );
-    check("exactly one quality option is pressed", () => {
-      if (pressed.length !== 1) {
-        throw new Error(`pressed = ${JSON.stringify(pressed)}`);
+    const selected = await quality.inputValue();
+    check("quality control has exactly one selected value", () => {
+      if (!["480", "720", "1080", "2160"].includes(selected)) {
+        throw new Error(`unexpected value ${selected}`);
       }
     });
 
-    // 320px: the group must not orphan "4K" onto a second row.
     await page.setViewportSize({ width: 320, height: 800 });
     await page.waitForTimeout(150);
-    const tops = await group.evaluateAll((els) =>
-      els.map((e) => Math.round(e.getBoundingClientRect().top)),
+    const mobileSizes = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll(
+          "[data-settings-form] input, [data-settings-form] select, [data-settings-form] textarea",
+        ),
+      )
+        .filter((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        })
+        .map((element) => ({
+          id: element.id,
+          size: parseFloat(getComputedStyle(element).fontSize),
+        })),
     );
-    check("quality control stays on one row at 320px", () => {
-      const unique = new Set(tops);
-      if (unique.size !== 1) {
-        throw new Error(`buttons on ${unique.size} rows: ${JSON.stringify(tops)}`);
+    check("visible Settings fields use at least 16px text at 320px", () => {
+      const small = mobileSizes.filter(({ size }) => size < 16);
+      if (small.length) {
+        throw new Error(JSON.stringify(small));
       }
     });
 

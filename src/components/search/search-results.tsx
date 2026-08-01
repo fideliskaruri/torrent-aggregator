@@ -6,6 +6,10 @@ import { Button } from "@/components/ui/button";
 import { TitleResultsList } from "./title-results-list";
 import { titlesFromSearchHits } from "./title-search";
 import type { TitleResult } from "./group-titles";
+import {
+  parseWorkSearchCategory,
+  type WorkSearchCategory,
+} from "@/lib/search/work-search";
 
 interface SearchResultsProps {
   query: string;
@@ -16,7 +20,7 @@ interface SearchResultsProps {
  * Full-page title results (legacy surface). Same TMDB discovery path as the
  * overlay — never hits torrent indexers.
  */
-export function SearchResults({ query }: SearchResultsProps) {
+export function SearchResults({ query, category }: SearchResultsProps) {
   const [titles, setTitles] = useState<TitleResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,7 +35,13 @@ export function SearchResults({ query }: SearchResultsProps) {
     setLoading(true);
     setError(null);
     try {
-      const qs = new URLSearchParams({ q: query, limit: "20" });
+      const normalizedCategory: WorkSearchCategory =
+        parseWorkSearchCategory(category);
+      const qs = new URLSearchParams({
+        q: query,
+        category: normalizedCategory,
+        limit: "20",
+      });
       const res = await fetch(`/api/search/titles?${qs}`);
       const json = (await res.json()) as {
         results?: Parameters<typeof titlesFromSearchHits>[0];
@@ -48,7 +58,7 @@ export function SearchResults({ query }: SearchResultsProps) {
     } finally {
       setLoading(false);
     }
-  }, [query]);
+  }, [category, query]);
 
   useEffect(() => {
     // Results are external API state keyed on the query; fetch them in an effect.

@@ -15,6 +15,8 @@
  * is still one request; failover cost is paid once per outage, not per search.
  */
 
+import { INDEXER_TIMEOUT_MS, indexerTimeoutSignal } from "./timeouts";
+
 /** Remembered good host per adapter, so failover is not re-paid every search.
  *
  * Module-level, therefore per-runtime: under Next.js each worker learns its own
@@ -61,6 +63,12 @@ export interface MirrorFetchOptions {
   /** Builds the full URL from one host root. */
   path: (host: string) => string;
   init?: RequestInit;
+  /** Fresh budget for each host attempt; defaults to the shared indexer budget. */
+  timeoutMs?: number;
+  /** Test seam; receives one new signal per mirror attempt. */
+  createSignal?: (timeoutMs: number) => AbortSignal;
+  /** Test seam; production uses global fetch. */
+  fetchFn?: typeof fetch;
 }
 
 /**
@@ -74,7 +82,13 @@ export async function fetchFromMirrors({
   hosts,
   path,
   init,
+  timeoutMs,
+  createSignal,
+  fetchFn,
 }: MirrorFetchOptions): Promise<Response> {
+  const budgetMs = timeoutMs ?? INDEXER_TIMEOUT_MS;
+  const makeSignal = createSignal ?? indexerTimeoutSignal;
+  const request = fetchFn ?? fetch;
   const good = preferred.get(key);
   const ordered = good
     ? [good, ...hosts.filter((h) => h !== good)]
@@ -85,7 +99,13 @@ export async function fetchFromMirrors({
   for (const host of ordered) {
     const hostIsProven = good === host;
     try {
-      const res = await fetch(path(host), init);
+      // Never reuse `init.signal`: after the first host times out it is already
+      // aborted, which used to make every fallback fail immediately. Each host
+      // gets a complete, independent attempt budget.
+      const res = await request(path(host), {
+        ...init,
+        signal: makeSignal(budgetMs),
+      });
       if (isHostFailure(res.status, hostIsProven)) {
         lastError = new Error(`${host} HTTP ${res.status}`);
         // A previously-good host that started failing must not stay preferred.

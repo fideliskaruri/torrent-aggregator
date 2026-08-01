@@ -7,20 +7,103 @@ import type {
 } from "./types";
 import { resolveDownloadTarget } from "./types";
 
+export type TransmissionFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+export interface TransmissionRpcResponse {
+  result: string;
+  arguments?: unknown;
+}
+
+export function buildTransmissionRpcRequest(
+  config: ClientConnectionConfig,
+  method: string,
+  args: Record<string, unknown>,
+  sessionId?: string,
+): { url: string; init: RequestInit } {
+  const base = config.host.replace(/\/+$/, "");
+  const url = base.endsWith("/transmission/rpc")
+    ? base
+    : `${base}/transmission/rpc`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (config.username || config.password) {
+    const token = Buffer.from(
+      `${config.username ?? ""}:${config.password ?? ""}`,
+    ).toString("base64");
+    headers.Authorization = `Basic ${token}`;
+  }
+  if (sessionId) headers["X-Transmission-Session-Id"] = sessionId;
+  return {
+    url,
+    init: {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ method, arguments: args }),
+      signal: AbortSignal.timeout(12_000),
+    },
+  };
+}
+
+export function buildTransmissionAddArguments(
+  config: ClientConnectionConfig,
+  payload: AddTorrentPayload,
+):
+  | { ok: true; args: Record<string, unknown>; category: string | null; savePath: string | null }
+  | { ok: false; message: string } {
+  const filename = payload.magnet ?? payload.torrentUrl;
+  if (!filename) return { ok: false, message: "No magnet or torrent URL provided" };
+  const target = resolveDownloadTarget(config, {
+    category: payload.category,
+    savePath: payload.savePath,
+  });
+  const args: Record<string, unknown> = { filename };
+  if (target.savePath) args["download-dir"] = target.savePath;
+  if (target.category) args.labels = [target.category];
+  return {
+    ok: true,
+    args,
+    category: target.category ?? null,
+    savePath: target.savePath ?? null,
+  };
+}
+
+function parseRpcResponse(value: unknown): TransmissionRpcResponse {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Transmission returned an invalid RPC response");
+  }
+  const fields = new Map(Object.entries(value));
+  const result = fields.get("result");
+  if (typeof result !== "string") {
+    throw new Error("Transmission RPC response is missing result");
+  }
+  return { result, arguments: fields.get("arguments") };
+}
+
 /**
  * Transmission RPC client (JSON-RPC over HTTP).
  */
 export class TransmissionClient implements TorrentClientAdapter {
   readonly type = "transmission" as const;
 
+  constructor(private readonly fetchFn: TransmissionFetch = fetch) {}
+
   async testConnection(
     config: ClientConnectionConfig,
   ): Promise<AddTorrentResult> {
     try {
       const result = await this.rpc(config, "session-get", {});
-      const version =
-        (result?.arguments as { version?: string } | undefined)?.version ??
-        "unknown";
+      const args =
+        result.arguments !== null &&
+        typeof result.arguments === "object" &&
+        !Array.isArray(result.arguments)
+          ? new Map(Object.entries(result.arguments))
+          : null;
+      const rawVersion = args?.get("version");
+      const version = typeof rawVersion === "string" ? rawVersion : "unknown";
       return { ok: true, message: `Connected to Transmission ${version}` };
     } catch (err) {
       return {
@@ -35,29 +118,13 @@ export class TransmissionClient implements TorrentClientAdapter {
     payload: AddTorrentPayload,
   ): Promise<AddTorrentResult> {
     try {
-      const args: Record<string, unknown> = {};
-      if (payload.magnet) {
-        args.filename = payload.magnet;
-      } else if (payload.torrentUrl) {
-        args.filename = payload.torrentUrl;
-      } else {
-        return { ok: false, message: "No magnet or torrent URL provided" };
-      }
-
-      const target = resolveDownloadTarget(config, {
-        category: payload.category,
-        savePath: payload.savePath,
-      });
-
-      if (target.savePath) args["download-dir"] = target.savePath;
-      // Transmission 3+ labels (used like categories)
-      if (target.category) args.labels = [target.category];
-
-      await this.rpc(config, "torrent-add", args);
+      const built = buildTransmissionAddArguments(config, payload);
+      if (!built.ok) return built;
+      await this.rpc(config, "torrent-add", built.args);
 
       const where = [
-        target.category ? `label “${target.category}”` : null,
-        target.savePath ? `folder ${target.savePath}` : null,
+        built.category ? `label “${built.category}”` : null,
+        built.savePath ? `folder ${built.savePath}` : null,
       ]
         .filter(Boolean)
         .join(", ");
@@ -91,36 +158,57 @@ export class TransmissionClient implements TorrentClientAdapter {
         "downloadDir",
       ],
     });
-    const torrents =
-      (
-        result.arguments as {
-          torrents?: {
-            hashString: string;
-            name: string;
-            percentDone: number;
-            totalSize: number;
-            rateDownload: number;
-            rateUpload: number;
-            status: number;
-            eta: number;
-            labels?: string[];
-            downloadDir?: string;
-          }[];
-        }
-      )?.torrents ?? [];
-
-    return torrents.map((t) => ({
-      hash: t.hashString,
-      name: t.name,
-      progress: t.percentDone,
-      sizeBytes: t.totalSize,
-      dlspeed: t.rateDownload,
-      upspeed: t.rateUpload,
-      state: transmissionStatus(t.status),
-      eta: t.eta > 0 ? t.eta : undefined,
-      category: t.labels?.[0],
-      savePath: t.downloadDir || null,
-    }));
+    if (
+      result.arguments === null ||
+      typeof result.arguments !== "object" ||
+      Array.isArray(result.arguments)
+    ) {
+      return [];
+    }
+    const torrents = new Map(Object.entries(result.arguments)).get("torrents");
+    if (!Array.isArray(torrents)) return [];
+    const out: ClientTorrent[] = [];
+    for (const value of torrents) {
+      if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+      const fields = new Map(Object.entries(value));
+      const hash = fields.get("hashString");
+      const name = fields.get("name");
+      const progress = fields.get("percentDone");
+      const sizeBytes = fields.get("totalSize");
+      const dlspeed = fields.get("rateDownload");
+      const upspeed = fields.get("rateUpload");
+      const status = fields.get("status");
+      const eta = fields.get("eta");
+      const labels = fields.get("labels");
+      const downloadDir = fields.get("downloadDir");
+      if (
+        typeof hash !== "string" ||
+        typeof name !== "string" ||
+        typeof progress !== "number" ||
+        typeof sizeBytes !== "number" ||
+        typeof dlspeed !== "number" ||
+        typeof upspeed !== "number" ||
+        typeof status !== "number"
+      ) {
+        continue;
+      }
+      out.push({
+        hash,
+        name,
+        progress,
+        sizeBytes,
+        dlspeed,
+        upspeed,
+        state: transmissionStatus(status),
+        eta: typeof eta === "number" && eta > 0 ? eta : undefined,
+        category:
+          Array.isArray(labels) && typeof labels[0] === "string"
+            ? labels[0]
+            : undefined,
+        savePath: typeof downloadDir === "string" && downloadDir ? downloadDir : null,
+      });
+    }
+    return out;
   }
 
   async pauseTorrent(
@@ -177,48 +265,23 @@ export class TransmissionClient implements TorrentClientAdapter {
     method: string,
     args: Record<string, unknown>,
     sessionId?: string,
-  ): Promise<{ result: string; arguments?: unknown }> {
-    const base = config.host.replace(/\/+$/, "");
-    const url = base.endsWith("/transmission/rpc")
-      ? base
-      : `${base}/transmission/rpc`;
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
-    if (config.username || config.password) {
-      const token = Buffer.from(
-        `${config.username ?? ""}:${config.password ?? ""}`,
-      ).toString("base64");
-      headers.Authorization = `Basic ${token}`;
-    }
-
-    if (sessionId) {
-      headers["X-Transmission-Session-Id"] = sessionId;
-    }
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ method, arguments: args }),
-      signal: AbortSignal.timeout(12_000),
-    });
+  ): Promise<TransmissionRpcResponse> {
+    const request = buildTransmissionRpcRequest(config, method, args, sessionId);
+    const res = await this.fetchFn(request.url, request.init);
 
     if (res.status === 409) {
       const sid =
         res.headers.get("X-Transmission-Session-Id") ??
         res.headers.get("x-transmission-session-id");
       if (!sid) throw new Error("Transmission CSRF handshake failed");
+      if (sessionId) throw new Error("Transmission rejected the refreshed session");
       return this.rpc(config, method, args, sid);
     }
 
     if (!res.ok) throw new Error(`Transmission RPC HTTP ${res.status}`);
 
-    const json = (await res.json()) as {
-      result: string;
-      arguments?: unknown;
-    };
+    const value: unknown = await res.json();
+    const json = parseRpcResponse(value);
 
     if (json.result !== "success") {
       throw new Error(json.result || "Transmission RPC error");

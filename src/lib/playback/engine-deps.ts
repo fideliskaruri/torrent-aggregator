@@ -24,7 +24,13 @@ import { listClientTorrents } from "@/lib/clients";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { normalizeTitle } from "@/lib/utils";
 import { loadSwarmVerdicts } from "@/lib/torrents/swarm-probe";
-import { releaseInfoHash } from "@/lib/prewarm/prerank";
+import { searchTorrents } from "@/lib/torrents/aggregator";
+import {
+  prewarmSearchOptions,
+  rankResultsForTarget,
+  releaseInfoHash,
+  searchPayloadFor,
+} from "@/lib/prewarm/prerank";
 import type { ClientTorrent, SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import type { TransferSample } from "./stall";
@@ -50,7 +56,9 @@ export async function rankedResultsFromCache(
     });
     if (!row) return [];
     const payload = JSON.parse(row.payload) as SearchResponse;
-    return Array.isArray(payload.results) ? payload.results : [];
+    return Array.isArray(payload.results)
+      ? rankResultsForTarget(payload.results, target)
+      : [];
   } catch {
     return [];
   }
@@ -143,6 +151,22 @@ export function buildSwarmWatchDeps(
     },
     async rankedResults(target) {
       return rankedResultsFromCache(target);
+    },
+    async discoverResults(target, { signal }) {
+      if (signal.aborted) return { results: [], exhausted: true };
+      const payload = searchPayloadFor(prewarmSearchOptions(target));
+      const response = await searchTorrents({
+        ...payload,
+        limit: 100,
+        skipCache: true,
+        background: false,
+      });
+      return {
+        results: signal.aborted
+          ? []
+          : rankResultsForTarget(response.results, target),
+        exhausted: true,
+      };
     },
     async startRelease(candidate: FailoverCandidate) {
       const magnet = candidate.release.magnet;

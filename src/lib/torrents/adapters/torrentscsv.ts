@@ -4,6 +4,7 @@ import type {
   TorrentSourceAdapter,
 } from "../types";
 import { extractTags } from "../ranking";
+import { indexerTimeoutSignal } from "./timeouts";
 
 const BASE =
   process.env.TORRENTS_CSV_BASE_URL ?? "https://torrents-csv.com/service/search";
@@ -29,7 +30,7 @@ export class TorrentsCsvAdapter implements TorrentSourceAdapter {
         "User-Agent": "TorrentFlow/1.0",
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(12_000),
+      signal: indexerTimeoutSignal(),
       next: { revalidate: 0 },
     });
 

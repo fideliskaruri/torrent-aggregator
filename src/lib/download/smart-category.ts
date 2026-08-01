@@ -1,4 +1,5 @@
 import type { MediaMetadata, TorrentResult } from "@/lib/torrents/types";
+import { mediaAliasAgrees } from "@/lib/torrents/media-alias";
 import {
   parseEpisode,
   seasonFolderSegment,
@@ -576,9 +577,10 @@ export function showFolderName(
     if (
       metaNorm &&
       showNorm &&
-      (showNorm === metaNorm ||
+      ((showNorm === metaNorm ||
         showNorm.includes(metaNorm) ||
-        metaNorm.includes(showNorm))
+        metaNorm.includes(showNorm)) ||
+        mediaAliasAgrees(fromRelease, metadata))
     ) {
       return metaFolder;
     }

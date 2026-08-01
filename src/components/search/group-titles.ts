@@ -32,6 +32,8 @@ export interface TitleResult {
   isSeries: boolean;
   /** Catalog media type ("movie" | "tv" | "anime"), when known. */
   mediaType: string | null;
+  /** Provider format such as MOVIE, TV, ONA or OVA, when known. */
+  format?: string | null;
   posterUrl: string | null;
   /** Primary / first-air date that drives future-gating, when trusted. */
   releaseDate: string | null;

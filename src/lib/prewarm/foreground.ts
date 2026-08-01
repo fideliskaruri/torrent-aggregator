@@ -110,6 +110,7 @@ type ForegroundState = {
 
 const g = globalThis as unknown as {
   __tfPrewarmForeground?: ForegroundState;
+  __tfPrewarmForegroundAborters?: Set<AbortController>;
   __tfBuiltinEngine?: EngineLike;
 };
 
@@ -147,6 +148,33 @@ function touchGlobal(infoHash?: string | null, now = Date.now()): void {
   const s = state();
   s.lastSeenAt = now;
   if (infoHash) s.lastHash = norm(infoHash);
+  for (const controller of g.__tfPrewarmForegroundAborters ?? []) {
+    controller.abort();
+  }
+  g.__tfPrewarmForegroundAborters?.clear();
+}
+
+/**
+ * Signal the instant foreground work starts. Speculative callers dispose the
+ * registration when they finish so an idle pass leaves no listener behind.
+ */
+export function foregroundCancellationSignal(): {
+  signal: AbortSignal;
+  dispose: () => void;
+} {
+  const controller = new AbortController();
+  if (foregroundActive()) {
+    controller.abort();
+  } else {
+    const aborters =
+      g.__tfPrewarmForegroundAborters ??
+      (g.__tfPrewarmForegroundAborters = new Set());
+    aborters.add(controller);
+  }
+  return {
+    signal: controller.signal,
+    dispose: () => g.__tfPrewarmForegroundAborters?.delete(controller),
+  };
 }
 
 /**

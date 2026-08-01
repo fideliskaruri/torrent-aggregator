@@ -23,10 +23,286 @@ import {
   resolveSendRetentionChoice,
 } from "@/lib/library/retention-settings";
 import { sendRetentionToPurpose } from "@/lib/streaming/send-retention";
+import {
+  booleanField,
+  enumField,
+  numberField,
+  objectField,
+  readMutationObject,
+  requestFailureResponse,
+  stringArrayField,
+  stringField,
+  type RequestFailure,
+  type RequestResult,
+} from "@/lib/http/request";
+import { infoHashFromMagnet, normalizeInfoHash } from "@/lib/torrents/infohash";
 
 export const dynamic = "force-dynamic";
 /** WebTorrent / disk I/O must run in Node, not Edge. */
 export const runtime = "nodejs";
+
+type SendBody = {
+  magnet?: string;
+  torrentUrl?: string;
+  name?: string;
+  source?: string;
+  infoHash?: string;
+  tags?: string[];
+  searchCategory?: string | null;
+  categoryManual?: boolean;
+  category?: string | null;
+  savePath?: string | null;
+  metadata?: MediaMetadata | null;
+  watchListItemId?: string | null;
+  target?: "primary" | "external";
+  retention?: "stream" | "keep";
+  scope?: "title" | "season" | "episode";
+  overrideStorageCap?: boolean;
+};
+
+function firstFailure(
+  results: readonly RequestResult<unknown>[],
+): RequestFailure | null {
+  for (const result of results) {
+    if (!result.ok) return result;
+  }
+  return null;
+}
+
+function parseHttpUrl(value: string, field: string): RequestResult<string> {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return { ok: false, status: 400, error: `${field} must use http or https`, field };
+    }
+    return { ok: true, value };
+  } catch {
+    return { ok: false, status: 400, error: `${field} must be a valid URL`, field };
+  }
+}
+
+function parseMetadata(
+  fields: ReadonlyMap<string, unknown> | null | undefined,
+): RequestResult<MediaMetadata | null | undefined> {
+  if (fields == null) return { ok: true, value: fields };
+  const source = enumField(fields, "source", ["anilist", "tmdb"] as const, { required: true });
+  const mediaType = enumField(fields, "mediaType", ["anime", "movie", "tv"] as const, {
+    required: true,
+  });
+  const externalId = stringField(fields, "externalId", { required: true, maxLength: 128 });
+  const title = stringField(fields, "title", { required: true, maxLength: 500 });
+  const posterUrl = stringField(fields, "posterUrl", { nullable: true, maxLength: 2048 });
+  const backdropUrl = stringField(fields, "backdropUrl", { nullable: true, maxLength: 2048 });
+  const synopsis = stringField(fields, "synopsis", { nullable: true, maxLength: 10_000 });
+  const rating = numberField(fields, "rating", { nullable: true, min: 0, max: 10 });
+  const year = numberField(fields, "year", {
+    nullable: true,
+    integer: true,
+    min: 1800,
+    max: 3000,
+  });
+  const releaseDate = stringField(fields, "releaseDate", { nullable: true, maxLength: 32 });
+  const genres = stringArrayField(fields, "genres", {
+    maxItems: 64,
+    maxItemLength: 100,
+  });
+  const originalLanguage = stringField(fields, "originalLanguage", {
+    nullable: true,
+    maxLength: 16,
+  });
+  const originCountry = stringArrayField(fields, "originCountry", {
+    maxItems: 32,
+    maxItemLength: 8,
+  });
+  const failure = firstFailure([
+    source,
+    mediaType,
+    externalId,
+    title,
+    posterUrl,
+    backdropUrl,
+    synopsis,
+    rating,
+    year,
+    releaseDate,
+    genres,
+    originalLanguage,
+    originCountry,
+  ]);
+  if (failure) return failure;
+  if (
+    !source.ok ||
+    !mediaType.ok ||
+    !externalId.ok ||
+    !title.ok ||
+    !posterUrl.ok ||
+    !backdropUrl.ok ||
+    !synopsis.ok ||
+    !rating.ok ||
+    !year.ok ||
+    !releaseDate.ok ||
+    !genres.ok ||
+    !originalLanguage.ok ||
+    !originCountry.ok ||
+    source.value == null ||
+    mediaType.value == null ||
+    externalId.value == null ||
+    title.value == null
+  ) {
+    throw new Error("metadata validation invariant");
+  }
+  return {
+    ok: true,
+    value: {
+      source: source.value,
+      mediaType: mediaType.value,
+      externalId: externalId.value,
+      title: title.value,
+      posterUrl: posterUrl.value,
+      backdropUrl: backdropUrl.value,
+      synopsis: synopsis.value,
+      rating: rating.value,
+      year: year.value,
+      releaseDate: releaseDate.value,
+      genres: genres.value ?? undefined,
+      originalLanguage: originalLanguage.value,
+      originCountry: originCountry.value ?? undefined,
+    },
+  };
+}
+
+async function parseSendBody(request: Request): Promise<RequestResult<SendBody>> {
+  const parsed = await readMutationObject(request);
+  if (!parsed.ok) return parsed;
+  const fields = parsed.value;
+  const magnet = stringField(fields, "magnet", { maxLength: 8192 });
+  const torrentUrl = stringField(fields, "torrentUrl", { maxLength: 2048 });
+  const name = stringField(fields, "name", { maxLength: 500 });
+  const source = stringField(fields, "source", { maxLength: 100 });
+  const infoHash = stringField(fields, "infoHash", { maxLength: 64 });
+  const tags = stringArrayField(fields, "tags", { maxItems: 64, maxItemLength: 100 });
+  const searchCategory = stringField(fields, "searchCategory", { nullable: true, maxLength: 100 });
+  const categoryManual = booleanField(fields, "categoryManual");
+  const category = stringField(fields, "category", { nullable: true, maxLength: 100 });
+  const savePath = stringField(fields, "savePath", { nullable: true, maxLength: 4096 });
+  const metadataObject = objectField(fields, "metadata", { nullable: true });
+  const watchListItemId = stringField(fields, "watchListItemId", {
+    nullable: true,
+    maxLength: 128,
+  });
+  const target = enumField(fields, "target", ["primary", "external"] as const);
+  const retention = enumField(fields, "retention", ["stream", "keep"] as const);
+  const scope = enumField(fields, "scope", [
+    "title",
+    "season",
+    "episode",
+  ] as const);
+  const overrideStorageCap = booleanField(fields, "overrideStorageCap");
+  const failure = firstFailure([
+    magnet,
+    torrentUrl,
+    name,
+    source,
+    infoHash,
+    tags,
+    searchCategory,
+    categoryManual,
+    category,
+    savePath,
+    metadataObject,
+    watchListItemId,
+    target,
+    retention,
+    scope,
+    overrideStorageCap,
+  ]);
+  if (failure) return failure;
+  if (
+    !magnet.ok ||
+    !torrentUrl.ok ||
+    !name.ok ||
+    !source.ok ||
+    !infoHash.ok ||
+    !tags.ok ||
+    !searchCategory.ok ||
+    !categoryManual.ok ||
+    !category.ok ||
+    !savePath.ok ||
+    !metadataObject.ok ||
+    !watchListItemId.ok ||
+    !target.ok ||
+    !retention.ok ||
+    !scope.ok ||
+    !overrideStorageCap.ok
+  ) {
+    throw new Error("send validation invariant");
+  }
+  const metadata = parseMetadata(metadataObject.value);
+  if (!metadata.ok) return metadata;
+  if (magnet.value && !infoHashFromMagnet(magnet.value)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "magnet must contain a valid BitTorrent info hash",
+      field: "magnet",
+    };
+  }
+  if (infoHash.value && !normalizeInfoHash(infoHash.value)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "infoHash must be a 40-character hex or 32-character base32 hash",
+      field: "infoHash",
+    };
+  }
+  if (torrentUrl.value) {
+    const url = parseHttpUrl(torrentUrl.value, "torrentUrl");
+    if (!url.ok) return url;
+  }
+  if (
+    savePath.value &&
+    (savePath.value.includes("\0") ||
+      savePath.value
+        .replace(/\\/g, "/")
+        .split("/")
+        .some((segment) => segment === ".."))
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      error: "savePath may not contain null bytes or traversal segments",
+      field: "savePath",
+    };
+  }
+  if (!magnet.value && !torrentUrl.value && !(infoHash.value && retention.value)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "magnet or torrentUrl is required (or infoHash with retention)",
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      magnet: magnet.value ?? undefined,
+      torrentUrl: torrentUrl.value ?? undefined,
+      name: name.value ?? undefined,
+      source: source.value ?? undefined,
+      infoHash: infoHash.value ?? undefined,
+      tags: tags.value ?? undefined,
+      searchCategory: searchCategory.value,
+      categoryManual: categoryManual.value ?? undefined,
+      category: category.value,
+      savePath: savePath.value,
+      metadata: metadata.value,
+      watchListItemId: watchListItemId.value,
+      target: target.value ?? undefined,
+      retention: retention.value ?? undefined,
+      scope: scope.value ?? undefined,
+      overrideStorageCap: overrideStorageCap.value ?? undefined,
+    },
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,50 +311,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let body: {
-      magnet?: string;
-      torrentUrl?: string;
-      name?: string;
-      source?: string;
-      infoHash?: string;
-      tags?: string[];
-      searchCategory?: string | null;
-      /** When true, trust body.category as manual override; otherwise re-detect */
-      categoryManual?: boolean;
-      category?: string | null;
-      savePath?: string | null;
-      metadata?: MediaMetadata | null;
-      /** Watchlist row this grab belongs to; its catalog record beats guessing. */
-      watchListItemId?: string | null;
-      /**
-       * primary (default) = active client (built-in by default).
-       * external = optional qBittorrent/Transmission ("Send to my client").
-       */
-      target?: "primary" | "external";
-      /** "stream" = cache entry, "keep" = permanent. */
-      retention?: "stream" | "keep";
-      /**
-       * The owner was shown the real figures and chose to exceed their own cap.
-       * Only the cap can be overridden — the free-space floor ignores this.
-       */
-      overrideStorageCap?: boolean;
-    };
-
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON body", ok: false, message: "Invalid JSON body" },
-        { status: 400 },
-      );
-    }
-
-    if (!body.magnet && !body.torrentUrl && !(body.infoHash && body.retention)) {
+    const parsedBody = await parseSendBody(request);
+    if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+    const body = parsedBody.value;
+    if (
+      (body.scope === "episode" || body.scope === "season") &&
+      !body.magnet &&
+      !body.torrentUrl &&
+      Boolean(body.infoHash)
+    ) {
       return NextResponse.json(
         {
-          error: "magnet or torrentUrl is required",
           ok: false,
-          message: "magnet or torrentUrl is required",
+          message:
+            "Episode and season acquisitions must use their scoped title endpoint.",
         },
         { status: 400 },
       );
@@ -103,12 +349,13 @@ export async function POST(request: NextRequest) {
     try {
       config = resolveSendConfig(baseConfig, sendTarget);
     } catch (err) {
+      console.warn("[torrent/send] Could not resolve client target:", err);
       return NextResponse.json(
         {
           ok: false,
           offline: false,
           error: "No external client",
-          message: err instanceof Error ? err.message : String(err),
+          message: "Configure an external torrent client in Settings first.",
         },
         { status: 400 },
       );
@@ -390,6 +637,7 @@ export async function POST(request: NextRequest) {
       /econnrefused|unreachable|fetch failed|timeout|not listening|cannot reach/i.test(
         message,
       );
+    console.error("[torrent/send] Unexpected send failure:", err);
     return NextResponse.json(
       {
         ok: false,
@@ -397,7 +645,7 @@ export async function POST(request: NextRequest) {
         error: offline ? "Client offline" : "Send failed",
         message: offline
           ? "Cannot reach external torrent client. Check Host URL in Settings, or use built-in Send."
-          : message,
+          : "The torrent could not be sent. Check the server logs for details.",
       },
       { status: offline ? 503 : 500 },
     );

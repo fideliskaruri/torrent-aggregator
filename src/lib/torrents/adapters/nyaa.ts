@@ -5,6 +5,7 @@ import type {
 } from "../types";
 import { extractTags } from "../ranking";
 import { parseSizeToBytes } from "@/lib/utils";
+import { indexerTimeoutSignal } from "./timeouts";
 
 const BASE = process.env.NYAA_BASE_URL ?? "https://nyaa.si";
 
@@ -41,7 +42,7 @@ export class NyaaAdapter implements TorrentSourceAdapter {
             "TorrentAggregator/1.0 (+https://github.com/local/torrent-aggregator)",
           Accept: "application/rss+xml, application/xml, text/xml, */*",
         },
-        signal: AbortSignal.timeout(12_000),
+        signal: indexerTimeoutSignal(),
         next: { revalidate: 0 },
       });
 

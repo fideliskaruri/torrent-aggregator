@@ -102,6 +102,7 @@ export function buildRuleTogglePayload(
   enabled: boolean,
   _storedCategory?: string | null,
 ) {
+  void _storedCategory;
   return { id, enabled };
 }
 
@@ -124,6 +125,7 @@ export default function RulesPage() {
   const showLoading = useStableLoading(loading && rulesData == null && !error);
   const rules = rulesData ?? [];
   const [running, setRunning] = useState(false);
+  const [runReviewOpen, setRunReviewOpen] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Rule | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -361,7 +363,7 @@ export default function RulesPage() {
           <Button
             type="button"
             size="sm"
-            onClick={() => void runAll()}
+            onClick={() => setRunReviewOpen(true)}
             disabled={running || !rules.length}
             title={
               hasUnsupportedRules
@@ -374,7 +376,7 @@ export default function RulesPage() {
             ) : (
               <Play className="h-3.5 w-3.5" />
             )}
-            Run now
+            Run automation
           </Button>
         }
       />
@@ -525,7 +527,11 @@ export default function RulesPage() {
       </form>
 
       {runLog ? (
-        <pre className="surface p-4 text-xs text-[var(--text-secondary)] whitespace-pre-wrap font-mono">
+        <pre
+          className="surface p-4 text-xs text-[var(--text-secondary)] whitespace-pre-wrap font-mono"
+          role="status"
+          aria-live="polite"
+        >
           {runLog}
         </pre>
       ) : null}
@@ -652,8 +658,8 @@ export default function RulesPage() {
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-xs text-[var(--text-secondary)] space-y-2">
                     <p>
                       This legacy rule targets “{category.stored}”, which
-                      TorrentFlow cannot browse or play. It is blocked from Run
-                      now until you retarget it to video or delete it.
+                      TorrentFlow cannot browse or play. It is blocked from
+                      automation until you retarget it to video or delete it.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <select
@@ -741,6 +747,41 @@ export default function RulesPage() {
           />
         ) : null}
       </div>
+
+      <AlertDialog
+        open={runReviewOpen}
+        onOpenChange={(open) => {
+          if (!running) setRunReviewOpen(open);
+        }}
+      >
+        <AlertDialogContent data-rules-automation-review>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run rule automation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This searches {rules.filter((rule) => rule.enabled).length} enabled{" "}
+              {rules.filter((rule) => rule.enabled).length === 1 ? "rule" : "rules"}
+              {" "}and may immediately download matching video releases.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={running}>Review rules</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={running || hasUnsupportedRules}
+              onClick={(event) => {
+                event.preventDefault();
+                void runAll().finally(() => setRunReviewOpen(false));
+              }}
+            >
+              {running ? (
+                <LoadingGlyph className="h-3.5 w-3.5" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              Search and download matches
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(pendingRemove)}

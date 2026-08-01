@@ -73,6 +73,10 @@ async function main(): Promise<void> {
           probeCalled = true;
           return null;
         }) as never,
+        _packFilesOf: () => [
+          "The.Show.S01E01.mkv",
+          "The.Show.S01E02.mkv",
+        ],
       },
     );
     assert.equal(probeCalled, false, "probe must not run while foreground is active");
@@ -129,12 +133,45 @@ async function main(): Promise<void> {
     assert.equal(res.probed.length, 2);
   });
 
+  await checkAsync("season singles honor preferred resolution and deterministic fallback", async () => {
+    const single = (resolution: number) =>
+      result({
+        title: `The Show S01E01 ${resolution}p WEB-DL`,
+        episode: {
+          isSeasonPack: false,
+          season: 1,
+          episode: 1,
+        } as TorrentResult["episode"],
+      });
+    const base = {
+      userId: `u_${randomUUID()}`,
+      title: "The Show",
+      mediaType: "tv",
+      season: 1,
+      episodes: [1],
+    };
+    const opts = {
+      maxProbes: 0,
+      _foregroundActive: () => true,
+      _findLive: () => null,
+    };
+
+    const exact = await resolveSeasonPlan(
+      { ...base, preferredResolution: 720 },
+      { ...opts, _releases: [single(2160), single(1080), single(720)] },
+    );
+    assert.match(exact.plan.singles[0]?.release.title ?? "", /720p/);
+
+    const fallback = await resolveSeasonPlan(
+      { ...base, preferredResolution: 1080 },
+      { ...opts, _releases: [single(2160), single(720)] },
+    );
+    assert.match(fallback.plan.singles[0]?.release.title ?? "", /720p/);
+  });
+
   await checkAsync(
-    "an inferred short pack is reconciled against its files and the gap is filled",
+    "an incomplete pack is rejected before send and exact episodes remain eligible",
     async () => {
-      // RED check: skipping the post-send `packFilesOf` reconciliation leaves the
-      // bare-`S01` pack's inferred covers [1,2,3] intact, so no gap single for E3
-      // is ever sent and the plan reports a confirmed full season it never had.
       const pack = result({
         title: "The Show S01 COMPLETE 1080p",
         episode: { isSeasonPack: true } as TorrentResult["episode"],
@@ -164,7 +201,7 @@ async function main(): Promise<void> {
             _releases: [pack, e3],
             _foregroundActive: () => true, // no probing; unknown pack stays takeable
             _findLive: () => null,
-            // The pack's real files hold only E01+E02 — the name lied about E03.
+            // The pack's real files hold only E01+E02 — reject it before send.
             _packFilesOf: (h) =>
               h === packHash
                 ? ["The.Show.S01E01.1080p.mkv", "The.Show.S01E02.1080p.mkv"]
@@ -185,12 +222,16 @@ async function main(): Promise<void> {
 
       assert.ok(
         sentTitles.some((t) => t.includes("S01E03")),
-        "the gap episode E03 must be fetched as a single once the pack is found short",
+        "the exact E03 release remains eligible",
       );
-      assert.deepEqual(res.acquired, [1, 2, 3], "reconciled coverage credits E1+E2 (pack) and E3 (single)");
-      // The pack's coverage is now confirmed against its file list, so the
-      // whole-season claim is honest fact, not a name inference.
-      assert.equal(res.coverageConfirmed, true, "reconciled coverage is confirmed, not inferred");
+      assert.equal(
+        sentTitles.some((title) => /complete/i.test(title)),
+        false,
+        "the incomplete pack is never sent",
+      );
+      assert.deepEqual(res.acquired, [3]);
+      assert.equal(res.plan.pack, null);
+      assert.equal(res.coverageConfirmed, true);
     },
   );
 

@@ -1,47 +1,14 @@
-/**
- * What kinds of thing this app can find — the single vocabulary.
- *
- * ## The gap this closes
- *
- * Search was TMDB-only, and TMDB knows about films and television and nothing
- * else. So music, games, software and books were unreachable from the UI even
- * though every other layer already handled them: the indexers return them
- * (`/api/search?category=music` was answering with real releases the whole
- * time), `smart-category.ts` classifies them, and the download pipeline routes
- * them to Music/Games/Software/Books folders. One missing UI concept made a
- * working feature invisible.
- *
- * The owner's words: *"this is only configured to download films.. i want other
- * torrents too. or more like i can download them but it's not easy to search
- * for them."*
- *
- * ## Why films are modelled differently from everything else
- *
- * A film has a **work** that exists independently of any release: a canonical
- * title, a year, a poster, a synopsis, seasons and episodes. That is why films
- * and TV get poster cards leading to a title page, and why choosing a release
- * happens *after* choosing the work.
- *
- * An album, a game, a program or a book has no such layer here. There is no
- * metadata provider behind them, so the release **is** the artifact — its name
- * carries the edition, the format and the version, and there is nothing to show
- * on a "work page" that the release row does not already say. Inventing a
- * poster grid for albums would be decoration standing in for information.
- *
- * So `kind` is not cosmetic. It decides which of two genuinely different
- * flows a scope uses, and it is the reason this vocabulary exists as data
- * rather than as a `switch` repeated on every surface.
- */
+import type { WorkSearchCategory } from "@/lib/search/work-search";
 
-/** Scope ids are URL-facing (`/everything?scope=music`) — keep them stable. */
-export type SearchScopeId =
-  | "titles"
+/** Legacy `/everything` ids remain parseable only for bookmark redirects. */
+export type LegacySectionScopeId =
   | "anime"
   | "music"
   | "games"
   | "software"
   | "books"
   | "everything";
+export type SearchScopeId = WorkSearchCategory | LegacySectionScopeId;
 
 /**
  * How a scope's results are chosen.
@@ -103,17 +70,49 @@ export interface SearchScope {
  * audiobook, a documentary and a repack in one list, which is precisely the
  * mess the scopes exist to avoid.
  */
-export const SEARCH_SCOPES: readonly SearchScope[] = [
+/** Normal Search is work discovery only. Raw release scopes are not UI tabs. */
+export const SEARCH_SCOPES = [
   {
-    id: "titles",
-    label: "Films & TV",
-    blurb: "Films and series, with posters, seasons and episodes.",
+    id: "movies",
+    label: "Movies",
+    blurb: "Find a movie by title.",
     kind: "work",
-    playable: true,
+    playable: false,
     category: null,
     downloadCategory: null,
-    placeholder: "Dune, Severance, The Bear…",
+    placeholder: "Dune, Arrival, Moonlight…",
   },
+  {
+    id: "series",
+    label: "Series",
+    blurb: "Find a series by title.",
+    kind: "work",
+    playable: false,
+    category: null,
+    downloadCategory: null,
+    placeholder: "Severance, The Bear, Shōgun…",
+  },
+  {
+    id: "anime",
+    label: "Anime",
+    blurb: "Find an anime title, film, OVA or ONA.",
+    kind: "work",
+    playable: false,
+    category: null,
+    downloadCategory: null,
+    placeholder: "Frieren, Slime, Cowboy Bebop…",
+  },
+] as const satisfies readonly SearchScope[];
+
+export const DEFAULT_SCOPE_ID: WorkSearchCategory = "movies";
+
+/**
+ * Compatibility vocabulary for old `/everything` bookmarks.
+ *
+ * It is deliberately separate from `SEARCH_SCOPES`: these categories belong
+ * to the internal aggregator, not to title discovery.
+ */
+export const SECTION_SCOPES = [
   {
     id: "music",
     label: "Music",
@@ -157,9 +156,8 @@ export const SEARCH_SCOPES: readonly SearchScope[] = [
   {
     id: "anime",
     label: "Anime",
-    blurb: "Subbed and dubbed series, films and OVAs.",
+    blurb: "Anime release compatibility scope.",
     kind: "release",
-    // Anime is video: Play works, and it is how most people use these.
     playable: true,
     category: "anime",
     downloadCategory: "Anime",
@@ -168,24 +166,14 @@ export const SEARCH_SCOPES: readonly SearchScope[] = [
   {
     id: "everything",
     label: "All categories",
-    blurb: "Every category at once, when you are not sure what it counts as.",
+    blurb: "Every aggregator category.",
     kind: "release",
-    // Mixed bag — a result could be a film or a keygen. Withholding Play is the
-    // honest default; the row still offers Download, which always applies.
     playable: false,
     category: "all",
     downloadCategory: null,
     placeholder: "Anything at all…",
   },
-] as const;
-
-/** The scope search opens on. Films and TV are still the common case. */
-export const DEFAULT_SCOPE_ID: SearchScopeId = "titles";
-
-/** Scopes shown in the dedicated section — everything TMDB cannot describe. */
-export const SECTION_SCOPES: readonly SearchScope[] = SEARCH_SCOPES.filter(
-  (s) => s.kind === "release",
-);
+] as const satisfies readonly SearchScope[];
 
 export function getScope(id: string | null | undefined): SearchScope {
   return (
@@ -204,7 +192,10 @@ export function getScope(id: string | null | undefined): SearchScope {
  */
 export function parseScopeId(value: unknown): SearchScopeId | null {
   if (typeof value !== "string") return null;
-  const hit = SEARCH_SCOPES.find((s) => s.id === value.trim().toLowerCase());
+  const normalized = value.trim().toLowerCase();
+  const hit = [...SEARCH_SCOPES, ...SECTION_SCOPES].find(
+    (s) => s.id === normalized,
+  );
   return hit ? hit.id : null;
 }
 

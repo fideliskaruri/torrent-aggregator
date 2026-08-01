@@ -62,6 +62,7 @@ import {
   SkeletonBlock,
 } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import { canonicalWatchlistPlayerTitle } from "./player-identity";
 
 interface WatchItem {
   id: string;
@@ -137,6 +138,7 @@ export default function WatchlistPage() {
   const { prefs, loaded: prefsLoaded } = useDownloadPrefs();
   const [items, setItems] = useState<WatchItem[]>([]);
   const [runningAuto, setRunningAuto] = useState(false);
+  const [automationReviewOpen, setAutomationReviewOpen] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [sendingId, setSendingId] = useState<string | null>(null);
   // Over-cap sends ask instead of refusing; free space stays a hard stop.
@@ -446,7 +448,7 @@ export default function WatchlistPage() {
             <Button
               type="button"
               size="sm"
-              onClick={() => void runAutomation()}
+              onClick={() => setAutomationReviewOpen(true)}
               disabled={runningAuto || !items.length}
               aria-describedby={automationStateId}
             >
@@ -455,13 +457,14 @@ export default function WatchlistPage() {
               ) : (
                 <Radar className="h-3.5 w-3.5" />
               )}
-              Check now
+              Run automation
             </Button>
             <p
               id={automationStateId}
               data-dense-ui
                           className="max-w-[16rem] text-left text-[12px] leading-snug text-[var(--text-tertiary)] sm:text-right"
             >
+              Checks monitored titles and may download matching releases.{" "}
               {automationStateCopy(autoIntervalMinutes)}
               {autoIntervalMinutes === 0 ? (
                 <>
@@ -849,7 +852,7 @@ export default function WatchlistPage() {
                   {isBuiltinClient && latestInfoHash ? (
                     <InlineStreamPlayer
                       infoHash={latestInfoHash}
-                      title={item.latestReleaseTitle || item.title}
+                      title={canonicalWatchlistPlayerTitle(item)}
                     />
                   ) : null}
                 </div>
@@ -863,6 +866,41 @@ export default function WatchlistPage() {
         onAdded={() => void load()}
         refreshKey={items.length}
       />
+
+      <AlertDialog
+        open={automationReviewOpen}
+        onOpenChange={(open) => {
+          if (!runningAuto) setAutomationReviewOpen(open);
+        }}
+      >
+        <AlertDialogContent data-automation-review>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run Library automation?</AlertDialogTitle>
+            <AlertDialogDescription>
+              TorrentFlow will search every monitored title and may immediately
+              send matching releases to your download client. Review enabled
+              titles and rules before continuing.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={runningAuto}>Review library</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={runningAuto}
+              onClick={(event) => {
+                event.preventDefault();
+                void runAutomation().finally(() => setAutomationReviewOpen(false));
+              }}
+            >
+              {runningAuto ? (
+                <LoadingGlyph className="h-3.5 w-3.5" />
+              ) : (
+                <Radar className="h-3.5 w-3.5" />
+              )}
+              Search and download matches
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(pendingRemove)}

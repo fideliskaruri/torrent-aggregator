@@ -10,6 +10,32 @@ const RATE_MAX = 40;
 
 const rateBuckets = new Map<string, { count: number; reset: number }>();
 
+export async function invalidateSearchCacheStores(
+  memoryStore: Map<string, unknown>,
+  deletePersisted: () => Promise<unknown>,
+): Promise<{ memoryCleared: true; persistedCleared: boolean }> {
+  memoryStore.clear();
+  try {
+    await deletePersisted();
+    return { memoryCleared: true, persistedCleared: true };
+  } catch (error) {
+    console.warn("[search-cache] Failed to clear persisted entries:", error);
+    return { memoryCleared: true, persistedCleared: false };
+  }
+}
+
+/**
+ * Ranking settings are embedded in cache identity, but old rows are not useful
+ * after a target change and stale fallback must not resurrect incompatible
+ * ordering. Clear both process memory and persisted fallback entries.
+ */
+export async function invalidateSearchCache(): Promise<{
+  memoryCleared: true;
+  persistedCleared: boolean;
+}> {
+  return invalidateSearchCacheStores(memory, () => prisma.searchCache.deleteMany());
+}
+
 /**
  * Budget for **outbound indexer fetches**, not for user requests.
  *

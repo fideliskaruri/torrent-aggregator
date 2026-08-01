@@ -20,6 +20,7 @@
  */
 import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
+import { rankResults } from "@/lib/torrents/ranking";
 import { getUserClientConfig } from "@/lib/clients";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
@@ -61,6 +62,8 @@ export interface SeasonAcquireTarget {
   title: string;
   mediaType: string;
   season: number;
+  /** Preferred output height. Used for affinity ordering, never as a filter. */
+  preferredResolution?: number | null;
   /**
    * Authoritative wanted-episode numbers. The caller knows the season's
    * episode count from metadata; the planner never invents episodes it cannot
@@ -81,6 +84,13 @@ export interface ResolveSeasonOptions {
   _findLive?: (hash: string) => unknown;
   /** Test seam — override the foreground check. */
   _foregroundActive?: () => boolean;
+  /**
+   * Read a torrent's actual file manifest without sending it. A pack is not
+   * eligible when this returns null/empty or when the manifest is incomplete.
+   */
+  _packFilesOf?: (
+    hash: string,
+  ) => string[] | null | Promise<string[] | null>;
 }
 
 export interface ResolveSeasonResult {
@@ -90,11 +100,40 @@ export interface ResolveSeasonResult {
   /** Info-hashes freshly probed while resolving. */
   probed: string[];
   /**
-   * The verdict lookup used to build the plan. Exposed so the executor can
-   * re-run the pure planner during reconciliation (feeding it the pack's real
-   * file list) without a second search or verdict load.
+   * The verdict lookup used to build the plan.
    */
   verdictOf: (r: TorrentResult) => SwarmVerdict;
+}
+
+const MANIFEST_READ_CONCURRENCY = 3;
+
+async function readPackManifests(
+  releases: readonly TorrentResult[],
+  filesOf: NonNullable<ResolveSeasonOptions["_packFilesOf"]>,
+): Promise<Map<string, string[]>> {
+  const hashes = [
+    ...new Set(
+      releases
+        .map((release) => releaseInfoHash(release))
+        .filter((hash): hash is string => hash !== null),
+    ),
+  ];
+  const manifests = new Map<string, string[]>();
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(MANIFEST_READ_CONCURRENCY, hashes.length) },
+    async () => {
+      while (cursor < hashes.length) {
+        const hash = hashes[cursor++];
+        const files = await filesOf(hash);
+        if (Array.isArray(files) && files.length > 0) {
+          manifests.set(hash, files);
+        }
+      }
+    },
+  );
+  await Promise.all(workers);
+  return manifests;
 }
 
 /**
@@ -129,9 +168,24 @@ export async function resolveSeasonPlan(
       })
     ).results;
 
-  const usable = releases.filter(
+  const usableUnranked = releases.filter(
     (r) => r.magnet && (r.seeders ?? 0) > 0 && releaseInfoHash(r) !== null,
   );
+  const preferredResolution =
+    target.preferredResolution != null &&
+    Number.isFinite(target.preferredResolution) &&
+    target.preferredResolution >= 1
+      ? Math.trunc(target.preferredResolution)
+      : null;
+  const usable =
+    preferredResolution == null
+      ? usableUnranked
+      : rankResults(
+          usableUnranked,
+          seasonSearchQuery(target.title, target.season),
+          preferredResolution,
+          category,
+        );
 
   // ── Bounded, speculative top-up probe ─────────────────────────────────────
   // Never compete with a viewer: if someone is watching, rely purely on the
@@ -167,11 +221,21 @@ export async function resolveSeasonPlan(
     return (h && verdicts.get(h)) || "unknown";
   };
 
+  const manifestFiles = await readPackManifests(
+    usable,
+    opts._packFilesOf ?? livePackFiles,
+  );
+
   const plan = planSeason({
     season: target.season,
     wanted: target.episodes,
     releases: usable,
     verdictOf,
+    packContents: (release) => {
+      const hash = releaseInfoHash(release);
+      const files = hash ? manifestFiles.get(hash) : null;
+      return files ? episodesFromFilenames(files, target.season) : null;
+    },
   });
 
   return { plan, releases: usable, probed, verdictOf };
@@ -195,10 +259,8 @@ export interface AcquireSeasonResult {
   /** Honest end-state summary, e.g. "8 of 10 episodes". */
   coverageLabel: string;
   /**
-   * True only when no chosen pack's coverage is a bare-name inference — i.e.
-   * every episode we claim is either an explicit-range/reconciled pack or a
-   * per-episode single. A prediction is not a guarantee: this is `false` when we
-   * had to trust a pack's name because its file list never resolved.
+   * Always true for a returned plan: packs require a complete verified manifest
+   * and singles name the exact episode.
    */
   coverageConfirmed: boolean;
 }
@@ -210,21 +272,12 @@ export interface AcquireSeasonOptions extends ResolveSeasonOptions {
   retention?: SendRetention;
   /** Test seam — override the send function. */
   _sendFn?: typeof import("@/lib/clients").sendToClient;
-  /**
-   * Test seam — read the real file paths of an added pack by info-hash.
-   * Defaults to the live builtin torrent's file list, which is authoritative
-   * and beats the release name every time.
-   */
-  _packFilesOf?: (hash: string) => string[] | null;
 }
 
 /**
- * Read the real file paths of a live pack torrent. The engine populates
- * `.files` once metadata resolves (the builtin send waits for it), so after a
- * successful pack add this reflects what the swarm actually holds — the one
- * field that outranks the release name. Returns null when the torrent is not
- * live or its metadata has not resolved yet, in which case the caller keeps the
- * honest name-inferred coverage rather than fabricating a confirmation.
+ * Read the real file paths of an already-live torrent. New packs remain
+ * ineligible until a metadata-only manifest provider is wired; the planner
+ * falls back to exact episodes rather than sending first and checking later.
  */
 function livePackFiles(hash: string): string[] | null {
   const t = findLiveBuiltinTorrent(hash) as
@@ -252,9 +305,7 @@ export async function acquireSeason(
   opts: AcquireSeasonOptions = {},
 ): Promise<AcquireSeasonResult> {
   const db = opts.db ?? prisma;
-  const { plan: initialPlan, releases, verdictOf } = await resolveSeasonPlan(target, opts);
-  let plan = initialPlan;
-  const packFilesOf = opts._packFilesOf ?? livePackFiles;
+  const { plan } = await resolveSeasonPlan(target, opts);
 
   const config = await getUserClientConfig(target.userId);
   if (!config) {
@@ -366,38 +417,11 @@ export async function acquireSeason(
     return false;
   };
 
-  // ── Send the pack first, then reconcile ───────────────────────────────────
-  // A pack's covers may be *inferred* from a bare `S01` name (no episode range),
-  // which is a claim, not a fact — the same untrusted-string problem the swarm
-  // probe exists to resist, one field over. Once the pack is added, its real
-  // file list becomes knowable and beats the name every time: reconcile the
-  // inferred coverage against the actual files, then let the pure planner
-  // re-derive the gap singles so a short pack fills the gap instead of lying
-  // about it. Only reconcile an inferred pack that actually sent and whose files
-  // resolved; otherwise the honest name-inferred plan (coverageConfirmed:false)
-  // stands.
+  // Pack eligibility was already proven from its manifest in resolveSeasonPlan.
+  // Never send a pack first and reconcile afterward.
   if (plan.pack) {
     const p: PackChoice = plan.pack;
-    const packSent = await send(p.release, p.verdict, "pack", undefined, p.covers);
-    if (packSent && p.coverageBasis === "inferred") {
-      const hash = releaseInfoHash(p.release);
-      const files = hash ? packFilesOf(hash) : null;
-      if (hash && files && files.length > 0) {
-        const verified = episodesFromFilenames(files, target.season);
-        const reconciled = planSeason({
-          season: target.season,
-          wanted: target.episodes,
-          releases,
-          verdictOf,
-          packContents: (r) => (releaseInfoHash(r) === hash ? verified : null),
-        });
-        plan = reconciled;
-        // The pack really covers only its verified episodes; drop any phantom
-        // episodes credited from the inferred covers so `acquired` stays honest.
-        acquired.clear();
-        for (const e of verified) if (target.episodes.includes(e)) acquired.add(e);
-      }
-    }
+    await send(p.release, p.verdict, "pack", undefined, p.covers);
   }
   for (const s of plan.singles as SingleChoice[]) {
     await send(s.release, s.verdict, "single", s.episode, [s.episode]);

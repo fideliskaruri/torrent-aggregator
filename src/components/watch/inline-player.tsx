@@ -64,6 +64,7 @@ type StreamManifest = {
    * movie auto-selects the same file the engine would, with no drift.
    */
   primaryVideoIndex?: number | null;
+  targetVideoIndex?: number | null;
 };
 
 export type StreamProgress = {
@@ -82,6 +83,8 @@ type InlinePlayerProps = {
    */
   infoHash: string | null;
   title: string;
+  /** Provider episode title, never a release or file name. */
+  episodeTitle?: string | null;
   progress?: StreamProgress;
   /**
    * Where to pick playback up, in *source* seconds. Optional and backward
@@ -227,6 +230,27 @@ type PlaybackCandidate = {
   verdict: CandidateVerdict;
 };
 
+export function nextAutomaticCandidate(
+  candidates: readonly PlaybackCandidate[],
+  activeInfoHash: string,
+  triedHashes: Set<string>,
+): PlaybackCandidate | null {
+  const active = activeInfoHash.trim().toLowerCase();
+  if (active) triedHashes.add(active);
+
+  const ordered = [
+    ...candidates.filter((candidate) => candidate.verdict !== "dead"),
+    ...candidates.filter((candidate) => candidate.verdict === "dead"),
+  ];
+  for (const candidate of ordered) {
+    const hash = candidate.infoHash.trim().toLowerCase();
+    if (!hash || candidate.isCurrent || hash === active || triedHashes.has(hash)) continue;
+    triedHashes.add(hash);
+    return candidate;
+  }
+  return null;
+}
+
 type CandidatesResponse = {
   candidates?: PlaybackCandidate[];
 };
@@ -337,15 +361,7 @@ export function candidatePlayabilityLabel(playability: CandidatePlayability): st
 }
 
 export function candidateQualityShape(candidate: PlaybackCandidate): string {
-  return [
-    candidate.resolution ? `${candidate.resolution}p` : null,
-    candidate.sourceLabel !== "Unknown" ? candidate.sourceLabel : null,
-    candidate.codec,
-    candidate.audio,
-    candidate.sizeLabel ?? (candidate.sizeBytes ? formatBytes(candidate.sizeBytes) : null),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  return candidate.resolution ? `${candidate.resolution}p` : "";
 }
 
 export function isUpNextPlayableEnoughToAdvance(
@@ -711,7 +727,7 @@ export type StructuredPlaybackFailure = {
 };
 
 /** What the recovery UI should offer for a given failure. */
-export type PlaybackFailureAffordance = "retry" | "switch";
+export type PlaybackFailureAffordance = "retry";
 
 /**
  * Turn a structured failure into viewer words + the one right next action (I19).
@@ -721,8 +737,8 @@ export type PlaybackFailureAffordance = "retry" | "switch";
  * recover — never a peer count, byte rate, %, codec or container name:
  *   - a DELIVERY failure (no peers / blocked path / stall) is retryable on the
  *     SAME release once bytes flow again → offer "Retry".
- *   - a PLAYABILITY failure (undecodable) or a NOT_FOUND release cannot be fixed
- *     by retrying the same bytes → offer "Try another version".
+ *   - a PLAYABILITY failure or a NOT_FOUND release is terminal only after the
+ *     automatic pool is exhausted; Retry restarts that automatic process.
  * `ENGINE_ERROR` is not delivery, but a fresh attempt is the only move a viewer
  * has, so it also offers retry.
  */
@@ -745,13 +761,11 @@ export function playbackFailureCopy(failure: StructuredPlaybackFailure): {
         affordance: "retry",
       };
     case "STALLED":
-      // When the candidate pool is genuinely exhausted, waiting does not help —
-      // say something true and let the viewer open in their own player.
       if (failure.candidatesExhausted) {
         return {
-          headline: "No source is connecting right now.",
-          detail: "We tried every version available and none delivered any content.",
-          affordance: "switch",
+          headline: "Playback couldn’t start.",
+          detail: "Check your connection, then retry.",
+          affordance: "retry",
         };
       }
       return {
@@ -762,21 +776,21 @@ export function playbackFailureCopy(failure: StructuredPlaybackFailure): {
     case "UNPLAYABLE":
       return {
         headline: "This version won’t play on your device.",
-        detail: "Try another version.",
-        affordance: "switch",
+        detail: "Automatic recovery is exhausted. Retry to start selection again.",
+        affordance: "retry",
       };
     case "NOT_FOUND":
       return {
         headline: "This version isn’t available.",
-        detail: "Try another version.",
-        affordance: "switch",
+        detail: "Automatic recovery is exhausted. Retry to start selection again.",
+        affordance: "retry",
       };
     case "ENGINE_ERROR":
     default:
       return {
         headline: "Something went wrong.",
         detail: "Try again.",
-        affordance: failure.failureClass === "playability" || failure.failureClass === "not-found" ? "switch" : "retry",
+        affordance: "retry",
       };
   }
 }
@@ -992,13 +1006,87 @@ export function mainFeatureFile(
  * An episode gets its `SxxEyy`; anything else is a plain "Video N". Size is kept
  * only as a disambiguator so a feature reads apart from a sample.
  */
-export function fileOptionLabel(file: StreamFile, index: number): string {
+export function fileOptionLabel(file: StreamFile, _index: number): string {
   const parsed = episodeFromFilePath(file.path);
   const base = parsed
     ? `S${String(parsed.season).padStart(2, "0")}E${String(parsed.episode).padStart(2, "0")}`
-    : `Video ${index + 1}`;
+    : "Video";
   const size = Number.isFinite(file.length) && file.length > 0 ? formatBytes(file.length) : null;
   return size ? `${base} · ${size}` : base;
+}
+
+export function PlayerIdentity({
+  showTitle,
+  episodeTitle,
+  season,
+  episode,
+}: {
+  showTitle: string;
+  episodeTitle?: string | null;
+  season?: number | null;
+  episode?: number | null;
+}) {
+  const code =
+    season != null && episode != null
+      ? `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`
+      : null;
+  return (
+    <div data-player-identity className="min-w-0">
+      <p className="truncate text-base font-semibold text-white drop-shadow">
+        {showTitle}
+      </p>
+      {episodeTitle || code ? (
+        <p className="mt-0.5 truncate text-[12px] text-white/65">
+          {[episodeTitle, code].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export const PLAYER_RESOLUTIONS = [480, 720, 1080, 2160] as const;
+
+export function PlayerQualityChoices({
+  disabled = false,
+  onSelect,
+}: {
+  disabled?: boolean;
+  onSelect: (resolution: number) => void;
+}) {
+  return (
+    <div data-player-quality-choices className="grid grid-cols-2 gap-1 sm:block">
+      {PLAYER_RESOLUTIONS.map((resolution) => (
+        <button
+          key={resolution}
+          type="button"
+          data-quality-resolution={resolution}
+          disabled={disabled}
+          onClick={() => onSelect(resolution)}
+          className="flex min-h-10 w-full items-center rounded-xl px-3 text-[13px] font-semibold text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+        >
+          {resolution}p
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function preferredResolutionRequestBody(input: {
+  title: string;
+  mediaType: string;
+  season: number | null;
+  episode: number | null;
+  year?: number | null;
+  preferredResolution: number;
+}) {
+  return {
+    title: input.title,
+    mediaType: input.mediaType,
+    season: input.season,
+    episode: input.episode,
+    ...(typeof input.year === "number" ? { year: input.year } : {}),
+    preferredResolution: input.preferredResolution,
+  };
 }
 
 function videoFileForPath(files: StreamFile[], path: string | null): StreamFile | null {
@@ -1115,6 +1203,7 @@ type CurrentTarget = {
   /** `null` only during the opening handoff, before the grab resolves a hash. */
   infoHash: string | null;
   title: string;
+  episodeTitle?: string | null;
   resumeSec?: number;
   season?: number | null;
   episode?: number | null;
@@ -1134,13 +1223,6 @@ const SEEK_MAX_ATTEMPTS = 3;
  * is still acknowledged promptly.
  */
 const SEEK_LOADER_GRACE_MS = 220;
-/**
- * The explicit ceiling on *automatic* release switches for one play session:
- * when a source cannot start, the player silently fails over to the next best
- * candidate at most this many times before it stops and shows one honest
- * terminal message. Bounds the recovery so it can never loop forever.
- */
-const MAX_AUTO_SWITCHES = 3;
 /**
  * Torrent metadata resolving (stream 425) is the SAME release needing a moment,
  * not a bad one — so the recovery is a short silent re-attempt of this release,
@@ -1540,10 +1622,9 @@ export function InlineStreamPlayer(props: InlinePlayerProps) {
   // So the key is latched ONCE per mount and never changes; Inner adopts a
   // late/changed infoHash through an effect instead. A different open mounts a
   // fresh instance (fresh boundary) from the parent.
-  const boundaryKeyRef = useRef<string | null>(null);
-  boundaryKeyRef.current ??= props.infoHash ?? OPENING_BOUNDARY_KEY;
+  const [boundaryKey] = useState(() => props.infoHash ?? OPENING_BOUNDARY_KEY);
   return (
-    <InlinePlayerErrorBoundary key={boundaryKeyRef.current} title={props.title}>
+    <InlinePlayerErrorBoundary key={boundaryKey} title={props.title}>
       <InlineStreamPlayerInner {...props} />
     </InlinePlayerErrorBoundary>
   );
@@ -1552,6 +1633,7 @@ export function InlineStreamPlayer(props: InlinePlayerProps) {
 function InlineStreamPlayerInner({
   infoHash,
   title,
+  episodeTitle,
   progress,
   resumeSec,
   season,
@@ -1564,17 +1646,35 @@ function InlineStreamPlayerInner({
 }: InlinePlayerProps) {
   const theatre = chrome === "theatre";
   const panelId = useId();
-  const [target, setTarget] = useState<CurrentTarget>({
+  const externalTarget: CurrentTarget = {
     infoHash,
     title,
+    episodeTitle,
     resumeSec,
     season,
     episode,
     posterUrl,
     watchListItemId,
-  });
+  };
+  const [target, setTarget] = useState<CurrentTarget>(externalTarget);
+  const [previousExternalTarget, setPreviousExternalTarget] =
+    useState<CurrentTarget>(externalTarget);
+  const externalTargetChanged =
+    infoHash !== previousExternalTarget.infoHash ||
+    title !== previousExternalTarget.title ||
+    episodeTitle !== previousExternalTarget.episodeTitle ||
+    resumeSec !== previousExternalTarget.resumeSec ||
+    season !== previousExternalTarget.season ||
+    episode !== previousExternalTarget.episode ||
+    posterUrl !== previousExternalTarget.posterUrl ||
+    watchListItemId !== previousExternalTarget.watchListItemId;
+  if (externalTargetChanged) {
+    setPreviousExternalTarget(externalTarget);
+    if (infoHash) setTarget(externalTarget);
+  }
   const activeInfoHash = target.infoHash;
   const activeTitle = target.title;
+  const activeEpisodeTitle = target.episodeTitle;
   const activeSeason = target.season;
   const activeEpisode = target.episode;
   const activePosterUrl = target.posterUrl;
@@ -1587,17 +1687,6 @@ function InlineStreamPlayerInner({
   // switch / auto-failover / up-next) mutate `target` directly and never touch
   // props.infoHash, so this fires ONLY for a genuine parent-driven target change
   // and can't fight an in-flight internal switch.
-  const externalInfoHashRef = useRef(infoHash);
-  useEffect(() => {
-    if (infoHash === externalInfoHashRef.current) return;
-    externalInfoHashRef.current = infoHash;
-    if (!infoHash) return; // reset to opening — keep the loader, nothing to stream yet
-    setTarget((prev) =>
-      prev.infoHash === infoHash
-        ? prev
-        : { infoHash, title, resumeSec, season, episode, posterUrl, watchListItemId },
-    );
-  }, [infoHash, title, resumeSec, season, episode, posterUrl, watchListItemId]);
   // Theatre is entered by an explicit "play this", so it starts open. The old
   // route into this state was an effect in the overlay that reached into the
   // player's DOM and clicked its toggle for it; a component that has to be
@@ -1712,12 +1801,60 @@ function InlineStreamPlayerInner({
    const [audioMenuOpen, setAudioMenuOpen] = useState(false);
    const [volumeMenuOpen, setVolumeMenuOpen] = useState(false);
    const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
-   const [qualityCandidates, setQualityCandidates] = useState<PlaybackCandidate[]>([]);
    const [qualityLoading, setQualityLoading] = useState(false);
    const [qualityError, setQualityError] = useState<string | null>(null);
    const [switchingInfoHash, setSwitchingInfoHash] = useState<string | null>(null);
    const [seekHoverTime, setSeekHoverTime] = useState<number | null>(null);
    const [playPulse, setPlayPulse] = useState<"play" | "pause" | null>(null);
+   const [resetInfoHash, setResetInfoHash] = useState(activeInfoHash);
+   const [resetPlayableSrc, setResetPlayableSrc] = useState(playableSrc);
+   const verboseElapsedScope =
+     verboseDiagnostics && expanded ? activeInfoHash : null;
+   const [previousVerboseElapsedScope, setPreviousVerboseElapsedScope] =
+     useState(verboseElapsedScope);
+   if (verboseElapsedScope !== previousVerboseElapsedScope) {
+     setPreviousVerboseElapsedScope(verboseElapsedScope);
+     setVerboseElapsedSec(0);
+   }
+   if (activeInfoHash !== resetInfoHash) {
+     setResetInfoHash(activeInfoHash);
+     setManifest(null);
+     setManifestLoading(false);
+     setSelectedPath(null);
+     setMessage(null);
+     setProblem(null);
+     setPlayableSrc(null);
+     setPlaybackMode("direct");
+     setCheckingStream(false);
+     setWaiting(false);
+     setActiveVideoAdvancing(false);
+     setPlaybackStarted(false);
+     setPreparingLabel(null);
+     setStreamFailure(null);
+     setRetrying(false);
+     setSwarmSample(null);
+     setUpNext(null);
+     setUpNextLoading(false);
+     setUpNextError(null);
+     setEnded(false);
+     setAutoAdvanceCancelled(false);
+     setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
+     setCurrentSourceTime(0);
+     setSourceDuration(null);
+     setTimelineOffset(0);
+     setBufferedRanges([]);
+     setQualityLoading(false);
+     setQualityError(null);
+     setSwitchingInfoHash(null);
+     setPlanNonce((nonce) => nonce + 1);
+   }
+   if (playableSrc !== resetPlayableSrc) {
+     setResetPlayableSrc(playableSrc);
+     setWaiting(false);
+     setActiveVideoAdvancing(false);
+     setPlaybackStarted(false);
+     setUpNextLoading(Boolean(playableSrc));
+   }
    const hlsRef = useRef<Hls | null>(null);
    const videoRef = useRef<HTMLVideoElement | null>(null);
    const fullscreenSurfaceRef = useRef<HTMLDivElement | null>(null);
@@ -1743,15 +1880,13 @@ function InlineStreamPlayerInner({
    */
   const isScrubbingRef = useRef(false);
   /**
-   * Automatic-failover bookkeeping for one play session. `autoSwitchCountRef`
-   * enforces {@link MAX_AUTO_SWITCHES}; `autoTriedHashesRef` remembers every
-   * source we have already auto-committed to so recovery never re-picks one;
-   * `autoFailoverInFlightRef` prevents overlapping recovery attempts. All reset
-   * when the viewer starts a fresh play or chooses a release by hand.
+   * Automatic-failover bookkeeping for one play session. Tried hashes make the
+   * finite candidate set the stopping condition; overlapping recovery attempts
+   * are suppressed. Both reset for fresh content or a new resolution intent.
    */
-  const autoSwitchCountRef = useRef(0);
   const autoTriedHashesRef = useRef<Set<string>>(new Set());
   const autoFailoverInFlightRef = useRef(false);
+  const preferredResolutionIntentRef = useRef<number | null>(null);
   /** Startup swarm samples accumulated for dead-evidence detection (Task 1). */
   const startupSamplesRef = useRef<SwarmSample[]>([]);
   /** Start time for verbose elapsed display (Task 4). */
@@ -1795,18 +1930,6 @@ function InlineStreamPlayerInner({
     target.resumeSec > RESUME_MIN_SEC
       ? Math.floor(target.resumeSec)
       : 0;
-
-  useEffect(() => {
-    setTarget({
-      infoHash,
-      title,
-      resumeSec,
-      season,
-      episode,
-      posterUrl,
-      watchListItemId,
-    });
-  }, [infoHash, title, resumeSec, season, episode, posterUrl, watchListItemId]);
 
   const activeManifest = manifest?.infoHash === activeInfoHash ? manifest : null;
   const videoFiles = useMemo(
@@ -1853,17 +1976,6 @@ function InlineStreamPlayerInner({
     return episodeFromFilePath(activeTitle);
   }, [currentSeason, currentEpisode, activeTitle]);
   const currentMediaType = currentSeason != null || currentEpisode != null ? "tv" : "movie";
-  /**
-   * Whether to offer the file picker. Only for a genuine pack: a TV pack (an
-   * episode target with several files) or a movie whose torrent has no single
-   * dominant feature. A film with a feature + extras auto-selects the feature,
-   * so a movie never demands a manual pick.
-   */
-  const showFileSelect = useMemo(() => {
-    if (videoFiles.length <= 1) return false;
-    if (requestedEpisode != null) return true;
-    return mainFeatureFile(activeManifest?.files ?? [], activeManifest?.primaryVideoIndex) == null;
-  }, [videoFiles.length, requestedEpisode, activeManifest]);
   const downloadedRanges = useMemo(
     () =>
       selectedFile
@@ -1878,14 +1990,7 @@ function InlineStreamPlayerInner({
   const currentTimeHeld = downloadedRanges.length > 0
     ? sourceTimeInRanges(downloadedRanges, currentSourceTime)
     : null;
-  const minimumStreamBps =
-    selectedFile && sourceDuration && sourceDuration > 0
-      ? (selectedFile.length / sourceDuration) * 1.15
-      : 0;
   const viewerWaiting = shouldShowViewerBuffering({ waiting, activeVideoAdvancing });
-  const releaseChips = selectedFile
-    ? releaseDetailChips(selectedFile.path, selectedFile.length)
-    : [];
   /**
    * The subtitle file a release ships *next to* the video under the exact same
    * name. Direct mode used to mount this as a `default` `<track>`, so it is kept
@@ -2015,41 +2120,10 @@ function InlineStreamPlayerInner({
   );
 
   useEffect(() => {
-    setManifest(null);
-    setManifestLoading(false);
-    setSelectedPath(null);
-    setMessage(null);
-    setProblem(null);
-    setPlayableSrc(null);
-    setPlaybackMode("direct");
-    setCheckingStream(false);
-    setWaiting(false);
-    setActiveVideoAdvancing(false);
-    setPlaybackStarted(false);
     // New source attempt → reset the first-frame latch synchronously and
     // invalidate any pending latch from the outgoing source (duck issue 3).
     firstFrameAttemptRef.current += 1;
     cancelFirstFrameWatch();
-    setPreparingLabel(null);
-    setStreamFailure(null);
-    setRetrying(false);
-    setSwarmSample(null);
-    setUpNext(null);
-    setUpNextLoading(false);
-    setUpNextError(null);
-    setEnded(false);
-    setAutoAdvanceCancelled(false);
-    setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
-    setCurrentSourceTime(0);
-    setSourceDuration(null);
-    setTimelineOffset(0);
-    setBufferedRanges([]);
-    setQualityMenuOpen(false);
-    setQualityCandidates([]);
-    setQualityLoading(false);
-    setQualityError(null);
-    setSwitchingInfoHash(null);
-    setPlanNonce((n) => n + 1);
     resumeConsumedRef.current = false;
     pendingSeekRef.current = 0;
     pendingNativeSeekRef.current = 0;
@@ -2077,9 +2151,6 @@ function InlineStreamPlayerInner({
   }, [cancelFirstFrameWatch, clearMotionLease, clearSeekRetry]);
 
   useEffect(() => {
-    setWaiting(false);
-    setActiveVideoAdvancing(false);
-    setPlaybackStarted(false);
     // A new playable source is a new first-frame attempt: invalidate the previous
     // source's pending latch synchronously so it cannot latch the incoming one.
     firstFrameAttemptRef.current += 1;
@@ -2094,10 +2165,7 @@ function InlineStreamPlayerInner({
   // The loader arms only if a seek is still unsettled after the grace window;
   // any earlier `seeked`/settle clears `seeking` and disarms it first.
   useEffect(() => {
-    if (!seeking) {
-      setSeekLoaderArmed(false);
-      return;
-    }
+    if (!seeking) return;
     const timer = setTimeout(() => setSeekLoaderArmed(true), SEEK_LOADER_GRACE_MS);
     return () => clearTimeout(timer);
   }, [seeking]);
@@ -2338,7 +2406,18 @@ function InlineStreamPlayerInner({
     setMessage(null);
     setProblem(null);
     try {
-      const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}`);
+      const params = new URLSearchParams();
+      if (requestedEpisode?.season != null) {
+        params.set("season", String(requestedEpisode.season));
+      }
+      if (requestedEpisode?.episode != null) {
+        params.set("episode", String(requestedEpisode.episode));
+      }
+      const res = await fetch(
+        `/api/stream/${encodeURIComponent(activeInfoHash)}${
+          params.size > 0 ? `?${params}` : ""
+        }`,
+      );
       if (!res.ok) {
         const mapped = streamStatusMessage(res.status);
         setProblem(mapped.problem);
@@ -2354,18 +2433,23 @@ function InlineStreamPlayerInner({
       const files = Array.isArray(data?.files) ? data.files : [];
       const primaryVideoIndex =
         typeof data?.primaryVideoIndex === "number" ? data.primaryVideoIndex : null;
+      const targetVideoIndex =
+        typeof data?.targetVideoIndex === "number"
+          ? data.targetVideoIndex
+          : null;
       const next: StreamManifest = {
         infoHash: activeInfoHash,
         files,
         clientType: data?.clientType,
         primaryVideoIndex,
+        targetVideoIndex,
       };
       setManifest(next);
       const videos = selectVideoFiles(files);
-      const requested = resolveVideoFileSelection(files, {
-        season: requestedEpisode?.season,
-        episode: requestedEpisode?.episode,
-      });
+      const requested =
+        targetVideoIndex == null
+          ? null
+          : videos.find((file) => file.index === targetVideoIndex) ?? null;
       if (requested) {
         setSelectedPath(requested.path);
       } else if (videos.length > 1) {
@@ -2382,7 +2466,8 @@ function InlineStreamPlayerInner({
           setSelectedPath(feature.path);
         } else {
           setProblem(null);
-          setMessage("Choose the episode to play from this pack.");
+          setProblem("missing");
+          setMessage("This episode is not available in the selected version.");
         }
       }
       if (videos.length === 0) {
@@ -2468,9 +2553,6 @@ function InlineStreamPlayerInner({
       return;
     }
     setExpanded(true);
-    // A viewer-initiated play resets the automatic-recovery budget so a later
-    // stall gets a fresh set of {@link MAX_AUTO_SWITCHES} attempts.
-    autoSwitchCountRef.current = 0;
     autoTriedHashesRef.current = new Set();
     autoFailoverInFlightRef.current = false;
     void loadManifest();
@@ -2479,7 +2561,6 @@ function InlineStreamPlayerInner({
   const loadUpNext = useCallback(
     async (signal?: AbortSignal) => {
       if (!activeInfoHash || !activeTitle.trim()) return null;
-      setUpNextLoading(true);
       try {
         const res = await fetch("/api/prewarm", {
           method: "POST",
@@ -2519,8 +2600,14 @@ function InlineStreamPlayerInner({
   useEffect(() => {
     if (!playableSrc || !effectiveSelectedPath) return;
     const controller = new AbortController();
-    void loadUpNext(controller.signal);
-    return () => controller.abort();
+    const timer = window.setTimeout(
+      () => void loadUpNext(controller.signal),
+      0,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [playableSrc, effectiveSelectedPath, loadUpNext]);
 
   const playUpNext = useCallback(
@@ -2530,8 +2617,6 @@ function InlineStreamPlayerInner({
       // in-flight quality switch or silent failover so their late responses
       // cannot overwrite this episode (duck issue 4).
       transitionGenRef.current += 1;
-      // Fresh content → fresh automatic-recovery budget.
-      autoSwitchCountRef.current = 0;
       autoTriedHashesRef.current = new Set();
       autoFailoverInFlightRef.current = false;
       setTransitioningTitle(next.title);
@@ -2623,65 +2708,43 @@ function InlineStreamPlayerInner({
       // every work ever given that name.
       ...(typeof year === "number" ? { year } : {}),
       currentInfoHash: activeInfoHash,
+      ...(preferredResolutionIntentRef.current !== null
+        ? { preferredResolution: preferredResolutionIntentRef.current }
+        : {}),
       ...(chosenInfoHash ? { chosenInfoHash } : {}),
     }),
     [activeTitle, currentMediaType, currentSeason, currentEpisode, year, activeInfoHash],
   );
 
-  const loadQualityCandidates = useCallback(async () => {
-    setQualityLoading(true);
-    setQualityError(null);
-    try {
-      const res = await fetch("/api/playback/candidates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(candidateRequestBody()),
-      });
-      const data = await readJson<CandidatesResponse>(res);
-      if (!res.ok) {
-        setQualityError("Could not load other releases.");
-        return;
-      }
-      setQualityCandidates(Array.isArray(data?.candidates) ? data.candidates : []);
-    } catch {
-      setQualityError("Could not load other releases.");
-    } finally {
-      setQualityLoading(false);
-    }
-  }, [candidateRequestBody]);
-
-  const chooseQualityCandidate = useCallback(
-    async (candidate: PlaybackCandidate) => {
+  const choosePreferredResolution = useCallback(
+    async (preferredResolution: number) => {
       if (!activeInfoHash) return;
-      if (candidate.isCurrent || candidate.infoHash.toLowerCase() === activeInfoHash.toLowerCase()) {
-        setQualityMenuOpen(false);
-        return;
-      }
-      setSwitchingInfoHash(candidate.infoHash);
+      setSwitchingInfoHash(activeInfoHash);
+      setQualityLoading(true);
       setQualityError(null);
-      // Claim this transition's token; a newer transition (manual next, another
-      // switch) that lands during the await will supersede us below.
       const gen = (transitionGenRef.current += 1);
-      // A manual release pick is a fresh viewer decision → reset the automatic
-      // budget so, if the chosen release also stalls, silent recovery is free to
-      // try again.
-      autoSwitchCountRef.current = 0;
       autoTriedHashesRef.current = new Set();
       autoFailoverInFlightRef.current = false;
+      preferredResolutionIntentRef.current = preferredResolution;
       try {
-        const res = await fetch("/api/playback/switch", {
+        const res = await fetch(
+          `/api/stream/${encodeURIComponent(activeInfoHash)}/select`,
+          {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(candidateRequestBody(candidate.infoHash)),
-        });
+          body: JSON.stringify(preferredResolutionRequestBody({
+            title: activeTitle,
+            mediaType: currentMediaType,
+            season: currentSeason,
+            episode: currentEpisode,
+            year,
+            preferredResolution,
+          })),
+        },
+        );
         const data = await readJson<SwitchResponse>(res);
         if (!res.ok || !data?.ok) {
-          const reason = data && "reason" in data ? data.reason : null;
-          setQualityError(
-            reason === "not-a-candidate"
-              ? "That release is no longer available for this title."
-              : "That release could not be started. Current playback is unchanged.",
-          );
+          setQualityError("That quality is not available right now.");
           return;
         }
         const resumeAt =
@@ -2695,6 +2758,7 @@ function InlineStreamPlayerInner({
         setTarget({
           infoHash: data.infoHash,
           title: activeTitle,
+          episodeTitle: activeEpisodeTitle,
           season: currentSeason,
           episode: currentEpisode,
           posterUrl: activePosterUrl,
@@ -2702,19 +2766,21 @@ function InlineStreamPlayerInner({
           resumeSec: resumeAt,
         });
       } catch {
-        setQualityError("That release could not be started. Current playback is unchanged.");
+        setQualityError("That quality is not available right now.");
       } finally {
         setSwitchingInfoHash(null);
+        setQualityLoading(false);
       }
     },
     [
       activeInfoHash,
       activeTitle,
+      activeEpisodeTitle,
       currentSeason,
       currentEpisode,
       activePosterUrl,
       activeWatchListItemId,
-      candidateRequestBody,
+      year,
     ],
   );
 
@@ -2737,23 +2803,20 @@ function InlineStreamPlayerInner({
    * it reads the ranked candidate pool (which already carries the cached swarm
    * verdicts), picks the best release it has not already auto-tried, and asks
    * the switch executor to start it — carrying the current position across so a
-   * working stream is never torn down to try another. Bounded by
-   * {@link MAX_AUTO_SWITCHES}. Returns true when a switch was started (the
-   * caller keeps the loader up and does nothing else) and false when recovery
-   * is genuinely exhausted (the caller may now surface one terminal message).
+   * working stream is never torn down to try another. Every unique candidate
+   * is eligible exactly once; only pool exhaustion stops recovery. Returns true
+   * when a switch was started (the caller keeps the loader up and does nothing
+   * else) and false when recovery is genuinely exhausted.
    * Works for movies as well as episodes — the switch seam keys on content, not
    * media type, which is why changing a movie's release mid-watch works here.
    */
   const attemptAutoFailover = useCallback(async (): Promise<boolean> => {
     if (!activeInfoHash) return false;
     if (autoFailoverInFlightRef.current) return true;
-    if (autoSwitchCountRef.current >= MAX_AUTO_SWITCHES) return false;
     autoFailoverInFlightRef.current = true;
     // Claim a transition token so a manual next / hand-picked switch that lands
     // mid-recovery supersedes this silent failover instead of racing it.
     const gen = (transitionGenRef.current += 1);
-    // Never re-pick the source that just failed.
-    autoTriedHashesRef.current.add(activeInfoHash.toLowerCase());
     try {
       const res = await fetch("/api/playback/candidates", {
         method: "POST",
@@ -2762,21 +2825,15 @@ function InlineStreamPlayerInner({
       });
       const data = await readJson<CandidatesResponse>(res);
       if (!res.ok) return false;
+      if (transitionGenRef.current !== gen) return true;
       const pool = Array.isArray(data?.candidates) ? data.candidates : [];
-      const isUntried = (c: PlaybackCandidate) =>
-        !c.isCurrent &&
-        c.infoHash.toLowerCase() !== activeInfoHash.toLowerCase() &&
-        !autoTriedHashesRef.current.has(c.infoHash.toLowerCase());
-      // Prefer candidates the probe has not measured dead; fall back to any
-      // untried one if that would otherwise leave nothing (a 6h-old "dead" may
-      // be stale). Pool order is the ranker's, so the first match is the best.
-      const ordered = [
-        ...pool.filter((c) => isUntried(c) && c.verdict !== "dead"),
-        ...pool.filter((c) => isUntried(c) && c.verdict === "dead"),
-      ];
-      for (const candidate of ordered) {
-        if (autoSwitchCountRef.current >= MAX_AUTO_SWITCHES) break;
-        autoTriedHashesRef.current.add(candidate.infoHash.toLowerCase());
+      let candidate = nextAutomaticCandidate(
+        pool,
+        activeInfoHash,
+        autoTriedHashesRef.current,
+      );
+      while (candidate) {
+        if (transitionGenRef.current !== gen) return true;
         try {
           const switchRes = await fetch("/api/playback/switch", {
             method: "POST",
@@ -2784,17 +2841,21 @@ function InlineStreamPlayerInner({
             body: JSON.stringify(candidateRequestBody(candidate.infoHash)),
           });
           const switchData = await readJson<SwitchResponse>(switchRes);
+          if (transitionGenRef.current !== gen) return true;
           // A failed switch never tears down current playback; just try the next
           // candidate (or, once none remain, let the caller surface terminal).
-          if (!switchRes.ok || !switchData?.ok) continue;
-          autoSwitchCountRef.current += 1;
+          if (!switchRes.ok || !switchData?.ok) {
+            candidate = nextAutomaticCandidate(
+              pool,
+              activeInfoHash,
+              autoTriedHashesRef.current,
+            );
+            continue;
+          }
           const resumeAt =
             typeof switchData.positionSec === "number" && Number.isFinite(switchData.positionSec)
               ? switchData.positionSec
               : currentSourceTimeRef.current;
-          // A manual next / hand-picked switch superseded us while the switch
-          // resolved — stop, leaving the viewer's choice in place.
-          if (transitionGenRef.current !== gen) return true;
           // Re-point at the new source. The single loader stays up across the
           // swap: activeInfoHash changing resets `playbackStarted`, and
           // `playableSrc` is null until the new plan resolves, so the spinner is
@@ -2802,6 +2863,7 @@ function InlineStreamPlayerInner({
           setTarget({
             infoHash: switchData.infoHash,
             title: activeTitle,
+            episodeTitle: activeEpisodeTitle,
             season: currentSeason,
             episode: currentEpisode,
             posterUrl: activePosterUrl,
@@ -2810,6 +2872,11 @@ function InlineStreamPlayerInner({
           });
           return true;
         } catch {
+          candidate = nextAutomaticCandidate(
+            pool,
+            activeInfoHash,
+            autoTriedHashesRef.current,
+          );
           continue;
         }
       }
@@ -2823,6 +2890,7 @@ function InlineStreamPlayerInner({
     activeInfoHash,
     candidateRequestBody,
     activeTitle,
+    activeEpisodeTitle,
     currentSeason,
     currentEpisode,
     activePosterUrl,
@@ -2858,9 +2926,9 @@ function InlineStreamPlayerInner({
       const data = await readJson<{ ok?: boolean; code?: string }>(res);
       const retried = res.ok && data?.ok === true && data?.code === "RETRYING";
       if (!retried) {
-        // No source to retry, or a playability failure — offer another version.
+        // Keep the exhausted state terminal. Quality selection is a proactive
+        // viewer preference, never a recovery demand.
         setStreamFailure((prev) => (prev ? { ...prev, retryable: false } : prev));
-        setQualityMenuOpen(true);
         return;
       }
       // Re-attempt the same infoHash + file from a clean slate.
@@ -2874,7 +2942,7 @@ function InlineStreamPlayerInner({
       clearMotionLease();
       setPlanNonce((n) => n + 1);
     } catch {
-      setQualityMenuOpen(true);
+      setStreamFailure((prev) => (prev ? { ...prev, retryable: false } : prev));
     } finally {
       setRetrying(false);
     }
@@ -2889,11 +2957,6 @@ function InlineStreamPlayerInner({
     clearMotionLease,
   ]);
 
-  useEffect(() => {
-    if (!qualityMenuOpen || qualityCandidates.length > 0 || qualityLoading) return;
-    void loadQualityCandidates();
-  }, [qualityMenuOpen, qualityCandidates.length, qualityLoading, loadQualityCandidates]);
-
   const handleEnded = useCallback(() => {
     setIsPlaying(false);
     setEnded(true);
@@ -2905,13 +2968,13 @@ function InlineStreamPlayerInner({
 
   useEffect(() => {
     if (!ended || !canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled)) return;
-    if (advanceCountdown <= 0) {
-      playUpNext(upNext);
-      return;
-    }
     const timer = window.setTimeout(() => {
-      setAdvanceCountdown((n) => Math.max(0, n - 1));
-    }, 1000);
+      if (advanceCountdown <= 0) {
+        playUpNext(upNext);
+      } else {
+        setAdvanceCountdown((countdown) => Math.max(0, countdown - 1));
+      }
+    }, advanceCountdown <= 0 ? 0 : 1000);
     return () => window.clearTimeout(timer);
   }, [ended, autoAdvanceCancelled, upNext, advanceCountdown, playUpNext]);
 
@@ -2920,7 +2983,8 @@ function InlineStreamPlayerInner({
   // panel opens and sits on "Resolving files…" forever.
   useEffect(() => {
     if (!theatre) return;
-    void loadManifest();
+    const timer = window.setTimeout(() => void loadManifest(), 0);
+    return () => window.clearTimeout(timer);
   }, [theatre, loadManifest]);
 
   /**
@@ -3276,7 +3340,6 @@ function InlineStreamPlayerInner({
   useEffect(() => {
     if (!verboseDiagnostics || !expanded || !activeInfoHash) return;
     verboseStartTimeRef.current = Date.now();
-    setVerboseElapsedSec(0);
     const id = setInterval(() => {
       setVerboseElapsedSec(
         Math.floor((Date.now() - (verboseStartTimeRef.current ?? Date.now())) / 1000),
@@ -3408,6 +3471,7 @@ function InlineStreamPlayerInner({
       const sameTarget = previous && Math.abs(previous.targetSec - target) <= SEEK_TOLERANCE_SECONDS;
       const attempts = sameTarget ? previous.attempts + 1 : 1;
       requestedSeekRef.current = { targetSec: target, attempts, attemptedAt: Date.now() };
+      setSeekLoaderArmed(false);
       setSeeking(true);
       const video = videoRef.current;
       if (playbackMode !== "hls") {
@@ -3482,6 +3546,12 @@ function InlineStreamPlayerInner({
     audioMenuOpen ||
     volumeMenuOpen ||
     qualityMenuOpen;
+  const [previousControlsPinned, setPreviousControlsPinned] =
+    useState(controlsPinned);
+  if (controlsPinned !== previousControlsPinned) {
+    setPreviousControlsPinned(controlsPinned);
+    if (!controlsPinned) setTheatreControlsVisible(true);
+  }
 
   const showTheatreControls = useCallback(() => {
     setTheatreControlsVisible(true);
@@ -3491,16 +3561,16 @@ function InlineStreamPlayerInner({
   }, [controlsPinned]);
 
   useEffect(() => {
-    if (controlsPinned) {
-      setTheatreControlsVisible(true);
-      if (controlsIdleRef.current) clearTimeout(controlsIdleRef.current);
-      return;
-    }
-    showTheatreControls();
+    if (controlsIdleRef.current) clearTimeout(controlsIdleRef.current);
+    if (controlsPinned) return;
+    controlsIdleRef.current = setTimeout(
+      () => setTheatreControlsVisible(false),
+      3000,
+    );
     return () => {
       if (controlsIdleRef.current) clearTimeout(controlsIdleRef.current);
     };
-  }, [controlsPinned, showTheatreControls]);
+  }, [controlsPinned]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -4097,7 +4167,10 @@ function InlineStreamPlayerInner({
       },
       onEnded: handleEnded,
       onSeeking: (event: ReactSyntheticEvent<HTMLVideoElement>) => {
-        if (event.currentTarget === videoRef.current) setSeeking(true);
+        if (event.currentTarget === videoRef.current) {
+          setSeekLoaderArmed(false);
+          setSeeking(true);
+        }
       },
       onPlaying: (event: ReactSyntheticEvent<HTMLVideoElement>) => {
         activeMediaEvent(event.currentTarget, "playing");
@@ -4470,53 +4543,17 @@ function InlineStreamPlayerInner({
             <Gauge className={iconClass} />
           </button>
           {qualityMenuOpen ? (
-            <div data-quality-selector className="absolute bottom-full right-0 mb-2 max-h-[60vh] w-[28rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-white/10 bg-black/90 p-2 text-sm text-white shadow-2xl backdrop-blur">
-              <div className="flex items-center justify-between gap-3 px-3 py-2">
+            <div data-quality-selector className="fixed inset-x-4 bottom-20 z-[100] overflow-hidden rounded-2xl border border-white/10 bg-black/90 p-2 text-sm text-white shadow-2xl backdrop-blur sm:absolute sm:inset-x-auto sm:bottom-full sm:right-0 sm:mb-2 sm:w-36">
+              <div className="px-3 py-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">Quality</p>
-                <button type="button" onClick={() => void loadQualityCandidates()} disabled={qualityLoading} className="text-[11px] font-medium text-white/55 hover:text-white disabled:cursor-wait disabled:opacity-50">
-                  Refresh
-                </button>
               </div>
               {qualityError ? <p className="mx-2 mb-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100">{qualityError}</p> : null}
-              {qualityLoading && qualityCandidates.length === 0 ? (
-                <PageSkeletonFrame
-                  aria-label={qualitySelectorEmptyCopy(true, qualityCandidates.length) ?? "Loading releases"}
-                >
-                  <QualityCandidateSkeletonRow />
-                  <QualityCandidateSkeletonRow />
-                  <QualityCandidateSkeletonRow />
-                </PageSkeletonFrame>
-              ) : null}
-              {qualityCandidates.map((candidate) => {
-                return (
-                  <button
-                    key={candidate.infoHash}
-                    type="button"
-                    data-quality-candidate
-                    disabled={Boolean(switchingInfoHash)}
-                    onClick={() => void chooseQualityCandidate(candidate)}
-                    className={cn(QUALITY_ROW_BASE, "transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60", candidate.isCurrent && "bg-white/10")}
-                  >
-                    <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", candidate.verdict === "good" && "bg-emerald-400", candidate.verdict === "weak" && "bg-amber-300", candidate.verdict === "dead" && "bg-red-400", candidate.verdict === "unknown" && "bg-sky-300")} />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="truncate text-[13px] font-semibold text-white">{candidateQualityShape(candidate) || candidate.title}</span>
-                        {candidate.isCurrent ? <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">Current</span> : null}
-                      </span>
-                      <span className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[12px] text-white/58">
-                        <span>{candidateVerdictLabel(candidate.verdict)}</span><span>·</span><span>{candidatePlayabilityLabel(candidate.playability)}</span>
-                      </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-white/35">{candidate.title}</span>
-                    </span>
-                    {candidate.isCurrent ? <Check className="mt-1 h-4 w-4 shrink-0 text-[var(--accent)]" /> : null}
-                  </button>
-                );
-              })}
-              {!qualityLoading && qualityCandidates.length === 0 ? (
-                <p className="flex min-h-[5.5rem] items-center px-3 py-3 text-[13px] text-white/55">
-                  {qualitySelectorEmptyCopy(false, qualityCandidates.length)}
-                </p>
-              ) : null}
+              <PlayerQualityChoices
+                disabled={qualityLoading}
+                onSelect={(resolution) =>
+                  void choosePreferredResolution(resolution)
+                }
+              />
             </div>
           ) : null}
         </div>
@@ -4599,7 +4636,6 @@ function InlineStreamPlayerInner({
         data-inline-player
         data-playback-started={playbackStarted ? "true" : "false"}
         data-player-chrome={chrome}
-        data-infohash={activeInfoHash}
         data-playback-mode={playbackMode}
         data-playback-strategy={strategy ?? undefined}
         data-playback-rung={playbackRung ?? undefined}
@@ -4743,29 +4779,6 @@ function InlineStreamPlayerInner({
                           {retrying ? "Retrying…" : "Retry"}
                         </button>
                       ) : null}
-                      <button
-                        type="button"
-                        data-stream-switch
-                        onClick={() => {
-                          setQualityMenuOpen(true);
-                          showTheatreControls();
-                        }}
-                        className={cn(
-                          "inline-flex h-9 items-center rounded-full px-4 text-[12px] font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white",
-                          failureCopy?.affordance === "retry"
-                            ? "border border-white/15 text-white/70 hover:bg-white/10 hover:text-white"
-                            : "bg-white text-black hover:bg-white/90",
-                        )}
-                      >
-                        Try another version
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void copySelected()}
-                        className="inline-flex h-9 items-center rounded-full border border-white/15 px-4 text-[12px] font-medium text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-                      >
-                        Open in your player
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -4778,25 +4791,6 @@ function InlineStreamPlayerInner({
                 <StreamLoader />
               ) : null}
 
-              {verboseDiagnostics && showLoader && !terminalFailure ? (
-                <div
-                  data-verbose-diagnostics
-                  className="pointer-events-none absolute bottom-20 left-0 right-0 z-40 flex justify-center"
-                >
-                  <div className="rounded-lg bg-black/75 px-4 py-2 font-mono text-[11px] text-white/70 backdrop-blur-sm">
-                    <div>{displayTitle}</div>
-                    <div>
-                      src {autoSwitchCountRef.current + 1}
-                      {swarmSample?.peers != null ? ` · ${swarmSample.peers} peer${swarmSample.peers !== 1 ? "s" : ""}` : null}
-                      {swarmSample?.downloadSpeedBps != null
-                        ? ` · ${swarmSample.downloadSpeedBps > 0 ? `${Math.round(swarmSample.downloadSpeedBps / 1024)} KB/s` : "0 KB/s"}`
-                        : null}
-                      {` · ${verboseElapsedSec}s`}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
               <div
                 className={cn(
                   "pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-5 transition-opacity duration-200",
@@ -4804,36 +4798,12 @@ function InlineStreamPlayerInner({
                 )}
               >
                 <div className="pointer-events-auto flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="truncate text-base font-semibold text-white drop-shadow">{displayTitle}</p>
-                    <p className="mt-0.5 truncate text-[12px] text-white/65">
-                      {[currentSeason != null && currentEpisode != null ? `S${String(currentSeason).padStart(2, "0")}E${String(currentEpisode).padStart(2, "0")}` : null, releaseChips[0]]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  </div>
-                  {showFileSelect ? (
-                    <label className="pointer-events-auto flex max-w-[min(26rem,45vw)] shrink-0 items-center gap-2 rounded-full border border-white/12 bg-black/45 px-3 py-2 text-[11px] text-white/70 shadow-2xl backdrop-blur-md">
-                      <span className="shrink-0 font-medium uppercase tracking-[0.14em] text-white/45">
-                        Episode
-                      </span>
-                      <select
-                        value={effectiveSelectedPath ?? ""}
-                        onChange={(e) => setSelectedPath(e.target.value || null)}
-                        data-stream-file-select
-                        aria-label="Video file"
-                        className="min-w-0 flex-1 appearance-none truncate bg-transparent text-[12px] font-medium text-white outline-none"
-                      >
-                        <option value="" className="bg-[var(--bg-elevated)]">Pick a video…</option>
-                        {videoFiles.map((file, i) => (
-                          <option key={file.index} value={file.path} className="bg-[var(--bg-elevated)]">
-                            {fileOptionLabel(file, i)}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-white/50" />
-                    </label>
-                  ) : null}
+                  <PlayerIdentity
+                    showTitle={displayTitle}
+                    episodeTitle={activeEpisodeTitle}
+                    season={currentSeason}
+                    episode={currentEpisode}
+                  />
                 </div>
               </div>
 
@@ -4907,24 +4877,12 @@ function InlineStreamPlayerInner({
 
                 <div className="mt-3 flex min-h-6 items-center justify-between gap-3 text-[11px] text-white/55">
                   <div className="flex min-w-0 items-center gap-2">
-                    {selectedFile && activeInfoHash ? (
-                      <SwarmChip
-                        infoHash={activeInfoHash}
-                        active={Boolean(playableSrc)}
-                        minimumStreamBps={minimumStreamBps}
-                        onSample={setSwarmSample}
-                        fetchSample={fetchPlayerSample}
-                      />
-                    ) : null}
                     <span className="truncate">
                       {[selectedAudioLabel !== "Audio" ? selectedAudioLabel : null, selectedSubtitleLabel !== "Off" ? selectedSubtitleLabel : "Subtitles off"]
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
                   </div>
-                  <span className="hidden min-w-0 truncate text-right md:block">
-                    {releaseChips.length > 0 ? releaseChips.join(" · ") : selectedFile ? formatBytes(selectedFile.length) : ""}
-                  </span>
                 </div>
               </div>
 
@@ -4956,7 +4914,6 @@ function InlineStreamPlayerInner({
       data-inline-player
       data-playback-started={playbackStarted ? "true" : "false"}
       data-player-chrome={chrome}
-      data-infohash={activeInfoHash}
       data-playback-mode={playbackMode}
       data-playback-strategy={strategy ?? undefined}
       data-playback-rung={playbackRung ?? undefined}
@@ -5075,25 +5032,6 @@ function InlineStreamPlayerInner({
               border-radius: 0;
             }
           `}</style>
-
-          {showFileSelect ? (
-            <label className="block space-y-1 text-[11px] text-[var(--text-tertiary)]">
-              File
-              <select
-                value={effectiveSelectedPath ?? ""}
-                onChange={(e) => setSelectedPath(e.target.value || null)}
-                data-stream-file-select
-                className="input-field h-8 w-full px-2 text-[12px]"
-              >
-                <option value="" className="bg-[var(--bg-elevated)]">Pick a video…</option>
-                {videoFiles.map((file, i) => (
-                  <option key={file.index} value={file.path} className="bg-[var(--bg-elevated)]">
-                    {fileOptionLabel(file, i)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
 
           {!theatre && message ? (
             <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
@@ -5258,20 +5196,6 @@ function InlineStreamPlayerInner({
                     "mx-auto w-full max-w-6xl justify-between rounded-xl border border-white/10 bg-black/45 px-3 py-2 text-white/70",
                 )}
               >
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <SwarmChip
-                    infoHash={activeInfoHash}
-                    active={Boolean(playableSrc)}
-                    minimumStreamBps={minimumStreamBps}
-                    onSample={setSwarmSample}
-                    fetchSample={fetchPlayerSample}
-                  />
-                  <p className={cn("min-w-0 flex-1 truncate text-[11px] text-[var(--text-tertiary)]", theatre && "text-white/60")}>
-                    {releaseChips.length > 0
-                      ? releaseChips.join(" · ")
-                      : formatBytes(selectedFile.length)}
-                  </p>
-                </div>
                 {upNext ? (
                   <div
                     data-up-next-status

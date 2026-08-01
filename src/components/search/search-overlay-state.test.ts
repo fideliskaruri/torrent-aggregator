@@ -28,8 +28,10 @@ import {
   searchDisplayFor,
   searchErrorMessage,
   searchRequestFor,
+  searchUrlFor,
 } from "./search-overlay-state";
-import { SEARCH_SCOPES, type SearchScopeId } from "@/lib/torrents/search-scopes";
+import { SEARCH_SCOPES } from "@/lib/torrents/search-scopes";
+import type { WorkSearchCategory } from "@/lib/search/work-search";
 
 let failures = 0;
 
@@ -49,18 +51,14 @@ function main() {
 
   // ── Rule 1: the request goes where the data is ───────────────────────────
   const routing: Array<{
-    scope: SearchScopeId;
+    scope: WorkSearchCategory;
     expectPath: string;
     expectCategory: string | null;
-    kind: "work" | "release";
+    kind: "work";
   }> = [
-    { scope: "titles", expectPath: "/api/search/titles", expectCategory: null, kind: "work" },
-    { scope: "music", expectPath: "/api/search", expectCategory: "music", kind: "release" },
-    { scope: "games", expectPath: "/api/search", expectCategory: "games", kind: "release" },
-    { scope: "software", expectPath: "/api/search", expectCategory: "apps", kind: "release" },
-    { scope: "books", expectPath: "/api/search", expectCategory: "books", kind: "release" },
-    { scope: "anime", expectPath: "/api/search", expectCategory: "anime", kind: "release" },
-    { scope: "everything", expectPath: "/api/search", expectCategory: "all", kind: "release" },
+    { scope: "movies", expectPath: "/api/search/titles", expectCategory: "movies", kind: "work" },
+    { scope: "series", expectPath: "/api/search/titles", expectCategory: "series", kind: "work" },
+    { scope: "anime", expectPath: "/api/search/titles", expectCategory: "anime", kind: "work" },
   ];
   for (const row of routing) {
     check(`${row.scope} searches ${row.expectPath} (${row.expectCategory ?? "tmdb"})`, () => {
@@ -83,7 +81,7 @@ function main() {
       assert.ok(req, `${scope.id} produced no request`);
       assert.equal(
         req.kind,
-        scope.kind === "work" ? "work" : "release",
+        "work",
         `${scope.id} routed to the wrong renderer`,
       );
     }
@@ -93,37 +91,37 @@ function main() {
   const tooShort = ["", " ", "a", " a "];
   for (const q of tooShort) {
     check(`"${q}" sends no request — the indexer budget is shared`, () => {
-      assert.equal(searchRequestFor("music", q), null);
+      assert.equal(searchRequestFor("movies", q), null);
     });
   }
   check(`${MIN_QUERY_LENGTH} characters is enough to search`, () => {
-    assert.ok(searchRequestFor("music", "ab"));
+    assert.ok(searchRequestFor("movies", "ab"));
   });
   check("surrounding whitespace is trimmed, not sent", () => {
-    const req = searchRequestFor("music", "  daft punk  ");
-    assert.equal(new URL(req!.url, "http://x").searchParams.get("q"), "daft punk");
+    const req = searchRequestFor("movies", "  dune  ");
+    assert.equal(new URL(req!.url, "http://x").searchParams.get("q"), "dune");
   });
 
-  check("a films search carries no category — it must never reach the indexers", () => {
-    // The oldest rule on this surface, restated behaviourally now that the two
-    // flows share one entry point. Typing a film name fires TMDB only; a
-    // category on that request would mean the film path had started spending
-    // the shared indexer budget on every keystroke.
-    const req = searchRequestFor("titles", "dune");
-    const url = new URL(req!.url, "http://x");
-    assert.equal(url.pathname, "/api/search/titles");
-    assert.equal(url.searchParams.get("category"), null);
-    assert.equal(url.searchParams.has("pageSize"), false);
-  });
+  const urlCases = [
+    ["", "/search?category=movies"],
+    ["  ", "/search?category=movies"],
+    ["dune", "/search?category=movies&q=dune"],
+    [" one piece ", "/search?category=movies&q=one+piece"],
+    ["a&b", "/search?category=movies&q=a%26b"],
+  ] as const;
+  for (const [query, expected] of urlCases) {
+    check(`durable URL encodes ${JSON.stringify(query)}`, () => {
+      assert.equal(searchUrlFor(query), expected);
+    });
+  }
 
-  check("every non-film scope carries a category — none silently falls back", () => {
-    // The mirror failure: a scope that reached the aggregator with no category
-    // would return an unfiltered mix and look like the feature does not work.
-    for (const scope of SEARCH_SCOPES.filter((s) => s.kind === "release")) {
+  check("every category reaches title discovery and never the aggregator", () => {
+    for (const scope of SEARCH_SCOPES) {
       const req = searchRequestFor(scope.id, "something");
       const url = new URL(req!.url, "http://x");
-      assert.equal(url.pathname, "/api/search", scope.id);
-      assert.equal(url.searchParams.get("category"), scope.category, scope.id);
+      assert.equal(url.pathname, "/api/search/titles", scope.id);
+      assert.equal(url.searchParams.get("category"), scope.id, scope.id);
+      assert.equal(url.searchParams.has("pageSize"), false);
     }
   });
 
@@ -135,34 +133,34 @@ function main() {
   }> = [
     {
       name: "an untouched scope prompts instead of showing a void",
-      input: { scopeId: "music", query: "", loading: false, error: null, resultCount: 0 },
+      input: { scopeId: "movies", query: "", loading: false, error: null, resultCount: 0 },
       expect: "prompt",
     },
     {
       name: "one character is 'still typing', not 'nothing matched'",
-      input: { scopeId: "music", query: "d", loading: false, error: null, resultCount: 0 },
+      input: { scopeId: "movies", query: "d", loading: false, error: null, resultCount: 0 },
       expect: "typing",
     },
     {
       name: "an in-flight search with nothing yet is loading",
-      input: { scopeId: "music", query: "daft", loading: true, error: null, resultCount: 0 },
+      input: { scopeId: "movies", query: "dune", loading: true, error: null, resultCount: 0 },
       expect: "loading",
     },
     {
       name: "results outrank loading — a keystroke never blanks a useful list",
-      input: { scopeId: "music", query: "daft", loading: true, error: null, resultCount: 8 },
+      input: { scopeId: "movies", query: "dune", loading: true, error: null, resultCount: 8 },
       expect: "results",
     },
     {
       name: "a completed search with nothing found is empty",
-      input: { scopeId: "music", query: "zzzz", loading: false, error: null, resultCount: 0 },
+      input: { scopeId: "movies", query: "zzzz", loading: false, error: null, resultCount: 0 },
       expect: "empty",
     },
     {
       name: "a refusal is an ERROR, never 'nothing matched'",
       input: {
-        scopeId: "music",
-        query: "daft",
+        scopeId: "movies",
+        query: "dune",
         loading: false,
         error: "Searching too quickly",
         resultCount: 0,
@@ -172,8 +170,8 @@ function main() {
     {
       name: "an error with results still shows the results",
       input: {
-        scopeId: "music",
-        query: "daft",
+        scopeId: "movies",
+        query: "dune",
         loading: false,
         error: "stale failure",
         resultCount: 3,
@@ -189,21 +187,21 @@ function main() {
 
   check("a results state names the renderer its scope needs", () => {
     const work = searchDisplayFor({
-      scopeId: "titles",
+      scopeId: "movies",
       query: "dune",
       loading: false,
       error: null,
       resultCount: 5,
     });
-    const release = searchDisplayFor({
-      scopeId: "music",
+    const series = searchDisplayFor({
+      scopeId: "series",
       query: "dune",
       loading: false,
       error: null,
       resultCount: 5,
     });
     assert.equal(work.state === "results" && work.kind, "work");
-    assert.equal(release.state === "results" && release.kind, "release");
+    assert.equal(series.state === "results" && series.kind, "work");
   });
 
   check("every scope has a prompt that says something specific", () => {
@@ -242,7 +240,9 @@ function main() {
     assert.equal(searchErrorMessage(400, { error: "Query too long" }), "Query too long");
   });
   check("a 5xx blames the indexers, not the owner's spelling", () => {
-    assert.match(searchErrorMessage(503, null), /did not answer|try again/i);
+    const message = searchErrorMessage(503, null);
+    assert.match(message, /did not answer|try again/i);
+    assert.doesNotMatch(message, /indexer|torrent/i);
   });
   check("an unreadable failure still says something", () => {
     const msg = searchErrorMessage(418, null);

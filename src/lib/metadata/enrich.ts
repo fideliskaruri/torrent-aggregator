@@ -70,6 +70,103 @@ function scoreMatch(query: string, candidateTitle: string): number {
   return (hits / Math.max(qTokens.length, 1)) * 70;
 }
 
+function metadataNames(metadata: MediaMetadata): string[] {
+  return [...new Set(
+    [metadata.title, ...(metadata.aliases ?? [])]
+      .map((name) => name?.trim())
+      .filter((name): name is string => Boolean(name)),
+  )];
+}
+
+function identityTokens(value: string): string[] {
+  return normalizeTitle(value)
+    .split(" ")
+    .filter(
+      (token) =>
+        token.length > 1 &&
+        !/^(?:season|series|episode|episodes|part|cour|\d+(?:st|nd|rd|th))$/.test(
+          token,
+        ),
+    );
+}
+
+function nameCompatible(subject: string, catalogName: string): boolean {
+  const comparableName = (value: string) =>
+    normalizeTitle(value)
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const normalizedSubject = comparableName(subject);
+  const normalizedCatalog = comparableName(catalogName);
+  if (!normalizedSubject || !normalizedCatalog) return false;
+  if (
+    normalizedSubject === normalizedCatalog ||
+    normalizedSubject.includes(normalizedCatalog) ||
+    normalizedCatalog.includes(normalizedSubject)
+  ) {
+    return true;
+  }
+
+  const subjectTokens = new Set(identityTokens(normalizedSubject));
+  const catalogTokens = identityTokens(normalizedCatalog);
+  if (catalogTokens.length === 0) return false;
+  const matches = catalogTokens.filter((token) => subjectTokens.has(token)).length;
+  return matches >= 2 && matches / catalogTokens.length >= 0.8;
+}
+
+function explicitQualifierYear(value: string, catalogNames: string[]): number | null {
+  const titleNumbers = new Set(
+    catalogNames.flatMap((name) =>
+      [...name.matchAll(/\b((?:19|20)\d{2})\b/g)].map((match) =>
+        Number(match[1]),
+      ),
+    ),
+  );
+  for (const match of value.matchAll(/\b((?:19|20)\d{2})\b/g)) {
+    const year = Number(match[1]);
+    if (!titleNumbers.has(year)) return year;
+  }
+  return null;
+}
+
+/**
+ * Metadata may decorate a release only when its title/aliases, year and media
+ * type remain compatible with both the release and the owner's search intent.
+ */
+export function metadataIdentityCompatible(
+  rawTitle: string,
+  metadata: MediaMetadata,
+  query = rawTitle,
+  category?: string,
+): boolean {
+  const expected = category ? EXPECTED_MEDIA_TYPES[category] : undefined;
+  if (expected && !expected.includes(metadata.mediaType)) return false;
+
+  const names = metadataNames(metadata);
+  const queryYear = explicitQualifierYear(query, names);
+  if (queryYear != null && metadata.year != null && queryYear !== metadata.year) {
+    return false;
+  }
+  const releaseYear = explicitQualifierYear(rawTitle, names);
+  if (
+    metadata.mediaType === "movie" &&
+    releaseYear != null &&
+    metadata.year != null &&
+    releaseYear !== metadata.year
+  ) {
+    return false;
+  }
+
+  const releaseSubject = cleanTorrentTitle(rawTitle);
+  if (!names.some((name) => nameCompatible(releaseSubject, name))) return false;
+
+  const querySubject = cleanTorrentTitle(query);
+  return (
+    !querySubject ||
+    names.some((name) => nameCompatible(querySubject, name))
+  );
+}
+
 /**
  * Media types that plausibly answer a request for `category`.
  *
@@ -188,8 +285,11 @@ async function lookupOnce(
     if (preferAnime || category === "all" || !category) {
       const animeHits = await searchAniList(cleaned, 5);
       for (const hit of animeHits) {
+        if (!metadataIdentityCompatible(cleaned, hit, cleaned, category)) continue;
         const s =
-          scoreMatch(cleaned, hit.title) - mediaTypePenalty(category, hit.mediaType);
+          Math.max(
+            ...metadataNames(hit).map((name) => scoreMatch(cleaned, name)),
+          ) - mediaTypePenalty(category, hit.mediaType);
         if (s > bestScore) {
           bestScore = s;
           best = hit;
@@ -205,8 +305,11 @@ async function lookupOnce(
     try {
       const tmdbHits = await searchTmdb(cleaned, 5);
       for (const hit of tmdbHits) {
+        if (!metadataIdentityCompatible(cleaned, hit, cleaned, category)) continue;
         const s =
-          scoreMatch(cleaned, hit.title) - mediaTypePenalty(category, hit.mediaType);
+          Math.max(
+            ...metadataNames(hit).map((name) => scoreMatch(cleaned, name)),
+          ) - mediaTypePenalty(category, hit.mediaType);
         // slight preference for anime when category is anime
         const adjusted = preferAnime && hit.mediaType !== "anime" ? s - 5 : s;
         // TMDB wins ties unless the request actually points at anime. Both
@@ -261,7 +364,11 @@ export async function enrichResultsWithMetadata(
     uniqueTitles.map(async (t) => {
       // Prefer a title-specific lookup; fall back to primary only if it matches
       let meta = await resolveMetadata(t, category);
-      if (!meta && primary && titlesRoughlyMatch(t, primary.title)) {
+      if (
+        !meta &&
+        primary &&
+        metadataIdentityCompatible(t, primary, query, category)
+      ) {
         meta = primary;
       }
       titleMeta.set(t, meta);
@@ -272,28 +379,25 @@ export async function enrichResultsWithMetadata(
     const key = cleanTorrentTitle(r.title);
     let meta = titleMeta.get(key) ?? null;
 
-    // Last resort: use query metadata only if it matches this torrent
-    if (!meta && primary && titlesRoughlyMatch(r.title, primary.title)) {
-      meta = primary;
+    // Drop metadata that doesn't belong on this release
+    if (
+      meta &&
+      !metadataIdentityCompatible(r.title, meta, query, category)
+    ) {
+      meta = null;
     }
 
-    // Drop metadata that doesn't belong on this release
-    if (meta && !titlesRoughlyMatch(r.title, meta.title)) {
-      meta = null;
+    // A title-specific lookup can be led astray by a release-group prefix. Once
+    // rejected, reuse the query identity only when it independently matches the
+    // full release and the requested media/year context.
+    if (
+      !meta &&
+      primary &&
+      metadataIdentityCompatible(r.title, primary, query, category)
+    ) {
+      meta = primary;
     }
 
     return { ...r, metadata: meta };
   });
-}
-
-function titlesRoughlyMatch(torrentTitle: string, catalogTitle: string): boolean {
-  const a = cleanTorrentTitle(torrentTitle).toLowerCase();
-  const b = catalogTitle.toLowerCase().trim();
-  if (!a || !b) return false;
-  if (a === b || a.includes(b) || b.includes(a)) return true;
-  const aTok = a.split(/\s+/).filter((t) => t.length > 2);
-  const bTok = b.split(/\s+/).filter((t) => t.length > 2);
-  if (!bTok.length) return false;
-  const hits = bTok.filter((t) => aTok.some((x) => x.includes(t) || t.includes(x))).length;
-  return hits / bTok.length >= 0.6;
 }

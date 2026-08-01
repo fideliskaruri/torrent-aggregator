@@ -1,3 +1,6 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import nodeAssert from "node:assert/strict";
 import {
   bufferedAheadOf,
   bufferedSourceRanges,
@@ -14,7 +17,11 @@ import {
   interpretMediaElementError,
   isUpNextPlayableEnoughToAdvance,
   mainFeatureFile,
+  nextAutomaticCandidate,
   playbackFailureCopy,
+  PlayerIdentity,
+  PlayerQualityChoices,
+  preferredResolutionRequestBody,
   structuredFailureFromBody,
   type StructuredPlaybackFailure,
   nextViewerWaitingState,
@@ -43,6 +50,43 @@ import {
   type StreamFile,
 } from "./inline-player";
 import { peerText, rateText, swarmHealth, swarmSummary, deadEvidenceFromSamples } from "./swarm-chip";
+
+const identityDom = renderToStaticMarkup(
+  React.createElement(PlayerIdentity, {
+    showTitle: "Solar Harbor",
+    episodeTitle: "The Long Return",
+    season: 1,
+    episode: 2,
+  }),
+);
+nodeAssert.equal((identityDom.match(/S01E02/g) ?? []).length, 1);
+nodeAssert.match(identityDom, /Solar Harbor/);
+nodeAssert.match(identityDom, /The Long Return/);
+nodeAssert.doesNotMatch(
+  identityDom,
+  /torrent|provider|source|hash|WEB-DL|Tracker\.Name|Video \d/i,
+);
+
+const qualityDom = renderToStaticMarkup(
+  React.createElement(PlayerQualityChoices, { onSelect: () => {} }),
+);
+nodeAssert.deepEqual(
+  [...qualityDom.matchAll(/>(\d+p)</g)].map((match) => match[1]),
+  ["480p", "720p", "1080p", "2160p"],
+);
+nodeAssert.doesNotMatch(
+  qualityDom,
+  /torrent|provider|source|hash|codec|audio|size|WEB-DL/i,
+);
+
+const resolutionBody = preferredResolutionRequestBody({
+  title: "Solar Harbor",
+  mediaType: "tv",
+  season: 1,
+  episode: 2,
+  preferredResolution: 1080,
+});
+nodeAssert.equal(JSON.stringify(resolutionBody).includes("hash"), false);
 
 let failures = 0;
 
@@ -88,6 +132,23 @@ assert(
 assert(
   "quality selector empty state is terminal and honest",
   qualitySelectorEmptyCopy(false, 0) === "No other cached releases yet.",
+);
+assert(
+  "quality rows expose only consumer resolution labels",
+  candidateQualityShape({
+    infoHash: "a".repeat(40),
+    title: "Tracker.Name.Show.S01E02.1080p.WEB-DL.x265-GROUP",
+    resolution: 1080,
+    sourceLabel: "WEB-DL",
+    sizeBytes: 12_690_000_000,
+    sizeLabel: "12.69 GB",
+    codec: "HEVC",
+    audio: "DDP5.1",
+    playability: "direct",
+    seeders: 42,
+    isCurrent: false,
+    verdict: "good",
+  } as never) === "1080p",
 );
 
 const videos = selectVideoFiles(files);
@@ -229,6 +290,13 @@ assert(
   ).join(" ").includes("www.UIndex"),
 );
 assert(
+  "file fallback labels never expose raw Video N choices",
+  !fileOptionLabel(
+    { path: "bonus-feature.mkv", length: 1_000_000, index: 9 },
+    9,
+  ).includes("Video 10"),
+);
+assert(
   "moving active video suppresses the buffering overlay after a waiting event",
   !shouldShowViewerBuffering({ waiting: true, activeVideoAdvancing: true }),
 );
@@ -358,6 +426,19 @@ assert(
       verdict.problem === "browser-error" &&
       verdict.title === "This release won't play in the browser."
     );
+
+    const exhausted = playbackFailureCopy({
+      code: "STALLED",
+      failureClass: "delivery",
+      retryable: false,
+      candidatesExhausted: true,
+    });
+    assert(
+      "automatic exhaustion offers Retry only",
+      exhausted.affordance === "retry" &&
+        `${exhausted.headline} ${exhausted.detail ?? ""}`.includes("Retry") &&
+        !`${exhausted.headline} ${exhausted.detail ?? ""}`.match(/another version/i),
+    );
   })(),
 );
 assert(
@@ -467,7 +548,7 @@ assert(
     !/convert|remux|transcod/i.test(candidatePlayabilityLabel("transcode")),
 );
 assert(
-  "quality selector shows picture and swarm-relevant shape",
+  "quality selector shows only the preferred resolution",
   candidateQualityShape({
     infoHash: "b".repeat(40),
     title: "Show S01E01 1080p WEB-DL DDP5.1 H.264.mkv",
@@ -481,7 +562,7 @@ assert(
     verdict: "unknown",
     playability: "direct",
     isCurrent: false,
-  }) === "1080p · WEB-DL · H.264 · DDP · 807 MB",
+  }) === "1080p",
 );
 assert(
   "up-next autoplay starts for a ready next release",
@@ -898,10 +979,10 @@ assert(
     "S02E05 · 1.2 GB",
 );
 assert(
-  "a non-episode file reads as a plain numbered video, never its path",
+  "a non-episode file uses a generic label, never its path or raw index",
   (() => {
     const label = fileOptionLabel({ path: "Some.Movie.2019.1080p.BluRay.x265.mkv", length: 5_000 * 1024 ** 2, index: 3 }, 3);
-    return label.startsWith("Video 4") && !/BluRay|x265|\.mkv|Some\.Movie/i.test(label);
+    return label.startsWith("Video ·") && !/Video 4|BluRay|x265|\.mkv|Some\.Movie/i.test(label);
   })(),
 );
 
@@ -958,15 +1039,15 @@ assert(
 const MECHANISM = /peer|kbps|\bbyte|%|transcod|remux|\bcodec\b|container|h\.?264|x26[45]|\.mkv|\.mp4|magnet|infohash|torrent|\bpeers?\b|seeder|swarm/i;
 const failureCases: Array<{
   failure: StructuredPlaybackFailure;
-  affordance: "retry" | "switch";
+  affordance: "retry";
 }> = [
   { failure: { code: "NO_PEERS", failureClass: "delivery", retryable: true }, affordance: "retry" },
   { failure: { code: "CONNECTION_BLOCKED", failureClass: "delivery", retryable: true }, affordance: "retry" },
   { failure: { code: "STALLED", failureClass: "delivery", retryable: true }, affordance: "retry" },
-  { failure: { code: "UNPLAYABLE", failureClass: "playability", retryable: false }, affordance: "switch" },
-  { failure: { code: "NOT_FOUND", failureClass: "not-found", retryable: false }, affordance: "switch" },
+  { failure: { code: "UNPLAYABLE", failureClass: "playability", retryable: false }, affordance: "retry" },
+  { failure: { code: "NOT_FOUND", failureClass: "not-found", retryable: false }, affordance: "retry" },
   { failure: { code: "ENGINE_ERROR", failureClass: "engine", retryable: false }, affordance: "retry" },
-  { failure: { code: "ENGINE_ERROR", failureClass: "playability", retryable: false }, affordance: "switch" },
+  { failure: { code: "ENGINE_ERROR", failureClass: "playability", retryable: false }, affordance: "retry" },
 ];
 for (const { failure, affordance } of failureCases) {
   const copy = playbackFailureCopy(failure);
@@ -991,8 +1072,8 @@ assert(
   playbackFailureCopy({ code: "STALLED", failureClass: "delivery", retryable: true }).affordance === "retry",
 );
 assert(
-  "an unplayable release never offers retry-same",
-  playbackFailureCopy({ code: "UNPLAYABLE", failureClass: "playability", retryable: false }).affordance === "switch",
+  "an unplayable release restarts automatic selection through Retry",
+  playbackFailureCopy({ code: "UNPLAYABLE", failureClass: "playability", retryable: false }).affordance === "retry",
 );
 
 // --- I19: reading a structured failure off a 503 body ------------------------
@@ -1091,13 +1172,13 @@ assert(
   playbackFailureCopy({ code: "STALLED", failureClass: "delivery", retryable: true }).affordance === "retry",
 );
 assert(
-  "STALLED with candidatesExhausted:true → 'switch' affordance (nothing to retry)",
+  "STALLED with candidatesExhausted:true → Retry restarts automatic selection",
   playbackFailureCopy({
     code: "STALLED",
     failureClass: "delivery",
     retryable: true,
     candidatesExhausted: true,
-  }).affordance === "switch",
+  }).affordance === "retry",
 );
 assert(
   "exhausted headline is non-empty",
@@ -1137,6 +1218,96 @@ assert(
     });
     return !FALSE_HOPE.test(copy.headline) && !FALSE_HOPE.test(copy.detail ?? "");
   })(),
+);
+
+function failoverCandidates(count: number) {
+  return [
+    {
+      infoHash: "ACTIVE",
+      title: "Active",
+      resolution: 1080,
+      sourceLabel: "WEB-DL" as const,
+      sizeBytes: 1,
+      sizeLabel: "1 B",
+      codec: "H.264",
+      audio: "AAC",
+      playability: "direct" as const,
+      seeders: 1,
+      isCurrent: true,
+      verdict: "good" as const,
+    },
+    ...Array.from({ length: count }, (_, index) => ({
+      infoHash: `candidate-${index + 1}`,
+      title: `Candidate ${index + 1}`,
+      resolution: 1080,
+      sourceLabel: "WEB-DL" as const,
+      sizeBytes: index + 2,
+      sizeLabel: `${index + 2} B`,
+      codec: "H.264",
+      audio: "AAC",
+      playability: "direct" as const,
+      seeders: count - index,
+      isCurrent: false,
+      verdict: index % 4 === 3 ? ("dead" as const) : ("good" as const),
+    })),
+  ];
+}
+
+for (let candidateCount = 0; candidateCount <= 12; candidateCount++) {
+  const pool = failoverCandidates(candidateCount);
+  const tried = new Set<string>();
+  const attempted: string[] = [];
+  let candidate = nextAutomaticCandidate(pool, "active", tried);
+  while (candidate) {
+    attempted.push(candidate.infoHash.toLowerCase());
+    candidate = nextAutomaticCandidate(pool, "active", tried);
+  }
+  assert(
+    `automatic failover exhausts all ${candidateCount} unique candidates exactly once`,
+    attempted.length === candidateCount &&
+      new Set(attempted).size === candidateCount &&
+      nextAutomaticCandidate(pool, "active", tried) === null,
+  );
+
+  for (let successIndex = 0; successIndex < candidateCount; successIndex++) {
+    const successTried = new Set<string>();
+    const attemptsBeforeSuccess: string[] = [];
+    let selected = nextAutomaticCandidate(pool, "ACTIVE", successTried);
+    let prematurelyExhausted = false;
+    for (let attemptIndex = 0; attemptIndex <= successIndex; attemptIndex++) {
+      if (!selected) {
+        prematurelyExhausted = true;
+        break;
+      }
+      attemptsBeforeSuccess.push(selected.infoHash.toLowerCase());
+      if (attemptIndex < successIndex) {
+        selected = nextAutomaticCandidate(pool, "ACTIVE", successTried);
+      }
+    }
+    assert(
+      `automatic failover with ${candidateCount} candidates reaches success at index ${successIndex + 1}`,
+      !prematurelyExhausted &&
+        attemptsBeforeSuccess.length === successIndex + 1 &&
+        new Set(attemptsBeforeSuccess).size === attemptsBeforeSuccess.length,
+    );
+  }
+}
+
+const duplicatePool = failoverCandidates(3);
+duplicatePool.push(
+  { ...duplicatePool[1], infoHash: duplicatePool[1].infoHash.toUpperCase() },
+  { ...duplicatePool[2] },
+);
+const duplicateTried = new Set<string>();
+const duplicateAttempts: string[] = [];
+let duplicateCandidate = nextAutomaticCandidate(duplicatePool, "active", duplicateTried);
+while (duplicateCandidate) {
+  duplicateAttempts.push(duplicateCandidate.infoHash.toLowerCase());
+  duplicateCandidate = nextAutomaticCandidate(duplicatePool, "active", duplicateTried);
+}
+assert(
+  "automatic failover deduplicates repeated and case-varied hashes",
+  duplicateAttempts.length === 3 && new Set(duplicateAttempts).size === 3,
 );
 
 console.log(

@@ -62,14 +62,18 @@ import {
   commitSource,
   createFailoverSession,
   failOver,
-  listSourceOptions,
   pinSource,
-  sourceOptionFromRelease,
-  MAX_FAILOVER_ATTEMPTS,
+  recordAttempt,
   type FailoverCandidate,
   type FailoverSession,
 } from "./failover";
-import { waitOutcome, type FailureCause, type PlaybackNarration } from "./narration";
+import {
+  failureClass,
+  waitOutcome,
+  type AutomaticFailureCause,
+  type FailureCause,
+  type PlaybackNarration,
+} from "./narration";
 import type { SwarmVerdict, SwarmVerdictReader } from "./candidates";
 import { buildSwarmWatchDeps } from "./engine-deps";
 
@@ -107,6 +111,17 @@ export interface SwarmWatchDeps {
    * exactly as before measurement existed.
    */
   readVerdicts?: SwarmVerdictReader;
+  /**
+   * Refresh discovery after every cached candidate has been attempted. Calls are
+   * serialized; results are hash-deduped before any start is attempted.
+   */
+  discoverResults?(
+    target: PreRankTarget,
+    options: {
+      attemptedHashes: readonly string[];
+      signal: AbortSignal;
+    },
+  ): Promise<{ results: readonly TorrentResult[]; exhausted: boolean }>;
 }
 
 export interface SwarmWatchTickResult {
@@ -124,6 +139,8 @@ export interface SwarmWatchTickResult {
 
 interface WatchEntry {
   session: FailoverSession;
+  /** Latest mutable selection plan for this stable content identity. */
+  target: PreRankTarget | null;
   /** Samples for the *current* source only; cleared on every switch. */
   samples: TransferSample[];
   /**
@@ -133,12 +150,16 @@ interface WatchEntry {
    * its own. `null` until the first tick.
    */
   lastNarration: PlaybackNarration | null;
+  generation: number;
+  controller: AbortController;
+  tickQueue: Promise<void>;
 }
 
 const registry = new Map<string, WatchEntry>();
 
 /** Test seam — drop all in-process state. */
 export function resetSwarmWatch(): void {
+  for (const entry of registry.values()) entry.controller.abort();
   registry.clear();
   activeContentKey = null;
 }
@@ -150,24 +171,89 @@ export function swarmWatchEntryCount(): number {
 
 /** Forget one content's failover state — called when its playback ends. */
 export function stopSwarmWatch(contentKey: string): void {
+  registry.get(contentKey)?.controller.abort();
   registry.delete(contentKey);
 }
 
-function ensureEntry(contentKey: string, initialHash: string): WatchEntry {
+function ensureEntry(
+  contentKey: string,
+  initialHash: string,
+  target?: PreRankTarget,
+): WatchEntry {
   let entry = registry.get(contentKey);
   if (!entry) {
     if (registry.size >= MAX_ENTRIES) {
       const oldest = registry.keys().next();
       if (!oldest.done) registry.delete(oldest.value);
     }
-    entry = { session: createFailoverSession(contentKey), samples: [], lastNarration: null };
+    entry = {
+      session: createFailoverSession(contentKey),
+      target: target ? { ...target } : null,
+      samples: [],
+      lastNarration: null,
+      generation: 0,
+      controller: new AbortController(),
+      tickQueue: Promise.resolve(),
+    };
     registry.set(contentKey, entry);
   }
   if (!entry.session.current) {
     // First commit: the source the player opened on counts as attempt #1.
     entry.session = commitSource(entry.session, initialHash);
   }
+  if (target && !entry.target) entry.target = { ...target };
   return entry;
+}
+
+function preferredResolutionOf(target: PreRankTarget | null): number | null {
+  const value = target?.preferredResolution;
+  return value != null && Number.isFinite(value) && value >= 1
+    ? Math.trunc(value)
+    : null;
+}
+
+function beginGeneration(entry: WatchEntry): void {
+  entry.controller.abort();
+  entry.controller = new AbortController();
+  entry.generation += 1;
+}
+
+function updateTarget(
+  entry: WatchEntry,
+  target: PreRankTarget,
+  forceNewGeneration = false,
+): void {
+  const preferenceChanged =
+    preferredResolutionOf(entry.target) !== preferredResolutionOf(target);
+  if (forceNewGeneration || (entry.target !== null && preferenceChanged)) {
+    beginGeneration(entry);
+  }
+  entry.target = { ...target };
+}
+
+/**
+ * Update mutable plan state without changing the stable watchdog identity.
+ * Transfer/player callers may use this before a later tick; an in-flight older
+ * generation is cancelled when the preference changes.
+ */
+export function updateSwarmWatchTarget(
+  contentKey: string,
+  target: PreRankTarget,
+): boolean {
+  const entry = registry.get(contentKey);
+  if (!entry) return false;
+  updateTarget(entry, target);
+  return true;
+}
+
+/** Create canonical registry identity when a control-plane no-op needs no tick. */
+export function ensureSwarmWatchTarget(
+  contentKey: string,
+  initialHash: string,
+  target: PreRankTarget,
+): void {
+  const entry = ensureEntry(contentKey, initialHash, target);
+  updateTarget(entry, target);
 }
 
 function pushSample(entry: WatchEntry, sample: TransferSample): void {
@@ -179,7 +265,6 @@ function pushSample(entry: WatchEntry, sample: TransferSample): void {
 
 export interface SwarmWatchTickOptions {
   stall?: StallOptions;
-  cap?: number;
   /**
    * Why a failover on this tick would be happening. The automatic watchdog only
    * ever triggers on a delivery stall, so this defaults to `delivery`; a caller
@@ -187,6 +272,8 @@ export interface SwarmWatchTickOptions {
    * narration says so.
    */
   cause?: FailureCause;
+  /** Specific transfer/player failure; mapped to the honest narration class. */
+  failure?: AutomaticFailureCause;
   /**
    * Force a failover regardless of the byte-delivery verdict. A `playability`
    * failure is real even when bytes are flowing — the swarm is healthy, the
@@ -235,18 +322,41 @@ function startingNarration(
  * playability failure) — fail over to the next untried candidate, abandoning
  * (pausing, not deleting) the dead one and carrying the viewer's position across.
  */
-export async function swarmDeliveryTick(
+async function runSwarmDeliveryTick(
+  entry: WatchEntry,
   contentKey: string,
   initialHash: string,
   target: PreRankTarget,
   deps: SwarmWatchDeps,
   options: SwarmWatchTickOptions = {},
+  expectedGeneration = entry.generation,
+  signal = entry.controller.signal,
 ): Promise<SwarmWatchTickResult> {
-  const entry = ensureEntry(contentKey, initialHash);
   const current = entry.session.current ?? initialHash.toLowerCase();
-  const cause: FailureCause = options.cause ?? "delivery";
+  const cause: FailureCause = options.failure
+    ? failureClass(options.failure)
+    : options.cause ?? "delivery";
+  const isCurrentGeneration = () =>
+    registry.get(contentKey) === entry &&
+    entry.generation === expectedGeneration &&
+    !signal.aborted;
 
-  if (entry.session.status === "exhausted") {
+  if (!isCurrentGeneration()) {
+    return {
+      narration: entry.lastNarration ?? { phase: "playing" },
+      currentHash: entry.session.current ?? current,
+      switched: false,
+      exhausted: entry.session.status === "exhausted",
+      verdict: {
+        stalled: false,
+        reason: "not-downloading",
+        deliveredBytes: null,
+        windowMs: null,
+      },
+    };
+  }
+
+  if (entry.session.status === "exhausted" && !deps.discoverResults) {
     // Terminal already: replay the exhausted narration we recorded when it
     // happened, so the honest cause (delivery vs playability) is preserved
     // rather than reset to a default on every subsequent poll.
@@ -279,7 +389,7 @@ export async function swarmDeliveryTick(
 
   const verdict = evaluateStall(entry.samples, options.stall);
 
-  if (!verdict.stalled && !options.force) {
+  if (!verdict.stalled && !options.force && !options.failure) {
     // Not dead and not forced. "progressing" means bytes are flowing → playing;
     // anything else ("insufficient-history", "not-downloading") is spinning up.
     const attempt = entry.session.tried.length || 1;
@@ -290,113 +400,167 @@ export async function swarmDeliveryTick(
     return finish(entry, { narration, currentHash: current, switched: false, exhausted: false, verdict });
   }
 
-  // A failure (stalled, or a forced playability failure). If the user explicitly
-  // pinned this source, we detect and narrate it but do NOT swap it away — an
-  // explicit human choice is not ours to override. The selector can offer another
-  // quality; the decision stays theirs.
-  if (entry.session.pinnedHash && entry.session.pinnedHash === current) {
-    const results = await deps.rankedResults(target);
-    const alternatives = listSourceOptions(results, [current]);
-    return finish(entry, {
-      narration: {
-        phase: "stalled-held",
-        outcome: {
-          kind: "choose-source",
-          reason: "manual-source-stalled",
-          alternatives,
-          alternativeCount: alternatives.length,
-        },
-      },
-      currentHash: current,
-      switched: false,
-      exhausted: false,
-      verdict,
-    });
-  }
-
-  // Otherwise, ask the failover rule for the next untried candidate.
-  const results = await deps.rankedResults(target);
+  // Ask the failover rule for every unique untried candidate. A manual choice
+  // affects initial preference only; it never disables automatic recovery.
+  const initialResults = await deps.rankedResults(target);
+  const resultByHash = new Map<string, TorrentResult>();
+  const mergeResults = (releases: readonly TorrentResult[]) => {
+    for (const release of releases) {
+      const hash = releaseInfoHash(release);
+      if (hash && !resultByHash.has(hash)) resultByHash.set(hash, release);
+    }
+  };
+  mergeResults(initialResults);
 
   // Consult cached swarm verdicts so we do not fail over onto a release the
   // probe already measured dead. Best-effort and cached-only: a verdict read
   // must never block or delay a failover, so any failure falls back to
   // rank-only selection (identical to before measurement existed).
-  let verdicts: ReadonlyMap<string, SwarmVerdict> | null = null;
-  if (deps.readVerdicts) {
-    try {
-      const hashes = results
-        .map((r) => releaseInfoHash(r))
-        .filter((h): h is string => h !== null);
-      verdicts = await deps.readVerdicts(hashes);
-    } catch {
-      verdicts = null;
+  let discoveryFinished = !deps.discoverResults;
+  while (true) {
+    const results = [...resultByHash.values()];
+    let verdicts: ReadonlyMap<string, SwarmVerdict> | null = null;
+    if (deps.readVerdicts && results.length > 0) {
+      try {
+        verdicts = await deps.readVerdicts([...resultByHash.keys()]);
+      } catch {
+        verdicts = null;
+      }
     }
-  }
 
-  const step = failOver(entry.session, results, target, options.cap ?? MAX_FAILOVER_ATTEMPTS, cause, verdicts);
+    if (!isCurrentGeneration()) {
+      return finish(entry, {
+        narration: entry.lastNarration ?? startingNarration(entry.session.tried.length || 1, verdict, sample),
+        currentHash: entry.session.current ?? current,
+        switched: false,
+        exhausted: entry.session.status === "exhausted",
+        verdict,
+      });
+    }
 
-  if (step.kind === "exhausted") {
-    entry.session = step.session;
+    const step = failOver(entry.session, results, target, cause, verdicts);
+    if (step.kind === "exhausted") {
+      if (!discoveryFinished && deps.discoverResults) {
+        const before = resultByHash.size;
+        const discovered = await deps.discoverResults(target, {
+          attemptedHashes: entry.session.tried,
+          signal,
+        });
+        if (!isCurrentGeneration()) {
+          return finish(entry, {
+            narration: entry.lastNarration ?? step.narration,
+            currentHash: entry.session.current ?? current,
+            switched: false,
+            exhausted: false,
+            verdict,
+          });
+        }
+        mergeResults(discovered.results);
+        discoveryFinished = discovered.exhausted || resultByHash.size === before;
+        if (resultByHash.size > before) continue;
+      }
+      entry.session = step.session;
+      return finish(entry, {
+        narration: step.narration,
+        currentHash: current,
+        switched: false,
+        exhausted: true,
+        verdict,
+      });
+    }
+
+    const started = await deps.startRelease(step.candidate);
+    if (!isCurrentGeneration()) {
+      if (started) await deps.abandon(step.candidate.infoHash);
+      return finish(entry, {
+        narration: entry.lastNarration ?? step.narration,
+        currentHash: entry.session.current ?? current,
+        switched: false,
+        exhausted: false,
+        verdict,
+      });
+    }
+    if (!started) {
+      entry.session = recordAttempt(entry.session, step.candidate.infoHash);
+      continue;
+    }
+
+    if (deps.carryPosition) {
+      try {
+        await deps.carryPosition(current, step.candidate.infoHash);
+      } catch {
+        /* position carry is best-effort */
+      }
+    }
+
+    if (!isCurrentGeneration()) {
+      await deps.abandon(step.candidate.infoHash);
+      return finish(entry, {
+        narration: entry.lastNarration ?? step.narration,
+        currentHash: entry.session.current ?? current,
+        switched: false,
+        exhausted: false,
+        verdict,
+      });
+    }
+
+    await deps.abandon(current);
+    if (!isCurrentGeneration()) {
+      await deps.abandon(step.candidate.infoHash);
+      return finish(entry, {
+        narration: entry.lastNarration ?? step.narration,
+        currentHash: entry.session.current ?? current,
+        switched: false,
+        exhausted: false,
+        verdict,
+      });
+    }
+    entry.session = { ...step.session, pinnedHash: null, status: "active" };
+    entry.generation += 1;
+    entry.samples = [];
     return finish(entry, {
       narration: step.narration,
-      currentHash: current,
-      switched: false,
-      exhausted: true,
-      verdict,
-    });
-  }
-
-  // Switch: start the new source, then abandon the old one (keeping its bytes).
-  // Start first so a failed start does not strand us with nothing running.
-  const started = await deps.startRelease(step.candidate);
-  if (!started) {
-    // Could not start the chosen release; do not abandon the current source or
-    // mark it tried a second time. Report the attempt honestly and let the next
-    // tick try again — the pool or the engine may recover.
-    const alternatives = listSourceOptions(results, [...entry.session.tried, step.candidate.infoHash]);
-    return finish(entry, {
-      narration: {
-        phase: "switching",
-        cause,
-        triedCount: entry.session.tried.length,
-        nextName: step.candidate.release.title ?? null,
-        outcome: {
-          kind: "switch-source",
-          reason: cause,
-          selected: sourceOptionFromRelease(step.candidate.release, step.candidate.infoHash),
-          alternatives,
-          remainingCount: alternatives.length,
-        },
-      },
-      currentHash: current,
-      switched: false,
+      currentHash: step.candidate.infoHash,
+      switched: true,
       exhausted: false,
       verdict,
     });
   }
+}
 
-  // Carry the viewer's position to the new source BEFORE abandoning the old, so
-  // an automatic recovery resumes mid-file instead of restarting. Best-effort:
-  // recovery must not fail because a position could not be moved.
-  if (deps.carryPosition) {
-    try {
-      await deps.carryPosition(current, step.candidate.infoHash);
-    } catch {
-      /* a lost position carry must never block the recovery itself */
-    }
-  }
-
-  await deps.abandon(current);
-  entry.session = step.session;
-  entry.samples = []; // fresh evidence for the new source; do not carry the dead one's history.
-
-  return finish(entry, {
-    narration: step.narration,
-    currentHash: step.candidate.infoHash,
-    switched: true,
-    exhausted: false,
-    verdict,
-  });
+/**
+ * Serialize state-machine ticks per content key. Discovery, verdict reads and
+ * engine starts may be slow, but two polls can never race the same generation
+ * or start the same fallback twice.
+ */
+export function swarmDeliveryTick(
+  contentKey: string,
+  initialHash: string,
+  target: PreRankTarget,
+  deps: SwarmWatchDeps,
+  options: SwarmWatchTickOptions = {},
+): Promise<SwarmWatchTickResult> {
+  const entry = ensureEntry(contentKey, initialHash, target);
+  updateTarget(entry, target);
+  const expectedGeneration = entry.generation;
+  const signal = entry.controller.signal;
+  const run = entry.tickQueue.then(() =>
+    runSwarmDeliveryTick(
+      entry,
+      contentKey,
+      initialHash,
+      target,
+      deps,
+      options,
+      expectedGeneration,
+      signal,
+    ),
+  );
+  entry.tickQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 }
 
 // ---------------------------------------------------------------------------
@@ -430,14 +594,17 @@ export interface ManualSwitchDeps {
 }
 
 export type ManualSwitchResult =
-  | { ok: false; reason: "not-a-candidate" | "start-failed" }
+  | {
+      ok: false;
+      reason: "not-a-candidate" | "start-failed" | "superseded";
+    }
   | { ok: true; infoHash: string; positionSec: number | null; narration: PlaybackNarration };
 
 /**
- * Switch to a release the viewer explicitly chose, and pin it.
+ * Switch to a release the viewer explicitly chose and record that preference.
  *
- * Operates on the same session registry the auto-watchdog reads, so pinning here
- * genuinely stops the watchdog swapping this source away (see {@link pinSource}).
+ * Operates on the same session registry the auto-watchdog reads. The manual
+ * marker is informational; it never disables automatic recovery.
  * Two rules a human watching cares about more than the machine does:
  *
  *  - **Preserve position.** Position is carried from the old source to the new
@@ -451,18 +618,27 @@ export type ManualSwitchResult =
  * pick that cannot be resolved to a known release is rejected rather than
  * fabricated.
  */
-export async function manualSwitchTo(
+async function runManualSwitch(
+  entry: WatchEntry,
   contentKey: string,
   currentHash: string,
   chosenInfoHash: string,
   target: PreRankTarget,
   deps: ManualSwitchDeps,
+  expectedGeneration: number,
+  signal: AbortSignal,
 ): Promise<ManualSwitchResult> {
-  const entry = ensureEntry(contentKey, currentHash);
   const chosen = chosenInfoHash.toLowerCase();
   const current = entry.session.current ?? currentHash.toLowerCase();
+  const isCurrentGeneration = () =>
+    registry.get(contentKey) === entry &&
+    entry.generation === expectedGeneration &&
+    !signal.aborted;
+
+  if (!isCurrentGeneration()) return { ok: false, reason: "superseded" };
 
   const results = await deps.rankedResults(target);
+  if (!isCurrentGeneration()) return { ok: false, reason: "superseded" };
   let match = results.find((r) => releaseInfoHash(r) === chosen) ?? null;
   if (!match && deps.resolveRelease) {
     // I48: the title-keyed pool missed (common for movies — the pool key drops
@@ -470,6 +646,7 @@ export async function manualSwitchTo(
     // release from wherever it was cached. Still rejects a truly unknown hash,
     // because that resolves to nothing anywhere.
     const resolved = await deps.resolveRelease(chosen);
+    if (!isCurrentGeneration()) return { ok: false, reason: "superseded" };
     if (resolved && releaseInfoHash(resolved) === chosen) match = resolved;
   }
   if (!match) return { ok: false, reason: "not-a-candidate" };
@@ -478,12 +655,17 @@ export async function manualSwitchTo(
     // Re-pinning the source already playing: nothing to start or abandon, just
     // record the explicit choice so the watchdog stops second-guessing it.
     entry.session = pinSource(entry.session, chosen);
+    entry.generation += 1;
     entry.samples = [];
     return { ok: true, infoHash: chosen, positionSec: null, narration: { phase: "playing" } };
   }
 
   const candidate: FailoverCandidate = { release: match, infoHash: chosen };
   const started = await deps.startRelease(candidate);
+  if (!isCurrentGeneration()) {
+    if (started) await deps.abandon(chosen);
+    return { ok: false, reason: "superseded" };
+  }
   if (!started) return { ok: false, reason: "start-failed" };
 
   // Carry position first, so the read cannot race the pause below.
@@ -493,9 +675,18 @@ export async function manualSwitchTo(
   } catch {
     positionSec = null; // best-effort — a lost carry must not fail the switch
   }
+  if (!isCurrentGeneration()) {
+    await deps.abandon(chosen);
+    return { ok: false, reason: "superseded" };
+  }
 
   await deps.abandon(current); // pause, never delete — reversible routing
+  if (!isCurrentGeneration()) {
+    await deps.abandon(chosen);
+    return { ok: false, reason: "superseded" };
+  }
   entry.session = pinSource(entry.session, chosen);
+  entry.generation += 1;
   entry.samples = []; // fresh evidence for the new source
 
   return {
@@ -510,6 +701,39 @@ export async function manualSwitchTo(
   };
 }
 
+export function manualSwitchTo(
+  contentKey: string,
+  currentHash: string,
+  chosenInfoHash: string,
+  target: PreRankTarget,
+  deps: ManualSwitchDeps,
+): Promise<ManualSwitchResult> {
+  const entry = ensureEntry(contentKey, currentHash, target);
+  // Every explicit switch supersedes an older request immediately. The work is
+  // still serialized behind tickQueue, while the generation check makes a slow
+  // in-flight start park its source instead of committing stale state.
+  updateTarget(entry, target, true);
+  const expectedGeneration = entry.generation;
+  const signal = entry.controller.signal;
+  const run = entry.tickQueue.then(() =>
+    runManualSwitch(
+      entry,
+      contentKey,
+      currentHash,
+      chosenInfoHash,
+      target,
+      deps,
+      expectedGeneration,
+      signal,
+    ),
+  );
+  entry.tickQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 // ---------------------------------------------------------------------------
 // Foreground driver — the production entry point (no UI required)
 // ---------------------------------------------------------------------------
@@ -521,15 +745,7 @@ export async function manualSwitchTo(
  */
 let activeContentKey: string | null = null;
 
-/**
- * Build the failover target for a live source from its `EngineTorrent` row.
- *
- * The row's `name` is the release name; `normalizeTitle` (applied downstream by
- * `preRankKey` and the SearchCache lookup) reduces both it and the search query
- * to the same work name, so a release "The Bear S01E01 1080p WEB-DL" keys to
- * the pool searched for "The Bear S01E01". The episode numbers come from
- * `parseEpisode`, matching how the pool was filtered when it was built.
- */
+/** Last-resort target for legacy playback without persisted work identity. */
 function targetFromReleaseName(name: string): PreRankTarget {
   const ep = parseEpisode(name);
   return {
@@ -538,6 +754,32 @@ function targetFromReleaseName(name: string): PreRankTarget {
     season: ep.season ?? null,
     episode: ep.episode ?? null,
   };
+}
+
+function registeredForegroundIdentity(
+  infoHash: string,
+): { contentKey: string; target: PreRankTarget } | null {
+  const normalized = infoHash.toLowerCase();
+  if (activeContentKey) {
+    const active = registry.get(activeContentKey);
+    if (
+      active?.target &&
+      (active.session.current === normalized ||
+        active.session.tried.includes(normalized))
+    ) {
+      return { contentKey: activeContentKey, target: active.target };
+    }
+  }
+  for (const [contentKey, entry] of registry) {
+    if (
+      entry.target &&
+      (entry.session.current === normalized ||
+        entry.session.tried.includes(normalized))
+    ) {
+      return { contentKey, target: entry.target };
+    }
+  }
+  return null;
 }
 
 export interface ForegroundPollOptions {
@@ -590,8 +832,28 @@ export async function pollForegroundSwarmWatch(
     });
     if (!row) return { active: true, watched: false, result: null, reason: "no-engine-row" };
 
-    const target = targetFromReleaseName(row.name);
-    const contentKey = preRankKey(target);
+    const registered = registeredForegroundIdentity(hash);
+    const persisted = registered
+      ? null
+      : await db.playbackProgress.findFirst({
+          where: { userId: row.userId, infoHash: hash.toLowerCase() },
+          orderBy: { updatedAt: "desc" },
+          select: { title: true, season: true, episode: true },
+        });
+    const inferredTarget: PreRankTarget = persisted?.title.trim()
+      ? {
+          title: persisted.title.trim(),
+          mediaType:
+            persisted.season != null || persisted.episode != null
+              ? "tv"
+              : "movie",
+          season: persisted.season,
+          episode: persisted.episode,
+        }
+      : targetFromReleaseName(row.name);
+    const contentKey = registered?.contentKey ?? preRankKey(inferredTarget);
+    const target =
+      registered?.target ?? registry.get(contentKey)?.target ?? inferredTarget;
 
     const getConfig = opts.getConfig ?? getUserClientConfig;
     const config = await getConfig(row.userId);

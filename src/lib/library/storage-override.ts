@@ -188,7 +188,13 @@ export function parseStorageOverrideFacts(value: unknown): StorageOverrideFacts 
   if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
   const limit = v.limit;
-  if (limit !== "setup" && limit !== "reserve" && limit !== "wont-fit" && limit !== "cap") {
+  if (
+    limit !== "setup" &&
+    limit !== "reserve" &&
+    limit !== "wont-fit" &&
+    limit !== "cap" &&
+    limit !== "inventory"
+  ) {
     return null;
   }
   const num = (x: unknown): number | null =>

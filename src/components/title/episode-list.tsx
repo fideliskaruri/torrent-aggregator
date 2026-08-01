@@ -474,7 +474,19 @@ function EpisodeRow({
   fallbackStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
 }) {
-  const resolved = resolveEpisodeAction(episode);
+  const transfer = episode.transfer;
+  const transferComplete =
+    transfer?.status === "downloaded" && Boolean(transfer.infoHash);
+  const resolved = resolveEpisodeAction(
+    transferComplete
+      ? {
+          ...episode,
+          availability: "ready",
+          infoHash: transfer.infoHash,
+          filePath: transfer.filePath,
+        }
+      : episode,
+  );
   const streamAction: TitleAction =
     resolved.kind === "play"
       ? resolved
@@ -498,8 +510,26 @@ function EpisodeRow({
   const effectiveDownloadStatus = downloadStatus;
   const streamLabel = titleActionButtonLabel(streamAction, effectiveStreamStatus);
   const downloadLabel = titleActionButtonLabel(downloadAction, effectiveDownloadStatus);
+  const streamDisplayLabel =
+    effectiveStreamStatus === "idle" && streamAction.kind === "stream"
+      ? "Play"
+      : streamLabel;
+  const downloadDisplayLabel =
+    transfer?.status === "failed"
+      ? "Retry"
+      : transferComplete
+        ? "Downloaded"
+        : effectiveDownloadStatus === "idle"
+          ? "Download"
+          : downloadLabel;
   const streamCanRun = shouldRunTitleAction(streamAction, effectiveStreamStatus);
-  const downloadCanRun = shouldRunTitleAction(downloadAction, effectiveDownloadStatus);
+  const showStreamAction =
+    transfer?.status !== "failed" || resolved.kind === "play";
+  const downloadCanRun =
+    !transferComplete &&
+    transfer?.status !== "queued" &&
+    transfer?.status !== "downloading" &&
+    shouldRunTitleAction(downloadAction, effectiveDownloadStatus);
   const displayStatus =
     effectiveStreamStatus !== "idle"
       ? effectiveStreamStatus
@@ -528,7 +558,11 @@ function EpisodeRow({
   const runtime = formatRuntime(meta?.runtimeMin ?? null);
   if (runtime) facts.push(runtime);
   if (episode.fromPack) facts.push("From a season pack");
-  if (downloaded != null && downloaded < 100) {
+  if (
+    transfer == null &&
+    downloaded != null &&
+    downloaded < 100
+  ) {
     facts.push(`${downloaded}% downloaded`);
   }
   if (resumeAt) facts.push(`Resume at ${resumeAt}`);
@@ -540,6 +574,16 @@ function EpisodeRow({
   const showChip =
     episode.availability === "ready" || episode.availability === "warm";
   const showTags = showChip || episode.nextUp || episode.watched;
+  const transferText =
+    transfer?.status === "queued"
+      ? "Queued"
+      : transfer?.status === "downloading"
+        ? `Downloading ${formatTransferProgress(transfer.progress)}`
+        : transfer?.status === "downloaded"
+          ? "Downloaded/Available"
+          : transfer?.status === "failed"
+            ? "Download failed"
+            : null;
 
   return (
     <li
@@ -604,6 +648,15 @@ function EpisodeRow({
           </span>
         ) : null}
 
+        {transferText ? (
+          <span
+            className="mt-1 block text-[12px] font-medium text-[var(--text-secondary)]"
+            data-episode-transfer={transfer?.status}
+          >
+            {transferText}
+          </span>
+        ) : null}
+
         {actionStatusText ? (
           <span
                         className="mt-1 block text-[12px] text-[var(--text-tertiary)]"
@@ -632,26 +685,28 @@ function EpisodeRow({
         </span>
       ) : (
         <span className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0 sm:flex-wrap sm:justify-end sm:self-center">
-          <Button
-            type="button"
-            size="sm"
-            variant="default"
-            data-episode-action
-            data-action="stream"
-            data-action-kind={streamAction.kind}
-            aria-label={`${streamLabel} — ${episode.label}`}
-            aria-busy={effectiveStreamStatus === "pending" || undefined}
-            disabled={!streamCanRun}
-            onClick={() => onAction(streamAction, episode.label, "stream")}
-            className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:min-w-[5rem] sm:shrink-0"
-          >
-            <ButtonBody
-              pending={effectiveStreamStatus === "pending"}
-              icon={<Play className="fill-current" aria-hidden />}
+          {showStreamAction ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="default"
+              data-episode-action
+              data-action="stream"
+              data-action-kind={streamAction.kind}
+              aria-label={`${streamDisplayLabel} — ${episode.label}`}
+              aria-busy={effectiveStreamStatus === "pending" || undefined}
+              disabled={!streamCanRun}
+              onClick={() => onAction(streamAction, episode.label, "stream")}
+              className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:min-w-[5rem] sm:shrink-0"
             >
-              {streamLabel}
-            </ButtonBody>
-          </Button>
+              <ButtonBody
+                pending={effectiveStreamStatus === "pending"}
+                icon={<Play className="fill-current" aria-hidden />}
+              >
+                {streamDisplayLabel}
+              </ButtonBody>
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="sm"
@@ -659,7 +714,7 @@ function EpisodeRow({
             data-episode-action
             data-action="download"
             data-action-kind={downloadAction.kind}
-            aria-label={`${downloadLabel} — ${episode.label}`}
+            aria-label={`${downloadDisplayLabel} — ${episode.label}`}
             aria-busy={effectiveDownloadStatus === "pending" || undefined}
             disabled={!downloadCanRun}
             onClick={() => onAction(downloadAction, episode.label, "keep")}
@@ -669,13 +724,18 @@ function EpisodeRow({
               pending={effectiveDownloadStatus === "pending"}
               icon={<Download aria-hidden />}
             >
-              {downloadLabel}
+              {downloadDisplayLabel}
             </ButtonBody>
           </Button>
         </span>
       )}
     </li>
   );
+}
+
+function formatTransferProgress(progress: number): string {
+  const percent = Math.min(100, Math.max(0, progress * 100));
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
 }
 
 function episodeActionStatusText(

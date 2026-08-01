@@ -37,8 +37,12 @@
  * local state; anything slower is an *action*, not a precondition.
  */
 import prisma from "@/lib/prisma";
+import {
+  acquisitionTransferFromRow,
+  resolveAcquisitionTransfer,
+  type AcquisitionTransfer,
+} from "./acquisition-target";
 import type { AvailabilityState } from "@/lib/browse";
-import { searchHref } from "@/components/browse/availability";
 import { formatEpisodeLabel } from "@/lib/library/cursor";
 import {
   fileConfirmedMissing,
@@ -46,8 +50,6 @@ import {
 } from "@/lib/library/local-file-presence";
 import {
   isSeriesMediaType,
-  normalizeMediaType,
-  searchCategoryForMediaType,
   type MediaType,
 } from "@/lib/metadata/media-type";
 import { parseEpisode } from "@/lib/torrents/episodes";
@@ -70,6 +72,7 @@ import type {
   TitleEpisode,
   TitleSeason,
 } from "@/components/title/types";
+import { resolveTitleIntent } from "@/components/title/title-intent";
 import {
   findCachedCatalogRow,
   resolveArtworkBestEffort,
@@ -95,6 +98,7 @@ export interface TitleDetailQuery {
   year?: number | null;
   mediaType?: string | null;
   season?: number | null;
+  providerIdentity?: import("./provider-identity").TitleProviderIdentity | null;
 }
 
 interface LocalRelease {
@@ -145,8 +149,10 @@ export async function buildTitleDetail(
 ): Promise<TitleDetailPayload> {
   const workKey = query.workKey.trim().toLowerCase();
   const { userId } = query;
+  const providerIdentity = query.providerIdentity ?? null;
+  const providerMetadata = providerIdentity?.metadata ?? null;
 
-  const [catalogRows, watchRows, engineRows, progressRows] = await Promise.all([
+  const [catalogRows, watchRows, engineRows, progressRows, targetRows] = await Promise.all([
     prisma.catalogEntry.findMany({
       where: { workKey },
       orderBy: { refreshedAt: "desc" },
@@ -167,7 +173,78 @@ export async function buildTitleDetail(
       orderBy: { updatedAt: "desc" },
       take: SCAN_LIMIT,
     }),
+    prisma.acquisitionTarget.findMany({
+      where: { userId, workKey, scope: "episode" },
+      orderBy: { updatedAt: "desc" },
+      take: SCAN_LIMIT,
+    }),
   ]);
+
+  const engineByHash = new Map(
+    engineRows.map((row) => [row.hash.trim().toLowerCase(), row]),
+  );
+  const missingLinkedHashes = [
+    ...new Set(
+      targetRows
+        .map((target) => target.infoHash?.trim().toLowerCase() ?? "")
+        .filter((hash) => hash && !engineByHash.has(hash)),
+    ),
+  ];
+  if (missingLinkedHashes.length > 0) {
+    const linkedRows = await prisma.engineTorrent.findMany({
+      where: {
+        userId,
+        hash: { in: missingLinkedHashes },
+        status: { not: "removed" },
+      },
+    });
+    for (const row of linkedRows) {
+      engineRows.push(row);
+      engineByHash.set(row.hash.trim().toLowerCase(), row);
+    }
+  }
+  const episodeTransfers = new Map<string, AcquisitionTransfer>();
+  const targetUpdates: Promise<unknown>[] = [];
+  for (const target of targetRows) {
+    if (target.season == null || target.episode == null) continue;
+    const persisted = acquisitionTransferFromRow(target);
+    const engine = target.infoHash
+      ? engineByHash.get(target.infoHash.trim().toLowerCase()) ?? null
+      : null;
+    const resolved = resolveAcquisitionTransfer(
+      persisted,
+      engine
+        ? {
+            hash: engine.hash,
+            status: engine.status,
+            progress: engine.progress,
+          }
+        : null,
+      engine ? localFilePresence(engine) : "unknown",
+    );
+    episodeTransfers.set(`${target.season}:${target.episode}`, resolved);
+    if (
+      resolved.status !== persisted.status ||
+      resolved.progress !== persisted.progress ||
+      resolved.infoHash !== persisted.infoHash ||
+      resolved.filePath !== persisted.filePath ||
+      resolved.error !== persisted.error
+    ) {
+      targetUpdates.push(
+        prisma.acquisitionTarget.update({
+          where: { id: target.id },
+          data: {
+            status: resolved.status,
+            progress: resolved.progress,
+            infoHash: resolved.infoHash,
+            filePath: resolved.filePath,
+            error: resolved.error,
+          },
+        }),
+      );
+    }
+  }
+  if (targetUpdates.length > 0) await Promise.all(targetUpdates);
 
   // `CatalogEntry.workKey` is written by the discovery/catalog pipeline, which
   // derives it independently. If that derivation ever differs from this one by
@@ -176,7 +253,7 @@ export async function buildTitleDetail(
   // the kind of defect that survives a green test run. So a miss re-checks the
   // recent catalog by *computing* each row's key here, which is the same
   // one-directional test used everywhere else and cannot merge two works.
-  const catalog =
+  const catalogCandidate =
     catalogRows[0] ?? (await findCatalogByComputedKey(workKey));
 
   // ── Identity ────────────────────────────────────────────────────────────
@@ -223,25 +300,42 @@ export async function buildTitleDetail(
   const releaseName = localReleases[0]?.name ?? null;
   const releaseIdentity = releaseName ? workIdentityFor(releaseName) : null;
 
+  const intent = resolveTitleIntent({
+    workKey,
+    selection: {
+      title: providerMetadata?.title ?? query.title,
+      year: providerMetadata?.year ?? query.year,
+      mediaType: providerMetadata?.mediaType ?? query.mediaType,
+      aliases: providerMetadata?.aliases,
+    },
+    catalog: catalogCandidate
+      ? {
+          title: catalogCandidate.title,
+          year: catalogCandidate.year,
+          mediaType: catalogCandidate.mediaType,
+        }
+      : null,
+    watch: watch
+      ? {
+          title: watch.title,
+          mediaType: watch.mediaType,
+        }
+      : null,
+    release: releaseIdentity
+      ? {
+          title: releaseIdentity.name,
+          year: releaseIdentity.year,
+          mediaType: releaseIdentity.isSeries ? "tv" : "movie",
+        }
+      : null,
+  });
+  const catalog = intent.catalogAccepted ? catalogCandidate : null;
   const title =
-    firstNonEmpty(
-      catalog?.title,
-      watch?.title,
-      query.title,
-      releaseIdentity?.name,
-      progress[0]?.title,
-    ) || displayTitleFromWorkKey(workKey);
-
-  const mediaType: MediaType | null =
-    normalizeMediaType(catalog?.mediaType) ??
-    normalizeMediaType(watch?.mediaType) ??
-    normalizeMediaType(query.mediaType);
-
-  const year =
-    catalog?.year ??
-    (Number.isFinite(query.year) ? (query.year as number) : null) ??
-    releaseIdentity?.year ??
-    null;
+    intent.title ??
+    firstNonEmpty(progress[0]?.title) ??
+    displayTitleFromWorkKey(workKey);
+  const mediaType: MediaType | null = intent.mediaType;
+  const year = intent.year;
 
   // ── Series or film ──────────────────────────────────────────────────────
   //
@@ -252,8 +346,9 @@ export async function buildTitleDetail(
     localReleases.some((r) => r.season != null || r.episode != null || r.isPack) ||
     progress.some((p) => p.season != null || p.episode != null) ||
     (watch?.cursorSeason != null && watch?.cursorEpisode != null);
-  const isSeries =
-    mediaType === "movie"
+  const isSeries = providerIdentity
+    ? providerIdentity.isSeries
+    : mediaType === "movie"
       ? false
       : isSeriesMediaType(mediaType) || episodeEvidence;
 
@@ -264,7 +359,7 @@ export async function buildTitleDetail(
 
   // ── Catalog artwork and blurb ───────────────────────────────────────────
   const cachedCatalog =
-    catalog?.posterUrl && catalog?.overview
+    providerMetadata || (catalog?.posterUrl && catalog?.overview)
       ? null
       : await findCachedCatalogRow(title, mediaType, year);
 
@@ -272,8 +367,9 @@ export async function buildTitleDetail(
     title,
     year,
     mediaType,
-    catalogPoster: catalog?.posterUrl ?? null,
-    catalogBackdrop: catalog?.backdropUrl ?? null,
+    catalogPoster: providerMetadata?.posterUrl ?? catalog?.posterUrl ?? null,
+    catalogBackdrop:
+      providerMetadata?.backdropUrl ?? catalog?.backdropUrl ?? null,
     cachedCatalog,
     progressPoster: progress.find((p) => p.posterUrl)?.posterUrl ?? null,
   });
@@ -309,6 +405,7 @@ export async function buildTitleDetail(
           progress,
           cursorSeason: watch?.cursorSeason ?? null,
           cursorEpisode: watch?.cursorEpisode ?? null,
+          transfers: episodeTransfers,
         });
 
   const episodesTruncated =
@@ -320,10 +417,12 @@ export async function buildTitleDetail(
       progress,
       cursorSeason: watch?.cursorSeason ?? null,
       cursorEpisode: watch?.cursorEpisode ?? null,
+      transfers: episodeTransfers,
     }) > EPISODE_CAP;
 
   const known =
     catalog !== null ||
+    providerIdentity !== null ||
     watch !== null ||
     localReleases.length > 0 ||
     progress.length > 0 ||
@@ -340,14 +439,21 @@ export async function buildTitleDetail(
     // `.rating` are written by the watchlist's name-similarity enrichment, so
     // they can describe a different work entirely. A blurb and a score are
     // claims as much as a poster is.
-    overview: firstNonEmpty(catalog?.overview, cachedCatalog?.synopsis) || null,
-    rating: catalog?.rating ?? cachedCatalog?.rating ?? null,
+    overview:
+      firstNonEmpty(
+        providerMetadata?.synopsis,
+        catalog?.overview,
+        cachedCatalog?.synopsis,
+      ) || null,
+    rating:
+      providerMetadata?.rating ?? catalog?.rating ?? cachedCatalog?.rating ?? null,
     posterUrl: artwork.posterUrl,
     backdropUrl: artwork.backdropUrl,
     // The primary release / first-air date, when a catalog row carries one.
     // Drives the future-gating visual on the title page (grayed, "Coming",
     // disabled). Unknown stays null and is never gated.
     releaseDate:
+      providerMetadata?.releaseDate ??
       (catalog?.releaseDate ?? cachedCatalog?.releaseDate)?.toISOString() ??
       null,
 
@@ -373,16 +479,26 @@ export async function buildTitleDetail(
         // *some* type; an unknown one defaults in the open rather than being
         // hidden inside the shared module (see media-type.ts).
         mediaType: mediaType ?? (isSeries ? "tv" : "movie"),
-        externalId: cachedCatalog?.externalId?.trim() || `work:${workKey}`,
+        externalId:
+          (providerIdentity?.verified ? providerIdentity.externalId : null) ??
+          cachedCatalog?.externalId?.trim() ??
+          `work:${workKey}`,
         title,
         posterUrl: artwork.posterUrl,
         synopsis:
-          firstNonEmpty(catalog?.overview, cachedCatalog?.synopsis) || null,
-        rating: catalog?.rating ?? cachedCatalog?.rating ?? null,
+          firstNonEmpty(
+            providerMetadata?.synopsis,
+            catalog?.overview,
+            cachedCatalog?.synopsis,
+          ) || null,
+        rating:
+          providerMetadata?.rating ??
+          catalog?.rating ??
+          cachedCatalog?.rating ??
+          null,
       },
     },
 
-    releasesHref: searchHref(title, searchCategoryForMediaType(mediaType)),
     known,
     generatedAt: new Date().toISOString(),
   };
@@ -628,6 +744,7 @@ interface EpisodeBuildInput {
   }[];
   cursorSeason: number | null;
   cursorEpisode: number | null;
+  transfers: Map<string, AcquisitionTransfer>;
 }
 
 /**
@@ -655,6 +772,12 @@ function highestEpisode(input: EpisodeBuildInput): number {
     if ((p.season ?? 1) !== season) continue;
     max = Math.max(max, p.episode);
   }
+  for (const key of input.transfers.keys()) {
+    const [targetSeason, targetEpisode] = key.split(":").map(Number);
+    if (targetSeason === season && targetEpisode > 0) {
+      max = Math.max(max, targetEpisode);
+    }
+  }
   if (input.cursorSeason === season && input.cursorEpisode != null) {
     max = Math.max(max, input.cursorEpisode);
   }
@@ -668,11 +791,21 @@ function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
 
   const rows: TitleEpisode[] = [];
   for (let episode = 1; episode <= count; episode++) {
-    const local = pickLocal(input.localReleases, season, episode);
-    const state = episodeState(local, input.cachedReleases, season, episode);
     const watched = input.progress.find(
       (p) => (p.season ?? 1) === season && p.episode === episode,
     );
+    const transfer = input.transfers.get(`${season}:${episode}`) ?? null;
+    const linkedHash =
+      transfer?.infoHash ?? watched?.infoHash ?? null;
+    const local = linkedHash
+      ? pickLocalByHash(input.localReleases, linkedHash)
+      : pickUnpackedEpisodeLocal(input.localReleases, season, episode);
+    const state =
+      transfer?.status === "downloaded"
+        ? "ready"
+        : transfer?.status === "downloading" && transfer.progress > 0
+          ? "warm"
+          : episodeState(local, input.cachedReleases, season, episode);
 
     const fraction =
       watched && watched.durationSec && watched.durationSec > 0
@@ -682,7 +815,7 @@ function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
     // A resume position is only offered for a file that still exists. Progress
     // rows outlive the torrents they describe — nothing deletes them — so the
     // info hash comes from the *engine* row, never from the progress row.
-    const infoHash = local?.hash ?? null;
+    const infoHash = transfer?.infoHash ?? local?.hash ?? null;
 
     rows.push({
       season,
@@ -690,8 +823,13 @@ function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
       label: formatEpisodeLabel(season, episode),
       availability: state,
       infoHash,
-      filePath: infoHash && watched?.infoHash === infoHash ? watched.filePath : null,
-      downloadFraction: keptDownloadFraction(local),
+      filePath:
+        transfer?.filePath ??
+        (infoHash && watched?.infoHash === infoHash ? watched.filePath : null),
+      downloadFraction:
+        transfer?.status === "downloading"
+          ? transfer.progress
+          : keptDownloadFraction(local),
       watchedFraction: fraction,
       resumePositionSec:
         infoHash && watched?.infoHash === infoHash && !watched.completedAt
@@ -700,8 +838,39 @@ function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
       watched: Boolean(watched?.completedAt),
       nextUp:
         input.cursorSeason === season && input.cursorEpisode === episode,
-      fromPack: Boolean(local?.isPack || local?.isMultiSeason),
+      fromPack: Boolean(
+        transfer?.infoHash &&
+          local &&
+          (local.isPack || local.isMultiSeason),
+      ),
+      transfer,
     });
+  }
+
+  function pickLocalByHash(
+    releases: LocalRelease[],
+    infoHash: string,
+  ): LocalRelease | null {
+    const normalized = infoHash.trim().toLowerCase();
+    return (
+      releases.find(
+        (release) =>
+          canMakeLocalClaim(release) &&
+          release.hash.trim().toLowerCase() === normalized,
+      ) ?? null
+    );
+  }
+
+  function pickUnpackedEpisodeLocal(
+    releases: LocalRelease[],
+    season: number,
+    episode: number,
+  ): LocalRelease | null {
+    return pickLocal(
+      releases.filter((release) => !release.isPack && !release.isMultiSeason),
+      season,
+      episode,
+    );
   }
   return rows;
 }

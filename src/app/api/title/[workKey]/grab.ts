@@ -20,6 +20,7 @@
  * module exists to prevent, and one a raw title search reproduces every time.
  */
 import { getUserClientConfig } from "@/lib/clients";
+import { findLiveBuiltinTorrent } from "@/lib/clients/builtin-engine";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { grabSingleEpisode } from "@/lib/library/ondemand";
 import { checkSendStorage } from "@/lib/library/storage-gate";
@@ -28,6 +29,8 @@ import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import { matchesTargetEpisode } from "@/lib/torrents/pack-preference";
+import { rankResults } from "@/lib/torrents/ranking";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
 import { acquireSeason } from "@/lib/library/season-acquire";
@@ -42,6 +45,7 @@ import type {
   SeasonGrabEpisodeReport,
   SeasonGrabReport,
 } from "@/components/title/season-grab-state";
+import prisma from "@/lib/prisma";
 
 export interface TitleGrabInput extends TitleGrabRequest {
   userId: string;
@@ -60,7 +64,10 @@ export async function grabForTitle(
   const episode = toPositiveInt(input.episode);
 
   if (season != null && episode != null) {
-    const result = await grabSingleEpisode({
+    const reused = await reuseStreamingEpisode(input, { season, episode });
+    if (reused) return reused;
+
+    const request: Parameters<typeof grabSingleEpisode>[0] = {
       userId: input.userId,
       showTitle: input.resolvedTitle,
       // A row we are hunting episode-by-episode is a series by construction;
@@ -72,7 +79,9 @@ export async function grabForTitle(
       watchListItemId: input.watchListItemId,
       retention: input.retention ?? "keep",
       overrideStorageCap: input.overrideStorageCap === true,
-    });
+      preferredResolution: input.preferredResolution ?? null,
+    };
+    const result = await grabSingleEpisode(request);
     return {
       ok: result.ok,
       message: result.message,
@@ -122,13 +131,15 @@ export async function grabSeasonForTitle(
 
   let result: Awaited<ReturnType<typeof acquireSeason>>;
   try {
-    result = await acquireSeason({
+    const target: Parameters<typeof acquireSeason>[0] = {
       userId: input.userId,
       title: input.resolvedTitle,
       mediaType: input.resolvedMediaType ?? "tv",
       season,
       episodes,
-    }, {
+      preferredResolution: input.preferredResolution ?? null,
+    };
+    result = await acquireSeason(target, {
       watchListItemId: input.watchListItemId,
       retention: input.retention ?? "keep",
     });
@@ -185,7 +196,9 @@ function planStrategy(plan: SeasonPlan): SeasonGrabReport["strategy"] {
  * no viability gate — the user asked for this by name), same storage-budget
  * check, same smart save-path resolution.
  */
-async function grabWholeWork(input: TitleGrabInput): Promise<TitleGrabResponse> {
+async function grabWholeWork(
+  input: TitleGrabInput,
+): Promise<TitleGrabResponse> {
   const title = input.resolvedTitle.trim();
   if (!title) {
     return { ok: false, message: "Nothing to search for" };
@@ -225,7 +238,14 @@ async function grabWholeWork(input: TitleGrabInput): Promise<TitleGrabResponse> 
         : `No seeded torrent for ${title}`,
 
     selectCandidate(results) {
-      return selectWorkCandidate(results, input.workKey, input.isSeries);
+      return selectWorkCandidate(
+        results,
+        input.workKey,
+        input.isSeries,
+        input.preferredResolution,
+        title,
+        searchCategory,
+      );
     },
 
     async checkStorageBudget(candidate, target) {
@@ -310,8 +330,20 @@ export function selectWorkCandidate(
   results: TorrentResult[],
   workKey: string,
   isSeries: boolean,
+  preferredResolution?: number | null,
+  query = workKey,
+  category: string | null | undefined = "all",
 ): TorrentResult | null {
-  const usable = results.filter((r) => r.magnet && (r.seeders ?? 0) > 0);
+  const ordered =
+    preferredResolution == null
+      ? results
+      : rankResults(
+          [...results],
+          query,
+          preferredResolution,
+          category,
+        );
+  const usable = ordered.filter((r) => r.magnet && (r.seeders ?? 0) > 0);
 
   const mine = usable.filter((r) => {
     const identity = workIdentityFor(r.title, r.metadata ?? null);
@@ -332,6 +364,86 @@ export function selectWorkCandidate(
     return ep.isSeasonPack || ep.isMultiSeason || ep.isBatch;
   });
   return pack ?? mine[0];
+}
+
+export interface ReusableLocalEpisode {
+  hash: string;
+  name: string;
+  status: string;
+  origin: string;
+}
+
+/**
+ * Select a server-known live stream allocation that exactly satisfies an
+ * episode keep. Client-provided hashes never enter this function.
+ */
+export function selectReusableLocalEpisode<T extends ReusableLocalEpisode>(
+  rows: readonly T[],
+  target: { season: number; episode: number; workKey?: string | null },
+  isLive: (hash: string) => boolean = () => true,
+): T | null {
+  for (const row of rows) {
+    if (row.origin !== "stream") continue;
+    if (row.status !== "downloading" && row.status !== "seeding") continue;
+    const hash = normalizeInfoHash(row.hash);
+    if (!hash || !isLive(hash)) continue;
+    const release = {
+      title: row.name,
+      magnet: `magnet:?xt=urn:btih:${hash}`,
+    } as TorrentResult;
+    if (!matchesTargetEpisode(release, target)) continue;
+    if (target.workKey) {
+      const identity = workIdentityFor(row.name, null);
+      if (!workKeyMatches(target.workKey, identity.name, identity.year)) continue;
+    }
+    return row;
+  }
+  return null;
+}
+
+async function reuseStreamingEpisode(
+  input: TitleGrabInput,
+  target: { season: number; episode: number },
+): Promise<TitleGrabResponse | null> {
+  if ((input.retention ?? "keep") !== "keep") return null;
+  try {
+    const config = await getUserClientConfig(input.userId);
+    if (!config || config.clientType !== "builtin") return null;
+    const rows = await prisma.engineTorrent.findMany({
+      where: {
+        userId: input.userId,
+        origin: "stream",
+        status: { in: ["downloading", "seeding"] },
+      },
+      orderBy: { lastUsedAt: "desc" },
+      select: { hash: true, name: true, status: true, origin: true },
+    });
+    const local = selectReusableLocalEpisode(
+      rows,
+      { ...target, workKey: input.workKey },
+      (hash) => findLiveBuiltinTorrent(hash) !== null,
+    );
+    const hash = normalizeInfoHash(local?.hash);
+    if (!local || !hash) return null;
+    await applySendRetention({
+      userId: input.userId,
+      config,
+      infoHash: hash,
+      retention: "keep",
+      watchListItemId: input.watchListItemId,
+    });
+    return {
+      ok: true,
+      message: "Kept the episode already streaming",
+      title: local.name,
+      savePath: null,
+      infoHash: hash,
+      storage: null,
+    };
+  } catch {
+    // Stale/missing local state is not terminal: normal discovery remains valid.
+    return null;
+  }
 }
 
 function toPositiveInt(value: unknown): number | null {

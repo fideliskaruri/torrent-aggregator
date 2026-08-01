@@ -28,6 +28,7 @@ import {
 } from "./preprobe";
 import { upcomingTargets } from "./prerank";
 import { recordSwarmMeasurement } from "@/lib/torrents/swarm-probe";
+import { markForegroundActive, releaseForeground } from "./foreground";
 
 let failures = 0;
 
@@ -76,6 +77,42 @@ async function main(): Promise<void> {
       });
       assert.equal(res.skipped, "foreground");
       assert.equal(probeCalls, 0, "no probe may run while the user is watching");
+    });
+
+    await checkAsync("foreground playback aborts an active speculative probe", async () => {
+      const candidate = result({ title: "Probe interrupted by playback" });
+      releaseForeground();
+      try {
+        const res = await preProbeUpcoming("someone", {
+          db: prisma,
+          limitTargets: 1,
+          limitCandidates: 1,
+          _foregroundActive: () => false,
+          _targets: [{ title: "Target", mediaType: "movie" }],
+          _findLive: () => null,
+          _poolFor: async () => [candidate],
+          _probeFn: async (_input, deps) => {
+            const signal = deps?.signal;
+            assert.ok(signal, "the active swarm probe receives a cancellation signal");
+            markForegroundActive(candidate.infoHash);
+            assert.equal(
+              signal.aborted,
+              true,
+              "foreground start aborts the signal immediately",
+            );
+            return null;
+          },
+        });
+
+        assert.equal(res.skipped, "foreground");
+        assert.deepEqual(
+          res.probed,
+          [],
+          "an interrupted probe is not reported as a completed measurement",
+        );
+      } finally {
+        releaseForeground();
+      }
     });
 
     await checkAsync("the top candidates get probed, live ones skipped, capped", async () => {

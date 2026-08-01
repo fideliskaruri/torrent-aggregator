@@ -7,7 +7,10 @@ import {
   normalizeRuleCategory,
   RULE_CATEGORY_OPTIONS,
 } from "@/app/rules/page";
-import { PRIMARY_DOWNLOAD_CLIENT_OPTIONS } from "@/app/settings/page";
+import {
+  parseSettingsTab,
+  PRIMARY_DOWNLOAD_CLIENT_OPTIONS,
+} from "@/app/settings/page";
 import { normalizeMediaType } from "@/lib/metadata/media-type";
 import fs from "node:fs";
 
@@ -76,6 +79,15 @@ assert.deepEqual(
   "external clients are useful integrations, but they must not be presented as equal to in-browser playback",
 );
 
+assert.equal(parseSettingsTab("connection"), "connection");
+assert.equal(parseSettingsTab("folders"), "folders");
+assert.equal(parseSettingsTab("categories"), "categories");
+assert.equal(
+  parseSettingsTab("unknown"),
+  null,
+  "unknown legacy Settings tabs must fall back to the basic page",
+);
+
 const settingsPage = fs.readFileSync("src/app/settings/page.tsx", "utf8");
 const retentionPanel = fs.readFileSync(
   "src/components/settings/retention-panel.tsx",
@@ -89,8 +101,8 @@ assert.match(
 );
 assert.match(
   settingsPage,
-  /<RetentionPanel \/>/,
-  "retention controls must be rendered where users manage downloads",
+  /<RetentionPanel showPolicy=\{false\} \/>/,
+  "storage cleanup must stay available in Advanced without duplicating the basic file-behaviour choice",
 );
 assert.doesNotMatch(
   retentionPanel,
@@ -104,8 +116,43 @@ assert.match(
 );
 assert.match(
   retentionPanel,
-  /Delete reclaimable stream-only files/,
+  /Delete temporary streams now/,
   "the destructive sweep button must say it deletes files",
+);
+
+assert.match(
+  settingsPage,
+  /<SettingsDisclosure[\s\S]*title="Advanced"/,
+  "implementation details must be behind one explicit Advanced disclosure",
+);
+assert.doesNotMatch(
+  settingsPage,
+  /role="tablist"|role="tabpanel"/,
+  "Settings must not leak or divide content across subsystem tabs",
+);
+for (const id of [
+  "download-folder",
+  "storage-limit",
+  "preferred-quality",
+  "file-behavior",
+  "use-another-download-app",
+  "new-category",
+]) {
+  assert.match(
+    settingsPage,
+    new RegExp(`(?:htmlFor|id)="${id}"`),
+    `${id} must have an explicit accessible label`,
+  );
+}
+assert.match(
+  settingsPage,
+  /defaultRetentionPolicy: form\.defaultRetentionPolicy/,
+  "the basic file-behaviour choice must round-trip through the existing API field",
+);
+assert.match(
+  settingsPage,
+  /data-external-client-fields/,
+  "external connection details must have a progressive-disclosure boundary",
 );
 
 // --- Untracked files ------------------------------------------------------

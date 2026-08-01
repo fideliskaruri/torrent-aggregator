@@ -33,7 +33,11 @@ export interface TorrentResult {
     isSeasonPack: boolean;
     /** A range like S01-S05 — must not be filed under a single season. */
     isMultiSeason?: boolean;
+    /** Non-episode companion material identified from explicit release words. */
+    specialType?: "ova" | "movie" | "recap" | "special";
   };
+  /** Scene/fansub group parsed from an explicit bracketed release prefix. */
+  releaseGroup?: string;
   /** Enriched metadata (posters, synopsis) when available */
   metadata?: MediaMetadata | null;
   /**
@@ -108,6 +112,8 @@ export interface MediaMetadata {
   mediaType: "anime" | "movie" | "tv";
   externalId: string;
   title: string;
+  /** Provider-verified alternate names for this exact work. */
+  aliases?: string[];
   posterUrl?: string | null;
   backdropUrl?: string | null;
   synopsis?: string | null;

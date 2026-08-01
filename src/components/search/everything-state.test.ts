@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import {
-  SEARCH_SCOPES,
   SECTION_SCOPES,
   type SearchScope,
 } from "@/lib/torrents/search-scopes";
@@ -45,15 +44,10 @@ console.log("everything section: scope routing, states, paging…");
 // 1. The tab set is data, not a hardcoded list
 // ---------------------------------------------------------------------------
 
-check("the section renders every release scope, and only those", () => {
-  const expected = SEARCH_SCOPES.filter((s) => s.kind === "release").map(
-    (s) => s.id,
-  );
+check("legacy release scopes stay separate from product search categories", () => {
   assert.deepEqual(
     SECTION_SCOPES.map((s) => s.id),
-    expected,
-    "SECTION_SCOPES must stay the release-kind scopes — a new one appears here " +
-      "with no edit to the page",
+    ["music", "games", "software", "books", "anime", "everything"],
   );
   assert.ok(SECTION_SCOPES.length >= 2, "a one-tab section is not a section");
 });
@@ -78,10 +72,12 @@ check("every section scope can actually be searched and filed", () => {
   }
 });
 
-check("no film-shaped scope leaks into the section", () => {
+check("no movie or series work scope leaks into the legacy release vocabulary", () => {
   assert.ok(
-    !SECTION_SCOPES.some((s) => s.id === "titles"),
-    "Films & TV belongs to Browse; poster cards must not regress into rows",
+    !SECTION_SCOPES.some(
+      (s) => (s.id as string) === "movies" || (s.id as string) === "series",
+    ),
+    "normal product discovery categories must remain work-shaped",
   );
 });
 
@@ -176,7 +172,7 @@ check("an unknown scope falls back and says so", () => {
 
 check("a real scope that lives on Browse is distinguished from a typo", () => {
   const parsed = parseSectionParams("?scope=titles&q=dune");
-  assert.equal(parsed.notice, "films", "titles exists — it just is not here");
+  assert.equal(parsed.notice, "unknown-scope");
   assert.equal(parsed.scope.id, DEFAULT_SECTION_SCOPE.id);
   assert.equal(parsed.query, "dune", "the query survives the wrong scope");
 });
@@ -578,21 +574,10 @@ check("the scopes that name real things do offer them", () => {
 // 9. The way in — the nav entry this whole section exists to provide
 // ---------------------------------------------------------------------------
 
-check("Everything is a primary destination, right after Search", () => {
+check("Everything is removed from primary navigation", () => {
   const hrefs = PRIMARY_NAV.map((i) => i.href);
-  assert.ok(
-    hrefs.includes(EVERYTHING_HREF),
-    "the section is unreachable without a nav entry — the original complaint",
-  );
-  assert.equal(
-    hrefs.indexOf(EVERYTHING_HREF),
-    hrefs.indexOf(SEARCH_HREF) + 1,
-    "it sits beside the other way of finding things",
-  );
-  assert.equal(
-    PRIMARY_NAV.find((i) => i.href === EVERYTHING_HREF)?.label,
-    "Everything",
-  );
+  assert.equal(hrefs.includes(EVERYTHING_HREF), false);
+  assert.ok(hrefs.includes(SEARCH_HREF));
 });
 
 check("the mobile tab bar still fits every primary label", () => {

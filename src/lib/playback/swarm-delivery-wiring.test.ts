@@ -20,9 +20,12 @@ import {
   currentForegroundState,
   pollForegroundSwarmWatch,
   resetSwarmWatch,
+  swarmDeliveryTick,
+  swarmWatchEntryCount,
   type SwarmWatchDeps,
 } from "./swarm-delivery-watchdog";
 import { markForegroundActive, resetForegroundState } from "@/lib/prewarm/foreground";
+import { preRankKey } from "@/lib/prewarm/prerank";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { TorrentResult } from "@/lib/torrents/types";
 
@@ -93,6 +96,11 @@ function fakeDb() {
     engineTorrent: {
       async findFirst() {
         return { userId: "u1", name: "The Bear S01E01 1080p WEB-DL" };
+      },
+    },
+    playbackProgress: {
+      async findFirst() {
+        return { title: "The Bear", season: 1, episode: 1 };
       },
     },
   } as unknown as typeof import("@/lib/prisma").default;
@@ -179,6 +187,65 @@ async function run() {
 
     assert.equal(r.active, false, "no foreground stream means the watchdog stands down");
     assert.equal(started.length, 0, "nothing is started when no one is watching");
+  }
+
+  // ── Foreground polling reuses the canonical control-plane identity ─────
+  {
+    resetForegroundState();
+    resetSwarmWatch();
+    const canonicalTarget = {
+      title: "The Bear",
+      mediaType: "tv",
+      season: 1,
+      episode: 1,
+    };
+    const canonicalKey = preRankKey(canonicalTarget);
+    const { deps } = fakeDeps();
+    const switched = await swarmDeliveryTick(
+      canonicalKey,
+      PLAYING,
+      canonicalTarget,
+      deps,
+      { cause: "playability", force: true },
+    );
+    assert.equal(switched.currentHash, hash(2), "control plane selected the replacement");
+    assert.equal(swarmWatchEntryCount(), 1, "control plane created one canonical session");
+
+    // The foreground beacon can briefly still report the old source while the
+    // player adopts the replacement. It must still resolve to the same session.
+    markForegroundActive(PLAYING);
+    const rawReleaseDb = {
+      engineTorrent: {
+        async findFirst() {
+          return {
+            userId: "u1",
+            name: "[SubsPlease] The Bear S01E01 1080p",
+          };
+        },
+      },
+      playbackProgress: {
+        async findFirst() {
+          return null;
+        },
+      },
+    } as unknown as typeof import("@/lib/prisma").default;
+    const result = await pollForegroundSwarmWatch({
+      db: rawReleaseDb,
+      getConfig: async () => CONFIG,
+      buildDeps: () => deps,
+    });
+
+    assert.equal(result.active && result.watched ? result.contentKey : null, canonicalKey);
+    assert.equal(
+      swarmWatchEntryCount(),
+      1,
+      "raw release-group tokens must not fork a second watchdog session",
+    );
+    assert.equal(
+      currentForegroundState()?.currentHash,
+      hash(2),
+      "foreground polling must not restore the old source",
+    );
   }
 
   console.log("swarm-delivery-wiring.test.ts: PASS");

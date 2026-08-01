@@ -5,7 +5,6 @@ import {
   commitSource,
   createFailoverSession,
   failOver,
-  MAX_FAILOVER_ATTEMPTS,
 } from "./failover";
 import type { SwarmVerdict } from "./candidates";
 import type { TorrentResult } from "@/lib/torrents/types";
@@ -74,27 +73,25 @@ function run() {
     assert.equal(new Set(picked).size, picked.length, "no source retried twice");
   }
 
-  // ── The attempt cap is reached and reported as terminal ───────────────
+  // ── Pool size is not an attempt cap ───────────────────────────────────
   {
-    let session = createFailoverSession("the-bear|S1E1");
-    // Commit the cap's worth of distinct sources.
-    for (let i = 1; i <= MAX_FAILOVER_ATTEMPTS; i++) {
-      session = commitSource(session, hash(i));
-    }
-    assert.equal(session.tried.length, MAX_FAILOVER_ATTEMPTS);
-
-    const step = failOver(session, POOL, TARGET);
-    assert.equal(step.kind, "exhausted", "cap reached → terminal, not another switch");
-    assert.equal(step.narration.phase, "exhausted");
-    assert.equal(step.session.status, "exhausted");
-    if (step.narration.phase === "exhausted") {
-      assert.equal(step.narration.triedCount, MAX_FAILOVER_ATTEMPTS, "reports how many were tried");
-      assert.equal(step.narration.cause, "delivery", "auto exhaustion is a delivery failure by default");
-      assert.equal(step.narration.outcome.kind, "none-available", "terminal state carries an actionable outcome");
-      if (step.narration.outcome.kind === "none-available") {
-        assert.equal(step.narration.outcome.totalCandidates, POOL.length, "UI can say how many releases were considered");
+    const twelve = Array.from({ length: 12 }, (_, index) =>
+      release(index + 1, 20 - index),
+    );
+    let session = createFailoverSession("twelve|S1E1");
+    const attempted: string[] = [];
+    while (true) {
+      const step = failOver(session, twelve, TARGET);
+      if (step.kind === "exhausted") {
+        assert.equal(step.narration.phase, "exhausted");
+        assert.equal(step.session.tried.length, 12);
+        break;
       }
+      attempted.push(step.candidate.infoHash);
+      session = step.session;
     }
+    assert.equal(attempted.length, 12);
+    assert.equal(new Set(attempted).size, 12);
   }
 
   // ── Exhausted when the pool has no untried candidate, even below cap ───
@@ -151,7 +148,7 @@ function run() {
   {
     let session = createFailoverSession("the-bear|S1E1|play");
     session = commitSource(session, hash(1));
-    const step = failOver(session, POOL, TARGET, MAX_FAILOVER_ATTEMPTS, "playability");
+    const step = failOver(session, POOL, TARGET, "playability");
     assert.equal(step.kind, "switch");
     if (step.kind === "switch" && step.narration.phase === "switching") {
       assert.equal(
@@ -216,7 +213,7 @@ function run() {
     let session = createFailoverSession("the-bear|S1E1|verdict");
     session = commitSource(session, hash(1)); // opened on the top pick
     const deadNext = new Map<string, SwarmVerdict>([[hash(2), "dead"]]);
-    const step = failOver(session, POOL, TARGET, MAX_FAILOVER_ATTEMPTS, "delivery", deadNext);
+    const step = failOver(session, POOL, TARGET, "delivery", deadNext);
     assert.equal(step.kind, "switch");
     if (step.kind === "switch") {
       assert.equal(

@@ -32,6 +32,15 @@ query ($search: String, $perPage: Int) {
 }
 `;
 
+export type AniListFormat =
+  | "TV"
+  | "TV_SHORT"
+  | "MOVIE"
+  | "SPECIAL"
+  | "OVA"
+  | "ONA"
+  | "MUSIC";
+
 interface AniListMedia {
   id: number;
   title: {
@@ -46,6 +55,13 @@ interface AniListMedia {
   seasonYear?: number | null;
   startDate?: { year?: number | null; month?: number | null; day?: number | null };
   genres?: string[] | null;
+  format?: AniListFormat | null;
+}
+
+export interface AniListWork {
+  metadata: MediaMetadata;
+  format: AniListFormat | null;
+  isSeries: boolean;
 }
 
 /**
@@ -55,6 +71,33 @@ export async function searchAniList(
   search: string,
   perPage = 5,
 ): Promise<MediaMetadata[]> {
+  const media = await fetchAniListMedia(search, perPage);
+  return media.map(mapAniList);
+}
+
+/** AniList work discovery with the format needed to distinguish films from series. */
+export async function searchAniListWorks(
+  search: string,
+  perPage = 12,
+): Promise<AniListWork[]> {
+  const media = await fetchAniListMedia(search, perPage);
+  return media.map((item) => ({
+    metadata: mapAniList(item),
+    format: item.format ?? null,
+    isSeries: isAniListSeriesFormat(item.format),
+  }));
+}
+
+export function isAniListSeriesFormat(
+  format: AniListFormat | null | undefined,
+): boolean {
+  return format !== "MOVIE";
+}
+
+async function fetchAniListMedia(
+  search: string,
+  perPage: number,
+): Promise<AniListMedia[]> {
   const res = await fetch(ANILIST_URL, {
     method: "POST",
     headers: {
@@ -83,10 +126,10 @@ export async function searchAniList(
   }
 
   const media = json.data?.Page?.media ?? [];
-  return media.map(mapAniList);
+  return media;
 }
 
-export async function getAniListById(id: string): Promise<MediaMetadata | null> {
+export async function getAniListWorkById(id: string): Promise<AniListWork | null> {
   const query = `
     query ($id: Int) {
       Media(id: $id, type: ANIME) {
@@ -99,6 +142,7 @@ export async function getAniListById(id: string): Promise<MediaMetadata | null> 
         seasonYear
         startDate { year month day }
         genres
+        format
       }
     }
   `;
@@ -113,18 +157,35 @@ export async function getAniListById(id: string): Promise<MediaMetadata | null> 
 
   if (!res.ok) return null;
   const json = (await res.json()) as { data?: { Media?: AniListMedia } };
-  return json.data?.Media ? mapAniList(json.data.Media) : null;
+  const media = json.data?.Media;
+  return media
+    ? {
+        metadata: mapAniList(media),
+        format: media.format ?? null,
+        isSeries: isAniListSeriesFormat(media.format),
+      }
+    : null;
+}
+
+export async function getAniListById(id: string): Promise<MediaMetadata | null> {
+  return (await getAniListWorkById(id))?.metadata ?? null;
 }
 
 function mapAniList(m: AniListMedia): MediaMetadata {
   const title =
     m.title.english || m.title.romaji || m.title.native || `AniList #${m.id}`;
+  const aliases = [...new Set(
+    [m.title.english, m.title.romaji, m.title.native]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value)),
+  )];
 
   return {
     source: "anilist",
     mediaType: "anime",
     externalId: String(m.id),
     title,
+    aliases,
     posterUrl: m.coverImage?.extraLarge || m.coverImage?.large || null,
     backdropUrl: m.bannerImage || null,
     synopsis: stripHtml(m.description ?? null),

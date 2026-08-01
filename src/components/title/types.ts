@@ -46,6 +46,16 @@ export interface TitleEpisode {
   nextUp: boolean;
   /** Covered by a season pack rather than a file of its own. */
   fromPack: boolean;
+  /** Exact user acquisition state. Never inferred from a covering pack. */
+  transfer: TitleEpisodeTransfer | null;
+}
+
+export interface TitleEpisodeTransfer {
+  status: "queued" | "downloading" | "downloaded" | "failed";
+  progress: number;
+  infoHash: string | null;
+  filePath: string | null;
+  error: string | null;
 }
 
 /** A season, and the whole-season pack we hold for it if there is one. */
@@ -140,9 +150,6 @@ export interface TitleDetailPayload {
   episodesTruncated: boolean;
 
   library: TitleLibraryState;
-
-  /** The release table, kept as the "choose a different release" escape hatch. */
-  releasesHref: string;
 
   /**
    * Did anything in the database actually know this work, or is the page
@@ -244,14 +251,14 @@ export type TitleRetention = "stream" | "keep";
 
 /** Body accepted by `POST /api/title/[workKey]` — the one-click grab. */
 export interface TitleGrabRequest {
-  /** Omit for the normal title/episode action; `season` plans known rows. */
-  mode?: "title" | "season";
+  /** Explicit intent boundary; coordinates must match the selected scope. */
+  scope?: "title" | "season" | "episode";
   /** Omit both for a film (or a whole-title grab). */
   season?: number | null;
   episode?: number | null;
   /** Known episode numbers for a one-press season grab. */
   episodes?: number[] | null;
-  /** Local torrent to promote to kept retention without re-sending it. */
+  /** Never accepted for scoped acquisition. Retained for strict rejection. */
   infoHash?: string | null;
   /** Stream-only cache or permanent keep, matching `/api/torrent/send`. */
   retention?: TitleRetention;
@@ -260,7 +267,7 @@ export interface TitleGrabRequest {
    * Only sent when the user has chosen a quality via the Download picker.
    * Play never sends this — it is instant and never prompts.
    */
-  resolution?: number | null;
+  preferredResolution?: number | null;
   /** Passed through when the page was reached with only a title in the URL. */
   title?: string | null;
   mediaType?: string | null;

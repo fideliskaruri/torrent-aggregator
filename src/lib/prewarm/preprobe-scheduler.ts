@@ -48,6 +48,7 @@ import {
   type PreProbeResult,
   type PreProbeScope,
 } from "@/lib/prewarm/preprobe";
+import { tryRunPreProbePass } from "@/lib/prewarm/preprobe-lock";
 
 /**
  * Steady-state cadence between pre-probe passes.
@@ -102,7 +103,7 @@ export interface PreProbeTickOutcome {
   /** Whether a full rank+probe pass actually ran. */
   ran: boolean;
   /** Why the pass did not run, when it did not. */
-  skipped?: "off" | "foreground" | "settings-error";
+  skipped?: "off" | "foreground" | "settings-error" | "busy";
   /** The pass result, present only when a pass ran. */
   result?: PreProbeResult;
 }
@@ -145,8 +146,28 @@ export async function runPreProbeTick(
     // Warm and rank the candidate pools first so the probe has something fresh
     // to measure, then measure. A failure in either half logs and reschedules
     // rather than taking the timer down.
-    await preRank(userId);
-    const result = await preProbe(userId);
+    const pass = await tryRunPreProbePass(userId, async () => {
+      await preRank(userId);
+      // Ranking may contact several indexers. Yield before opening a swarm if
+      // playback became active while that bounded fan-out was in progress.
+      if (isForeground()) return null;
+      return preProbe(userId);
+    });
+    if (!pass.started) {
+      return {
+        delayMs: PREPROBE_FOREGROUND_RETRY_MS,
+        ran: false,
+        skipped: "busy",
+      };
+    }
+    const result = pass.value;
+    if (!result || result.skipped === "foreground") {
+      return {
+        delayMs: PREPROBE_FOREGROUND_RETRY_MS,
+        ran: false,
+        skipped: "foreground",
+      };
+    }
     console.log(
       `[preprobe-scheduler] scope ${result.scope} · probed ${result.probed.length} · fresh ${result.skippedFresh.length} · live ${result.skippedLive.length}${result.capped ? " · capped" : ""}`,
     );

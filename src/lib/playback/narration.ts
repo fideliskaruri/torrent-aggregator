@@ -35,6 +35,21 @@
  */
 export type FailureCause = "delivery" | "playability";
 
+/** Machine failure reported by transfer/player layers before automatic recovery. */
+export type AutomaticFailureCause =
+  | "metadata-timeout"
+  | "no-peers"
+  | "stall"
+  | "start"
+  | "decode"
+  | "unsupported";
+
+export function failureClass(cause: AutomaticFailureCause): FailureCause {
+  return cause === "decode" || cause === "unsupported"
+    ? "playability"
+    : "delivery";
+}
+
 /** Minimal source facts a recovery UI needs to offer a concrete next action. */
 export interface PlaybackSourceOption {
   infoHash: string;

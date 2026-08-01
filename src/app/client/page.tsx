@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -200,6 +200,8 @@ export default function ClientPage() {
   );
   const [switchingBuiltin, setSwitchingBuiltin] = useState(false);
   const [playing, setPlaying] = useState<NowPlaying | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  const deleteOpenerRef = useRef<HTMLElement | null>(null);
   const showLoading = useStableLoading(loading && !torrents.length && !error);
 
   const load = useCallback(async (opts?: { quiet?: boolean }) => {
@@ -458,6 +460,7 @@ export default function ClientPage() {
       body: JSON.stringify({ action: act, hash }),
     });
     void load();
+    setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
   }
 
   async function bulkAction(act: "pause" | "resume") {
@@ -475,6 +478,9 @@ export default function ClientPage() {
       act === "pause"
         ? `Paused ${hashes.length} torrent(s)`
         : `Resumed ${hashes.length} torrent(s)`,
+    );
+    setAnnouncement(
+      `${act === "pause" ? "Paused" : "Resumed"} ${hashes.length} downloads.`,
     );
     void load();
   }
@@ -522,6 +528,13 @@ export default function ClientPage() {
       }
       setSelected(new Set());
       setPendingDelete(null);
+      setAnnouncement(
+        deleteFiles
+          ? `Removed ${results.length} downloads and their files.`
+          : `Removed ${results.length} downloads; files were kept.`,
+      );
+      const opener = deleteOpenerRef.current;
+      if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
       void load();
     } catch {
       toast.error("Network error deleting torrent(s)");
@@ -616,6 +629,14 @@ export default function ClientPage() {
     });
   }
 
+  function openDeleteDialog(
+    torrentsToDelete: ClientTorrent[],
+    opener?: EventTarget | null,
+  ) {
+    if (opener instanceof HTMLElement) deleteOpenerRef.current = opener;
+    setPendingDelete(torrentsToDelete);
+  }
+
   function toggleSelectAll() {
     if (selected.size === filtered.length) {
       setSelected(new Set());
@@ -641,6 +662,9 @@ export default function ClientPage() {
 
   return (
     <div className="container-app max-w-5xl py-6 sm:py-8 space-y-4 min-w-0">
+      <p className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </p>
       <TfPageHeader
         title="Client"
         description={
@@ -697,6 +721,7 @@ export default function ClientPage() {
       {error ? (
         <div
           className="surface p-5 space-y-3 text-sm"
+          role="alert"
           data-client-offline={offline && !isBuiltin ? "true" : undefined}
           data-client-engine-error={isBuiltin || !offline ? "true" : undefined}
         >
@@ -797,6 +822,7 @@ export default function ClientPage() {
                   key={c.id}
                   type="button"
                   onClick={() => setStatusFilter(c.id)}
+                  aria-pressed={statusFilter === c.id}
                   className={cn(
                     "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-2 py-1 text-[11px] font-medium transition-colors lg:min-h-0 lg:min-w-0",
                     statusFilter === c.id
@@ -837,9 +863,10 @@ export default function ClientPage() {
               <Button
                 size="sm"
                 variant="destructive"
-                onClick={() =>
-                  setPendingDelete(
+                onClick={(event) =>
+                  openDeleteDialog(
                     torrents.filter((t) => selected.has(t.hash)),
+                    event.currentTarget,
                   )
                 }
                 data-bulk-delete
@@ -937,6 +964,10 @@ export default function ClientPage() {
                           : "hover:bg-[var(--bg-muted)]/60",
                       )}
                       data-client-torrent
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
+                      aria-label={`${isSelected ? "Deselect" : "Select"} ${display.title}`}
                       data-hash={t.hash}
                       data-retention={t.retentionState}
                       onClick={(e) => {
@@ -950,6 +981,16 @@ export default function ClientPage() {
                           return;
                         }
                         toggleSelect(t.hash, e.ctrlKey || e.metaKey || e.shiftKey);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          toggleSelect(
+                            t.hash,
+                            e.ctrlKey || e.metaKey || e.shiftKey,
+                          );
+                        }
                       }}
                     >
                       <div className="flex items-center gap-2 sm:contents">
@@ -1041,6 +1082,7 @@ export default function ClientPage() {
                       <div className="space-y-1 min-w-0 sm:px-0">
                         <Progress
                           value={pct}
+                          aria-label={`${display.title} download progress`}
                           className="h-1.5"
                           indicatorClassName={barTone}
                         />
@@ -1141,7 +1183,9 @@ export default function ClientPage() {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
-                              onClick={() => setPendingDelete([t])}
+                              onClick={(event) =>
+                                openDeleteDialog([t], event.currentTarget)
+                              }
                               data-delete-torrent
                             >
                               <Trash2 />
@@ -1177,7 +1221,11 @@ export default function ClientPage() {
       <AlertDialog
         open={!!pendingDelete}
         onOpenChange={(open) => {
-          if (!open && !deleting) setPendingDelete(null);
+          if (!open && !deleting) {
+            setPendingDelete(null);
+            const opener = deleteOpenerRef.current;
+            if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
+          }
         }}
       >
         <AlertDialogContent data-delete-dialog>
@@ -1267,12 +1315,12 @@ function ClientSkeleton({ visible = true }: { visible?: boolean }) {
         !visible && "opacity-0",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-2">
           <SkeletonBlock className="h-8 w-24" />
           <SkeletonBlock className="h-4 w-80 max-w-full" />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <SkeletonBlock className="h-8 w-20" />
           <SkeletonBlock className="h-8 w-24" />
         </div>

@@ -42,6 +42,7 @@ import {
   SearchThrottledError,
 } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { rankResults } from "@/lib/torrents/ranking";
 import { filterReleasesForWork } from "@/lib/torrents/work-match";
 import { infoHashFromMagnet, normalizeInfoHash } from "@/lib/torrents/infohash";
 import { advanceCursor, episodeSearchQuery, resolveHuntCursor } from "@/lib/library/cursor";
@@ -104,6 +105,12 @@ export function preRankKey(target: PreRankTarget): string {
   const season = unit(target.season);
   const episode = unit(target.episode);
   return `${normalizeTitle(target.title)}|S${season ?? "X"}E${episode ?? "X"}`;
+}
+
+/** Resolution is mutable plan state, but memoised choices must remain distinct. */
+function preRankPlanKey(target: PreRankTarget): string {
+  const resolution = unit(target.preferredResolution);
+  return `${preRankKey(target)}|R${resolution ?? "X"}`;
 }
 
 /**
@@ -178,6 +185,28 @@ export function searchPayloadFor(options: PipelineSearchOptions) {
 // ---------------------------------------------------------------------------
 // Selection
 // ---------------------------------------------------------------------------
+
+/**
+ * Re-rank a discovered pool for an explicit request preference.
+ *
+ * Search results arrive ranked for the account default. When a single action
+ * carries its own preference, this is the one canonical re-ranking pass; an
+ * absent preference preserves the producer's order exactly.
+ */
+export function rankResultsForTarget(
+  results: readonly TorrentResult[],
+  target: PreRankTarget,
+): TorrentResult[] {
+  const resolution = unit(target.preferredResolution);
+  if (resolution == null) return [...results];
+  const options = prewarmSearchOptions(target);
+  return rankResults(
+    [...results],
+    options.query,
+    resolution,
+    options.category,
+  );
+}
 
 /**
  * The canonical lowercase-hex infoHash for a release, or null.
@@ -272,8 +301,9 @@ export function selectBestRelease(
 ): TorrentResult | null {
   const season = unit(target.season);
   const episode = unit(target.episode);
+  const ranked = rankResultsForTarget(results, target);
 
-  const usable = results.filter(
+  const usable = ranked.filter(
     (r) => r.magnet && (r.seeders ?? 0) > 0 && releaseInfoHash(r) !== null,
   );
   if (usable.length === 0) return null;
@@ -332,12 +362,15 @@ export async function verdictLookupFor(
 // Memo
 // ---------------------------------------------------------------------------
 
-function remember(choice: PreRankedChoice): PreRankedChoice {
+function remember(
+  target: PreRankTarget,
+  choice: PreRankedChoice,
+): PreRankedChoice {
   if (memo.size >= MEMO_MAX_ENTRIES) {
     const oldest = memo.keys().next();
     if (!oldest.done) memo.delete(oldest.value);
   }
-  memo.set(choice.key, choice);
+  memo.set(preRankPlanKey(target), choice);
   return choice;
 }
 
@@ -390,7 +423,7 @@ export async function getPreRanked(
   target: PreRankTarget,
   opts: { db?: typeof prisma } = {},
 ): Promise<PreRankedChoice | null> {
-  const key = preRankKey(target);
+  const key = preRankPlanKey(target);
   const hit = memo.get(key);
   if (hit) {
     if (hit.expiresAt > Date.now()) return { ...hit, source: "memo" };
@@ -424,6 +457,7 @@ export async function getPreRanked(
     const verdictOf = await verdictLookupFor(payload.results, db);
 
     return remember(
+      target,
       buildChoice(
         target,
         payload,
@@ -477,6 +511,7 @@ export async function preRank(
     const response = await search(searchPayloadFor(options));
     const verdictOf = await verdictLookupFor(response.results, db);
     return remember(
+      target,
       buildChoice(target, response, "search", Date.now(), verdictOf),
     );
   } catch (err) {

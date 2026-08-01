@@ -7,6 +7,7 @@ import {
 } from "@/lib/clients/builtin-engine";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { selectMainFeatureFile } from "@/lib/torrents/filters";
+import { parseEpisode } from "@/lib/torrents/episodes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -30,6 +31,7 @@ type IndexDeps = {
    * looking at.
    */
   downloadedRangesFor?: string | null;
+  targetEpisode?: { season: number; episode: number } | null;
 };
 
 function torrentPeers(torrent?: BuiltinStreamTorrent): number | null {
@@ -296,7 +298,20 @@ export async function handleStreamIndexRequest(
   // lands on the feature, not a bonus/extra/sample bundled in the same torrent.
   // Additive: the player MAY read `primaryVideoIndex` to pick a default file; a
   // client that ignores it behaves exactly as before.
-  const primaryVideoIndex = selectMainFeatureFile(torrentFiles)?.index ?? null;
+  const targetEpisode = deps.targetEpisode;
+  const targetFileIndex =
+    targetEpisode == null
+      ? -1
+      : torrentFiles.findIndex((file) => {
+          const parsed = parseEpisode(file.path);
+          return (
+            parsed.season === targetEpisode.season &&
+            parsed.episode === targetEpisode.episode
+          );
+        });
+  const targetVideoIndex = targetFileIndex >= 0 ? targetFileIndex : null;
+  const primaryVideoIndex =
+    targetVideoIndex ?? selectMainFeatureFile(torrentFiles)?.index ?? null;
   return NextResponse.json({
     files: torrentFiles.map((file, index) => {
       const path = manifestPath(file.path);
@@ -310,6 +325,7 @@ export async function handleStreamIndexRequest(
       };
     }),
     primaryVideoIndex,
+    targetVideoIndex,
     clientType: "builtin",
     swarm: swarmState(lookup.torrent),
   });
@@ -350,8 +366,17 @@ type RouteContext = {
 export async function GET(request: Request, context: RouteContext) {
   const searchParams = new URL(request.url).searchParams;
   const quiet = searchParams.get("poll") === "1";
+  const season = Number(searchParams.get("season"));
+  const episode = Number(searchParams.get("episode"));
   return handleStreamIndexRequest(await context.params, {
     quiet,
     downloadedRangesFor: searchParams.get("file"),
+    targetEpisode:
+      Number.isInteger(season) &&
+      season > 0 &&
+      Number.isInteger(episode) &&
+      episode > 0
+        ? { season, episode }
+        : null,
   });
 }

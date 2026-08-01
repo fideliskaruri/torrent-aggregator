@@ -168,6 +168,11 @@ async function main() {
       why: "the bytes do not exist; consent cannot create disk",
     },
     { limit: "setup", overridable: false, why: "no cap chosen yet, so nothing to exceed" },
+    {
+      limit: "inventory",
+      overridable: false,
+      why: "an incomplete scan cannot prove the library is under budget",
+    },
     { limit: null, overridable: false, why: "unknown reason defaults to a hard stop" },
     { limit: undefined, overridable: false, why: "absent reason defaults to a hard stop" },
   ];

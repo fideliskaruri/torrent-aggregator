@@ -41,7 +41,10 @@
  *      not even queue it.
  */
 import { prisma } from "@/lib/prisma";
-import { foregroundActive } from "./foreground";
+import {
+  foregroundActive,
+  foregroundCancellationSignal,
+} from "./foreground";
 import { normalizeTitle } from "@/lib/utils";
 import {
   releaseInfoHash,
@@ -292,6 +295,10 @@ export async function preProbeUpcoming(
       db,
       sources: sourcesForScope(scope),
     }));
+  if (isForeground()) {
+    result.skipped = "foreground";
+    return result;
+  }
   if (targets.length === 0) {
     result.skipped = "no-targets";
     return result;
@@ -308,6 +315,10 @@ export async function preProbeUpcoming(
     }
 
     const pool = await poolFor(target);
+    if (isForeground()) {
+      result.skipped = "foreground";
+      return result;
+    }
     const candidates = topCandidates(pool, maxCandidates);
 
     for (const candidate of candidates) {
@@ -326,6 +337,10 @@ export async function preProbeUpcoming(
       // learned nothing is still a fresh measurement, and re-trying it in the
       // same pass window is exactly the waste the TTL exists to prevent.
       const existing = await getSwarmMeasurement(hash, { db });
+      if (isForeground()) {
+        result.skipped = "foreground";
+        return result;
+      }
       if (existing && !existing.expired) {
         result.skippedFresh.push(hash);
         result.verdicts[hash] = existing.verdict;
@@ -342,17 +357,28 @@ export async function preProbeUpcoming(
         return result;
       }
 
-      const measurement = await probe(
-        { magnet: candidate.magnet ?? null, infoHash: hash },
-        {
-          db,
-          sizeBytes: candidate.sizeBytes ?? null,
-          // The candidate's release title is a better visibility-list name than
-          // the magnet's `dn`, and lets the settings surface show a row even for
-          // a magnet that carried no display name.
-          name: candidate.title ?? null,
-        },
-      );
+      const cancellation = foregroundCancellationSignal();
+      let measurement: Awaited<ReturnType<typeof probe>>;
+      try {
+        measurement = await probe(
+          { magnet: candidate.magnet ?? null, infoHash: hash },
+          {
+            db,
+            signal: cancellation.signal,
+            sizeBytes: candidate.sizeBytes ?? null,
+            // The candidate's release title is a better visibility-list name than
+            // the magnet's `dn`, and lets the settings surface show a row even for
+            // a magnet that carried no display name.
+            name: candidate.title ?? null,
+          },
+        );
+      } finally {
+        cancellation.dispose();
+      }
+      if (cancellation.signal.aborted || isForeground()) {
+        result.skipped = "foreground";
+        return result;
+      }
       result.probed.push(hash);
       if (measurement) result.verdicts[hash] = measurement.verdict;
     }

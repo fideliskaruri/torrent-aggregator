@@ -3,7 +3,7 @@
  * Run: npx tsx src/lib/torrents/search-cache.test.ts
  */
 import assert from "node:assert/strict";
-import { cacheKeyFrom } from "./search-cache";
+import { cacheKeyFrom, invalidateSearchCacheStores } from "./search-cache";
 
 const base = {
   q: "dune part two",
@@ -42,6 +42,23 @@ assert.equal(
   "key order inside filters must not change the cache key",
 );
 
+async function main() {
+  const memory = new Map<string, unknown>([["old-target", { results: [] }]]);
+  let persistedDeletes = 0;
+  const cleared = await invalidateSearchCacheStores(memory, async () => {
+    persistedDeletes += 1;
+  });
+  assert.equal(memory.size, 0, "settings invalidation clears in-memory results");
+  assert.equal(persistedDeletes, 1, "settings invalidation clears persisted results");
+  assert.deepEqual(cleared, { memoryCleared: true, persistedCleared: true });
+
+  memory.set("old-target", {});
+  const partial = await invalidateSearchCacheStores(memory, async () => {
+    throw new Error("database unavailable");
+  });
+  assert.equal(memory.size, 0, "memory is cleared even when persisted cleanup fails");
+  assert.equal(partial.persistedCleared, false);
+
 // Nested resolution must appear in the serialized form (regression for
 // JSON.stringify replacer array stripping nested keys).
 const probe = JSON.stringify(
@@ -54,4 +71,10 @@ assert.equal(
   "sanity: broken stringify would empty nested filters",
 );
 
-console.log("search-cache.test.ts: all assertions passed");
+  console.log("search-cache.test.ts: all assertions passed");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

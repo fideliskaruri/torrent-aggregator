@@ -231,28 +231,18 @@ async function main() {
   fs.mkdirSync(SCRATCH, { recursive: true });
 
   try {
-    // 1. THE BUG: a season pack exists but no single E02. The ladder must reach
-    //    the season-pack rung and grab it. (RED with only rung 1, GREEN with all.)
-    await checkAsync("pack rescues E02 when no single E02 exists", async () => {
+    // 1. Episode keep intent never turns into an implicit season download.
+    await checkAsync("a season pack never substitutes for an episode keep", async () => {
       const search = makeSearchFn((q) => (isEpisodeQuery(q) ? [] : [pack()]));
       const { proxy, calls } = mockPrisma();
       const res = await grab(search.fn, okSend(), proxy);
 
-      assert.equal(res.ok, true, `expected success, got: ${res.message}`);
-      assert.match(res.message, /from season pack/, "message must name the pack provenance");
-      assert.equal(res.title, "Family Guy Season 1 COMPLETE 1080p WEB-DL");
-      // exact + alt (empty) then pack (hit) → 3 searches; relaxed never reached.
-      assert.equal(search.calls.length, 3, "should stop at the pack rung");
-      // GrabJob-noise (success case): exactly one sent row, one history row, no skips.
-      assert.equal(countCreate(calls, "grabJob", "sent"), 1, "one sent GrabJob");
-      assert.equal(countCreate(calls, "downloadHistory", "sent"), 1, "one history row");
-      assert.equal(countCreate(calls, "grabJob", "skipped"), 0, "no skip rows from empty rungs");
-      // The acceptance probe's GREEN bar: the byte-identical RED status must
-      // never reappear, and the route (route.ts:126, `result.ok ? 200 : 409`)
-      // now answers 200 — so the "Could not get S01E02." copy never mounts and
-      // the 409 the probe recorded is gone.
+      assert.equal(res.ok, false);
+      assert.equal(res.noReleaseFound?.reason, "no_release");
+      assert.equal(countCreate(calls, "grabJob", "sent"), 0);
+      assert.equal(countCreate(calls, "downloadHistory"), 0);
+      assert.equal(countCreate(calls, "grabJob", "skipped"), 1);
       assert.notEqual(res.message, RED_STATUS, "must not repeat the byte-identical RED message");
-      assert.equal(res.ok ? 200 : 409, 200, "ok:true → HTTP 200, not 409");
     });
 
     // 2. Stop at the first working rung — no wasted searches.
@@ -267,10 +257,9 @@ async function main() {
       assert.equal(countCreate(calls, "grabJob", "sent"), 1);
     });
 
-    // 3. Attempt cap holds: every send fails (non-offline), and the press can
-    //    never turn into an unbounded storm — it stops at MAX_SEND_ATTEMPTS (6).
-    await checkAsync("attempt cap stops at 6 send attempts", async () => {
-      // Enough distinct candidates that the send cap bites before the pool ends.
+    // 3. Every unique viable exact episode is attempted once; pool size is not
+    //    an attempt cap.
+    await checkAsync("all unique exact candidates are attempted until exhaustion", async () => {
       const many = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => single(n, 40 + n));
       const search = makeSearchFn((q) => (isEpisodeQuery(q) ? many : []));
       const { proxy, calls } = mockPrisma();
@@ -278,7 +267,7 @@ async function main() {
 
       assert.equal(res.ok, false);
       assert.equal(res.noReleaseFound?.reason, "send_failed");
-      assert.equal(countCreate(calls, "grabJob", "failed"), 6, "exactly 6 attempts recorded");
+      assert.equal(countCreate(calls, "grabJob", "failed"), 8, "all 8 unique candidates attempted");
       assert.ok(search.calls.length >= 2, "at least two rungs searched before cap");
       assert.equal(countCreate(calls, "grabJob", "skipped"), 0, "attempts happened → no synth skip row");
     });
@@ -292,13 +281,13 @@ async function main() {
 
       assert.equal(res.ok, false);
       assert.equal(res.noReleaseFound?.reason, "no_release");
-      assert.equal(res.noReleaseFound?.triedSeasonPacks, true);
+      assert.equal(res.noReleaseFound?.triedSeasonPacks, false);
       assert.ok(
         (res.noReleaseFound?.searches ?? 0) >= 4,
         "ladder exhausts multiple distinct searches",
       );
       assert.equal(res.noReleaseFound?.manualSearchQuery, "Family Guy S01E02");
-      assert.match(res.message, /including season packs/);
+      assert.doesNotMatch(res.message, /season packs/i);
       assert.doesNotMatch(res.message, /Search manually/i, "no useless manual-search CTA");
       // Even exhausted, the outcome is *materially different* from the RED: a
       // message that names what was tried, never the flat byte-identical string.
@@ -403,6 +392,50 @@ async function main() {
       const res = await grab(search.fn, okSend(), proxy);
       assert.equal(res.ok, true, `expected success, got: ${res.message}`);
       assert.equal(search.calls.length, 1, "no extra rungs once rung 1 succeeds");
+    });
+
+    await checkAsync("preferred resolution ranks exact affinity then deterministic fallback", async () => {
+      const at = (resolution: number, n: number) => ({
+        ...single(n, 40),
+        title: `Family Guy S01E02 I Never Met the Dead Man ${resolution}p WEB-DL`,
+        tags: [`${resolution}p`, "WEB-DL"],
+      });
+
+      const exactSearch = makeSearchFn((q) =>
+        isEpisodeQuery(q) ? [at(2160, 1), at(1080, 2), at(720, 3)] : [],
+      );
+      const exactDb = mockPrisma();
+      const exact = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "Family Guy",
+        mediaType: "tv",
+        season: 1,
+        episode: 2,
+        preferredResolution: 720,
+        _config: fakeConfig(),
+        _searchFn: exactSearch.fn,
+        _sendFn: okSend(),
+        _prisma: exactDb.proxy,
+      });
+      assert.match(exact.title ?? "", /720p/, "exact 720p affinity must win");
+
+      const fallbackSearch = makeSearchFn((q) =>
+        isEpisodeQuery(q) ? [at(2160, 4), at(720, 5)] : [],
+      );
+      const fallbackDb = mockPrisma();
+      const fallback = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "Family Guy",
+        mediaType: "tv",
+        season: 1,
+        episode: 2,
+        preferredResolution: 1080,
+        _config: fakeConfig(),
+        _searchFn: fallbackSearch.fn,
+        _sendFn: okSend(),
+        _prisma: fallbackDb.proxy,
+      });
+      assert.match(fallback.title ?? "", /720p/, "720p must beat oversized 2160p fallback");
     });
 
     // 5. Offline is environmental — stop immediately, don't burn more rungs.

@@ -92,8 +92,16 @@ async function overflowingElements(page, width) {
 async function brokenStickies(page) {
   return page.evaluate(() => {
     const out = [];
+    const activeModal = document.querySelector(
+      '[role="dialog"][aria-modal="true"]',
+    );
     for (const el of document.querySelectorAll("body *")) {
       if (getComputedStyle(el).position !== "sticky") continue;
+      // A modal deliberately locks the document scroller. Sticky elements in
+      // the covered page are neither visible nor operable until that lock is
+      // released, so treating the body lock as their broken scroll parent is a
+      // false positive. Stickies inside the modal still get checked.
+      if (activeModal && !activeModal.contains(el)) continue;
       const desc =
         el.tagName.toLowerCase() +
         (typeof el.className === "string" && el.className

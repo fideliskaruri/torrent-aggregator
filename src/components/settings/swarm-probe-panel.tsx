@@ -42,8 +42,8 @@ interface ProbeSettings {
 /** Fallback choices if the payload omits them, so the control is never empty. */
 const FALLBACK_CHOICES: ScopeChoice[] = [
   { value: "off", label: "Off" },
-  { value: "watching", label: "Only what I'm watching" },
-  { value: "monitored", label: "Everything I monitor" },
+  { value: "watching", label: "What I'm watching" },
+  { value: "monitored", label: "My whole Library" },
 ];
 
 /** Map a display tone to a Badge look. `neutral` and `bad` are deliberately far apart. */
@@ -84,7 +84,7 @@ export function SwarmProbePanel() {
       const body = (await res.json()) as Partial<ProbeSettings> & {
         error?: string;
       };
-      if (!res.ok) throw new Error(body.error || "Could not load swarm settings");
+      if (!res.ok) throw new Error(body.error || "Could not load availability checks");
       setData({
         scope: body.scope ?? "monitored",
         defaultScope: body.defaultScope ?? "monitored",
@@ -99,6 +99,8 @@ export function SwarmProbePanel() {
   }, []);
 
   useEffect(() => {
+    // The settings endpoint is the external source for this panel.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 
@@ -112,7 +114,7 @@ export function SwarmProbePanel() {
         body: JSON.stringify({ scope: next }),
       });
       const body = (await res.json()) as { scope?: Scope; error?: string };
-      if (!res.ok) throw new Error(body.error || "Could not save swarm setting");
+      if (!res.ok) throw new Error(body.error || "Could not save availability checks");
       setData((prev) => (prev ? { ...prev, scope: body.scope ?? next } : prev));
       // Refresh the measured list — switching scope may change what is relevant.
       await load();
@@ -123,7 +125,7 @@ export function SwarmProbePanel() {
     }
   }
 
-  const now = Date.now();
+  const [renderedAt] = useState(() => Date.now());
   const scope = data?.scope ?? "monitored";
   const choices = data?.choices ?? FALLBACK_CHOICES;
   const measurements = data?.measurements ?? [];
@@ -134,13 +136,11 @@ export function SwarmProbePanel() {
         <Radar className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
         <div>
           <h2 className="text-sm font-medium text-[var(--text)]">
-            Pre-check swarms
+            Check download availability
           </h2>
           <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
-            When on, TorrentFlow briefly contacts trackers and peers for the
-            episodes you&apos;re most likely to play next — about twice an hour —
-            and remembers which releases actually deliver, so playback starts
-            faster. Off means no background network activity.
+            Check likely next episodes ahead of time so TorrentFlow can avoid
+            downloads that are unavailable. Safe to leave on.
           </p>
         </div>
       </div>
@@ -148,7 +148,7 @@ export function SwarmProbePanel() {
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-[var(--text-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading swarm settings…
+          Loading availability checks…
         </div>
       ) : (
         <>
@@ -182,18 +182,18 @@ export function SwarmProbePanel() {
           <div className="space-y-2">
             <div className="flex items-baseline justify-between">
               <h3 className="text-xs font-medium text-[var(--text-secondary)]">
-                Recently measured
+                Recent checks
               </h3>
               <span className="text-[11px] text-[var(--text-tertiary)]">
-                A measurement is a prediction, not a guarantee.
+                Results can change over time.
               </span>
             </div>
 
             {measurements.length === 0 ? (
               <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
                 {scope === "off"
-                  ? "Pre-checking is off, so nothing is being measured."
-                  : "Nothing measured yet. Swarms are checked in the background as you watch and monitor shows."}
+                  ? "Availability checks are off."
+                  : "No checks yet. TorrentFlow checks likely next episodes in the background."}
               </p>
             ) : (
               <ul className="space-y-1.5">
@@ -201,8 +201,7 @@ export function SwarmProbePanel() {
                   const display = verdictDisplay(m.verdict, m.expired);
                   const badge = toneBadge(display.tone);
                   const measuredAtMs = Date.parse(m.measuredAt);
-                  const fresh = freshnessLabel(measuredAtMs, m.expired, now);
-                  const showPeers = m.peersConnected > 0;
+                  const fresh = freshnessLabel(measuredAtMs, m.expired, renderedAt);
                   return (
                     <li
                       key={m.infoHash}
@@ -225,7 +224,6 @@ export function SwarmProbePanel() {
                       </div>
                       <div className="mt-1 text-[11px] text-[var(--text-tertiary)]">
                         {fresh}
-                        {showPeers ? ` · ${m.peersConnected} peers` : ""}
                       </div>
                     </li>
                   );

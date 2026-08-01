@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import prisma from "@/lib/prisma";
 import { buildTitleDetail } from "./detail";
 import { grabForTitle, grabSeasonForTitle } from "./grab";
 import type { TitleGrabRequest } from "@/components/title/types";
+import {
+  readMutationObject,
+  type RequestResult,
+} from "@/lib/http/request";
+import {
+  acquisitionTargetKey,
+  validateAcquisitionScope,
+} from "./acquisition-target";
+import { resolveTitleProviderIdentity } from "./provider-identity";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +23,18 @@ type RouteParams = {
 type RouteContext = {
   params: RouteParams | Promise<RouteParams>;
 };
+
+export async function readTitleMutationBody(
+  request: Request,
+): Promise<RequestResult<TitleGrabRequest>> {
+  const parsed = await readMutationObject(request);
+  return parsed.ok
+    ? {
+        ok: true,
+        value: Object.fromEntries(parsed.value) as TitleGrabRequest,
+      }
+    : parsed;
+}
 
 /**
  * Everything one title page needs, in one round trip.
@@ -43,6 +65,16 @@ export async function GET(request: Request, context: RouteContext) {
   const url = new URL(request.url);
 
   try {
+    const providerResult = await resolveTitleProviderIdentity(
+      url.searchParams,
+      decodeSegment(workKey),
+    );
+    if (providerResult.kind === "invalid") {
+      return NextResponse.json(
+        { error: providerResult.reason },
+        { status: 400 },
+      );
+    }
     const payload = await buildTitleDetail({
       userId: session.user.id,
       workKey: decodeSegment(workKey),
@@ -50,6 +82,10 @@ export async function GET(request: Request, context: RouteContext) {
       year: intParam(url.searchParams.get("y")),
       mediaType: url.searchParams.get("type"),
       season: intParam(url.searchParams.get("s")),
+      providerIdentity:
+        providerResult.kind === "verified" || providerResult.kind === "carried"
+          ? providerResult.identity
+          : null,
     });
     return NextResponse.json(payload);
   } catch (err) {
@@ -84,15 +120,57 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Missing work key" }, { status: 400 });
   }
 
-  let body: TitleGrabRequest = {};
-  try {
-    body = (await request.json()) as TitleGrabRequest;
-  } catch {
-    // An empty body is a whole-title grab, which is a legitimate request.
+  const parsedBody = await readTitleMutationBody(request);
+  if (!parsedBody.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: parsedBody.error,
+        message: parsedBody.error,
+        ...(parsedBody.field ? { field: parsedBody.field } : {}),
+      },
+      { status: parsedBody.status },
+    );
+  }
+  const body = parsedBody.value;
+
+  const scope = validateAcquisitionScope(body);
+  if (!scope.ok) {
+    return NextResponse.json(
+      { ok: false, message: scope.message },
+      { status: 400 },
+    );
   }
 
+  const preferredResolution =
+    body.preferredResolution == null
+      ? null
+      : [480, 720, 1080, 2160].includes(body.preferredResolution)
+        ? body.preferredResolution
+        : null;
+  if (
+    body.preferredResolution != null &&
+    preferredResolution == null
+  ) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message: "Preferred resolution must be 480p, 720p, 1080p, or 2160p.",
+      },
+      { status: 400 },
+    );
+  }
+
+  const key = decodeSegment(workKey);
+  const targetKey = acquisitionTargetKey(
+    key,
+    scope.scope,
+    scope.season,
+    scope.episode,
+  );
+  const trackTransfer = (body.retention ?? "keep") === "keep";
+
   try {
-    const key = decodeSegment(workKey);
     const detail = await buildTitleDetail({
       userId: session.user.id,
       workKey: key,
@@ -101,11 +179,41 @@ export async function POST(request: Request, context: RouteContext) {
       mediaType: body.mediaType ?? null,
     });
 
+    if (trackTransfer) {
+      await prisma.acquisitionTarget.upsert({
+        where: {
+          userId_targetKey: {
+            userId: session.user.id,
+            targetKey,
+          },
+        },
+        create: {
+          userId: session.user.id,
+          targetKey,
+          workKey: key,
+          scope: scope.scope,
+          season: scope.season,
+          episode: scope.episode,
+          preferredResolution,
+          status: "queued",
+        },
+        update: {
+          preferredResolution,
+          status: "queued",
+          progress: 0,
+          infoHash: null,
+          filePath: null,
+          error: null,
+        },
+      });
+    }
+
     const input = {
       userId: session.user.id,
       workKey: key,
-      season: body.season ?? null,
-      episode: body.episode ?? null,
+      season: scope.season,
+      episode: scope.episode,
+      preferredResolution,
       retention: body.retention ?? "keep",
       // The owner's informed decision to exceed their own cap. Only ever
       // honoured for the cap — never the free-space floor.
@@ -117,18 +225,53 @@ export async function POST(request: Request, context: RouteContext) {
     };
 
     const result =
-      body.mode === "season"
+      scope.scope === "season"
         ? await grabSeasonForTitle({
             ...input,
-            season: body.season ?? 0,
+            season: scope.season,
             episodes: body.episodes ?? [],
-            retention: body.retention ?? "keep",
           })
         : await grabForTitle(input);
 
+    if (trackTransfer) {
+      await prisma.acquisitionTarget.update({
+        where: {
+          userId_targetKey: {
+            userId: session.user.id,
+            targetKey,
+          },
+        },
+        data: result.ok
+          ? {
+              status: "downloading",
+              infoHash: "infoHash" in result ? result.infoHash ?? null : null,
+              error: null,
+            }
+          : {
+              status: "failed",
+              error: result.message,
+            },
+      });
+    }
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   } catch (err) {
     console.error("[title:grab]", err);
+    if (trackTransfer) {
+      await prisma.acquisitionTarget
+        .update({
+          where: {
+            userId_targetKey: {
+              userId: session.user.id,
+              targetKey,
+            },
+          },
+          data: {
+            status: "failed",
+            error: err instanceof Error ? err.message : String(err),
+          },
+        })
+        .catch(() => undefined);
+    }
     return NextResponse.json(
       {
         ok: false,

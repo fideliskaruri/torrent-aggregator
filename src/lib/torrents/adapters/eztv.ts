@@ -5,6 +5,11 @@ import type {
 } from "../types";
 import { extractTags } from "../ranking";
 import { fetchFromMirrors, mirrorList } from "./mirrors";
+import {
+  INDEXER_METADATA_TIMEOUT_MS,
+  INDEXER_TIMEOUT_MS,
+  indexerTimeoutSignal,
+} from "./timeouts";
 
 /**
  * EZTV — television only, no API key.
@@ -98,7 +103,7 @@ async function resolveImdbId(title: string): Promise<string | null> {
   searchUrl.searchParams.set("api_key", key);
   searchUrl.searchParams.set("query", title);
   const searchRes = await fetch(searchUrl, {
-    signal: AbortSignal.timeout(8_000),
+    signal: indexerTimeoutSignal(INDEXER_METADATA_TIMEOUT_MS),
     next: { revalidate: 86_400 },
   });
   // Not remembered: a bad response is about TMDB right now, not about the show.
@@ -124,7 +129,7 @@ async function resolveImdbId(title: string): Promise<string | null> {
   const idsUrl = new URL(`${TMDB_BASE}/tv/${show.id}/external_ids`);
   idsUrl.searchParams.set("api_key", key);
   const idsRes = await fetch(idsUrl, {
-    signal: AbortSignal.timeout(8_000),
+    signal: indexerTimeoutSignal(INDEXER_METADATA_TIMEOUT_MS),
     next: { revalidate: 86_400 },
   });
   if (!idsRes.ok) return null;
@@ -160,9 +165,9 @@ export class EztvAdapter implements TorrentSourceAdapter {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
           Accept: "application/json",
         },
-        signal: AbortSignal.timeout(12_000),
         next: { revalidate: 0 },
       },
+      timeoutMs: INDEXER_TIMEOUT_MS,
     });
 
     if (!res.ok) throw new Error(`EZTV HTTP ${res.status}`);

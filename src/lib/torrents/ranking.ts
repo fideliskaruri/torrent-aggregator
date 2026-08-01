@@ -1,8 +1,13 @@
 import type { ReleaseGroup, TorrentResult } from "./types";
 import { normalizeTitle } from "@/lib/utils";
-import { parseEpisode } from "./episodes";
+import { classifySpecialRelease, parseEpisode } from "./episodes";
 import { isExtrasRelease } from "./filters";
-import { stripTrailingJunkNumber, releaseYear } from "./work-identity";
+import {
+  metadataAgrees,
+  stripTrailingJunkNumber,
+  releaseYear,
+  workIdentity,
+} from "./work-identity";
 import {
   compareReleases,
   describeRelease,
@@ -76,16 +81,45 @@ export function rankResults(
   category: string | null | undefined = "all",
 ): TorrentResult[] {
   const steps = affinitySteps(target);
+  const requestedEpisode = parseEpisode(query);
+  const preferNewestEpisode =
+    requestedEpisode.season == null && requestedEpisode.episode == null;
   const scored = results.map((r) => {
-    const episode = r.episode ?? parseEpisode(r.title);
-    const rank = describeRelease(r, query, target, category);
-    const isExtras = isExtrasRelease(r.title);
+    const parsedEpisode = r.episode ?? parseEpisode(r.title);
+    const specialType = classifySpecialRelease(r.title);
+    const episode = {
+      ...parsedEpisode,
+      ...(specialType ? { specialType } : {}),
+    };
+    const described = describeRelease(r, query, target, category);
+    const queryName = normalizeTitle(query);
+    const metadataNames = [
+      r.metadata?.title,
+      ...(r.metadata?.aliases ?? []),
+    ].map((name) => normalizeTitle(name ?? ""));
+    const aliasMatch =
+      metadataNames.includes(queryName) &&
+      metadataAgrees(workIdentity(r.title).name, r.metadata);
+    const rank = aliasMatch
+      ? { ...described, relevance: Math.max(described.relevance, 3) }
+      : described;
+    const animeContext =
+      category === "anime" ||
+      r.route?.kind === "anime" ||
+      r.metadata?.mediaType === "anime";
+    const isExtras =
+      isExtrasRelease(r.title) || (animeContext && specialType != null);
     return {
       rank,
       isExtras,
+      animeContext,
+      episode,
+      episodeOrder:
+        (episode.season ?? 0) * 10_000 + (episode.episode ?? 0),
       result: {
         ...r,
         episode,
+        releaseGroup: releaseGroupFromTitle(r.title),
         health: computeHealth(r),
         groupKey: buildGroupKey(r.title, episode),
         score: encodeScore(rank, steps, isExtras),
@@ -99,9 +133,62 @@ export function rankResults(
     // must never land on supplementary material. Only when every candidate is an
     // extra do they fall through to the normal comparator among themselves.
     if (a.isExtras !== b.isExtras) return a.isExtras ? 1 : -1;
+    if (
+      preferNewestEpisode &&
+      sameRankBeforeEpisode(a.rank, b.rank) &&
+      comparableEpisodeOrder(a, b)[0] !== comparableEpisodeOrder(a, b)[1]
+    ) {
+      const [aOrder, bOrder] = comparableEpisodeOrder(a, b);
+      return bOrder - aOrder;
+    }
+
+    function comparableEpisodeOrder(
+      a: {
+        animeContext: boolean;
+        episode: ReturnType<typeof parseEpisode>;
+        episodeOrder: number;
+      },
+      b: {
+        animeContext: boolean;
+        episode: ReturnType<typeof parseEpisode>;
+        episodeOrder: number;
+      },
+    ): [number, number] {
+      const ordinaryEpisode = (value: typeof a) =>
+        !value.episode.isBatch &&
+        !value.episode.isSeasonPack &&
+        value.episode.specialType == null;
+      if (a.animeContext && b.animeContext && ordinaryEpisode(a) && ordinaryEpisode(b)) {
+        if (a.episode.absoluteEpisode != null && b.episode.season == null) {
+          return [a.episode.absoluteEpisode, b.episode.episode ?? 0];
+        }
+        if (b.episode.absoluteEpisode != null && a.episode.season == null) {
+          return [a.episode.episode ?? 0, b.episode.absoluteEpisode];
+        }
+      }
+      return [a.episodeOrder, b.episodeOrder];
+    }
     return compareReleases(a.rank, b.rank);
   });
   return markBestPicks(scored.map((s) => s.result));
+}
+
+function sameRankBeforeEpisode(a: ReleaseRank, b: ReleaseRank): boolean {
+  const aBad = Number(a.junk) + Number(a.implausible);
+  const bBad = Number(b.junk) + Number(b.implausible);
+  return (
+    a.categoryMatch === b.categoryMatch &&
+    a.relevance === b.relevance &&
+    aBad === bBad &&
+    a.viable === b.viable &&
+    a.affinity === b.affinity
+  );
+}
+
+/** Leading bracket tags are the one release-group convention we can prove. */
+export function releaseGroupFromTitle(title: string): string | undefined {
+  const group = /^\s*\[([^\]]{1,60})\]/.exec(title)?.[1]?.trim();
+  return group || undefined;
 }
 
 export function computeHealth(r: TorrentResult): number {
@@ -324,6 +411,15 @@ function buildGroupKey(
   if (episode.episode != null) {
     base = base.replace(
       new RegExp(`\\b0*${episode.episode}\\b`, "g"),
+      " ",
+    );
+  }
+  if (
+    episode.absoluteEpisode != null &&
+    episode.absoluteEpisode !== episode.episode
+  ) {
+    base = base.replace(
+      new RegExp(`\\b0*${episode.absoluteEpisode}\\b`, "g"),
       " ",
     );
   }

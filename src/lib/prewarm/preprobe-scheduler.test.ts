@@ -125,6 +125,42 @@ async function main(): Promise<void> {
     assert.equal(o.delayMs, PREPROBE_INTERVAL_MS);
   });
 
+  await checkAsync("playback starting during ranking cancels before probing", async () => {
+    let foreground = false;
+    let probes = 0;
+    const deps: PreProbeTickDeps = {
+      userId: "foreground-after-rank",
+      resolveScope: async () => "monitored",
+      isForeground: () => foreground,
+      preRank: async () => {
+        foreground = true;
+      },
+      preProbe: async () => {
+        probes += 1;
+        return emptyResult("monitored");
+      },
+    };
+    const outcome = await runPreProbeTick(deps);
+    assert.equal(probes, 0, "a pass must yield between ranking and probing");
+    assert.equal(outcome.skipped, "foreground");
+    assert.equal(outcome.delayMs, PREPROBE_FOREGROUND_RETRY_MS);
+  });
+
+  await checkAsync("playback starting inside probing retries soon", async () => {
+    const { deps } = harness({
+      scope: "monitored",
+      foreground: false,
+      preProbe: async () => ({
+        ...emptyResult("monitored"),
+        skipped: "foreground",
+      }),
+    });
+    const outcome = await runPreProbeTick(deps);
+    assert.equal(outcome.ran, false);
+    assert.equal(outcome.skipped, "foreground");
+    assert.equal(outcome.delayMs, PREPROBE_FOREGROUND_RETRY_MS);
+  });
+
   await checkAsync("a throwing pass reschedules instead of propagating", async () => {
     // RED check: without the try/catch the rejection would escape and the
     // self-scheduling `.then(schedule)` chain would never re-arm the timer.

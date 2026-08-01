@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import fs from "node:fs";
 import path from "node:path";
+import { queryString, requestFailureResponse } from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
@@ -49,8 +50,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const raw = request.nextUrl.searchParams.get("path") ?? "";
-    const requested = raw.trim();
+    const pathResult = queryString(request.nextUrl.searchParams, "path", {
+      maxLength: 4096,
+    });
+    if (!pathResult.ok) return requestFailureResponse(pathResult);
+    const requested = pathResult.value ?? "";
+    if (requested.includes("\0")) {
+      return NextResponse.json(
+        { error: "Path contains an invalid null character", field: "path" },
+        { status: 400 },
+      );
+    }
 
     // Empty path: Windows → drives; Unix → root
     if (!requested) {
@@ -93,7 +103,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Failed to browse folders",
-        message: err instanceof Error ? err.message : String(err),
+        message: "The server could not inspect that location.",
       },
       { status: 500 },
     );

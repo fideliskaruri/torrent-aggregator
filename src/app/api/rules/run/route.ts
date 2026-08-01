@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { runAutoRules } from "@/lib/rules/runner";
+import {
+  guardBrowserMutation,
+  requestFailureResponse,
+} from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -13,6 +17,8 @@ export async function POST() {
         { status: 401 },
       );
     }
+    const origin = guardBrowserMutation(request);
+    if (!origin.ok) return requestFailureResponse(origin);
 
     const summary = await runAutoRules(session.user.id);
     const offline = summary.some((r) => r.offline);
@@ -34,6 +40,7 @@ export async function POST() {
       /econnrefused|unreachable|fetch failed|timeout|not listening|cannot reach/i.test(
         message,
       );
+    console.error("[rules/run] Unexpected rules failure:", err);
 
     return NextResponse.json(
       {
@@ -42,7 +49,7 @@ export async function POST() {
         error: offline ? "Client offline" : "Rules run failed",
         message: offline
           ? "Cannot reach torrent client. Is it running? Check Host URL in Settings."
-          : message,
+          : "The rules run failed. Check the server logs for details.",
         summary: [],
       },
       { status: offline ? 503 : 500 },

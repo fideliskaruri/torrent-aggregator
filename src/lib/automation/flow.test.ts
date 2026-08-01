@@ -213,24 +213,14 @@ console.log("flow: navigation model contracts…");
 
   assert.deepEqual(
     primaryHrefs,
-    ["/", SEARCH_HREF, EVERYTHING_HREF, "/watchlist", "/client"],
-    "primary path is Browse → Search → Everything → Library → Client",
+    ["/", SEARCH_HREF, "/watchlist", "/client"],
+    "primary path is Browse → Search → Library → Client",
   );
 
-  /**
-   * `/everything` is the section for music, games, software, books and anime.
-   * The indexers, the classifier and the download routing always handled those;
-   * the only thing missing was a way in, so the nav entry is the feature. It
-   * sits next to Search because both answer "find me a thing".
-   */
   assert.equal(
-    primaryHrefs.indexOf(EVERYTHING_HREF),
-    primaryHrefs.indexOf(SEARCH_HREF) + 1,
-    "Everything sits beside Search, not filed away after Library",
-  );
-  assert.equal(
-    PRIMARY_NAV.find((i: NavItem) => i.href === EVERYTHING_HREF)?.label,
-    "Everything",
+    primaryHrefs.includes(EVERYTHING_HREF),
+    false,
+    "Everything is compatibility-only and must not return to primary navigation",
   );
 
   // `/` is the catalog now, not the search box. Search is a peer route, and it
@@ -351,7 +341,6 @@ console.log("flow: navigation model contracts…");
     const allRoutes = [
       "/",
       SEARCH_HREF,
-      EVERYTHING_HREF,
       "/watchlist",
       "/client",
       "/activity",
@@ -403,8 +392,8 @@ console.log("flow: navigation model contracts…");
     );
     assert.equal(
       navActiveHref(DESKTOP_NAV, "/rules"),
-      "/settings",
-      "the desktop header has no Rules entry, so Settings stands in",
+      "/rules",
+      "Rules is discoverable and owns its desktop route",
     );
     assert.equal(
       navActiveHref(DESKTOP_NAV, "/history"),

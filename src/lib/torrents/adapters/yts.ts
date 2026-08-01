@@ -5,6 +5,7 @@ import type {
 } from "../types";
 import { extractTags } from "../ranking";
 import { fetchFromMirrors, mirrorList } from "./mirrors";
+import { INDEXER_TIMEOUT_MS } from "./timeouts";
 
 /**
  * `yts.mx` is the canonical host and is tried first, but it stopped resolving
@@ -46,9 +47,9 @@ export class YtsAdapter implements TorrentSourceAdapter {
       path: (host) => `${host}/list_movies.json?${query}`,
       init: {
         headers: { Accept: "application/json", "User-Agent": "TorrentFlow/1.0" },
-        signal: AbortSignal.timeout(12_000),
         next: { revalidate: 0 },
       },
+      timeoutMs: INDEXER_TIMEOUT_MS,
     });
 
     if (!res.ok) {

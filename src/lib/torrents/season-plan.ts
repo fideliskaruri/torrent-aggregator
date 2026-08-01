@@ -36,6 +36,7 @@
  *     quiet dishonesty this codebase refuses everywhere else.
  */
 import { parseEpisode } from "./episodes";
+import { isSupportedVideoFileName } from "./filters";
 import { seasonCoverage } from "./pack-preference";
 import { infoHashFromMagnet, normalizeInfoHash } from "./infohash";
 import type { TorrentResult } from "./types";
@@ -107,6 +108,7 @@ export function episodesFromFilenames(
 ): number[] {
   const found = new Set<number>();
   for (const raw of filenames) {
+    if (!isSupportedVideoFileName(raw)) continue;
     const name = raw.split(/[\\/]/).pop() ?? raw;
     const ep = parseEpisode(name);
     if (ep.isSeasonPack || ep.episode == null) continue;
@@ -181,12 +183,9 @@ export type PackFit = "single-season" | "range" | "multi-season" | "complete";
  *
  *   - `confirmed` — reconciled against the torrent's actual file list. The file
  *     list is authoritative and beats the name every time.
- *   - `asserted`  — the name *explicitly enumerates* these episodes (an
- *     `S01E01-E08` range). Still a name claim, but an explicit one, so it is
- *     honest to report it as asserted.
- *   - `inferred`  — defaulted from a bare `S01` / `Season 1` / complete pack
- *     that names no episodes at all; we assumed it holds every wanted episode.
- *     This is the untrustworthy case and must never be reported as fact.
+ * Names are never eligibility evidence. `asserted` and `inferred` remain in the
+ * public type for response compatibility, but the planner only emits
+ * `confirmed`.
  */
 export type CoverageBasis = "confirmed" | "asserted" | "inferred";
 
@@ -289,26 +288,23 @@ function classify(
   const wanted = [...wantedSet];
   const ts = titleSeason(release.title);
 
-  // ── Partial pack: an explicit E-range inside the title ────────────────────
+  // ── Explicit range names still require an actual manifest ────────────────
   const range = packEpisodeRange(release.title);
   if (range) {
     // Respect an explicit season marker; a range on the wrong season is not
     // ours. A range with no season marker at all is assumed to be this season,
     // because the caller scoped the search to this show + season.
     if (ts == null || ts === season) {
-      // File contents beat the name even for a range. Only when they are
-      // unknown do we fall back to the (explicitly asserted) name range.
       const files = packContents(release);
-      if (files) {
-        const covers = wanted.filter((e) => files.includes(e));
-        if (covers.length > 0) {
-          return { release, index, verdict, covers, fit: "range", coverageBasis: "confirmed" };
-        }
-      } else {
-        const covers = wanted.filter((e) => e >= range.from && e <= range.to);
-        if (covers.length > 0) {
-          return { release, index, verdict, covers, fit: "range", coverageBasis: "asserted" };
-        }
+      if (files && wanted.every((episode) => files.includes(episode))) {
+        return {
+          release,
+          index,
+          verdict,
+          covers: wanted.slice(),
+          fit: "range",
+          coverageBasis: "confirmed",
+        };
       }
     }
   }
@@ -328,16 +324,18 @@ function classify(
           : coverage.kind === "multi"
             ? "multi-season"
             : "single-season";
-      // The file list, when known, is authoritative — a bare `S01` might in
-      // fact be a 6-of-9 partial that someone labelled a full season.
       const files = packContents(release);
-      if (files) {
-        const covers = wanted.filter((e) => files.includes(e));
-        return { release, index, verdict, covers, fit, coverageBasis: "confirmed" };
+      if (files && wanted.every((episode) => files.includes(episode))) {
+        return {
+          release,
+          index,
+          verdict,
+          covers: wanted.slice(),
+          fit,
+          coverageBasis: "confirmed",
+        };
       }
-      // No file list yet: the name claims every episode of this season, but
-      // that is an inference, not a fact.
-      return { release, index, verdict, covers: wanted.slice(), fit, coverageBasis: "inferred" };
+      return null;
     }
     // A pack that exists but does not cover this season is not ours.
     return null;
@@ -476,12 +474,7 @@ export function planSeason(input: {
     }
   }
 
-  // ── 3. Last resort: a demoted pack for episodes no single could cover ─────
-  // If we took no primary pack and some wanted episodes are still uncovered
-  // because no single exists for them, a demoted (weak/dead) pack that covers
-  // them is better than reporting them missing — the same demote-never-filter
-  // rule, applied to packs. It only claims episodes nothing else reached, so
-  // it can never cause a double-grab.
+  // ── 3. Last resort: a verified complete demoted pack ──────────────────────
   if (!chosenPack) {
     const stillMissing = wanted.filter((e) => !covered.has(e));
     if (stillMissing.length > 0) {

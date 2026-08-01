@@ -122,6 +122,35 @@ export async function searchTmdb(
     .map(mapTmdb);
 }
 
+/** Search one canonical TMDB work type for title-first discovery. */
+export async function searchTmdbByType(
+  mediaType: "movie" | "tv",
+  query: string,
+  limit = 12,
+): Promise<MediaMetadata[]> {
+  const key = apiKey();
+  const term = query.trim();
+  if (!key || !term) return [];
+
+  const url = new URL(`${TMDB_BASE}/search/${mediaType}`);
+  url.searchParams.set("api_key", key);
+  url.searchParams.set("query", term);
+  url.searchParams.set("include_adult", "false");
+  url.searchParams.set("language", "en-US");
+  url.searchParams.set("page", "1");
+
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(10_000),
+    next: { revalidate: 3600 },
+  });
+  if (!res.ok) throw new Error(`TMDB HTTP ${res.status}`);
+
+  const json = (await res.json()) as { results?: TmdbMultiResult[] };
+  return (json.results ?? [])
+    .slice(0, limit)
+    .map((result) => mapTmdb({ ...result, media_type: mediaType }));
+}
+
 export async function getTmdbById(
   mediaType: "movie" | "tv",
   id: string,
@@ -427,6 +456,8 @@ interface TmdbMultiResult {
   media_type: "movie" | "tv" | "person";
   title?: string;
   name?: string;
+  original_title?: string;
+  original_name?: string;
   overview?: string;
   poster_path?: string | null;
   backdrop_path?: string | null;
@@ -444,6 +475,8 @@ interface TmdbDetail {
   id: number;
   title?: string;
   name?: string;
+  original_title?: string;
+  original_name?: string;
   overview?: string;
   poster_path?: string | null;
   backdrop_path?: string | null;
@@ -460,12 +493,18 @@ function mapTmdb(r: TmdbMultiResult): MediaMetadata {
   const title = r.title || r.name || `TMDB #${r.id}`;
   const date = r.release_date || r.first_air_date;
   const year = date ? parseInt(date.slice(0, 4), 10) : null;
+  const aliases = distinctTitles(
+    title,
+    r.original_title,
+    r.original_name,
+  );
 
   return {
     source: "tmdb",
     mediaType,
     externalId: String(r.id),
     title,
+    aliases,
     posterUrl: posterUrl(r.poster_path),
     backdropUrl: backdropUrl(r.backdrop_path),
     synopsis: r.overview || null,
@@ -487,12 +526,18 @@ function mapTmdbDetail(
   const title = r.title || r.name || `TMDB #${r.id}`;
   const date = r.release_date || r.first_air_date;
   const year = date ? parseInt(date.slice(0, 4), 10) : null;
+  const aliases = distinctTitles(
+    title,
+    r.original_title,
+    r.original_name,
+  );
 
   return {
     source: "tmdb",
     mediaType,
     externalId: String(r.id),
     title,
+    aliases,
     posterUrl: posterUrl(r.poster_path),
     backdropUrl: backdropUrl(r.backdrop_path),
     synopsis: r.overview || null,
@@ -503,6 +548,17 @@ function mapTmdbDetail(
     originalLanguage: r.original_language ?? null,
     originCountry: r.origin_country ?? [],
   };
+}
+
+function distinctTitles(
+  primary: string,
+  ...values: (string | null | undefined)[]
+): string[] {
+  return [...new Set(
+    [primary, ...values]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value)),
+  )];
 }
 
 /**

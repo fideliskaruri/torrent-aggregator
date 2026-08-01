@@ -129,6 +129,11 @@ export interface MainFeatureSelection<T> {
 const VIDEO_EXT_RE =
   /\.(?:mkv|mp4|avi|m4v|mov|wmv|flv|webm|ts|m2ts|mpg|mpeg|vob)$/i;
 
+/** One authoritative filename rule for content the app can treat as video. */
+export function isSupportedVideoFileName(name: string): boolean {
+  return VIDEO_EXT_RE.test(name.replace(/\\/g, "/"));
+}
+
 /**
  * Pick the main feature video from a torrent's file list (I14b).
  *
@@ -151,8 +156,7 @@ export function selectMainFeatureFile<T extends SelectableFile>(
     length: typeof file.length === "number" && file.length > 0 ? file.length : 0,
   }));
 
-  const isVideo = (n: string) => VIDEO_EXT_RE.test(n.replace(/\\/g, "/"));
-  const videos = named.filter((f) => isVideo(f.name));
+  const videos = named.filter((f) => isSupportedVideoFileName(f.name));
   const pool = videos.length > 0 ? videos : named;
 
   const mains = pool.filter((f) => !isExtrasRelease(f.name));

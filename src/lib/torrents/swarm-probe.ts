@@ -236,6 +236,8 @@ export interface ProbeClient {
 }
 
 export interface ProbeDeps {
+  /** Cancels a speculative probe and tears down its throwaway torrent promptly. */
+  signal?: AbortSignal;
   /** The live engine client. Defaults to the built-in engine's singleton. */
   getClient?: () => Promise<ProbeClient>;
   /**
@@ -378,6 +380,9 @@ export async function probeSwarm(
   const hash = probeInfoHash(input);
   // No metadata to key on — we cannot find out anything. Not `dead`: `unknown`.
   if (!hash) return unknownMeasurement("", requiredBps, now());
+  if (deps.signal?.aborted) {
+    return unknownMeasurement(hash, requiredBps, now());
+  }
 
   // Best-effort display name for the visibility list. Presentational only.
   const name = magnetDisplayName(input.magnet ?? null);
@@ -397,6 +402,9 @@ export async function probeSwarm(
   //                 because `unknown` is already neutral in the ranking tiers.
   //   - `absent`  → and only then may a fresh probe run.
   const live = await resolveLive(deps, hash);
+  if (deps.signal?.aborted) {
+    return unknownMeasurement(hash, requiredBps, now());
+  }
   if (live.kind === "live") {
     return withName(
       measureLiveDownload(hash, live.torrent, requiredBps, now()),
@@ -442,6 +450,9 @@ export async function probeSwarm(
     // Could not even get a client — we know nothing.
     return withName(unknownMeasurement(hash, requiredBps, now()), name);
   }
+  if (deps.signal?.aborted) {
+    return withName(unknownMeasurement(hash, requiredBps, now()), name);
+  }
 
   const dest = deps.probeDir ?? defaultProbeDir();
 
@@ -457,6 +468,7 @@ export async function probeSwarm(
       requiredBps,
       sizeHint: deps.sizeBytes ?? null,
       durationSec: deps.durationSec ?? null,
+      signal: deps.signal,
     }),
     name,
   );
@@ -514,10 +526,16 @@ interface FreshProbeArgs {
   requiredBps: number;
   sizeHint: number | null;
   durationSec: number | null;
+  signal?: AbortSignal;
 }
 
 function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
   const startedAt = args.now();
+  if (args.signal?.aborted) {
+    return Promise.resolve(
+      unknownMeasurement(args.hash, args.requiredBps, startedAt),
+    );
+  }
   return new Promise<SwarmMeasurement>((resolve) => {
     let settled = false;
     let bytesReceived = 0;
@@ -555,11 +573,13 @@ function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
       }
     };
     const onError = () => finish(true);
+    const onAbort = () => finish(false);
 
     const finish = (reachedSwarm: boolean) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      args.signal?.removeEventListener("abort", onAbort);
 
       const elapsedMs = Math.max(0, args.now() - startedAt);
       const t = torrent;
@@ -637,9 +657,12 @@ function runFreshProbe(args: FreshProbeArgs): Promise<SwarmMeasurement> {
       torrent.on?.("download", onDownload);
       torrent.on?.("wire", onWire as (...a: unknown[]) => void);
       torrent.on?.("error", onError);
+      args.signal?.addEventListener("abort", onAbort, { once: true });
+      if (args.signal?.aborted) onAbort();
     } catch {
       // Add threw synchronously — nothing was created to tear down.
       clearTimeout(timer);
+      args.signal?.removeEventListener("abort", onAbort);
       if (!settled) {
         settled = true;
         resolve(
@@ -857,6 +880,9 @@ export async function probeAndRecord(
 ): Promise<SwarmMeasurement | null> {
   try {
     const measurement = await probeSwarm(input, deps);
+    // Cancellation is an intentional yield, not an `unknown` swarm verdict.
+    // Never persist it or let it influence later ranking.
+    if (deps.signal?.aborted) return null;
     // A caller-supplied name (e.g. the candidate's release title) is more
     // reliable than a magnet's `dn`, so let it win when present.
     if (deps.name?.trim()) measurement.name = deps.name.trim();

@@ -13,10 +13,9 @@ import { cn } from "@/lib/utils";
 import { SEARCH_HREF } from "@/lib/navigation";
 
 const CATEGORIES = [
-  { value: "all", label: "All" },
-  { value: "anime", label: "Anime" },
   { value: "movies", label: "Movies" },
-  { value: "tv", label: "TV" },
+  { value: "series", label: "Series" },
+  { value: "anime", label: "Anime" },
 ] as const;
 
 const RECENT_KEY = "tf-recent-searches";
@@ -39,7 +38,7 @@ interface Suggestion {
 
 export function SearchBar({
   initialQuery = "",
-  initialCategory = "all",
+  initialCategory = "movies",
   size = "hero",
   className,
   autoFocus = false,
@@ -123,7 +122,7 @@ export function SearchBar({
     pushRecent(trimmed);
     setOpen(false);
     const params = new URLSearchParams({ q: trimmed });
-    if (cat && cat !== "all") params.set("category", cat);
+    params.set("category", cat);
     // Results live on /search; `/` is the browse catalog.
     router.push(`${SEARCH_HREF}?${params.toString()}`);
   }
@@ -138,7 +137,7 @@ export function SearchBar({
           : s.mediaType === "movie"
             ? "movies"
             : s.mediaType === "tv"
-              ? "tv"
+              ? "series"
               : category;
       go(s.title, cat);
       return;
@@ -187,7 +186,7 @@ export function SearchBar({
                   setOpen(false);
                 }
               }}
-              placeholder="Search titles, releases…"
+              placeholder="Search titles…"
               className={cn(
                 "w-full min-w-0 bg-transparent border-0 pl-10 pr-12 lg:pr-9 py-3 sm:py-0 min-h-[44px] lg:min-h-0 text-[var(--text)] outline-none placeholder:text-[var(--text-tertiary)] [&::-webkit-search-cancel-button]:appearance-none",
                 isHero ? "text-[15px]" : "text-sm",
@@ -308,7 +307,7 @@ export function SearchBar({
                           : s.mediaType === "movie"
                             ? "movies"
                             : s.mediaType === "tv"
-                              ? "tv"
+                              ? "series"
                               : category;
                       go(s.title, cat);
                     }}
@@ -346,5 +345,5 @@ export function SearchBar({
 function normalizeSearchCategory(value: string): string {
   return CATEGORY_VALUES.has(value as (typeof CATEGORIES)[number]["value"])
     ? value
-    : "all";
+    : "movies";
 }

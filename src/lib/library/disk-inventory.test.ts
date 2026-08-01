@@ -24,6 +24,7 @@ import {
   scanDiskInventory,
   trackedClaims,
   type DiskEntryKind,
+  type DiskInventoryReport,
   type TrackedTorrentRef,
 } from "./disk-inventory";
 
@@ -47,6 +48,34 @@ function writeFile(root: string, relative: string, bytes: number): string {
   fs.mkdirSync(path.dirname(full), { recursive: true });
   fs.writeFileSync(full, Buffer.alloc(bytes));
   return full;
+}
+
+function inventoryReport(
+  root: string,
+  overrides: Partial<DiskInventoryReport> = {},
+): DiskInventoryReport {
+  return {
+    root,
+    diskBytes: 100,
+    trackedBytes: 0,
+    internalBytes: 0,
+    orphanBytes: 100,
+    fileCount: 1,
+    trackedFileCount: 0,
+    internalFileCount: 0,
+    orphanFileCount: 1,
+    orphans: [],
+    groupsTruncated: false,
+    truncated: false,
+    truncatedBy: [],
+    entriesScanned: 1,
+    unreadablePaths: [],
+    linksSkipped: 0,
+    scannedAtMs: Date.now(),
+    status: "complete",
+    authoritative: true,
+    ...overrides,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +307,8 @@ async function walkTable() {
         );
         assert.equal(report.orphanFileCount, 5);
         assert.equal(report.truncated, false);
+        assert.equal(report.status, "complete");
+        assert.equal(report.authoritative, true);
 
         const keys = report.orphans.map((g) => g.relativePath).sort();
         assert.deepEqual(
@@ -439,6 +470,8 @@ async function truncationTable() {
 
         const report = await scanDiskInventory({ root, ...c.options });
         assert.equal(report.truncated, true, "a capped walk must say so");
+        assert.equal(report.status, "partial");
+        assert.equal(report.authoritative, false);
         assert.ok(
           report.truncatedBy.includes(c.reason),
           `expected reason ${c.reason}, got ${report.truncatedBy.join(",")}`,
@@ -466,10 +499,27 @@ async function truncationTable() {
       writeFile(root, "Movies/One (2001)/one.mkv", 1000);
       const report = await scanDiskInventory({ root });
       assert.equal(report.truncated, false);
+      assert.equal(report.status, "complete");
       assert.deepEqual(report.truncatedBy, []);
       assert.equal(report.diskBytes, 2000);
     } finally {
       removeScratchDir(root);
+    }
+  });
+
+  await check("missing root is unavailable, never an authoritative zero", async () => {
+    const root = path.join(
+      makeScratchDir("inv-missing-parent"),
+      "does-not-exist",
+    );
+    try {
+      const report = await scanDiskInventory({ root });
+      assert.equal(report.diskBytes, 0);
+      assert.equal(report.status, "unavailable");
+      assert.equal(report.authoritative, false);
+      assert.deepEqual(report.unreadablePaths, [path.resolve(root)]);
+    } finally {
+      removeScratchDir(path.dirname(root));
     }
   });
 }
@@ -765,20 +815,71 @@ async function containmentTable() {
     }
   });
 
-  await check("containment: a truncated folder walk is refused, not guessed", async () => {
-    const root = makeScratchDir("inv-resolve-trunc");
+  await check("containment: recursive deletion requires an authoritative scan", async () => {
+    const root = makeScratchDir("inv-resolve-authority");
     try {
-      writeFile(root, "Movies/Big (2001)/a.mkv", 100);
-      writeFile(root, "Movies/Big (2001)/b.mkv", 100);
-      writeFile(root, "Movies/Big (2001)/c.mkv", 100);
-      const result = await resolveOrphanTarget({
-        root,
-        relativePath: "Movies/Big (2001)",
-        tracked: [],
-        maxEntries: 1,
-      });
-      assert.equal(result.ok, false, "a partial walk cannot prove a folder is orphaned");
-      assert.equal(result.ok === false ? result.reason : "", "contains-tracked");
+      const relativePath = "Movies/Big (2001)";
+      const file = writeFile(root, `${relativePath}/a.mkv`, 100);
+      const cases: Array<{
+        why: string;
+        report: Partial<DiskInventoryReport>;
+        expected: "inventory-incomplete" | "ok";
+      }> = [
+        {
+          why: "an unreadable or stat-failed descendant makes the scan partial",
+          report: {
+            status: "partial",
+            authoritative: false,
+            unreadablePaths: [path.join(root, relativePath, "unreadable")],
+          },
+          expected: "inventory-incomplete",
+        },
+        {
+          why: "a bounded walk that truncates cannot authorize recursion",
+          report: {
+            status: "partial",
+            authoritative: false,
+            truncated: true,
+            truncatedBy: ["entries"],
+          },
+          expected: "inventory-incomplete",
+        },
+        {
+          why: "a complete authoritative walk can authorize the orphan folder",
+          report: {
+            status: "complete",
+            authoritative: true,
+          },
+          expected: "ok",
+        },
+      ];
+
+      for (const c of cases) {
+        const result = await resolveOrphanTarget({
+          root,
+          relativePath,
+          tracked: [],
+          _scanInventory: async (options) =>
+            inventoryReport(path.resolve(options.root), c.report),
+        });
+        if (c.expected === "ok") {
+          assert.equal(result.ok, true, c.why);
+          assert.equal(result.ok && result.kind, "directory", c.why);
+        } else {
+          assert.equal(result.ok, false, c.why);
+          assert.equal(result.ok === false ? result.reason : "", c.expected, c.why);
+          assert.match(
+            result.ok === false ? result.message : "",
+            /check folder permissions|smaller subfolder/i,
+            `${c.why}: refusal should explain how to retry safely`,
+          );
+        }
+        assert.equal(
+          fs.existsSync(file),
+          true,
+          `${c.why}: authorization tests must never delete data`,
+        );
+      }
     } finally {
       removeScratchDir(root);
     }

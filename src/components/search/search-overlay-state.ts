@@ -15,8 +15,8 @@
 import {
   getScope,
   type SearchScope,
-  type SearchScopeId,
 } from "@/lib/torrents/search-scopes";
+import type { WorkSearchCategory } from "@/lib/search/work-search";
 
 /** The minimum query length worth sending. */
 export const MIN_QUERY_LENGTH = 2;
@@ -27,6 +27,17 @@ export interface SearchRequest {
   kind: "work" | "release";
 }
 
+/** A durable URL for an open search palette. */
+export function searchUrlFor(
+  query: string,
+  category: WorkSearchCategory = "movies",
+): string {
+  const q = query.trim();
+  const params = new URLSearchParams({ category });
+  if (q) params.set("q", q);
+  return `/search?${params.toString()}`;
+}
+
 /**
  * The request for a scope + query, or null when there is nothing worth asking.
  *
@@ -35,25 +46,19 @@ export interface SearchRequest {
  * query spends it on results nobody can use.
  */
 export function searchRequestFor(
-  scopeId: SearchScopeId,
+  scopeId: WorkSearchCategory,
   query: string,
   opts: { limit?: number } = {},
 ): SearchRequest | null {
   const q = query.trim();
   if (q.length < MIN_QUERY_LENGTH) return null;
 
-  const scope = getScope(scopeId);
-  if (scope.kind === "work") {
-    const qs = new URLSearchParams({ q, limit: String(opts.limit ?? 12) });
-    return { url: `/api/search/titles?${qs}`, kind: "work" };
-  }
-
   const qs = new URLSearchParams({
     q,
-    category: scope.category ?? "all",
-    pageSize: String(opts.limit ?? 20),
+    category: scopeId,
+    limit: String(opts.limit ?? 12),
   });
-  return { url: `/api/search?${qs}`, kind: "release" };
+  return { url: `/api/search/titles?${qs}`, kind: "work" };
 }
 
 /**
@@ -74,7 +79,7 @@ export type SearchDisplay =
   | { state: "results"; scope: SearchScope; kind: "work" | "release" };
 
 export function searchDisplayFor(input: {
-  scopeId: SearchScopeId;
+  scopeId: WorkSearchCategory;
   query: string;
   loading: boolean;
   error: string | null;
@@ -87,7 +92,7 @@ export function searchDisplayFor(input: {
   // must not blank the list that is already useful. Replacing rows with a
   // spinner on every character is the flicker that makes search feel broken.
   if (input.resultCount > 0) {
-    return { state: "results", scope, kind: scope.kind === "work" ? "work" : "release" };
+    return { state: "results", scope, kind: "work" };
   }
   if (input.loading) return { state: "loading", scope };
 
@@ -107,7 +112,7 @@ export function searchDisplayFor(input: {
  * query shape differs per scope — "Daft Punk Discovery" and "Mistborn epub"
  * teach the owner that format words work, which is not obvious.
  */
-export function placeholderFor(scopeId: SearchScopeId): string {
+export function placeholderFor(scopeId: WorkSearchCategory): string {
   return getScope(scopeId).placeholder;
 }
 
@@ -123,10 +128,10 @@ export function searchErrorMessage(
   body: { error?: string | null } | null,
 ): string {
   if (status === 429) {
-    return "Searching too quickly — the indexers need a moment. Try again shortly.";
+    return "Searching too quickly — wait a moment, then try again.";
   }
   const stated = body?.error?.trim();
   if (stated) return stated;
-  if (status >= 500) return "The indexers did not answer. Try again in a moment.";
+  if (status >= 500) return "The title services did not answer. Try again in a moment.";
   return "Could not run that search.";
 }

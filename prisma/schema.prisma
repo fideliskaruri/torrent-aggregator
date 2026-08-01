@@ -31,6 +31,7 @@ model User {
   grabJobs       GrabJob[]
   engineTorrents EngineTorrent[]
   playbackProgress PlaybackProgress[]
+  acquisitionTargets AcquisitionTarget[]
 }
 
 // ─── App domain models ───────────────────────────────────────────────────────
@@ -229,6 +230,35 @@ model EngineTorrent {
   @@unique([userId, hash])
   @@index([userId, status])
   @@index([userId, origin, lastUsedAt])
+}
+
+/// Durable user acquisition intent. Unlike EngineTorrent, this row identifies
+/// the exact title/season/episode the user asked for. A torrent may satisfy
+/// several files, but its aggregate progress must only update the target that
+/// explicitly links to it.
+model AcquisitionTarget {
+  id                  String   @id @default(cuid())
+  userId              String
+  targetKey           String
+  workKey             String
+  scope               String
+  season              Int?
+  episode             Int?
+  preferredResolution Int?
+  status              String   @default("queued") // queued | downloading | downloaded | failed
+  progress            Float    @default(0)
+  infoHash             String?
+  filePath             String?
+  error                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetKey])
+  @@index([userId, workKey, scope])
+  @@index([userId, infoHash])
+  @@index([userId, status])
 }
 
 /// A discovered title, independent of any release. This is the catalog layer

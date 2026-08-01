@@ -22,9 +22,8 @@
  * ----------
  *  - **Never retry the same source.** Every committed infoHash is remembered
  *    and filtered out of future selections.
- *  - **Bounded attempts.** After {@link MAX_FAILOVER_ATTEMPTS} committed
- *    sources, the session reaches a terminal `exhausted` state that is reported
- *    honestly — not a permanent "trying…".
+ *  - **Exhaustive attempts.** Every unique viable source is tried once. A pool
+ *    size is data, never an attempt cap.
  */
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
@@ -36,19 +35,6 @@ import type {
   PlaybackNarration,
   PlaybackSourceOption,
 } from "./narration";
-
-/**
- * Maximum number of distinct sources we will commit to for one piece of
- * content before giving up.
- *
- * WHY 4: the observed content had exactly four releases (28/3/4/1 seeders), so
- * four attempts lets us try every distinct source once and then stop. Each
- * source is tried at most once (never retried), so a higher cap would only
- * re-select nothing — the pool is exhausted, not deeper. A hard cap with a
- * clear terminal state beats trying forever; the terminal state is what the UI
- * turns into an honest answer instead of a spinner.
- */
-export const MAX_FAILOVER_ATTEMPTS = 4;
 
 /** A candidate resolved for a switch. */
 export interface FailoverCandidate {
@@ -62,7 +48,7 @@ export interface FailoverCandidate {
  *
  * `tried` is the ordered list of infoHashes we have committed to. `current` is
  * the one playing now. `status` becomes `exhausted` once we run out of untried
- * candidates or hit the attempt cap.
+ * candidates.
  */
 export interface FailoverSession {
   contentKey: string;
@@ -70,11 +56,8 @@ export interface FailoverSession {
   current: string | null;
   status: "active" | "exhausted";
   /**
-   * A source the **user** explicitly chose from the quality selector. While a
-   * source is pinned the automatic watchdog will detect a stall and narrate it,
-   * but must never silently swap it away — an explicit human choice is not the
-   * watchdog's to override. Cleared only by another manual choice or by playback
-   * ending. `null` when the current source was picked by the ranker/auto-failover.
+   * A source the user explicitly chose from the quality selector. This records
+   * provenance for status/UI; it does not block automatic recovery.
    */
   pinnedHash: string | null;
 }
@@ -98,22 +81,34 @@ export function commitSource(
   return { ...session, tried, current: hash };
 }
 
+/** Record a failed start without making that source current. */
+export function recordAttempt(
+  session: FailoverSession,
+  infoHash: string,
+): FailoverSession {
+  const hash = infoHash.toLowerCase();
+  return session.tried.includes(hash)
+    ? session
+    : { ...session, tried: [...session.tried, hash] };
+}
+
 /**
  * Commit to a source the user explicitly chose, and PIN it.
  *
- * Pinning is the load-bearing half of the manual switch: nothing is more
- * alienating than a UI that argues with a decision the user just made, so an
- * explicit choice is exempted from automatic failover for the rest of the
- * session. The watchdog still *detects* a stall on a pinned source and narrates
- * it (so the selector can say "this stalled — pick another?"), it just does not
- * perform the swap itself. The user keeps the wheel.
+ * The marker preserves the fact that the current choice was manual. If it later
+ * fails, the watchdog still advances automatically; a manual preference is not
+ * a command to remain stuck.
  */
 export function pinSource(
   session: FailoverSession,
   infoHash: string,
 ): FailoverSession {
   const committed = commitSource(session, infoHash);
-  return { ...committed, pinnedHash: infoHash.toLowerCase() };
+  return {
+    ...committed,
+    status: "active",
+    pinnedHash: infoHash.toLowerCase(),
+  };
 }
 
 /**
@@ -126,7 +121,7 @@ export function pinSource(
  * quality selector — yet the failover picker used to consult only the ranker and
  * never this verdict. So a stall could fail over straight onto a release the
  * probe had already watched deliver nothing, burning one of our few
- * {@link MAX_FAILOVER_ATTEMPTS} on a known-dead swarm. That is exactly the
+ *     candidate budget on a known-dead swarm. That is exactly the
  * "truth computed, passed along, then not consulted at the decision" bug class.
  *
  * The rule is a *preference*, never a hiding filter:
@@ -253,7 +248,7 @@ export type FailoverStep =
       narration: PlaybackNarration;
     }
   | {
-      /** No untried candidate, or the attempt cap was reached. Terminal. */
+      /** No untried candidate remains. */
       kind: "exhausted";
       session: FailoverSession;
       narration: PlaybackNarration;
@@ -267,8 +262,8 @@ export type FailoverStep =
  * carried into the resulting narration so the UI can say which, and into the
  * terminal `exhausted` state so the honest terminal sentence differs for each.
  *
- * Terminal when the attempt cap is reached or the pool holds no untried,
- * usable candidate. Otherwise returns the next candidate together with the
+ * Terminal when the pool holds no untried usable candidate. Otherwise returns
+ * the next candidate together with the
  * session that has already committed to it — the caller starts the download and
  * abandons the old one. Never selects a source already in `tried`, and the
  * returned narration is structured facts only.
@@ -283,24 +278,9 @@ export function failOver(
   session: FailoverSession,
   results: readonly TorrentResult[],
   target: PreRankTarget,
-  cap: number = MAX_FAILOVER_ATTEMPTS,
   cause: FailureCause = "delivery",
   verdicts?: ReadonlyMap<string, SwarmVerdict> | null,
 ): FailoverStep {
-  if (session.status === "exhausted" || session.tried.length >= cap) {
-    const exhausted: FailoverSession = { ...session, status: "exhausted" };
-    return {
-      kind: "exhausted",
-      session: exhausted,
-      narration: {
-        phase: "exhausted",
-        cause,
-        triedCount: session.tried.length,
-        outcome: exhaustedOutcome(results, session.tried.length, cause),
-      },
-    };
-  }
-
   const candidate = chooseNextRelease(results, target, session.tried, verdicts);
   if (!candidate) {
     const exhausted: FailoverSession = { ...session, status: "exhausted" };

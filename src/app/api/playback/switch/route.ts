@@ -9,9 +9,9 @@
  *    player resumes where the viewer was, not at zero.
  *  - The old source is paused, never deleted, so switching is freely reversible.
  *
- * A manual choice is pinned: the automatic watchdog will still narrate a stall
- * on it but will not silently swap it away. The response is structured state
- * plus its rendered copy from the one presentation seam.
+ * A manual choice is recorded as the current preference, but a later failure
+ * still advances automatically. The response is structured state plus its
+ * rendered copy from the one presentation seam.
  */
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
@@ -69,6 +69,7 @@ export async function POST(request: Request) {
     mediaType: typeof body.mediaType === "string" ? body.mediaType : "tv",
     season: num(body.season),
     episode: num(body.episode),
+    preferredResolution: num(body.preferredResolution),
   };
   const contentKey = preRankKey(target);
 

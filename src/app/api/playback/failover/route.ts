@@ -80,6 +80,7 @@ export async function POST(request: Request) {
     mediaType: typeof body.mediaType === "string" ? body.mediaType : "tv",
     season: num(body.season),
     episode: num(body.episode),
+    preferredResolution: num(body.preferredResolution),
   };
   const contentKey = preRankKey(target);
 

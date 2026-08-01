@@ -80,6 +80,10 @@ export interface RetentionStorageUsage {
 /** How the disk figures in {@link RetentionStorageUsage} were arrived at. */
 export interface RetentionDiskScan {
   root: string;
+  status: "complete" | "partial" | "unavailable";
+  authoritative: boolean;
+  /** Bytes actually observed; a lower bound unless `authoritative` is true. */
+  observedBytes: number;
   trackedBytes: number;
   internalBytes: number;
   fileCount: number;
@@ -292,12 +296,15 @@ export async function getRetentionStorageUsage(
     budgetBytes: streamCacheBudgetForStorageCap(maxStorageBytes),
     graceMs: STREAM_CACHE_GRACE_MS,
     items,
-    diskBytes: inventory ? inventory.diskBytes : null,
-    orphanBytes: inventory ? inventory.orphanBytes : 0,
-    orphans: inventory ? inventory.orphans : [],
+    diskBytes: inventory?.authoritative ? inventory.diskBytes : null,
+    orphanBytes: inventory?.authoritative ? inventory.orphanBytes : 0,
+    orphans: inventory?.authoritative ? inventory.orphans : [],
     disk: inventory
       ? {
           root: inventory.root,
+          status: inventory.status,
+          authoritative: inventory.authoritative,
+          observedBytes: inventory.diskBytes,
           trackedBytes: inventory.trackedBytes,
           internalBytes: inventory.internalBytes,
           fileCount: inventory.fileCount,

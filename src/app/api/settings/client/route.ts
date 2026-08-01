@@ -23,6 +23,8 @@ import {
   getRetentionSettingsSnapshot,
   normalizeRetentionPolicy,
   writeDefaultRetentionPolicy,
+  RETENTION_POLICY_EPHEMERAL,
+  RETENTION_POLICY_KEPT,
   type RetentionPolicy,
 } from "@/lib/library/retention-settings";
 import {
@@ -30,6 +32,17 @@ import {
   invalidateTargetResolution,
 } from "@/lib/torrents/target-resolution";
 import { primaryDownloadRoot } from "@/lib/download/path-containment";
+import {
+  booleanField,
+  enumField,
+  numberField,
+  readMutationObject,
+  requestFailureResponse,
+  stringArrayField,
+  stringField,
+  stringRecordField,
+} from "@/lib/http/request";
+import { invalidateSearchCache } from "@/lib/torrents/search-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -72,8 +85,8 @@ function parseJsonRecord(
 ): Record<string, string> {
   if (!raw) return {};
   try {
-    const v = JSON.parse(raw) as Record<string, unknown>;
-    if (!v || typeof v !== "object") return {};
+    const v: unknown = JSON.parse(raw);
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
     const out: Record<string, string> = {};
     for (const [k, val] of Object.entries(v)) {
       if (typeof val === "string" && val.trim()) out[k] = val.trim();
@@ -208,8 +221,8 @@ function publicSettings(settings: {
     verboseDiagnostics: settings.verboseDiagnostics === true,
     preferredResolution:
       settings.preferredResolution != null &&
-      SELECTABLE_RESOLUTIONS.includes(
-        settings.preferredResolution as (typeof SELECTABLE_RESOLUTIONS)[number],
+      SELECTABLE_RESOLUTIONS.some(
+        (resolution) => resolution === settings.preferredResolution,
       )
         ? settings.preferredResolution
         : DEFAULT_TARGET_RESOLUTION,
@@ -261,7 +274,7 @@ export async function GET() {
     return NextResponse.json(
       {
         error: "Failed to load settings",
-        message: err instanceof Error ? err.message : String(err),
+        message: "Settings could not be loaded. Check the server logs for details.",
       },
       { status: 500 },
     );
@@ -275,43 +288,199 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let body: {
-      clientType?: string;
-      externalClientType?: string | null;
-      host?: string;
-      username?: string | null;
-      password?: string | null;
-      category?: string | null;
-      savePath?: string | null;
-      baseDownloadPath?: string | null;
-      /** Max download library size in GB (converted to maxStorageBytes). */
-      maxStorageGb?: number | null;
-      maxStorageBytes?: number | null;
-      /** Whether live playback should expose verbose diagnostics. */
-      verboseDiagnostics?: boolean;
-      /** Target vertical resolution for ranking: 480 | 720 | 1080 | 2160. */
-      preferredResolution?: number | null;
-      /** Minutes between automatic automation runs; 0 = off. */
-      automationIntervalMinutes?: number | null;
-      categories?: string[] | null;
-      pathRules?: Record<string, string> | null;
-      test?: boolean;
-      /** Which connection to test: primary or external */
-      testTarget?: "primary" | "external";
-      /** Default for new built-in primary sends: stream-only cache or permanent. */
-      defaultRetentionPolicy?: RetentionPolicy | string | null;
-      /** One-click: make builtin primary, keep current external creds */
-      switchToBuiltin?: boolean;
-    };
-
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
+    const parsedBody = await readMutationObject(request);
+    if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+    const fields = parsedBody.value;
+    const clientTypeInput = enumField(
+      fields,
+      "clientType",
+      ["qbittorrent", "transmission", "builtin"] as const,
+    );
+    if (!clientTypeInput.ok) return requestFailureResponse(clientTypeInput);
+    const externalInput = stringField(fields, "externalClientType", {
+      nullable: true,
+      maxLength: 32,
+    });
+    if (!externalInput.ok) return requestFailureResponse(externalInput);
+    if (
+      externalInput.value != null &&
+      externalInput.value !== "" &&
+      externalInput.value !== "none" &&
+      externalInput.value !== "qbittorrent" &&
+      externalInput.value !== "transmission"
+    ) {
       return NextResponse.json(
-        { error: "Invalid JSON body" },
+        { error: "Invalid externalClientType", field: "externalClientType" },
         { status: 400 },
       );
     }
+    const host = stringField(fields, "host", { maxLength: 2048 });
+    if (!host.ok) return requestFailureResponse(host);
+    if (host.value) {
+      try {
+        const url = new URL(host.value);
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+          return NextResponse.json(
+            { error: "host must use http or https", field: "host" },
+            { status: 400 },
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { error: "host must be a valid URL", field: "host" },
+          { status: 400 },
+        );
+      }
+    }
+    const username = stringField(fields, "username", { nullable: true, maxLength: 500 });
+    if (!username.ok) return requestFailureResponse(username);
+    const passwordInput = stringField(fields, "password", {
+      nullable: true,
+      trim: false,
+      maxLength: 4096,
+    });
+    if (!passwordInput.ok) return requestFailureResponse(passwordInput);
+    const categoryInput = stringField(fields, "category", { nullable: true, maxLength: 100 });
+    if (!categoryInput.ok) return requestFailureResponse(categoryInput);
+    const savePathInput = stringField(fields, "savePath", { nullable: true, maxLength: 4096 });
+    if (!savePathInput.ok) return requestFailureResponse(savePathInput);
+    const baseDownloadPathInput = stringField(fields, "baseDownloadPath", {
+      nullable: true,
+      maxLength: 4096,
+    });
+    if (!baseDownloadPathInput.ok) return requestFailureResponse(baseDownloadPathInput);
+    for (const [field, value] of [
+      ["savePath", savePathInput.value],
+      ["baseDownloadPath", baseDownloadPathInput.value],
+    ] as const) {
+      if (value?.includes("\0")) {
+        return NextResponse.json(
+          { error: `${field} contains an invalid null character`, field },
+          { status: 400 },
+        );
+      }
+    }
+    const maxStorageGb = numberField(fields, "maxStorageGb", {
+      nullable: true,
+      min: 0,
+      max: Number.MAX_SAFE_INTEGER / 1e9,
+    });
+    if (!maxStorageGb.ok) return requestFailureResponse(maxStorageGb);
+    const maxStorageBytesInput = numberField(fields, "maxStorageBytes", {
+      nullable: true,
+      integer: true,
+      min: 0,
+      max: Number.MAX_SAFE_INTEGER,
+    });
+    if (!maxStorageBytesInput.ok) return requestFailureResponse(maxStorageBytesInput);
+    if (maxStorageGb.value !== undefined && maxStorageBytesInput.value !== undefined) {
+      return NextResponse.json(
+        { error: "Provide maxStorageGb or maxStorageBytes, not both" },
+        { status: 400 },
+      );
+    }
+    const verboseDiagnosticsInput = booleanField(fields, "verboseDiagnostics");
+    if (!verboseDiagnosticsInput.ok) return requestFailureResponse(verboseDiagnosticsInput);
+    const preferredResolutionInput = numberField(fields, "preferredResolution", {
+      nullable: true,
+      integer: true,
+    });
+    if (!preferredResolutionInput.ok) return requestFailureResponse(preferredResolutionInput);
+    if (
+      preferredResolutionInput.value != null &&
+      !SELECTABLE_RESOLUTIONS.some(
+        (resolution) => resolution === preferredResolutionInput.value,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: `preferredResolution must be one of: ${SELECTABLE_RESOLUTIONS.join(", ")}`,
+          field: "preferredResolution",
+        },
+        { status: 400 },
+      );
+    }
+    const automationIntervalInput = numberField(fields, "automationIntervalMinutes", {
+      nullable: true,
+      integer: true,
+      min: 0,
+    });
+    if (!automationIntervalInput.ok) return requestFailureResponse(automationIntervalInput);
+    if (
+      automationIntervalInput.value != null &&
+      !AUTOMATION_INTERVAL_CHOICES.some(
+        (minutes) => minutes === automationIntervalInput.value,
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: `automationIntervalMinutes must be one of: ${AUTOMATION_INTERVAL_CHOICES.join(", ")}`,
+          field: "automationIntervalMinutes",
+        },
+        { status: 400 },
+      );
+    }
+    const categories = stringArrayField(fields, "categories", {
+      nullable: true,
+      maxItems: 64,
+      maxItemLength: 100,
+    });
+    if (!categories.ok) return requestFailureResponse(categories);
+    const pathRules = stringRecordField(fields, "pathRules", {
+      nullable: true,
+      maxEntries: 64,
+      maxKeyLength: 100,
+      maxValueLength: 4096,
+    });
+    if (!pathRules.ok) return requestFailureResponse(pathRules);
+    if (
+      pathRules.value &&
+      Object.values(pathRules.value).some((value) => value.includes("\0"))
+    ) {
+      return NextResponse.json(
+        { error: "pathRules contains an invalid null character", field: "pathRules" },
+        { status: 400 },
+      );
+    }
+    const test = booleanField(fields, "test");
+    if (!test.ok) return requestFailureResponse(test);
+    const testTarget = enumField(fields, "testTarget", ["primary", "external"] as const);
+    if (!testTarget.ok) return requestFailureResponse(testTarget);
+    const retentionInput = enumField(
+      fields,
+      "defaultRetentionPolicy",
+      [
+        RETENTION_POLICY_EPHEMERAL,
+        RETENTION_POLICY_KEPT,
+        "STREAM",
+        "KEEP",
+      ] as const,
+      { nullable: true },
+    );
+    if (!retentionInput.ok) return requestFailureResponse(retentionInput);
+    const switchToBuiltin = booleanField(fields, "switchToBuiltin");
+    if (!switchToBuiltin.ok) return requestFailureResponse(switchToBuiltin);
+    const body = {
+      clientType: clientTypeInput.value,
+      externalClientType: externalInput.value,
+      host: host.value,
+      username: username.value,
+      password: passwordInput.value,
+      category: categoryInput.value,
+      savePath: savePathInput.value,
+      baseDownloadPath: baseDownloadPathInput.value,
+      maxStorageGb: maxStorageGb.value,
+      maxStorageBytes: maxStorageBytesInput.value,
+      verboseDiagnostics: verboseDiagnosticsInput.value,
+      preferredResolution: preferredResolutionInput.value,
+      automationIntervalMinutes: automationIntervalInput.value,
+      categories: categories.value,
+      pathRules: pathRules.value,
+      test: test.value,
+      testTarget: testTarget.value,
+      defaultRetentionPolicy: retentionInput.value,
+      switchToBuiltin: switchToBuiltin.value,
+    };
 
     const existing = await prisma.clientSettings.findUnique({
       where: { userId: session.user.id },
@@ -484,11 +653,8 @@ export async function PUT(request: NextRequest) {
     // make every release "above target" and quietly invert the ordering.
     let preferredResolution: number | null | undefined;
     if (body.preferredResolution !== undefined) {
-      preferredResolution = SELECTABLE_RESOLUTIONS.includes(
-        body.preferredResolution as (typeof SELECTABLE_RESOLUTIONS)[number],
-      )
-        ? body.preferredResolution
-        : DEFAULT_TARGET_RESOLUTION;
+      preferredResolution =
+        body.preferredResolution ?? DEFAULT_TARGET_RESOLUTION;
     }
 
     let automationIntervalMinutes: number | undefined;
@@ -560,7 +726,19 @@ export async function PUT(request: NextRequest) {
 
     // Ranking reads this through a short-lived memo; without this the user
     // would change the quality target, hit Search, and see the old order.
+    const targetResolutionChanged =
+      preferredResolution !== undefined &&
+      preferredResolution !==
+        (existing?.preferredResolution ?? DEFAULT_TARGET_RESOLUTION);
     invalidateTargetResolution();
+    if (targetResolutionChanged) {
+      const invalidation = await invalidateSearchCache();
+      if (!invalidation.persistedCleared) {
+        console.warn(
+          "[settings/client PUT] target changed but persisted search cache cleanup failed",
+        );
+      }
+    }
 
     // The in-process engine keeps running until it is told to stop. Leaving it
     // alive after the user moves to an external client means torrents that no
@@ -590,11 +768,20 @@ export async function PUT(request: NextRequest) {
           settings.storageCapConfigured === true
             ? settings.maxStorageBytes
             : null;
+        const storedClientType =
+          settings.clientType === "qbittorrent" ||
+          settings.clientType === "transmission" ||
+          settings.clientType === "builtin"
+            ? settings.clientType
+            : "builtin";
+        const storedExternalType =
+          settings.externalClientType === "qbittorrent" ||
+          settings.externalClientType === "transmission"
+            ? settings.externalClientType
+            : null;
         const base: ClientConnectionConfig = {
-          clientType: settings.clientType as ClientConnectionConfig["clientType"],
-          externalClientType:
-            (settings.externalClientType as ClientConnectionConfig["externalClientType"]) ??
-            null,
+          clientType: storedClientType,
+          externalClientType: storedExternalType,
           host: settings.host,
           username: settings.username,
           password: decryptSecret(settings.password),
@@ -613,10 +800,10 @@ export async function PUT(request: NextRequest) {
             : base;
         testResult = await testClientConnection(config);
       } catch (err) {
+        console.warn("[settings/client PUT] connection test failed:", err);
         testResult = {
           ok: false,
-          message:
-            err instanceof Error ? err.message : "Connection test failed",
+          message: "Connection test failed. Verify the host and credentials.",
         };
       }
     }
@@ -633,7 +820,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Failed to save settings",
-        message: err instanceof Error ? err.message : String(err),
+        message: "Settings could not be saved. Check the server logs for details.",
       },
       { status: 500 },
     );

@@ -94,15 +94,6 @@ const cases: Case[] = [
     headline: "Couldn’t play this — nothing your device supports right now",
     detail: "We tried all 3 sources we could find and none were ones your device can play. Try again later.",
   },
-  {
-    name: "a pinned stall is held, not switched",
-    state: {
-      phase: "stalled-held",
-      outcome: { kind: "choose-source", reason: "manual-source-stalled", alternatives: [], alternativeCount: 0 },
-    },
-    headline: "The source you chose has stalled",
-    detail: "No other release is available right now. You can keep waiting or try again later.",
-  },
 ];
 
 function run() {

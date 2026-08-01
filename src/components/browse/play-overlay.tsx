@@ -14,7 +14,11 @@ export interface PlayOverlayProps {
    */
   infoHash: string | null;
   title: string;
+  /** Legacy callers may provide an episode code here. */
   subtitle?: string | null;
+  episodeTitle?: string | null;
+  season?: number | null;
+  episode?: number | null;
   /**
    * The work's release year, when the opener knows it. Passed straight through
    * to the player so the quality selector can tell this film from every other
@@ -46,16 +50,15 @@ export function PlayOverlay({
   infoHash,
   title,
   subtitle,
+  episodeTitle,
+  season,
+  episode,
   year,
   resumePositionSec,
   onClose,
 }: PlayOverlayProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
-
-  // Task 5: parse the subtitle (e.g. "S01E01" or "Season 1, Episode 1") so the
-  // player can show the show name on the title line and the episode code on the
-  // subtitle line, instead of displaying the episode code twice.
-  const parsedEp = useMemo(
+  const parsedEpisode = useMemo(
     () => (subtitle ? parseEpisode(subtitle) : null),
     [subtitle],
   );
@@ -159,9 +162,10 @@ export function PlayOverlay({
         <InlineStreamPlayer
           infoHash={infoHash}
           title={title}
+          episodeTitle={episodeTitle}
           year={year}
-          season={parsedEp?.season ?? undefined}
-          episode={parsedEp?.episode ?? undefined}
+          season={season ?? parsedEpisode?.season}
+          episode={episode ?? parsedEpisode?.episode}
           resumeSec={resumePositionSec ?? undefined}
           chrome="theatre"
           className="min-h-0"

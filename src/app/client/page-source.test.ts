@@ -40,6 +40,17 @@ check("client page does not poll from a fixed interval", () => {
   assert.match(source, /startVisiblePoller/);
 });
 
+check("client rows are keyboard-selectable with named progress", () => {
+  assert.match(source, /role="button"\s+tabIndex=\{0\}\s+aria-pressed=\{isSelected\}/);
+  assert.match(source, /e\.key === "Enter" \|\| e\.key === " "/);
+  assert.match(source, /aria-label=\{`\$\{display\.title\} download progress`\}/);
+});
+
+check("destructive dialogs restore their opener", () => {
+  assert.match(source, /deleteOpenerRef/);
+  assert.match(source, /requestAnimationFrame\(\(\) => opener\.focus\(\)\)/);
+});
+
 if (process.exitCode) {
   console.error("\nFAIL — client page source shape regressed");
 } else {

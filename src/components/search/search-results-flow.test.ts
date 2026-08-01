@@ -49,35 +49,17 @@ console.log("search-results-flow: TMDB title discovery, click-only cards…");
 // ---------------------------------------------------------------------------
 // Title discovery API — not torrent grouping
 // ---------------------------------------------------------------------------
-check("the Films & TV scope still searches TMDB, never the indexers", () => {
-  // The rule this has always protected: typing a film name must not fire a
-  // torrent search on every keystroke. That rule is unchanged and still
-  // load-bearing — it is why the film flow is fast and why the shared indexer
-  // budget is not spent on discovery.
-  //
-  // What HAS changed is its scope. Music, games, software and books have no
-  // metadata provider behind them, so for those the indexers are the only
-  // source and searching them is correct.
-  //
-  // The URL choice now lives in `search-overlay-state.ts`, and the *behaviour*
-  // — that a films search carries no category and a music search does — is
-  // asserted directly in `search-overlay-state.test.ts`, which can call the
-  // function instead of reading around it. What source inspection is still good
-  // for is the structural half: the overlay must delegate rather than grow a
-  // second copy of either URL, because a hand-built fetch is exactly how the
-  // film path would quietly regain an indexer call.
+check("every product category searches title providers, never indexers", () => {
   assert.match(overlayState, /\/api\/search\/titles/);
+  assert.doesNotMatch(overlayState, /\/api\/search\?/);
   assert.doesNotMatch(overlay, /fetch\(`\/api\/search/);
   assert.doesNotMatch(overlay, /fetch\("\/api\/search/);
   assert.match(overlay, /searchRequestFor/);
   assert.doesNotMatch(overlay, /groupTitles/);
 });
 
-check("non-film scopes reach the aggregator with their own category", () => {
-  // The other half of the same rule: a scope that has no TMDB record must not
-  // silently fall back to a film search, which would return films for "daft
-  // punk" and look like the feature simply does not work.
-  assert.match(overlayState, /category: scope\.category/);
+check("title requests carry the durable product category", () => {
+  assert.match(overlayState, /category:\s*scopeId/);
 });
 
 check("search-results fetches /api/search/titles", () => {
@@ -86,8 +68,9 @@ check("search-results fetches /api/search/titles", () => {
   assert.match(searchResults, /TitleResultsList/);
 });
 
-check("titles API calls searchTmdb only", () => {
-  assert.match(titlesApi, /searchTmdb/);
+check("titles API calls scoped TMDB and AniList only", () => {
+  assert.match(titlesApi, /searchTmdbByType/);
+  assert.match(titlesApi, /searchAniListWorks/);
   assert.doesNotMatch(titlesApi, /searchTorrents/);
 });
 
@@ -151,6 +134,12 @@ check("a best-match card is marked featured", () => {
 check("the card body is a link to the title page", () => {
   assert.match(titleCard, /data-card-target="title"/);
   assert.match(titleCard, /href=\{title\.href\}/);
+});
+
+check("the overlay lets title links navigate before it closes", () => {
+  assert.doesNotMatch(overlay, /onClick=\{onResultsClick\}/);
+  assert.match(overlay, /usePathname/);
+  assert.match(overlay, /window\.location\.pathname === "\/search"/);
 });
 
 check("search cards have no Play / Download / Releases", () => {

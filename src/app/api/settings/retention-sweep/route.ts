@@ -7,6 +7,12 @@ import { STORAGE_SETUP_REQUIRED_MESSAGE } from "@/lib/library/disk-space";
 import { getRetentionStorageUsage } from "@/lib/library/retention-settings";
 import { sweepRetentionCache } from "@/lib/library/retention-sweep";
 import { streamCacheBudgetForStorageCap } from "@/lib/streaming/retention";
+import {
+  enumField,
+  numberField,
+  readMutationObject,
+  requestFailureResponse,
+} from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
@@ -17,15 +23,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let body: {
-      mode?: "preview" | "delete";
-      budgetBytes?: number | null;
-    } = {};
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      body = {};
-    }
+    const parsedBody = await readMutationObject(request, 16 * 1024);
+    if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+    const mode = enumField(parsedBody.value, "mode", ["preview", "delete"] as const);
+    if (!mode.ok) return requestFailureResponse(mode);
+    const budgetBytes = numberField(parsedBody.value, "budgetBytes", {
+      nullable: true,
+      integer: true,
+      min: 1,
+      max: Number.MAX_SAFE_INTEGER,
+    });
+    if (!budgetBytes.ok) return requestFailureResponse(budgetBytes);
 
     const config = await getUserClientConfig(session.user.id);
     if (!config) {
@@ -47,12 +55,10 @@ export async function POST(request: NextRequest) {
     const result = await sweepRetentionCache({
       userId: session.user.id,
       config,
-      mode: body.mode === "delete" ? "delete" : "preview",
+      mode: mode.value === "delete" ? "delete" : "preview",
       budgetBytes:
-        body.budgetBytes != null &&
-        Number.isFinite(body.budgetBytes) &&
-        body.budgetBytes > 0
-          ? body.budgetBytes
+        budgetBytes.value != null
+          ? budgetBytes.value
           : configuredBudget,
     });
 
@@ -73,7 +79,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Failed to run retention sweep",
-        message: err instanceof Error ? err.message : String(err),
+        message: "The retention sweep failed. Check the server logs for details.",
       },
       { status: 500 },
     );

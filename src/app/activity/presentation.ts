@@ -35,3 +35,57 @@ export function activityKindLabel(item: {
 }): string | null {
   return clean(item.context) ?? formatActivityKind(item.kind);
 }
+
+export const ACTIVITY_BATCH_SIZE = 20;
+
+export function boundedActivityItems<T>(
+  items: readonly T[],
+  limit = ACTIVITY_BATCH_SIZE,
+): T[] {
+  return items.slice(0, Math.max(0, limit));
+}
+
+export type ActivityDayGroup<T> = {
+  key: string;
+  label: string;
+  items: T[];
+};
+
+/** Group newest-first activity into scannable day sections. */
+export function groupActivityByDay<T extends { createdAt: string }>(
+  items: readonly T[],
+  now = new Date(),
+): ActivityDayGroup<T>[] {
+  const todayKey = localDateKey(now);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = localDateKey(yesterday);
+  const groups = new Map<string, ActivityDayGroup<T>>();
+
+  for (const item of items) {
+    const date = new Date(item.createdAt);
+    const valid = Number.isFinite(date.getTime());
+    const key = valid ? localDateKey(date) : "unknown";
+    const label =
+      key === todayKey
+        ? "Today"
+        : key === yesterdayKey
+          ? "Yesterday"
+          : valid
+            ? date.toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: date.getFullYear() === now.getFullYear() ? undefined : "numeric",
+              })
+            : "Earlier";
+    const group = groups.get(key) ?? { key, label, items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()];
+}
+
+function localDateKey(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}

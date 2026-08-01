@@ -16,6 +16,20 @@ files into a smart library path**. Single user, no sign-in, bound to
 
 The whole product is that pipeline. Every module below is one stage of it.
 
+### Request boundary and deployment model
+
+TorrentFlow remains a one-process, local single-user application. It may be
+reached directly over loopback, through a private VPN, or through a reverse
+proxy, but forwarded headers are never authentication inputs.
+
+Mutation routes using `src/lib/http/request.ts` apply a browser-only origin
+check before parsing JSON. Browser requests classified `cross-site` are
+rejected; `same-origin` is accepted (including a correctly configured reverse
+proxy), and `same-site` must carry an `Origin` exactly matching the request
+origin. Requests without Fetch Metadata remain compatible with curl,
+server-to-server callers, and non-browser test clients. JSON media type, byte
+limits, and scalar/array bounds are then validated before any side effect.
+
 ```
  UI (/search)                    automation (scheduled or manual)
       │                                        │

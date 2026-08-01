@@ -4,6 +4,7 @@ import type {
   TorrentSourceAdapter,
 } from "../types";
 import { extractTags } from "../ranking";
+import { indexerTimeoutSignal } from "./timeouts";
 
 const BASE = process.env.APIBAY_BASE_URL ?? "https://apibay.org";
 
@@ -32,7 +33,7 @@ export class ApiBayAdapter implements TorrentSourceAdapter {
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         Accept: "application/json, text/plain, */*",
       },
-      signal: AbortSignal.timeout(12_000),
+      signal: indexerTimeoutSignal(),
       next: { revalidate: 0 },
     });
 

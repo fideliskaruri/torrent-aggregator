@@ -7,6 +7,12 @@ import type {
 import { extractTags } from "../ranking";
 import { parseSizeToBytes } from "@/lib/utils";
 import { fetchWithBrowser } from "../browser";
+import {
+  X1337_BROWSER_TIMEOUT_MS,
+  X1337_DETAIL_TIMEOUT_MS,
+  X1337_SEARCH_TIMEOUT_MS,
+  indexerTimeoutSignal,
+} from "./timeouts";
 
 const BASE = process.env.X1337_BASE_URL ?? "https://1337x.to";
 
@@ -85,7 +91,7 @@ export class X1337Adapter implements TorrentSourceAdapter {
     try {
       const res = await fetch(url, {
         headers: defaultHeaders(),
-        signal: AbortSignal.timeout(14_000),
+        signal: indexerTimeoutSignal(X1337_SEARCH_TIMEOUT_MS),
         next: { revalidate: 0 },
       });
 
@@ -126,7 +132,7 @@ export class X1337Adapter implements TorrentSourceAdapter {
 
     // 2) Playwright (opt-in) — still often stuck on CF managed challenge
     const browserResult = await fetchWithBrowser(url, {
-      timeoutMs: 40_000,
+      timeoutMs: X1337_BROWSER_TIMEOUT_MS,
       waitForSelector: "table.table-list tbody tr",
     });
 
@@ -217,7 +223,7 @@ async function fetchDetail(detailPath: string): Promise<{
   const url = detailPath.startsWith("http") ? detailPath : `${BASE}${detailPath}`;
   const res = await fetch(url, {
     headers: defaultHeaders(),
-    signal: AbortSignal.timeout(10_000),
+    signal: indexerTimeoutSignal(X1337_DETAIL_TIMEOUT_MS),
     next: { revalidate: 0 },
   });
   if (!res.ok) return {};

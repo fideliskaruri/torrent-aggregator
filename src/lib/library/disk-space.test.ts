@@ -13,6 +13,7 @@ import {
   formatBytesShort,
   getDirectorySizeBytes,
   getDirectorySizeBytesAsync,
+  measureDirectorySize,
   gbToBytes,
   resetDirectorySizeCache,
 } from "./disk-space";
@@ -156,6 +157,36 @@ async function main() {
         Array.from({ length: 5 }, () => getDirectorySizeBytesAsync(cached)),
       );
       assert.deepEqual(answers, [200, 200, 200, 200, 200]);
+
+      resetDirectorySizeCache();
+      const partial = await measureDirectorySize(cached, {
+        maxFiles: 1,
+        ttlMs: 0,
+      });
+      assert.equal(partial.status, "partial");
+      assert.equal(partial.filesScanned, 1);
+
+      const unavailable = await measureDirectorySize(
+        path.join(root, "missing-again"),
+        { ttlMs: 0 },
+      );
+      assert.deepEqual(unavailable, {
+        bytes: 0,
+        status: "unavailable",
+        filesScanned: 0,
+      });
+
+      const blockedUnknown = await assertStorageBudget({
+        root: cached,
+        maxStorageBytes: 10_000,
+        incomingBytes: 1,
+        _getFreeSpace: async () => ({ ok: true, freeBytes: 10_000 }),
+        _getDirectorySize: async () => partial,
+      });
+      assert.equal(blockedUnknown.ok, false);
+      if (blockedUnknown.ok) throw new Error("unreachable");
+      assert.equal(blockedUnknown.limit, "inventory");
+      assert.match(blockedUnknown.message, /incomplete|undercount/i);
     } finally {
       resetDirectorySizeCache();
       fs.rmSync(root, { recursive: true, force: true });

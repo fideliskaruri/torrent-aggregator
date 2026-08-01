@@ -14,45 +14,46 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RetentionPanel } from "@/components/settings/retention-panel";
+import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
-import { FirstRunSetup } from "./first-run-setup";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { TfPageHeader } from "@/components/tf/page-header";
-import { TfErrorState } from "@/components/tf/error-state";
-import { cn } from "@/lib/utils";
-import { STORAGE_CAP_FOCUS_PARAM } from "@/lib/library/storage-override";
 import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import { TfErrorState } from "@/components/tf/error-state";
+import { TfPageHeader } from "@/components/tf/page-header";
+import { cn } from "@/lib/utils";
+import { STORAGE_CAP_FOCUS_PARAM } from "@/lib/library/storage-override";
 import {
   detectUnsafeDownloadPath,
   unsafeDownloadPathMessage,
   type UnsafeDownloadPathReason,
 } from "./download-path-safety";
 
-interface ClientForm {
-  clientType: "qbittorrent" | "transmission" | "builtin";
-  /** Optional secondary for "Send to my client" when primary is built-in */
-  externalClientType: "qbittorrent" | "transmission" | "";
+type ClientType = "qbittorrent" | "transmission" | "builtin";
+type ExternalClientType = Exclude<ClientType, "builtin">;
+type RetentionPolicy = "EPHEMERAL" | "KEPT";
+
+export interface ClientForm {
+  clientType: ClientType;
+  externalClientType: ExternalClientType | "";
   host: string;
   username: string;
   password: string;
   category: string;
   savePath: string;
   baseDownloadPath: string;
-  /** Max total size of download library in GB (automatic hard cap). */
   maxStorageGb: string;
-  /** Target vertical resolution for ranking: 480 | 720 | 1080 | 2160. */
   preferredResolution: number;
-  /** Minutes between automatic watchlist runs; 0 = never. */
   automationIntervalMinutes: number;
-  /** Show extra playback diagnostics for troubleshooting. */
   verboseDiagnostics: boolean;
+  defaultRetentionPolicy: RetentionPolicy;
   categories: string[];
   pathRules: Record<string, string>;
 }
@@ -65,97 +66,51 @@ interface DownloadPathWarning {
   message: string;
 }
 
-type SettingsTab = "connection" | "folders" | "categories";
-
-const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "connection", label: "Connection" },
-  { id: "folders", label: "Downloads" },
-  { id: "categories", label: "Categories" },
-];
-
 export const PRIMARY_DOWNLOAD_CLIENT_OPTIONS = [
   {
     value: "builtin",
-    label: "Play in TorrentFlow",
+    label: "TorrentFlow built-in",
     stance: "recommended",
-    hint: "Starts playback in the browser and keeps downloads available without another app.",
+    hint: "Ready to watch in the browser. No other app or connection details needed.",
   },
   {
     value: "qbittorrent",
-    label: "Use qBittorrent instead",
+    label: "qBittorrent",
     stance: "advanced",
-    hint: "Advanced: new sends depend on qBittorrent being open and reachable.",
+    hint: "Requires qBittorrent to be running and reachable.",
   },
   {
     value: "transmission",
-    label: "Use Transmission instead",
+    label: "Transmission",
     stance: "advanced",
-    hint: "Advanced: new sends depend on Transmission being open and reachable.",
+    hint: "Requires Transmission to be running and reachable.",
   },
 ] as const;
 
-const EXTERNAL_CLIENT_OPTIONS = [
-  ["", "Do not send elsewhere"],
-  ["qbittorrent", "Also send to qBittorrent"],
-  ["transmission", "Also send to Transmission"],
+const QUALITY_CHOICES = [
+  { value: 480, label: "480p", hint: "Small files" },
+  { value: 720, label: "720p", hint: "Balanced" },
+  { value: 1080, label: "1080p", hint: "Recommended" },
+  { value: 2160, label: "4K", hint: "Largest files" },
 ] as const;
 
-/**
- * Quality is a *target*, not a floor — nothing is ever rejected for its
- * resolution, so no choice here can starve a monitored show. The hints say what
- * actually happens rather than just naming a number, because the previous
- * behaviour (silently grabbing 480p) was invisible precisely because nothing
- * ever stated the rule.
- */
-const QUALITY_CHOICES: {
-  value: number;
-  label: string;
-  hint: string;
-}[] = [
+const FILE_BEHAVIOR_OPTIONS = [
   {
-    value: 480,
-    label: "480p",
-    hint: "Smallest files. Anything larger is only picked when no 480p exists.",
+    value: "EPHEMERAL",
+    label: "Delete temporary streams when space is needed",
   },
   {
-    value: 720,
-    label: "720p",
-    hint: "Prefers 720p, falls back to 480p before ever taking 1080p or 4K.",
+    value: "KEPT",
+    label: "Keep new downloads until I remove them",
   },
-  {
-    value: 1080,
-    label: "1080p",
-    hint: "Prefers 1080p, falls back to 720p then 480p, and takes 4K only as a last resort.",
-  },
-  {
-    value: 2160,
-    label: "4K",
-    hint: "Prefers 2160p. Expect 15–60 GB per file and much longer downloads.",
-  },
-];
+] as const;
 
-/**
- * How often the server may check the watchlist on its own.
- *
- * Off is first and is the default: a timer that downloads files while nobody
- * is watching should be something the user turns on, not something they
- * discover afterwards. Nothing under 15 minutes — episodes do not appear that
- * fast and indexers ban IPs that poll.
- */
-const AUTOMATION_INTERVAL_CHOICES: { value: number; label: string }[] = [
-  { value: 0, label: "Off" },
-  { value: 30, label: "30m" },
-  { value: 120, label: "2h" },
-  { value: 360, label: "6h" },
-];
-
-const SETUP_DISMISSED_KEY = "torrentflow:first-run-setup-dismissed";
-
-function formatInterval(minutes: number): string {
-  if (minutes < 60) return `${minutes} minutes`;
-  const hours = minutes / 60;
-  return hours === 1 ? "hour" : `${hours} hours`;
-}
+const AUTOMATION_INTERVAL_CHOICES = [
+  { value: 0, label: "Only when I run it" },
+  { value: 30, label: "Every 30 minutes" },
+  { value: 120, label: "Every 2 hours" },
+  { value: 360, label: "Every 6 hours" },
+] as const;
 
 const EMPTY_FORM: ClientForm = {
   clientType: "builtin",
@@ -170,6 +125,7 @@ const EMPTY_FORM: ClientForm = {
   preferredResolution: 1080,
   automationIntervalMinutes: 0,
   verboseDiagnostics: false,
+  defaultRetentionPolicy: "EPHEMERAL",
   categories: [
     "Anime",
     "Movies",
@@ -183,12 +139,10 @@ const EMPTY_FORM: ClientForm = {
   pathRules: {},
 };
 
-/** Client-side join for path previews (mirrors joinDownloadPath). */
 function joinBase(base: string, category: string): string {
-  const b = base.replace(/[/\\]+$/, "");
-  if (!b) return "";
-  const sep = b.includes("\\") ? "\\" : "/";
-  return `${b}${sep}${category}`;
+  const clean = base.replace(/[/\\]+$/, "");
+  if (!clean) return "";
+  return `${clean}${clean.includes("\\") ? "\\" : "/"}${category}`;
 }
 
 function effectiveCategoryPath(
@@ -202,93 +156,91 @@ function effectiveCategoryPath(
   return savePath.trim();
 }
 
-function parseSettingsTab(value: string | null): SettingsTab | null {
-  if (value === "connection" || value === "folders" || value === "categories") {
-    return value;
-  }
-  return null;
+export function parseSettingsTab(
+  value: string | null,
+): "connection" | "folders" | "categories" | null {
+  return value === "connection" || value === "folders" || value === "categories"
+    ? value
+    : null;
 }
 
 export default function SettingsPage() {
   const [form, setForm] = useState<ClientForm>(EMPTY_FORM);
+  const [savedForm, setSavedForm] = useState<ClientForm>(EMPTY_FORM);
   const [hasPassword, setHasPassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [newCategory, setNewCategory] = useState("");
+  const [pathsExpanded, setPathsExpanded] = useState(false);
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<
     "base" | "savePath" | string | null
   >(null);
-  const [message, setMessage] = useState<{
-    ok: boolean;
-    text: string;
-  } | null>(null);
-  const [tab, setTab] = useState<SettingsTab>("connection");
-  const [pathsExpanded, setPathsExpanded] = useState(false);
-  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [setupComplete, setSetupComplete] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [setupBrowsing, setSetupBrowsing] = useState(false);
-  const [setupSaving, setSetupSaving] = useState(false);
-  const [setupError, setSetupError] = useState<string | null>(null);
   const [persistedPathWarnings, setPersistedPathWarnings] = useState<
     DownloadPathWarning[]
   >([]);
-  /** Connection test succeeded — cleared when connection fields change */
   const [connectionOk, setConnectionOk] = useState(false);
-  const showLoading = useStableLoading(loading && !loadError);
-  /**
-   * `?focus=cap` — arriving from the over-cap confirmation. Landing on the page
-   * is not enough: the owner pressed "Raise the cap", so the caret belongs in
-   * the cap field, not wherever the tab happens to start.
-   */
   const [pendingCapFocus, setPendingCapFocus] = useState(false);
   const capInputRef = useRef<HTMLInputElement | null>(null);
+  const legacyTargetRef = useRef<"connection" | "folders" | "categories" | null>(
+    null,
+  );
+  const showLoading = useStableLoading(loading && !loadError);
 
-  // Deep-link: ?tab=connection|folders|categories
+  const isDirty = useMemo(
+    () => JSON.stringify(form) !== JSON.stringify(savedForm),
+    [form, savedForm],
+  );
+  const externalEnabled =
+    form.clientType !== "builtin" || Boolean(form.externalClientType);
+  const externalMode = form.clientType === "builtin" ? "copy" : "instead";
+  const externalKind: ExternalClientType =
+    form.clientType === "builtin"
+      ? form.externalClientType || "qbittorrent"
+      : form.clientType;
+
   useEffect(() => {
-    if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    const fromUrl = parseSettingsTab(params.get("tab"));
-    if (fromUrl) {
-      // The URL is an external store; syncing the active tab on mount belongs in an effect.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setTab(fromUrl);
-    }
+    const target = parseSettingsTab(params.get("tab"));
+    legacyTargetRef.current = target;
+    // The query string is an external navigation source.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (target === "categories") setAdvancedOpen(true);
     if (params.get("focus") === STORAGE_CAP_FOCUS_PARAM) {
       setPendingCapFocus(true);
     }
   }, []);
 
-  // The field does not exist until the folders tab has rendered its loaded
-  // state, so this waits for the ref rather than firing once on mount.
   useEffect(() => {
-    if (!pendingCapFocus) return;
-    const el = capInputRef.current;
-    if (!el) return;
-    el.focus();
-    el.select();
+    if (!pendingCapFocus || loading || !capInputRef.current) return;
+    capInputRef.current.focus();
+    capInputRef.current.select();
     setPendingCapFocus(false);
-  }, [pendingCapFocus, tab, loading]);
+  }, [pendingCapFocus, loading]);
 
-  function selectTab(next: SettingsTab) {
-    setTab(next);
-    if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    if (next === "connection") {
-      url.searchParams.delete("tab");
-    } else {
-      url.searchParams.set("tab", next);
-    }
-    const nextPath = url.pathname + (url.search || "");
-    window.history.replaceState(null, "", nextPath);
-  }
-
-  function touchForm() {
-    setConnectionOk(false);
-  }
+  useEffect(() => {
+    if (loading) return;
+    const target = legacyTargetRef.current;
+    if (!target) return;
+    legacyTargetRef.current = null;
+    const id =
+      target === "connection"
+        ? "download-app"
+        : target === "categories"
+          ? "advanced-categories"
+          : "downloads";
+    window.requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ block: "start" });
+    });
+  }, [loading, advancedOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -297,94 +249,65 @@ export default function SettingsPage() {
       try {
         const res = await fetch("/api/settings/client");
         if (!res.ok) {
-          // Prefer the API's own explanation over a bare status code; it is
-          // the only part of a failure the user can act on.
-          let detail = "";
-          try {
-            const body = (await res.json()) as { error?: unknown };
-            if (typeof body?.error === "string") detail = body.error;
-          } catch {
-            // Non-JSON error body. The status line is all we have.
-          }
-          throw new Error(detail || `Request failed (${res.status})`);
-        }
-        const raw = await res.text();
-        if (!raw.trim()) return;
-        const data = JSON.parse(raw) as {
-          settings?: {
-            clientType?: "qbittorrent" | "transmission" | "builtin";
-            externalClientType?: "qbittorrent" | "transmission" | null;
-            host?: string;
-            username?: string | null;
-            category?: string | null;
-            savePath?: string | null;
-            baseDownloadPath?: string | null;
-            maxStorageGb?: number | null;
-            storageCapConfigured?: boolean;
-            setupComplete?: boolean;
-            verboseDiagnostics?: boolean;
-            preferredResolution?: number | null;
-            automationIntervalMinutes?: number | null;
-            categories?: string[];
-            pathRules?: Record<string, string>;
-            pathWarnings?: DownloadPathWarning[];
-            hasPassword?: boolean;
+          const body = (await res.json().catch(() => null)) as {
+            error?: string;
           } | null;
+          throw new Error(body?.error || `Request failed (${res.status})`);
+        }
+        const data = (await res.json()) as {
+          settings?: Partial<Omit<ClientForm, "password" | "maxStorageGb">> & {
+            maxStorageGb?: number | null;
+            setupComplete?: boolean;
+            hasPassword?: boolean;
+            pathWarnings?: DownloadPathWarning[];
+          };
           defaults?: { categories?: string[] };
         };
         if (cancelled) return;
-        const s = data.settings;
-        if (s) {
-          setForm((f) => ({
-            ...f,
-            clientType: s.clientType ?? f.clientType,
-            externalClientType: s.externalClientType ?? "",
-            host: s.host ?? f.host,
-            username: s.username ?? "",
-            category: s.category ?? "",
-            savePath: s.savePath ?? "",
-            baseDownloadPath: s.baseDownloadPath ?? "",
-            maxStorageGb:
-              s.maxStorageGb != null && s.maxStorageGb > 0
-                ? String(s.maxStorageGb)
-                : "0",
-            preferredResolution: s.preferredResolution ?? f.preferredResolution,
-            automationIntervalMinutes: s.automationIntervalMinutes ?? 0,
-            verboseDiagnostics: s.verboseDiagnostics === true,
-            categories: s.categories ?? f.categories,
-            pathRules: s.pathRules ?? {},
-            password: "",
-          }));
-          setHasPassword(Boolean(s.hasPassword));
-          const configured = s.setupComplete === true;
-          setSetupComplete(configured);
-          setPersistedPathWarnings(s.pathWarnings ?? []);
-          if (configured) {
-            window.localStorage.removeItem(SETUP_DISMISSED_KEY);
-            setSetupOpen(false);
-          } else {
-            setSetupOpen(
-              window.localStorage.getItem(SETUP_DISMISSED_KEY) !== "1",
-            );
-          }
-        } else if (data.defaults?.categories) {
-          setForm((f) => ({
-            ...f,
-            categories: data.defaults!.categories ?? f.categories,
-          }));
-          setSetupComplete(false);
-          setSetupOpen(
-          window.localStorage.getItem(SETUP_DISMISSED_KEY) !== "1",
-          );
-        }
-      } catch (err) {
-        // Without this the form would render its *defaults* as though they
-        // were the saved settings, and the next Save would quietly overwrite
-        // a working client config with them. Refusing to show the form is the
-        // only safe answer: we cannot let the user edit values we never read.
+        const settings = data.settings;
+        const loaded: ClientForm = settings
+          ? {
+              ...EMPTY_FORM,
+              clientType: settings.clientType ?? EMPTY_FORM.clientType,
+              externalClientType: settings.externalClientType ?? "",
+              host: settings.host ?? EMPTY_FORM.host,
+              username: settings.username ?? "",
+              password: "",
+              category: settings.category ?? "",
+              savePath: settings.savePath ?? "",
+              baseDownloadPath: settings.baseDownloadPath ?? "",
+              maxStorageGb:
+                settings.maxStorageGb != null && settings.maxStorageGb > 0
+                  ? String(settings.maxStorageGb)
+                  : "0",
+              preferredResolution:
+                settings.preferredResolution ?? EMPTY_FORM.preferredResolution,
+              automationIntervalMinutes:
+                settings.automationIntervalMinutes ??
+                EMPTY_FORM.automationIntervalMinutes,
+              verboseDiagnostics: settings.verboseDiagnostics === true,
+              defaultRetentionPolicy:
+                settings.defaultRetentionPolicy ??
+                EMPTY_FORM.defaultRetentionPolicy,
+              categories:
+                settings.categories ??
+                data.defaults?.categories ??
+                EMPTY_FORM.categories,
+              pathRules: settings.pathRules ?? {},
+            }
+          : {
+              ...EMPTY_FORM,
+              categories: data.defaults?.categories ?? EMPTY_FORM.categories,
+            };
+        setForm(loaded);
+        setSavedForm(loaded);
+        setHasPassword(Boolean(settings?.hasPassword));
+        setSetupComplete(settings?.setupComplete === true);
+        setPersistedPathWarnings(settings?.pathWarnings ?? []);
+      } catch (error) {
         if (!cancelled) {
           setLoadError(
-            err instanceof Error ? err.message : "Could not load settings",
+            error instanceof Error ? error.message : "Could not load settings",
           );
         }
       } finally {
@@ -398,26 +321,10 @@ export default function SettingsPage() {
     };
   }, []);
 
-  const previewPath = useMemo(
-    () => form.savePath || form.baseDownloadPath || "(client default)",
-    [form.savePath, form.baseDownloadPath],
-  );
-
-  const customPathCount = useMemo(
-    () =>
-      form.categories.filter((c) => Boolean(form.pathRules[c]?.trim())).length,
-    [form.categories, form.pathRules],
-  );
-
   const currentPathEntries = useMemo(
     () => [
       ...(form.baseDownloadPath.trim()
-        ? [
-            {
-              field: "baseDownloadPath" as const,
-              path: form.baseDownloadPath.trim(),
-            },
-          ]
+        ? [{ field: "baseDownloadPath" as const, path: form.baseDownloadPath.trim() }]
         : []),
       ...(form.savePath.trim()
         ? [{ field: "savePath" as const, path: form.savePath.trim() }]
@@ -434,20 +341,19 @@ export default function SettingsPage() {
   );
 
   const visiblePathWarnings = useMemo(() => {
-    const currentPaths = new Set(
+    const paths = new Set(
       currentPathEntries.map((entry) => entry.path.toLowerCase()),
     );
     const warnings = new Map<string, DownloadPathWarning>();
-
     for (const warning of persistedPathWarnings) {
-      const key = warning.path.trim().toLowerCase();
-      if (currentPaths.has(key)) warnings.set(key, warning);
+      if (paths.has(warning.path.trim().toLowerCase())) {
+        warnings.set(warning.path.trim().toLowerCase(), warning);
+      }
     }
     for (const entry of currentPathEntries) {
       const safety = detectUnsafeDownloadPath(entry.path);
-      const key = entry.path.toLowerCase();
-      if (safety.unsafe && !warnings.has(key)) {
-        warnings.set(key, {
+      if (safety.unsafe && !warnings.has(entry.path.toLowerCase())) {
+        warnings.set(entry.path.toLowerCase(), {
           ...entry,
           reasons: safety.reasons,
           message: unsafeDownloadPathMessage(safety.reasons),
@@ -456,11 +362,6 @@ export default function SettingsPage() {
     }
     return [...warnings.values()];
   }, [currentPathEntries, persistedPathWarnings]);
-
-  const setupFolderWarning = useMemo(() => {
-    const safety = detectUnsafeDownloadPath(form.baseDownloadPath);
-    return safety.unsafe ? unsafeDownloadPathMessage(safety.reasons) : null;
-  }, [form.baseDownloadPath]);
 
   const pickerInitialPath = useMemo(() => {
     if (pickerTarget === "base") return form.baseDownloadPath;
@@ -474,50 +375,75 @@ export default function SettingsPage() {
     return form.baseDownloadPath || form.savePath || "";
   }, [pickerTarget, form.baseDownloadPath, form.savePath, form.pathRules]);
 
+  function updateForm(update: (current: ClientForm) => ClientForm) {
+    setConnectionOk(false);
+    setMessage(null);
+    setForm(update);
+  }
+
   function openPicker(target: "base" | "savePath" | string) {
     setPickerTarget(target);
     setPickerOpen(true);
   }
 
-  function openSetupPicker() {
-    setSetupBrowsing(true);
-    setSetupOpen(false);
-    openPicker("base");
-  }
-
-  function closePicker() {
-    const reopenSetup = setupBrowsing;
-    setPickerOpen(false);
-    setPickerTarget(null);
-    setSetupBrowsing(false);
-    if (reopenSetup) setSetupOpen(true);
-  }
-
   function handlePickerSelect(path: string) {
-    const reopenSetup = setupBrowsing;
-    if (pickerTarget === "base") {
-      setForm((f) => ({
-        ...f,
-        baseDownloadPath: path,
-        // If default folder empty, mirror base
-        savePath: f.savePath.trim() ? f.savePath : path,
-      }));
-    } else if (pickerTarget === "savePath") {
-      setForm((f) => ({ ...f, savePath: path }));
-    } else if (pickerTarget) {
-      setForm((f) => ({
-        ...f,
-        pathRules: { ...f.pathRules, [pickerTarget]: path },
-      }));
-    }
+    updateForm((current) => {
+      if (pickerTarget === "base") {
+        return {
+          ...current,
+          baseDownloadPath: path,
+          savePath: current.savePath.trim() ? current.savePath : path,
+        };
+      }
+      if (pickerTarget === "savePath") return { ...current, savePath: path };
+      if (pickerTarget) {
+        return {
+          ...current,
+          pathRules: { ...current.pathRules, [pickerTarget]: path },
+        };
+      }
+      return current;
+    });
     setPickerOpen(false);
     setPickerTarget(null);
-    setSetupBrowsing(false);
-    if (reopenSetup) setSetupOpen(true);
   }
 
-  async function save(e: FormEvent, test: boolean) {
-    e.preventDefault();
+  function setExternalEnabled(enabled: boolean) {
+    updateForm((current) => ({
+      ...current,
+      clientType: enabled ? "qbittorrent" : "builtin",
+      externalClientType: "",
+      host:
+        enabled && current.host.includes("9091")
+          ? "http://127.0.0.1:8080"
+          : current.host,
+    }));
+  }
+
+  function setExternalMode(mode: "instead" | "copy") {
+    updateForm((current) => ({
+      ...current,
+      clientType: mode === "instead" ? externalKind : "builtin",
+      externalClientType: mode === "copy" ? externalKind : "",
+    }));
+  }
+
+  function setExternalKind(kind: ExternalClientType) {
+    updateForm((current) => ({
+      ...current,
+      clientType: externalMode === "instead" ? kind : "builtin",
+      externalClientType: externalMode === "copy" ? kind : "",
+      host:
+        kind === "transmission" && current.host.includes("8080")
+          ? "http://127.0.0.1:9091"
+          : kind === "qbittorrent" && current.host.includes("9091")
+            ? "http://127.0.0.1:8080"
+            : current.host,
+    }));
+  }
+
+  async function save(event: FormEvent, test: boolean) {
+    event.preventDefault();
     setSaving(true);
     setMessage(null);
     try {
@@ -525,7 +451,7 @@ export default function SettingsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          clientType: form.clientType || "builtin",
+          clientType: form.clientType,
           externalClientType:
             form.clientType === "builtin"
               ? form.externalClientType || null
@@ -533,18 +459,17 @@ export default function SettingsPage() {
           host: form.host || "http://127.0.0.1:8080",
           username: form.username,
           password: form.password,
-          // The default-label concept is gone: every send is categorised from
-          // the release's own identity, so nothing is asserted here.
           category: null,
           savePath: form.savePath,
           baseDownloadPath: form.baseDownloadPath,
           maxStorageGb: (() => {
-            const n = parseFloat(form.maxStorageGb);
-            return Number.isFinite(n) && n > 0 ? n : 0;
+            const value = Number(form.maxStorageGb);
+            return Number.isFinite(value) && value > 0 ? value : 0;
           })(),
           verboseDiagnostics: form.verboseDiagnostics,
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
+          defaultRetentionPolicy: form.defaultRetentionPolicy,
           categories: form.categories,
           pathRules: form.pathRules,
           test,
@@ -557,215 +482,135 @@ export default function SettingsPage() {
         }),
       });
       const raw = await res.text();
-      if (!raw.trim()) {
-        throw new Error(
-          `Server returned empty response (${res.status}). Restart the dev server (npm run dev) and try again.`,
-        );
-      }
-      type SaveResponse = {
+      if (!raw.trim()) throw new Error(`Server returned no details (${res.status})`);
+      const data = JSON.parse(raw) as {
         error?: string;
         message?: string;
-        settings?: {
-          hasPassword?: boolean;
-          categories?: string[];
-          pathRules?: Record<string, string>;
-          category?: string | null;
-          savePath?: string | null;
-          baseDownloadPath?: string | null;
+        settings?: Partial<Omit<ClientForm, "password" | "maxStorageGb">> & {
           maxStorageGb?: number | null;
           setupComplete?: boolean;
-          verboseDiagnostics?: boolean;
-          preferredResolution?: number | null;
-          automationIntervalMinutes?: number | null;
+          hasPassword?: boolean;
           pathWarnings?: DownloadPathWarning[];
         };
         testResult?: { ok: boolean; message: string };
       };
-      let data: SaveResponse;
-      try {
-        data = JSON.parse(raw) as SaveResponse;
-      } catch {
-        throw new Error(
-          `Server returned non-JSON (${res.status}). ${raw.slice(0, 120)}`,
-        );
-      }
       if (!res.ok) {
-        throw new Error(
-          data.message || data.error || `Save failed (${res.status})`,
-        );
+        throw new Error(data.message || data.error || `Save failed (${res.status})`);
       }
-      setHasPassword(Boolean(data.settings?.hasPassword));
+      const settings = data.settings;
+      const next: ClientForm = {
+        ...form,
+        clientType: settings?.clientType ?? form.clientType,
+        externalClientType:
+          settings?.externalClientType ?? form.externalClientType,
+        host: settings?.host ?? form.host,
+        username: settings?.username ?? form.username,
+        password: "",
+        category: settings?.category ?? "",
+        savePath: settings?.savePath ?? form.savePath,
+        baseDownloadPath:
+          settings?.baseDownloadPath ?? form.baseDownloadPath,
+        maxStorageGb:
+          settings?.maxStorageGb != null && settings.maxStorageGb > 0
+            ? String(settings.maxStorageGb)
+            : "0",
+        preferredResolution:
+          settings?.preferredResolution ?? form.preferredResolution,
+        automationIntervalMinutes:
+          settings?.automationIntervalMinutes ?? form.automationIntervalMinutes,
+        verboseDiagnostics:
+          settings?.verboseDiagnostics ?? form.verboseDiagnostics,
+        defaultRetentionPolicy:
+          settings?.defaultRetentionPolicy ?? form.defaultRetentionPolicy,
+        categories: settings?.categories ?? form.categories,
+        pathRules: settings?.pathRules ?? form.pathRules,
+      };
+      setForm(next);
+      setSavedForm(next);
+      setHasPassword(Boolean(settings?.hasPassword ?? hasPassword));
+      setSetupComplete(settings?.setupComplete === true);
+      setPersistedPathWarnings(settings?.pathWarnings ?? []);
       invalidateDownloadPrefs();
-      const saved = data.settings;
-      if (saved) {
-        setForm((f) => ({
-          ...f,
-          categories: saved.categories ?? f.categories,
-          pathRules: saved.pathRules ?? {},
-          category: saved.category ?? "",
-          savePath: saved.savePath ?? "",
-          baseDownloadPath: saved.baseDownloadPath ?? "",
-          maxStorageGb:
-            saved.maxStorageGb != null && saved.maxStorageGb > 0
-              ? String(saved.maxStorageGb)
-              : "0",
-          verboseDiagnostics:
-            saved.verboseDiagnostics ?? f.verboseDiagnostics,
-          preferredResolution:
-            saved.preferredResolution ?? f.preferredResolution,
-          automationIntervalMinutes:
-            saved.automationIntervalMinutes ?? f.automationIntervalMinutes,
-        }));
-        const configured = saved.setupComplete === true;
-        setSetupComplete(configured);
-        setPersistedPathWarnings(saved.pathWarnings ?? []);
-        if (configured) {
-          setSetupOpen(false);
-          window.localStorage.removeItem(SETUP_DISMISSED_KEY);
-        }
-      }
       if (data.testResult) {
-        setMessage({
-          ok: data.testResult.ok,
-          text: data.testResult.message,
-        });
         setConnectionOk(data.testResult.ok);
+        setMessage({ ok: data.testResult.ok, text: data.testResult.message });
       } else {
-        setMessage({ ok: true, text: "Settings saved" });
+        setMessage({ ok: true, text: "Changes saved" });
       }
-    } catch (err) {
+    } catch (error) {
       setConnectionOk(false);
       setMessage({
         ok: false,
-        text: err instanceof Error ? err.message : String(err),
+        text: error instanceof Error ? error.message : "Could not save changes",
       });
     } finally {
       setSaving(false);
     }
   }
 
-  function dismissSetup() {
-    window.localStorage.setItem(SETUP_DISMISSED_KEY, "1");
-    setSetupOpen(false);
-  }
-
-  function reopenSetup() {
-    setSetupError(null);
-    setSetupOpen(true);
-  }
-
-  async function saveFirstRunSetup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const folder = form.baseDownloadPath.trim();
-    const maxStorageGb = Number(form.maxStorageGb);
-    if (!folder || !Number.isFinite(maxStorageGb) || maxStorageGb <= 0) {
-      setSetupError("Choose a download folder and enter a storage cap above 0 GB.");
-      return;
-    }
-
-    setSetupSaving(true);
-    setSetupError(null);
-    try {
-      const res = await fetch("/api/settings/client", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          baseDownloadPath: folder,
-          savePath: folder,
-          maxStorageGb,
-        }),
-      });
-      const data = (await res.json()) as {
-        error?: string;
-        message?: string;
-        settings?: {
-          baseDownloadPath?: string | null;
-          savePath?: string | null;
-          maxStorageGb?: number | null;
-          setupComplete?: boolean;
-          pathWarnings?: DownloadPathWarning[];
-        };
-      };
-      if (!res.ok || data.settings?.setupComplete !== true) {
-        throw new Error(
-          data.message || data.error || "Could not finish storage setup",
-        );
-      }
-
-      const saved = data.settings;
-      setForm((current) => ({
-        ...current,
-        baseDownloadPath: saved.baseDownloadPath ?? folder,
-        savePath: saved.savePath ?? folder,
-        maxStorageGb:
-          saved.maxStorageGb != null && saved.maxStorageGb > 0
-            ? String(saved.maxStorageGb)
-            : current.maxStorageGb,
-      }));
-      setPersistedPathWarnings(saved.pathWarnings ?? []);
-      setSetupComplete(true);
-      setSetupOpen(false);
-      window.localStorage.removeItem(SETUP_DISMISSED_KEY);
-      invalidateDownloadPrefs();
-      selectTab("folders");
-      setMessage({ ok: true, text: "Download folder and storage cap saved" });
-    } catch (err) {
-      setSetupError(
-        err instanceof Error ? err.message : "Could not finish storage setup",
-      );
-    } finally {
-      setSetupSaving(false);
-    }
+  function discardChanges() {
+    setForm(savedForm);
+    setMessage({ ok: true, text: "Unsaved changes discarded" });
+    setConnectionOk(false);
   }
 
   function addCategory() {
     const name = newCategory.trim();
     if (!name) return;
-    if (form.categories.some((c) => c.toLowerCase() === name.toLowerCase())) {
+    if (form.categories.some((category) => category.toLowerCase() === name.toLowerCase())) {
       setNewCategory("");
       return;
     }
-    setForm((f) => ({ ...f, categories: [...f.categories, name] }));
+    updateForm((current) => ({
+      ...current,
+      categories: [...current.categories, name],
+    }));
     setNewCategory("");
   }
 
+  function removeCategory(name: string) {
+    updateForm((current) => {
+      const pathRules = { ...current.pathRules };
+      delete pathRules[name];
+      return {
+        ...current,
+        categories: current.categories.filter((category) => category !== name),
+        pathRules,
+      };
+    });
+    if (expandedCategory === name) setExpandedCategory(null);
+  }
+
   async function openFolder(folderPath: string, category?: string) {
-    const pathToOpen = folderPath.trim();
-    if (!pathToOpen && !category) {
-      setMessage({
-        ok: false,
-        text: "Set a folder path first",
-      });
+    const path = folderPath.trim();
+    if (!path && !category) {
+      setMessage({ ok: false, text: "Choose a folder first" });
       return;
     }
-    setOpeningPath(pathToOpen || category || "default");
+    setOpeningPath(path || category || "default");
     try {
       const res = await fetch("/api/settings/open-folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: pathToOpen || null,
-          category: category || null,
-        }),
+        body: JSON.stringify({ path: path || null, category: category || null }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+        path?: string;
+        pathOnly?: string;
+      };
       if (data.ok) {
-        setMessage({ ok: true, text: data.message || `Opened ${data.path}` });
+        setMessage({ ok: true, text: data.message || "Folder opened" });
       } else {
-        const p = data.path || data.pathOnly || pathToOpen;
-        if (p) {
-          try {
-            await navigator.clipboard.writeText(p);
-            setMessage({
-              ok: false,
-              text: `${data.message || data.error} — path copied: ${p}`,
-            });
-          } catch {
-            setMessage({
-              ok: false,
-              text: data.message || data.error || "Could not open folder",
-            });
-          }
+        const shown = data.path || data.pathOnly || path;
+        if (shown) {
+          await navigator.clipboard.writeText(shown);
+          setMessage({
+            ok: false,
+            text: `${data.message || data.error || "Could not open a window"} — path copied`,
+          });
         } else {
           setMessage({
             ok: false,
@@ -774,43 +619,20 @@ export default function SettingsPage() {
         }
       }
     } catch {
-      setMessage({ ok: false, text: "Network error opening folder" });
+      setMessage({ ok: false, text: "Could not open folder" });
     } finally {
       setOpeningPath(null);
     }
   }
 
-  function removeCategory(name: string) {
-    setForm((f) => {
-      const nextRules = { ...f.pathRules };
-      delete nextRules[name];
-      return {
-        ...f,
-        categories: f.categories.filter((c) => c !== name),
-        pathRules: nextRules,
-        category: f.category === name ? "" : f.category,
-      };
-    });
-    if (expandedCategory === name) setExpandedCategory(null);
-  }
-
-  function clearCategoryPath(name: string) {
-    setForm((f) => {
-      const nextRules = { ...f.pathRules };
-      delete nextRules[name];
-      return { ...f, pathRules: nextRules };
-    });
-  }
-
   if (loading && !loadError) return <SettingsSkeleton visible={showLoading} />;
-
 
   if (loadError) {
     return (
-      <div className="container-app max-w-2xl py-6 sm:py-8 min-w-0">
+      <div className="container-app max-w-2xl py-6 sm:py-8">
         <TfErrorState
           title="Could not load your settings"
-          message={`${loadError} — the form stays hidden so a save cannot overwrite settings we never managed to read.`}
+          message={`${loadError} — the form stays hidden so saved values cannot be overwritten.`}
           onRetry={() => window.location.reload()}
         />
       </div>
@@ -818,1006 +640,724 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="container-app max-w-2xl py-6 sm:py-8 space-y-5 pb-28 min-w-0">
+    <div className="container-app max-w-2xl space-y-5 py-6 pb-24 sm:py-8">
       <TfPageHeader
         title="Settings"
-        description="Connection, download folders, categories, and path overrides."
+        description="Most defaults are ready. Change only what matters to you."
         actions={
-          connectionOk ? (
-            <Badge variant="success" data-connection-ok>
-              Connected
-            </Badge>
+          isDirty ? (
+            <Badge variant="outline">Unsaved changes</Badge>
+          ) : connectionOk ? (
+            <Badge variant="success">Download app connected</Badge>
           ) : null
         }
       />
 
       {!setupComplete ? (
-        <section
-          aria-label="Storage setup incomplete"
-          className="surface flex flex-col gap-3 rounded-xl border border-[var(--warning)]/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
         >
-          <div className="flex min-w-0 items-start gap-3">
-            <HardDrive className="mt-0.5 h-5 w-5 shrink-0 text-[var(--warning)]" />
-            <div>
-              <h2 className="text-sm font-medium text-[var(--text)]">
-                Downloads are paused until storage is set up
-              </h2>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--text-tertiary)]">
-                Choose a permanent folder and the maximum space TorrentFlow may
-                use. The app will not invent either value.
-              </p>
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full shrink-0 sm:w-auto"
-            onClick={reopenSetup}
-          >
-            Finish setup
-          </Button>
-        </section>
+          <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" />
+          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+            Choose a download folder and a space limit before saving your first
+            download.
+          </p>
+        </div>
       ) : null}
 
-      <form onSubmit={(e) => save(e, false)} className="space-y-5">
-        {/* Tab nav */}
-        <div
-          role="tablist"
-          aria-label="Settings sections"
-          className="flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-1"
-        >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.id}
-              id={`settings-tab-${t.id}`}
-              onClick={() => selectTab(t.id)}
-              className={cn(
-                "flex-1 flex items-center justify-center min-h-[44px] rounded-md px-3 py-2 text-sm font-medium transition-colors lg:min-h-0",
-                tab === t.id
-                  ? "bg-[var(--accent-dim)] text-[var(--accent-text)] shadow-sm ring-1 ring-[var(--accent-ring)]"
-                  : "text-[var(--text-secondary)] hover:text-[var(--text)]",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Connection */}
-        {tab === "connection" && (
-          <section
-            role="tabpanel"
-            aria-labelledby="settings-tab-connection"
-            className="surface rounded-xl p-5 sm:p-6 space-y-5"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-[var(--text-tertiary)]">
-                Keep playback in TorrentFlow. External clients are advanced
-                fallbacks, not the normal way to watch.
-              </p>
-              {connectionOk ? (
-                <Badge variant="success" data-connection-ok>
-                  Connected
-                </Badge>
-              ) : null}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-[var(--text-tertiary)]">
-                How new torrents should play
-              </label>
-              <div className="grid grid-cols-1 gap-2">
-                {PRIMARY_DOWNLOAD_CLIENT_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      touchForm();
-                      setForm((f) => ({
-                        ...f,
-                        clientType: option.value,
-                        host:
-                          option.value === "qbittorrent"
-                            ? f.host.includes("9091")
-                              ? "http://127.0.0.1:8080"
-                              : f.host || "http://127.0.0.1:8080"
-                            : option.value === "transmission"
-                              ? f.host.includes("8080") &&
-                                !f.host.includes("9091")
-                                ? "http://127.0.0.1:9091"
-                                : f.host || "http://127.0.0.1:9091"
-                              : f.host,
-                      }));
-                    }}
-                    className={cn(
-                      "min-h-[44px] rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1 lg:min-h-0",
-                      option.stance === "advanced" && "ml-4 sm:ml-8",
-                      form.clientType === option.value
-                        ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-1 ring-[var(--accent-ring)]"
-                        : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-1 ring-[var(--border)] hover:text-[var(--text)]",
-                    )}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{option.label}</span>
-                      {option.stance === "recommended" ? (
-                        <span className="rounded-full bg-[rgba(62,207,142,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--success)]">
-                          Recommended
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-[var(--bg-elevated)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">
-                          Advanced
-                        </span>
-                      )}
-                    </span>
-                    <span className="mt-1 block text-[11px] leading-relaxed text-[var(--text-tertiary)]">
-                      {option.hint}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-[var(--text-tertiary)] leading-relaxed pt-1">
-                {form.clientType === "builtin"
-                  ? "This is the only mode that can make a search result immediately watchable in the browser. You can still copy sends to another client below."
-                  : "TorrentFlow will hand off new sends instead of preparing them for in-browser playback. Switch back to Play in TorrentFlow when watching matters more than managing an external queue."}
+      <form
+        onSubmit={(event) => void save(event, false)}
+        className="space-y-5"
+        data-settings-form
+      >
+        <div className="surface divide-y divide-[var(--border)] overflow-hidden rounded-xl">
+          <section id="downloads" className="scroll-mt-20 space-y-4 p-4 sm:p-5">
+            <div>
+              <h2 className="text-sm font-medium text-[var(--text)]">Downloads</h2>
+              <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                Choose where files live and how much space TorrentFlow may use.
               </p>
             </div>
 
-            {/* Optional external when primary is built-in */}
-            {form.clientType === "builtin" ? (
-              <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-4">
-                <div className="space-y-1">
-                  <label className="text-xs text-[var(--text-tertiary)]">
-                    Optional copy to another client
-                  </label>
-                  <p className="text-[12px] text-[var(--text-tertiary)] leading-relaxed">
-                    Add a secondary send button for qBittorrent or Transmission
-                    without making either app part of playback.
+            {visiblePathWarnings.length ? (
+              <div
+                role="status"
+                className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" />
+                <div className="space-y-1 text-xs leading-relaxed">
+                  <p className="font-medium text-[var(--text)]">
+                    This folder may be cleared by another tool
+                  </p>
+                  <p className="break-all text-[var(--text-secondary)]">
+                    {visiblePathWarnings[0].path}
+                  </p>
+                  <p className="text-[var(--text-tertiary)]">
+                    {visiblePathWarnings[0].message}
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {EXTERNAL_CLIENT_OPTIONS.map(([value, label]) => (
-                    <button
-                      key={value || "none"}
-                      type="button"
-                      onClick={() => {
-                        touchForm();
-                        setForm((f) => ({
-                          ...f,
-                          externalClientType: value,
-                          host:
-                            value === "transmission"
-                              ? f.host.includes("8080") &&
-                                !f.host.includes("9091")
-                                ? "http://127.0.0.1:9091"
-                                : f.host || "http://127.0.0.1:9091"
-                              : value === "qbittorrent"
-                                ? f.host.includes("9091")
-                                  ? "http://127.0.0.1:8080"
-                                  : f.host || "http://127.0.0.1:8080"
-                                : f.host,
-                        }));
-                      }}
-                      className={cn(
-                        "min-h-[44px] rounded-lg px-3 py-2 text-sm transition-colors lg:min-h-0",
-                        form.externalClientType === value
-                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-1 ring-[var(--accent-ring)]"
-                          : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-1 ring-[var(--border)] hover:text-[var(--text)]",
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                {form.externalClientType ? (
-                  <>
-                    <Field
-                      label="Host URL"
-                      value={form.host}
-                      onChange={(v) => {
-                        touchForm();
-                        setForm((f) => ({ ...f, host: v }));
-                      }}
-                      placeholder={
-                        form.externalClientType === "qbittorrent"
-                          ? "http://127.0.0.1:8080"
-                          : "http://127.0.0.1:9091"
-                      }
-                    />
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <Field
-                        label="Username"
-                        value={form.username}
-                        onChange={(v) => {
-                          touchForm();
-                          setForm((f) => ({ ...f, username: v }));
-                        }}
-                        placeholder="admin"
-                      />
-                      <Field
-                        label={
-                          hasPassword
-                            ? "Password (leave blank to keep)"
-                            : "Password"
-                        }
-                        value={form.password}
-                        onChange={(v) => {
-                          touchForm();
-                          setForm((f) => ({ ...f, password: v }));
-                        }}
-                        type="password"
-                        placeholder="••••••••"
-                      />
-                    </div>
-                  </>
-                ) : null}
               </div>
             ) : null}
 
-            {form.clientType !== "builtin" ? (
-              <>
-                <Field
-                  label="Host URL"
+            <div className="space-y-1.5">
+              <label
+                htmlFor="download-folder"
+                className="text-xs font-medium text-[var(--text-secondary)]"
+              >
+                Download folder
+              </label>
+              <div className="flex min-w-0 gap-2">
+                <Input
+                  id="download-folder"
+                  value={form.baseDownloadPath}
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      baseDownloadPath: event.target.value,
+                    }))
+                  }
+                  className="h-11 min-w-0 scroll-mb-32 font-mono text-base sm:text-sm"
+                  placeholder="Choose a folder or enter its path"
+                  autoComplete="off"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-11 shrink-0"
+                  onClick={() => openPicker("base")}
+                >
+                  <FolderOpen />
+                  Browse
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="storage-limit"
+                className="text-xs font-medium text-[var(--text-secondary)]"
+              >
+                Space limit
+              </label>
+              <div className="flex max-w-[14rem] items-center gap-2">
+                <Input
+                  ref={capInputRef}
+                  id="storage-limit"
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="decimal"
+                  value={form.maxStorageGb}
+                  onChange={(event) =>
+                    updateForm((current) => ({
+                      ...current,
+                      maxStorageGb: event.target.value,
+                    }))
+                  }
+                  className="h-11 scroll-mb-32 text-base sm:text-sm"
+                  aria-describedby="storage-limit-help"
+                />
+                <span className="text-sm text-[var(--text-secondary)]">GB</span>
+              </div>
+              <p
+                id="storage-limit-help"
+                className="text-xs leading-relaxed text-[var(--text-tertiary)]"
+              >
+                Downloads pause before going beyond this amount.
+              </p>
+            </div>
+          </section>
+
+          <section className="space-y-4 p-4 sm:p-5">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="preferred-quality"
+                className="text-xs font-medium text-[var(--text-secondary)]"
+              >
+                Preferred quality
+              </label>
+              <select
+                id="preferred-quality"
+                value={form.preferredResolution}
+                onChange={(event) =>
+                  updateForm((current) => ({
+                    ...current,
+                    preferredResolution: Number(event.target.value),
+                  }))
+                }
+                className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] sm:text-sm"
+              >
+                {QUALITY_CHOICES.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label} — {choice.hint}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="file-behavior"
+                className="text-xs font-medium text-[var(--text-secondary)]"
+              >
+                After watching or downloading
+              </label>
+              <select
+                id="file-behavior"
+                value={form.defaultRetentionPolicy}
+                onChange={(event) =>
+                  updateForm((current) => ({
+                    ...current,
+                    defaultRetentionPolicy: event.target.value as RetentionPolicy,
+                  }))
+                }
+                className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] sm:text-sm"
+              >
+                {FILE_BEHAVIOR_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </section>
+
+          <section
+            id="download-app"
+            className="scroll-mt-20 space-y-4 p-4 sm:p-5"
+          >
+            <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:gap-3">
+              <div>
+                <h2 className="text-sm font-medium text-[var(--text)]">
+                  Download app
+                </h2>
+                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                  TorrentFlow works without installing or connecting anything else.
+                </p>
+              </div>
+              <Badge variant="success">Recommended</Badge>
+            </div>
+
+            <label
+              htmlFor="use-another-download-app"
+              className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3"
+            >
+              <Checkbox
+                id="use-another-download-app"
+                aria-label="Use another download app"
+                checked={externalEnabled}
+                onCheckedChange={(checked) => setExternalEnabled(checked === true)}
+              />
+              <span className="pt-0.5">
+                <span className="block text-sm font-medium text-[var(--text)]">
+                  Use another download app
+                </span>
+                <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
+                  Choose this only if you already use qBittorrent or Transmission.
+                </span>
+              </span>
+            </label>
+
+            {externalEnabled ? (
+              <div
+                className="space-y-4 border-l-2 border-[var(--accent-ring)] pl-4"
+                data-external-client-fields
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">
+                      Download app
+                    </span>
+                    <select
+                      id="external-download-app"
+                      aria-label="External download app"
+                      value={externalKind}
+                      onChange={(event) =>
+                        setExternalKind(event.target.value as ExternalClientType)
+                      }
+                      className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
+                    >
+                      <option value="qbittorrent">qBittorrent</option>
+                      <option value="transmission">Transmission</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-medium text-[var(--text-secondary)]">
+                      How to use it
+                    </span>
+                    <select
+                      id="external-download-mode"
+                      aria-label="How to use the external download app"
+                      value={externalMode}
+                      onChange={(event) =>
+                        setExternalMode(event.target.value as "instead" | "copy")
+                      }
+                      className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
+                    >
+                      <option value="instead">Use instead of TorrentFlow</option>
+                      <option value="copy">Also send a copy</option>
+                    </select>
+                  </label>
+                </div>
+                <SettingsField
+                  id="external-host"
+                  label="Address"
                   value={form.host}
-                  onChange={(v) => {
-                    touchForm();
-                    setForm((f) => ({ ...f, host: v }));
-                  }}
+                  onChange={(value) =>
+                    updateForm((current) => ({ ...current, host: value }))
+                  }
                   placeholder={
-                    form.clientType === "qbittorrent"
+                    externalKind === "qbittorrent"
                       ? "http://127.0.0.1:8080"
                       : "http://127.0.0.1:9091"
                   }
                 />
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Field
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <SettingsField
+                    id="external-username"
                     label="Username"
                     value={form.username}
-                    onChange={(v) => {
-                      touchForm();
-                      setForm((f) => ({ ...f, username: v }));
-                    }}
+                    onChange={(value) =>
+                      updateForm((current) => ({ ...current, username: value }))
+                    }
                     placeholder="admin"
                   />
-                  <Field
-                    label={
-                      hasPassword
-                        ? "Password (leave blank to keep)"
-                        : "Password"
-                    }
+                  <SettingsField
+                    id="external-password"
+                    label={hasPassword ? "Password (blank keeps saved value)" : "Password"}
                     value={form.password}
-                    onChange={(v) => {
-                      touchForm();
-                      setForm((f) => ({ ...f, password: v }));
-                    }}
+                    onChange={(value) =>
+                      updateForm((current) => ({ ...current, password: value }))
+                    }
                     type="password"
                     placeholder="••••••••"
                   />
                 </div>
-              </>
-            ) : null}
-
-            <label
-              htmlFor="verbose-diagnostics"
-              className="flex min-h-11 cursor-pointer items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 px-3 py-2.5"
-            >
-              <Checkbox
-                id="verbose-diagnostics"
-                checked={form.verboseDiagnostics}
-                onCheckedChange={(checked) =>
-                  setForm((current) => ({
-                    ...current,
-                    verboseDiagnostics: checked === true,
-                  }))
-                }
-                aria-describedby="verbose-diagnostics-help"
-              />
-              <span className="min-w-0 pt-1 lg:pt-0">
-                <span className="block text-sm font-medium text-[var(--text)]">
-                  Verbose diagnostics
-                </span>
-                <span
-                  id="verbose-diagnostics-help"
-                  className="mt-1 block text-xs leading-relaxed text-[var(--text-tertiary)]"
-                >
-                  Show extra live playback details while troubleshooting. Off by
-                  default.
-                </span>
-              </span>
-            </label>
-          </section>
-        )}
-
-        {/* Folders */}
-        {tab === "folders" && (
-          <>
-            <section
-              role="tabpanel"
-              aria-labelledby="settings-tab-folders"
-              className="surface rounded-xl p-5 sm:p-6 space-y-5"
-            >
-              <div className="flex items-start gap-3">
-                <FolderOpen className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
-                <div>
-                  <h2 className="text-sm font-medium text-[var(--text)]">
-                    Download folders
-                  </h2>
-                  <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
-                    Set a base folder to auto-map each category to{" "}
-                    <code className="text-[var(--text-secondary)]">
-                      base/Category
-                    </code>
-                    . Override individual categories under Categories if needed.
-                    Paths must be readable by the torrent client.
-                  </p>
-                </div>
-              </div>
-
-            {visiblePathWarnings.length > 0 ? (
-              <div
-                role="status"
-                className="flex items-start gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
-              >
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" />
-                <div className="min-w-0 space-y-2">
-                  <h3 className="text-sm font-medium text-[var(--text)]">
-                    This download folder may be disposable
-                  </h3>
-                  {visiblePathWarnings.map((warning) => (
-                    <div key={warning.path.toLowerCase()} className="space-y-1">
-                      <p className="break-all font-mono text-xs text-[var(--warning)]">
-                        {warning.path}
-                      </p>
-                      <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
-                        {warning.message}
-                      </p>
-                    </div>
-                  ))}
-                </div>
               </div>
             ) : null}
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-[var(--text-tertiary)]">
-                  Base download folder
-                </label>
-                <div className="flex items-center gap-2">
-                  {form.baseDownloadPath.trim() && (
-                    <button
-                      type="button"
-                      onClick={() => openFolder(form.baseDownloadPath)}
-                      disabled={!!openingPath}
-                      className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline disabled:opacity-40 lg:min-h-0"
-                    >
-                      {openingPath === form.baseDownloadPath ? (
-                        <LoadingGlyph className="h-3 w-3" />
-                      ) : (
-                        <FolderSearch className="h-3 w-3" />
-                      )}
-                      Open
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => openPicker("base")}
-                    className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline lg:min-h-0"
-                  >
-                    <FolderOpen className="h-3 w-3" />
-                    Browse
-                  </button>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  className="h-11 font-mono"
-                  value={form.baseDownloadPath}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      baseDownloadPath: e.target.value,
-                    }))
-                  }
-                  placeholder="e.g. D:\Downloads or /downloads"
-                />
-                {form.baseDownloadPath && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-11 shrink-0 text-[var(--text-tertiary)]"
-                    onClick={() =>
-                      setForm((f) => ({ ...f, baseDownloadPath: "" }))
-                    }
-                    title="Clear base folder"
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
-              {form.baseDownloadPath.trim() && (
-                <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-                  Categories without a custom path use{" "}
-                  <span className="font-mono text-[var(--text-secondary)]">
-                    {joinBase(form.baseDownloadPath.trim(), "Category")}
-                  </span>
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs text-[var(--text-tertiary)]">
-                Max library size (GB)
-              </label>
-              <Input
-                ref={capInputRef}
-                type="number"
-                min={0}
-                step={1}
-                className="h-11 max-w-[12rem]"
-                value={form.maxStorageGb}
-                onChange={(e) => {
-                  touchForm();
-                  setForm((f) => ({ ...f, maxStorageGb: e.target.value }));
-                }}
-                placeholder="0"
-              />
-              <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-                Budget for kept downloads under the base download folder. Going
-                over it asks you to confirm rather than refusing — streaming
-                reclaims its own cache and is never blocked. 0 means unset, and
-                downloads stay paused until you choose a cap. TorrentFlow also
-                prefers to leave ~500 MB free on the drive, and will ask before
-                dipping into it. The only download it will not do at all is one
-                that is bigger than the space left.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs text-[var(--text-tertiary)]">
-                Preferred quality
-              </label>
-              {/* A 4-column grid, not flex-wrap: equal widths read as one
-                  segmented control, and the group can never orphan "4K" onto
-                  a second row at narrow widths (320px is still a real device). */}
-              <div className="grid grid-cols-4 gap-1.5">
-                {QUALITY_CHOICES.map((choice) => {
-                  const active = form.preferredResolution === choice.value;
-                  return (
-                    <button
-                      key={choice.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => {
-                        touchForm();
-                        setForm((f) => ({
-                          ...f,
-                          preferredResolution: choice.value,
-                        }));
-                      }}
-                      className={`h-11 rounded-lg px-2 text-sm font-medium transition-colors ring-1 ${
-                        active
-                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                          : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
-                      }`}
-                    >
-                      {choice.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-                {
-                  QUALITY_CHOICES.find(
-                    (c) => c.value === form.preferredResolution,
-                  )?.hint
-                }{" "}
-                Seeder count can never override this — but a release that is too
-                thinly seeded to finish still loses to one that can.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs text-[var(--text-tertiary)]">
-                Check watchlist automatically
-              </label>
-              <div className="grid grid-cols-4 gap-1.5">
-                {AUTOMATION_INTERVAL_CHOICES.map((choice) => {
-                  const active =
-                    form.automationIntervalMinutes === choice.value;
-                  return (
-                    <button
-                      key={choice.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => {
-                        touchForm();
-                        setForm((f) => ({
-                          ...f,
-                          automationIntervalMinutes: choice.value,
-                        }));
-                      }}
-                      className={`h-11 rounded-lg px-2 text-sm font-medium transition-colors ring-1 ${
-                        active
-                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                          : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
-                      }`}
-                    >
-                      {choice.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-                {form.automationIntervalMinutes > 0
-                  ? `Every ${formatInterval(form.automationIntervalMinutes)} the server searches for the next episode of everything you are monitoring and downloads it. Nothing else starts a download on its own.`
-                  : "Off. Your watchlist is only checked when you press Run automation — nothing downloads while you are away."}
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-[var(--text-tertiary)]">
-                  Default download folder
-                  <span className="text-[var(--text-tertiary)]/70 ml-1">
-                    (fallback)
-                  </span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      openFolder(
-                        effectiveCategoryPath(
-                          form.category,
-                          form.pathRules,
-                          form.baseDownloadPath,
-                          form.savePath,
-                        ) || form.savePath,
-                        form.category,
-                      )
-                    }
-                    disabled={
-                      !!openingPath ||
-                      !(
-                        form.savePath.trim() ||
-                        form.baseDownloadPath.trim() ||
-                        (form.category && form.pathRules[form.category])
-                      )
-                    }
-                    className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline disabled:opacity-40 lg:min-h-0"
-                  >
-                    {openingPath === form.savePath ||
-                    openingPath === form.category ||
-                    openingPath === "default" ? (
-                      <LoadingGlyph className="h-3 w-3" />
-                    ) : (
-                      <FolderSearch className="h-3 w-3" />
-                    )}
-                    Open folder
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openPicker("savePath")}
-                    className="inline-flex items-center gap-1 min-h-[44px] text-[11px] text-[var(--accent-text)] hover:underline lg:min-h-0"
-                  >
-                    <FolderOpen className="h-3 w-3" />
-                    Browse
-                  </button>
-                </div>
-              </div>
-              <Input
-                className="h-11 font-mono"
-                value={form.savePath}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, savePath: e.target.value }))
-                }
-                placeholder={
-                  form.baseDownloadPath
-                    ? `Falls back to base when empty: ${form.baseDownloadPath}`
-                    : form.clientType === "qbittorrent"
-                      ? "e.g. D:\\Downloads\\Torrents or /downloads"
-                      : "e.g. /var/lib/transmission/Downloads"
-                }
-              />
-            </div>
-
-            <div className="rounded-lg bg-[var(--bg-muted)] border border-[var(--border)] px-3 py-2.5 text-xs text-[var(--text-tertiary)] flex flex-wrap items-center justify-between gap-2">
-              <span>
-                Uncategorised downloads go to:{" "}
-                <span className="text-[var(--accent-text)] font-mono break-all">
-                  {previewPath}
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  openFolder(
-                    typeof previewPath === "string" &&
-                      previewPath !== "(client default)"
-                      ? previewPath
-                      : form.savePath,
-                    form.category,
-                  )
-                }
-                disabled={!!openingPath || previewPath === "(client default)"}
-                className="inline-flex items-center gap-1 min-h-[44px] text-[var(--accent-text)] hover:underline disabled:opacity-40 lg:min-h-0"
-              >
-                <FolderSearch className="h-3.5 w-3.5" />
-                Open
-              </button>
-            </div>
-            <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-              Search results auto-pick a category (Anime / Movies / TV / …) from
-              the title and metadata, then use the mapped folder. “Browse” lists
-              folders on this server; “Open folder” opens them in your file
-              manager when paths are local.
-            </p>
-            </section>
-
-            <RetentionPanel />
-          </>
-        )}
-
-        {/* Categories */}
-        {tab === "categories" && (
-          <section
-            role="tabpanel"
-            aria-labelledby="settings-tab-categories"
-            className="surface rounded-xl p-5 sm:p-6 space-y-5"
-          >
-            <div className="flex items-start gap-3">
-              <Tags className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
-              <div>
-                <h2 className="text-sm font-medium text-[var(--text)]">
-                  Categories
-                </h2>
-                <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
-                  These labels choose where files are saved after TorrentFlow
-                  identifies them. Remove labels you do not want to route.
-                  Empty paths inherit{" "}
-                  {form.baseDownloadPath.trim()
-                    ? "base/Category"
-                    : "the default folder"}
-                  .
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {form.categories.map((c) => {
-                const hasCustom = Boolean(form.pathRules[c]?.trim());
-                return (
-                  <span
-                    key={c}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ring-1",
-                      "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)]",
-                    )}
-                  >
-                    <span>
-                      {c}
-                      {hasCustom && (
-                        <span
-                          className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--accent)]"
-                          title="Custom path override"
-                          aria-hidden
-                        />
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeCategory(c)}
-                      className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] text-[var(--text-tertiary)] hover:text-[var(--danger)] lg:min-h-0 lg:min-w-0"
-                      aria-label={`Remove ${c}`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </span>
-                );
-              })}
-            </div>
-
-            <div className="flex gap-2">
-              <Input
-                className="h-10 flex-1"
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                placeholder="Add category name"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addCategory();
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                className="h-10"
-                onClick={addCategory}
-              >
-                <Plus className="h-4 w-4" />
-                Add
-              </Button>
-            </div>
-
-            {/* Collapsible per-category paths */}
-            <div className="rounded-lg border border-[var(--border)] overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setPathsExpanded((v) => !v)}
-                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 min-h-[44px] text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors lg:min-h-0"
-                aria-expanded={pathsExpanded}
-              >
-                <span className="inline-flex items-center gap-2 font-medium">
-                  {pathsExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-[var(--accent-text)]" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-[var(--text-tertiary)]" />
-                  )}
-                  Per-category paths
-                </span>
-                <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
-                  {customPathCount > 0
-                    ? `${customPathCount} override${customPathCount === 1 ? "" : "s"}`
-                    : form.baseDownloadPath.trim()
-                      ? "using base/Category"
-                      : "using default folder"}
-                </span>
-              </button>
-
-              {pathsExpanded && (
-                <div className="border-t border-[var(--border)] px-3 py-3 space-y-2">
-                  <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed pb-1">
-                    Expand a category to set a custom download folder. Leave
-                    empty to inherit.
-                  </p>
-                  {form.categories.map((c) => {
-                    const derived = form.baseDownloadPath.trim()
-                      ? joinBase(form.baseDownloadPath.trim(), c)
-                      : form.savePath;
-                    const hasCustom = Boolean(form.pathRules[c]?.trim());
-                    const effective = hasCustom
-                      ? form.pathRules[c].trim()
-                      : derived;
-                    const isOpen = expandedCategory === c;
-
-                    return (
-                      <div
-                        key={c}
-                        className="rounded-md border border-[var(--border)] bg-[var(--bg)]"
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedCategory((prev) =>
-                              prev === c ? null : c,
-                            )
-                          }
-                          className="flex w-full items-center gap-2 px-2.5 py-2 min-h-[44px] text-left min-w-0 lg:min-h-0"
-                          aria-expanded={isOpen}
-                        >
-                          {isOpen ? (
-                            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]" />
-                          ) : (
-                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" />
-                          )}
-                          <span className="text-xs font-medium text-[var(--text)] truncate">
-                            {c}
-                          </span>
-                          {hasCustom ? (
-                            <span className="badge badge-accent shrink-0">
-                              custom
-                            </span>
-                          ) : form.baseDownloadPath.trim() ? (
-                            <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">
-                              auto
-                            </span>
-                          ) : null}
-                          {effective && !isOpen && (
-                            <span className="ml-auto text-[10px] font-mono text-[var(--text-tertiary)] truncate max-w-[45%]">
-                              {effective}
-                            </span>
-                          )}
-                        </button>
-
-                        {isOpen && (
-                          <div className="px-2.5 pb-2.5 space-y-2 border-t border-[var(--border)] pt-2">
-                            <div className="flex gap-2 items-center">
-                              <Input
-                                className="h-9 font-mono text-sm"
-                                value={form.pathRules[c] ?? ""}
-                                onChange={(e) =>
-                                  setForm((f) => ({
-                                    ...f,
-                                    pathRules: {
-                                      ...f.pathRules,
-                                      [c]: e.target.value,
-                                    },
-                                  }))
-                                }
-                                placeholder={
-                                  derived || "Same as default folder if empty"
-                                }
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => openPicker(c)}
-                                title={`Browse folder for ${c}`}
-                                className="shrink-0 text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
-                              >
-                                <FolderOpen className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  openFolder(
-                                    form.pathRules[c] ||
-                                      derived ||
-                                      form.savePath,
-                                    c,
-                                  )
-                                }
-                                disabled={
-                                  !!openingPath ||
-                                  !(
-                                    form.pathRules[c]?.trim() ||
-                                    form.baseDownloadPath.trim() ||
-                                    form.savePath.trim()
-                                  )
-                                }
-                                title={`Open folder for ${c}`}
-                                className="shrink-0 text-[var(--text-tertiary)] hover:text-[var(--accent-text)]"
-                              >
-                                {openingPath ===
-                                  (form.pathRules[c] ||
-                                    derived ||
-                                    form.savePath) ||
-                                openingPath === c ? (
-                                  <LoadingGlyph className="h-4 w-4" />
-                                ) : (
-                                  <FolderSearch className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              {!hasCustom && effective ? (
-                                <p className="text-[10px] text-[var(--text-tertiary)] font-mono truncate">
-                                  → {effective}
-                                </p>
-                              ) : (
-                                <span />
-                              )}
-                              {hasCustom && (
-                                <button
-                                  type="button"
-                                  onClick={() => clearCategoryPath(c)}
-                                  className="inline-flex items-center min-h-[44px] text-[11px] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] lg:min-h-0"
-                                >
-                                  Reset to auto
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
           </section>
-        )}
+        </div>
 
-        {tab === "folders" ? (
-          <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed px-0.5">
-            Paths must be valid on the machine running your torrent client (not
-            necessarily this app server). Browse only works for folders on the
-            TorrentFlow host. For Docker clients use container paths like{" "}
-            <code className="text-[var(--text-secondary)]">
-              /downloads/anime
-            </code>
-            .
-          </p>
-        ) : null}
-
-        {/* Sticky save bar — sits above mobile bottom nav; flush on desktop */}
-        <div className="fixed inset-x-0 bottom-[calc(var(--mobile-nav-h)+var(--safe-bottom))] md:bottom-0 z-30 border-t border-[var(--border)] bg-[var(--bg)]/95 backdrop-blur-sm">
-          <div className="container-app max-w-2xl py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          className="surface flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center"
+          aria-live="polite"
+        >
+          <div className="min-w-0 flex-1">
             {message ? (
-              <div
+              <p
+                role={message.ok ? "status" : "alert"}
                 className={cn(
-                  "flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-sm min-w-0",
-                  message.ok
-                    ? "bg-emerald-500/10 text-emerald-200"
-                    : "bg-rose-500/10 text-rose-200",
+                  "flex items-start gap-2 text-sm",
+                  message.ok ? "text-[var(--success)]" : "text-[var(--danger)]",
                 )}
               >
                 {message.ok ? (
-                  <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                 ) : (
-                  <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 )}
-                <span className="break-words">{message.text}</span>
-              </div>
+                <span>{message.text}</span>
+              </p>
             ) : (
-              <span className="text-xs text-[var(--text-tertiary)] hidden sm:inline">
-                Changes apply after save
-              </span>
+              <p className="text-xs text-[var(--text-tertiary)]">
+                {isDirty ? "Review and save your changes." : "Everything is saved."}
+              </p>
             )}
-            <div className="flex flex-wrap gap-2 shrink-0 sm:ml-auto">
-              <Button type="submit" disabled={saving} size="lg">
-                {saving && <LoadingGlyph className="h-4 w-4" />}
-                Save
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {isDirty ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={discardChanges}
+                disabled={saving}
+                data-settings-discard
+              >
+                Discard
               </Button>
+            ) : null}
+            {externalEnabled ? (
               <Button
                 type="button"
                 variant="secondary"
-                size="lg"
                 disabled={saving}
-                onClick={(e) => save(e as unknown as FormEvent, true)}
+                onClick={(event) =>
+                  void save(event as unknown as FormEvent, true)
+                }
+                data-settings-save
               >
-                Save & test
+                Save & test app
               </Button>
-            </div>
+            ) : null}
+            <Button
+              type="submit"
+              disabled={saving || !isDirty}
+              data-settings-save
+            >
+              {saving ? <LoadingGlyph /> : null}
+              Save changes
+            </Button>
           </div>
         </div>
+
+        <SettingsDisclosure
+          id="advanced-settings"
+          title="Advanced"
+          summary="Custom folders, Library timing, cleanup tools, and troubleshooting."
+          open={advancedOpen}
+          onToggle={() => {
+            setAdvancedOpen((open) => !open);
+            const url = new URL(window.location.href);
+            url.searchParams.delete("tab");
+            window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+          }}
+        >
+          <div className="space-y-8" data-advanced-settings>
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-medium text-[var(--text)]">
+                    Library automation timing
+                  </h3>
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    Rules belong in Library. This only controls when enabled rules run.
+                  </p>
+                </div>
+                <Button asChild type="button" variant="link" className="h-auto p-0">
+                  <Link href="/watchlist">Open Library automation</Link>
+                </Button>
+              </div>
+              <label htmlFor="automation-timing" className="sr-only">
+                Library automation timing
+              </label>
+              <select
+                id="automation-timing"
+                value={form.automationIntervalMinutes}
+                onChange={(event) =>
+                  updateForm((current) => ({
+                    ...current,
+                    automationIntervalMinutes: Number(event.target.value),
+                  }))
+                }
+                className="h-11 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
+              >
+                {AUTOMATION_INTERVAL_CHOICES.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
+            </section>
+
+            <section id="advanced-categories" className="scroll-mt-20 space-y-4">
+              <div className="flex items-start gap-3">
+                <Tags className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" />
+                <div>
+                  <h3 className="text-sm font-medium text-[var(--text)]">
+                    Custom categories and folders
+                  </h3>
+                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                    Leave these alone to sort into the download folder automatically.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="fallback-download-folder"
+                  className="text-xs font-medium text-[var(--text-secondary)]"
+                >
+                  Fallback folder
+                </label>
+                <div className="flex min-w-0 gap-2">
+                  <Input
+                    id="fallback-download-folder"
+                    value={form.savePath}
+                    onChange={(event) =>
+                      updateForm((current) => ({
+                        ...current,
+                        savePath: event.target.value,
+                      }))
+                    }
+                    className="h-11 min-w-0 font-mono text-base sm:text-sm"
+                    placeholder="Uses the main download folder when blank"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    aria-label="Browse for fallback folder"
+                    onClick={() => openPicker("savePath")}
+                  >
+                    <FolderOpen />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Open fallback folder"
+                    disabled={!form.savePath.trim() || Boolean(openingPath)}
+                    onClick={() => void openFolder(form.savePath)}
+                  >
+                    {openingPath === form.savePath ? (
+                      <LoadingGlyph />
+                    ) : (
+                      <FolderSearch />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {form.categories.map((category) => (
+                  <span
+                    key={category}
+                    className="inline-flex items-center rounded-full bg-[var(--bg-muted)] pl-3 text-xs text-[var(--text-secondary)] ring-1 ring-[var(--border)]"
+                  >
+                    {category}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${category}`}
+                      onClick={() => removeCategory(category)}
+                      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--danger)] lg:min-h-8 lg:min-w-8"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <div className="min-w-0 flex-1">
+                  <label htmlFor="new-category" className="sr-only">
+                    New category name
+                  </label>
+                  <Input
+                    id="new-category"
+                    value={newCategory}
+                    onChange={(event) => setNewCategory(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        addCategory();
+                      }
+                    }}
+                    className="h-11 text-base sm:text-sm"
+                    placeholder="New category name"
+                  />
+                </div>
+                <Button type="button" variant="secondary" onClick={addCategory}>
+                  <Plus />
+                  Add
+                </Button>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-[var(--border)]">
+                <button
+                  type="button"
+                  aria-expanded={pathsExpanded}
+                  aria-controls="category-paths"
+                  onClick={() => setPathsExpanded((open) => !open)}
+                  className="flex min-h-[44px] w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]"
+                >
+                  <span className="flex items-center gap-2 font-medium">
+                    {pathsExpanded ? <ChevronDown /> : <ChevronRight />}
+                    Folder for each category
+                  </span>
+                  <span className="text-xs text-[var(--text-tertiary)]">
+                    {Object.values(form.pathRules).filter((value) => value.trim()).length} custom
+                  </span>
+                </button>
+                {pathsExpanded ? (
+                  <div
+                    id="category-paths"
+                    className="space-y-2 border-t border-[var(--border)] p-3"
+                  >
+                    {form.categories.map((category) => {
+                      const open = expandedCategory === category;
+                      const derived = form.baseDownloadPath.trim()
+                        ? joinBase(form.baseDownloadPath.trim(), category)
+                        : form.savePath;
+                      const effective = effectiveCategoryPath(
+                        category,
+                        form.pathRules,
+                        form.baseDownloadPath,
+                        form.savePath,
+                      );
+                      return (
+                        <div
+                          key={category}
+                          className="overflow-hidden rounded-md border border-[var(--border)]"
+                        >
+                          <button
+                            type="button"
+                            aria-expanded={open}
+                            aria-controls={`category-${category}-path`}
+                            onClick={() =>
+                              setExpandedCategory(open ? null : category)
+                            }
+                            className="flex min-h-[44px] w-full min-w-0 items-center gap-2 px-3 text-left"
+                          >
+                            {open ? <ChevronDown /> : <ChevronRight />}
+                            <span className="text-xs font-medium text-[var(--text)]">
+                              {category}
+                            </span>
+                            {!open && effective ? (
+                              <span className="ml-auto max-w-[55%] truncate font-mono text-[10px] text-[var(--text-tertiary)]">
+                                {effective}
+                              </span>
+                            ) : null}
+                          </button>
+                          {open ? (
+                            <div
+                              id={`category-${category}-path`}
+                              className="space-y-2 border-t border-[var(--border)] p-3"
+                            >
+                              <label
+                                htmlFor={`category-path-${category}`}
+                                className="sr-only"
+                              >
+                                Folder for {category}
+                              </label>
+                              <div className="flex min-w-0 gap-2">
+                                <Input
+                                  id={`category-path-${category}`}
+                                  value={form.pathRules[category] ?? ""}
+                                  onChange={(event) =>
+                                    updateForm((current) => ({
+                                      ...current,
+                                      pathRules: {
+                                        ...current.pathRules,
+                                        [category]: event.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="h-11 min-w-0 font-mono text-base sm:text-sm"
+                                  placeholder={derived || "Uses the fallback folder"}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="secondary"
+                                  size="icon"
+                                  aria-label={`Browse for ${category} folder`}
+                                  onClick={() => openPicker(category)}
+                                >
+                                  <FolderOpen />
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <div>
+                <h3 className="text-sm font-medium text-[var(--text)]">
+                  Troubleshooting
+                </h3>
+                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                  Status and cleanup tools are here when something needs attention.
+                </p>
+              </div>
+              <label
+                htmlFor="verbose-diagnostics"
+                className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] p-3"
+              >
+                <Checkbox
+                  id="verbose-diagnostics"
+                  checked={form.verboseDiagnostics}
+                  onCheckedChange={(checked) =>
+                    updateForm((current) => ({
+                      ...current,
+                      verboseDiagnostics: checked === true,
+                    }))
+                  }
+                />
+                <span className="pt-0.5">
+                  <span className="block text-sm font-medium text-[var(--text)]">
+                    Show detailed playback diagnostics
+                  </span>
+                  <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
+                    Useful only while investigating playback problems.
+                  </span>
+                </span>
+              </label>
+              <SwarmProbePanel />
+              <RetentionPanel showPolicy={false} />
+            </section>
+          </div>
+        </SettingsDisclosure>
       </form>
-
-      <SwarmProbePanel />
-
-      <FirstRunSetup
-        open={setupOpen}
-        folder={form.baseDownloadPath}
-        storageCapGb={form.maxStorageGb}
-        saving={setupSaving}
-        error={setupError}
-        folderWarning={setupFolderWarning}
-        onFolderChange={(value) =>
-          setForm((current) => ({
-            ...current,
-            baseDownloadPath: value,
-          }))
-        }
-        onStorageCapChange={(value) =>
-          setForm((current) => ({ ...current, maxStorageGb: value }))
-        }
-        onBrowse={openSetupPicker}
-        onSkip={dismissSetup}
-        onSave={saveFirstRunSetup}
-      />
 
       <FolderPicker
         open={pickerOpen}
         initialPath={pickerInitialPath}
         title={
           pickerTarget === "base"
-            ? "Choose base download folder"
+            ? "Choose download folder"
             : pickerTarget === "savePath"
-              ? "Choose default download folder"
+              ? "Choose fallback folder"
               : pickerTarget
                 ? `Choose folder for ${pickerTarget}`
                 : "Choose folder"
         }
-        onClose={closePicker}
+        onClose={() => {
+          setPickerOpen(false);
+          setPickerTarget(null);
+        }}
         onSelect={handlePickerSelect}
       />
     </div>
   );
 }
 
+function SettingsField({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label
+        htmlFor={id}
+        className="text-xs font-medium text-[var(--text-secondary)]"
+      >
+        {label}
+      </label>
+      <Input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-11 scroll-mb-32 text-base sm:text-sm"
+      />
+    </div>
+  );
+}
 
 function SettingsSkeleton({ visible = true }: { visible?: boolean }) {
   return (
     <PageSkeletonFrame
       aria-label="Loading settings"
       className={cn(
-        "container-app max-w-2xl py-6 sm:py-8 space-y-5 pb-28 min-w-0 transition-opacity duration-150",
+        "container-app max-w-2xl space-y-5 py-6 pb-24 transition-opacity duration-150 sm:py-8",
         !visible && "opacity-0",
       )}
     >
@@ -1825,51 +1365,13 @@ function SettingsSkeleton({ visible = true }: { visible?: boolean }) {
         <SkeletonBlock className="h-8 w-32" />
         <SkeletonBlock className="h-4 w-80 max-w-full" />
       </div>
-      <SkeletonBlock className="h-11 w-full rounded-lg" />
-      <div className="surface space-y-4 p-4 sm:p-5">
-        <SkeletonBlock className="h-5 w-40" />
-        <div className="grid gap-3 sm:grid-cols-2">
-          {Array.from({ length: 4 }, (_, i) => (
-            <SkeletonBlock key={i} className="h-16 w-full" />
-          ))}
-        </div>
-        <SkeletonBlock className="h-24 w-full" />
-      </div>
-      <div className="surface space-y-3 p-4 sm:p-5">
+      <div className="surface space-y-5 p-4 sm:p-5">
         <SkeletonBlock className="h-5 w-36" />
-        <SkeletonBlock className="h-16 w-full" />
-        <SkeletonBlock className="h-16 w-full" />
+        <SkeletonBlock className="h-11 w-full" />
+        <SkeletonBlock className="h-11 w-48 max-w-full" />
+        <SkeletonBlock className="h-11 w-full" />
+        <SkeletonBlock className="h-11 w-full" />
       </div>
     </PageSkeletonFrame>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  listId,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-  listId?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <label className="text-xs text-[var(--text-tertiary)]">{label}</label>
-      <Input
-        type={type}
-        list={listId}
-        className="h-11"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-    </div>
   );
 }

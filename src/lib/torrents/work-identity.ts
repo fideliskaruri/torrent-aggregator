@@ -50,6 +50,7 @@
 import { showFolderName, cutAtStructuralMarker } from "@/lib/download/smart-category";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import type { MediaMetadata } from "@/lib/torrents/types";
+import { mediaAliasAgrees } from "@/lib/torrents/media-alias";
 
 export type WorkIdentity = {
   /**
@@ -153,6 +154,17 @@ export function catalogAgrees(releaseName: string, catalogTitle: string): boolea
   const head = catalogTitle.split(/:\s*|\s+[-–—]\s+/)[0];
   if (normalizeForKey(head) === a) return false;
   return true;
+}
+
+/**
+ * Provider aliases may prove translated titles are the same work. The bounded
+ * fallback supports cached anime metadata created before aliases were retained.
+ */
+export function metadataAgrees(
+  releaseName: string,
+  metadata: MediaMetadata | null | undefined,
+): boolean {
+  return mediaAliasAgrees(releaseName, metadata);
 }
 
 /**
@@ -378,12 +390,15 @@ export function workIdentity(
 
   if (!name) name = releaseTitle.trim();
 
-  const normalized = normalizeForKey(name);
+  const catalogTitle = metadata?.title?.trim();
+  const catalogMatches = metadataAgrees(name, metadata);
+  const normalized = normalizeForKey(
+    catalogMatches && catalogTitle ? catalogTitle : name,
+  );
 
   // Borrow the catalog's spelling only where it agrees with the release.
   let display = name;
-  const catalogTitle = metadata?.title?.trim();
-  if (catalogTitle && catalogAgrees(name, catalogTitle)) display = catalogTitle;
+  if (catalogMatches && catalogTitle) display = catalogTitle;
 
   return {
     key: isSeries ? `series:${normalized}` : `film:${normalized}:${year ?? ""}`,
@@ -442,7 +457,11 @@ export function groupReleasesByWork<T>(
     // Take artwork from a release whose catalog match agrees with the group
     // name. A poster is a strong visual claim about identity, so it may not
     // come from a row we only *suspect* belongs here.
-    if (!group.posterUrl && metadata?.posterUrl && catalogAgrees(group.name, metadata.title ?? "")) {
+    if (
+      !group.posterUrl &&
+      metadata?.posterUrl &&
+      metadataAgrees(group.name, metadata)
+    ) {
       group.posterUrl = metadata.posterUrl;
       // The agreeing catalog title is also the better label.
       if (metadata.title?.trim()) group.name = metadata.title.trim();

@@ -7,6 +7,7 @@ import prisma from "@/lib/prisma";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { selectSeriesCandidateWithPackPreference, matchesTargetEpisode } from "@/lib/torrents/pack-preference";
 import { searchTorrents } from "@/lib/torrents/aggregator";
+import { rankResults } from "@/lib/torrents/ranking";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { ClientConnectionConfig } from "@/lib/clients";
 import {
@@ -214,11 +215,6 @@ export async function advanceLibraryItemIfHuntMatch(
  * all. The rungs are now ordered by shape diversity, and the ceiling is raised
  * so the tail (second alias, remaining categories) is reachable on hard titles.
  */
-const MAX_LADDER_SEARCHES = 10;
-/** Total pipeline send attempts allowed per press (across all rungs). */
-const MAX_SEND_ATTEMPTS = 6;
-/** Next-best-candidate retries within a single rung before moving on. */
-const MAX_CANDIDATES_PER_RUNG = 3;
 /** Per-rung indexer page size — anime titles need more than 15 to surface packs. */
 const LADDER_SEARCH_LIMIT = 40;
 
@@ -305,10 +301,6 @@ function altEpisodeQuery(title: string, season: number, episode: number): string
  * season packs: an episode-shaped query makes EZTV drop packs and makes
  * free-text indexers miss them. Mirrors season-acquire's seasonSearchQuery.
  */
-function seasonPackQuery(title: string, season: number): string {
-  return `${title.trim()} S${padEp(season)}`;
-}
-
 /**
  * Anime absolute episode: "Show - 01" / "Show - 1". Fansubs almost never use
  * SxxEyy; the dash form is what Nyaa ranks.
@@ -436,14 +428,11 @@ function buildEpisodeRungs(
   };
 
   const epFilters = { hasMagnet: true, minSeeders: 1, season, episode };
-  const packFilters = { hasMagnet: true, minSeeders: 1, season };
   const absFilters = { hasMagnet: true, minSeeders: 1, episode };
   const exact = (t: string | null, cat: LadderCategory | null) =>
     t && push("exact", episodeSearchQuery(t, season, episode), cat, epFilters);
   const alt = (t: string | null, cat: LadderCategory | null) =>
     t && push("alt", altEpisodeQuery(t, season, episode), cat, epFilters);
-  const pack = (t: string | null, cat: LadderCategory | null) =>
-    t && push("pack", seasonPackQuery(t, season), cat, packFilters);
   const absolute = (t: string | null, cat: LadderCategory | null) => {
     // "Show - 01" numbers episodes from the start of the show, so it is only
     // the same episode as SxxEyy while we are hunting season one.
@@ -461,16 +450,13 @@ function buildEpisodeRungs(
     // budget instead of behind an alias×category cross-product.
     exact(bestAlias, animeCat);
     exact(bestAlias, primaryCat);
-    pack(primaryTitle, primaryCat);
     absolute(bestAlias, animeCat);
     alt(primaryTitle, primaryCat);
-    pack(bestAlias, animeCat);
     absolute(bestAlias, primaryCat);
   } else {
     // Ordinary TV: the classic relaxation order, untouched. A season pack is
     // the universal rescue and must not queue behind anime-only shapes.
     alt(primaryTitle, primaryCat);
-    pack(primaryTitle, primaryCat);
     exact(primaryTitle, animeCat);
     absolute(primaryTitle, animeCat);
   }
@@ -483,8 +469,6 @@ function buildEpisodeRungs(
     exact(bestAlias ?? primaryTitle, cat);
     absolute(bestAlias ?? primaryTitle, cat);
   }
-  pack(bestAlias ?? primaryTitle, primaryCat);
-
   push(
     "relaxed",
     episodeSearchQuery(bestAlias ?? primaryTitle, season, episode),
@@ -520,6 +504,8 @@ export async function grabSingleEpisode(opts: {
   mediaType: string;
   season: number;
   episode: number;
+  /** Preferred output height. Used for affinity ordering, never as a filter. */
+  preferredResolution?: number | null;
   /** Optional library item id for GrabJob externalId + hunt-cursor advance */
   watchListItemId?: string | null;
   /** "stream" = reclaimable cache; "keep" = permanent download. */
@@ -585,7 +571,6 @@ export async function grabSingleEpisode(opts: {
     const key = `${rung.query}|${rung.category}|${JSON.stringify(rung.filters)}`;
     const existing = searchMemo.get(key);
     if (existing) return existing;
-    if (searchMemo.size >= MAX_LADDER_SEARCHES) return null;
     const p = searchFn({
       query: rung.query,
       category: rung.category,
@@ -600,18 +585,27 @@ export async function grabSingleEpisode(opts: {
   };
 
   ladder: for (const rung of rungs) {
-    if (sendAttempts >= MAX_SEND_ATTEMPTS) break;
     const searchPromise = runRungSearch(rung);
-    if (!searchPromise) break; // search cap reached
+    if (!searchPromise) continue;
     if (rung.kind === "pack") triedPacks = true;
-    const searchResp = await searchPromise;
+    const rawSearchResp = await searchPromise;
+    const searchResp =
+      opts.preferredResolution == null
+        ? rawSearchResp
+        : {
+            ...rawSearchResp,
+            results: rankResults(
+              [...rawSearchResp.results],
+              rung.query,
+              opts.preferredResolution,
+              rung.category,
+            ),
+          };
 
-    let perRung = 0;
-    while (perRung < MAX_CANDIDATES_PER_RUNG && sendAttempts < MAX_SEND_ATTEMPTS) {
+    while (true) {
       const candidate = rung.select(searchResp.results, attempted);
       if (!candidate?.magnet) break; // nothing (more) to try this rung
       attempted.add(candidateKey(candidate));
-      perRung += 1;
       sendAttempts += 1;
 
       // Pin the chosen candidate into the pipeline: with `_searchFn` returning

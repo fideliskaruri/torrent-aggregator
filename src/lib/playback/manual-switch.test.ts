@@ -49,6 +49,7 @@ function rel(n: number, title: string, seeders: number): TorrentResult {
 const POOL: TorrentResult[] = [
   rel(1, "The Bear S01E01 1080p WEB-DL", 28),
   rel(2, "The Bear S01E01 720p WEB-DL", 4),
+  rel(3, "The Bear S01E01 480p WEB-DL", 2),
 ];
 
 /** Records the order of side effects so we can assert carry-before-abandon. */
@@ -106,7 +107,7 @@ async function run() {
     );
   }
 
-  // ── A pinned pick is NOT auto-swapped when it later stalls (the key rule) ──
+  // ── A manual pick does not block automatic recovery when it later stalls ──
   {
     resetSwarmWatch();
     const rec: Recorder = { calls: [], started: [], abandoned: [] };
@@ -140,14 +141,11 @@ async function run() {
     const tick = await swarmDeliveryTick(KEY, hash(2), TARGET, swarmDeps); // now stalled
 
     assert.equal(tick.verdict.stalled, true, "the pinned source is genuinely detected as stalled");
-    assert.equal(
-      tick.narration.phase,
-      "stalled-held",
-      "a pinned stall is narrated as held, so the UI can offer another quality",
-    );
-    assert.equal(tick.switched, false, "the watchdog did NOT swap the pinned source away");
-    assert.deepEqual(swarmRec.started, [], "no new release was started behind the user's back");
-    assert.deepEqual(swarmRec.abandoned, [], "the pinned source was not abandoned");
+    assert.equal(tick.narration.phase, "switching");
+    assert.equal(tick.switched, true, "the watchdog automatically recovers");
+    assert.equal(tick.currentHash, hash(3));
+    assert.deepEqual(swarmRec.started, [hash(3)]);
+    assert.deepEqual(swarmRec.abandoned, [hash(2)]);
   }
 
   // ── A pick that is not a real candidate is rejected, not fabricated ────────

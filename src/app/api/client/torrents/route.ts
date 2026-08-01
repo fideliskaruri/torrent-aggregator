@@ -54,6 +54,49 @@ export async function GET() {
             .filter((h): h is string => Boolean(h)),
         ),
       ];
+      if (hashes.length > 0) {
+        const torrentByHash = new Map(
+          torrents
+            .filter((torrent) => Boolean(torrent.hash))
+            .map((torrent) => [torrent.hash!.toLowerCase(), torrent] as const),
+        );
+        const targets = await prisma.acquisitionTarget.findMany({
+          where: {
+            userId: session.user.id,
+            infoHash: { in: hashes },
+            status: { in: ["queued", "downloading"] },
+          },
+          select: { id: true, infoHash: true, progress: true, status: true },
+        });
+        await Promise.all(
+          targets.map((target) => {
+            const torrent = target.infoHash
+              ? torrentByHash.get(target.infoHash.toLowerCase())
+              : null;
+            if (!torrent) return Promise.resolve();
+            const progress = Math.min(
+              1,
+              Math.max(0, Number(torrent.progress) || 0),
+            );
+            const downloaded =
+              progress >= 1 ||
+              String(torrent.state ?? "").toLowerCase().includes("seeding");
+            if (
+              target.progress === (downloaded ? 1 : progress) &&
+              target.status === (downloaded ? "downloaded" : "downloading")
+            ) {
+              return Promise.resolve();
+            }
+            return prisma.acquisitionTarget.update({
+              where: { id: target.id },
+              data: {
+                status: downloaded ? "downloaded" : "downloading",
+                progress: downloaded ? 1 : progress,
+              },
+            });
+          }),
+        );
+      }
       const origins = hashes.length
         ? new Map(
             (

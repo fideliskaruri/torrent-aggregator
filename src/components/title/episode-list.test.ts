@@ -47,6 +47,7 @@ function episode(overrides: Partial<EpisodeRowModel> = {}): EpisodeRowModel {
     watched: false,
     nextUp: false,
     fromPack: false,
+    transfer: null,
     meta: null,
     ...overrides,
   };
@@ -54,7 +55,7 @@ function episode(overrides: Partial<EpisodeRowModel> = {}): EpisodeRowModel {
 
 console.log("\ntitle episode list");
 
-check("episode row renders distinct Play and Download controls", () => {
+check("remote episode row renders distinct Play and Download controls", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
       seasons: [{ season: 1, knownEpisodes: 1, pack: null }],
@@ -75,6 +76,102 @@ check("episode row renders distinct Play and Download controls", () => {
   assert.match(html, /data-action="download"/);
   assert.match(html, />Play</);
   assert.match(html, />Download</);
+  assert.match(html, /aria-label="Play — S01E01"/);
+  assert.match(html, /aria-label="Download — S01E01"/);
+});
+
+check("season actions say exactly what they do without review wording", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(EpisodeList, {
+      seasons: [{ season: 1, knownEpisodes: 2, pack: null }],
+      season: 1,
+      episodes: [episode(), episode({ episode: 2, label: "S01E02" })],
+      truncated: false,
+      loadState: { status: "ready" },
+      busy: false,
+      statusFor: () => "idle" as const,
+      seasonGrabStatus: { status: "idle" },
+      onSeasonChange: () => {},
+      onSeasonGrab: () => {},
+      onAction: () => {},
+    }),
+  );
+
+  assert.match(html, />Play season</);
+  assert.match(html, />Download season</);
+  assert.doesNotMatch(html, /Review season|Review download/i);
+  assert.match(html, />Play</);
+  assert.match(html, />Download</);
+});
+
+check("locally backed episode keeps immediate Play", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(EpisodeList, {
+      seasons: [{ season: 1, knownEpisodes: 1, pack: null }],
+      season: 1,
+      episodes: [
+        episode({
+          availability: "ready",
+          infoHash: "0123456789abcdef0123456789abcdef01234567",
+        }),
+      ],
+      truncated: false,
+      loadState: { status: "ready" },
+      busy: false,
+      statusFor: () => "idle" as const,
+      seasonGrabStatus: { status: "idle" },
+      onSeasonChange: () => {},
+      onSeasonGrab: () => {},
+      onAction: () => {},
+    }),
+  );
+
+  assert.match(html, /data-action-kind="play"/);
+  assert.match(html, />Play</);
+});
+
+check("failed missing transfer hides Play unless another local source is verified", () => {
+  const render = (row: EpisodeRowModel) =>
+    renderToStaticMarkup(
+      React.createElement(EpisodeList, {
+        seasons: [{ season: 1, knownEpisodes: 1, pack: null }],
+        season: 1,
+        episodes: [row],
+        truncated: false,
+        loadState: { status: "ready" },
+        busy: false,
+        statusFor: () => "idle" as const,
+        seasonGrabStatus: { status: "idle" },
+        onSeasonChange: () => {},
+        onSeasonGrab: () => {},
+        onAction: () => {},
+      }),
+    );
+  const failed = {
+    status: "failed" as const,
+    progress: 0,
+    infoHash: null,
+    filePath: null,
+    error: "The requested file is no longer available.",
+  };
+
+  const missingHtml = render(episode({ transfer: failed }));
+  assert.doesNotMatch(
+    missingHtml,
+    /data-episode-action="true" data-action="stream"/,
+  );
+  assert.match(missingHtml, /Download failed/);
+  assert.match(missingHtml, />Retry</);
+
+  const localHtml = render(
+    episode({
+      availability: "ready",
+      infoHash: "f".repeat(40),
+      transfer: failed,
+    }),
+  );
+  assert.match(localHtml, /data-episode-action="true" data-action="stream"/);
+  assert.match(localHtml, /data-action-kind="play"/);
 });
 
 check("episode actions post stream versus keep retention", async () => {
@@ -119,10 +216,10 @@ check("episode actions post stream versus keep retention", async () => {
 // ---------------------------------------------------------------------------
 
 check("Download (keep) sends resolution in request body", async () => {
-  const calls: string[] = [];
+  const calls: Array<{ url: string; body: string }> = [];
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-    calls.push(String(init?.body ?? ""));
+  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), body: String(init?.body ?? "") });
     return new Response(JSON.stringify({ ok: true, infoHash: "abc" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -132,7 +229,13 @@ check("Download (keep) sends resolution in request body", async () => {
   try {
     await postTitleAction({
       workKey: "w",
-      action: { kind: "get", label: "Download", season: 1, episode: 1 },
+      action: {
+        kind: "get",
+        label: "Download",
+        season: 1,
+        episode: 2,
+        infoHash: "a".repeat(40),
+      },
       retention: "keep",
       resolution: 1080,
     });
@@ -140,7 +243,13 @@ check("Download (keep) sends resolution in request body", async () => {
     globalThis.fetch = originalFetch;
   }
 
-  assert.equal(JSON.parse(calls[0]).resolution, 1080);
+  const body = JSON.parse(calls[0].body);
+  assert.equal(calls[0].url, "/api/title/w");
+  assert.equal(body.scope, "episode");
+  assert.equal(body.season, 1);
+  assert.equal(body.episode, 2);
+  assert.equal(body.preferredResolution, 1080);
+  assert.equal(body.infoHash, undefined);
 });
 
 check("Play (stream) does not send resolution in request body", async () => {
@@ -168,65 +277,160 @@ check("Play (stream) does not send resolution in request body", async () => {
   assert.equal(JSON.parse(calls[0]).resolution, undefined);
 });
 
+check("a legacy season pack does not make every sibling episode downloaded", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(EpisodeList, {
+      seasons: [
+        {
+          season: 4,
+          knownEpisodes: 2,
+          pack: {
+            name: "Example Show S04 COMPLETE 12.69GB",
+            availability: "warm",
+            infoHash: "b".repeat(40),
+            downloadFraction: 0.061,
+          },
+        },
+      ],
+      season: 4,
+      episodes: [
+        episode({
+          season: 4,
+          episode: 1,
+          label: "S04E01",
+          availability: null,
+          fromPack: false,
+        }),
+        episode({
+          season: 4,
+          episode: 2,
+          label: "S04E02",
+          availability: null,
+          fromPack: false,
+          downloadFraction: null,
+        }),
+      ],
+      truncated: false,
+      loadState: { status: "ready" },
+      busy: false,
+      statusFor: () => "idle" as const,
+      seasonGrabStatus: { status: "idle" },
+      onSeasonChange: () => {},
+      onSeasonGrab: () => {},
+      onAction: () => {},
+    }),
+  );
+
+  const e02 = html.match(/<li[^>]*data-episode="2"[\s\S]*?<\/li>/)?.[0] ?? "";
+  assert.doesNotMatch(e02, /13% downloaded|Downloading|Downloaded|Available/);
+});
+
+check("target-linked episode renders exact transfer progress without leaking to siblings", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(EpisodeList, {
+      seasons: [{ season: 1, knownEpisodes: 2, pack: null }],
+      season: 1,
+      episodes: [
+        episode({ episode: 1, label: "S01E01" }),
+        episode({
+          episode: 2,
+          label: "S01E02",
+          transfer: {
+            status: "downloading",
+            progress: 0.061,
+            infoHash: "c".repeat(40),
+            filePath: null,
+            error: null,
+          },
+        } as Partial<EpisodeRowModel>),
+      ],
+      truncated: false,
+      loadState: { status: "ready" },
+      busy: false,
+      statusFor: () => "idle" as const,
+      seasonGrabStatus: { status: "idle" },
+      onSeasonChange: () => {},
+      onSeasonGrab: () => {},
+      onAction: () => {},
+    }),
+  );
+
+  const e01 = html.match(/<li[^>]*data-episode="1"[\s\S]*?<\/li>/)?.[0] ?? "";
+  const e02 = html.match(/<li[^>]*data-episode="2"[\s\S]*?<\/li>/)?.[0] ?? "";
+  assert.doesNotMatch(e01, /6\.1%|Downloading/);
+  assert.match(e02, /Downloading 6\.1%/);
+});
+
+check("completed target renders Downloaded/Available and Play", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(EpisodeList, {
+      seasons: [{ season: 2, knownEpisodes: 1, pack: null }],
+      season: 2,
+      episodes: [
+        episode({
+          season: 2,
+          episode: 7,
+          label: "S02E07",
+          transfer: {
+            status: "downloaded",
+            progress: 1,
+            infoHash: "d".repeat(40),
+            filePath: "Show S02E07.mkv",
+            error: null,
+          },
+        } as Partial<EpisodeRowModel>),
+      ],
+      truncated: false,
+      loadState: { status: "ready" },
+      busy: false,
+      statusFor: () => "idle" as const,
+      seasonGrabStatus: { status: "idle" },
+      onSeasonChange: () => {},
+      onSeasonGrab: () => {},
+      onAction: () => {},
+    }),
+  );
+
+  assert.match(html, /Downloaded\/Available/);
+  assert.match(html, /data-action-kind="play"/);
+  assert.match(html, />Play</);
+});
+
 // ---------------------------------------------------------------------------
-// Task 3: in-flight timeout — AbortSignal causes the fetch to throw,
-// which the caller is expected to catch and set status to "error".
-// This test validates the mechanism: a pre-aborted signal throws immediately.
+// Task 3: fetch failures must propagate so the caller can restore an actionable
+// state. Cover both the browser's AbortError and a non-ok API response.
 // ---------------------------------------------------------------------------
 
 check("postTitleAction propagates abort as a thrown error", async () => {
-  const controller = new AbortController();
   const originalFetch = globalThis.fetch;
 
-  // Simulate a fetch that respects the abort signal.
-  globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-    if (init?.signal?.aborted) {
-      throw new DOMException("The operation was aborted.", "AbortError");
-    }
-    return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
-  }) as typeof fetch;
-
-  controller.abort();
-
   try {
-    let threw = false;
-    try {
-      await postTitleAction({
+    globalThis.fetch = (async () => {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }) as typeof fetch;
+    await assert.rejects(
+      postTitleAction({
         workKey: "w",
         action: { kind: "stream", label: "Play", season: 1, episode: 1 },
         retention: "stream",
-        // We can't inject the signal directly through the public API, but we
-        // can verify the fetch receives `signal` by checking the mock is called.
-      });
-    } catch {
-      threw = true;
-    }
-    // The mock is wired to the real fetch path; without the abort it resolves.
-    // The important rule: postTitleAction does NOT swallow errors from fetch —
-    // any AbortError must propagate to the caller (runAction), which catches it
-    // and sets the status to "error", re-enabling the control.
-    //
-    // We verify this indirectly: a 200 response with `ok:false` throws.
-    const calls: string[] = [];
-    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
-      calls.push("called");
+      }),
+      (error) => error instanceof DOMException && error.name === "AbortError",
+    );
+
+    globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ ok: false, message: "forced error" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
     }) as typeof fetch;
-
-    let errorThrown = false;
-    try {
-      await postTitleAction({
+    await assert.rejects(
+      postTitleAction({
         workKey: "w",
         action: { kind: "get", label: "Download", season: null, episode: null },
         retention: "keep",
-      });
-    } catch (e) {
-      errorThrown = true;
-    }
-    assert.equal(errorThrown, true, "non-ok response must throw so the caller can re-enable the control");
+      }),
+      /forced error/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

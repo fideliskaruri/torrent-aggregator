@@ -14,6 +14,11 @@ import {
   getRetentionStorageUsage,
   trackedTorrentRefs,
 } from "@/lib/library/retention-settings";
+import {
+  readMutationObject,
+  requestFailureResponse,
+  stringField,
+} from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +46,9 @@ export const dynamic = "force-dynamic";
  *    refused outright;
  *  - a file any live `EngineTorrent` row owns is refused, and so is a folder
  *    that still contains one;
- *  - a folder whose walk was truncated is refused, because a partial walk cannot
- *    prove there is no live file underneath.
+ *  - a folder is refused unless its full inventory is authoritative, because a
+ *    truncated, unreadable, or stat-failed walk cannot prove there is no live
+ *    file underneath.
  *
  * One entry per request. There is deliberately no "clean everything", and the
  * download root itself can never be the target.
@@ -59,6 +65,7 @@ const REFUSAL_STATUS: Record<OrphanTargetRefusal, number> = {
   missing: 404,
   tracked: 409,
   "contains-tracked": 409,
+  "inventory-incomplete": 409,
   "unsupported-type": 400,
 };
 
@@ -69,14 +76,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let body: { relativePath?: string | null } = {};
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      body = {};
-    }
-
-    const relativePath = body.relativePath?.trim() ?? "";
+    const parsedBody = await readMutationObject(request, 16 * 1024);
+    if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+    const relativePathResult = stringField(parsedBody.value, "relativePath", {
+      required: true,
+      maxLength: 4096,
+    });
+    if (!relativePathResult.ok) return requestFailureResponse(relativePathResult);
+    const relativePath = relativePathResult.value ?? "";
     if (!relativePath) {
       return NextResponse.json(
         {
@@ -131,11 +138,12 @@ export async function POST(request: NextRequest) {
         force: false,
       });
     } catch (err) {
+      console.error("[settings/untracked-files POST] delete failed:", err);
       return NextResponse.json(
         {
           ok: false,
           error: "Could not remove that entry",
-          message: err instanceof Error ? err.message : String(err),
+          message: "The server could not remove that entry.",
           reason: "delete-failed",
         },
         { status: 500 },
@@ -169,7 +177,7 @@ export async function POST(request: NextRequest) {
       {
         ok: false,
         error: "Failed to remove untracked entry",
-        message: err instanceof Error ? err.message : String(err),
+        message: "The untracked entry could not be removed. Check the server logs.",
       },
       { status: 500 },
     );

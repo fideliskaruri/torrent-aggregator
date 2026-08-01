@@ -47,6 +47,14 @@ import { chooseStrategy, trimVodPlaylist, WHOLE_FILE_PLAYLIST } from "@/lib/medi
 import { playlistPath, prepareVod } from "@/lib/media/vod-runtime";
 import fs from "node:fs";
 import prisma from "@/lib/prisma";
+import {
+  numberField,
+  objectField,
+  readMutationObject,
+  requestFailureResponse,
+  stringField,
+} from "@/lib/http/request";
+import { normalizeInfoHash } from "@/lib/torrents/infohash";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -121,13 +129,109 @@ async function cacheProbe(infoHash: string, filePath: string, result: ProbeResul
 }
 
 export async function POST(request: Request) {
-  installSessionCleanup();
-
   // Auth — same pattern as the stream route
   const session = await auth();
   if (!session?.user?.id) {
     return json(401, { error: "Not authenticated" });
   }
+  const parsedBody = await readMutationObject(request);
+  if (!parsedBody.ok) return requestFailureResponse(parsedBody);
+  const body = parsedBody.value;
+
+  const rawInfoHash = stringField(body, "infoHash", {
+    required: true,
+    maxLength: 64,
+  });
+  if (!rawInfoHash.ok) return requestFailureResponse(rawInfoHash);
+  const infoHash = normalizeInfoHash(rawInfoHash.value);
+  if (!infoHash) {
+    return json(400, {
+      error: "infoHash must be a 40-character hex or 32-character base32 hash",
+      field: "infoHash",
+    });
+  }
+  const filePathResult = stringField(body, "filePath", {
+    required: true,
+    maxLength: 4096,
+  });
+  if (!filePathResult.ok) return requestFailureResponse(filePathResult);
+  const filePath = filePathResult.value ?? "";
+  const pathSegments = filePath.replace(/\\/g, "/").split("/");
+  if (
+    filePath.includes("\0") ||
+    filePath.startsWith("/") ||
+    /^[a-zA-Z]:[\\/]/.test(filePath) ||
+    pathSegments.some((segment) => segment === "..")
+  ) {
+    return json(400, {
+      error: "filePath must be a safe path inside the torrent",
+      field: "filePath",
+    });
+  }
+
+  const audioStreamIndexResult = numberField(body, "audioStreamIndex", {
+    integer: true,
+    min: 0,
+    max: 10_000,
+  });
+  if (!audioStreamIndexResult.ok) return requestFailureResponse(audioStreamIndexResult);
+  const startSecResult = numberField(body, "startSec", {
+    min: 0,
+    max: 1_000_000_000,
+  });
+  if (!startSecResult.ok) return requestFailureResponse(startSecResult);
+
+  const capabilitiesObject = objectField(body, "capabilities");
+  if (!capabilitiesObject.ok) return requestFailureResponse(capabilitiesObject);
+  if (capabilitiesObject.value) {
+    const ua = stringField(capabilitiesObject.value, "ua", { maxLength: 2000 });
+    if (!ua.ok) return requestFailureResponse(ua);
+    const mseSupported = capabilitiesObject.value.get("mseSupported");
+    if (mseSupported !== undefined && typeof mseSupported !== "boolean") {
+      return json(400, {
+        error: "capabilities.mseSupported must be a boolean",
+        field: "capabilities",
+      });
+    }
+    const codecs = capabilitiesObject.value.get("codecs");
+    if (codecs !== undefined) {
+      if (!Array.isArray(codecs)) {
+        return json(400, {
+          error: "capabilities.codecs must be an array",
+          field: "capabilities",
+        });
+      }
+      if (codecs.length > 128) {
+        return json(400, {
+          error: "capabilities.codecs may contain at most 128 entries",
+          field: "capabilities",
+        });
+      }
+      for (let index = 0; index < codecs.length; index += 1) {
+        const entry = codecs[index];
+        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+          return json(400, {
+            error: `capabilities.codecs[${index}] must be an object`,
+            field: "capabilities",
+          });
+        }
+        const entryFields = new Map(Object.entries(entry));
+        const mime = stringField(entryFields, "mime", { required: true, maxLength: 500 });
+        const canPlay = stringField(entryFields, "canPlay", { required: true, maxLength: 32 });
+        if (!mime.ok) return requestFailureResponse(mime);
+        if (!canPlay.ok) return requestFailureResponse(canPlay);
+        const mse = entryFields.get("mse");
+        if (typeof mse !== "boolean") {
+          return json(400, {
+            error: `capabilities.codecs[${index}].mse must be a boolean`,
+            field: "capabilities",
+          });
+        }
+      }
+    }
+  }
+
+  installSessionCleanup();
   const config = await getUserClientConfig(session.user.id);
   if (!config) {
     return json(503, { error: "No torrent client configured" });
@@ -139,29 +243,9 @@ export async function POST(request: Request) {
     });
   }
 
-  // Parse request body
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json(400, { error: "Invalid JSON body" });
-  }
-
-  const infoHash = typeof body.infoHash === "string" ? body.infoHash.trim().toLowerCase() : null;
-  const filePath = typeof body.filePath === "string" ? body.filePath.trim() : null;
-  if (!infoHash || !filePath) {
-    return json(400, { error: "infoHash and filePath are required" });
-  }
-
-  const capabilities = parseCapabilities(body.capabilities);
-  const audioStreamIndex =
-    typeof body.audioStreamIndex === "number" && Number.isFinite(body.audioStreamIndex)
-      ? Math.trunc(body.audioStreamIndex)
-      : null;
-  const requestedStartSec =
-    typeof body.startSec === "number" && Number.isFinite(body.startSec) && body.startSec > 0
-      ? Math.floor(body.startSec)
-      : 0;
+  const capabilities = parseCapabilities(body.get("capabilities"));
+  const audioStreamIndex = audioStreamIndexResult.value ?? null;
+  const requestedStartSec = Math.floor(startSecResult.value ?? 0);
 
   // ── Step 1: Probe (cached) ──
   const origin = requestOrigin(request);

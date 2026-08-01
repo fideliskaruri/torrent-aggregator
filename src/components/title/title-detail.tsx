@@ -28,7 +28,6 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { Download, Loader2, Play, Search } from "lucide-react";
 import { toast } from "sonner";
 import { AvailabilityChip } from "@/components/browse/availability-chip";
@@ -42,7 +41,7 @@ import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
 import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-status";
-import { EpisodeList, episodeActionKey, episodeIntentKey } from "./episode-list";
+import { EpisodeList, episodeIntentKey } from "./episode-list";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons } from "./merge-extras";
 import { MoreLikeThis } from "./more-like-this";
@@ -80,6 +79,12 @@ export interface TitleDetailProps {
   year?: number | null;
   mediaType?: string | null;
   season?: number | null;
+  provider?: string | null;
+  providerId?: string | null;
+  sourceType?: string | null;
+  format?: string | null;
+  seriesHint?: string | null;
+  aliases?: string[];
 }
 
 /** The player, once a Play has been pressed. */
@@ -91,7 +96,9 @@ type PlayTarget = {
    */
   infoHash: string | null;
   title: string;
-  subtitle: string | null;
+  episodeTitle: string | null;
+  season: number | null;
+  episode: number | null;
   resumePositionSec: number | null;
 };
 
@@ -165,11 +172,23 @@ export function TitleDetail(props: TitleDetailProps) {
   const url = useMemo(
     () => buildDetailUrl({ ...props, season }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [props.workKey, props.title, props.year, props.mediaType, season],
+    [
+      props.workKey,
+      props.title,
+      props.year,
+      props.mediaType,
+      props.provider,
+      props.providerId,
+      props.sourceType,
+      props.format,
+      props.seriesHint,
+      props.aliases,
+      season,
+    ],
   );
 
   const { data, loading, refreshing, error, refetch } =
-    useApiQuery<TitleDetailPayload>(url);
+    useApiQuery<TitleDetailPayload>(url, { refreshMs: 2_500 });
 
   // The second round trip: episode names, the real season count, neighbours.
   //
@@ -180,7 +199,7 @@ export function TitleDetail(props: TitleDetailProps) {
   // panel, because unknown must not be narrowed into empty.
   const activeSeason = season ?? data?.season ?? null;
   const extrasUrl = useMemo(
-    () => (data ? buildExtrasUrl(props.workKey, data, activeSeason) : null),
+    () => (data ? buildExtrasUrl(props, data, activeSeason) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.workKey, data?.title, data?.year, data?.mediaType, activeSeason],
   );
@@ -197,14 +216,30 @@ export function TitleDetail(props: TitleDetailProps) {
   );
 
   const runAction = useCallback(
-    async (action: TitleAction, key: string, label: string, retention: TitleRetention, resolution?: number) => {
+    async (
+      action: TitleAction,
+      key: string,
+      label: string,
+      retention: TitleRetention,
+      resolution?: number,
+    ) => {
       if (!shouldRunTitleAction(action, statusFor(key))) return;
 
       if (action.kind === "play" && retention === "stream") {
+        const episodeTitle =
+          action.season != null &&
+          action.episode != null &&
+          extras?.season === action.season
+            ? extras.episodes.find(
+                (item) => item.episode === action.episode,
+              )?.name ?? null
+            : null;
         setPlaying({
           infoHash: action.infoHash,
-          title: label,
-          subtitle: null,
+          title: cleanDisplayTitle(data?.title ?? props.title ?? label),
+          episodeTitle,
+          season: action.season ?? null,
+          episode: action.episode ?? null,
           resumePositionSec: action.resumePositionSec,
         });
         return;
@@ -221,10 +256,20 @@ export function TitleDetail(props: TitleDetailProps) {
       // Non-stream actions (send to client) keep the in-button pending state
       // because they never open a player.
       if (streaming) {
+        const episodeTitle =
+          action.season != null &&
+          action.episode != null &&
+          extras?.season === action.season
+            ? extras.episodes.find(
+                (item) => item.episode === action.episode,
+              )?.name ?? null
+            : null;
         setPlaying({
           infoHash: null,
-          title: label,
-          subtitle: null,
+          title: cleanDisplayTitle(data?.title ?? props.title ?? label),
+          episodeTitle,
+          season: action.season ?? null,
+          episode: action.episode ?? null,
           resumePositionSec: null,
         });
       } else {
@@ -270,10 +315,20 @@ export function TitleDetail(props: TitleDetailProps) {
         // and degrades to the download notice rather than hanging on a spinner.
         const hash = body.infoHash?.trim();
         if (streaming && hash) {
+          const episodeTitle =
+            action.season != null &&
+            action.episode != null &&
+            extras?.season === action.season
+              ? extras.episodes.find(
+                  (item) => item.episode === action.episode,
+                )?.name ?? null
+              : null;
           setPlaying({
             infoHash: hash,
-            title: label,
-            subtitle: null,
+            title: cleanDisplayTitle(data?.title ?? props.title ?? label),
+            episodeTitle,
+            season: action.season ?? null,
+            episode: action.episode ?? null,
             resumePositionSec: null,
           });
           refetch();
@@ -315,7 +370,17 @@ export function TitleDetail(props: TitleDetailProps) {
         );
       }
     },
-    [props.workKey, props.title, props.mediaType, props.year, refetch, statusFor, cap],
+    [
+      props.workKey,
+      props.title,
+      props.mediaType,
+      props.year,
+      refetch,
+      statusFor,
+      cap,
+      data?.title,
+      extras,
+    ],
   );
 
   const seasonStatusFor = useCallback(
@@ -325,7 +390,12 @@ export function TitleDetail(props: TitleDetailProps) {
   );
 
   const runSeasonGrab = useCallback(
-    async (targetSeason: number, episodes: number[], retention: TitleRetention, resolution?: number) => {
+    async (
+      targetSeason: number,
+      episodes: number[],
+      retention: TitleRetention,
+      resolution?: number,
+    ) => {
       const key = seasonGrabKey(targetSeason, retention);
       const current = seasonStatusFor(targetSeason, retention);
       if (!shouldRunSeasonGrab(current)) return;
@@ -339,14 +409,16 @@ export function TitleDetail(props: TitleDetailProps) {
           headers: { "Content-Type": "application/json" },
           signal: AbortSignal.timeout(30_000),
           body: JSON.stringify({
-            mode: "season",
+            scope: "season",
             season: targetSeason,
             episodes,
             retention,
             title: props.title ?? null,
             mediaType: props.mediaType ?? null,
             year: props.year ?? null,
-            ...(resolution != null ? { resolution } : {}),
+            ...(resolution != null
+              ? { preferredResolution: resolution }
+              : {}),
           }),
         });
         const body = (await res.json().catch(() => null)) as
@@ -435,7 +507,9 @@ export function TitleDetail(props: TitleDetailProps) {
         <PlayOverlay
           infoHash={playing.infoHash}
           title={playing.title}
-          subtitle={playing.subtitle}
+          episodeTitle={playing.episodeTitle}
+          season={playing.season}
+          episode={playing.episode}
           year={data?.year ?? null}
           resumePositionSec={playing.resumePositionSec}
           onClose={() => {
@@ -479,18 +553,59 @@ function TitleContent({
   statusFor: (key: string) => TitleActionStatus;
   seasonStatusFor: (season: number, retention?: TitleRetention) => SeasonGrabStatus;
   onSeasonChange: (season: number) => void;
-  onSeasonGrab: (season: number, episodes: number[], retention: TitleRetention, resolution?: number) => void;
-  onAction: (action: TitleAction, key: string, label: string, retention: TitleRetention, resolution?: number) => void;
+  onSeasonGrab: (
+    season: number,
+    episodes: number[],
+    retention: TitleRetention,
+    resolution?: number,
+  ) => void;
+  onAction: (
+    action: TitleAction,
+    key: string,
+    label: string,
+    retention: TitleRetention,
+    resolution?: number,
+  ) => void;
   onLibraryChanged: () => void;
 }) {
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
   // Quality picker for the hero Download button. Play is always instant.
   const [heroPicker, setHeroPicker] = useState(false);
 
+  function requestAction(
+    action: TitleAction,
+    key: string,
+    label: string,
+    retention: TitleRetention,
+    resolution?: number,
+  ) {
+    onAction(action, key, label, retention, resolution);
+  }
+
+  function requestSeasonGrab(
+    targetSeason: number,
+    episodes: number[],
+    retention: TitleRetention,
+    resolution?: number,
+  ) {
+    onSeasonGrab(
+      targetSeason,
+      episodes,
+      retention,
+      resolution,
+    );
+  }
+
   const title = cleanDisplayTitle(payload.title);
   const primary = resolvePrimaryAction(payload);
   const primaryStatus = statusFor(PRIMARY_KEY);
   const primaryLabel = titleActionButtonLabel(primary, primaryStatus);
+  const primaryDisplayLabel =
+    primaryStatus === "idle" && primary.kind !== "play"
+      ? primary.kind === "stream"
+        ? "Play"
+        : "Download"
+      : primaryLabel;
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
@@ -724,13 +839,13 @@ function TitleContent({
                   data-action-kind={primary.kind}
                   aria-label={
                     primarySubtitle
-                      ? `${primaryLabel} — ${title} ${primarySubtitle}`
-                      : `${primaryLabel} — ${title}`
+                      ? `${primaryDisplayLabel} — ${title} ${primarySubtitle}`
+                      : `${primaryDisplayLabel} — ${title}`
                   }
                   aria-busy={primaryStatus === "pending" || undefined}
                   disabled={!primaryCanRun}
                   onClick={() =>
-                    onAction(
+                    requestAction(
                       primary,
                       PRIMARY_KEY,
                       primarySubtitle ? `${title} ${primarySubtitle}` : title,
@@ -749,7 +864,7 @@ function TitleContent({
                       )
                     }
                   >
-                    {primaryLabel}
+                    {primaryDisplayLabel}
                     {primarySubtitle ? (
                       <span className="text-[12px] tabular-nums opacity-80">
                         {primarySubtitle}
@@ -779,7 +894,7 @@ function TitleContent({
                       if (shouldAskForQuality("keep", alwaysPreferred)) {
                         setHeroPicker(true);
                       } else {
-                        onAction(
+                        requestAction(
                           downloadAction,
                           DOWNLOAD_KEY,
                           downloadLabelTarget,
@@ -794,7 +909,7 @@ function TitleContent({
                       pending={downloadStatus === "pending"}
                       icon={<Download aria-hidden />}
                     >
-                      {downloadLabel}
+                      {downloadStatus === "idle" ? "Download" : downloadLabel}
                     </ButtonBody>
                   </Button>
                 ) : null}
@@ -823,7 +938,13 @@ function TitleContent({
         onAlwaysPreferredChange={setAlwaysPreferred}
         onConfirm={(resolution) => {
           setHeroPicker(false);
-          onAction(downloadAction, DOWNLOAD_KEY, downloadLabelTarget, "keep", resolution);
+          requestAction(
+            downloadAction,
+            DOWNLOAD_KEY,
+            downloadLabelTarget,
+            "keep",
+            resolution,
+          );
         }}
       />
 
@@ -844,9 +965,9 @@ function TitleContent({
             seasonStreamStatus={activeSeasonStreamStatus}
             gated={gated}
             onSeasonChange={onSeasonChange}
-            onSeasonGrab={onSeasonGrab}
+            onSeasonGrab={requestSeasonGrab}
             onAction={(action, label, _retention, resolution) =>
-              onAction(
+              requestAction(
                 action,
                 action.season != null && action.episode != null
                   ? episodeIntentKey(
@@ -899,6 +1020,12 @@ function buildDetailUrl(
   if (props.year) params.set("y", String(props.year));
   if (props.mediaType) params.set("type", props.mediaType);
   if (props.season != null) params.set("s", String(props.season));
+  if (props.provider) params.set("provider", props.provider);
+  if (props.providerId) params.set("providerId", props.providerId);
+  if (props.sourceType) params.set("sourceType", props.sourceType);
+  if (props.format) params.set("format", props.format);
+  if (props.seriesHint) params.set("series", props.seriesHint);
+  for (const alias of props.aliases ?? []) params.append("alias", alias);
   const qs = params.toString();
   const base = `/api/title/${encodeURIComponent(props.workKey)}`;
   return qs ? `${base}?${qs}` : base;
@@ -913,7 +1040,7 @@ function buildDetailUrl(
  * season's episode names onto another season's rows.
  */
 function buildExtrasUrl(
-  workKey: string,
+  props: TitleDetailProps,
   payload: TitleDetailPayload,
   season: number | null,
 ): string | null {
@@ -925,8 +1052,14 @@ function buildExtrasUrl(
   if (payload.year) params.set("y", String(payload.year));
   if (payload.mediaType) params.set("type", payload.mediaType);
   if (season != null) params.set("s", String(season));
+  if (props.provider) params.set("provider", props.provider);
+  if (props.providerId) params.set("providerId", props.providerId);
+  if (props.sourceType) params.set("sourceType", props.sourceType);
+  if (props.format) params.set("format", props.format);
+  if (props.seriesHint) params.set("series", props.seriesHint);
+  for (const alias of props.aliases ?? []) params.append("alias", alias);
 
-  return `/api/title/${encodeURIComponent(workKey)}/extras?${params.toString()}`;
+  return `/api/title/${encodeURIComponent(props.workKey)}/extras?${params.toString()}`;
 }
 
 function pad(n: number): string {

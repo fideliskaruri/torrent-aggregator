@@ -95,6 +95,8 @@ html {
    * propagating it from `body`. */
   scrollbar-gutter: stable;
   -webkit-text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--header-h) + 0.75rem);
+  scroll-padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 0.75rem);
 }
 
 body {
@@ -133,6 +135,25 @@ body {
   /* `min-width: 0` is the actual fix for horizontal overflow in a flex child;
    * `overflow-x: hidden` here only hid it, at the cost of breaking sticky. */
   min-width: 0;
+  scroll-margin-top: calc(var(--header-h) + 0.75rem);
+}
+
+.skip-link {
+  position: fixed;
+  left: max(0.75rem, env(safe-area-inset-left));
+  top: 0.5rem;
+  z-index: 200;
+  transform: translateY(-150%);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--primary-foreground);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
 
 .app-footer {
@@ -240,6 +261,12 @@ body {
 
 /* Touch: Apple HIG ~44pt / Material 48dp for primary controls on phone */
 @media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 1rem !important;
+  }
+
   .btn-sm {
     min-height: 2.5rem; /* 40px — denser lists; primary CTAs use min-h-9/10 explicitly */
   }

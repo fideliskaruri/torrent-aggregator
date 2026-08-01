@@ -65,8 +65,15 @@ export default function RootLayout({
         <AuthSessionProvider>
           <UiPreferencesProvider>
             <KeyboardRoot>
+              <a href="#main-content" className="skip-link">
+                Skip to main content
+              </a>
               <Header />
-              <main className="app-main pb-[calc(var(--mobile-nav-h)+var(--safe-bottom))] md:pb-0">
+              <main
+                id="main-content"
+                tabIndex={-1}
+                className="app-main pb-[calc(var(--mobile-nav-h)+var(--safe-bottom))] md:pb-0"
+              >
                 {children}
               </main>
               <footer className="app-footer hidden md:block">

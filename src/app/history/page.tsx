@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ActivityView } from "@/app/activity/page";
 
 export default function HistoryPage() {
-  redirect("/activity?filter=sent");
+  return <ActivityView sentOnly />;
 }

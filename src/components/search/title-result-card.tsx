@@ -24,7 +24,11 @@ export function TitleResultCard({
   title,
   featured = false,
 }: TitleResultCardProps) {
-  const typeLabel = mediaTypeLabel(title.mediaType, title.isSeries);
+  const typeLabel = mediaTypeLabel(
+    title.mediaType,
+    title.isSeries,
+    title.format,
+  );
   const accessibleName = [
     title.name,
     title.year ? String(title.year) : null,
@@ -137,12 +141,16 @@ export function TitleResultCard({
 function mediaTypeLabel(
   mediaType: string | null | undefined,
   isSeries: boolean,
+  format?: string | null,
 ): string | null {
   const t = (mediaType ?? "").toLowerCase();
   if (t === "movie") return "Movie";
-  if (t === "tv" || t === "series") return "TV";
-  if (t === "anime") return "Anime";
-  if (isSeries) return "TV";
+  if (t === "tv" || t === "series") return "Series";
+  if (t === "anime") {
+    if (format === "MOVIE" || !isSeries) return "Anime film";
+    return format === "ONA" || format === "OVA" ? format : "Anime series";
+  }
+  if (isSeries) return "Series";
   return null;
 }
 

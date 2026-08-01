@@ -15,8 +15,17 @@ import { formatBytesShort, type StorageLimitKind } from "./storage-format";
 /** How long a measured directory size stays valid. */
 export const DIR_SIZE_TTL_MS = 30_000;
 
-const dirSizeCache = new Map<string, { bytes: number; at: number }>();
-const dirSizeInFlight = new Map<string, Promise<number>>();
+export interface DirectorySizeMeasurement {
+  bytes: number;
+  status: "complete" | "partial" | "unavailable";
+  filesScanned: number;
+}
+
+const dirSizeCache = new Map<
+  string,
+  { measurement: DirectorySizeMeasurement; at: number }
+>();
+const dirSizeInFlight = new Map<string, Promise<DirectorySizeMeasurement>>();
 
 /** Hard floor: refuse any send if free space below this. */
 export const MIN_FREE_BYTES = 500 * 1024 * 1024; // 500 MB
@@ -143,6 +152,8 @@ export type StoragePolicyResult =
        *    disk, so this is the one true hard stop.
        *  - `setup` — no download folder / no cap configured yet. There is nothing
        *    to override; the answer is to finish setup.
+       *  - `inventory` — the bounded folder scan was incomplete or unreadable.
+       *    Overriding it would turn a lower-bound byte count into a false total.
        *
        * `reserve` and `wont-fit` were once a single `free-space` kind, which made
        * the app refuse a download that fit perfectly well merely because it
@@ -267,7 +278,20 @@ export async function getDirectorySizeBytesAsync(
   root: string,
   opts?: { maxFiles?: number; ttlMs?: number },
 ): Promise<number> {
-  if (!root?.trim()) return 0;
+  return (await measureDirectorySize(root, opts)).bytes;
+}
+
+/**
+ * Bounded async measurement with explicit completeness. Callers making storage
+ * decisions must use this rather than treating a partial byte count as truth.
+ */
+export async function measureDirectorySize(
+  root: string,
+  opts?: { maxFiles?: number; ttlMs?: number },
+): Promise<DirectorySizeMeasurement> {
+  if (!root?.trim()) {
+    return { bytes: 0, status: "unavailable", filesScanned: 0 };
+  }
 
   const maxFiles = opts?.maxFiles ?? 200_000;
   const ttlMs = opts?.ttlMs ?? DIR_SIZE_TTL_MS;
@@ -275,7 +299,7 @@ export async function getDirectorySizeBytesAsync(
   const now = Date.now();
 
   const hit = dirSizeCache.get(key);
-  if (hit && now - hit.at < ttlMs) return hit.bytes;
+  if (hit && now - hit.at < ttlMs) return hit.measurement;
 
   // Collapse concurrent walks of the same tree into one.
   const inFlight = dirSizeInFlight.get(key);
@@ -284,13 +308,16 @@ export async function getDirectorySizeBytesAsync(
   const job = (async () => {
     let total = 0;
     let files = 0;
+    let partial = false;
     const stack = [key];
 
     try {
       const rootStat = await fsp.stat(key);
-      if (rootStat.isFile()) return rootStat.size;
+      if (rootStat.isFile()) {
+        return { bytes: rootStat.size, status: "complete" as const, filesScanned: 1 };
+      }
     } catch {
-      return 0;
+      return { bytes: 0, status: "unavailable" as const, filesScanned: 0 };
     }
 
     while (stack.length > 0 && files < maxFiles) {
@@ -299,6 +326,7 @@ export async function getDirectorySizeBytesAsync(
       try {
         entries = await fsp.readdir(dir, { withFileTypes: true });
       } catch {
+        partial = true;
         continue;
       }
       for (const ent of entries) {
@@ -311,21 +339,28 @@ export async function getDirectorySizeBytesAsync(
             total += (await fsp.stat(full)).size;
             files += 1;
           } catch {
-            /* skip inaccessible */
+            partial = true;
           }
         }
       }
     }
-    return total;
+    // Reaching the safety cap cannot prove that the current directory had no
+    // remaining entries, so conservatively treat the measurement as a lower bound.
+    if (files >= maxFiles) partial = true;
+    return {
+      bytes: total,
+      status: partial ? ("partial" as const) : ("complete" as const),
+      filesScanned: files,
+    };
   })();
 
   dirSizeInFlight.set(key, job);
   try {
-    const bytes = await job;
-    dirSizeCache.set(key, { bytes, at: Date.now() });
-    return bytes;
+    const measurement = await job;
+    dirSizeCache.set(key, { measurement, at: Date.now() });
+    return measurement;
   } catch {
-    return 0;
+    return { bytes: 0, status: "unavailable", filesScanned: 0 };
   } finally {
     dirSizeInFlight.delete(key);
   }
@@ -425,7 +460,9 @@ export async function assertStorageBudget(opts: {
    * whatever the machine running CI happens to have free.
    */
   _getFreeSpace?: (root: string) => Promise<FreeSpaceResult>;
-  _getDirectorySize?: (root: string) => Promise<number>;
+  _getDirectorySize?: (
+    root: string,
+  ) => Promise<number | DirectorySizeMeasurement>;
 }): Promise<StoragePolicyResult> {
   const maxRaw = opts.maxStorageBytes;
   const incomingKnownEarly =
@@ -460,7 +497,28 @@ export async function assertStorageBudget(opts: {
 
   const space = await (opts._getFreeSpace ?? getFreeSpace)(root);
   const freeBytes = space.ok ? space.freeBytes : null;
-  const usedBytes = await (opts._getDirectorySize ?? getDirectorySizeBytesAsync)(root);
+  const measured = await (opts._getDirectorySize ?? measureDirectorySize)(root);
+  const measurement: DirectorySizeMeasurement =
+    typeof measured === "number"
+      ? { bytes: measured, status: "complete", filesScanned: 0 }
+      : measured;
+  const usedBytes = measurement.bytes;
+  if (measurement.status !== "complete") {
+    return {
+      ok: false,
+      freeBytes,
+      usedBytes,
+      maxStorageBytes: maxRaw,
+      remainingBudgetBytes: null,
+      message:
+        measurement.status === "unavailable"
+          ? "Storage usage is unavailable because the download folder could not be read. Check the folder and permissions before downloading."
+          : `Storage usage is incomplete after scanning ${measurement.filesScanned} files. TorrentFlow will not undercount the library; narrow or repair the download folder and try again.`,
+      incomingBytes: incoming,
+      incomingEstimated: !incomingKnown,
+      limit: "inventory",
+    };
+  }
 
   // 1) The app's free-space comfort margin.
   //
