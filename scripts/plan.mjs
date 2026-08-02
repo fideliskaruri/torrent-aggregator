@@ -323,8 +323,65 @@ function mark(args) {
   db.close();
 }
 
+/**
+ * The next thing worth doing, chosen by the database rather than by memory.
+ *
+ * Autopilot asks this after every idle. Deriving the next step from verified
+ * state is the whole safety property: an agent that picks its own next task
+ * from recollection will drift toward the parts it enjoys and away from the
+ * parts it has already convinced itself are finished, which is how eleven
+ * Phase 1A items came to be ticked while one of them had no code at all.
+ *
+ * Order is deliberate. Unverified items come before unbuilt ones, because
+ * building on an unchecked foundation is how the last three sessions produced
+ * work that had to be thrown away.
+ */
+function next() {
+  const db = open();
+  const pick =
+    db
+      .prepare(
+        `SELECT id, phase, plan_line, text, state, claimed FROM item
+         WHERE state = 'unverified' AND claimed = 'done'
+         ORDER BY phase, plan_line LIMIT 1`,
+      )
+      .get() ??
+    db
+      .prepare(
+        `SELECT id, phase, plan_line, text, state, claimed FROM item
+         WHERE state = 'unverified' ORDER BY phase, plan_line LIMIT 1`,
+      )
+      .get() ??
+    db
+      .prepare(
+        `SELECT id, phase, plan_line, text, state, claimed FROM item
+         WHERE state IN ('not-started', 'broken', 'partial')
+         ORDER BY phase, plan_line LIMIT 1`,
+      )
+      .get();
+
+  if (!pick) {
+    console.log("PLAN COMPLETE — every item verified done or n/a");
+    db.close();
+    return;
+  }
+  const remaining = db
+    .prepare(
+      `SELECT COUNT(*) c FROM item WHERE state NOT IN ('done', 'n/a')`,
+    )
+    .get().c;
+  const verb = pick.state === "unverified" ? "VERIFY" : "BUILD";
+  console.log(`${verb} ${pick.phase}:${pick.plan_line}`);
+  console.log(pick.text);
+  if (pick.state === "unverified" && pick.claimed === "done") {
+    console.log("(the plan marks this [x] — check it, do not trust it)");
+  }
+  console.log(`${remaining} item(s) still outstanding`);
+  db.close();
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
-const commands = { seed, summary, list, set, mark, note };
+const commands = { seed, summary, list, set, mark, note, next };
 if (!cmd) {
   summary();
 } else if (commands[cmd]) {

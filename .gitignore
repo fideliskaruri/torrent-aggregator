@@ -128,3 +128,6 @@ dev.db.postclean-*
 /loader-continuity.png
 /next-control.png
 /scripts/probes/player-owned-artifacts/
+
+# Autopilot arming state is per-machine, not project configuration.
+docs/.autopilot.json
