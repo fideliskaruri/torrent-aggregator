@@ -51,6 +51,31 @@ check("destructive dialogs restore their opener", () => {
   assert.match(source, /requestAnimationFrame\(\(\) => opener\.focus\(\)\)/);
 });
 
+check("the page reuses the shared classification rules instead of its own", () => {
+  assert.match(source, /from "\.\/media-filter"/);
+  assert.match(source, /from "\.\/grouping"/);
+  assert.match(source, /filterDownloadsByTab\(/);
+  assert.match(source, /groupDownloads\(/);
+  // These moved into ./grouping so the status filter, the badge colours and a
+  // group's combined state answer "is this seeding" identically. A local copy
+  // is how a row shows a Seeding badge while its group calls it downloading.
+  assert.doesNotMatch(source, /function\s+is(?:Downloading|Seeding|Paused)\s*\(/);
+  // The tab vocabulary belongs to library-tabs.ts. Spelled out again here, the
+  // Library and this page would drift the first time either list changes.
+  assert.doesNotMatch(source, /"movies"[\s\S]{0,20}"series"[\s\S]{0,20}"anime"/);
+});
+
+check("a series draws one expandable row, not one row per episode", () => {
+  assert.match(source, /data-download-group/);
+  assert.match(source, /data-group-expand/);
+  assert.match(source, /data-season-row/);
+  // The body iterates the grouped, disclosure-aware list. Iterating the raw
+  // filtered rows again is the regression that would silently un-group the
+  // page while leaving the group markup in the file, unreachable.
+  assert.doesNotMatch(source, /\{filtered\.map\(/);
+  assert.match(source, /\{renderItems\.map\(/);
+});
+
 if (process.exitCode) {
   console.error("\nFAIL — client page source shape regressed");
 } else {

@@ -147,6 +147,11 @@ body {
   border-radius: var(--radius-sm);
   background: var(--accent);
   color: var(--primary-foreground);
+  /* The first thing a keyboard or switch user can hit should not be the one
+     control that misses the 44px target. It measured 40px from padding alone. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 0.65rem 0.9rem;
   font-size: 0.8125rem;
   font-weight: 600;

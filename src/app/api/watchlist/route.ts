@@ -259,6 +259,38 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ item });
 }
 
+/**
+ * Stop tracking a title. Keep every byte of it.
+ *
+ * ## What this must not do
+ *
+ * It must not delete media, and it must not *let* anything else delete media
+ * either. The second half is the part that was missing, and it is invisible
+ * from here: removing the row is what makes the files reclaimable.
+ *
+ * `retention-sweep.ts` and `listEvictableStreams` both refuse to reclaim a
+ * `stream`-origin torrent while a live `WatchListItem` references it — in the
+ * sweep via `watchlistReferences`, in the eviction lister via
+ * `liveWatchlistIds`. Every episode the owner *streamed* from this title is
+ * such a row. Deleting the library row therefore removed the only thing
+ * protecting them, and the next scheduled sweep (every 30 minutes, whenever the
+ * cache is over budget) would have been free to unlink files the user had just
+ * been promised were safe. Nothing in the delete path would have logged it as
+ * anything other than routine cache reclamation.
+ *
+ * So the promotion runs FIRST and the row is removed second. Ordered that way,
+ * a failure anywhere leaves the files kept and the title still tracked, which
+ * is the harmless direction. The reverse order has a window — however short —
+ * in which the files are unprotected and unreferenced.
+ *
+ * `promoteLibraryStreamsToKept` is the same helper POST and PATCH already use;
+ * there is deliberately no second promotion path to drift from it. Library
+ * *downloads* are already `user` origin and were never at risk — this closes
+ * the gap for everything the owner watched rather than downloaded.
+ *
+ * Deleting files is a separate, confirmed, granular operation:
+ * `POST /api/library/delete`.
+ */
 export async function DELETE(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -274,11 +306,25 @@ export async function DELETE(request: NextRequest) {
   if (!idResult.ok) return requestFailureResponse(idResult);
   const id = idResult.value ?? "";
 
+  const existing = await prisma.watchListItem.findFirst({
+    where: { id, userId: session.user.id },
+    select: { id: true, title: true, mediaType: true },
+  });
+  // Already gone. Report success rather than 404: the user's intent — "this is
+  // not in my library" — is satisfied, and a double-click must not look broken.
+  if (!existing) return NextResponse.json({ ok: true, filesKept: true });
+
+  await promoteLibraryStreamsToKept(session.user.id, {
+    watchListItemId: existing.id,
+    title: existing.title,
+    mediaType: existing.mediaType,
+  });
+
   await prisma.watchListItem.deleteMany({
     where: { id, userId: session.user.id },
   });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, filesKept: true });
 }
 
 export async function PATCH(request: NextRequest) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
+  ChevronRight,
   FolderOpen,
   HardDriveDownload,
   MoreHorizontal,
@@ -48,7 +49,24 @@ import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
 import { PlayOverlay } from "@/components/browse/play-overlay";
+import { activityLabel, progressPercent } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
+import {
+  groupDownloads,
+  isDownloading,
+  isPaused,
+  isSeeding,
+  type DownloadGroup,
+  type SeasonBucket,
+  type SeriesGroup,
+} from "./grouping";
+import {
+  DEFAULT_DOWNLOAD_TAB,
+  DOWNLOAD_TABS,
+  DOWNLOAD_TAB_LABELS,
+  filterDownloadsByTab,
+  type DownloadTab,
+} from "./media-filter";
 import {
   LoadingGlyph,
   PageSkeletonFrame,
@@ -134,16 +152,6 @@ function isBusy(state: string) {
   return /^(metaDL|checking|allocating)/i.test(state);
 }
 
-function isDownloading(state: string) {
-  return /down|meta|stalledDL|allocat|queuedDL|checking/i.test(state);
-}
-function isSeeding(state: string) {
-  return /up|seed|stalledUP|queuedUP/i.test(state) && !isDownloading(state);
-}
-function isPaused(state: string) {
-  return /paused|stopped|error|missing/i.test(state);
-}
-
 const CONTAINER_EXT = /\.(mkv|mp4|avi|m4v|mov|ts|webm|wmv|flv|mpg|mpeg)$/i;
 const BRACKET_GROUP = /^\s*(?:\[[^\]]{2,40}\]\s*)+/;
 
@@ -188,6 +196,16 @@ export default function ClientPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [mediaTab, setMediaTab] = useState<DownloadTab>(DEFAULT_DOWNLOAD_TAB);
+  // Collapsed by default: one row per show is the point. Keyed by the group's
+  // own identity key rather than by index, so a group keeps its open state
+  // across a poll that adds or removes an unrelated download.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  // Seasons are open once their group is, so seeing an episode is one click and
+  // not three. This holds only the seasons the user has explicitly folded away.
+  const [collapsedSeasons, setCollapsedSeasons] = useState<Set<string>>(
+    new Set(),
+  );
   const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(
     null,
   );
@@ -386,7 +404,7 @@ export default function ClientPage() {
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return torrents.filter((t) => {
+    const byStatus = torrents.filter((t) => {
       if (!isDownloadRow(t)) return false;
       const display = releaseDisplayFacts(t);
       if (
@@ -404,7 +422,16 @@ export default function ClientPage() {
         return isDownloading(t.state) || isSeeding(t.state);
       return true;
     });
-  }, [torrents, filter, statusFilter]);
+    // Media type last, and through the shared rule: status answers "what is
+    // this transfer doing", the tab answers "what kind of thing is it", and
+    // they compose rather than override each other.
+    return filterDownloadsByTab(byStatus, mediaTab);
+  }, [torrents, filter, statusFilter, mediaTab]);
+
+  // One row per work. Derived from `filtered` so a search or a tab narrows what
+  // a group contains rather than leaving a group summarising rows the user has
+  // just filtered away.
+  const grouped = useMemo(() => groupDownloads(filtered), [filtered]);
 
   // Artwork is looked up for the whole table at once, keyed by work — the poll
   // runs every five seconds and three episodes of one show are one lookup.
@@ -463,8 +490,8 @@ export default function ClientPage() {
     setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
   }
 
-  async function bulkAction(act: "pause" | "resume") {
-    const hashes = [...selected];
+  async function actionMany(act: "pause" | "resume", hashes: string[]) {
+    if (!hashes.length) return;
     await Promise.all(
       hashes.map((hash) =>
         fetch("/api/client/torrents", {
@@ -483,6 +510,10 @@ export default function ClientPage() {
       `${act === "pause" ? "Paused" : "Resumed"} ${hashes.length} downloads.`,
     );
     void load();
+  }
+
+  async function bulkAction(act: "pause" | "resume") {
+    await actionMany(act, [...selected]);
   }
 
   async function confirmDelete(deleteFiles: boolean) {
@@ -629,6 +660,43 @@ export default function ClientPage() {
     });
   }
 
+  /**
+   * A group's checkbox selects everything under it.
+   *
+   * All-or-nothing rather than a tri-state: the checkbox exists so the bulk
+   * bar's Pause, Resume and Delete can act on a whole show at once, and a
+   * half-selected show would make "Delete" ambiguous about what it is deleting.
+   */
+  function toggleGroupSelect(hashes: string[]) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const all = hashes.every((hash) => next.has(hash));
+      for (const hash of hashes) {
+        if (all) next.delete(hash);
+        else next.add(hash);
+      }
+      return next;
+    });
+  }
+
+  function toggleExpanded(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSeason(key: string) {
+    setCollapsedSeasons((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   function openDeleteDialog(
     torrentsToDelete: ClientTorrent[],
     opener?: EventTarget | null,
@@ -659,6 +727,45 @@ export default function ClientPage() {
     { id: "seeding", label: "Seeding" },
     { id: "paused", label: "Paused" },
   ];
+
+  /**
+   * The table flattened into the rows it actually draws.
+   *
+   * Built here rather than nested inside the JSX because the disclosure state
+   * decides what exists at all: a collapsed group contributes one row, and its
+   * episodes are absent from the DOM rather than merely hidden — a hidden row
+   * still takes a tab stop, and tabbing through forty invisible episodes to
+   * reach the next show is worse than the wall of rows this replaces.
+   */
+  type RenderItem =
+    | { kind: "group"; group: SeriesGroup<ClientTorrent> }
+    | { kind: "season"; season: SeasonBucket<ClientTorrent> }
+    | { kind: "torrent"; torrent: ClientTorrent; depth: number };
+
+  const renderItems: RenderItem[] = [];
+  for (const group of grouped as DownloadGroup<ClientTorrent>[]) {
+    if (group.kind === "single") {
+      renderItems.push({ kind: "torrent", torrent: group.torrent, depth: 0 });
+      continue;
+    }
+    renderItems.push({ kind: "group", group });
+    if (!expandedGroups.has(group.key)) continue;
+    for (const season of group.seasons) {
+      // A show whose releases state no season has nothing to disclose at that
+      // level, so a lone "Other" heading is skipped: it would be a row that
+      // adds a word and no information.
+      const heading = season.season != null || group.seasons.length > 1;
+      if (heading) renderItems.push({ kind: "season", season });
+      if (heading && collapsedSeasons.has(season.key)) continue;
+      for (const entry of season.entries) {
+        renderItems.push({
+          kind: "torrent",
+          torrent: entry.torrent,
+          depth: heading ? 2 : 1,
+        });
+      }
+    }
+  }
 
   return (
     <div className="container-app max-w-5xl py-6 sm:py-8 space-y-4 min-w-0">
@@ -804,6 +911,38 @@ export default function ClientPage() {
             ]}
           />
 
+          {/*
+            Two filters, two questions. The tab bar asks what kind of thing you
+            are after and sits above; the status chips ask what a transfer is
+            doing and stay beside the search box. They compose — Series +
+            Downloading is a real thing to want — so neither clears the other.
+          */}
+          <div
+            className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] pb-1"
+            role="tablist"
+            aria-label="Media type"
+            data-media-tabs
+          >
+            {DOWNLOAD_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                onClick={() => setMediaTab(tab)}
+                aria-selected={mediaTab === tab}
+                data-media-tab={tab}
+                className={cn(
+                  "inline-flex items-center justify-center min-h-[44px] rounded-md px-3 py-1 text-[12px] font-medium transition-colors lg:min-h-0 lg:py-1.5",
+                  mediaTab === tab
+                    ? "bg-[var(--bg-muted)] text-[var(--text)]"
+                    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
+                )}
+              >
+                {DOWNLOAD_TAB_LABELS[tab]}
+              </button>
+            ))}
+          </div>
+
           {/* Toolbar */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-sm">
@@ -936,7 +1075,298 @@ export default function ClientPage() {
               </div>
 
               <div className="divide-y divide-[var(--border)]">
-                {filtered.map((t) => {
+                {renderItems.map((item) => {
+                  if (item.kind === "group") {
+                    const group = item.group;
+                    const expanded = expandedGroups.has(group.key);
+                    // Floored, not rounded to a decimal like an individual row:
+                    // a combined 99.6% rounding to "100%" would say a whole
+                    // season is ready while the last episode is still being
+                    // written, which is the exact claim `progressPercent`
+                    // exists to refuse.
+                    const pct = progressPercent(group.progress);
+                    const head = group.torrents[0];
+                    const query = artworkQueryForRelease(head.name, head.category);
+                    const art = artwork[query.key];
+                    const hashes = group.torrents.map((t) => t.hash);
+                    const allSelected =
+                      hashes.length > 0 && hashes.every((h) => selected.has(h));
+                    const barTone = isSeeding(group.state)
+                      ? "bg-[var(--success)]"
+                      : isPaused(group.state)
+                        ? "bg-[var(--text-tertiary)]"
+                        : "bg-[var(--primary)]";
+                    const titleHref = titleHrefForName(head.name, {
+                      mediaType: head.category,
+                    });
+                    return (
+                      <div
+                        key={group.key}
+                        className={cn(
+                          "grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
+                          allSelected
+                            ? "bg-[var(--accent-dim)]"
+                            : "hover:bg-[var(--bg-muted)]/60",
+                        )}
+                        data-download-group
+                        data-group-key={group.key}
+                        data-group-expanded={expanded ? "true" : "false"}
+                      >
+                        <div className="flex items-center gap-2 sm:contents">
+                          <Checkbox
+                            checked={allSelected}
+                            onCheckedChange={() => toggleGroupSelect(hashes)}
+                            aria-label={`Select all of ${group.title}`}
+                            className="shrink-0"
+                          />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-start gap-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleExpanded(group.key)}
+                                aria-expanded={expanded}
+                                aria-label={`${expanded ? "Collapse" : "Expand"} ${group.title}`}
+                                data-group-expand
+                                className="flex shrink-0 items-center justify-center min-h-[44px] min-w-[44px] rounded-md text-[var(--text-tertiary)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0 lg:min-w-0 lg:h-6 lg:w-6"
+                              >
+                                <ChevronRight
+                                  className={cn(
+                                    "h-4 w-4 transition-transform",
+                                    expanded && "rotate-90",
+                                  )}
+                                />
+                              </button>
+                              {titleHref ? (
+                                <Link
+                                  href={titleHref}
+                                  tabIndex={-1}
+                                  aria-hidden
+                                  data-dense-ui
+                                  className="shrink-0"
+                                >
+                                  <TfWorkThumb
+                                    title={group.title}
+                                    posterUrl={art?.posterUrl}
+                                    sizePx={40}
+                                  />
+                                </Link>
+                              ) : (
+                                <TfWorkThumb
+                                  title={group.title}
+                                  posterUrl={art?.posterUrl}
+                                  sizePx={40}
+                                />
+                              )}
+                              <div className="min-w-0 flex-1 space-y-1">
+                                {titleHref ? (
+                                  <Link
+                                    href={titleHref}
+                                    className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
+                                  >
+                                    <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
+                                      {group.title}
+                                    </p>
+                                  </Link>
+                                ) : (
+                                  <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug">
+                                    {group.title}
+                                  </p>
+                                )}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {/*
+                                    While work is in flight the wording comes
+                                    from `active-row-state`, which the browse
+                                    teaser already uses, so two panels cannot
+                                    describe the same stalled torrent
+                                    differently. It replaces the state badge
+                                    rather than sitting beside it: it already
+                                    opens with the state word, and a badge next
+                                    to it read "Downloading · Downloading 56% ·
+                                    3.2 MB/s".
+
+                                    It speaks only for a downloading group. Its
+                                    vocabulary is built for that case and
+                                    reports anything not downloading as
+                                    "Downloading", which would turn a finished
+                                    season back into an unfinished one — so the
+                                    page's own `stateLabel`, which knows
+                                    "Seeding", answers otherwise.
+                                  */}
+                                  {isDownloading(group.state) ? (
+                                    <Badge variant="accent" data-group-activity>
+                                      {activityLabel({
+                                        progress: group.progress,
+                                        dlspeed: group.dlspeed,
+                                        state: group.state,
+                                      })}
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant={
+                                        isSeeding(group.state)
+                                          ? "success"
+                                          : "default"
+                                      }
+                                    >
+                                      {stateLabel(group.state)}
+                                    </Badge>
+                                  )}
+                                  <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
+                                    {group.releaseCount}{" "}
+                                    {group.releaseCount === 1
+                                      ? "release"
+                                      : "releases"}{" "}
+                                    · {group.seasonCount}{" "}
+                                    {group.seasonCount === 1
+                                      ? "season"
+                                      : "seasons"}{" "}
+                                    · {formatBytes(group.sizeBytes)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 min-w-0 sm:px-0">
+                          <Progress
+                            value={pct}
+                            aria-label={`${group.title} combined download progress`}
+                            className="h-1.5"
+                            indicatorClassName={barTone}
+                          />
+                          <div className="flex items-center justify-between gap-2 sm:justify-end">
+                            <p className="text-[11px] tabular-nums text-[var(--text-tertiary)] sm:text-right">
+                              {pct}%
+                            </p>
+                            <p className="sm:hidden text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
+                              <span className="text-[var(--accent-text)]">
+                                ↓ {formatBytes(group.dlspeed)}/s
+                              </span>
+                              <span className="mx-1.5 text-[var(--border-strong)]">
+                                ·
+                              </span>
+                              <span>↑ {formatBytes(group.upspeed)}/s</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <p className="hidden sm:block text-[12px] tabular-nums text-[var(--text-secondary)] font-mono">
+                          {formatBytes(group.dlspeed)}/s
+                        </p>
+                        <p className="hidden sm:block text-[12px] tabular-nums text-[var(--text-secondary)] font-mono">
+                          {formatBytes(group.upspeed)}/s
+                        </p>
+
+                        <div className="flex items-center justify-end gap-2 lg:gap-0.5">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={`More actions for ${group.title}`}
+                                data-group-more
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => void actionMany("pause", hashes)}
+                                className="min-h-[44px] lg:min-h-0"
+                              >
+                                <Pause />
+                                Pause all
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => void actionMany("resume", hashes)}
+                                className="min-h-[44px] lg:min-h-0"
+                              >
+                                <Play />
+                                Resume all
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
+                                onClick={(event) =>
+                                  openDeleteDialog(
+                                    [...group.torrents],
+                                    event.currentTarget,
+                                  )
+                                }
+                                data-group-delete
+                              >
+                                <Trash2 />
+                                Delete all…
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (item.kind === "season") {
+                    const season = item.season;
+                    const open = !collapsedSeasons.has(season.key);
+                    const pct = progressPercent(season.progress);
+                    return (
+                      <div
+                        key={season.key}
+                        className="grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] gap-2 sm:gap-3 items-center py-1 pl-6 pr-3 bg-[var(--bg-muted)]/40"
+                        data-season-row
+                        data-season-key={season.key}
+                      >
+                        <span className="hidden sm:block h-4 w-4" />
+                        <button
+                          type="button"
+                          onClick={() => toggleSeason(season.key)}
+                          aria-expanded={open}
+                          data-season-expand
+                          className="flex min-w-0 items-center gap-1.5 rounded-md text-left min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0 lg:py-1"
+                        >
+                          <ChevronRight
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)] transition-transform",
+                              open && "rotate-90",
+                            )}
+                          />
+                          <span className="text-[12px] font-medium text-[var(--text-secondary)]">
+                            {season.label}
+                          </span>
+                          <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
+                            {season.entries.length}{" "}
+                            {season.entries.length === 1 ? "release" : "releases"}{" "}
+                            · {formatBytes(season.sizeBytes)}
+                          </span>
+                        </button>
+                        <div className="min-w-0">
+                          <Progress
+                            value={pct}
+                            aria-label={`${season.label} combined progress`}
+                            className="h-1"
+                            indicatorClassName={
+                              isSeeding(season.state)
+                                ? "bg-[var(--success)]"
+                                : isPaused(season.state)
+                                  ? "bg-[var(--text-tertiary)]"
+                                  : "bg-[var(--primary)]"
+                            }
+                          />
+                        </div>
+                        <span className="hidden sm:block text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
+                          {formatBytes(season.dlspeed)}/s
+                        </span>
+                        <span className="hidden sm:block text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
+                          {formatBytes(season.upspeed)}/s
+                        </span>
+                        <span className="hidden sm:block" />
+                      </div>
+                    );
+                  }
+
+                  const t = item.torrent;
                   const pct = Math.min(100, Math.round(t.progress * 1000) / 10);
                   const isSelected = selected.has(t.hash);
                   const query = artworkQueryForRelease(t.name, t.category);
@@ -959,6 +1389,11 @@ export default function ClientPage() {
                       key={t.hash}
                       className={cn(
                         "group grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
+                        // An episode inside an expanded show is stepped in and
+                        // ruled, so a long list still reads as belonging to the
+                        // heading above it once the group row has scrolled off.
+                        item.depth === 1 && "pl-6 border-l-2 border-[var(--border)]",
+                        item.depth === 2 && "pl-10 border-l-2 border-[var(--border)]",
                         isSelected
                           ? "bg-[var(--accent-dim)]"
                           : "hover:bg-[var(--bg-muted)]/60",

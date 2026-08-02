@@ -71,6 +71,7 @@ import {
   type LibraryTab,
 } from "./library-tabs";
 import { activityLine, needsAttention, positionLine } from "./card-state";
+import { removeFromLibraryCopy } from "./remove-copy";
 import { canonicalWatchlistPlayerTitle } from "./player-identity";
 
 interface WatchItem {
@@ -119,6 +120,87 @@ type LastAutoSummary = {
   offline?: boolean;
 };
 
+// ---------------------------------------------------------------------------
+// Deleting files
+// ---------------------------------------------------------------------------
+
+/** What the user asked to delete. Mirrors `DeletionScope` in `deletion-plan.ts`. */
+type DeleteScope =
+  | { kind: "show" }
+  | { kind: "season"; season: number }
+  | { kind: "episode"; season: number; episode: number };
+
+/** `GET /api/library/delete`'s answer, exactly as the route serialises it. */
+interface DeletePlan {
+  outcome: "deletes" | "blocked" | "nothing-held";
+  fileCount: number;
+  totalBytes: number;
+  missingFileCount: number;
+  releases: Array<{ name: string; fileCount: number; bytes: number }>;
+  blocked: Array<{ name: string; covers: string; fileCount: number }>;
+  /** The one line stating what will go, computed server-side. */
+  summary: string;
+}
+
+/** `S02E06` → `{ season: 2, episode: 6 }`. Null when the row holds nothing yet. */
+function heldEpisode(item: WatchItem): { season: number; episode: number } | null {
+  const match = /^S(\d{1,3})E(\d{1,4})$/i.exec(item.lastEpisode?.trim() ?? "");
+  if (!match) return null;
+  return { season: Number(match[1]), episode: Number(match[2]) };
+}
+
+/**
+ * The scopes this card can offer, widest first.
+ *
+ * Only scopes anchored on something the row actually knows about. Offering
+ * "this episode" for a show we hold nothing for would produce a dialog whose
+ * only possible answer is "nothing to delete", and offering the *hunt cursor's*
+ * episode would name one we have never downloaded — the same confusion
+ * `card-state.ts` exists to avoid on the line above.
+ */
+function deleteScopeOptions(
+  item: WatchItem,
+  isSeries: boolean,
+): Array<{ scope: DeleteScope; label: string }> {
+  const options: Array<{ scope: DeleteScope; label: string }> = [
+    { scope: { kind: "show" }, label: "Everything" },
+  ];
+  if (!isSeries) return options;
+
+  const held = heldEpisode(item);
+  const season = held?.season ?? item.cursorSeason ?? item.fromSeason ?? null;
+  if (season != null) {
+    options.push({ scope: { kind: "season", season }, label: `Season ${season}` });
+  }
+  if (held) {
+    options.push({
+      scope: { kind: "episode", season: held.season, episode: held.episode },
+      label: item.lastEpisode?.trim() || `S${held.season}E${held.episode}`,
+    });
+  }
+  return options;
+}
+
+function deleteScopeQuery(itemId: string, scope: DeleteScope): string {
+  const params = new URLSearchParams({ watchListItemId: itemId, scope: scope.kind });
+  if (scope.kind !== "show") params.set("season", String(scope.season));
+  if (scope.kind === "episode") params.set("episode", String(scope.episode));
+  return params.toString();
+}
+
+function sameScope(a: DeleteScope, b: DeleteScope): boolean {
+  return deleteScopeQuery("x", a) === deleteScopeQuery("x", b);
+}
+
+/** `Delete 10 files` / `Delete 1 release`, agreeing with the noun it counts. */
+function deleteButtonLabel(plan: DeletePlan): string {
+  const files = plan.fileCount;
+  if (files > 0) return `Delete ${files} file${files === 1 ? "" : "s"}`;
+  const releases = plan.releases.length;
+  return `Delete ${releases} release${releases === 1 ? "" : "s"}`;
+}
+
+
 const LAST_AUTO_KEY = "tf:last-automation";
 
 const STATUSES = ["watching", "planned", "completed", "dropped"] as const;
@@ -154,6 +236,14 @@ export default function WatchlistPage() {
   const capOverride = useStorageCapOverride();
   const [pendingRemove, setPendingRemove] = useState<WatchItem | null>(null);
   const [removing, setRemoving] = useState(false);
+  // Deleting files is a second, separate decision with its own dialog. It never
+  // shares state with `pendingRemove`: the two controls do different things and
+  // a shared "pending" would let one dialog's confirmation act on the other.
+  const [pendingDelete, setPendingDelete] = useState<WatchItem | null>(null);
+  const [deleteScope, setDeleteScope] = useState<DeleteScope>({ kind: "show" });
+  const [deletePlan, setDeletePlan] = useState<DeletePlan | null>(null);
+  const [deletePlanError, setDeletePlanError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [lastAuto, setLastAuto] = useState<LastAutoSummary | null>(null);
   const automationStateId = useId();
   // The library mixes TMDb and AniList CDNs; a dead URL must fall back to the
@@ -367,7 +457,11 @@ export default function WatchlistPage() {
       );
       if (res.ok) {
         setItems((prev) => prev.filter((i) => i.id !== pendingRemove.id));
-        toast.success("Removed from library");
+        // Says the second half out loud. The toast is the last thing the user
+        // sees and is the only confirmation that the promise was kept.
+        toast.success("Removed from library", {
+          description: "Downloaded files were kept.",
+        });
       } else {
         toast.error("Could not remove item");
       }
@@ -376,6 +470,81 @@ export default function WatchlistPage() {
       toast.error("Network error");
     } finally {
       setRemoving(false);
+    }
+  }
+
+  /**
+   * Ask the server what a scope would delete.
+   *
+   * The plan is never computed here. The count and the size shown on the dialog
+   * have to be the ones the delete will actually act on, and a second
+   * implementation in the browser is how those two drift apart — so this is a
+   * read of the same function the POST uses.
+   */
+  async function loadDeletePlan(item: WatchItem, scope: DeleteScope) {
+    setDeletePlan(null);
+    setDeletePlanError(null);
+    try {
+      const res = await fetch(
+        `/api/library/delete?${deleteScopeQuery(item.id, scope)}`,
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setDeletePlanError(data?.message || data?.error || "Could not check files");
+        return;
+      }
+      setDeletePlan(data.plan as DeletePlan);
+    } catch {
+      setDeletePlanError("Could not reach the server");
+    }
+  }
+
+  function openDeleteFiles(item: WatchItem) {
+    const scope: DeleteScope = { kind: "show" };
+    setPendingDelete(item);
+    setDeleteScope(scope);
+    void loadDeletePlan(item, scope);
+  }
+
+  function chooseDeleteScope(item: WatchItem, scope: DeleteScope) {
+    setDeleteScope(scope);
+    void loadDeletePlan(item, scope);
+  }
+
+  async function confirmDeleteFiles() {
+    if (!pendingDelete || !deletePlan || deletePlan.outcome !== "deletes") return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/library/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          watchListItemId: pendingDelete.id,
+          scope: deleteScope.kind,
+          ...(deleteScope.kind !== "show" ? { season: deleteScope.season } : {}),
+          ...(deleteScope.kind === "episode" ? { episode: deleteScope.episode } : {}),
+          confirm: true,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        toast.success(
+          `Deleted ${data.freedFiles} file${data.freedFiles === 1 ? "" : "s"}`,
+          { description: data.plan?.summary },
+        );
+        setPendingDelete(null);
+      } else {
+        // A partial failure is not a success with an asterisk: some files are
+        // still there, and the user has to know which.
+        toast.error(data?.message || data?.error || "Could not delete files");
+        if (Array.isArray(data?.failed) && data.failed.length) {
+          void loadDeletePlan(pendingDelete, deleteScope);
+        }
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -873,6 +1042,24 @@ export default function WatchlistPage() {
                               </option>
                             ))}
                           </select>
+                          {/* Deleting files lives here, one level away from the
+                              primary actions and separate from the bin icon at
+                              the top of the card. Those are different decisions:
+                              the bin stops tracking and keeps everything, this
+                              destroys media. Putting them side by side is how
+                              the wrong one gets pressed. */}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+                            onClick={() => openDeleteFiles(item)}
+                            data-delete-files
+                            title={`Delete downloaded files for ${item.title}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete files
+                          </Button>
                     </div>
                     {/* Two questions, two lines: where am I, and is anything
                         happening. The old card answered neither without being
@@ -971,12 +1158,14 @@ export default function WatchlistPage() {
           if (!open) setPendingRemove(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent data-remove-from-library>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove from library?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {removeFromLibraryCopy(pendingRemove?.title).title}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingRemove
-                ? `“${pendingRemove.title}” will be removed from your library. This does not affect your torrent client.`
+                ? removeFromLibraryCopy(pendingRemove.title).body
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -993,7 +1182,129 @@ export default function WatchlistPage() {
               {removing ? (
                 <LoadingGlyph className="h-3.5 w-3.5" />
               ) : null}
-              Remove
+              {removeFromLibraryCopy(pendingRemove?.title).confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Deleting files.
+          The confirm stays disabled until a plan has come back and says
+          something can actually be removed, so nobody can press it without
+          having been shown the file count and the size. */}
+      <AlertDialog
+        open={Boolean(pendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deleting) {
+            setPendingDelete(null);
+            setDeletePlan(null);
+            setDeletePlanError(null);
+          }
+        }}
+      >
+        <AlertDialogContent data-delete-files-dialog>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete downloaded files?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? `This permanently removes media for “${pendingDelete.title}” from your disk. It cannot be undone, and it does not remove the title from your library.`
+                : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {pendingDelete ? (
+            <div className="space-y-3">
+              {(() => {
+                const options = deleteScopeOptions(
+                  pendingDelete,
+                  isSeriesMediaType(pendingDelete.mediaType),
+                );
+                return options.length > 1 ? (
+                  <div
+                    className="flex flex-wrap items-center gap-1"
+                    role="group"
+                    aria-label="How much to delete"
+                  >
+                    {options.map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        disabled={deleting}
+                        aria-pressed={sameScope(option.scope, deleteScope)}
+                        onClick={() =>
+                          chooseDeleteScope(pendingDelete, option.scope)
+                        }
+                        className={cn(
+                          "inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 text-[11px] font-medium ring-1 transition-colors lg:min-h-0",
+                          sameScope(option.scope, deleteScope)
+                            ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
+                            : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null;
+              })()}
+
+              <div
+                className="rounded-md border border-[var(--border)] bg-[var(--bg-muted)]/50 px-3 py-2.5 text-[12px]"
+                data-delete-plan
+              >
+                {deletePlanError ? (
+                  <p className="text-[var(--danger)]">{deletePlanError}</p>
+                ) : !deletePlan ? (
+                  <p className="flex items-center gap-1.5 text-[var(--text-tertiary)]">
+                    <LoadingGlyph className="h-3.5 w-3.5" />
+                    Checking what is on disk…
+                  </p>
+                ) : (
+                  <>
+                    {/* The server's sentence, not a locally re-derived one. */}
+                    <p className="text-[var(--text)]">{deletePlan.summary}</p>
+                    {deletePlan.releases.length ? (
+                      <ul className="mt-2 space-y-0.5 text-[11px] text-[var(--text-tertiary)]">
+                        {deletePlan.releases.map((release) => (
+                          <li key={release.name} className="truncate">
+                            {release.name}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {deletePlan.blocked.length ? (
+                      <ul className="mt-2 space-y-0.5 text-[11px] text-[var(--text-tertiary)]">
+                        {deletePlan.blocked.map((entry) => (
+                          <li key={entry.name} className="truncate">
+                            Kept: {entry.name} · covers {entry.covers}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmDeleteFiles();
+              }}
+              disabled={deleting || deletePlan?.outcome !== "deletes"}
+              className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
+            >
+              {deleting ? <LoadingGlyph className="h-3.5 w-3.5" /> : null}
+              {/* The button restates the quantity, so the number is in front of
+                  the user at the moment they press it and not only in the
+                  paragraph above. A release count stands in when the engine
+                  recorded no file list — "0 files" would read as "nothing". */}
+              {deletePlan?.outcome === "deletes"
+                ? deleteButtonLabel(deletePlan)
+                : "Delete files"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
