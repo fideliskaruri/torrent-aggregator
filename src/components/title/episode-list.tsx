@@ -699,15 +699,21 @@ function EpisodeCard({
                 onAction(downloadAction, episode.label, "keep");
               }}
               className={cn(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-[var(--border)]",
+                "inline-flex h-11 items-center justify-center gap-1 rounded-full border border-[var(--border)]",
                 "bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] text-[var(--text-secondary)] shadow-sm backdrop-blur-sm",
                 "transition-colors hover:text-[var(--text)] hover:border-[var(--border-strong)]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-                "disabled:cursor-default disabled:opacity-70 lg:h-8 lg:w-8 lg:min-h-[44px] lg:min-w-[44px]",
+                "disabled:cursor-default disabled:opacity-70 lg:h-8 lg:min-h-[44px] lg:min-w-[44px]",
+                // Downloading shows a live percentage, so the pill grows to fit
+                // the digits; every other state is a single glyph in a circle.
+                transfer?.status === "downloading"
+                  ? "w-auto px-2.5 text-[var(--accent-text,var(--accent))] lg:px-2.5"
+                  : "w-11 lg:w-8",
               )}
             >
               <DownloadGlyph
                 transferStatus={transfer?.status ?? null}
+                progress={transfer?.progress ?? null}
                 held={held}
                 status={effectiveDownloadStatus}
               />
@@ -719,20 +725,34 @@ function EpisodeCard({
   );
 }
 
-/** The icon shown inside a card's compact Download control, by state. */
+/** What a card's compact Download control shows, by state. */
 function DownloadGlyph({
   transferStatus,
+  progress,
   held,
   status,
 }: {
   transferStatus: "queued" | "downloading" | "downloaded" | "failed" | null;
+  progress: number | null;
   held: boolean;
   status: TitleActionStatus;
 }) {
   if (transferStatus === "failed" || status === "error") {
     return <RotateCcw className="h-4 w-4" aria-hidden />;
   }
-  if (transferStatus === "downloading" || transferStatus === "queued" || status === "pending") {
+  // Downloading shows a live integer percent, not an endless spinner — the
+  // spinner read as "loading forever" with no sense of movement. Floored so a
+  // torrent at 99.6% never prints 100% before it is actually complete.
+  if (transferStatus === "downloading") {
+    const pct = Math.floor(Math.max(0, Math.min(1, progress ?? 0)) * 100);
+    return (
+      <span className="text-[12px] font-semibold tabular-nums leading-none">
+        {pct}%
+      </span>
+    );
+  }
+  // Queued has not started moving yet — a brief spinner is honest here.
+  if (transferStatus === "queued" || status === "pending") {
     return <Loader2 className="h-4 w-4 animate-spin" aria-hidden />;
   }
   if (held || transferStatus === "downloaded" || status === "done") {

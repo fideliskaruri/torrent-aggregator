@@ -40,6 +40,15 @@ const STILL_BASE = "https://image.tmdb.org/t/p/w300";
 
 /** Long enough that a season tab flick is free, short enough to stay fresh. */
 const TTL_MS = 6 * 60 * 60 * 1000;
+/**
+ * A miss is cached too — otherwise a work TMDB never heard of re-searches on
+ * every render — but only briefly. The full 6h TTL on a *transient* failure
+ * (a timeout, a cold-start race, a rate limit) poisoned a real title for six
+ * hours: Bleach resolved fine in isolation yet its page showed "no episodes"
+ * because one early null was pinned. A short negative TTL self-heals in
+ * minutes while a genuinely-missing title still gets a breather.
+ */
+const NEG_TTL_MS = 2 * 60 * 1000;
 const MAX_ENTRIES = 400;
 const TIMEOUT_MS = 4000;
 
@@ -84,8 +93,13 @@ export interface TmdbSimilar {
 // Cache
 // ---------------------------------------------------------------------------
 
-type Entry = { at: number; value: unknown };
+type Entry = { at: number; ttl: number; value: unknown };
 const cache = new Map<string, Entry>();
+
+/** A result carrying nothing usable — cached only briefly so it self-heals. */
+function isNegativeResult(value: unknown): boolean {
+  return value == null || (Array.isArray(value) && value.length === 0);
+}
 
 /**
  * Memoise per process, misses included.
@@ -95,14 +109,18 @@ const cache = new Map<string, Entry>();
  */
 async function memo<T>(key: string, run: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.value as T;
+  if (hit && Date.now() - hit.at < hit.ttl) return hit.value as T;
 
   const value = await run();
   if (cache.size >= MAX_ENTRIES) {
     const oldest = cache.keys().next();
     if (!oldest.done) cache.delete(oldest.value);
   }
-  cache.set(key, { at: Date.now(), value });
+  cache.set(key, {
+    at: Date.now(),
+    ttl: isNegativeResult(value) ? NEG_TTL_MS : TTL_MS,
+    value,
+  });
   return value;
 }
 

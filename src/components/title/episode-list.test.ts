@@ -369,6 +369,14 @@ check("downloading episode shows exact progress on its own Download control", ()
   assert.match(e02, /aria-label="Downloading 6\.1% — S01E02"[^>]*disabled=""/);
   // A visual download-progress strip is drawn, keyed off the transfer.
   assert.match(e02, /data-episode-progress="download"/);
+  // The control shows a live floored percent, not an endless spinner — the
+  // spinner read as "loading forever". 0.061 → 6%.
+  assert.match(e02, />6%</, "downloading control shows a visible percent");
+  assert.doesNotMatch(
+    e02,
+    /animate-spin/,
+    "a downloading episode never shows an infinite spinner",
+  );
 });
 
 check("queued transfer is a disabled Download control on the card", () => {
@@ -505,6 +513,8 @@ check("completed target renders a play card and a Downloaded control, not a thir
   assert.doesNotMatch(html, /data-episode-transfer/);
   assert.match(html, /data-action-kind="play"/);
   assert.match(html, /aria-label="Downloaded — S02E07"[^>]*disabled=""/);
+  // A finished episode shows a tick, not the download icon.
+  assert.match(html, /lucide-check/, "a completed download shows a tick");
 });
 
 check("downloaded transfer without a hash still owns a disabled Downloaded control", () => {
