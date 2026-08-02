@@ -18,7 +18,6 @@ import {
 
 export function Header() {
   const pathname = usePathname();
-  const { density, setDensity } = useUiPreferences();
   const pageTitle = activeNavLabel(pathname);
   const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
   const { items: navRow, dividerIndex } = desktopNavRow();
@@ -151,23 +150,12 @@ export function Header() {
           >
             <Search className="h-4 w-4" aria-hidden />
           </Link>
-          <button
-            type="button"
-            className="hidden xl:inline-flex h-8 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
-            onClick={() =>
-              setDensity(density === "compact" ? "comfortable" : "compact")
-            }
-            title={
-              density === "compact"
-                ? "Density: Compact — click for Comfortable"
-                : "Density: Comfortable — click for Compact"
-            }
-            aria-label={`List density: ${density}. Toggle.`}
-            data-density-toggle
-          >
-            <Rows3 className="h-3.5 w-3.5" />
-            <span className="hidden xl:inline capitalize">{density}</span>
-          </button>
+          {/* The list-density toggle used to sit here.
+              It answered an implementation question — how tightly should rows
+              pack — rather than a user question, and it was a permanent control
+              in the header paid for by every viewer to serve the few who ever
+              pressed it. Removed with Rules and Activity as part of reducing
+              the chrome to five destinations and a search box. */}
         </div>
       </div>
     </header>

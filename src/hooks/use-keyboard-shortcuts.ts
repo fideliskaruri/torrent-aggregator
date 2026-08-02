@@ -51,8 +51,8 @@ export function useKeyboardShortcuts() {
         if (e.key === "h") router.push("/");
         if (e.key === "s") router.push(SEARCH_HREF);
         if (e.key === "w") router.push("/watchlist");
-        if (e.key === "c") router.push("/client");
-        if (e.key === "a") router.push("/activity");
+        if (e.key === "c") router.push("/downloads");
+        if (e.key === "a") router.push("/notifications");
         if (e.key === "r") router.push("/rules");
         // d = downloads log (history subset); prefer Activity for “what ran”
         if (e.key === "d") router.push("/history");

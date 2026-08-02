@@ -36,7 +36,9 @@ import {
   MORE_ACTIVE_PREFIXES,
   PRIMARY_NAV,
   SEARCH_HREF,
+  SEARCH_NAV_ITEM,
   SECONDARY_NAV,
+  activeNavLabel,
   desktopNavRow,
   navActive,
   navActiveHref,
@@ -213,8 +215,28 @@ console.log("flow: navigation model contracts…");
 
   assert.deepEqual(
     primaryHrefs,
-    ["/", SEARCH_HREF, "/watchlist", "/client"],
-    "primary path is Browse → Search → Library → Client",
+    ["/", "/watchlist", "/downloads", "/notifications", "/settings"],
+    "the five destinations, in order",
+  );
+
+  // Five, and not six. The bottom bar is thumb-width on a 375px phone; a sixth
+  // entry makes every target narrower than the 44px minimum, so growing this
+  // list is a product decision rather than a layout tweak.
+  assert.equal(PRIMARY_NAV.length, 5, "exactly five destinations");
+
+  // Renames that are contracts, not cosmetics: the subsystem name is gone from
+  // the navigation, and the wall-of-everything page is now an inbox.
+  assert.ok(
+    !primaryHrefs.includes("/client"),
+    "Client is now Downloads: the nav names what the user came for",
+  );
+  assert.ok(
+    !primaryHrefs.includes("/activity"),
+    "Activity is now Notifications",
+  );
+  assert.ok(
+    !primaryHrefs.includes("/rules") && !secondaryHrefs.includes("/rules"),
+    "Rules is no longer advertised; the route survives for anyone relying on it",
   );
 
   assert.equal(
@@ -236,9 +258,17 @@ console.log("flow: navigation model contracts…");
     SEARCH_HREF,
     "the header's search affordance points at the search route",
   );
+  // Search is global, not a destination. It used to be a primary entry so that
+  // the mobile tab bar had something to render; the bar now holds the five
+  // places you can *be*, and searching is something you do from any of them.
   assert.ok(
-    PRIMARY_NAV.some((i: NavItem) => i.href === HEADER_SEARCH_HREF),
-    "the header search affordance must correspond to a real nav entry",
+    !PRIMARY_NAV.some((i: NavItem) => i.href === HEADER_SEARCH_HREF),
+    "Search is a global affordance, not one of the five destinations",
+  );
+  assert.equal(
+    SEARCH_NAV_ITEM.href,
+    SEARCH_HREF,
+    "the search affordance is still a real nav item for whatever renders it",
   );
 
   assert.ok(
@@ -320,13 +350,17 @@ console.log("flow: navigation model contracts…");
     "a page belongs to exactly one nav tier",
   );
 
-  // The More tab must light up for every secondary route, plus History.
-  for (const href of [...secondaryHrefs, HISTORY_HREF]) {
-    assert.ok(
-      MORE_ACTIVE_PREFIXES.includes(href),
-      `${href} must light the More tab`,
-    );
-  }
+  // There is no More tab any more: nothing was demoted, so nothing lights it.
+  // History lights Notifications instead, via that entry's `owns` claim.
+  assert.equal(
+    MORE_ACTIVE_PREFIXES.length,
+    0,
+    "an empty More sheet has no active prefixes",
+  );
+  assert.ok(
+    PRIMARY_NAV.some((i: NavItem) => (i.owns ?? []).includes(HISTORY_HREF)),
+    "History must still light *something* — it is reached from Notifications",
+  );
 
   /**
    * Exactly one row highlighted, on every route, in every rendered list.
@@ -340,14 +374,16 @@ console.log("flow: navigation model contracts…");
     // the nav renders on it and must highlight the Search entry.
     const allRoutes = [
       "/",
-      SEARCH_HREF,
       "/watchlist",
-      "/client",
-      "/activity",
+      "/downloads",
+      "/notifications",
       "/settings",
-      "/rules",
       "/history",
       "/about",
+      // The old paths still resolve, and the nav must still show where you are
+      // when you arrive on one from a bookmark.
+      "/client",
+      "/activity",
     ];
 
     // The desktop header is always on screen, so it must always show where
@@ -365,45 +401,47 @@ console.log("flow: navigation model contracts…");
       );
     }
 
-    // The More sheet only covers secondary routes; on a primary route it
-    // correctly highlights nothing.
-    for (const route of [...secondaryHrefs, HISTORY_HREF]) {
-      const winner = navActiveHref(SECONDARY_NAV, route);
-      assert.ok(winner, `More sheet: nothing highlighted on ${route}`);
-      assert.equal(
-        SECONDARY_NAV.filter((item: NavItem) => item.href === winner).length,
-        1,
-        `More sheet: ${route} resolved to a non-unique entry`,
-      );
-    }
-    for (const route of primaryHrefs) {
+    // The More sheet is empty by design now — every destination earned a place
+    // in the primary five — so it highlights nothing anywhere. Asserted rather
+    // than assumed, because a re-added secondary entry must come with a rule.
+    assert.equal(SECONDARY_NAV.length, 0, "nothing was demoted to a More sheet");
+    for (const route of [...primaryHrefs, HISTORY_HREF]) {
       assert.equal(
         navActiveHref(SECONDARY_NAV, route),
         null,
-        `More sheet must stay unhighlighted on the primary route ${route}`,
+        `an empty More sheet cannot highlight ${route}`,
       );
     }
 
     // A page that is in the list must win over any entry merely claiming it.
     assert.equal(
-      navActiveHref(SECONDARY_NAV, "/rules"),
-      "/rules",
-      "the More sheet lists Rules, so Rules wins over Settings' claim",
-    );
-    assert.equal(
-      navActiveHref(DESKTOP_NAV, "/rules"),
-      "/rules",
-      "Rules is discoverable and owns its desktop route",
-    );
-    assert.equal(
       navActiveHref(DESKTOP_NAV, "/history"),
-      "/activity",
-      "History is reached from Activity",
+      "/notifications",
+      "History is reached from Notifications",
     );
+    // The old paths keep resolving to their new homes, so a bookmark still
+    // shows the user where they are instead of highlighting nothing.
+    assert.equal(
+      navActiveHref(DESKTOP_NAV, "/client"),
+      "/downloads",
+      "the old Client path highlights Downloads",
+    );
+    assert.equal(
+      navActiveHref(DESKTOP_NAV, "/activity"),
+      "/notifications",
+      "the old Activity path highlights Notifications",
+    );
+    // Search is a box in the header, not a row in it, so nothing in the row
+    // lights up on /search. The mobile title bar still has to name the place.
     assert.equal(
       navActiveHref(DESKTOP_NAV, SEARCH_HREF),
-      SEARCH_HREF,
-      "Search owns its own route now",
+      null,
+      "Search is not a row in the desktop nav",
+    );
+    assert.equal(
+      activeNavLabel(SEARCH_HREF),
+      "Search",
+      "the mobile title bar still names Search",
     );
     assert.equal(
       navActiveHref(DESKTOP_NAV, `${SEARCH_HREF}?q=dune`),

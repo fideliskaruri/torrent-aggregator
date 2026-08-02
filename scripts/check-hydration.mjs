@@ -16,7 +16,7 @@
 import { chromium } from "playwright";
 
 const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:3100";
-const ROUTES = ["/", "/search", "/client", "/watchlist"];
+const ROUTES = ["/", "/search", "/downloads", "/notifications", "/watchlist", "/settings"];
 
 /** React's hydration complaints, plus the generic error boundary text. */
 const HYDRATION_PATTERNS = [

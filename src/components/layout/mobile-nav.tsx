@@ -18,7 +18,6 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useUiPreferences } from "@/components/providers/ui-preferences";
 import {
   EVERYTHING_HREF,
   MORE_ACTIVE_PREFIXES,
@@ -34,8 +33,8 @@ const NAV_ICONS: Record<string, typeof Search> = {
   [SEARCH_HREF]: Search,
   [EVERYTHING_HREF]: Boxes,
   "/watchlist": Library,
-  "/client": HardDriveDownload,
-  "/activity": Activity,
+  "/downloads": HardDriveDownload,
+  "/notifications": Activity,
   "/settings": Settings,
   "/rules": Zap,
   "/about": Info,
@@ -58,14 +57,8 @@ const MORE_ITEMS = SECONDARY_NAV.map((item) => ({
   icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK,
 }));
 
-const DENSITY_OPTIONS = [
-  { value: "compact" as const, label: "Compact" },
-  { value: "comfortable" as const, label: "Comfortable" },
-];
-
 export function MobileNav() {
   const pathname = usePathname();
-  const { density, setDensity } = useUiPreferences();
   const [moreOpen, setMoreOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const activeMoreHref = navActiveHref(SECONDARY_NAV, pathname);
@@ -226,36 +219,6 @@ export function MobileNav() {
               </ul>
             </nav>
 
-            <div
-              className="mx-2 my-2 border-t border-[var(--border)] px-2 pt-3 pb-1"
-              role="group"
-              aria-label="Density"
-            >
-              <div className="mb-1.5 text-[11px] font-medium tracking-wide text-[var(--text-tertiary)]">
-                Density
-              </div>
-              <div className="grid grid-cols-2 gap-0.5 rounded-md bg-[var(--bg)] p-0.5 ring-1 ring-[var(--border)]">
-                {DENSITY_OPTIONS.map(({ value, label }) => {
-                  const active = density === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setDensity(value)}
-                      className={cn(
-                        "rounded-[5px] px-2 py-2 min-h-[44px] text-[12px] font-medium transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
-                        active
-                          ? "bg-[var(--accent-dim)] text-[var(--accent-text)] shadow-[var(--shadow-sm)]"
-                          : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]",
-                      )}
-                      aria-pressed={active}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
         </div>
       ) : null}
@@ -269,12 +232,18 @@ export function MobileNav() {
         data-mobile-nav
         aria-label="Primary"
       >
-        {/* One column per primary tab, plus More. Driven by the nav model so
-            adding an entry cannot leave a tab hanging off the edge. */}
+        {/* One column per primary tab, plus More only when there is anything
+            in it. Driven by the nav model so adding an entry cannot leave a tab
+            hanging off the edge — and so an empty More sheet does not cost
+            every other tab a sixth of the bar. At 390px that is 78px per tab
+            instead of 65px, which is what decides whether "Notifications"
+            renders or truncates to a half-word. */}
         <div
           className="grid h-[var(--mobile-nav-h)]"
           style={{
-            gridTemplateColumns: `repeat(${PRIMARY_TABS.length + 1}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${
+              PRIMARY_TABS.length + (MORE_ITEMS.length > 0 ? 1 : 0)
+            }, minmax(0, 1fr))`,
           }}
         >
           {PRIMARY_TABS.map(({ href, label, icon: Icon }) => {
@@ -308,28 +277,30 @@ export function MobileNav() {
             );
           })}
 
-          <button
-            type="button"
-            data-mobile-more
-            aria-haspopup="dialog"
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen((o) => !o)}
-            className={cn(
-              "flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
-              moreTabActive
-                ? "text-[var(--accent-text)]"
-                : "text-[var(--text-tertiary)]",
-            )}
-          >
-            <MoreHorizontal
+          {MORE_ITEMS.length > 0 ? (
+            <button
+              type="button"
+              data-mobile-more
+              aria-haspopup="dialog"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((o) => !o)}
               className={cn(
-                "h-5 w-5",
-                moreTabActive && "text-[var(--accent)]",
+                "flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
+                moreTabActive
+                  ? "text-[var(--accent-text)]"
+                  : "text-[var(--text-tertiary)]",
               )}
-              strokeWidth={moreTabActive ? 2.25 : 1.75}
-            />
-            More
-          </button>
+            >
+              <MoreHorizontal
+                className={cn(
+                  "h-5 w-5",
+                  moreTabActive && "text-[var(--accent)]",
+                )}
+                strokeWidth={moreTabActive ? 2.25 : 1.75}
+              />
+              More
+            </button>
+          ) : null}
         </div>
       </nav>
     </>

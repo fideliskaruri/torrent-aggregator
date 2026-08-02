@@ -507,7 +507,7 @@ export default function WatchlistPage() {
             </span>
           </span>
           <Link
-            href="/activity"
+            href="/notifications"
             className="inline-flex items-center gap-1 min-h-[44px] font-medium text-[var(--accent-text)] hover:underline lg:min-h-0"
           >
             View in Activity

@@ -49,7 +49,7 @@ export const RAIL_PREVIEWS: readonly RailPreview[] = [
     id: "ready-to-play",
     title: "Ready to Play",
     blurb: "Fully downloaded and on disk. These play the instant you click them.",
-    href: "/client",
+    href: "/downloads",
     cta: "Open client",
   },
   {
@@ -70,7 +70,7 @@ export const RAIL_PREVIEWS: readonly RailPreview[] = [
     id: "recently-added",
     title: "Recently Added",
     blurb: "Newest arrivals first, so a finished download is never more than one glance away.",
-    href: "/activity",
+    href: "/notifications",
     cta: "See activity",
   },
 ] as const;

@@ -100,7 +100,7 @@ export function ActiveDownloadsTeaser() {
           </span>
         </h2>
         <Link
-          href="/client"
+          href="/downloads"
           className="text-[12px] text-[var(--text-tertiary)] hover:text-[var(--accent-text)] inline-flex items-center gap-1 min-h-[44px] lg:min-h-0"
         >
           Open client
@@ -109,7 +109,7 @@ export function ActiveDownloadsTeaser() {
       </div>
       <ul className="space-y-1.5">
         {items.map((t) => {
-          const titleHref = titleHrefForName(t.name) ?? "/client";
+          const titleHref = titleHrefForName(t.name) ?? "/downloads";
           return (
             <li key={t.hash}>
               <Link

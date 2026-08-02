@@ -3,7 +3,12 @@ import {
   SECTION_SCOPES,
   type SearchScope,
 } from "@/lib/torrents/search-scopes";
-import { PRIMARY_NAV, SEARCH_HREF } from "@/lib/navigation";
+import {
+  PRIMARY_NAV,
+  SEARCH_HREF,
+  SEARCH_NAV_ITEM,
+  SECONDARY_NAV,
+} from "@/lib/navigation";
 import {
   DEFAULT_SECTION_SCOPE,
   EVERYTHING_HREF,
@@ -577,18 +582,25 @@ check("the scopes that name real things do offer them", () => {
 check("Everything is removed from primary navigation", () => {
   const hrefs = PRIMARY_NAV.map((i) => i.href);
   assert.equal(hrefs.includes(EVERYTHING_HREF), false);
-  assert.ok(hrefs.includes(SEARCH_HREF));
+  // Search is no longer a destination in the bar — it is a global affordance,
+  // drawn as a box in the desktop header and full-screen on mobile. It must
+  // still be a real route, or the header's box points at nothing.
+  assert.equal(hrefs.includes(SEARCH_HREF), false);
+  assert.equal(SEARCH_NAV_ITEM.href, SEARCH_HREF);
 });
 
 check("the mobile tab bar still fits every primary label", () => {
   /**
-   * The bar is one equal column per primary entry plus More. At 390px that is
-   * 390 / (n + 1) per column, and the labels render at 10px — roughly 0.55em
-   * per character for this typeface. A label wider than its column truncates
-   * to "Everythi…", which is exactly the kind of half-word the owner would
-   * have to guess at.
+   * The bar is one equal column per primary entry, plus a More tab *only when
+   * something was demoted to it*. Nothing is, so five destinations get 78px
+   * each at 390px rather than the 65px six columns would leave.
+   *
+   * That difference is not cosmetic: labels render at 10px, roughly 0.55em per
+   * character for this typeface, and "Notifications" needs ~72px. At six
+   * columns it truncates to "Notificati…", which is exactly the kind of
+   * half-word the owner would have to guess at. At five it renders.
    */
-  const columns = PRIMARY_NAV.length + 1;
+  const columns = PRIMARY_NAV.length + (SECONDARY_NAV.length > 0 ? 1 : 0);
   const columnPx = 390 / columns;
   for (const item of PRIMARY_NAV) {
     const approxPx = item.label.length * 10 * 0.55;

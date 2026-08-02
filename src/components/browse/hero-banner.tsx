@@ -169,7 +169,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
               </Button>
             ) : action.kind === "get" && status === "done" ? (
               <Button asChild size="lg" variant="secondary">
-                <Link href="/client">{label}</Link>
+                <Link href="/downloads">{label}</Link>
               </Button>
             ) : (
               <Button

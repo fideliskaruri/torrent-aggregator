@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const source = fs.readFileSync("src/app/client/page.tsx", "utf8");
+const source = fs.readFileSync("src/app/downloads/page.tsx", "utf8");
 
 function check(name: string, fn: () => void) {
   try {
@@ -14,9 +14,9 @@ function check(name: string, fn: () => void) {
   }
 }
 
-console.log("\n/client page source shape");
+console.log("\n/downloads page source shape");
 
-check("client rows render parsed display titles, not raw release names", () => {
+check("downloads rows render parsed display titles, not raw release names", () => {
   assert.match(source, /import \{ parseEpisode \} from "@\/lib\/torrents\/episodes";/);
   assert.match(
     source,
@@ -35,12 +35,12 @@ check("overflow contains secondary actions and remains keyboard reachable", () =
   assert.doesNotMatch(source, /data-inline-player|Hide player|<video\b/);
 });
 
-check("client page does not poll from a fixed interval", () => {
+check("downloads page does not poll from a fixed interval", () => {
   assert.doesNotMatch(source, /\bsetInterval\s*\(/);
   assert.match(source, /startVisiblePoller/);
 });
 
-check("client rows are keyboard-selectable with named progress", () => {
+check("downloads rows are keyboard-selectable with named progress", () => {
   assert.match(source, /role="button"\s+tabIndex=\{0\}\s+aria-pressed=\{isSelected\}/);
   assert.match(source, /e\.key === "Enter" \|\| e\.key === " "/);
   assert.match(source, /aria-label=\{`\$\{display\.title\} download progress`\}/);
