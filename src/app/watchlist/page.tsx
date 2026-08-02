@@ -62,6 +62,14 @@ import {
   SkeletonBlock,
 } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import {
+  DEFAULT_LIBRARY_TAB,
+  LIBRARY_TAB_LABELS,
+  filterByTab,
+  tabCounts,
+  visibleTabs,
+  type LibraryTab,
+} from "./library-tabs";
 import { canonicalWatchlistPlayerTitle } from "./player-identity";
 
 interface WatchItem {
@@ -139,7 +147,7 @@ export default function WatchlistPage() {
   const [items, setItems] = useState<WatchItem[]>([]);
   const [runningAuto, setRunningAuto] = useState(false);
   const [automationReviewOpen, setAutomationReviewOpen] = useState(false);
-  const [filter, setFilter] = useState<string>("all");
+  const [tab, setTab] = useState<LibraryTab>(DEFAULT_LIBRARY_TAB);
   const [sendingId, setSendingId] = useState<string | null>(null);
   // Over-cap sends ask instead of refusing; free space stays a hard stop.
   const capOverride = useStorageCapOverride();
@@ -427,16 +435,13 @@ export default function WatchlistPage() {
   }
 
 
-  const filtered =
-    filter === "all" ? items : items.filter((i) => i.status === filter);
-
-  const filterChips: { id: string; label: string }[] = [
-    { id: "all", label: "All" },
-    ...STATUSES.map((s) => ({
-      id: s,
-      label: s.charAt(0).toUpperCase() + s.slice(1),
-    })),
-  ];
+  const tabs = visibleTabs(items);
+  // A tab can disappear under the user: remove the last film and Movies goes
+  // with it. Falling back to All keeps the page from rendering an empty list
+  // for a tab that no longer exists, which reads as "your library is empty".
+  const activeTab = tabs.includes(tab) ? tab : DEFAULT_LIBRARY_TAB;
+  const filtered = filterByTab(items, activeTab);
+  const counts = tabCounts(items);
 
   return (
     <div className="container-app py-6 sm:py-8 space-y-5 min-w-0">
@@ -516,21 +521,34 @@ export default function WatchlistPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-1">
-        {filterChips.map((c) => (
+      {/* What kind of thing, not how far through it.
+          These replaced a row of status chips (All / Watching / Completed).
+          Status is a property of one title and now lives on that title's card;
+          it was never the question people arrive with. You open the Library to
+          find a film or to find a show. */}
+      <div
+        className="flex flex-wrap items-center gap-1"
+        role="tablist"
+        aria-label="Library"
+        data-library-tabs
+      >
+        {tabs.map((id) => (
           <button
-            key={c.id}
+            key={id}
             type="button"
-            aria-pressed={filter === c.id}
-            onClick={() => setFilter(c.id)}
+            role="tab"
+            aria-selected={activeTab === id}
+            data-library-tab={id}
+            onClick={() => setTab(id)}
             className={cn(
-              "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors capitalize ring-1 lg:min-h-0 lg:min-w-0",
-              filter === c.id
+              "inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ring-1 lg:min-h-0 lg:min-w-0",
+              activeTab === id
                 ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                 : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
             )}
           >
-            {c.label}
+            {LIBRARY_TAB_LABELS[id]}
+            <span className="tabular-nums opacity-70">{counts[id]}</span>
           </button>
         ))}
       </div>
@@ -544,10 +562,17 @@ export default function WatchlistPage() {
       ) : !filtered.length ? (
         <TfEmptyState
           icon={Search}
-          title={items.length ? "No items match this filter" : "No items yet"}
+          title={
+            items.length
+              ? `Nothing in ${LIBRARY_TAB_LABELS[activeTab]}`
+              : "No items yet"
+          }
           description={
             items.length
-              ? "Try another status filter."
+              ? // Empty tabs are hidden, so reaching this means the tab emptied
+                // while the page was open. Name the way back rather than
+                // leaving the user on a dead end.
+                "Everything in your library is under another tab. Choose All to see it."
               : "Search a show, add it to your library, then check for the next episode."
           }
           actionLabel={items.length ? undefined : "Search shows"}
