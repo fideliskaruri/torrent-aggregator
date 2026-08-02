@@ -134,6 +134,38 @@ drift 0px.
 
 ## Open — found during this work, not yet fixed
 
+### 0. Series detection and title matching are wrong for most titles tried
+
+Found while browser-verifying the Add to Library questions. Of six well-known
+series probed on their title pages, **five resolve as `isSeries: false` with a
+film `mediaType`**:
+
+| `/title/…` | `isSeries` | note |
+|---|---|---|
+| `breaking-bad` | `false` | `externalId: 1396` is the TMDB **TV** id, stored as `mediaType: "movie"` |
+| `the-wire` | `false` | |
+| `arcane` | `false` | |
+| `attack-on-titan` | `false` | |
+| `the-bear` | `false` | |
+| `severance` | `true` | but matched `externalId: 348669`, a **short film** of the same name — synopsis reads "A short film made by the B TEAM" |
+
+This is pre-existing and was not introduced by this pass, but it is more
+serious than anything fixed in it. Every series-shaped behaviour in the app —
+season lists, episode hunting, the start-point question, the Series tab, the
+next-episode cursor — is gated on `isSeries`, so for these titles all of it is
+silently inert. The app does not appear broken; it appears to have decided the
+show is a film.
+
+The Severance case is a different failure from the other five: detection is
+right, identification is wrong. `title-identity-accuracy.test.ts` already
+encodes the rule that a same-name mismatch is a defect (its Dune 2021 vs 2017
+case), so this is a live example of a rule the suite states and the running app
+does not keep.
+
+Not fixed here because it is a metadata-resolution problem, not a UI one, and
+guessing at it late in a long session is how the wrong fix gets committed with
+a green suite behind it. It should be the next thing looked at.
+
 ### A. Migration `20260731120000_acquisition_target` — applied
 
 `prisma migrate status` reported it pending, and without it every title page
@@ -255,7 +287,7 @@ See item 8.
 
 | Gate | Result |
 |---|---|
-| `npm run test:unit` | 155/155 |
+| `npm run test:unit` | 156/156 |
 | `npm run typecheck` | 0 errors |
 | `npm run lint` | 0 errors, 44 warnings |
 | `npm run build` | succeeds |
@@ -275,17 +307,22 @@ MCP-only checks, so CI can reproduce them.
 |---|---|
 | All/Movies/Series/Anime tabs | done |
 | Notifications inbox + unread count | done |
-| Add to Library questions, per-title preferences | **not started** |
+| Add to Library questions, per-title preferences | done |
 | Automatically download new episodes | **not started** |
 | Watching + update/download state on cards | done |
 | Stop-tracking and granular confirmed deletion | **not started** |
 
-The remaining items were left deliberately rather than rushed. Two of
-them act on the world rather than the screen: automatic episode downloading
-starts real transfers of real files without being asked, and granular deletion
-removes media from disk. Both deserve their own test design and a fresh start,
-not the tail of a long session — which is exactly the condition under which
-the work this document replaces was produced.
+The two remaining items were left deliberately rather than rushed. Both act on
+the world rather than the screen: automatic episode downloading starts real
+transfers of real files without being asked, and granular deletion removes
+media from disk. Both deserve their own test design and a fresh start, not the
+tail of a long session — which is exactly the condition under which the work
+this document replaces was produced.
+
+Note also that automatic downloading now depends on `isSeries` being right,
+and section 0 shows it usually is not. Building it before fixing series
+detection would produce a feature that appears to work, is tested green, and
+does nothing for most of the library.
 
 ## What has *not* been verified
 
