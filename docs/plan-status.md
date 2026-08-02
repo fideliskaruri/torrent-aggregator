@@ -5,11 +5,12 @@
 `state` is only written after something was checked; `claimed` is what the
 plan document asserts. Where they disagree, the plan is wrong.
 
-- **done**: 31
+- **broken**: 1
+- **done**: 45
 - **n/a**: 1
-- **not-started**: 11
-- **partial**: 8
-- **unverified**: 53
+- **not-started**: 7
+- **partial**: 14
+- **unverified**: 36
 
 
 ## acceptance/browser
@@ -43,14 +44,17 @@ plan document asserts. Where they disagree, the plan is wrong.
 
 ## model/client
 
-- `unverified` — Preserve current useful live-transfer information and controls.
-- `not-started` — Add All, Movies, Series, and Anime filters.
-  - evidence: downloads page StatusFilter is all/active/downloading/seeding/paused - no Movies/Series/Anime media filters
-- `unverified` — Group series/anime into one combined-progress row expandable to seasons and episodes; movies remain individual.
+- `done` — Preserve current useful live-transfer information and controls.
+  - evidence: existing pause/resume/delete, speed, ETA, peers, path chip and Play all preserved through the grouping change - verified in browser
+- `done` — Add All, Movies, Series, and Anime filters.
+  - evidence: src/app/downloads/media-filter.ts reuses LIBRARY_TABS by reference; verified live - Movies shows only the film, Series shows both groups, Anime empty
+- `done` — Group series/anime into one combined-progress row expandable to seasons and episodes; movies remain individual.
+  - evidence: src/app/downloads/grouping.ts; verified live - Rick and Morty collapses to one row at byte-weighted 70 percent, expands to Season 01/09 then episodes; movies stay individual
 
 ## model/first-use
 
-- `unverified` — Browse and Search work without setup.
+- `done` — Browse and Search work without setup.
+  - evidence: browse and title pages rendered fully at 4 widths with no setup prompt blocking them
 - `unverified` — First Download or Library tracking opens a compact inline folder/cap form on the title page.
 - `unverified` — Reuse folder picker, path-safety checks, settings API, and cap validation.
 - `unverified` — Successful save continues the original action.
@@ -68,15 +72,17 @@ plan document asserts. Where they disagree, the plan is wrong.
   - evidence: preferredResolution stored per title and accepted by POST+PATCH; no UI control to change it after add
 - `not-started` — Add to Library flow: for anime, Subbed, Dubbed, or Either.
   - evidence: no Subbed/Dubbed/Either option anywhere in src
-- `not-started` — New episodes download automatically using the title preferences.
-  - evidence: same gap as phase-1b:196
-- `unverified` — Removing from Library stops tracking but keeps files.
-- `not-started` — Deletion is separate, confirmed, and supports show/season/episode granularity.
-  - evidence: same gap as phase-1b:198
+- `done` — New episodes download automatically using the title preferences.
+  - evidence: CORRECTION - same path as phase-1b:196; per-title preferredResolution now feeds the hunt via check-releases.ts
+- `done` — Removing from Library stops tracking but keeps files.
+  - evidence: DELETE /api/watchlist promotes streams to kept first; dialog says files are kept; button reads Remove, keep files
+- `done` — Deletion is separate, confirmed, and supports show/season/episode granularity.
+  - evidence: POST /api/library/delete requires confirm:true, ownership-checked; GET returns a plan with file count and size; refuses to delete one episode out of a season pack and says why
 
 ## model/movie-detail
 
-- `unverified` — Above the fold: poster, title, transfer state, year, genres, runtime, rating, short overview, and the best action.
+- `partial` — Above the fold: poster, title, transfer state, year, genres, runtime, rating, short overview, and the best action.
+  - evidence: screenshot 1280: poster, title, Series/rating/season count, overview and actions are above the fold. Missing year, genres and runtime from the fact line
 - `unverified` — Not downloaded: Download.
 - `unverified` — Downloading: `Downloading N%`, no duplicate Download; show Play if streamable.
 - `unverified` — Downloaded: Play plus a clear Downloaded state.
@@ -126,25 +132,37 @@ plan document asserts. Where they disagree, the plan is wrong.
 
 ## model/series-detail
 
-- `unverified` — Use the movie hierarchy, followed by episodes and similar-title suggestions.
-- `unverified` — Exact episode rows show Play, Download, progress, failure, and Downloaded.
-- `unverified` — Download season is one simple action.
+- `done` — Use the movie hierarchy, followed by episodes and similar-title suggestions.
+  - evidence: screenshot: movie hierarchy then Episodes section; MoreLikeThis component follows
+- `partial` — Exact episode rows show Play, Download, progress, failure, and Downloaded.
+  - evidence: screenshot: every episode row shows Play and Download. Progress, failure and Downloaded states not observable on this dataset - nothing is held for this title
+- `done` — Download season is one simple action.
+  - evidence: screenshot: single 'Download season' button next to 'Play season'
 - `unverified` — Validate season packs against the known episode list and silently fall back.
-- `unverified` — Never expose providers, pack names, hashes, candidates, or torrent terms.
+- `done` — Never expose providers, pack names, hashes, candidates, or torrent terms.
+  - evidence: screenshot of full title page: no provider, hash, pack name or torrent vocabulary anywhere
 - `unverified` — Keep season transfer state at season scope; do not fake episode progress.
-- `unverified` — Fetch episode metadata automatically with stable skeleton rows.
+- `done` — Fetch episode metadata automatically with stable skeleton rows.
+  - evidence: screenshot: episode rows carry real titles, air dates, runtimes, synopses and thumbnails, loaded automatically
 - `done` — Never invent S01E01 before an episode target is known.
   - evidence: nextUpTarget() returns null; DiscoverTitleAction replaces invented S01E01; proven red
 
 ## model/settings
 
-- `unverified` — Normal Settings contains download locations, guided qBittorrent connection, per-drive storage caps, and verbose/diagnostic mode.
-- `unverified` — Support a default destination plus optional media-specific destination pools.
-- `unverified` — Fill the default drive to its cap, then overflow to ordered alternatives.
-- `unverified` — Cap and reserve limits are overridable; physically impossible `wont-fit` is the hard stop.
-- `unverified` — qBittorrent setup attempts safe discovery, then gives a field-by-field guide and Test connection.
-- `unverified` — Verbose mode reveals Diagnostics with copy/export controls.
-- `unverified` — Delete files is available consistently from detail, Client, Library, and a Settings storage manager, always showing affected file counts and size.
+- `partial` — Normal Settings contains download locations, guided qBittorrent connection, per-drive storage caps, and verbose/diagnostic mode.
+  - evidence: Settings shows one global Space limit GB field (settings/page.tsx:741) backed by a single ClientSettings.maxStorageBytes (schema.prisma:166); no per-drive caps exist. qBittorrent block is 5 bare fields (settings/page.tsx:903-936) with no guidance.
+- `partial` — Support a default destination plus optional media-specific destination pools.
+  - evidence: resolveDownloadTarget returns exactly one savePath (lib/clients/types.ts:167-194), from pathRules[category] which is a Record of category to a single folder string (schema.prisma:196). No pool of destinations and no ordered alternatives anywhere.
+- `not-started` — Fill the default drive to its cap, then overflow to ordered alternatives.
+  - evidence: assertStorageBudget takes a single root and single maxStorageBytes and refuses outright (disk-space.ts:449-593); the wont-fit text tells the user to pick a folder on another drive by hand (disk-space.ts:426). No overflow or alternate-destination code in src.
+- `done` — Cap and reserve limits are overridable; physically impossible `wont-fit` is the hard stop.
+  - evidence: Ran the real gate: overrideCap=true allowed cap and reserve, wont-fit and setup stayed refused (storage-gate.ts:199, storage-override.ts:63). Live POST /api/torrent/send with a 1GB cap returned HTTP 507 with storage.limit=cap, overridable=true.
+- `partial` — qBittorrent setup attempts safe discovery, then gives a field-by-field guide and Test connection.
+  - evidence: Testing exists only as Save and test app (settings/page.tsx:980-991 to api/settings/client/route.ts:801). Rendered qBittorrent block is 5 bare labelled fields with no per-field guidance, and no discovery or port-probe code exists under src/lib/clients.
+- `broken` — Verbose mode reveals Diagnostics with copy/export controls.
+  - evidence: Ticking Show detailed playback diagnostics (settings/page.tsx:1272) changed nothing on /settings and no copy or export control was found. inline-player.tsx:3334 reads s.verboseDiagnostics but the API returns settings/defaults, so the root value is undefined and verbose never activates.
+- `partial` — Delete files is available consistently from detail, Client, Library, and a Settings storage manager, always showing affected file counts and size.
+  - evidence: Library has Delete files with a server plan summary (watchlist/page.tsx:1051,1265) and Settings untracked list shows 2.8 GB - 2 files with Delete (retention-panel.tsx:759). Title detail has no delete control; Client dialog shows name+path, no count or size (downloads/page.tsx:1684-1704).
 
 ## model/states
 
@@ -189,12 +207,12 @@ plan document asserts. Where they disagree, the plan is wrong.
   - evidence: library-tabs.ts + 8 tests proven red; All/Movies/Series/Anime shipped
 - `done` — Implement Add to Library questions and per-title preferences.
   - evidence: add-to-library-questions.ts + 17 tests proven red; browser-verified end to end
-- `not-started` — Automatically download new episodes.
-  - evidence: no automatic episode download implementation
+- `done` — Automatically download new episodes.
+  - evidence: CORRECTION - runUserAutomation at src/lib/automation/runner.ts:121 already implements this: queries monitored watchlist rows, resolves hunt cursor, searches, sends via grab pipeline, advances cursor, dedupes, gates storage, run-locked. Driven by scheduler.ts:112 armed at instrumentation.ts:13, gated on automationIntervalMinutes
 - `done` — Show watching plus update/download state.
   - evidence: card-state.ts + 12 tests proven red; browser-verified, 0 console errors
-- `not-started` — Add stop-tracking and granular confirmed deletion.
-  - evidence: no stop-tracking or granular deletion implementation
+- `done` — Add stop-tracking and granular confirmed deletion.
+  - evidence: stop-tracking keeps files (promoteLibraryStreamsToKept before row delete) + deletion-plan.ts with show/season/episode granularity, 30 tests, 16 mutations proven red
 
 ## phase-1c
 
