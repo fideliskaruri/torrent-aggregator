@@ -50,7 +50,9 @@ import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
 import { titleFacts } from "./title-facts";
 import {
+  offersDownload,
   resolvePrimaryAction,
+  transferStatusLine,
   shouldRunTitleAction,
   titleActionButtonLabel,
   type TitleAction,
@@ -208,6 +210,7 @@ export function TitleDetail(props: TitleDetailProps) {
     loading: extrasLoading,
     refreshing: extrasRefreshing,
     error: extrasError,
+    refetch: refetchExtras,
   } = useApiQuery<TitleExtrasPayload>(extrasUrl);
 
   const statusFor = useCallback(
@@ -499,6 +502,7 @@ export function TitleDetail(props: TitleDetailProps) {
           onSeasonChange={setSeason}
           onSeasonGrab={runSeasonGrab}
           onAction={runAction}
+          onFindEpisodes={refetchExtras}
           onLibraryChanged={refetch}
         />
       )}
@@ -541,6 +545,7 @@ function TitleContent({
   onSeasonChange,
   onSeasonGrab,
   onAction,
+  onFindEpisodes,
   onLibraryChanged,
 }: {
   payload: TitleDetailPayload;
@@ -566,6 +571,7 @@ function TitleContent({
     retention: TitleRetention,
     resolution?: number,
   ) => void;
+  onFindEpisodes: () => void;
   onLibraryChanged: () => void;
 }) {
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
@@ -604,7 +610,9 @@ function TitleContent({
     primaryStatus === "idle" && primary.kind !== "play"
       ? primary.kind === "stream"
         ? "Play"
-        : "Download"
+        : primary.kind === "discover"
+          ? "Find episodes"
+          : "Download"
       : primaryLabel;
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
@@ -685,14 +693,37 @@ function TitleContent({
   // The button is the only place a pending action is narrated: ButtonBody
   // overlays the spinner in place of the label, exactly like a normal video
   // player. No status line, no hint, and no progress bar under the buttons.
-  const primaryCanRun = shouldRunTitleAction(primary, primaryStatus) && !gated;
+  //
+  // A `get` primary is the download control, so an in-flight title transfer
+  // disables it for the same reason it hides the secondary Download. A `stream`
+  // or `play` primary is left alone: a kept download does not stop the file
+  // being watchable, and taking Play away mid-download is the behaviour the
+  // sequential piece strategy exists to avoid.
+  const primaryCanRun =
+    shouldRunTitleAction(primary, primaryStatus) &&
+    !gated &&
+    !(primary.kind === "get" && !offersDownload(payload.transfer));
 
   // Play and Download are the two acquire intents. The primary button above is
   // the Play/Resume path (it opens the player); Download keeps the file. We only
   // offer a separate Download alongside a playable primary — when the primary is
   // itself a Get (positively unavailable), it already *is* the download, so a
   // second identical button would be noise.
-  const showDownload = primary.kind !== "get" && !gated;
+  //
+  // `discover` suppresses it for a different reason: there is no target yet.
+  // A Download button here would have to name an episode, and the only episode
+  // it could name is the guess this whole change exists to remove.
+  //
+  // The third condition is the one the Client used to contradict: a title the
+  // user has already sent is not offered again. `payload.transfer` is title
+  // scope — an episode or season grab elsewhere in this work must not silence
+  // the title's own control.
+  const showDownload =
+    primary.kind !== "get" &&
+    primary.kind !== "discover" &&
+    offersDownload(payload.transfer) &&
+    !gated;
+  const transferLine = transferStatusLine(payload.transfer);
   const downloadAction: TitleAction = {
     kind: "get",
     label: "Download",
@@ -845,12 +876,14 @@ function TitleContent({
                   aria-busy={primaryStatus === "pending" || undefined}
                   disabled={!primaryCanRun}
                   onClick={() =>
-                    requestAction(
-                      primary,
-                      PRIMARY_KEY,
-                      primarySubtitle ? `${title} ${primarySubtitle}` : title,
-                      primary.kind === "get" ? "keep" : "stream",
-                    )
+                    primary.kind === "discover"
+                      ? onFindEpisodes()
+                      : requestAction(
+                          primary,
+                          PRIMARY_KEY,
+                          primarySubtitle ? `${title} ${primarySubtitle}` : title,
+                          primary.kind === "get" ? "keep" : "stream",
+                        )
                   }
                   className="relative min-w-[9rem]"
                 >
@@ -859,6 +892,8 @@ function TitleContent({
                     icon={
                       primary.kind === "play" || primary.kind === "stream" ? (
                         <Play className="fill-current" aria-hidden />
+                      ) : primary.kind === "discover" ? (
+                        <Search aria-hidden />
                       ) : (
                         <Download aria-hidden />
                       )
@@ -920,6 +955,22 @@ function TitleContent({
                   onChanged={onLibraryChanged}
                 />
               </div>
+
+              {/* Title-scope transfer state, in words.
+                  This is the half of the contract that makes suppressing the
+                  Download button honest: take a control away without saying
+                  why and the page just looks broken. `aria-live` because the
+                  line changes under the viewer as the grab progresses. */}
+              {transferLine ? (
+                <p
+                  data-title-transfer
+                  data-transfer-status={payload.transfer?.status}
+                  aria-live="polite"
+                  className="mt-3 text-[13px] tabular-nums text-[var(--text-secondary)]"
+                >
+                  {transferLine}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

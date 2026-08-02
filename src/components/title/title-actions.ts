@@ -25,7 +25,11 @@
  * Pure and DOM-free on purpose: `title.test.ts` drives it as a table.
  */
 import type { AvailabilityState } from "@/lib/browse";
-import type { TitleDetailPayload, TitleEpisode } from "./types";
+import type {
+  TitleDetailPayload,
+  TitleEpisode,
+  TitleEpisodeTransfer,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Actions
@@ -81,7 +85,34 @@ export interface StreamTitleAction {
   episode: number | null;
 }
 
-export type TitleAction = PlayTitleAction | GetTitleAction | StreamTitleAction;
+/**
+ * We know this is a series, but not which episode to act on.
+ *
+ * This exists so the title page can stop *inventing* one. The old fallback
+ * returned S01E01 whenever the cursor, the catalog and local files were all
+ * silent — which reads as a confident claim ("play the first episode") built
+ * on no evidence at all. For a series whose episodes have not loaded, or one
+ * the catalog does not carry, that produced a Play button pointing at an
+ * episode nobody had established exists, next to an empty list saying there
+ * were no episodes. Two contradictory claims from one payload.
+ *
+ * The honest answer is a different action, not a guessed target: offer to go
+ * and find the episodes, and only show Play/Download once something real came
+ * back. `season` is carried when a season is in view so the lookup can be
+ * narrowed; it is never used to synthesise an episode number.
+ */
+export interface DiscoverTitleAction {
+  kind: "discover";
+  label: "Find episodes";
+  season: number | null;
+  episode: null;
+}
+
+export type TitleAction =
+  | PlayTitleAction
+  | GetTitleAction
+  | StreamTitleAction
+  | DiscoverTitleAction;
 
 /**
  * What each concrete state permits, as a total map.
@@ -222,8 +253,19 @@ export function resolvePrimaryAction(payload: TitleDetailPayload): TitleAction {
   // not, because it was asked about the work. Keep whichever kind the state
   // earned and only fill in the target — a `fetchable` series must not lose its
   // Play on the way through here just because it needed an episode number.
+  //
+  // When no episode can be named from evidence, the action becomes discovery
+  // rather than a guess. See {@link DiscoverTitleAction}.
   if (payload.isSeries) {
     const target = nextUpTarget(payload);
+    if (!target) {
+      return {
+        kind: "discover",
+        label: "Find episodes",
+        season: payload.season ?? payload.seasons[0]?.season ?? null,
+        episode: null,
+      };
+    }
     return titleLevel.kind === "stream"
       ? {
           kind: "stream",
@@ -252,33 +294,46 @@ function firstPlayableEpisode(episodes: TitleEpisode[]): TitleEpisode | null {
 }
 
 /**
- * Which episode a series-level Get should ask for.
+ * Which episode a series-level action should ask for, or `null` when none can
+ * be named from evidence.
  *
- * The library's hunt cursor when there is one — it is the app's existing
- * answer to "what is this show waiting for" and reusing it keeps one notion of
- * next. Otherwise the first episode after the last one we know about, and
- * failing that S01E01, which is the only episode every series is guaranteed
- * to have.
+ * In order: the library's hunt cursor when there is one — it is the app's
+ * existing answer to "what is this show waiting for", and reusing it keeps one
+ * notion of next. Otherwise the episode after the last one we actually hold.
+ * Otherwise the first episode the catalog lists, which is evidence too: the
+ * payload carried that row, so the episode demonstrably exists.
+ *
+ * There is deliberately no fourth fallback. This used to end in S01E01 on the
+ * grounds that every series has one, but that is a claim about the *world*,
+ * not about anything this payload established — and the payload is all the
+ * caller has. Returning `null` moves the decision to the one place equipped to
+ * make it: {@link resolvePrimaryAction}, which offers discovery instead.
  */
 export function nextUpTarget(payload: TitleDetailPayload): {
   season: number;
   episode: number;
-} {
+} | null {
   const { cursorSeason, cursorEpisode } = payload.library;
   if (cursorSeason && cursorEpisode) {
     return { season: cursorSeason, episode: cursorEpisode };
   }
 
-  const known = payload.episodes.filter((e) => e.infoHash);
-  if (known.length) {
-    const last = known.reduce((a, b) =>
+  const held = payload.episodes.filter((e) => e.infoHash);
+  if (held.length) {
+    const last = held.reduce((a, b) =>
       b.season > a.season || (b.season === a.season && b.episode > a.episode) ? b : a,
     );
     return { season: last.season, episode: last.episode + 1 };
   }
 
-  const season = payload.season ?? payload.seasons[0]?.season ?? 1;
-  return { season, episode: 1 };
+  // Nothing held, but the catalog listed episodes: act on the earliest one.
+  // This is not a guess — the row came back from the server.
+  const listed = [...payload.episodes].sort(
+    (a, b) => a.season - b.season || a.episode - b.episode,
+  )[0];
+  if (listed) return { season: listed.season, episode: listed.episode };
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +365,12 @@ export function shouldRunTitleAction(
  *
  * This only folds failures into a retry label. Progress and completion are not
  * encoded here, because state belongs in the status row, not the primary slot.
+ *
+ * A failed retry names what will be retried. "Try again" was the same four
+ * characters whether a search had found nothing, a send to the engine had been
+ * refused, or a local file had failed to open — three different problems with
+ * three different remedies, and the label told you which one you had by
+ * telling you nothing.
  */
 export function titleActionButtonLabel(
   action: TitleAction,
@@ -317,13 +378,16 @@ export function titleActionButtonLabel(
 ): string {
   switch (action.kind) {
     case "play":
-      if (status === "error") return "Try again";
+      if (status === "error") return "Retry play";
       return action.label;
     case "stream":
-      if (status === "error") return "Try again";
+      if (status === "error") return "Retry play";
       return action.label;
     case "get":
-      if (status === "error") return "Try again";
+      if (status === "error") return "Retry download";
+      return action.label;
+    case "discover":
+      if (status === "error") return "Retry search";
       return action.label;
     default:
       return assertNeverAction(action);
@@ -332,4 +396,61 @@ export function titleActionButtonLabel(
 
 function assertNeverAction(action: never): never {
   throw new Error(`Unhandled title action: ${JSON.stringify(action)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Transfer state
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a Download control may be offered for a target in this state.
+ *
+ * The rule is one intent, one control. A target the user has already asked
+ * for is not offered again — pressing Download beside a torrent the Client is
+ * actively fetching either starts a second grab or silently does nothing, and
+ * both teach the viewer that the button lies.
+ *
+ * `failed` is the exception: it is the one state where pressing again is the
+ * correct move, so the control stays and the label becomes a retry.
+ * `null` means no target exists — nothing has been asked for, so Download is
+ * exactly right.
+ */
+export function offersDownload(transfer: TitleEpisodeTransfer | null): boolean {
+  if (!transfer) return true;
+  return transfer.status === "failed";
+}
+
+/**
+ * The plain-language state line shown beside the controls, or null when there
+ * is nothing to report.
+ *
+ * Deliberately not a button label. The button keeps an action word — what
+ * pressing it will do — while progress and completion live here. Folding them
+ * together is what produced buttons reading "Downloading 42%", which is a
+ * status pretending to be an instruction.
+ */
+export function transferStatusLine(
+  transfer: TitleEpisodeTransfer | null,
+): string | null {
+  if (!transfer) return null;
+  switch (transfer.status) {
+    case "queued":
+      return "Queued";
+    case "downloading": {
+      // Clamped, and floored rather than rounded: 99.6% must not print as
+      // "100%" next to a torrent that is still running.
+      const pct = Math.floor(Math.min(Math.max(transfer.progress, 0), 1) * 100);
+      return `Downloading ${pct}%`;
+    }
+    case "downloaded":
+      return "Downloaded";
+    case "failed":
+      return transfer.error?.trim() ? `Failed — ${transfer.error.trim()}` : "Failed";
+    default:
+      return assertNeverTransfer(transfer.status);
+  }
+}
+
+function assertNeverTransfer(status: never): never {
+  throw new Error(`Unhandled transfer status: ${JSON.stringify(status)}`);
 }

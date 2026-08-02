@@ -27,11 +27,14 @@ import {
 } from "./work-key";
 import {
   nextUpTarget,
+  offersDownload,
+  transferStatusLine,
   resolveEpisodeAction,
   resolvePlayableAction,
   resolvePrimaryAction,
   shouldRunTitleAction,
   titleActionButtonLabel,
+  type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
 import { titleFacts } from "./title-facts";
@@ -59,6 +62,7 @@ import type {
   TitleDetailPayload,
   TitleEpisode,
   TitleEpisodeMeta,
+  TitleEpisodeTransfer,
 } from "./types";
 
 let failures = 0;
@@ -499,6 +503,7 @@ function episode(over: Partial<TitleEpisode> = {}): TitleEpisode {
 function payload(over: Partial<TitleDetailPayload> = {}): TitleDetailPayload {
   return {
     workKey: "severance",
+    transfer: null,
     title: "Severance",
     year: null,
     mediaType: "tv",
@@ -512,7 +517,7 @@ function payload(over: Partial<TitleDetailPayload> = {}): TitleDetailPayload {
     infoHash: null,
     downloadFraction: null,
     resume: null,
-    seasons: [{ season: 1, knownEpisodes: 0, pack: null }],
+    seasons: [{ season: 1, knownEpisodes: 0, pack: null, transfer: null }],
     season: 1,
     episodes: [],
     episodesTruncated: false,
@@ -538,10 +543,17 @@ function payload(over: Partial<TitleDetailPayload> = {}): TitleDetailPayload {
   };
 }
 
-check("primary action: an empty page still offers an action, never Search", () => {
+check("primary action: a series with no episode evidence offers discovery", () => {
+  // This used to assert `stream` — a Play pointed at S01E01 on a payload that
+  // carried no cursor, no local file and no catalog row. The page then said
+  // "no episodes" directly underneath it. The test was pinning that
+  // contradiction in place, so it now pins the opposite.
   const action = resolvePrimaryAction(payload());
-  assert.equal(action.kind, "stream");
+  assert.equal(action.kind, "discover");
+  assert.equal(action.episode, null);
+  // Still an action, and still not a bounce to a release table.
   assert.ok(!/search/i.test(action.label));
+  assert.equal(action.label, "Find episodes");
 });
 
 check("primary action: resume wins over everything", () => {
@@ -679,13 +691,22 @@ check("primary action: never a search, in any state combination", () => {
           payload({ availability: state, isSeries, infoHash }),
         );
         assert.ok(
-          action.kind === "play" || action.kind === "get" || action.kind === "stream",
+          action.kind === "play" ||
+            action.kind === "get" ||
+            action.kind === "stream" ||
+            action.kind === "discover",
           `${state}/${isSeries}/${infoHash} produced ${action.kind}`,
         );
         assert.ok(
           !/search/i.test(action.label),
           `${state}/${isSeries}/${infoHash} labelled ${action.label}`,
         );
+        // The rule this test is really about: an action that names an episode
+        // must have had one to name. `discover` names none; everything else
+        // got its target from the cursor, a held file, or a catalog row.
+        if (action.kind === "discover") assert.equal(action.episode, null);
+        // A movie never becomes a discovery: there are no episodes to find.
+        if (!isSeries) assert.notEqual(action.kind, "discover");
       }
     }
   }
@@ -715,12 +736,139 @@ check("nextUpTarget: else the one after the last we hold", () => {
   assert.deepEqual(target, { season: 2, episode: 6 });
 });
 
-check("nextUpTarget: else the only episode every series has", () => {
-  assert.deepEqual(nextUpTarget(payload()), { season: 1, episode: 1 });
+check("nextUpTarget: a catalog row is evidence even with nothing held", () => {
+  const target = nextUpTarget(
+    payload({
+      episodes: [
+        episode({ season: 3, episode: 5, infoHash: null }),
+        episode({ season: 3, episode: 4, infoHash: null }),
+      ],
+      season: 3,
+    }),
+  );
+  // The earliest listed episode, not the earliest *conceivable* one. Nothing
+  // here is held, but the server sent both rows, so both demonstrably exist.
+  assert.deepEqual(target, { season: 3, episode: 4 });
+});
+
+check("nextUpTarget: no cursor, nothing held, no catalog row is not S01E01", () => {
+  // The old contract answered `{season: 1, episode: 1}` here, reasoning that
+  // every series has a first episode. True of series in general, unfounded
+  // about *this* payload — which is the only thing the caller can act on.
+  assert.equal(nextUpTarget(payload()), null);
 });
 
 // ---------------------------------------------------------------------------
-// Episode rows
+// Transfer state
+// ---------------------------------------------------------------------------
+
+check("offersDownload: one intent, one control", () => {
+  const cases: {
+    status: TitleEpisodeTransfer["status"] | "none";
+    offered: boolean;
+    why: string;
+  }[] = [
+    { status: "none", offered: true, why: "nothing asked for yet" },
+    { status: "queued", offered: false, why: "already asked for, not started" },
+    { status: "downloading", offered: false, why: "the Client is fetching it" },
+    { status: "downloaded", offered: false, why: "already held" },
+    { status: "failed", offered: true, why: "pressing again is the fix" },
+  ];
+  for (const c of cases) {
+    const transfer =
+      c.status === "none"
+        ? null
+        : { status: c.status, progress: 0.5, infoHash: null, filePath: null, error: null };
+    assert.equal(offersDownload(transfer), c.offered, `${c.status}: ${c.why}`);
+  }
+});
+
+check("transferStatusLine: progress is reported, never rounded up", () => {
+  const line = (status: TitleEpisodeTransfer["status"], progress: number) =>
+    transferStatusLine({ status, progress, infoHash: null, filePath: null, error: null });
+
+  assert.equal(line("queued", 0), "Queued");
+  assert.equal(line("downloaded", 1), "Downloaded");
+  assert.equal(line("downloading", 0), "Downloading 0%");
+  assert.equal(line("downloading", 0.426), "Downloading 42%");
+  // The one that matters: a torrent at 99.6% is not finished, and must not
+  // print a number that says it is.
+  assert.equal(line("downloading", 0.996), "Downloading 99%");
+  assert.equal(line("downloading", 1), "Downloading 100%");
+  // Out-of-range progress is clamped rather than printed as nonsense.
+  assert.equal(line("downloading", 1.4), "Downloading 100%");
+  assert.equal(line("downloading", -0.2), "Downloading 0%");
+  assert.equal(transferStatusLine(null), null);
+});
+
+check("transferStatusLine: a failure explains itself when it can", () => {
+  const failed = (error: string | null) =>
+    transferStatusLine({
+      status: "failed",
+      progress: 0,
+      infoHash: null,
+      filePath: null,
+      error,
+    });
+  assert.equal(failed("no seeds"), "Failed — no seeds");
+  assert.equal(failed("   "), "Failed");
+  assert.equal(failed(null), "Failed");
+});
+
+check("scopes stay separate: a season transfer is not a title transfer", () => {
+  // The defect this pins: the detail route used to read `scope: "episode"`
+  // only, so title and season grabs came back as no transfer at all and the
+  // page offered Download beside a running download. The payload now carries
+  // all three, and each control reads exactly one of them.
+  const seasonOnly = payload({
+    transfer: null,
+    seasons: [
+      {
+        season: 1,
+        knownEpisodes: 0,
+        pack: null,
+        transfer: {
+          status: "downloading",
+          progress: 0.4,
+          infoHash: "h",
+          filePath: null,
+          error: null,
+        },
+      },
+    ],
+  });
+  // The title's own control is untouched by a season grab.
+  assert.equal(offersDownload(seasonOnly.transfer), true);
+  assert.equal(transferStatusLine(seasonOnly.transfer), null);
+  // And the season still reports its own state.
+  assert.equal(
+    transferStatusLine(seasonOnly.seasons[0].transfer),
+    "Downloading 40%",
+  );
+});
+
+check("primary action: a downloading title keeps Play but loses Download", () => {
+  const downloading = payload({
+    isSeries: false,
+    seasons: [],
+    season: null,
+    availability: "fetchable",
+    transfer: {
+      status: "downloading",
+      progress: 0.3,
+      infoHash: "h",
+      filePath: null,
+      error: null,
+    },
+  });
+  // Play survives: sequential piece selection means a partial file is
+  // watchable, so removing Play mid-download would be a regression, not a fix.
+  assert.equal(resolvePrimaryAction(downloading).kind, "stream");
+  assert.equal(offersDownload(downloading.transfer), false);
+  assert.equal(transferStatusLine(downloading.transfer), "Downloading 30%");
+});
+
+
 // ---------------------------------------------------------------------------
 
 check("episodeListView: loading with no rows shows skeletons, never empty copy", () => {
@@ -888,17 +1036,59 @@ check("titleActionButtonLabel: primary slot keeps the action word while status m
   assert.equal(titleActionButtonLabel(play, "idle"), "Play");
   assert.equal(titleActionButtonLabel(play, "pending"), "Play");
   assert.equal(titleActionButtonLabel(play, "done"), "Play");
-  assert.equal(titleActionButtonLabel(play, "error"), "Try again");
+  assert.equal(titleActionButtonLabel(play, "error"), "Retry play");
 });
 
 check("titleActionButtonLabel: a stream stays a Play action while it looks", () => {
   const stream = resolvePlayableAction({ availability: "fetchable", infoHash: null });
   assert.equal(titleActionButtonLabel(stream, "idle"), "Play");
   assert.equal(titleActionButtonLabel(stream, "pending"), "Play");
-  assert.equal(titleActionButtonLabel(stream, "error"), "Try again");
+  assert.equal(titleActionButtonLabel(stream, "error"), "Retry play");
   for (const status of ["idle", "pending", "done", "error"] as const) {
     assert.ok(!/search/i.test(titleActionButtonLabel(stream, status)));
   }
+});
+
+check("titleActionButtonLabel: a failed retry says what it will retry", () => {
+  // "Try again" was the label for all three, so a viewer who had just watched
+  // a Download fail and a Play fail saw the same four characters and could not
+  // tell which control had broken, let alone what to do about it.
+  const play = resolvePlayableAction({ availability: "ready", infoHash: "h" });
+  const stream = resolvePlayableAction({ availability: "fetchable", infoHash: null });
+  const get: TitleAction = { kind: "get", label: "Download", season: 1, episode: 1 };
+  const discover: TitleAction = {
+    kind: "discover",
+    label: "Find episodes",
+    season: 1,
+    episode: null,
+  };
+
+  const labels = [play, stream, get, discover].map((a) =>
+    titleActionButtonLabel(a, "error"),
+  );
+  assert.deepEqual(labels, [
+    "Retry play",
+    "Retry play",
+    "Retry download",
+    "Retry search",
+  ]);
+  // Play and stream deliberately share copy: both open the player, and the
+  // viewer does not care which internal path got there. Download and discovery
+  // are different outcomes and must read differently.
+  assert.notEqual(labels[1], labels[2]);
+  assert.notEqual(labels[2], labels[3]);
+  for (const label of labels) assert.notEqual(label, "Try again");
+});
+
+check("titleActionButtonLabel: discovery keeps its word until it fails", () => {
+  const discover: TitleAction = {
+    kind: "discover",
+    label: "Find episodes",
+    season: null,
+    episode: null,
+  };
+  assert.equal(titleActionButtonLabel(discover, "idle"), "Find episodes");
+  assert.equal(titleActionButtonLabel(discover, "pending"), "Find episodes");
 });
 
 check("titleActionButtonLabel: play never says Search in any status", () => {
@@ -1093,6 +1283,7 @@ check("mergeSeasons: the tabs are what we hold plus what the show has", () => {
           infoHash: "p",
           downloadFraction: null,
         },
+        transfer: null,
       },
     ],
     [3, 1, 2],
