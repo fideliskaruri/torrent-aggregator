@@ -48,6 +48,19 @@ export interface TitleEpisode {
   fromPack: boolean;
   /** Exact user acquisition state. Never inferred from a covering pack. */
   transfer: TitleEpisodeTransfer | null;
+  /**
+   * An in-flight season/title pack that covers this episode, when the episode
+   * has no acquisition of its own. This is the single signal that reconciles
+   * "the season is downloading" onto the episode: it disables the episode's
+   * own Download (so pressing it cannot start a duplicate of what the pack is
+   * already fetching) and lets the row say the season download is in progress.
+   *
+   * Deliberately never `downloaded`: a pack finishing does not make an episode
+   * playable — the episode's own file presence decides that once files land.
+   * So this only ever carries `queued` / `downloading` / `failed`, and never
+   * claims a per-episode percent as fact.
+   */
+  coveredByPack?: TitleEpisodeTransfer | null;
 }
 
 export interface TitleEpisodeTransfer {

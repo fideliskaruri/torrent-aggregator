@@ -604,6 +604,35 @@ function TitleContent({
     onAction(action, key, label, retention, resolution);
   }
 
+  // Stable per-list handler. Passed straight to <EpisodeList>, which hands it
+  // to every card. An inline arrow here was recreated on every render, so the
+  // memoised cards saw a new onAction each transfer poll and all re-rendered —
+  // reflashing their stills. `onAction` (runAction) is itself a useCallback, so
+  // this stays referentially stable across polls.
+  const handleEpisodeListAction = useCallback(
+    (
+      action: TitleAction,
+      _label: string,
+      _retention: TitleRetention,
+      resolution?: number,
+    ) => {
+      onAction(
+        action,
+        action.season != null && action.episode != null
+          ? episodeIntentKey(
+              action.season,
+              action.episode,
+              action.kind === "get" ? "keep" : "stream",
+            )
+          : PRIMARY_KEY,
+        _label,
+        action.kind === "get" ? "keep" : "stream",
+        resolution,
+      );
+    },
+    [onAction],
+  );
+
   function requestSeasonGrab(
     targetSeason: number,
     episodes: number[],
@@ -1058,21 +1087,7 @@ function TitleContent({
             gated={gated}
             onSeasonChange={onSeasonChange}
             onSeasonGrab={requestSeasonGrab}
-            onAction={(action, label, _retention, resolution) =>
-              requestAction(
-                action,
-                action.season != null && action.episode != null
-                  ? episodeIntentKey(
-                      action.season,
-                      action.episode,
-                      action.kind === "get" ? "keep" : "stream",
-                    )
-                  : PRIMARY_KEY,
-                label,
-                action.kind === "get" ? "keep" : "stream",
-                resolution,
-              )
-            }
+            onAction={handleEpisodeListAction}
           />
         ) : null}
 

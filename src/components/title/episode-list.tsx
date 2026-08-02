@@ -591,13 +591,7 @@ function EpisodeCardImpl({
       className="relative block aspect-video w-full overflow-hidden bg-[var(--bg-muted)]"
     >
       {meta?.stillUrl ? (
-        <PosterImage
-          src={meta.stillUrl}
-          title={meta.name ?? episode.label}
-          sizes="(min-width: 640px) 300px, 78vw"
-          variant="plain"
-          className="object-cover"
-        />
+        <EpisodeStillImage src={meta.stillUrl} title={meta.name ?? episode.label} />
       ) : null}
       <span
         data-episode-badge
@@ -788,6 +782,30 @@ const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
     (pm?.airDate ?? null) === (nm?.airDate ?? null) &&
     (pm?.runtimeMin ?? null) === (nm?.runtimeMin ?? null) &&
     (pm?.stillUrl ?? null) === (nm?.stillUrl ?? null)
+  );
+});
+
+/**
+ * The episode still, memoised on its own so a card that re-renders to move its
+ * download percent does not reflash the image beneath it. next/image swaps its
+ * src whenever it re-renders; keeping the image out of the re-rendering path is
+ * what makes "only the icon updates" true even for the one downloading card.
+ */
+const EpisodeStillImage = memo(function EpisodeStillImage({
+  src,
+  title,
+}: {
+  src: string;
+  title: string;
+}) {
+  return (
+    <PosterImage
+      src={src}
+      title={title}
+      sizes="(min-width: 640px) 300px, 78vw"
+      variant="plain"
+      className="object-cover"
+    />
   );
 });
 
