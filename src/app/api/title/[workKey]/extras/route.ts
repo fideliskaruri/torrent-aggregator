@@ -11,6 +11,7 @@ import {
   fetchMoreLikeThis,
   fetchSeasonEpisodes,
   fetchShowShape,
+  fetchTitleFacts,
   fetchWorkBlurb,
   resolveTmdbRef,
 } from "../../tmdb-extras";
@@ -67,6 +68,10 @@ export async function GET(request: Request, context: RouteContext) {
     releaseDate: null,
     inTheatricalWindow: false,
     nextHomeReleaseAt: null,
+    genres: [],
+    voteCount: null,
+    certification: null,
+    originalLanguage: null,
     resolved: false,
     generatedAt: new Date().toISOString(),
   };
@@ -88,13 +93,17 @@ export async function GET(request: Request, context: RouteContext) {
     // The season shape, the neighbours, the blurb, and (for movies only) the
     // home-release dates have no dependency on each other, so serialising them
     // would multiply the wait for no reason.
-    const [shape, similar, blurb, homeRelease] = await Promise.all([
+    const [shape, similar, blurb, homeRelease, facts] = await Promise.all([
       series ? fetchShowShape(ref.id) : Promise.resolve(null),
       fetchMoreLikeThis(ref),
       fetchWorkBlurb(ref),
       // Home-release gating applies to movies only. Series episodes are already
       // gated individually via air dates (isUnaired in merge-extras.ts).
       series ? Promise.resolve(null) : fetchHomeRelease(ref.id),
+      // Genres, vote count, certification, language — the hero's extra facts.
+      // Its own content_ratings/release_dates call runs inside fetchTitleFacts,
+      // parallelised there, so this stays one slot in the outer Promise.all.
+      fetchTitleFacts(ref),
     ]);
 
     // Which season to describe: what the page asked for, else the first one
@@ -135,6 +144,10 @@ export async function GET(request: Request, context: RouteContext) {
       releaseDate: blurb.releaseDate,
       inTheatricalWindow,
       nextHomeReleaseAt: inTheatricalWindow ? (homeRelease?.nextHomeReleaseAt ?? null) : null,
+      genres: facts.genres,
+      voteCount: facts.voteCount,
+      certification: facts.certification,
+      originalLanguage: facts.originalLanguage,
       resolved: true,
       generatedAt: new Date().toISOString(),
     };

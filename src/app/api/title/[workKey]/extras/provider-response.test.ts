@@ -15,6 +15,10 @@ const empty: TitleExtrasPayload = {
   releaseDate: null,
   inTheatricalWindow: false,
   nextHomeReleaseAt: null,
+  genres: [],
+  voteCount: null,
+  certification: null,
+  originalLanguage: null,
   resolved: false,
   generatedAt: "2026-08-02T00:00:00.000Z",
 };
@@ -45,6 +49,12 @@ const series = providerExtrasResponse(verified(true), empty);
 assert.equal(series?.overview, "Verified synopsis");
 assert.equal(series?.resolved, false);
 assert.deepEqual(series?.episodes, []);
+// Hero facts stay honestly empty on the verified-AniList path — no TMDB
+// genres/vote count/certification/language may leak in via a title search.
+assert.deepEqual(series?.genres, [], "verified AniList carries no genres");
+assert.equal(series?.voteCount, null);
+assert.equal(series?.certification, null);
+assert.equal(series?.originalLanguage, null);
 assert.equal(providerExtrasResponse(verified(false), empty)?.resolved, true);
 
 const invalid = providerExtrasResponse(

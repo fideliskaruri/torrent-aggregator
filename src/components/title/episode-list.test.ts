@@ -53,101 +53,122 @@ function episode(overrides: Partial<EpisodeRowModel> = {}): EpisodeRowModel {
   };
 }
 
+/** Common props so each case only spells out what it is testing. */
+function baseProps(episodes: EpisodeRowModel[], season = 1) {
+  return {
+    seasons: [{ season, knownEpisodes: episodes.length, pack: null, transfer: null }],
+    season,
+    episodes,
+    truncated: false,
+    loadState: { status: "ready" } as const,
+    busy: false,
+    statusFor: () => "idle" as const,
+    seasonGrabStatus: { status: "idle" } as const,
+    onSeasonChange: () => {},
+    onSeasonGrab: () => {},
+    onAction: () => {},
+  };
+}
+
 console.log("\ntitle episode list");
 
-check("remote episode row renders distinct Play and Download controls", () => {
+// ---------------------------------------------------------------------------
+// The filmstrip card model.
+//
+// The card is the play target (data-action="stream"); every aired episode also
+// carries a compact Download control (data-action="download"). Play and keep
+// remain distinct actions on distinct elements — a click on Download can never
+// fire Play, because Download is a sibling layered over the card button, never
+// a child of it.
+// ---------------------------------------------------------------------------
+
+check("card is the play target and carries a distinct Download control", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
-      season: 1,
-      episodes: [episode()],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+    React.createElement(EpisodeList, baseProps([episode()])),
   );
 
-  assert.match(html, /data-action="stream"/);
-  assert.match(html, /data-action="download"/);
-  assert.match(html, />Play</);
-  assert.match(html, />Download</);
+  // The strip, not a vertical list.
+  assert.match(html, /data-episode-strip="true"/);
+  // The card play button.
+  assert.match(html, /data-episode-action="true" data-action="stream"/);
+  assert.match(html, /data-action-kind="stream"/);
   assert.match(html, /aria-label="Play — S01E01"/);
+  // The compact keep-it control, distinct from the card.
+  assert.match(html, /data-episode-action="true" data-action="download"/);
   assert.match(html, /aria-label="Download — S01E01"/);
+  // A 16:9 still tops the card, with an E-badge overlaid.
+  assert.match(html, /data-episode-still="true"[^>]*aspect-video/);
+  assert.match(html, /data-episode-badge="true"[^>]*>E1</);
+});
+
+check("watched header reports X of Y and a rounded percent", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      EpisodeList,
+      baseProps([
+        episode({ episode: 1, label: "S01E01", watched: true }),
+        episode({ episode: 2, label: "S01E02", watched: true }),
+        episode({ episode: 3, label: "S01E03", watched: false }),
+      ]),
+    ),
+  );
+
+  assert.match(html, /data-watched-label="true"/);
+  // 2 of 3 watched → round(66.67) = 67.
+  assert.match(html, /Watched 2 of 3 \(67%\)/);
+});
+
+check("watched header reads 0 of Y (0%) when nothing is watched", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      EpisodeList,
+      baseProps([
+        episode({ episode: 1, label: "S01E01" }),
+        episode({ episode: 2, label: "S01E02" }),
+      ]),
+    ),
+  );
+
+  assert.match(html, /Watched 0 of 2 \(0%\)/);
 });
 
 check("season toolbar has one Download season action and no Play season", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 2, pack: null, transfer: null }],
-      season: 1,
-      episodes: [episode(), episode({ episode: 2, label: "S01E02" })],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+    React.createElement(
+      EpisodeList,
+      baseProps([episode(), episode({ episode: 2, label: "S01E02" })]),
+    ),
   );
 
   assert.match(html, />Download season</);
   assert.doesNotMatch(html, /Play season/);
   assert.match(html, /data-season-count="true"[^>]*>2 episodes</);
   assert.doesNotMatch(html, /Review season|Review download/i);
-  assert.match(html, />Play</);
-  assert.match(html, />Download</);
+  // The per-card actions still exist alongside the season action.
+  assert.match(html, /data-action="stream"/);
+  assert.match(html, /data-action="download"/);
 });
 
 check("locally backed episode keeps immediate Play", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
-      season: 1,
-      episodes: [
+    React.createElement(
+      EpisodeList,
+      baseProps([
         episode({
           availability: "ready",
           infoHash: "0123456789abcdef0123456789abcdef01234567",
         }),
-      ],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+      ]),
+    ),
   );
 
   assert.match(html, /data-action-kind="play"/);
-  assert.match(html, />Play</);
+  assert.match(html, /aria-label="Play — S01E01"/);
 });
 
-check("failed download keeps Play and offers Retry download", () => {
+check("failed download keeps the play card and offers Retry download", () => {
   const render = (row: EpisodeRowModel) =>
-    renderToStaticMarkup(
-      React.createElement(EpisodeList, {
-        seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
-        season: 1,
-        episodes: [row],
-        truncated: false,
-        loadState: { status: "ready" },
-        busy: false,
-        statusFor: () => "idle" as const,
-        seasonGrabStatus: { status: "idle" },
-        onSeasonChange: () => {},
-        onSeasonGrab: () => {},
-        onAction: () => {},
-      }),
-    );
+    renderToStaticMarkup(React.createElement(EpisodeList, baseProps([row])));
   const failed = {
     status: "failed" as const,
     progress: 0,
@@ -159,7 +180,9 @@ check("failed download keeps Play and offers Retry download", () => {
   const missingHtml = render(episode({ transfer: failed }));
   assert.match(missingHtml, /data-episode-action="true" data-action="stream"/);
   assert.doesNotMatch(missingHtml, /Download failed/);
-  assert.match(missingHtml, />Retry download</);
+  // Retry is a pressable Download control — not disabled.
+  assert.match(missingHtml, /aria-label="Retry download — S01E01"/);
+  assert.doesNotMatch(missingHtml, /aria-label="Retry download — S01E01"[^>]*disabled=""/);
 
   const localHtml = render(
     episode({
@@ -278,6 +301,26 @@ check("Play (stream) does not send resolution in request body", async () => {
 check("a legacy season pack does not make every sibling episode downloaded", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
+      ...baseProps(
+        [
+          episode({
+            season: 4,
+            episode: 1,
+            label: "S04E01",
+            availability: null,
+            fromPack: false,
+          }),
+          episode({
+            season: 4,
+            episode: 2,
+            label: "S04E02",
+            availability: null,
+            fromPack: false,
+            downloadFraction: null,
+          }),
+        ],
+        4,
+      ),
       seasons: [
         {
           season: 4,
@@ -291,32 +334,6 @@ check("a legacy season pack does not make every sibling episode downloaded", () 
           transfer: null,
         },
       ],
-      season: 4,
-      episodes: [
-        episode({
-          season: 4,
-          episode: 1,
-          label: "S04E01",
-          availability: null,
-          fromPack: false,
-        }),
-        episode({
-          season: 4,
-          episode: 2,
-          label: "S04E02",
-          availability: null,
-          fromPack: false,
-          downloadFraction: null,
-        }),
-      ],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
     }),
   );
 
@@ -324,12 +341,11 @@ check("a legacy season pack does not make every sibling episode downloaded", () 
   assert.doesNotMatch(e02, /13% downloaded|Downloading|Downloaded|Available/);
 });
 
-check("target-linked episode renders exact transfer progress without leaking to siblings", () => {
+check("downloading episode shows exact progress on its own Download control", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 2, pack: null, transfer: null }],
-      season: 1,
-      episodes: [
+    React.createElement(
+      EpisodeList,
+      baseProps([
         episode({ episode: 1, label: "S01E01" }),
         episode({
           episode: 2,
@@ -342,212 +358,174 @@ check("target-linked episode renders exact transfer progress without leaking to 
             error: null,
           },
         } as Partial<EpisodeRowModel>),
-      ],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+      ]),
+    ),
   );
 
   const e01 = html.match(/<li[^>]*data-episode="1"[\s\S]*?<\/li>/)?.[0] ?? "";
   const e02 = html.match(/<li[^>]*data-episode="2"[\s\S]*?<\/li>/)?.[0] ?? "";
   assert.doesNotMatch(e01, /6\.1%|Downloading/);
   assert.match(e02, /Downloading 6\.1%/);
-  assert.match(e02, /aria-label="Downloading 6\.1% — S01E02"[^>]*disabled/);
-  assert.doesNotMatch(e02, /data-episode-transfer/);
+  assert.match(e02, /aria-label="Downloading 6\.1% — S01E02"[^>]*disabled=""/);
+  // A visual download-progress strip is drawn, keyed off the transfer.
+  assert.match(e02, /data-episode-progress="download"/);
 });
 
-check("queued transfer is a disabled right-side control", () => {
+check("queued transfer is a disabled Download control on the card", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
-      season: 1,
-      episodes: [episode({ transfer: {
-        status: "queued",
-        progress: 0,
-        infoHash: null,
-        filePath: null,
-        error: null,
-      } })],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+    React.createElement(
+      EpisodeList,
+      baseProps([
+        episode({
+          transfer: {
+            status: "queued",
+            progress: 0,
+            infoHash: null,
+            filePath: null,
+            error: null,
+          },
+        }),
+      ]),
+    ),
   );
 
-  assert.match(html, /aria-label="Queued — S01E01"[^>]*disabled/);
+  assert.match(html, /aria-label="Queued — S01E01"[^>]*disabled=""/);
   assert.match(html, /data-action="stream"/);
-  assert.doesNotMatch(html, /data-episode-transfer/);
 });
 
-check("left content reserves a still and excludes playback and transfer decoration", () => {
+check("card reserves a 16:9 still, code+title and clamped synopsis; no legacy chips", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
-      season: 1,
-      episodes: [episode({
-        availability: "warm",
-        watched: true,
-        nextUp: true,
-        fromPack: true,
-        downloadFraction: 0.42,
-        watchedFraction: 0.5,
-        resumePositionSec: 600,
-        meta: {
-          episode: 1,
-          name: "Hello, Goodbye",
-          airDate: "2024-01-02",
-          runtimeMin: 47,
-          stillUrl: null,
-          overview: "The team makes a difficult choice.",
-        },
-      })],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "pending" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+    React.createElement(
+      EpisodeList,
+      baseProps([
+        episode({
+          availability: "warm",
+          watched: true,
+          nextUp: true,
+          fromPack: true,
+          downloadFraction: 0.42,
+          watchedFraction: 0.5,
+          resumePositionSec: 600,
+          meta: {
+            episode: 1,
+            name: "Hello, Goodbye",
+            airDate: "2024-01-02",
+            runtimeMin: 47,
+            stillUrl: null,
+            overview: "The team makes a difficult choice.",
+          },
+        }),
+      ]),
+    ),
   );
 
-  assert.match(html, /data-episode-still="true"[^>]*h-\[50px\][^>]*w-\[88px\][^>]*sm:h-\[72px\][^>]*sm:w-\[128px\]/);
-  assert.match(html, /S01E01/);
-  assert.match(html, /Hello, Goodbye/);
-  assert.match(html, /2 Jan 2024 · 47 min/);
+  assert.match(html, /data-episode-still="true"[^>]*aspect-video/);
+  // Code and title fold into one ellipsised line.
+  assert.match(html, /S01E01 · Hello, Goodbye/);
+  assert.match(html, /line-clamp-2/);
   assert.match(html, /The team makes a difficult choice\./);
-  assert.doesNotMatch(html, /Ready|Partial|Watched|Next up|from pack|42%|50%|10:00|Loading S01E01|Could not start|On its way/i);
+  // A watched-progress strip is drawn on the still (playback wins over
+  // download), width keyed off the fraction.
+  assert.match(html, /data-episode-progress="watched"/);
+  assert.match(html, /width:50%/);
+  // The old per-row chips are gone: no "Next up", no "from pack", no runtime
+  // facts line under the title.
+  assert.doesNotMatch(html, /Next up|from pack|47 min|Partial/i);
 });
 
 check("future episode shows only its air date instead of actions", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
-      season: 1,
-      episodes: [episode({ meta: {
-        episode: 1,
-        name: "Tomorrow",
-        airDate: "2999-04-03",
-        runtimeMin: 45,
-        stillUrl: null,
-        overview: null,
-      } })],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+    React.createElement(
+      EpisodeList,
+      baseProps([
+        episode({
+          meta: {
+            episode: 1,
+            name: "Tomorrow",
+            airDate: "2999-04-03",
+            runtimeMin: 45,
+            stillUrl: null,
+            overview: null,
+          },
+        }),
+      ]),
+    ),
   );
 
   assert.match(html, /data-episode-unaired="true"[^>]*>Airs 3 Apr 2999</);
   assert.doesNotMatch(html, /data-episode-action/);
 });
 
-check("season switch replaces stale rows with labeled stable skeletons", () => {
+check("season switch replaces stale cards with labeled stable skeletons", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
+      ...baseProps([episode({ label: "STALE-ROW" })], 2),
       seasons: [
         { season: 1, knownEpisodes: 1, pack: null, transfer: null },
         { season: 2, knownEpisodes: 1, pack: null, transfer: null },
       ],
-      season: 2,
-      episodes: [episode({ label: "STALE-ROW" })],
-      truncated: false,
       loadState: { status: "loading" },
       busy: true,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
     }),
   );
 
   assert.match(html, /data-episode-skeletons="true"/);
   assert.match(html, /Loading season 2 episodes/);
-  assert.match(html, /h-\[50px\] w-\[88px\][^>]*sm:h-\[72px\] sm:w-\[128px\]/);
+  // Skeleton cards reserve the same 16:9 still geometry as real cards.
+  assert.match(html, /data-episode-skeleton="true"[\s\S]*?aspect-video/);
   assert.doesNotMatch(html, /STALE-ROW|opacity-60/);
 });
 
-check("completed target renders Play and Downloaded, not a third status line", () => {
+check("completed target renders a play card and a Downloaded control, not a third status line", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 2, knownEpisodes: 1, pack: null, transfer: null }],
-      season: 2,
-      episodes: [
-        episode({
-          season: 2,
-          episode: 7,
-          label: "S02E07",
-          availability: "ready",
-          transfer: {
-            status: "downloaded",
-            progress: 1,
-            infoHash: "d".repeat(40),
-            filePath: "Show S02E07.mkv",
-            error: null,
-          },
-        } as Partial<EpisodeRowModel>),
-      ],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+    React.createElement(
+      EpisodeList,
+      baseProps(
+        [
+          episode({
+            season: 2,
+            episode: 7,
+            label: "S02E07",
+            availability: "ready",
+            transfer: {
+              status: "downloaded",
+              progress: 1,
+              infoHash: "d".repeat(40),
+              filePath: "Show S02E07.mkv",
+              error: null,
+            },
+          } as Partial<EpisodeRowModel>),
+        ],
+        2,
+      ),
+    ),
   );
 
-  // The right-hand control is the indicator. A body line that repeats it is
-  // the screenshot defect ("Downloaded/Available" under a Ready row).
   assert.doesNotMatch(html, /Downloaded\/Available/);
-  assert.doesNotMatch(html, /data-episode-transfer="downloaded"/);
+  assert.doesNotMatch(html, /data-episode-transfer/);
   assert.match(html, /data-action-kind="play"/);
-  assert.match(html, />Downloaded</);
+  assert.match(html, /aria-label="Downloaded — S02E07"[^>]*disabled=""/);
 });
 
 check("downloaded transfer without a hash still owns a disabled Downloaded control", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
-      season: 1,
-      episodes: [episode({ transfer: {
-        status: "downloaded",
-        progress: 1,
-        infoHash: null,
-        filePath: null,
-        error: null,
-      } })],
-      truncated: false,
-      loadState: { status: "ready" },
-      busy: false,
-      statusFor: () => "idle" as const,
-      seasonGrabStatus: { status: "idle" },
-      onSeasonChange: () => {},
-      onSeasonGrab: () => {},
-      onAction: () => {},
-    }),
+    React.createElement(
+      EpisodeList,
+      baseProps([
+        episode({
+          transfer: {
+            status: "downloaded",
+            progress: 1,
+            infoHash: null,
+            filePath: null,
+            error: null,
+          },
+        }),
+      ]),
+    ),
   );
 
-  assert.match(html, /aria-label="Downloaded — S01E01"[^>]*disabled/);
+  assert.match(html, /aria-label="Downloaded — S01E01"[^>]*disabled=""/);
   assert.match(html, /data-action="stream"/);
 });
 

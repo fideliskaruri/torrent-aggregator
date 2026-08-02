@@ -1,42 +1,47 @@
 "use client";
 
 /**
- * Seasons and episodes — the half of the title page that is not the hero.
+ * Seasons and episodes — reframed as a horizontal filmstrip.
  *
- * The agreed shape is one row per episode, each with **its own availability
- * indicator and distinct Play / Download controls**. That is the whole design
- * constraint: no row may hand the user off to a list of releases, no row may
- * claim a state it did not check, and playing must never silently become a
- * kept download.
+ * The old design was one tall row per episode with distinct Play / Download
+ * buttons. The approved streaming reference (Trakt / SIMKL "SILO") is a
+ * horizontally scrolling strip of stills, each card a poster you press to
+ * watch, with the keep-it (Download) action demoted to a small affordance in
+ * the corner. The judgements that were baked into the old row still hold and
+ * are the whole point of the component:
  *
- * Three judgements are baked into a row:
+ *  - **The card is the play target.** Clicking anywhere on a card fires the
+ *    exact same stream action the old Play button did (retention "stream").
+ *    Playing must never silently become a kept download, so Download is a
+ *    separate control on top of the card, never nested inside the play button.
+ *  - **A row/card only claims a state it checked.** `availability: null` means
+ *    nobody has looked — the card is still pressable and the Download control
+ *    still says "Download", not "Unavailable".
+ *  - **An unaired episode gets no controls.** It prints its air date as plain
+ *    text, so there is no disabled button for a keyboard user to land on. A
+ *    local file always wins over a future date.
  *
- *  - **A row has to say what the episode is.** "S02E01 · Not checked · Get"
- *    is a filename with better spacing, and drew the same verdict as the rest
- *    of the app once did: *"a website you go to view torrent lists"*. The name,
- *    air date, runtime and synopsis come from the extras round trip and are
- *    merged in when they arrive.
- *  - **A chip only earns its place when it says something actionable.**
- *    `availability: null` means nobody has looked, and a badge repeating that
- *    on every row of a season is a diagnostics dump, not information. Null
- *    renders as *no chip* — the row is still clickable and Get still says what
- *    it means. This is not the same as calling it `unavailable`, which is a
- *    claim, and one we never make per-episode.
- *  - **An unaired episode gets no button.** Offering "Play" or "Download"
- *    for something that does not exist yet is the app asserting a state it never checked. It
- *    prints its air date instead — plain text, so there is no disabled control
- *    for a keyboard user to land on. A local file always wins over a future
- *    date, because bad provider data must never hide a file we actually hold.
+ * The header carries a compact watched-progress label — `Watched X of Y (Z%)`
+ * for the loaded season — alongside the season <select>, the episode count and
+ * the season-scoped Download button.
  */
-import { useState } from "react";
-import { ChevronDown, Download, Loader2, Play } from "lucide-react";
+import { useRef, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Loader2,
+  Play,
+  RotateCcw,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { PosterImage } from "@/components/browse/poster-image";
 import { Button } from "@/components/ui/button";
-import { cn, factsLine } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   formatAirDate,
-  formatRuntime,
   isUnaired,
   type EpisodeRowModel,
 } from "./merge-extras";
@@ -91,47 +96,26 @@ export function episodeActionKey(season: number, episode: number): string {
   return `s${season}e${episode}`;
 }
 
-/**
- * Renders a button's icon + label with a spinner **overlaid** on top when
- * pending, instead of swapping the label out for the spinner. The label stays
- * mounted (only made invisible) so the button keeps identical width/height in
- * both idle and loading states — no layout shift, no "jumping" controls.
- */
-function ButtonBody({
-  pending,
-  icon,
-  children,
-}: {
-  pending: boolean;
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <>
-      <span
-        className={cn(
-          "inline-flex items-center gap-1.5",
-          pending && "invisible",
-        )}
-      >
-        {icon}
-        {children}
-      </span>
-      {pending ? (
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <Loader2 className="animate-spin" aria-hidden />
-        </span>
-      ) : null}
-    </>
-  );
-}
-
 export function episodeIntentKey(
   season: number,
   episode: number,
   retention: TitleRetention,
 ): string {
   return `${episodeActionKey(season, episode)}:${retention}`;
+}
+
+/** Clamped 0–100 integer for a 0–1 fraction. */
+export function progressPercent(fraction: number | null | undefined): number {
+  if (fraction == null || !Number.isFinite(fraction)) return 0;
+  return Math.round(Math.min(1, Math.max(0, fraction)) * 100);
+}
+
+/** `Watched X of Y (Z%)` for the loaded season. */
+export function watchedProgressLabel(episodes: EpisodeRowModel[]): string {
+  const total = episodes.length;
+  const watched = episodes.filter((e) => e.watched === true).length;
+  const percent = total === 0 ? 0 : Math.round((watched / total) * 100);
+  return `Watched ${watched} of ${total} (${percent}%)`;
 }
 
 export function EpisodeList({
@@ -150,14 +134,16 @@ export function EpisodeList({
 }: EpisodeListProps) {
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
 
-  // Single quality picker for the whole list. One picker serves all Download
-  // buttons — opening the picker records what triggered it, and on confirm
+  // Single quality picker for the whole list. One picker serves every card's
+  // Download control — opening it records what triggered it, and on confirm
   // the right action is dispatched.
   type PendingDownload =
     | { kind: "episode"; action: TitleAction; label: string }
     | { kind: "season"; targetSeason: number; episodeNums: number[] };
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
+
+  const stripRef = useRef<HTMLUListElement | null>(null);
 
   function openPickerFor(pending: PendingDownload) {
     setPendingDownload(pending);
@@ -180,6 +166,12 @@ export function EpisodeList({
     if (!open) setPendingDownload(null);
   }
 
+  function scrollStrip(direction: -1 | 1) {
+    const el = stripRef.current;
+    if (!el) return;
+    el.scrollBy({ left: direction * Math.round(el.clientWidth * 0.9), behavior: "smooth" });
+  }
+
   const view = episodeListView(loadState, episodes.length);
   const showSeasonGrab = !gated && canOfferSeasonGrab(season, episodes.length);
   const seasonDownloadCanRun =
@@ -190,6 +182,9 @@ export function EpisodeList({
     season != null
       ? episodeSeasonCountLabel(episodes.length, loadState, season)
       : null;
+  // The watched label only earns its place once a season's episodes exist:
+  // "Watched 0 of 0 (0%)" over a spinner is noise, not progress.
+  const showWatched = view.kind === "rows" && episodes.length > 0;
 
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
@@ -201,7 +196,7 @@ export function EpisodeList({
           <h2 id="title-episodes-heading" className="text-title w-full sm:w-auto">
             Episodes
           </h2>
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             {seasons.length > 1 ? (
               <label className="relative inline-flex min-w-0 shrink-0 items-center">
                 <span className="sr-only">Season</span>
@@ -246,10 +241,20 @@ export function EpisodeList({
                 {seasonCountLabel}
               </p>
             ) : null}
+
+            {showWatched ? (
+              <p
+                data-watched-label
+                className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-[var(--text-tertiary)]"
+              >
+                <Check className="h-3.5 w-3.5 text-[var(--accent-text,var(--accent))]" aria-hidden />
+                {watchedProgressLabel(episodes)}
+              </p>
+            ) : null}
           </div>
 
           {showSeasonGrab && season != null ? (
-            <div className="ml-auto flex w-full items-center justify-end sm:w-[17rem]">
+            <div className="ml-auto flex w-full items-center justify-end sm:w-auto">
               <Button
                 type="button"
                 size="sm"
@@ -267,7 +272,7 @@ export function EpisodeList({
                     onSeasonGrab(season, episodeNums, "keep", preferredResolution);
                   }
                 }}
-                className="relative min-h-[44px] w-full sm:ml-auto sm:w-[9.5rem] lg:min-h-0"
+                className="relative min-h-[44px] w-full sm:w-[9.5rem] lg:min-h-0"
               >
                 <ButtonBody
                   pending={seasonGrabStatus.status === "pending"}
@@ -284,8 +289,8 @@ export function EpisodeList({
       )}
 
       {busy || view.kind === "loading" ? (
-        <EpisodeSkeletonRows
-          rows={view.kind === "loading" ? view.skeletonRows : Math.max(episodes.length, 3)}
+        <EpisodeSkeletonStrip
+          count={view.kind === "loading" ? view.skeletonRows : Math.max(episodes.length, 3)}
           label={
             season != null
               ? `Loading season ${season} episodes…`
@@ -308,31 +313,65 @@ export function EpisodeList({
         </p>
       ) : (
         <>
-          <ul className="mt-3 space-y-1.5">
-            {episodes.map((episode) => (
-              <EpisodeRow
-                key={episode.episode}
-                episode={episode}
-                gated={gated}
-                streamStatus={statusFor(
-                  episodeIntentKey(episode.season, episode.episode, "stream"),
-                )}
-                downloadStatus={statusFor(
-                  episodeIntentKey(episode.season, episode.episode, "keep"),
-                )}
-                onAction={(action, label, retention) => {
-                  // Play is always instant — never ask for quality.
-                  // Download earns a quality question unless the user has
-                  // elected "always preferred".
-                  if (retention === "keep" && shouldAskForQuality("keep", alwaysPreferred)) {
-                    openPickerFor({ kind: "episode", action, label });
-                  } else {
-                    onAction(action, label, retention, retention === "keep" ? preferredResolution : undefined);
-                  }
-                }}
-              />
-            ))}
-          </ul>
+          <div className="relative mt-3">
+            {/* Native horizontal scroll carries the strip; the arrows are a
+                convenience for pointer users on wide viewports and are hidden
+                from assistive tech (the strip is reachable and scrollable on
+                its own). */}
+            <button
+              type="button"
+              aria-hidden
+              tabIndex={-1}
+              data-strip-arrow="left"
+              onClick={() => scrollStrip(-1)}
+              className="absolute -left-3 top-[calc(28%_-_1rem)] z-20 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              aria-hidden
+              tabIndex={-1}
+              data-strip-arrow="right"
+              onClick={() => scrollStrip(1)}
+              className="absolute -right-3 top-[calc(28%_-_1rem)] z-20 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </button>
+
+            <ul
+              ref={stripRef}
+              data-episode-strip
+              className={cn(
+                "flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden pb-3",
+                "[scrollbar-width:thin] [-webkit-overflow-scrolling:touch]",
+              )}
+            >
+              {episodes.map((episode) => (
+                <EpisodeCard
+                  key={episode.episode}
+                  episode={episode}
+                  gated={gated}
+                  streamStatus={statusFor(
+                    episodeIntentKey(episode.season, episode.episode, "stream"),
+                  )}
+                  downloadStatus={statusFor(
+                    episodeIntentKey(episode.season, episode.episode, "keep"),
+                  )}
+                  onAction={(action, label, retention) => {
+                    // Play is always instant — never ask for quality.
+                    // Download earns a quality question unless the user has
+                    // elected "always preferred".
+                    if (retention === "keep" && shouldAskForQuality("keep", alwaysPreferred)) {
+                      openPickerFor({ kind: "episode", action, label });
+                    } else {
+                      onAction(action, label, retention, retention === "keep" ? preferredResolution : undefined);
+                    }
+                  }}
+                />
+              ))}
+            </ul>
+          </div>
           {truncated ? (
             <p className="mt-2 text-[12px] text-[var(--text-tertiary)]">
               Only the first {episodes.length} episodes are listed.
@@ -341,8 +380,8 @@ export function EpisodeList({
         </>
       )}
 
-      {/* One quality picker for the entire episode list. Episode Download and
-          Download season both route through it. Play never does. */}
+      {/* One quality picker for the entire strip. Every card's Download and the
+          Download season button route through it. Play never does. */}
       <QualityPicker
         open={pickerOpen}
         onOpenChange={handlePickerOpenChange}
@@ -355,17 +394,55 @@ export function EpisodeList({
   );
 }
 
-function EpisodeSkeletonRows({
-  rows,
+/**
+ * Renders a button's icon + label with a spinner **overlaid** on top when
+ * pending, instead of swapping the label out for the spinner. The label stays
+ * mounted (only made invisible) so the button keeps identical width/height in
+ * both idle and loading states — no layout shift, no "jumping" controls.
+ */
+function ButtonBody({
+  pending,
+  icon,
+  children,
+}: {
+  pending: boolean;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5",
+          pending && "invisible",
+        )}
+      >
+        {icon}
+        {children}
+      </span>
+      {pending ? (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <Loader2 className="animate-spin" aria-hidden />
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** Shared card width so skeletons and real cards reserve identical geometry. */
+const CARD_WIDTH = "w-[78vw] shrink-0 snap-start sm:w-[300px]";
+
+function EpisodeSkeletonStrip({
+  count,
   label,
 }: {
-  rows: number;
+  count: number;
   label: string;
 }) {
   return (
     <div className="mt-3" data-episode-skeletons aria-busy="true">
       {/* Skeletons alone do not say what is happening. Without this line the
-          list appears to materialise from nowhere once the extras round-trip
+          strip appears to materialise from nowhere once the extras round-trip
           finishes — the exact complaint on a title page whose hero settled
           first. */}
       <p
@@ -376,24 +453,22 @@ function EpisodeSkeletonRows({
       >
         {label}
       </p>
-      <ul className="space-y-1.5" aria-label={label}>
-        {Array.from({ length: rows }, (_, i) => (
+      <ul
+        className="flex gap-3 overflow-x-hidden pb-3"
+        aria-label={label}
+      >
+        {Array.from({ length: count }, (_, i) => (
           <li
             key={i}
-            className="surface flex items-start gap-3 px-3 py-2.5"
+            className={cn("surface overflow-hidden p-0", CARD_WIDTH)}
             data-episode-skeleton
           >
-            <span className="skeleton h-[50px] w-[88px] shrink-0 rounded-[6px] sm:h-[72px] sm:w-[128px]" />
-            <span className="min-w-0 flex-1">
-              <span className="flex items-baseline gap-2">
-                <span className="skeleton h-3 w-12 rounded" />
-                <span className="skeleton h-3.5 w-40 rounded" />
-              </span>
-              <span className="mt-2 block">
-                <span className="skeleton block h-2.5 w-56 max-w-full rounded" />
-              </span>
+            <span className="skeleton block aspect-video w-full" />
+            <span className="block p-3">
+              <span className="skeleton block h-3.5 w-3/4 rounded" />
+              <span className="skeleton mt-2 block h-2.5 w-full rounded" />
+              <span className="skeleton mt-1.5 block h-2.5 w-2/3 rounded" />
             </span>
-            <span className="skeleton h-11 w-16 shrink-0 self-center rounded-[var(--radius)] lg:h-8" />
           </li>
         ))}
       </ul>
@@ -401,7 +476,7 @@ function EpisodeSkeletonRows({
   );
 }
 
-function EpisodeRow({
+function EpisodeCard({
   episode,
   gated = false,
   streamStatus,
@@ -450,11 +525,11 @@ function EpisodeRow({
       : streamStatus;
   const effectiveDownloadStatus = downloadStatus;
   const streamLabel = titleActionButtonLabel(streamAction, effectiveStreamStatus);
-  const downloadLabel = titleActionButtonLabel(downloadAction, effectiveDownloadStatus);
   const streamDisplayLabel =
     effectiveStreamStatus === "idle" && streamAction.kind === "stream"
       ? "Play"
       : streamLabel;
+
   const held = transfer?.status === "downloaded" || episode.availability === "ready";
   const downloadDisplayLabel = transfer?.status === "failed"
     ? "Retry download"
@@ -466,31 +541,85 @@ function EpisodeRow({
           ? "Downloaded"
           : effectiveDownloadStatus === "error"
             ? "Retry download"
-            : downloadLabel;
+            : titleActionButtonLabel(downloadAction, effectiveDownloadStatus);
   const streamCanRun = shouldRunTitleAction(streamAction, effectiveStreamStatus);
   const downloadCanRun =
     !held &&
     transfer?.status !== "queued" &&
     transfer?.status !== "downloading" &&
     shouldRunTitleAction(downloadAction, effectiveDownloadStatus);
+
   const meta = episode.meta;
   const airDate = formatAirDate(meta?.airDate ?? null);
 
   // A file we hold beats a future air date. Provider dates are wrong often
   // enough that letting one hide a real download would be the worse bug. A
-  // future-dated *work* gates every row, including ones the provider has not
+  // future-dated *work* gates every card, including ones the provider has not
   // given an air date for at all.
   const unaired =
     resolved.kind !== "play" && (gated || isUnaired(meta?.airDate ?? null));
 
-  // Title, air date, runtime, overview. Everything else is already on the
-  // right (Play / Downloaded / Retry) or is noise next to a Ready chip.
-  // "Downloaded/Available" under a Ready row was the same fact three times.
-  const facts: string[] = [];
-  if (!unaired && airDate) facts.push(airDate);
-  const runtime = formatRuntime(meta?.runtimeMin ?? null);
-  if (runtime) facts.push(runtime);
-  const factsText = factsLine(facts);
+  // The progress strip on the still: watched playback wins over a partial
+  // download, and an actively-downloading transfer is the last fallback. Only
+  // rendered when there is something to show.
+  const downloadingProgress =
+    transfer?.status === "downloading" ? transfer.progress : null;
+  const progressFraction =
+    episode.watchedFraction ?? episode.downloadFraction ?? downloadingProgress ?? null;
+  const progressPct = progressPercent(progressFraction);
+  const progressKind = episode.watchedFraction != null ? "watched" : "download";
+
+  const codeAndTitle = meta?.name ? `${episode.label} · ${meta.name}` : episode.label;
+
+  const still = (
+    <span
+      data-episode-still
+      className="relative block aspect-video w-full overflow-hidden bg-[var(--bg-muted)]"
+    >
+      {meta?.stillUrl ? (
+        <PosterImage
+          src={meta.stillUrl}
+          title={meta.name ?? episode.label}
+          sizes="(min-width: 640px) 300px, 78vw"
+          variant="plain"
+          className="object-cover"
+        />
+      ) : null}
+      <span
+        data-episode-badge
+        className="absolute left-2 top-2 rounded-[6px] bg-[color-mix(in_srgb,var(--bg)_72%,transparent)] px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--text)] backdrop-blur-sm"
+      >
+        E{episode.episode}
+      </span>
+      {progressPct > 0 ? (
+        <span
+          data-episode-progress={progressKind}
+          className="absolute inset-x-0 bottom-0 h-1 bg-[color-mix(in_srgb,var(--bg)_55%,transparent)]"
+        >
+          <span
+            className="block h-full bg-[var(--accent-text,var(--accent))]"
+            style={{ width: `${progressPct}%` }}
+          />
+        </span>
+      ) : null}
+    </span>
+  );
+
+  const caption = (
+    <span className="block p-3">
+      <span
+        data-episode-name
+        className="block truncate text-[13px] font-medium text-[var(--text)]"
+      >
+        {codeAndTitle}
+      </span>
+      {meta?.overview ? (
+        <span className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+          {meta.overview}
+        </span>
+      ) : null}
+    </span>
+  );
 
   return (
     <li
@@ -498,70 +627,32 @@ function EpisodeRow({
       data-episode={episode.episode}
       data-availability={episode.availability ?? "unresolved"}
       className={cn(
-        "surface flex flex-col gap-3 px-3 py-2.5 sm:flex-row sm:items-start",
+        "group surface relative overflow-hidden p-0",
         "transition-colors hover:border-[var(--border-strong)]",
+        CARD_WIDTH,
       )}
     >
-      <div className="flex min-w-0 items-start gap-3 sm:flex-1">
-        <span
-          data-episode-still
-          className="relative block h-[50px] w-[88px] shrink-0 overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--bg-muted)] sm:h-[72px] sm:w-[128px]"
-        >
-          {meta?.stillUrl ? (
-            <PosterImage
-              src={meta.stillUrl}
-              title={meta.name ?? episode.label}
-              sizes="128px"
-              variant="plain"
-              className="object-cover"
-            />
-          ) : null}
-        </span>
-
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-x-2">
-            <span className="shrink-0 text-[12px] font-medium tabular-nums text-[var(--text-secondary)]">
-              {episode.label}
-            </span>
-            {meta?.name ? (
-              <span
-                data-episode-name
-                className="min-w-0 truncate text-[13px] font-medium text-[var(--text)]"
-              >
-                {meta.name}
-              </span>
-            ) : null}
-          </span>
-
-          {factsText ? (
-            <span className="mt-1 flex flex-wrap items-center text-[12px] text-[var(--text-tertiary)]">
-              {factsText}
-            </span>
-          ) : null}
-
-          {meta?.overview ? (
-            <span className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
-              {meta.overview}
-            </span>
-          ) : null}
-        </span>
-      </div>
-
       {unaired ? (
-        /* Plain text, not a disabled button: there is nothing to press, so
-           there should be nothing to tab to. */
-        <span
-          data-episode-unaired
-          className="shrink-0 self-start whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-tertiary)] sm:self-center"
-        >
-          {airDate ? `Airs ${airDate}` : "Not aired yet"}
-        </span>
+        <div className="block">
+          {still}
+          {caption}
+          {/* Plain text, not a disabled button: there is nothing to press, so
+              there should be nothing to tab to. */}
+          <span
+            data-episode-unaired
+            className="block px-3 pb-3 text-[12px] text-[var(--text-tertiary)]"
+          >
+            {airDate ? `Airs ${airDate}` : "Not aired yet"}
+          </span>
+        </div>
       ) : (
-        <span className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 sm:w-[17rem] sm:shrink-0 sm:grid-cols-[5.25rem_10.75rem] sm:self-center">
-          <Button
+        <>
+          {/* The whole card is the play target. It is a real button so the
+              press is keyboard-reachable; the Download control is a SIBLING
+              layered on top, never a child, so a click on Download can never
+              also fire Play. */}
+          <button
             type="button"
-            size="sm"
-            variant="default"
             data-episode-action
             data-action="stream"
             data-action-kind={streamAction.kind}
@@ -569,39 +660,85 @@ function EpisodeRow({
             aria-busy={effectiveStreamStatus === "pending" || undefined}
             disabled={!streamCanRun}
             onClick={() => onAction(streamAction, episode.label, "stream")}
-            className="relative min-h-[44px] w-full lg:min-h-0"
+            className="block w-full cursor-pointer text-left disabled:cursor-default"
           >
-            <ButtonBody
-              pending={effectiveStreamStatus === "pending"}
-              icon={<Play className="fill-current" aria-hidden />}
+            <span className="relative block">
+              {still}
+              {/* Play glyph washed over the still on hover / focus — the card's
+                  primary meaning made visible without a permanent chrome. */}
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--bg)_60%,transparent)] text-[var(--text)] backdrop-blur-sm">
+                  {effectiveStreamStatus === "pending" ? (
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                  ) : (
+                    <Play className="h-5 w-5 fill-current" aria-hidden />
+                  )}
+                </span>
+              </span>
+            </span>
+            {caption}
+          </button>
+
+          {/* Compact keep-it affordance. Icon-only to stay out of the card's
+              way, but a 44px touch target and a full aria-label so it is neither
+              too small to hit nor mute to assistive tech. */}
+          <span className="absolute right-2 top-2 z-10">
+            <button
+              type="button"
+              data-episode-action
+              data-action="download"
+              data-action-kind={downloadAction.kind}
+              aria-label={`${downloadDisplayLabel} — ${episode.label}`}
+              aria-busy={effectiveDownloadStatus === "pending" || undefined}
+              disabled={!downloadCanRun}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAction(downloadAction, episode.label, "keep");
+              }}
+              className={cn(
+                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-[var(--border)]",
+                "bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] text-[var(--text-secondary)] shadow-sm backdrop-blur-sm",
+                "transition-colors hover:text-[var(--text)] hover:border-[var(--border-strong)]",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                "disabled:cursor-default disabled:opacity-70 lg:h-8 lg:w-8 lg:min-h-[44px] lg:min-w-[44px]",
+              )}
             >
-              {streamDisplayLabel}
-            </ButtonBody>
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            data-episode-action
-            data-action="download"
-            data-action-kind={downloadAction.kind}
-            aria-label={`${downloadDisplayLabel} — ${episode.label}`}
-            aria-busy={effectiveDownloadStatus === "pending" || undefined}
-            disabled={!downloadCanRun}
-            onClick={() => onAction(downloadAction, episode.label, "keep")}
-            className="relative min-h-[44px] w-full lg:min-h-0"
-          >
-            <ButtonBody
-              pending={effectiveDownloadStatus === "pending"}
-              icon={<Download aria-hidden />}
-            >
-              {downloadDisplayLabel}
-            </ButtonBody>
-          </Button>
-        </span>
+              <DownloadGlyph
+                transferStatus={transfer?.status ?? null}
+                held={held}
+                status={effectiveDownloadStatus}
+              />
+            </button>
+          </span>
+        </>
       )}
     </li>
   );
+}
+
+/** The icon shown inside a card's compact Download control, by state. */
+function DownloadGlyph({
+  transferStatus,
+  held,
+  status,
+}: {
+  transferStatus: "queued" | "downloading" | "downloaded" | "failed" | null;
+  held: boolean;
+  status: TitleActionStatus;
+}) {
+  if (transferStatus === "failed" || status === "error") {
+    return <RotateCcw className="h-4 w-4" aria-hidden />;
+  }
+  if (transferStatus === "downloading" || transferStatus === "queued" || status === "pending") {
+    return <Loader2 className="h-4 w-4 animate-spin" aria-hidden />;
+  }
+  if (held || transferStatus === "downloaded" || status === "done") {
+    return <Check className="h-4 w-4 text-[var(--accent-text,var(--accent))]" aria-hidden />;
+  }
+  return <Download className="h-4 w-4" aria-hidden />;
 }
 
 function formatTransferProgress(progress: number): string {

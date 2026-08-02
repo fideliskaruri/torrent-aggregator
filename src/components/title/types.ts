@@ -262,6 +262,29 @@ export interface TitleExtrasPayload {
    * reads "Digital Aug 2026" rather than the generic "In cinemas".
    */
   nextHomeReleaseAt: string | null;
+  /**
+   * Genre names from the resolved provider entity, e.g.
+   * `["Sci-Fi & Fantasy", "Drama"]`. Empty array when unknown — the hero simply
+   * omits the genre line rather than showing a placeholder.
+   */
+  genres: string[];
+  /**
+   * TMDB vote count backing {@link rating}. Null when unknown or zero — a score
+   * with no votes behind it is not a rating worth a count.
+   */
+  voteCount: number | null;
+  /**
+   * Content certification for the US audience, e.g. `"TV-MA"` (series) or
+   * `"PG-13"` (film). Falls back to the first available region when TMDB has no
+   * US entry. Null when unknown.
+   */
+  certification: string | null;
+  /**
+   * TMDB `original_language` as an **uppercased ISO-639-1 code** ready for
+   * display, e.g. `"EN"`, `"JA"`. Uppercased here (not raw) so the hero prints
+   * it as a badge without further transformation. Null when unknown.
+   */
+  originalLanguage: string | null;
   /** False when there was no usable provider match — drives nothing but copy. */
   resolved: boolean;
   generatedAt: string;

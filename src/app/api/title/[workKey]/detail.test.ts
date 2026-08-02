@@ -170,6 +170,14 @@ check("pickSeason: an explicit request still overrides resume", () => {
   assert.equal(pickSeason(SEASONS, 3, 2, [], null), 3);
 });
 
+check("pickSeason: a requested season we hold nothing for is still honoured", () => {
+  // The client's picker lists provider seasons we may have no local files for.
+  // Answering with a different season than was asked is the flashing-list bug:
+  // the requested season never matched the answered one, so every poll read as
+  // a season change. A request for season 5 must return 5, empty or not.
+  assert.equal(pickSeason(SEASONS, 5, 2, [], { cursorSeason: 1 }), 5);
+});
+
 check("pickSeason: a resume season not in the list falls through", () => {
   assert.equal(pickSeason(SEASONS, null, 9, [], { cursorSeason: 2 }), 2);
 });

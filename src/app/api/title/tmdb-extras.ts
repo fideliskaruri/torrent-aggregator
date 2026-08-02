@@ -272,6 +272,147 @@ export async function fetchWorkBlurb(ref: TmdbRef): Promise<TmdbWorkBlurb> {
 }
 
 // ---------------------------------------------------------------------------
+// Hero facts — genres, vote count, certification, original language
+// ---------------------------------------------------------------------------
+
+/**
+ * The extra dimensions a streaming-style hero prints beside the title: what it
+ * is (genres), how many people scored it (vote count), who it is rated for
+ * (certification), and what language it was made in (original language).
+ *
+ * Every one is enrichment. A missing key, a timed-out call, or a work TMDB has
+ * only a stub for yields empty/null in that slot — never a throw, never a
+ * placeholder the page would have to explain away.
+ */
+export interface TmdbTitleFacts {
+  /** Genre names, provider order preserved, e.g. `["Drama", "Sci-Fi"]`. */
+  genres: string[];
+  voteCount: number | null;
+  /** US content rating, falling back to the first region TMDB offers. */
+  certification: string | null;
+  /** Uppercased ISO-639-1 code for display, e.g. `"EN"`. */
+  originalLanguage: string | null;
+}
+
+type RawTitleDetail = {
+  genres?: Array<{ name?: string | null }>;
+  vote_count?: number | null;
+  original_language?: string | null;
+};
+
+type RawContentRatings = {
+  results?: Array<{ iso_3166_1?: string; rating?: string | null }>;
+};
+
+/**
+ * Genres, vote count and original language, plus the certification that lives
+ * on a *separate* endpoint (content_ratings for TV, release_dates for film).
+ *
+ * The two calls have no dependency on one another, so they run together via
+ * `Promise.all` rather than one after the other. Both are memoised through the
+ * same detail endpoints the rest of the module already hits, so on a warm page
+ * this is free.
+ */
+export async function fetchTitleFacts(ref: TmdbRef): Promise<TmdbTitleFacts> {
+  return memo(`facts:${ref.mediaType}:${ref.id}`, async () => {
+    const [detail, certRaw] = await Promise.all([
+      tmdbGet<RawTitleDetail>(`/${ref.mediaType}/${ref.id}`),
+      ref.mediaType === "tv"
+        ? tmdbGet<RawContentRatings>(`/tv/${ref.id}/content_ratings`)
+        : tmdbGet<RawReleaseDates>(`/movie/${ref.id}/release_dates`),
+    ]);
+
+    const base = parseTitleDetailFacts(detail);
+    const certification =
+      ref.mediaType === "tv"
+        ? pickTvCertification((certRaw as RawContentRatings | null)?.results ?? [])
+        : pickMovieCertification(
+            (certRaw as RawReleaseDates | null)?.results ?? [],
+          );
+
+    return { ...base, certification };
+  });
+}
+
+/**
+ * Pull genres, vote count and original language out of a TMDB detail body.
+ *
+ * Pure — no I/O, testable in isolation. Genre names are trimmed and de-duped
+ * but otherwise kept in provider order (TMDB lists the primary genre first).
+ * A zero vote count is reported as `null`: a score with nobody behind it is not
+ * a count worth printing. The language code is uppercased for display.
+ */
+export function parseTitleDetailFacts(
+  raw: RawTitleDetail | null,
+): Omit<TmdbTitleFacts, "certification"> {
+  if (!raw) return { genres: [], voteCount: null, originalLanguage: null };
+
+  const genres: string[] = [];
+  for (const genre of raw.genres ?? []) {
+    const name = genre.name?.trim();
+    if (name && !genres.includes(name)) genres.push(name);
+  }
+
+  const voteCount =
+    typeof raw.vote_count === "number" && raw.vote_count > 0
+      ? raw.vote_count
+      : null;
+
+  const lang = raw.original_language?.trim();
+  const originalLanguage = lang ? lang.toUpperCase() : null;
+
+  return { genres, voteCount, originalLanguage };
+}
+
+/**
+ * Pick the content rating from a TMDB `/tv/{id}/content_ratings` result set.
+ *
+ * Pure. Prefers the US entry — the certification a US-facing hero expects —
+ * and falls back to the first non-empty rating any region supplies, so a
+ * foreign show still shows *something* rather than nothing.
+ */
+export function pickTvCertification(
+  results: Array<{ iso_3166_1?: string; rating?: string | null }>,
+): string | null {
+  const us = results.find((r) => r.iso_3166_1 === "US")?.rating?.trim();
+  if (us) return us;
+  for (const r of results) {
+    const value = r.rating?.trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+/**
+ * Pick the content certification from a TMDB `/movie/{id}/release_dates` set.
+ *
+ * Pure. A movie's certification hangs off individual release entries, so this
+ * digs one level deeper than the TV form. US first, then the first non-empty
+ * certification from any region.
+ */
+export function pickMovieCertification(results: RawCountryRelease[]): string | null {
+  const us = firstCertification(
+    results.find((r) => r.iso_3166_1 === "US")?.release_dates,
+  );
+  if (us) return us;
+  for (const country of results) {
+    const value = firstCertification(country.release_dates);
+    if (value) return value;
+  }
+  return null;
+}
+
+function firstCertification(
+  entries: RawCountryRelease["release_dates"],
+): string | null {
+  for (const entry of entries ?? []) {
+    const value = entry.certification?.trim();
+    if (value) return value;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Shows, seasons, episodes
 // ---------------------------------------------------------------------------
 
@@ -386,6 +527,7 @@ type RawCountryRelease = {
   release_dates?: Array<{
     release_date?: string | null;
     type?: number | null;
+    certification?: string | null;
   }>;
 };
 

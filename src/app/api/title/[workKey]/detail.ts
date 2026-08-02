@@ -757,7 +757,14 @@ export function pickSeason(
   if (seasons.length === 0) return null;
   const available = new Set(seasons.map((s) => s.season));
 
-  if (requested != null && available.has(requested)) return requested;
+  // Honour an explicit request even when we hold no local files for it. The
+  // client's season picker lists every season the provider knows about, so a
+  // request for one we have nothing for is legitimate — the client merges the
+  // provider's episodes over our (empty) local set. Returning a *different*
+  // season than was asked for is the bug behind the title page's flashing
+  // episode list: the requested season never matched the answered season, so
+  // every background poll read as a season change and swapped in skeletons.
+  if (requested != null && requested >= 1) return requested;
 
   if (resumeSeason != null && available.has(resumeSeason)) return resumeSeason;
 

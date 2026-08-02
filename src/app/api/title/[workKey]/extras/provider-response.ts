@@ -26,6 +26,15 @@ export function providerExtrasResponse(
     overview: metadata.synopsis ?? null,
     rating: metadata.rating ?? null,
     releaseDate: metadata.releaseDate ?? null,
+    // Hero facts stay honestly empty. AniList work-level metadata carries no
+    // TMDB-shaped genres/vote count/certification/language, and searching TMDB
+    // by title after an AniList identity was chosen is exactly the cross-work
+    // contamination this path exists to avoid. Explicit here (not just via the
+    // spread) so the contract reads at a glance.
+    genres: [],
+    voteCount: null,
+    certification: null,
+    originalLanguage: null,
     resolved: !result.identity.isSeries,
   };
 }

@@ -47,7 +47,13 @@ import { MoreLikeThis } from "./more-like-this";
 import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
-import { titleFacts } from "./title-facts";
+import {
+  formatReleaseDate,
+  GenreChips,
+  HeroMetaList,
+  RatingMetaLine,
+  releaseYear,
+} from "./title-hero-meta";
 import {
   offersDownload,
   resolvePrimaryAction,
@@ -686,8 +692,14 @@ function TitleContent({
   // not "ready with zero episodes". Treating that gap as ready flashed the
   // empty copy (or nothing) under a finished hero, then the list popped in
   // with no explanation of the wait.
+  // Show the loading skeletons only when there is nothing to show yet. Once
+  // rows exist, a background refresh (the transfer poll) must never swap them
+  // for skeletons — that was the flashing episode list: every 2.5s poll set
+  // `refreshing`, and while the answered season lagged the requested one the
+  // list blinked to skeletons and back.
   const episodeListLoading =
     payload.isSeries &&
+    rows.length === 0 &&
     ((refreshing && season !== payload.season) ||
       extrasLoading ||
       extrasRefreshing ||
@@ -700,16 +712,22 @@ function TitleContent({
         : ({ status: "ready" } as const);
   const activeSeasonGrabStatus =
     activeSeason != null ? seasonStatusFor(activeSeason, "keep") : ({ status: "idle" } as const);
-  const facts = titleFacts({
-    year: payload.year,
-    mediaType: payload.mediaType,
-    rating: payload.rating ?? extras?.rating ?? null,
-    isSeries: payload.isSeries,
-    // Only ever the provider's count. Counting the seasons we hold files for
-    // printed "1 season" directly above a list headed "5 in season 2"; a
-    // number that contradicts the thing under it is worse than no number.
-    seasonCount,
-  });
+
+  // The SILO-style hero prints one score/meta line under the title and a
+  // compact metadata list in a right column. Both draw only from what the
+  // payload/extras vouch for — every absent piece is dropped, never faked.
+  const metaRating = payload.rating ?? extras?.rating ?? null;
+  const releaseDate = payload.releaseDate ?? extras?.releaseDate ?? null;
+  // The year piece prefers the payload's explicit year, falling back to the
+  // year of the real release date when the page was opened from a link that
+  // carried no year (a derivation, not an invented value).
+  const metaYear = payload.year ?? releaseYear(releaseDate);
+  const genres = extras?.genres ?? [];
+  const metaListPresent = Boolean(
+    extras?.originalLanguage ||
+      formatReleaseDate(releaseDate) ||
+      extras?.certification,
+  );
 
   // The button is the only place a pending action is narrated: ButtonBody
   // overlays the spinner in place of the label, exactly like a normal video
@@ -844,48 +862,36 @@ function TitleContent({
               </div>
             </div>
 
-            <div className="min-w-0 max-w-2xl">
+            <div className="min-w-0 flex-1">
               <h1 id="title-heading" title={payload.title} className="text-display">
                 {title}
               </h1>
 
-              <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-[var(--text-secondary)]">
-                {/* A gated title shows a chip instead of an availability chip and
-                    disabled actions. Theatrical-window films get "In cinemas" (or
-                    "Digital Aug 2026"); future-dated films get "Coming {date}". */}
+              {/* The rating/meta line sits directly under the title, SILO-style:
+                  `TMDB {score} ({votes}) · {year} · {N Seasons|runtime}`. A gated
+                  title keeps its "Coming {date}" / "In cinemas" chip beside it. */}
+              <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2">
                 {gated ? (
                   <span
                     data-title-coming
-                    className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1 font-medium text-[var(--text-secondary)]"
+                    className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1 text-[12px] font-medium text-[var(--text-secondary)]"
                   >
                     {theatrical.theatricalLabel ?? release.comingLabel ?? "Coming soon"}
                   </span>
                 ) : null}
-                {facts ? (
-                  <span data-title-facts className="tabular-nums">
-                    {facts}
-                  </span>
-                ) : null}
+                <RatingMetaLine
+                  rating={metaRating}
+                  voteCount={extras?.voteCount ?? null}
+                  year={metaYear}
+                  isSeries={payload.isSeries}
+                  seasonCount={seasonCount}
+                />
               </div>
 
-              {payload.overview ?? extras?.overview ? (
-                <p
-                  data-title-overview
-                  className="text-body mt-3 line-clamp-4 max-w-xl"
-                >
-                  {payload.overview ?? extras?.overview}
-                </p>
-              ) : !extras ? (
-                // Reserve the paragraph's space while the extras round trip is
-                // still in flight. The hero is justify-end, so the buttons are
-                // pinned to the bottom: adding content above them does not move
-                // the buttons. What this prevents is the HEADER shrinking once
-                // MoreLikeThis loads — that is a separate guard (below).
-                // This placeholder keeps the hero looking composed on first
-                // paint even when the detail endpoint returned no overview.
-                <p aria-hidden data-title-overview-placeholder className="mt-3 min-h-[5.25rem]" />
-              ) : null}
-
+              {/* Actions come next in the reference: the existing Play/Resume
+                  primary, the film-only Download, then the library controls. The
+                  behaviour of each is untouched — only their position moved above
+                  the synopsis. */}
               <div
                 className="mt-5 flex flex-wrap items-center gap-2"
                 data-title-acquire
@@ -969,6 +975,45 @@ function TitleContent({
                   releaseDate={payload.releaseDate}
                   onChanged={onLibraryChanged}
                 />
+              </div>
+
+              {/* The two-column band under the actions. Left: synopsis + genre
+                  chips. Right (desktop ~260px, stacks below on mobile): the
+                  compact metadata list. Each piece omits itself when empty, so a
+                  bare title collapses to just the synopsis without leaving holes. */}
+              <div className="mt-6 flex flex-col gap-6 md:flex-row md:gap-8">
+                <div className="min-w-0 flex-1 md:max-w-2xl">
+                  {payload.overview ?? extras?.overview ? (
+                    <p
+                      data-title-overview
+                      className="text-body line-clamp-5 max-w-xl"
+                    >
+                      {payload.overview ?? extras?.overview}
+                    </p>
+                  ) : !extras ? (
+                    // Reserve the paragraph's space while the extras round trip
+                    // is still in flight, so the hero does not reflow when the
+                    // synopsis lands. Same placeholder behaviour as before, only
+                    // relocated into the left column of the band.
+                    <p
+                      aria-hidden
+                      data-title-overview-placeholder
+                      className="min-h-[5.25rem]"
+                    />
+                  ) : null}
+
+                  <GenreChips genres={genres} />
+                </div>
+
+                {metaListPresent ? (
+                  <div className="w-full md:w-[260px] md:shrink-0">
+                    <HeroMetaList
+                      originalLanguage={extras?.originalLanguage ?? null}
+                      releaseDate={releaseDate}
+                      certification={extras?.certification ?? null}
+                    />
+                  </div>
+                ) : null}
               </div>
 
             </div>
