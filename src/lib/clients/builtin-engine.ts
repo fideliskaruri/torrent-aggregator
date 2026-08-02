@@ -18,6 +18,10 @@ import type {
 import { repairContentLayout } from "./content-layout-repair";
 import { releasePaths } from "./layout-ownership";
 import { pruneEmptyDescendants, pruneEmptyParents } from "./prune-empty-parents";
+import {
+  executeReleaseRemoval,
+  planReleaseRemoval,
+} from "./release-file-removal";
 import { findTorrentByHash } from "./find-torrent-by-hash";
 import {
   releaseFailedAllocation,
@@ -2326,6 +2330,135 @@ function repairExistingLayout(dest: string, torrentName?: string | null): void {
  * a broken seed is not.
  */
 
+/**
+ * The absolute file paths this torrent owns on disk, read before its row is
+ * deleted. Prefers `verifiedFilesJson` (absolute paths the engine wrote after
+ * every file verified), and supplements with the live torrent's own file paths
+ * when a handle is still present. This is the evidence a delete needs to remove
+ * real bytes even when nothing is live in memory.
+ */
+async function ownedFilesForDelete(
+  config: ClientConnectionConfig,
+  hashLower: string,
+  live: WtTorrent | undefined,
+): Promise<{ files: string[]; savePath: string | null }> {
+  const files = new Set<string>();
+  let savePath: string | null = null;
+
+  try {
+    const row = await prisma.engineTorrent.findFirst({
+      where: config.userId
+        ? { userId: config.userId, hash: hashLower }
+        : { hash: hashLower },
+      select: { savePath: true, verifiedFilesJson: true },
+    });
+    savePath = row?.savePath?.trim() || null;
+    if (row?.verifiedFilesJson?.trim()) {
+      try {
+        const parsed = JSON.parse(row.verifiedFilesJson) as unknown;
+        if (Array.isArray(parsed)) {
+          for (const entry of parsed) {
+            const p = (entry as { path?: unknown })?.path;
+            if (typeof p === "string" && p.trim()) files.add(p.trim());
+          }
+        }
+      } catch {
+        /* a malformed list contributes nothing rather than a partial delete */
+      }
+    }
+  } catch {
+    /* DB optional — fall back to whatever the live handle can tell us */
+  }
+
+  if (live && Array.isArray(live.files)) {
+    for (const file of live.files) {
+      const disk = torrentFileDiskPath(live, file);
+      if (disk) files.add(disk);
+    }
+  }
+
+  return { files: [...files], savePath };
+}
+
+/**
+ * Paths still owned by OTHER non-removed torrents, so a shared category/show
+ * directory is never removed out from under a sibling download.
+ */
+async function otherOwnedPaths(
+  config: ClientConnectionConfig,
+  hashLower: string,
+): Promise<string[]> {
+  try {
+    const rows = await prisma.engineTorrent.findMany({
+      where: { hash: { not: hashLower }, status: { not: "removed" } },
+      select: { savePath: true, verifiedFilesJson: true },
+      take: 2000,
+    });
+    const out: string[] = [];
+    for (const row of rows) {
+      const sp = row.savePath?.trim();
+      if (sp) out.push(sp);
+      if (!row.verifiedFilesJson?.trim()) continue;
+      try {
+        const parsed = JSON.parse(row.verifiedFilesJson) as unknown;
+        if (Array.isArray(parsed)) {
+          for (const entry of parsed) {
+            const p = (entry as { path?: unknown })?.path;
+            if (typeof p === "string" && p.trim()) out.push(p.trim());
+          }
+        }
+      } catch {
+        /* skip malformed */
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Remove a deleted release's files and, when it created its own folder, that
+ * folder — sidecar junk included — while refusing to touch a shared parent.
+ *
+ * Best-effort by design: this runs on the delete path, so a locked file or a
+ * missing base must never turn into a thrown error that aborts the delete.
+ */
+async function removeReleaseFilesFromDisk(
+  config: ClientConnectionConfig,
+  hashLower: string,
+  savePath: string | null,
+  ownedFiles: readonly string[],
+  baseRoot: string,
+): Promise<void> {
+  try {
+    const otherPaths = await otherOwnedPaths(config, hashLower);
+    const plan = planReleaseRemoval({
+      ownedFiles,
+      savePath,
+      baseRoot,
+      otherPaths,
+    });
+    const result = executeReleaseRemoval(plan);
+    if (result.removed.length || result.folderRemoved) {
+      console.info(
+        `[builtin-engine] removed release files: ${result.removed.length} file(s)` +
+          `${result.folderRemoved ? `, folder ${result.folderRemoved}` : ""}` +
+          ` (${result.freedBytes} bytes)`,
+      );
+    } else if (plan.folderReason && ownedFiles.length) {
+      console.info(
+        `[builtin-engine] kept release folder (${plan.folderReason}); removed only recorded files`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[builtin-engine] release file removal failed",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 export class BuiltinClient implements TorrentClientAdapter {
   readonly type = "builtin" as const;
 
@@ -2928,10 +3061,19 @@ export class BuiltinClient implements TorrentClientAdapter {
       const h = hash.toLowerCase();
       const meta = state().meta.get(h);
 
+      // The torrent's own recorded files + save path, read BEFORE the row is
+      // deleted. This is what lets a delete remove the actual bytes even when no
+      // live WebTorrent handle exists — the case that left whole release folders
+      // on disk after "Delete + files".
+      const owned = deleteFiles
+        ? await ownedFilesForDelete(config, h, t)
+        : { files: [] as string[], savePath: null as string | null };
+
       // Capture leaf path before destroy (for empty-parent prune)
       let leafPath: string | null =
         meta?.savePath?.trim() ||
         t?.path?.trim() ||
+        owned.savePath ||
         null;
       if (!leafPath && config.userId) {
         try {
@@ -2983,10 +3125,13 @@ export class BuiltinClient implements TorrentClientAdapter {
             /* optional */
           }
         }
-        // Still prune if files were already gone but empty season/show remain
+        // Still remove files if a live handle was already gone but the release
+        // folder and its bytes remain on disk. This is the path that used to
+        // only prune EMPTY folders and so left everything behind.
         if (deleteFiles && leafPath) {
           forgetTorrentMetadata(leafPath, h);
           const base = defaultDownloadRoot(config);
+          await removeReleaseFilesFromDisk(config, h, leafPath, owned.files, base);
           pruneEmptyDescendants(leafPath, base);
           pruneEmptyParents(leafPath, base);
         }
@@ -3006,6 +3151,11 @@ export class BuiltinClient implements TorrentClientAdapter {
           forgetTorrentMetadata(leafPath, h);
           try {
             const base = defaultDownloadRoot(config);
+            // WebTorrent's store destroy removes the files it wrote but leaves
+            // the release folder and its sidecar junk (Featurettes, .torrentflow,
+            // "Torrent Downloaded From …" txt, .part). Remove the torrent's own
+            // folder explicitly — never a shared parent — then prune empties.
+            await removeReleaseFilesFromDisk(config, h, leafPath, owned.files, base);
             // DOWN first, then UP. A multi-file torrent owns a folder *below*
             // savePath; leaving it there also blocks the upward walk, because
             // savePath then still looks non-empty.

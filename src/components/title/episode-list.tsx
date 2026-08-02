@@ -25,7 +25,7 @@
  * for the loaded season — alongside the season <select>, the episode count and
  * the season-scoped Download button.
  */
-import { useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -145,10 +145,33 @@ export function EpisodeList({
 
   const stripRef = useRef<HTMLUListElement | null>(null);
 
-  function openPickerFor(pending: PendingDownload) {
+  const openPickerFor = useCallback((pending: PendingDownload) => {
     setPendingDownload(pending);
     setPickerOpen(true);
-  }
+  }, []);
+
+  // One stable handler for every card. Without this, each card received a fresh
+  // inline closure on every render, so the transfer poll re-rendered the whole
+  // strip. Paired with the memoised card below, a poll now re-renders only the
+  // card whose transfer state actually changed — the download icon — not the
+  // list.
+  const handleCardAction = useCallback(
+    (action: TitleAction, label: string, retention: TitleRetention) => {
+      // Play is always instant — never ask for quality. Download earns a
+      // quality question unless the user has elected "always preferred".
+      if (retention === "keep" && shouldAskForQuality("keep", alwaysPreferred)) {
+        openPickerFor({ kind: "episode", action, label });
+      } else {
+        onAction(
+          action,
+          label,
+          retention,
+          retention === "keep" ? preferredResolution : undefined,
+        );
+      }
+    },
+    [alwaysPreferred, preferredResolution, onAction, openPickerFor],
+  );
 
   function handlePickerConfirm(resolution: number) {
     setPickerOpen(false);
@@ -358,16 +381,7 @@ export function EpisodeList({
                   downloadStatus={statusFor(
                     episodeIntentKey(episode.season, episode.episode, "keep"),
                   )}
-                  onAction={(action, label, retention) => {
-                    // Play is always instant — never ask for quality.
-                    // Download earns a quality question unless the user has
-                    // elected "always preferred".
-                    if (retention === "keep" && shouldAskForQuality("keep", alwaysPreferred)) {
-                      openPickerFor({ kind: "episode", action, label });
-                    } else {
-                      onAction(action, label, retention, retention === "keep" ? preferredResolution : undefined);
-                    }
-                  }}
+                  onAction={handleCardAction}
                 />
               ))}
             </ul>
@@ -476,7 +490,7 @@ function EpisodeSkeletonStrip({
   );
 }
 
-function EpisodeCard({
+function EpisodeCardImpl({
   episode,
   gated = false,
   streamStatus,
@@ -724,6 +738,58 @@ function EpisodeCard({
     </li>
   );
 }
+
+/**
+ * A card re-renders only when something it actually shows has changed. The
+ * transfer poll hands the whole list new episode objects every 2.5s, so
+ * without this every card re-rendered on every poll and the strip flickered.
+ * `onAction` is stable (see `handleCardAction`), so the only things worth
+ * comparing are the fields a card renders — chiefly the transfer, which is
+ * what the download icon reflects.
+ */
+const EpisodeCard = memo(EpisodeCardImpl, (a, b) => {
+  if (a.gated !== b.gated) return false;
+  if (a.streamStatus !== b.streamStatus) return false;
+  if (a.downloadStatus !== b.downloadStatus) return false;
+  if (a.onAction !== b.onAction) return false;
+  const pe = a.episode;
+  const ne = b.episode;
+  if (
+    pe.season !== ne.season ||
+    pe.episode !== ne.episode ||
+    pe.label !== ne.label ||
+    pe.availability !== ne.availability ||
+    pe.infoHash !== ne.infoHash ||
+    pe.watched !== ne.watched ||
+    pe.watchedFraction !== ne.watchedFraction ||
+    pe.downloadFraction !== ne.downloadFraction ||
+    pe.nextUp !== ne.nextUp ||
+    pe.fromPack !== ne.fromPack
+  ) {
+    return false;
+  }
+  // The transfer is the thing a poll moves — status and progress especially.
+  const pt = pe.transfer;
+  const nt = ne.transfer;
+  if (
+    (pt?.status ?? null) !== (nt?.status ?? null) ||
+    (pt?.progress ?? null) !== (nt?.progress ?? null) ||
+    (pt?.infoHash ?? null) !== (nt?.infoHash ?? null) ||
+    (pt?.filePath ?? null) !== (nt?.filePath ?? null) ||
+    (pt?.error ?? null) !== (nt?.error ?? null)
+  ) {
+    return false;
+  }
+  const pm = pe.meta;
+  const nm = ne.meta;
+  return (
+    (pm?.name ?? null) === (nm?.name ?? null) &&
+    (pm?.overview ?? null) === (nm?.overview ?? null) &&
+    (pm?.airDate ?? null) === (nm?.airDate ?? null) &&
+    (pm?.runtimeMin ?? null) === (nm?.runtimeMin ?? null) &&
+    (pm?.stillUrl ?? null) === (nm?.stillUrl ?? null)
+  );
+});
 
 /** What a card's compact Download control shows, by state. */
 function DownloadGlyph({
