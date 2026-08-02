@@ -20,7 +20,7 @@ import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3100";
+const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3000";
 const OUT = process.env.SHOT_DIR ?? "qa-screens/dune";
 
 /** Every row claims the same wrong catalog row, exactly as the real bug did. */

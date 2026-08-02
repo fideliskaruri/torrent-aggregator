@@ -12,14 +12,14 @@ export type EpisodeListView =
   | { kind: "loading"; skeletonRows: number }
   | { kind: "empty"; copy: typeof EMPTY_EPISODES_COPY }
   | { kind: "error"; message: string }
-  | { kind: "rows"; dim: boolean };
+  | { kind: "rows" };
 
 export function episodeListView(
   state: EpisodeListLoadState,
   rowCount: number,
 ): EpisodeListView {
   if (rowCount > 0) {
-    return { kind: "rows", dim: state.status === "loading" };
+    return { kind: "rows" };
   }
   if (state.status === "loading") {
     return { kind: "loading", skeletonRows: SKELETON_ROWS };

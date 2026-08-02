@@ -14,11 +14,8 @@
  * question, because for a show with eight aired seasons the two sensible
  * answers differ by two hundred episodes.
  *
- * The invariant that shapes the defaults: adding a title never downloads
- * anything, and turning on automation later must never reach backwards. A
- * start point of "from the beginning" combined with a monitor toggle flipped a
- * week later would otherwise fetch a decade of television because of a choice
- * the user made in a different context and has forgotten.
+ * Adding always enables tracking and automatic downloads. The only remaining
+ * decision is how far back a series should start.
  */
 
 /** What the title page knows when the add control is pressed. */
@@ -41,13 +38,11 @@ export type StartPoint =
 
 export interface AddAnswers {
   startPoint: StartPoint;
-  /** Hunt for new material without being asked again. */
-  autoDownload: boolean;
   /** Null means "use whatever the global preference is". */
   preferredResolution: number | null;
 }
 
-export type QuestionId = "start-point" | "auto-download";
+export type QuestionId = "start-point";
 
 export interface AddQuestion {
   id: QuestionId;
@@ -56,39 +51,14 @@ export interface AddQuestion {
   options: { value: string; label: string; hint?: string }[];
 }
 
-/** A date in the future means nothing can be acquired yet. */
-export function isUnreleased(
-  releaseDate: string | null,
-  now: Date = new Date(),
-): boolean {
-  if (!releaseDate) return false;
-  const at = Date.parse(releaseDate);
-  if (Number.isNaN(at)) return false;
-  return at > now.getTime();
-}
-
 /**
  * The questions worth asking for this subject, in order.
  *
- * A film gets no season question because it has no seasons, and a film already
- * in cinemas gets no monitoring question either: monitoring an available film
- * is a loop that fires once and does what pressing Download would have done.
- * Asking it would imply a difference that does not exist.
+ * A film gets no season question because it has no seasons. Monitoring is
+ * implied by adding any title, so it is never presented as a choice.
  */
 export function addQuestions(subject: AddSubject): AddQuestion[] {
-  if (!subject.isSeries) {
-    if (!isUnreleased(subject.releaseDate)) return [];
-    return [
-      {
-        id: "auto-download",
-        prompt: "This is not out yet. Grab it when it lands?",
-        options: [
-          { value: "yes", label: "Yes, get it automatically" },
-          { value: "no", label: "No, I'll decide later" },
-        ],
-      },
-    ];
-  }
+  if (!subject.isSeries) return [];
 
   const seasonOptions = subject.seasons.map((season) => ({
     value: `season:${season}`,
@@ -115,29 +85,18 @@ export function addQuestions(subject: AddSubject): AddQuestion[] {
         ...seasonOptions,
       ],
     },
-    {
-      id: "auto-download",
-      prompt: "Download episodes as they appear?",
-      options: [
-        { value: "yes", label: "Yes, keep it current" },
-        { value: "no", label: "No, I'll pick them myself" },
-      ],
-    },
   ];
 }
 
 /**
  * The answers used when the user adds without opening the questions.
  *
- * `autoDownload` is false and the start point is "now" for the same reason:
- * the quiet path must not start a download. A default of "beginning" would be
- * harmless on its own and catastrophic the moment monitoring is switched on,
- * and by then the connection between the two is invisible.
+ * "New episodes only" is the conservative series default. Films do not use a
+ * start point, but share this shape so they can take the direct add path.
  */
 export function defaultAnswers(): AddAnswers {
   return {
     startPoint: { kind: "now" },
-    autoDownload: false,
     preferredResolution: null,
   };
 }
@@ -168,7 +127,7 @@ export interface AddPayloadFields {
  */
 export function answersToPayload(answers: AddAnswers): AddPayloadFields {
   const base = {
-    monitored: answers.autoDownload,
+    monitored: true,
     preferredResolution: answers.preferredResolution,
   };
   if (answers.startPoint.kind === "beginning") {
@@ -192,19 +151,14 @@ export function addSummary(
   answers: AddAnswers,
 ): string {
   if (!subject.isSeries) {
-    return answers.autoDownload
-      ? "Added, and downloaded automatically when it is released."
-      : "Added to your library. Nothing is downloaded.";
-  }
-  if (!answers.autoDownload) {
-    return "Added to your library. Nothing is downloaded until you ask.";
+    return "Adding keeps this movie in your library and gets it when available.";
   }
   if (answers.startPoint.kind === "now") {
-    return "New episodes will be downloaded as they air.";
+    return "Adding keeps this series in your library and gets new episodes as they air.";
   }
   const from =
     answers.startPoint.kind === "beginning"
       ? "the first episode"
       : `season ${answers.startPoint.season}`;
-  return `Downloading from ${from} onwards, then keeping up with new episodes.`;
+  return `Adding gets episodes from ${from} onwards and keeps up with new episodes.`;
 }

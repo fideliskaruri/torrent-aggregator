@@ -29,11 +29,9 @@
  *    date, because bad provider data must never hide a file we actually hold.
  */
 import { useState } from "react";
-import { Check, ChevronDown, Download, Loader2, Play } from "lucide-react";
+import { ChevronDown, Download, Loader2, Play } from "lucide-react";
 import type { ReactNode } from "react";
-import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { PosterImage } from "@/components/browse/poster-image";
-import { formatClock, progressPercent } from "@/components/browse/availability";
 import { Button } from "@/components/ui/button";
 import { cn, factsLine } from "@/lib/utils";
 import {
@@ -57,8 +55,6 @@ import {
 } from "./title-actions";
 import {
   canOfferSeasonGrab,
-  seasonGrabStrategySummary,
-  seasonGrabSummary,
   shouldRunSeasonGrab,
   type SeasonGrabStatus,
 } from "./season-grab-state";
@@ -73,7 +69,7 @@ export interface EpisodeListProps {
   episodes: EpisodeRowModel[];
   truncated: boolean;
   loadState: EpisodeListLoadState;
-  /** Non-null while a season change is in flight, so the list can dim. */
+  /** Non-null while a season change is in flight. */
   busy: boolean;
   statusFor: (key: string) => TitleActionStatus;
   seasonGrabStatus: SeasonGrabStatus;
@@ -147,7 +143,6 @@ export function EpisodeList({
   busy,
   statusFor,
   seasonGrabStatus,
-  seasonStreamStatus = { status: "idle" },
   gated = false,
   onSeasonChange,
   onSeasonGrab,
@@ -189,11 +184,6 @@ export function EpisodeList({
   const showSeasonGrab = !gated && canOfferSeasonGrab(season, episodes.length);
   const seasonDownloadCanRun =
     showSeasonGrab && shouldRunSeasonGrab(seasonGrabStatus);
-  const seasonStreamCanRun =
-    showSeasonGrab && shouldRunSeasonGrab(seasonStreamStatus);
-  const seasonGrabSummaryId =
-    showSeasonGrab && season != null ? `season-${season}-grab-status` : undefined;
-
   // Episode count next to the season control — the select already names the
   // season, so "7 episodes" beats the old "7 in season 1" echo.
   const seasonCountLabel =
@@ -203,93 +193,63 @@ export function EpisodeList({
 
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
-      <h2 id="title-episodes-heading" className="text-title">
-        Episodes
-      </h2>
-
-      {/*
-        One toolbar, not a pill strip.
-        24× "Season N" chips forced horizontal scroll and looked like a browser
-        tab bar. Netflix/Plex use a select: every season is one click away, the
-        row stays one line, and Play/Download sit next to the choice they act on.
-      */}
       {seasons.length > 1 || showSeasonGrab || season != null ? (
         <div
           data-season-toolbar
-          className="mt-3 flex flex-wrap items-center gap-2 sm:gap-3"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2"
         >
-          {seasons.length > 1 ? (
-            <label className="relative inline-flex min-w-0 shrink-0 items-center">
-              <span className="sr-only">Season</span>
-              <select
-                data-season-select
-                value={season ?? ""}
-                onChange={(event) => {
-                  const next = Number(event.target.value);
-                  if (Number.isFinite(next)) onSeasonChange(next);
-                }}
-                className={cn(
-                  "h-11 min-h-[44px] cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors lg:h-9 lg:min-h-0",
-                  "hover:border-[var(--border-strong)]",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-                )}
+          <h2 id="title-episodes-heading" className="text-title w-full sm:w-auto">
+            Episodes
+          </h2>
+          <div className="flex min-w-0 items-center gap-2">
+            {seasons.length > 1 ? (
+              <label className="relative inline-flex min-w-0 shrink-0 items-center">
+                <span className="sr-only">Season</span>
+                <select
+                  data-season-select
+                  value={season ?? ""}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (Number.isFinite(next)) onSeasonChange(next);
+                  }}
+                  className={cn(
+                    "h-11 min-h-[44px] cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors lg:h-9 lg:min-h-0",
+                    "hover:border-[var(--border-strong)]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                  )}
+                >
+                  {seasons.map((s) => (
+                    <option key={s.season} value={s.season}>
+                      Season {s.season}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[var(--text-tertiary)]"
+                  aria-hidden
+                />
+              </label>
+            ) : season != null ? (
+              <span
+                data-season-label
+                className="text-[13px] font-medium text-[var(--text)]"
               >
-                {seasons.map((s) => (
-                  <option key={s.season} value={s.season}>
-                    Season {s.season}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[var(--text-tertiary)]"
-                aria-hidden
-              />
-            </label>
-          ) : season != null ? (
-            <span
-              data-season-label
-              className="text-[13px] font-medium text-[var(--text)]"
-            >
-              Season {season}
-            </span>
-          ) : null}
+                Season {season}
+              </span>
+            ) : null}
 
-          {seasonCountLabel ? (
-            <p
-              data-season-count
-              className="min-w-[72px] text-[12px] tabular-nums text-[var(--text-tertiary)]"
-            >
-              {seasonCountLabel}
-            </p>
-          ) : null}
+            {seasonCountLabel ? (
+              <p
+                data-season-count
+                className="text-[12px] tabular-nums text-[var(--text-tertiary)]"
+              >
+                {seasonCountLabel}
+              </p>
+            ) : null}
+          </div>
 
           {showSeasonGrab && season != null ? (
-            <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
-              <Button
-                type="button"
-                size="sm"
-                variant="default"
-                data-season-grab
-                data-action="stream"
-                aria-busy={seasonStreamStatus.status === "pending" || undefined}
-                aria-describedby={seasonGrabSummaryId}
-                disabled={!seasonStreamCanRun}
-                onClick={() =>
-                  onSeasonGrab(
-                    season,
-                    episodes.map((episode) => episode.episode),
-                    "stream",
-                  )
-                }
-                className="relative min-h-[44px] flex-1 sm:flex-none lg:min-h-0"
-              >
-                <ButtonBody
-                  pending={seasonStreamStatus.status === "pending"}
-                  icon={<Play className="fill-current" aria-hidden />}
-                >
-                  Play season
-                </ButtonBody>
-              </Button>
+            <div className="ml-auto flex w-full items-center justify-end sm:w-[17rem]">
               <Button
                 type="button"
                 size="sm"
@@ -297,7 +257,6 @@ export function EpisodeList({
                 data-season-grab
                 data-action="download"
                 aria-busy={seasonGrabStatus.status === "pending" || undefined}
-                aria-describedby={seasonGrabSummaryId}
                 disabled={!seasonDownloadCanRun}
                 onClick={() => {
                   if (season == null) return;
@@ -308,7 +267,7 @@ export function EpisodeList({
                     onSeasonGrab(season, episodeNums, "keep", preferredResolution);
                   }
                 }}
-                className="relative min-h-[44px] flex-1 sm:flex-none lg:min-h-0"
+                className="relative min-h-[44px] w-full sm:ml-auto sm:w-[9.5rem] lg:min-h-0"
               >
                 <ButtonBody
                   pending={seasonGrabStatus.status === "pending"}
@@ -320,18 +279,19 @@ export function EpisodeList({
             </div>
           ) : null}
         </div>
-      ) : null}
+      ) : (
+        <h2 id="title-episodes-heading" className="text-title">Episodes</h2>
+      )}
 
-      {showSeasonGrab && season != null ? (
-        <SeasonGrabReportLine
-          id={seasonGrabSummaryId}
-          season={season}
-          status={seasonGrabStatus}
+      {busy || view.kind === "loading" ? (
+        <EpisodeSkeletonRows
+          rows={view.kind === "loading" ? view.skeletonRows : Math.max(episodes.length, 3)}
+          label={
+            season != null
+              ? `Loading season ${season} episodes…`
+              : "Loading episodes…"
+          }
         />
-      ) : null}
-
-      {view.kind === "loading" ? (
-        <EpisodeSkeletonRows rows={view.skeletonRows} />
       ) : view.kind === "error" ? (
         <p
           role="alert"
@@ -348,12 +308,7 @@ export function EpisodeList({
         </p>
       ) : (
         <>
-          <ul
-            className={cn(
-              "mt-3 space-y-1.5",
-              (busy || view.dim) && "opacity-60",
-            )}
-          >
+          <ul className="mt-3 space-y-1.5">
             {episodes.map((episode) => (
               <EpisodeRow
                 key={episode.episode}
@@ -364,9 +319,6 @@ export function EpisodeList({
                 )}
                 downloadStatus={statusFor(
                   episodeIntentKey(episode.season, episode.episode, "keep"),
-                )}
-                fallbackStatus={statusFor(
-                  episodeActionKey(episode.season, episode.episode),
                 )}
                 onAction={(action, label, retention) => {
                   // Play is always instant — never ask for quality.
@@ -403,58 +355,49 @@ export function EpisodeList({
   );
 }
 
-function SeasonGrabReportLine({
-  id,
-  season,
-  status,
+function EpisodeSkeletonRows({
+  rows,
+  label,
 }: {
-  id?: string;
-  season: number;
-  status: SeasonGrabStatus;
+  rows: number;
+  label: string;
 }) {
-  if (status.status === "idle") return null;
-  const strategy =
-    status.status === "done" ? seasonGrabStrategySummary(status.report) : null;
   return (
-    <div
-      id={id}
-      className="mt-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]"
-      role={status.status === "error" ? "alert" : "status"}
-      data-season-grab-report
-    >
-      <p>{seasonGrabSummary(status, season)}</p>
-      {strategy ? <p>{strategy}</p> : null}
+    <div className="mt-3" data-episode-skeletons aria-busy="true">
+      {/* Skeletons alone do not say what is happening. Without this line the
+          list appears to materialise from nowhere once the extras round-trip
+          finishes — the exact complaint on a title page whose hero settled
+          first. */}
+      <p
+        role="status"
+        aria-live="polite"
+        data-episode-loading
+        className="mb-2 text-[12px] text-[var(--text-tertiary)]"
+      >
+        {label}
+      </p>
+      <ul className="space-y-1.5" aria-label={label}>
+        {Array.from({ length: rows }, (_, i) => (
+          <li
+            key={i}
+            className="surface flex items-start gap-3 px-3 py-2.5"
+            data-episode-skeleton
+          >
+            <span className="skeleton h-[50px] w-[88px] shrink-0 rounded-[6px] sm:h-[72px] sm:w-[128px]" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-baseline gap-2">
+                <span className="skeleton h-3 w-12 rounded" />
+                <span className="skeleton h-3.5 w-40 rounded" />
+              </span>
+              <span className="mt-2 block">
+                <span className="skeleton block h-2.5 w-56 max-w-full rounded" />
+              </span>
+            </span>
+            <span className="skeleton h-11 w-16 shrink-0 self-center rounded-[var(--radius)] lg:h-8" />
+          </li>
+        ))}
+      </ul>
     </div>
-  );
-}
-
-function EpisodeSkeletonRows({ rows }: { rows: number }) {
-  return (
-    <ul
-      className="mt-3 space-y-1.5"
-      aria-label="Loading episodes"
-      aria-busy="true"
-      data-episode-skeletons
-    >
-      {Array.from({ length: rows }, (_, i) => (
-        <li
-          key={i}
-          className="surface flex items-start gap-3 px-3 py-2.5"
-          data-episode-skeleton
-        >
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline gap-2">
-              <span className="skeleton h-3 w-12 rounded" />
-              <span className="skeleton h-3.5 w-40 rounded" />
-            </span>
-            <span className="mt-2 block">
-              <span className="skeleton block h-2.5 w-56 max-w-full rounded" />
-            </span>
-          </span>
-          <span className="skeleton h-8 w-16 shrink-0 self-center rounded-[var(--radius)]" />
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -463,7 +406,6 @@ function EpisodeRow({
   gated = false,
   streamStatus,
   downloadStatus,
-  fallbackStatus,
   onAction,
 }: {
   episode: EpisodeRowModel;
@@ -471,7 +413,6 @@ function EpisodeRow({
   gated?: boolean;
   streamStatus: TitleActionStatus;
   downloadStatus: TitleActionStatus;
-  fallbackStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
 }) {
   const transfer = episode.transfer;
@@ -514,35 +455,24 @@ function EpisodeRow({
     effectiveStreamStatus === "idle" && streamAction.kind === "stream"
       ? "Play"
       : streamLabel;
-  const downloadDisplayLabel =
-    transfer?.status === "failed"
-      ? "Retry"
-      : transferComplete
-        ? "Downloaded"
-        : effectiveDownloadStatus === "idle"
-          ? "Download"
-          : downloadLabel;
+  const held = transfer?.status === "downloaded" || episode.availability === "ready";
+  const downloadDisplayLabel = transfer?.status === "failed"
+    ? "Retry download"
+    : transfer?.status === "queued"
+      ? "Queued"
+      : transfer?.status === "downloading"
+        ? `Downloading ${formatTransferProgress(transfer.progress)}`
+        : held || effectiveDownloadStatus === "done"
+          ? "Downloaded"
+          : effectiveDownloadStatus === "error"
+            ? "Retry download"
+            : downloadLabel;
   const streamCanRun = shouldRunTitleAction(streamAction, effectiveStreamStatus);
-  const showStreamAction =
-    transfer?.status !== "failed" || resolved.kind === "play";
   const downloadCanRun =
-    !transferComplete &&
+    !held &&
     transfer?.status !== "queued" &&
     transfer?.status !== "downloading" &&
     shouldRunTitleAction(downloadAction, effectiveDownloadStatus);
-  const displayStatus =
-    effectiveStreamStatus !== "idle"
-      ? effectiveStreamStatus
-      : effectiveDownloadStatus !== "idle"
-        ? effectiveDownloadStatus
-        : fallbackStatus;
-  const actionStatusText = episodeActionStatusText(
-    episode.label,
-    displayStatus,
-  );
-  const downloaded = progressPercent(episode.downloadFraction);
-  const watched = progressPercent(episode.watchedFraction);
-  const resumeAt = formatClock(episode.resumePositionSec);
   const meta = episode.meta;
   const airDate = formatAirDate(meta?.airDate ?? null);
 
@@ -553,37 +483,14 @@ function EpisodeRow({
   const unaired =
     resolved.kind !== "play" && (gated || isUnaired(meta?.airDate ?? null));
 
+  // Title, air date, runtime, overview. Everything else is already on the
+  // right (Play / Downloaded / Retry) or is noise next to a Ready chip.
+  // "Downloaded/Available" under a Ready row was the same fact three times.
   const facts: string[] = [];
   if (!unaired && airDate) facts.push(airDate);
   const runtime = formatRuntime(meta?.runtimeMin ?? null);
   if (runtime) facts.push(runtime);
-  if (episode.fromPack) facts.push("From a season pack");
-  if (
-    transfer == null &&
-    downloaded != null &&
-    downloaded < 100
-  ) {
-    facts.push(`${downloaded}% downloaded`);
-  }
-  if (resumeAt) facts.push(`Resume at ${resumeAt}`);
-  else if (watched != null && watched < 100) facts.push(`${watched}% watched`);
   const factsText = factsLine(facts);
-
-  // Only local states earn a badge. "Unavailable" beside a Play retry is
-  // contradictory, and "Can get" only repeats the row's controls.
-  const showChip =
-    episode.availability === "ready" || episode.availability === "warm";
-  const showTags = showChip || episode.nextUp || episode.watched;
-  const transferText =
-    transfer?.status === "queued"
-      ? "Queued"
-      : transfer?.status === "downloading"
-        ? `Downloading ${formatTransferProgress(transfer.progress)}`
-        : transfer?.status === "downloaded"
-          ? "Downloaded/Available"
-          : transfer?.status === "failed"
-            ? "Download failed"
-            : null;
 
   return (
     <li
@@ -596,82 +503,48 @@ function EpisodeRow({
       )}
     >
       <div className="flex min-w-0 items-start gap-3 sm:flex-1">
-      {meta?.stillUrl ? (
-        <span className="relative block aspect-video w-[88px] shrink-0 overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--bg-muted)] sm:w-[128px]">
-          <PosterImage
-            src={meta.stillUrl}
-            title={meta.name ?? episode.label}
-            sizes="128px"
-            variant="plain"
-            className="object-cover"
-          />
-        </span>
-      ) : null}
-
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-x-2">
-          <span className="shrink-0 text-[12px] font-medium tabular-nums text-[var(--text-secondary)]">
-            {episode.label}
-          </span>
-          {meta?.name ? (
-            <span
-              data-episode-name
-              className="min-w-0 truncate text-[13px] font-medium text-[var(--text)]"
-            >
-              {meta.name}
-            </span>
+        <span
+          data-episode-still
+          className="relative block h-[50px] w-[88px] shrink-0 overflow-hidden rounded-[6px] border border-[var(--border)] bg-[var(--bg-muted)] sm:h-[72px] sm:w-[128px]"
+        >
+          {meta?.stillUrl ? (
+            <PosterImage
+              src={meta.stillUrl}
+              title={meta.name ?? episode.label}
+              sizes="128px"
+              variant="plain"
+              className="object-cover"
+            />
           ) : null}
         </span>
 
-        {showTags ? (
-          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-            {showChip ? (
-              <AvailabilityChip state={episode.availability} compact />
-            ) : null}
-            {episode.nextUp ? (
-              <span className="rounded-[5px] border border-[var(--border)] bg-[var(--bg-muted)] px-1.5 py-1 text-[10px] font-medium leading-none text-[var(--text-secondary)]">
-                Next up
-              </span>
-            ) : null}
-            {episode.watched ? (
-                          <span className="inline-flex items-center gap-1 text-[12px] text-[var(--text-tertiary)]">
-                <Check className="h-3 w-3" aria-hidden />
-                Watched
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-x-2">
+            <span className="shrink-0 text-[12px] font-medium tabular-nums text-[var(--text-secondary)]">
+              {episode.label}
+            </span>
+            {meta?.name ? (
+              <span
+                data-episode-name
+                className="min-w-0 truncate text-[13px] font-medium text-[var(--text)]"
+              >
+                {meta.name}
               </span>
             ) : null}
           </span>
-        ) : null}
 
-        {factsText ? (
-                      <span className="mt-1 flex flex-wrap items-center text-[12px] text-[var(--text-tertiary)]">
-            {factsText}
-          </span>
-        ) : null}
+          {factsText ? (
+            <span className="mt-1 flex flex-wrap items-center text-[12px] text-[var(--text-tertiary)]">
+              {factsText}
+            </span>
+          ) : null}
 
-        {transferText ? (
-          <span
-            className="mt-1 block text-[12px] font-medium text-[var(--text-secondary)]"
-            data-episode-transfer={transfer?.status}
-          >
-            {transferText}
-          </span>
-        ) : null}
-
-        {actionStatusText ? (
-          <span
-                        className="mt-1 block text-[12px] text-[var(--text-tertiary)]"
-            data-episode-action-status
-          >
-            {actionStatusText}
-          </span>
-        ) : null}
-
-        {meta?.overview ? (
-          <span className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
-            {meta.overview}
-          </span>
-        ) : null}
-      </span>
+          {meta?.overview ? (
+            <span className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+              {meta.overview}
+            </span>
+          ) : null}
+        </span>
       </div>
 
       {unaired ? (
@@ -684,29 +557,27 @@ function EpisodeRow({
           {airDate ? `Airs ${airDate}` : "Not aired yet"}
         </span>
       ) : (
-        <span className="flex w-full items-center gap-2 sm:w-auto sm:shrink-0 sm:flex-wrap sm:justify-end sm:self-center">
-          {showStreamAction ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="default"
-              data-episode-action
-              data-action="stream"
-              data-action-kind={streamAction.kind}
-              aria-label={`${streamDisplayLabel} — ${episode.label}`}
-              aria-busy={effectiveStreamStatus === "pending" || undefined}
-              disabled={!streamCanRun}
-              onClick={() => onAction(streamAction, episode.label, "stream")}
-              className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:min-w-[5rem] sm:shrink-0"
+        <span className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 sm:w-[17rem] sm:shrink-0 sm:grid-cols-[5.25rem_10.75rem] sm:self-center">
+          <Button
+            type="button"
+            size="sm"
+            variant="default"
+            data-episode-action
+            data-action="stream"
+            data-action-kind={streamAction.kind}
+            aria-label={`${streamDisplayLabel} — ${episode.label}`}
+            aria-busy={effectiveStreamStatus === "pending" || undefined}
+            disabled={!streamCanRun}
+            onClick={() => onAction(streamAction, episode.label, "stream")}
+            className="relative min-h-[44px] w-full lg:min-h-0"
+          >
+            <ButtonBody
+              pending={effectiveStreamStatus === "pending"}
+              icon={<Play className="fill-current" aria-hidden />}
             >
-              <ButtonBody
-                pending={effectiveStreamStatus === "pending"}
-                icon={<Play className="fill-current" aria-hidden />}
-              >
-                {streamDisplayLabel}
-              </ButtonBody>
-            </Button>
-          ) : null}
+              {streamDisplayLabel}
+            </ButtonBody>
+          </Button>
           <Button
             type="button"
             size="sm"
@@ -718,7 +589,7 @@ function EpisodeRow({
             aria-busy={effectiveDownloadStatus === "pending" || undefined}
             disabled={!downloadCanRun}
             onClick={() => onAction(downloadAction, episode.label, "keep")}
-            className="relative min-h-[44px] flex-1 lg:min-h-0 sm:flex-none sm:min-w-[6rem] sm:shrink-0"
+            className="relative min-h-[44px] w-full lg:min-h-0"
           >
             <ButtonBody
               pending={effectiveDownloadStatus === "pending"}
@@ -736,17 +607,4 @@ function EpisodeRow({
 function formatTransferProgress(progress: number): string {
   const percent = Math.min(100, Math.max(0, progress * 100));
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
-}
-
-function episodeActionStatusText(
-  label: string,
-  status: TitleActionStatus,
-): string | null {
-  // "Getting" and "Sending" are downloader jargon. These copies use plain
-  // language. The `done` state means the API responded but the episode has
-  // not yet appeared as playable — it is on its way, not stuck.
-  if (status === "pending") return `Loading ${label}…`;
-  if (status === "done") return `${label} is on its way…`;
-  if (status === "error") return `Could not start ${label}. Try again.`;
-  return null;
 }

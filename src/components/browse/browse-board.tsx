@@ -17,9 +17,11 @@ import { PlayOverlay } from "./play-overlay";
 import { Rail } from "./rail";
 
 interface NowPlaying {
-  infoHash: string;
+  infoHash: string | null;
   title: string;
   subtitle: string | null;
+  season: number | null;
+  episode: number | null;
   resumePositionSec: number | null;
 }
 
@@ -40,12 +42,49 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
   const runAction = useCallback(
     async (item: RailItem, action: CardAction) => {
       if (action.kind === "play") {
+        // Play plays. Open the overlay immediately on the hash we have. If the
+        // engine no longer holds it the stream 404s, so we re-fetch in the
+        // background and hand the fresh hash in as a prop update — the player
+        // never dead-ends on "download it first, then play".
         setPlaying({
           infoHash: action.infoHash,
           title: cleanDisplayTitle(item.title),
           subtitle: item.subtitle,
+          season: item.season ?? null,
+          episode: item.episode ?? null,
           resumePositionSec: action.resumePositionSec,
         });
+
+        // `warm`/`ready` means the engine answered for it moments ago. Anything
+        // else (notably Continue Watching's stale hash) gets a refetch.
+        if (item.availability === "ready" || item.availability === "warm") return;
+
+        try {
+          const res = await fetch("/api/library/ondemand", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              watchListItemId: item.watchListItemId ?? undefined,
+              title: cleanDisplayTitle(item.title),
+              mediaType: item.mediaType ?? undefined,
+              season: item.season ?? undefined,
+              episode: item.episode ?? undefined,
+              retention: "stream",
+              protectHashes: [action.infoHash],
+            }),
+          });
+          const data = (await res.json().catch(() => null)) as {
+            ok?: boolean;
+            infoHash?: string | null;
+          } | null;
+          if (res.ok && data?.infoHash && data.infoHash !== action.infoHash) {
+            setPlaying((prev) =>
+              prev ? { ...prev, infoHash: data.infoHash! } : prev,
+            );
+          }
+        } catch {
+          // The player owns its own failure copy from here.
+        }
         return;
       }
       if (action.kind !== "get") return;
@@ -115,6 +154,8 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
           infoHash={playing.infoHash}
           title={playing.title}
           subtitle={playing.subtitle}
+          season={playing.season}
+          episode={playing.episode}
           resumePositionSec={playing.resumePositionSec}
           onClose={() => setPlaying(null)}
         />

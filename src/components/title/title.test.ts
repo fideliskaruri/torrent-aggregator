@@ -878,9 +878,9 @@ check("episodeListView: loading with no rows shows skeletons, never empty copy",
   assert.ok(!("copy" in view) || view.copy !== EMPTY_EPISODES_COPY);
 });
 
-check("episodeListView: loading with existing rows keeps and dims stale rows", () => {
+check("episodeListView: background loading keeps existing rows undimmed", () => {
   const view = episodeListView({ status: "loading" }, 4);
-  assert.deepEqual(view, { kind: "rows", dim: true });
+  assert.deepEqual(view, { kind: "rows" });
 });
 
 check("episodeListView: settled with no rows preserves the honest empty copy", () => {
@@ -994,9 +994,10 @@ check("episodeStatusesFromSeasonReport: season grab lights rows individually", (
     ],
   };
 
+  // "missing" must not become a permanent per-row error — that painted
+  // "Could not start …" under episodes that were already Ready/Downloaded.
   assert.deepEqual(episodeStatusesFromSeasonReport(report), {
     s2e1: "done",
-    s2e2: "error",
   });
 });
 

@@ -61,6 +61,11 @@ export interface TmdbShowShape {
   episodesBySeason: Record<number, number>;
 }
 
+type RawShow = {
+  number_of_seasons?: number;
+  seasons?: { season_number?: number; episode_count?: number }[];
+};
+
 /**
  * A neighbouring work, before it is given a link.
  *
@@ -270,11 +275,6 @@ export async function fetchWorkBlurb(ref: TmdbRef): Promise<TmdbWorkBlurb> {
 // Shows, seasons, episodes
 // ---------------------------------------------------------------------------
 
-type RawShow = {
-  number_of_seasons?: number;
-  seasons?: { season_number?: number; episode_count?: number }[];
-};
-
 /**
  * How many seasons there really are.
  *
@@ -287,30 +287,34 @@ export async function fetchShowShape(id: number): Promise<TmdbShowShape> {
   return memo(`show:${id}`, async () => {
     const json = await tmdbGet<RawShow>(`/tv/${id}`);
     if (!json) return { seasonCount: null, seasons: [], episodesBySeason: {} };
-
-    const seasons: number[] = [];
-    const episodesBySeason: Record<number, number> = {};
-    for (const season of json.seasons ?? []) {
-      const n = season.season_number;
-      // Season 0 is specials. It is not "a season" in the sense a user means.
-      if (typeof n !== "number" || !Number.isFinite(n) || n < 1) continue;
-      seasons.push(n);
-      if (typeof season.episode_count === "number" && season.episode_count > 0) {
-        episodesBySeason[n] = season.episode_count;
-      }
-    }
-    seasons.sort((a, b) => a - b);
-
-    const declared = json.number_of_seasons;
-    const seasonCount =
-      typeof declared === "number" && Number.isFinite(declared) && declared > 0
-        ? declared
-        : seasons.length > 0
-          ? seasons.length
-          : null;
-
-    return { seasonCount, seasons, episodesBySeason };
+    return parseShowShape(json);
   });
+}
+
+/** Convert only season numbers TMDB explicitly supplied; never fill gaps. */
+export function parseShowShape(json: RawShow): TmdbShowShape {
+  const seasons: number[] = [];
+  const episodesBySeason: Record<number, number> = {};
+  for (const season of json.seasons ?? []) {
+    const n = season.season_number;
+    // Season 0 is specials. It is not "a season" in the sense a user means.
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1) continue;
+    if (!seasons.includes(n)) seasons.push(n);
+    if (typeof season.episode_count === "number" && season.episode_count > 0) {
+      episodesBySeason[n] = season.episode_count;
+    }
+  }
+  seasons.sort((a, b) => a - b);
+
+  const declared = json.number_of_seasons;
+  const seasonCount =
+    typeof declared === "number" && Number.isInteger(declared) && declared > 0
+      ? declared
+      : seasons.length > 0
+        ? seasons.length
+        : null;
+
+  return { seasonCount, seasons, episodesBySeason };
 }
 
 type RawEpisode = {
@@ -331,12 +335,24 @@ export async function fetchSeasonEpisodes(
     const json = await tmdbGet<{ episodes?: RawEpisode[] }>(
       `/tv/${id}/season/${season}`,
     );
-    if (!json?.episodes) return [];
+    return parseSeasonEpisodes(json);
+  });
+}
 
-    const out: TitleEpisodeMeta[] = [];
-    for (const raw of json.episodes) {
+/** Preserve every real episode row in TMDB's requested-season response. */
+export function parseSeasonEpisodes(json: {
+  episodes?: RawEpisode[];
+} | null): TitleEpisodeMeta[] {
+  if (!json?.episodes) return [];
+
+  const out: TitleEpisodeMeta[] = [];
+  const seen = new Set<number>();
+  for (const raw of json.episodes) {
       const n = raw.episode_number;
-      if (typeof n !== "number" || !Number.isFinite(n) || n < 0) continue;
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || seen.has(n)) {
+        continue;
+      }
+      seen.add(n);
       out.push({
         episode: n,
         name: text(raw.name),
@@ -346,10 +362,9 @@ export async function fetchSeasonEpisodes(
           typeof raw.runtime === "number" && raw.runtime > 0 ? raw.runtime : null,
         stillUrl: raw.still_path ? `${STILL_BASE}${raw.still_path}` : null,
       });
-    }
-    out.sort((a, b) => a.episode - b.episode);
-    return out;
-  });
+  }
+  out.sort((a, b) => a.episode - b.episode);
+  return out;
 }
 
 // ---------------------------------------------------------------------------

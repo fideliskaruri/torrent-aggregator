@@ -75,7 +75,7 @@ check("the source no longer sends acquire requests to /api/torrent/send", () => 
   assert.match(componentSource, /fetch\("\/api\/watchlist"/);
 });
 
-check("monitoring off renders as a plain product-worded toggle switch", () => {
+check("an existing library title renders only a quiet static chip", () => {
   const html = renderToStaticMarkup(
     React.createElement(LibraryControls, {
       library: library(),
@@ -83,17 +83,14 @@ check("monitoring off renders as a plain product-worded toggle switch", () => {
       onChanged: () => {},
     }),
   );
-  // A switch, not a big CTA, and it says what it does in product terms.
-  assert.match(html, /role="switch"/);
-  assert.match(html, /aria-checked="false"/);
-  assert.match(html, />Auto-download new episodes</);
-  // No jargon ("checks") and no free-floating helper paragraph.
-  assert.doesNotMatch(html, /automatic checks/);
-  assert.doesNotMatch(html, /aria-describedby=/);
-  assert.doesNotMatch(html, /fetched as/);
+  assert.match(html, /data-in-library/);
+  assert.match(html, />In Library</);
+  assert.doesNotMatch(html, /role="switch"/);
+  assert.doesNotMatch(html, /data-monitor-toggle/);
+  assert.doesNotMatch(html, /Auto-download/i);
 });
 
-check("monitoring on flips the toggle label without a stale helper", () => {
+check("the static library state does not change with the stored monitored value", () => {
   const html = renderToStaticMarkup(
     React.createElement(LibraryControls, {
       library: library({ monitored: true }),
@@ -101,13 +98,11 @@ check("monitoring on flips the toggle label without a stale helper", () => {
       onChanged: () => {},
     }),
   );
-  assert.match(html, /aria-checked="true"/);
-  assert.match(html, />Auto-downloading new episodes</);
-  assert.doesNotMatch(html, /automatic checks/);
-  assert.doesNotMatch(html, /aria-describedby=/);
+  assert.match(html, />In Library</);
+  assert.doesNotMatch(html, /role="switch"|Auto-download/i);
 });
 
-check("a movie gets movie-worded monitoring copy, never episode copy", () => {
+check("a movie in the library also gets no monitoring control", () => {
   const html = renderToStaticMarkup(
     React.createElement(LibraryControls, {
       library: library(),
@@ -115,8 +110,22 @@ check("a movie gets movie-worded monitoring copy, never episode copy", () => {
       onChanged: () => {},
     }),
   );
-  assert.match(html, />Auto-download when available</);
+  assert.match(html, />In Library</);
+  assert.doesNotMatch(html, /role="switch"|Auto-download/i);
   assert.doesNotMatch(html, /new episodes/);
+});
+
+check("adding uses the existing POST endpoint and reports success with Sonner", () => {
+  assert.match(componentSource, /method:\s*"POST"/);
+  assert.match(componentSource, /answersToPayload\(chosen\)/);
+  assert.doesNotMatch(componentSource, /method:\s*"PATCH"/);
+  assert.match(componentSource, /toast\.success\("Added to library"\)/);
+  assert.match(componentSource, /toast\.error\(/);
+});
+
+check("the add form has no auto-download preference question", () => {
+  assert.doesNotMatch(componentSource, /data-question="auto-download"/);
+  assert.doesNotMatch(componentSource, /autoDownload/);
 });
 
 console.log(

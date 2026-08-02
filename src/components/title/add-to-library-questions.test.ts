@@ -14,7 +14,6 @@ import {
   addSummary,
   answersToPayload,
   defaultAnswers,
-  isUnreleased,
   parseStartPoint,
   type AddSubject,
 } from "./add-to-library-questions";
@@ -58,24 +57,21 @@ check("a film already out is not asked anything at all", () => {
   assert.deepEqual(addQuestions(film({ releaseDate: "2001-01-01" })), []);
 });
 
-check("a film not yet out is asked whether to grab it on release", () => {
+check("a film not yet out is also added without a preference question", () => {
   const soon = new Date(Date.now() + 90 * 86_400_000)
     .toISOString()
     .slice(0, 10);
-  const ids = addQuestions(film({ releaseDate: soon })).map((q) => q.id);
-  assert.deepEqual(ids, ["auto-download"]);
+  assert.deepEqual(addQuestions(film({ releaseDate: soon })), []);
 });
 
-check("a film with no known date is treated as already out", () => {
-  // Guessing "unreleased" from missing data would ask everyone with a thin
-  // metadata provider a question about a film they can download right now.
-  assert.equal(isUnreleased(null), false);
-  assert.equal(isUnreleased("not-a-date"), false);
+check("a film with no known date is not asked anything", () => {
   assert.deepEqual(addQuestions(film({ releaseDate: null })), []);
 });
 
 check("a series is asked where to start, and every known season is offered", () => {
-  const [first] = addQuestions(series({ seasons: [1, 2, 3, 4] }));
+  const questions = addQuestions(series({ seasons: [1, 2, 3, 4] }));
+  assert.equal(questions.length, 1);
+  const [first] = questions;
   assert.equal(first.id, "start-point");
   const values = first.options.map((o) => o.value);
   assert.deepEqual(values, [
@@ -109,21 +105,19 @@ check("quality is never a question", () => {
   }
 });
 
-check("the quiet default never downloads anything", () => {
+check("the default starts a series with new episodes", () => {
   const answers = defaultAnswers();
-  assert.equal(answers.autoDownload, false);
   assert.equal(
     answers.startPoint.kind,
     "now",
-    "a default of 'beginning' is harmless until monitoring is switched on a " +
-      "week later, at which point it fetches a decade of television",
+    "adding should not unexpectedly backfill old seasons",
   );
+  assert.equal(answersToPayload(answers).monitored, true);
 });
 
 check("'new episodes only' sends no season, because absence is the answer", () => {
   const payload = answersToPayload({
     startPoint: { kind: "now" },
-    autoDownload: true,
     preferredResolution: null,
   });
   assert.equal(
@@ -139,7 +133,6 @@ check("'new episodes only' sends no season, because absence is the answer", () =
 check("'from the beginning' starts at the first episode of the first season", () => {
   const payload = answersToPayload({
     startPoint: { kind: "beginning" },
-    autoDownload: true,
     preferredResolution: 1080,
   });
   assert.equal(payload.fromSeason, 1);
@@ -150,23 +143,19 @@ check("'from the beginning' starts at the first episode of the first season", ()
 check("a chosen season starts at that season's first episode", () => {
   const payload = answersToPayload({
     startPoint: { kind: "season", season: 4 },
-    autoDownload: false,
     preferredResolution: null,
   });
   assert.equal(payload.fromSeason, 4);
   assert.equal(payload.fromEpisode, 1);
+  assert.equal(payload.monitored, true);
 });
 
-check("choosing a season does not switch automation on", () => {
-  // The API used to force monitored:true whenever a season was present, so
-  // "start from season 2, but let me pick episodes myself" silently became
-  // "download season 2 onwards forever". A start point says where, not whether.
+check("choosing a season always keeps tracking enabled", () => {
   const payload = answersToPayload({
     startPoint: { kind: "season", season: 2 },
-    autoDownload: false,
     preferredResolution: null,
   });
-  assert.equal(payload.monitored, false);
+  assert.equal(payload.monitored, true);
 });
 
 check("a null resolution means the global preference, not a magic number", () => {
@@ -190,12 +179,11 @@ check("junk start points are rejected rather than guessed at", () => {
   }
 });
 
-check("the summary states the consequence, not the settings", () => {
-  const quiet = addSummary(series(), defaultAnswers());
-  assert.match(quiet, /nothing is downloaded/i);
+check("the summary simply states what adding does", () => {
+  const current = addSummary(series(), defaultAnswers());
+  assert.match(current, /new episodes as they air/i);
   const backfill = addSummary(series(), {
     startPoint: { kind: "beginning" },
-    autoDownload: true,
     preferredResolution: null,
   });
   assert.match(backfill, /first episode/i);
@@ -203,19 +191,9 @@ check("the summary states the consequence, not the settings", () => {
     !/monitored|fromSeason/i.test(backfill),
     "a row description is not a consequence",
   );
-});
-
-check("a summary never promises downloads that automation will not do", () => {
-  // Auto-download off is the one fact that overrides every other answer.
-  const summary = addSummary(series(), {
-    startPoint: { kind: "beginning" },
-    autoDownload: false,
-    preferredResolution: null,
-  });
-  assert.ok(
-    !/downloading/i.test(summary),
-    `off means off, got ${JSON.stringify(summary)}`,
-  );
+  const movie = addSummary(film(), defaultAnswers());
+  assert.match(movie, /gets it when available/i);
+  assert.ok(!/engine|torrent|monitored|fromSeason/i.test(movie));
 });
 
 if (failures) {

@@ -30,7 +30,7 @@
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3100";
+const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3000";
 const ROUTES = (
   process.env.A11Y_ROUTES ??
   "/,/search?q=dune,/watchlist,/client,/activity,/history,/rules,/settings"

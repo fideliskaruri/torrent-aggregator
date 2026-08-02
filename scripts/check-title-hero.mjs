@@ -15,7 +15,7 @@
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:3100";
+const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:3000";
 
 /** Same width, different heights: only the viewport height varies. */
 const HEIGHT_PAIR = [

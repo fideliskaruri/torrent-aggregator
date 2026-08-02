@@ -30,7 +30,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Download, Loader2, Play, Search } from "lucide-react";
 import { toast } from "sonner";
-import { AvailabilityChip } from "@/components/browse/availability-chip";
 import { PosterImage } from "@/components/browse/poster-image";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { posterTint } from "@/components/browse/poster";
@@ -52,14 +51,12 @@ import { titleFacts } from "./title-facts";
 import {
   offersDownload,
   resolvePrimaryAction,
-  transferStatusLine,
   shouldRunTitleAction,
   titleActionButtonLabel,
   type TitleAction,
   type TitleActionStatus,
 } from "./title-actions";
 import {
-  episodeStatusesFromSeasonReport,
   seasonGrabKey,
   shouldRunSeasonGrab,
   type SeasonGrabStatus,
@@ -189,8 +186,18 @@ export function TitleDetail(props: TitleDetailProps) {
     ],
   );
 
+  // Poll only while a transfer is actually moving. A fixed 2.5s refresh on an
+  // idle title page hammered /api/title (network waterfall of identical GETs),
+  // re-rendered the whole document, and made chips/status lines appear and
+  // disappear — layout shift with no product reason.
+  const [transferPoll, setTransferPoll] = useState(false);
   const { data, loading, refreshing, error, refetch } =
-    useApiQuery<TitleDetailPayload>(url, { refreshMs: 2_500 });
+    useApiQuery<TitleDetailPayload>(url, {
+      refreshMs: transferPoll ? 2_500 : 0,
+    });
+  useEffect(() => {
+    setTransferPoll(titleNeedsTransferPoll(data));
+  }, [data]);
 
   // The second round trip: episode names, the real season count, neighbours.
   //
@@ -437,6 +444,7 @@ export function TitleDetail(props: TitleDetailProps) {
           ...prev,
           [key]: { status: "done", report },
         }));
+        toast.success(`Season ${targetSeason} added to downloads`);
         refetch();
       } catch (err) {
         spentSeasonGrabs.current.delete(key);
@@ -450,6 +458,11 @@ export function TitleDetail(props: TitleDetailProps) {
                 : `Could not plan season ${targetSeason}`,
           },
         }));
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : `Could not download season ${targetSeason}`,
+        );
       }
     },
     [props.workKey, props.title, props.mediaType, props.year, refetch, seasonStatusFor],
@@ -502,7 +515,6 @@ export function TitleDetail(props: TitleDetailProps) {
           onSeasonChange={setSeason}
           onSeasonGrab={runSeasonGrab}
           onAction={runAction}
-          onFindEpisodes={refetchExtras}
           onLibraryChanged={refetch}
         />
       )}
@@ -545,7 +557,6 @@ function TitleContent({
   onSeasonChange,
   onSeasonGrab,
   onAction,
-  onFindEpisodes,
   onLibraryChanged,
 }: {
   payload: TitleDetailPayload;
@@ -571,7 +582,6 @@ function TitleContent({
     retention: TitleRetention,
     resolution?: number,
   ) => void;
-  onFindEpisodes: () => void;
   onLibraryChanged: () => void;
 }) {
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
@@ -603,17 +613,6 @@ function TitleContent({
   }
 
   const title = cleanDisplayTitle(payload.title);
-  const primary = resolvePrimaryAction(payload);
-  const primaryStatus = statusFor(PRIMARY_KEY);
-  const primaryLabel = titleActionButtonLabel(primary, primaryStatus);
-  const primaryDisplayLabel =
-    primaryStatus === "idle" && primary.kind !== "play"
-      ? primary.kind === "stream"
-        ? "Play"
-        : primary.kind === "discover"
-          ? "Find episodes"
-          : "Download"
-      : primaryLabel;
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
@@ -654,10 +653,45 @@ function TitleContent({
     truncated: onKnownSeason && payload.episodesTruncated,
   });
 
+  // The hero always means watch. Feeding the provider-complete rows into the
+  // resolver lets a series with no local files name a real first/next episode;
+  // converting the non-local result to stream keeps Play from turning into an
+  // ambiguous series-level Download.
+  const resolvedPrimary = resolvePrimaryAction({
+    ...payload,
+    seasons,
+    season: activeSeason,
+    episodes: rows,
+  });
+  const primary: TitleAction =
+    resolvedPrimary.kind === "play"
+      ? resolvedPrimary
+      : {
+          kind: "stream",
+          label: "Play",
+          season: resolvedPrimary.season,
+          episode: resolvedPrimary.episode,
+        };
+  const primaryStatus = statusFor(PRIMARY_KEY);
+  const primaryDisplayLabel =
+    primaryStatus === "pending"
+      ? primary.label
+      : primary.kind === "play" && primary.resumePositionSec
+        ? "Resume"
+        : "Play";
+
   const seasonCount = extras?.seasonCount ?? null;
   const similar = extras?.moreLikeThis ?? [];
+  // A series page with no extras yet is still loading the episode list —
+  // not "ready with zero episodes". Treating that gap as ready flashed the
+  // empty copy (or nothing) under a finished hero, then the list popped in
+  // with no explanation of the wait.
   const episodeListLoading =
-    (refreshing && season !== payload.season) || extrasLoading || extrasRefreshing;
+    payload.isSeries &&
+    ((refreshing && season !== payload.season) ||
+      extrasLoading ||
+      extrasRefreshing ||
+      (!extras && !extrasError));
   const episodeListState =
     extrasError && rows.length === 0
       ? ({ status: "error", message: extrasError } as const)
@@ -666,15 +700,6 @@ function TitleContent({
         : ({ status: "ready" } as const);
   const activeSeasonGrabStatus =
     activeSeason != null ? seasonStatusFor(activeSeason, "keep") : ({ status: "idle" } as const);
-  const activeSeasonStreamStatus =
-    activeSeason != null ? seasonStatusFor(activeSeason, "stream") : ({ status: "idle" } as const);
-  const seasonEpisodeStatuses =
-    activeSeasonGrabStatus.status === "done"
-      ? episodeStatusesFromSeasonReport(activeSeasonGrabStatus.report)
-      : activeSeasonStreamStatus.status === "done"
-        ? episodeStatusesFromSeasonReport(activeSeasonStreamStatus.report)
-        : {};
-
   const facts = titleFacts({
     year: payload.year,
     mediaType: payload.mediaType,
@@ -686,10 +711,6 @@ function TitleContent({
     seasonCount,
   });
 
-  const primarySubtitle =
-    primary.season != null && primary.episode != null
-      ? `S${pad(primary.season)}E${pad(primary.episode)}`
-      : null;
   // The button is the only place a pending action is narrated: ButtonBody
   // overlays the spinner in place of the label, exactly like a normal video
   // player. No status line, no hint, and no progress bar under the buttons.
@@ -700,9 +721,7 @@ function TitleContent({
   // being watchable, and taking Play away mid-download is the behaviour the
   // sequential piece strategy exists to avoid.
   const primaryCanRun =
-    shouldRunTitleAction(primary, primaryStatus) &&
-    !gated &&
-    !(primary.kind === "get" && !offersDownload(payload.transfer));
+    shouldRunTitleAction(primary, primaryStatus) && !gated;
 
   // Play and Download are the two acquire intents. The primary button above is
   // the Play/Resume path (it opens the player); Download keeps the file. We only
@@ -718,12 +737,7 @@ function TitleContent({
   // user has already sent is not offered again. `payload.transfer` is title
   // scope — an episode or season grab elsewhere in this work must not silence
   // the title's own control.
-  const showDownload =
-    primary.kind !== "get" &&
-    primary.kind !== "discover" &&
-    offersDownload(payload.transfer) &&
-    !gated;
-  const transferLine = transferStatusLine(payload.transfer);
+  const showDownload = !payload.isSeries && !gated;
   const downloadAction: TitleAction = {
     kind: "get",
     label: "Download",
@@ -732,12 +746,21 @@ function TitleContent({
     infoHash: primary.kind === "play" ? primary.infoHash : payload.infoHash,
   };
   const downloadStatus = statusFor(DOWNLOAD_KEY);
-  const downloadLabel = titleActionButtonLabel(downloadAction, downloadStatus);
+  const downloadLabel =
+    payload.transfer?.status === "queued"
+      ? "Queued"
+      : payload.transfer?.status === "downloading"
+        ? `Downloading ${Math.floor(Math.max(0, Math.min(1, payload.transfer.progress)) * 100)}%`
+        : payload.transfer?.status === "downloaded"
+          ? "Downloaded"
+          : payload.transfer?.status === "failed"
+            ? "Retry download"
+            : titleActionButtonLabel(downloadAction, downloadStatus);
   const downloadCanRun =
-    shouldRunTitleAction(downloadAction, downloadStatus) && !gated;
-  const downloadLabelTarget = primarySubtitle
-    ? `${title} ${primarySubtitle}`
-    : title;
+    offersDownload(payload.transfer) &&
+    shouldRunTitleAction(downloadAction, downloadStatus) &&
+    !gated;
+  const downloadLabelTarget = title;
 
   return (
     <article aria-labelledby="title-heading" className="flex grow flex-col">
@@ -795,7 +818,14 @@ function TitleContent({
               began below the fold. The content is what sets the height now; the
               floor only stops a title with no artwork and no overview from
               collapsing into a strip. */}
-          <div className="flex min-h-[18rem] flex-col justify-end gap-6 py-8 sm:min-h-[20rem] sm:py-10 md:flex-row md:items-end md:justify-start lg:min-h-[22rem] lg:py-12">
+          <div
+            className={cn(
+              "flex flex-col justify-end gap-6 py-8 sm:py-10 md:flex-row md:items-end md:justify-start lg:py-10",
+              payload.isSeries
+                ? "min-h-[17rem] sm:min-h-[18rem] lg:min-h-[20rem]"
+                : "min-h-[19rem] sm:min-h-[21rem] lg:min-h-[24rem]",
+            )}
+          >
             {/* The poster is a mark, not a caption: the title is printed
                 beside it, so the no-artwork tile carries no words of its own. */}
             <div className="hidden w-[168px] shrink-0 md:block lg:w-[196px]">
@@ -830,13 +860,7 @@ function TitleContent({
                   >
                     {theatrical.theatricalLabel ?? release.comingLabel ?? "Coming soon"}
                   </span>
-                ) : payload.availability === "ready" ||
-                  payload.availability === "warm" ? (
-                  <AvailabilityChip state={payload.availability} />
                 ) : null}
-                {/* Only local states earn a chip. A stale "Unavailable" beside
-                    Play is self-contradictory, while "Can get" only repeats the
-                    controls already visible below. */}
                 {facts ? (
                   <span data-title-facts className="tabular-nums">
                     {facts}
@@ -877,42 +901,27 @@ function TitleContent({
                   data-title-primary
                   data-action-kind={primary.kind}
                   aria-label={
-                    primarySubtitle
-                      ? `${primaryDisplayLabel} — ${title} ${primarySubtitle}`
-                      : `${primaryDisplayLabel} — ${title}`
+                    `${primaryDisplayLabel} — ${title}`
                   }
                   aria-busy={primaryStatus === "pending" || undefined}
                   disabled={!primaryCanRun}
                   onClick={() =>
-                    primary.kind === "discover"
-                      ? onFindEpisodes()
-                      : requestAction(
-                          primary,
-                          PRIMARY_KEY,
-                          primarySubtitle ? `${title} ${primarySubtitle}` : title,
-                          primary.kind === "get" ? "keep" : "stream",
-                        )
+                    requestAction(
+                      primary,
+                      PRIMARY_KEY,
+                      title,
+                      "stream",
+                    )
                   }
                   className="relative min-w-[9rem]"
                 >
                   <ButtonBody
                     pending={primaryStatus === "pending"}
                     icon={
-                      primary.kind === "play" || primary.kind === "stream" ? (
-                        <Play className="fill-current" aria-hidden />
-                      ) : primary.kind === "discover" ? (
-                        <Search aria-hidden />
-                      ) : (
-                        <Download aria-hidden />
-                      )
+                      <Play className="fill-current" aria-hidden />
                     }
                   >
                     {primaryDisplayLabel}
-                    {primarySubtitle ? (
-                      <span className="text-[12px] tabular-nums opacity-80">
-                        {primarySubtitle}
-                      </span>
-                    ) : null}
                   </ButtonBody>
                 </Button>
                 )}
@@ -924,11 +933,7 @@ function TitleContent({
                     variant="secondary"
                     data-title-download
                     data-action-kind="get"
-                    aria-label={
-                      primarySubtitle
-                        ? `Download — ${title} ${primarySubtitle}`
-                        : `Download — ${title}`
-                    }
+                    aria-label={`Download — ${title}`}
                     aria-busy={downloadStatus === "pending" || undefined}
                     disabled={!downloadCanRun}
                     onClick={() => {
@@ -952,7 +957,7 @@ function TitleContent({
                       pending={downloadStatus === "pending"}
                       icon={<Download aria-hidden />}
                     >
-                      {downloadStatus === "idle" ? "Download" : downloadLabel}
+                      {downloadLabel}
                     </ButtonBody>
                   </Button>
                 ) : null}
@@ -960,27 +965,12 @@ function TitleContent({
                 <LibraryControls
                   library={payload.library}
                   isSeries={payload.isSeries}
-                  seasons={payload.seasons.map((s) => s.season)}
+                  seasons={seasons.map((s) => s.season)}
                   releaseDate={payload.releaseDate}
                   onChanged={onLibraryChanged}
                 />
               </div>
 
-              {/* Title-scope transfer state, in words.
-                  This is the half of the contract that makes suppressing the
-                  Download button honest: take a control away without saying
-                  why and the page just looks broken. `aria-live` because the
-                  line changes under the viewer as the grab progresses. */}
-              {transferLine ? (
-                <p
-                  data-title-transfer
-                  data-transfer-status={payload.transfer?.status}
-                  aria-live="polite"
-                  className="mt-3 text-[13px] tabular-nums text-[var(--text-secondary)]"
-                >
-                  {transferLine}
-                </p>
-              ) : null}
             </div>
           </div>
         </div>
@@ -1018,12 +1008,8 @@ function TitleContent({
             truncated={truncated}
             loadState={episodeListState}
             busy={refreshing && season !== payload.season}
-            statusFor={(key) => {
-              const direct = statusFor(key);
-              return direct !== "idle" ? direct : (seasonEpisodeStatuses[key] ?? "idle");
-            }}
+            statusFor={statusFor}
             seasonGrabStatus={activeSeasonGrabStatus}
-            seasonStreamStatus={activeSeasonStreamStatus}
             gated={gated}
             onSeasonChange={onSeasonChange}
             onSeasonGrab={requestSeasonGrab}
@@ -1123,8 +1109,21 @@ function buildExtrasUrl(
   return `/api/title/${encodeURIComponent(props.workKey)}/extras?${params.toString()}`;
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
+/** True when the payload still has something the engine is moving. */
+function titleNeedsTransferPoll(
+  payload: TitleDetailPayload | null,
+): boolean {
+  if (!payload) return false;
+  const live = (status: string | undefined) =>
+    status === "queued" || status === "downloading";
+  if (live(payload.transfer?.status)) return true;
+  for (const season of payload.seasons) {
+    if (live(season.transfer?.status)) return true;
+  }
+  for (const episode of payload.episodes) {
+    if (live(episode.transfer?.status)) return true;
+  }
+  return false;
 }
 
 /**

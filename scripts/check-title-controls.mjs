@@ -18,7 +18,7 @@
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:3100";
+const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:3000";
 const MAX_TITLES = Number(process.env.PROBE_TITLES ?? 6);
 
 const browser = await chromium.launch();

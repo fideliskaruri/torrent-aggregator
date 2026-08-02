@@ -211,8 +211,18 @@ const ACTION_CASES: Array<{
     disabled: false,
   },
   {
-    name: "unresolved + hash it cannot play → Find it, not Play",
+    // Play means play: a hash is enough to press it, and the click re-fetches
+    // if the engine no longer holds it (see browse-board). Continue Watching
+    // keeps a hash with availability still null and must not lose its Play.
+    name: "unresolved + hash  Play, and recover on press",
     input: item({ availability: null, infoHash: "aaa" }),
+    kind: "play",
+    label: "Play",
+    disabled: false,
+  },
+  {
+    name: "unresolved + no hash  Find it, there is nothing to open",
+    input: item({ availability: null, infoHash: null }),
     kind: "search",
     label: "Find it",
     disabled: false,
@@ -320,7 +330,7 @@ check("action: unavailable is the only dead end a titled item can reach", () => 
   }
 });
 
-check("action: unresolved never promises a grab or a play", () => {
+check("action: unresolved offers Play with a hash, Find it without one", () => {
   for (const ep of [null, 1, 12]) {
     for (const hash of [null, "abc"]) {
       const action = resolveCardAction(
@@ -331,9 +341,16 @@ check("action: unresolved never promises a grab or a play", () => {
           infoHash: hash,
         }),
       );
-      assert.equal(action.kind, "search");
-      assert.equal(action.label, "Find it");
-      assert.equal(action.disabled, false);
+      if (hash) {
+        // A hash is a real handle: Play, and recover if it went stale.
+        assert.equal(action.kind, "play");
+        assert.equal(action.disabled, false);
+      } else {
+        // Nothing to open yet, so the honest offer is to go find it.
+        assert.equal(action.kind, "search");
+        assert.equal(action.label, "Find it");
+        assert.equal(action.disabled, false);
+      }
     }
   }
 });

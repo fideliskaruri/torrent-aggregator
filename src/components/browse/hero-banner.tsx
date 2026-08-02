@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Play, Search } from "lucide-react";
+import { Play } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
 import { Button } from "@/components/ui/button";
@@ -11,12 +11,10 @@ import {
   cleanDisplayTitle,
   clampFraction,
   resolveCardAction,
-  searchAction,
   type ActionStatus,
   type CardAction,
 } from "./availability";
-import { AvailabilityChip } from "./availability-chip";
-import { heroFacts, heroPitch, type HeroPick } from "./hero";
+import { heroFacts, type HeroPick } from "./hero";
 import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
 import { titleHrefForItem } from "@/components/title/work-key";
@@ -46,7 +44,6 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
   const { item, eyebrow } = pick;
   const action = resolveCardAction(item);
   const releaseGate = browseReleaseGate(item);
-  const secondary = releaseGate.gated ? null : searchAction(item);
   const title = cleanDisplayTitle(item.title);
   const facts = heroFacts(item);
   const factsText = factsLine(facts);
@@ -107,31 +104,36 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             {eyebrow}
           </p>
 
-          <h1
-            id="browse-hero-title"
-            title={item.title}
-            className="text-display mt-2 line-clamp-2"
-          >
-            {title}
-          </h1>
+          {titleHref ? (
+            <Link
+              href={titleHref}
+              id="browse-hero-title"
+              title={item.title}
+              className="text-display mt-2 line-clamp-2 outline-none transition-colors hover:text-[var(--accent-text)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-[4px]"
+            >
+              {title}
+            </Link>
+          ) : (
+            <h1
+              id="browse-hero-title"
+              title={item.title}
+              className="text-display mt-2 line-clamp-2"
+            >
+              {title}
+            </h1>
+          )}
 
+          {/* No availability chip. "Partial" is engine vocabulary about bytes
+              on disk; the viewer only needs to know what pressing Play does,
+              and Play now always plays. Gated titles still say when they land. */}
           <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-[var(--text-secondary)]">
             {releaseGate.gated ? (
               <span className="inline-flex items-center rounded-[6px] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[11px] font-medium leading-none text-[var(--text-secondary)]">
                 {label}
               </span>
-            ) : (
-              <AvailabilityChip state={item.availability} />
-            )}
+            ) : null}
             {factsText ? <span className="tabular-nums">{factsText}</span> : null}
           </div>
-
-          {/* Height is reserved rather than conditional: the pitch is empty
-              only while the availability probe is outstanding, so collapsing
-              the paragraph would shift the progress bar and the buttons down
-              the instant it resolves. Reserving one line keeps the press
-              target where the eye already put it. */}
-          <p className="text-body mt-3 min-h-[1.5rem] max-w-xl">{heroPitch(item)}</p>
 
           {fraction != null ? (
             <div
@@ -153,19 +155,12 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             {releaseGate.gated ? (
               titleHref ? (
                 <Button asChild size="lg" variant="secondary">
-                  <Link href={titleHref}>View details</Link>
+                  <Link href={titleHref}>Details</Link>
                 </Button>
               ) : null
             ) : action.kind === "search" ? (
-              // Unresolved: we cannot promise a result here, so the hero simply
-              // leads to the title's own page — the one surface that runs the
-              // search and offers Play/Download once it knows. No "Check", no
-              // mechanism, just "open this title".
-              <Button asChild size="lg">
-                <Link href={titleHref ?? action.href}>
-                  <Play className="fill-current" />
-                  Play
-                </Link>
+              <Button asChild size="lg" data-hero-primary>
+                <Link href={titleHref ?? action.href}>Details</Link>
               </Button>
             ) : action.kind === "get" && status === "done" ? (
               <Button asChild size="lg" variant="secondary">
@@ -186,12 +181,10 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
                 {label}
               </Button>
             )}
-
-            {secondary ? (
+            {!releaseGate.gated && titleHref && action.kind !== "search" ? (
               <Button asChild size="lg" variant="secondary">
-                <Link href={secondary.href}>
-                  <Search />
-                  Find releases
+                <Link href={titleHref} data-hero-details>
+                  Details
                 </Link>
               </Button>
             ) : null}

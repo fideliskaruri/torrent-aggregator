@@ -15,6 +15,7 @@ import {
   resolveTmdbRef,
 } from "../../tmdb-extras";
 import { resolveTitleProviderIdentity } from "../provider-identity";
+import { providerExtrasResponse } from "./provider-response";
 
 export const dynamic = "force-dynamic";
 
@@ -76,17 +77,8 @@ export async function GET(request: Request, context: RouteContext) {
 
   try {
     const providerResult = await resolveTitleProviderIdentity(url.searchParams, key);
-    if (providerResult.kind === "verified") {
-      const metadata = providerResult.identity.metadata;
-      return NextResponse.json({
-        ...empty,
-        overview: metadata.synopsis ?? null,
-        rating: metadata.rating ?? null,
-        releaseDate: metadata.releaseDate ?? null,
-        resolved: true,
-      } satisfies TitleExtrasPayload);
-    }
-    if (providerResult.kind !== "absent") return NextResponse.json(empty);
+    const providerResponse = providerExtrasResponse(providerResult, empty);
+    if (providerResponse) return NextResponse.json(providerResponse);
 
     const ref = await resolveTmdbRef({ title, year, mediaType });
     if (!ref) return NextResponse.json(empty);

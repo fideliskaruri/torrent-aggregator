@@ -223,7 +223,10 @@ export function resolveCardAction(item: RailItem): CardAction {
   const infoHash = item.infoHash?.trim();
   const title = item.title.trim();
 
-  if (state !== null && STATE_POLICY[state] === "local" && infoHash) {
+  // Play means play. A hash is enough to press it — if the engine no longer
+  // holds that torrent, the click re-fetches and starts. Refusing here is how
+  // Continue Watching lost its Play and the player said "download it first".
+  if (infoHash && (state === null || STATE_POLICY[state] === "local")) {
     const resume = item.resumePositionSec ?? 0;
     return {
       kind: "play",

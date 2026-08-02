@@ -13,7 +13,7 @@
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:3100";
+const BASE = process.env.PROBE_BASE ?? "http://127.0.0.1:3000";
 
 const EXPECTED = ["Browse", "Library", "Downloads", "Notifications", "Settings"];
 

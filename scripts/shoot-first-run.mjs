@@ -6,14 +6,14 @@
  * nothing real to show. Also shoots the failure path, because "empty" and
  * "broken" must not look alike — `/api/browse` is forced to 500 for those.
  *
- * The dev server on :3100 already has an empty DB, so the empty case needs no
+ * The dev server on :3000 already has an empty DB, so the empty case needs no
  * fixture at all.
  */
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3100";
+const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3000";
 const OUT = process.env.SHOT_DIR ?? "qa-screens/after";
 
 const CASES = [

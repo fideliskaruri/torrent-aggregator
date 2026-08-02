@@ -106,8 +106,12 @@ export function episodeStatusesFromSeasonReport(
   const statuses: Record<string, TitleActionStatus> = {};
   for (const episode of report.episodes) {
     const key = `s${report.season}e${episode.episode}`;
+    // Only "covered" lights a row. "missing" used to become error, which
+    // painted "Could not start S09E03. Try again." under episodes that were
+    // already Ready/Downloaded — the season report line already says what
+    // the grab could not get; a permanent per-row failure is a second,
+    // contradictory claim that never clears.
     if (episode.status === "covered") statuses[key] = "done";
-    if (episode.status === "missing") statuses[key] = "error";
   }
   return statuses;
 }

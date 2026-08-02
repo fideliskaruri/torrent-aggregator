@@ -6,18 +6,15 @@
  * The acquire intents (Play watches it now, Download keeps it) are rendered by
  * the hero itself (`title-detail.tsx`), because Play has to open the in-page
  * player and only the detail container holds that machinery. This component
- * owns the decisions that come *after* acquiring: catalogue membership and
- * monitoring.
+ * owns catalogue membership.
  *
  * It goes through the existing watchlist API rather than a new one:
- * `POST /api/watchlist` to add (it accepts `monitored: false` deliberately, so
- * "I want this catalogued" and "hunt every new episode for me" stay separate
- * decisions), and `PATCH` to flip monitoring afterwards. The payload is built
- * server-side and handed down whole — the client never invents a catalog id,
+ * `POST /api/watchlist` adds and monitors the title. The payload is built
+ * server-side and handed down whole; the client never invents a catalog id,
  * because an id it made up is an id automation will later fail to match.
  */
 import { useState } from "react";
-import { Bell, BellOff, Check, Loader2, Plus } from "lucide-react";
+import { Check, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +33,7 @@ export interface LibraryControlsProps {
   isSeries: boolean;
   /** Season numbers the provider knows about, ascending. */
   seasons?: number[];
-  /** `YYYY-MM-DD`, or null. Decides whether a film can be waited for. */
+  /** `YYYY-MM-DD`, or null. Used when describing the title being added. */
   releaseDate?: string | null;
   /** Re-reads the payload so the controls reflect the server, not a guess. */
   onChanged: () => void;
@@ -69,6 +66,7 @@ export function LibraryControls({
         throw new Error(body?.error || `${failure} (${res.status})`);
       }
       setPhase("idle");
+      toast.success("Added to library");
       onChanged();
     } catch (err) {
       setPhase("idle");
@@ -87,18 +85,15 @@ export function LibraryControls({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             ...library.addPayload,
-            // Adding from a title page is "keep track of this", not "start
-            // hunting". Monitoring is one press away and is its own decision,
-            // so the answers carry it rather than the act of adding.
             ...answersToPayload(chosen),
           }),
         }),
       "Could not add this to your library",
     ).then(() => setAsking(false));
 
-  // Only interrupt when there is something to decide. A film already in
-  // circulation has no season to start from and nothing to wait for, so a
-  // dialog would be a confirmation step wearing a question's clothes.
+  // Only interrupt when there is something to decide. A film has no season to
+  // start from, so a dialog would be a confirmation step wearing a question's
+  // clothes.
   const onAddPressed = () => {
     if (questions.length === 0) {
       void add(defaultAnswers());
@@ -107,17 +102,6 @@ export function LibraryControls({
     setAnswers(defaultAnswers());
     setAsking(true);
   };
-
-  const setMonitored = (monitored: boolean) =>
-    send(
-      () =>
-        fetch("/api/watchlist", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: library.watchListItemId, monitored }),
-        }),
-      "Could not change monitoring",
-    );
 
   const busy = phase === "pending";
 
@@ -132,7 +116,7 @@ export function LibraryControls({
           data-in-library
         >
           <Check className="h-3.5 w-3.5" aria-hidden />
-          In your library
+          In Library
         </span>
       ) : (
         // A tertiary control, not a third primary button: ghost weight and
@@ -156,37 +140,6 @@ export function LibraryControls({
         </Button>
       )}
 
-      {library.inLibrary && library.watchListItemId ? (
-        // Monitoring is a preference, not a call to action: a plain toggle
-        // that says what it *does* in product terms, not "automatic checks".
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          role="switch"
-          data-monitor-toggle
-          aria-checked={library.monitored}
-          disabled={busy}
-          onClick={() => setMonitored(!library.monitored)}
-          className="min-h-[44px] text-[var(--text-secondary)] lg:min-h-0"
-        >
-          {busy ? (
-            <Loader2 className="animate-spin" aria-hidden />
-          ) : library.monitored ? (
-            <Bell aria-hidden />
-          ) : (
-            <BellOff aria-hidden />
-          )}
-          {library.monitored
-            ? isSeries
-              ? "Auto-downloading new episodes"
-              : "Auto-downloading when available"
-            : isSeries
-              ? "Auto-download new episodes"
-              : "Auto-download when available"}
-        </Button>
-      ) : null}
-
       {asking ? (
         <div
           data-add-questions
@@ -199,45 +152,27 @@ export function LibraryControls({
               <p className="text-[13px] font-medium text-[var(--text)]">
                 {question.prompt}
               </p>
-              {question.id === "start-point" ? (
-                <select
-                  data-question="start-point"
-                  aria-label={question.prompt}
-                  value={
-                    answers.startPoint.kind === "season"
-                      ? `season:${answers.startPoint.season}`
-                      : answers.startPoint.kind
-                  }
-                  onChange={(event) => {
-                    const next = parseStartPoint(event.target.value);
-                    if (next) setAnswers((a) => ({ ...a, startPoint: next }));
-                  }}
-                  className="min-h-[44px] w-full rounded-[6px] border border-[var(--border)] bg-[var(--bg)] px-2 text-[13px] text-[var(--text)]"
-                >
-                  {question.options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                      {option.hint ? ` — ${option.hint}` : ""}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <label className="flex min-h-[44px] items-center gap-2 text-[13px] text-[var(--text-secondary)]">
-                  <input
-                    type="checkbox"
-                    data-question="auto-download"
-                    checked={answers.autoDownload}
-                    onChange={(event) =>
-                      setAnswers((a) => ({
-                        ...a,
-                        autoDownload: event.target.checked,
-                      }))
-                    }
-                    className="h-4 w-4 accent-[var(--accent)]"
-                  />
-                  {question.options[0]?.label ?? "Yes"}
-                </label>
-              )}
+              <select
+                data-question="start-point"
+                aria-label={question.prompt}
+                value={
+                  answers.startPoint.kind === "season"
+                    ? `season:${answers.startPoint.season}`
+                    : answers.startPoint.kind
+                }
+                onChange={(event) => {
+                  const next = parseStartPoint(event.target.value);
+                  if (next) setAnswers((a) => ({ ...a, startPoint: next }));
+                }}
+                className="min-h-[44px] w-full rounded-[6px] border border-[var(--border)] bg-[var(--bg)] px-2 text-[13px] text-[var(--text)]"
+              >
+                {question.options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                    {option.hint ? ` — ${option.hint}` : ""}
+                  </option>
+                ))}
+              </select>
             </div>
           ))}
 
