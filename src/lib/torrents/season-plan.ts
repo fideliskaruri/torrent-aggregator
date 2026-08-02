@@ -325,17 +325,44 @@ function classify(
             ? "multi-season"
             : "single-season";
       const files = packContents(release);
-      if (files && wanted.every((episode) => files.includes(episode))) {
-        return {
-          release,
-          index,
-          verdict,
-          covers: wanted.slice(),
-          fit,
-          coverageBasis: "confirmed",
-        };
+      if (files) {
+        // The file list resolved: trust it, and take the pack only when it
+        // actually holds every wanted episode. A confirmed-partial pack is
+        // dropped so the singles fallback fills the season instead.
+        if (wanted.every((episode) => files.includes(episode))) {
+          return {
+            release,
+            index,
+            verdict,
+            covers: wanted.slice(),
+            fit,
+            coverageBasis: "confirmed",
+          };
+        }
+        return null;
       }
-      return null;
+      // Not openable yet — the common first-grab case, since a pack's files are
+      // only readable once the torrent is live. Dropping it here is what made
+      // whole seasons un-grabbable: the season search returns only packs, none
+      // are live, so every one was discarded and nothing downloaded. Take it on
+      // its name instead, marked `inferred` so the report says "should cover …
+      // (unconfirmed)" rather than claiming it as fact. A bare season name
+      // infers the whole season; a name that enumerates an explicit episode
+      // range credits only that range, so the singles fallback fills the gap
+      // rather than the pack over-claiming episodes it never named.
+      const named = packEpisodeRange(release.title);
+      const inferredCovers = named
+        ? wanted.filter((episode) => episode >= named.from && episode <= named.to)
+        : wanted.slice();
+      if (inferredCovers.length === 0) return null;
+      return {
+        release,
+        index,
+        verdict,
+        covers: inferredCovers,
+        fit,
+        coverageBasis: "inferred",
+      };
     }
     // A pack that exists but does not cover this season is not ours.
     return null;

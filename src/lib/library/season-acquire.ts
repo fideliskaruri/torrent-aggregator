@@ -417,8 +417,10 @@ export async function acquireSeason(
     return false;
   };
 
-  // Pack eligibility was already proven from its manifest in resolveSeasonPlan.
-  // Never send a pack first and reconcile afterward.
+  // The planner chose this pack: file-confirmed when its torrent was already
+  // live, otherwise taken on its name and marked unconfirmed. Either way it is
+  // the plan's choice to send — a pack whose files cannot be read yet is the
+  // normal first-grab case, not a reason to send nothing.
   if (plan.pack) {
     const p: PackChoice = plan.pack;
     await send(p.release, p.verdict, "pack", undefined, p.covers);

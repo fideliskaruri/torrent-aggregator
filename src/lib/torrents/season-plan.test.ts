@@ -37,6 +37,9 @@ assert.deepEqual(packEpisodeRange("The Show S01E01-E08 1080p"), {
 assert.equal(packEpisodeRange("The Show 2019-2021 Complete"), null);
 
 {
+  // A season search returns only packs, and none are live on a first grab, so
+  // their file lists cannot be read. The pack is taken on its name, marked
+  // unconfirmed — dropping it here is what left whole seasons un-downloadable.
   const pack = result("The Expanse S01 COMPLETE");
   const plan = planSeason({
     season: 1,
@@ -44,8 +47,12 @@ assert.equal(packEpisodeRange("The Show 2019-2021 Complete"), null);
     releases: [pack],
     verdictOf: () => "good",
   });
-  assert.equal(plan.pack, null, "name-only complete packs are ineligible");
-  assert.deepEqual(plan.missing, [1, 2, 3]);
+  assert.equal(plan.pack?.release.infoHash, pack.infoHash, "name-only pack is takeable");
+  assert.equal(plan.pack?.coverageBasis, "inferred", "its coverage is inferred, not fact");
+  assert.equal(plan.coverageConfirmed, false, "an inferred pack is not reported as confirmed");
+  assert.deepEqual(plan.covered, [1, 2, 3], "it is credited the whole season it names");
+  assert.deepEqual(plan.missing, []);
+  assert.match(plan.reason, /should cover/, "the reason states the inference, not a fact");
 }
 
 for (const count of [0, 1, 6, 8, 23]) {

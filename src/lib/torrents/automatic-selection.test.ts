@@ -57,15 +57,21 @@ for (const count of [24, 27]) {
 }
 
 {
-  const lyingName = release("Shogun S01 COMPLETE ALL EPISODES 2160p");
+  // A complete-sounding name with no readable files is no longer dropped — a
+  // season's packs are never live on a first grab, so dropping them left whole
+  // seasons un-downloadable. It is taken, but marked inferred so its coverage
+  // is reported as "should cover", never claimed as verified fact.
+  const namedOnly = release("Shogun S01 COMPLETE ALL EPISODES 2160p");
   const plan = planSeason({
     season: 1,
     wanted,
-    releases: [lyingName],
+    releases: [namedOnly],
     verdictOf: () => "good",
   });
-  assert.equal(plan.pack, null, "a complete-sounding name without verified files is rejected");
-  assert.deepEqual(plan.covered, []);
+  assert.equal(plan.pack?.release.infoHash, namedOnly.infoHash, "a name-only pack is takeable");
+  assert.equal(plan.pack?.coverageBasis, "inferred", "its coverage is inferred, not verified");
+  assert.equal(plan.coverageConfirmed, false, "and is not reported as confirmed");
+  assert.deepEqual(plan.covered, wanted);
 }
 
 {

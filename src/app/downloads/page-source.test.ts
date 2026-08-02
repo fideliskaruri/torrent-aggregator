@@ -76,6 +76,51 @@ check("a series draws one expandable row, not one row per episode", () => {
   assert.match(source, /\{renderItems\.map\(/);
 });
 
+check("the page presents as Downloads, not the client's plumbing name", () => {
+  // The nav already says Downloads; an H1 of "Client" leaked the torrent-app
+  // framing the product rule hides.
+  assert.match(source, /title="Downloads"/);
+  assert.doesNotMatch(source, /title="Client"/);
+  // But the honest built-in status line stays.
+  assert.match(source, /live · auto-refresh 5s/);
+});
+
+check("an episode row leads with its own identity, not the show's name again", () => {
+  // A child row opens with S09E01, drawn from the parsed label; the show name
+  // and poster belong to the group header above it, and repeating them on
+  // every episode is the torrent-client noise being removed.
+  assert.match(source, /data-episode-lead/);
+  assert.match(source, /\{display\.episodeLabel \?\? display\.title\}/);
+  // The poster is only drawn for a non-child (film) row.
+  assert.match(source, /\{!isChild \?/);
+});
+
+check("torrent mechanics leave the default row for the overflow's Details", () => {
+  // The folder-path chip, the multi-chip release-tag array and the raw peer
+  // count are gone from the row itself.
+  assert.doesNotMatch(source, /TfPathChip/);
+  assert.doesNotMatch(source, /display\.chips/);
+  // What was removed is one keystroke away, not lost.
+  assert.match(source, /data-torrent-details/);
+  // At most one quality tag survives in the row.
+  assert.match(source, /display\.qualityChip/);
+});
+
+check("the default row shows one speed at most, and only while downloading", () => {
+  // Upload speed and the two dedicated speed columns are gone; download speed
+  // is shown through the shared, honest `speedLabel` (absent, never "0 B/s").
+  assert.doesNotMatch(source, /formatBytes\(t\.upspeed\)/);
+  assert.doesNotMatch(source, /formatBytes\(group\.upspeed\)/);
+  assert.match(source, /speedLabel\(t\.dlspeed\)/);
+  assert.match(source, /speedLabel\(group\.dlspeed\)/);
+});
+
+check("the season sub-header drops the folder's zero-padding", () => {
+  // Grouping keeps `Season 09` to match the folder on disk; the row reads it
+  // back to a person as "Season 9".
+  assert.match(source, /`Season \$\{season\.season\}`/);
+});
+
 if (process.exitCode) {
   console.error("\nFAIL — client page source shape regressed");
 } else {

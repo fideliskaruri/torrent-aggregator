@@ -41,7 +41,6 @@ import {
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfStatStrip } from "@/components/tf/stat-strip";
-import { TfPathChip } from "@/components/tf/path-chip";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { titleHrefForName } from "@/components/title/work-key";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
@@ -49,7 +48,7 @@ import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
 import { PlayOverlay } from "@/components/browse/play-overlay";
-import { activityLabel, progressPercent } from "@/components/tf/active-row-state";
+import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
 import {
   groupDownloads,
@@ -110,8 +109,18 @@ type StreamManifestFile = {
 
 type StatusFilter = "all" | "active" | "downloading" | "seeding" | "paused";
 type ReleaseDisplayFacts = {
+  /** The work's display title (show or film name), never a raw release string. */
   title: string;
-  chips: string[];
+  /** `S09E01`, `S01 pack`, … or null when the name states no episode. */
+  episodeLabel: string | null;
+  /**
+   * The one quality tag worth showing in the row — resolution only.
+   *
+   * Source/scene tags (WEB-DL, HDTV) are torrent mechanics the product rule
+   * hides; they are kept out of the row and surfaced only in the overflow's
+   * Details, via `sourceTierChip`.
+   */
+  qualityChip: string | null;
 };
 
 /**
@@ -147,11 +156,6 @@ function stateLabel(state: string) {
   return STATE_LABELS[state] ?? state;
 }
 
-/** Work is happening but no bytes can move yet — worth saying out loud. */
-function isBusy(state: string) {
-  return /^(metaDL|checking|allocating)/i.test(state);
-}
-
 const CONTAINER_EXT = /\.(mkv|mp4|avi|m4v|mov|ts|webm|wmv|flv|mpg|mpeg)$/i;
 const BRACKET_GROUP = /^\s*(?:\[[^\]]{2,40}\]\s*)+/;
 
@@ -178,13 +182,11 @@ function releaseDisplayFacts(
     .replace(/\s+/g, " ")
     .trim();
   const title = query.title || fallback || torrent.name;
-  const chips = [
-    parseEpisode(torrent.name).label,
-    resolutionChip(torrent.name),
-    sourceTierChip(torrent.name),
-  ].filter((chip): chip is string => Boolean(chip));
-
-  return { title, chips };
+  return {
+    title,
+    episodeLabel: parseEpisode(torrent.name).label,
+    qualityChip: resolutionChip(torrent.name),
+  };
 }
 
 export default function ClientPage() {
@@ -411,7 +413,7 @@ export default function ClientPage() {
         q &&
         !t.name.toLowerCase().includes(q) &&
         !display.title.toLowerCase().includes(q) &&
-        !display.chips.some((chip) => chip.toLowerCase().includes(q))
+        !(display.episodeLabel?.toLowerCase().includes(q) ?? false)
       ) {
         return false;
       }
@@ -773,7 +775,7 @@ export default function ClientPage() {
         {announcement}
       </p>
       <TfPageHeader
-        title="Client"
+        title="Downloads"
         description={
           <span className="inline-flex items-center gap-2 flex-wrap">
             <Badge
@@ -1058,7 +1060,7 @@ export default function ClientPage() {
             ) : null}
             <div className="surface overflow-hidden" data-client-table>
               {/* Header row */}
-              <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] gap-3 items-center px-3 py-2 border-b border-[var(--border)] text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+              <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3 items-center px-3 py-2 border-b border-[var(--border)] text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
                 <Checkbox
                   checked={
                     filtered.length > 0 && selected.size === filtered.length
@@ -1068,9 +1070,6 @@ export default function ClientPage() {
                   data-select-all
                 />
                 <span>Name</span>
-                <span>Progress</span>
-                <span>↓</span>
-                <span>↑</span>
                 <span className="text-right pr-1">Actions</span>
               </div>
 
@@ -1103,7 +1102,7 @@ export default function ClientPage() {
                       <div
                         key={group.key}
                         className={cn(
-                          "grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
+                          "grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
                           allSelected
                             ? "bg-[var(--accent-dim)]"
                             : "hover:bg-[var(--bg-muted)]/60",
@@ -1174,43 +1173,25 @@ export default function ClientPage() {
                                 )}
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   {/*
-                                    While work is in flight the wording comes
-                                    from `active-row-state`, which the browse
-                                    teaser already uses, so two panels cannot
-                                    describe the same stalled torrent
-                                    differently. It replaces the state badge
-                                    rather than sitting beside it: it already
-                                    opens with the state word, and a badge next
-                                    to it read "Downloading · Downloading 56% ·
-                                    3.2 MB/s".
-
-                                    It speaks only for a downloading group. Its
-                                    vocabulary is built for that case and
-                                    reports anything not downloading as
-                                    "Downloading", which would turn a finished
-                                    season back into an unfinished one — so the
-                                    page's own `stateLabel`, which knows
-                                    "Seeding", answers otherwise.
+                                    One plain state word, from the page's own
+                                    `stateLabel` (which — unlike the download-only
+                                    `active-row-state` vocabulary — knows
+                                    "Seeding"). The combined percentage and, only
+                                    while downloading, the live speed live beside
+                                    the bar below, so nothing is said twice.
                                   */}
-                                  {isDownloading(group.state) ? (
-                                    <Badge variant="accent" data-group-activity>
-                                      {activityLabel({
-                                        progress: group.progress,
-                                        dlspeed: group.dlspeed,
-                                        state: group.state,
-                                      })}
-                                    </Badge>
-                                  ) : (
-                                    <Badge
-                                      variant={
-                                        isSeeding(group.state)
+                                  <Badge
+                                    variant={
+                                      isDownloading(group.state)
+                                        ? "accent"
+                                        : isSeeding(group.state)
                                           ? "success"
                                           : "default"
-                                      }
-                                    >
-                                      {stateLabel(group.state)}
-                                    </Badge>
-                                  )}
+                                    }
+                                    data-group-state
+                                  >
+                                    {stateLabel(group.state)}
+                                  </Badge>
                                   <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
                                     {group.releaseCount}{" "}
                                     {group.releaseCount === 1
@@ -1223,40 +1204,27 @@ export default function ClientPage() {
                                     · {formatBytes(group.sizeBytes)}
                                   </span>
                                 </div>
+                                <div className="flex items-center gap-2 pt-0.5">
+                                  <Progress
+                                    value={pct}
+                                    aria-label={`${group.title} combined download progress`}
+                                    className="h-1.5 flex-1 max-w-[18rem]"
+                                    indicatorClassName={barTone}
+                                  />
+                                  <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                                    {pct}%
+                                  </span>
+                                  {isDownloading(group.state) &&
+                                  speedLabel(group.dlspeed) ? (
+                                    <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+                                      ↓ {speedLabel(group.dlspeed)}
+                                    </span>
+                                  ) : null}
+                                </div>
                               </div>
                             </div>
                           </div>
                         </div>
-
-                        <div className="space-y-1 min-w-0 sm:px-0">
-                          <Progress
-                            value={pct}
-                            aria-label={`${group.title} combined download progress`}
-                            className="h-1.5"
-                            indicatorClassName={barTone}
-                          />
-                          <div className="flex items-center justify-between gap-2 sm:justify-end">
-                            <p className="text-[11px] tabular-nums text-[var(--text-tertiary)] sm:text-right">
-                              {pct}%
-                            </p>
-                            <p className="sm:hidden text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
-                              <span className="text-[var(--accent-text)]">
-                                ↓ {formatBytes(group.dlspeed)}/s
-                              </span>
-                              <span className="mx-1.5 text-[var(--border-strong)]">
-                                ·
-                              </span>
-                              <span>↑ {formatBytes(group.upspeed)}/s</span>
-                            </p>
-                          </div>
-                        </div>
-
-                        <p className="hidden sm:block text-[12px] tabular-nums text-[var(--text-secondary)] font-mono">
-                          {formatBytes(group.dlspeed)}/s
-                        </p>
-                        <p className="hidden sm:block text-[12px] tabular-nums text-[var(--text-secondary)] font-mono">
-                          {formatBytes(group.upspeed)}/s
-                        </p>
 
                         <div className="flex items-center justify-end gap-2 lg:gap-0.5">
                           <DropdownMenu>
@@ -1311,41 +1279,49 @@ export default function ClientPage() {
                     const season = item.season;
                     const open = !collapsedSeasons.has(season.key);
                     const pct = progressPercent(season.progress);
+                    // "Season 9", not the zero-padded "Season 09" the grouping
+                    // key carries to match the folder on disk: the padding is a
+                    // filesystem detail, not how a person reads a season number.
+                    const seasonLabel =
+                      season.season != null
+                        ? `Season ${season.season}`
+                        : season.label;
                     return (
                       <div
                         key={season.key}
-                        className="grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] gap-2 sm:gap-3 items-center py-1 pl-6 pr-3 bg-[var(--bg-muted)]/40"
+                        className="grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center py-1 pl-6 pr-3 bg-[var(--bg-muted)]/40"
                         data-season-row
                         data-season-key={season.key}
                       >
                         <span className="hidden sm:block h-4 w-4" />
-                        <button
-                          type="button"
-                          onClick={() => toggleSeason(season.key)}
-                          aria-expanded={open}
-                          data-season-expand
-                          className="flex min-w-0 items-center gap-1.5 rounded-md text-left min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0 lg:py-1"
-                        >
-                          <ChevronRight
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)] transition-transform",
-                              open && "rotate-90",
-                            )}
-                          />
-                          <span className="text-[12px] font-medium text-[var(--text-secondary)]">
-                            {season.label}
-                          </span>
-                          <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
-                            {season.entries.length}{" "}
-                            {season.entries.length === 1 ? "release" : "releases"}{" "}
-                            · {formatBytes(season.sizeBytes)}
-                          </span>
-                        </button>
-                        <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => toggleSeason(season.key)}
+                            aria-expanded={open}
+                            data-season-expand
+                            className="flex min-w-0 shrink-0 items-center gap-1.5 rounded-md text-left min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0 lg:py-1"
+                          >
+                            <ChevronRight
+                              className={cn(
+                                "h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)] transition-transform",
+                                open && "rotate-90",
+                              )}
+                            />
+                            <span className="text-[12px] font-medium text-[var(--text-secondary)]">
+                              {seasonLabel}
+                            </span>
+                            <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
+                              {season.entries.length}{" "}
+                              {season.entries.length === 1
+                                ? "release"
+                                : "releases"}
+                            </span>
+                          </button>
                           <Progress
                             value={pct}
-                            aria-label={`${season.label} combined progress`}
-                            className="h-1"
+                            aria-label={`${seasonLabel} combined progress`}
+                            className="h-1 flex-1 max-w-[14rem]"
                             indicatorClassName={
                               isSeeding(season.state)
                                 ? "bg-[var(--success)]"
@@ -1354,20 +1330,18 @@ export default function ClientPage() {
                                   : "bg-[var(--primary)]"
                             }
                           />
+                          <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                            {pct}%
+                          </span>
                         </div>
-                        <span className="hidden sm:block text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
-                          {formatBytes(season.dlspeed)}/s
-                        </span>
-                        <span className="hidden sm:block text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
-                          {formatBytes(season.upspeed)}/s
-                        </span>
                         <span className="hidden sm:block" />
                       </div>
                     );
                   }
 
                   const t = item.torrent;
-                  const pct = Math.min(100, Math.round(t.progress * 1000) / 10);
+                  const isChild = item.depth > 0;
+                  const pct = progressPercent(t.progress);
                   const isSelected = selected.has(t.hash);
                   const query = artworkQueryForRelease(t.name, t.category);
                   const display = releaseDisplayFacts(t, query);
@@ -1388,7 +1362,7 @@ export default function ClientPage() {
                     <div
                       key={t.hash}
                       className={cn(
-                        "group grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
+                        "group grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
                         // An episode inside an expanded show is stepped in and
                         // ruled, so a long list still reads as belonging to the
                         // heading above it once the group row has scrolled off.
@@ -1436,30 +1410,51 @@ export default function ClientPage() {
                           className="shrink-0"
                         />
                         <div className="min-w-0 flex-1 space-y-1">
-                          <div className="flex items-start gap-2.5" title={t.name}>
-                            {titleHref ? (
-                              <Link
-                                href={titleHref}
-                                tabIndex={-1}
-                                aria-hidden
-                                data-dense-ui
-                                className="shrink-0"
-                              >
+                          <div
+                            className="flex items-start gap-2.5"
+                            title={t.name}
+                          >
+                            {/*
+                              An episode row leads with its own identity, not
+                              its show's. The show name and poster belong to the
+                              group header above it; repeating them on every
+                              child row is the "looks like a torrent client"
+                              noise the product rule removes. Films (depth 0)
+                              keep their poster and title — they are their own
+                              work, with no header to carry it.
+                            */}
+                            {!isChild ? (
+                              titleHref ? (
+                                <Link
+                                  href={titleHref}
+                                  tabIndex={-1}
+                                  aria-hidden
+                                  data-dense-ui
+                                  className="shrink-0"
+                                >
+                                  <TfWorkThumb
+                                    title={display.title}
+                                    posterUrl={art?.posterUrl}
+                                    sizePx={40}
+                                  />
+                                </Link>
+                              ) : (
                                 <TfWorkThumb
                                   title={display.title}
                                   posterUrl={art?.posterUrl}
                                   sizePx={40}
                                 />
-                              </Link>
-                            ) : (
-                              <TfWorkThumb
-                                title={display.title}
-                                posterUrl={art?.posterUrl}
-                                sizePx={40}
-                              />
-                            )}
+                              )
+                            ) : null}
                             <div className="min-w-0 flex-1 space-y-1">
-                              {titleHref ? (
+                              {isChild ? (
+                                <p
+                                  className="text-[13px] font-medium text-[var(--text)] leading-snug tabular-nums"
+                                  data-episode-lead
+                                >
+                                  {display.episodeLabel ?? display.title}
+                                </p>
+                              ) : titleHref ? (
                                 <Link
                                   href={titleHref}
                                   className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
@@ -1474,76 +1469,58 @@ export default function ClientPage() {
                                 </p>
                               )}
                               <div className="flex flex-wrap items-center gap-1.5">
-                            <Badge
-                              variant={
-                                isSeeding(t.state)
-                                  ? "success"
-                                  : isPaused(t.state)
-                                    ? "default"
-                                    : "accent"
-                              }
-                            >
-                              {stateLabel(t.state)}
-                            </Badge>
-                            {t.category ? (
-                              <Badge variant="outline">{t.category}</Badge>
-                            ) : null}
-                            {display.chips.map((chip) => (
-                              <Badge key={chip} variant="outline">
-                                {chip}
-                              </Badge>
-                            ))}
-                            <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
-                              {formatBytes(t.sizeBytes)}
-                              {t.peers != null && !isBusy(t.state)
-                                ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}`
-                                : ""}
-                              {t.eta != null && t.eta > 0
-                                ? ` · ETA ${formatDuration(t.eta)}`
-                                : ""}
-                            </span>
-                            {t.savePath ? (
-                              <TfPathChip
-                                path={t.savePath}
-                                onOpen={() => void openDownloadFolder(t)}
-                              />
-                            ) : null}
+                                <Badge
+                                  variant={
+                                    isSeeding(t.state)
+                                      ? "success"
+                                      : isPaused(t.state)
+                                        ? "default"
+                                        : "accent"
+                                  }
+                                >
+                                  {stateLabel(t.state)}
+                                </Badge>
+                                {/*
+                                  One quality tag at most (resolution). Source
+                                  tags (WEB-DL), scene/tracker chips, peer counts
+                                  and the folder path are torrent mechanics — they
+                                  leave the row and live in the overflow's Details.
+                                */}
+                                {display.qualityChip ? (
+                                  <Badge variant="outline">
+                                    {display.qualityChip}
+                                  </Badge>
+                                ) : null}
+                                <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
+                                  {formatBytes(t.sizeBytes)}
+                                  {isDownloading(t.state) &&
+                                  t.eta != null &&
+                                  t.eta > 0
+                                    ? ` · ETA ${formatDuration(t.eta)}`
+                                    : ""}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 pt-0.5">
+                                <Progress
+                                  value={pct}
+                                  aria-label={`${display.title} download progress`}
+                                  className="h-1.5 flex-1 max-w-[18rem]"
+                                  indicatorClassName={barTone}
+                                />
+                                <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                                  {pct}%
+                                </span>
+                                {isDownloading(t.state) &&
+                                speedLabel(t.dlspeed) ? (
+                                  <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+                                    ↓ {speedLabel(t.dlspeed)}
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                           </div>
                         </div>
                       </div>
-
-                      <div className="space-y-1 min-w-0 sm:px-0">
-                        <Progress
-                          value={pct}
-                          aria-label={`${display.title} download progress`}
-                          className="h-1.5"
-                          indicatorClassName={barTone}
-                        />
-                        <div className="flex items-center justify-between gap-2 sm:justify-end">
-                          <p className="text-[11px] tabular-nums text-[var(--text-tertiary)] sm:text-right">
-                            {pct.toFixed(1)}%
-                          </p>
-                          {/* Speeds on mobile (desktop uses dedicated columns) */}
-                          <p className="sm:hidden text-[11px] tabular-nums text-[var(--text-tertiary)] font-mono">
-                            <span className="text-[var(--accent-text)]">
-                              ↓ {formatBytes(t.dlspeed)}/s
-                            </span>
-                            <span className="mx-1.5 text-[var(--border-strong)]">
-                              ·
-                            </span>
-                            <span>↑ {formatBytes(t.upspeed)}/s</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      <p className="hidden sm:block text-[12px] tabular-nums text-[var(--text-secondary)] font-mono">
-                        {formatBytes(t.dlspeed)}/s
-                      </p>
-                      <p className="hidden sm:block text-[12px] tabular-nums text-[var(--text-secondary)] font-mono">
-                        {formatBytes(t.upspeed)}/s
-                      </p>
 
                       <div className="flex items-center justify-end gap-2 lg:gap-0.5">
                         {isBuiltin ? (
@@ -1574,6 +1551,42 @@ export default function ClientPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {/*
+                              Details is where the torrent mechanics went: the
+                              raw release name, the source tag (WEB-DL), the
+                              category, the live peer count and the folder path.
+                              None of it belongs in the default row, but it is
+                              real information a power user occasionally wants, so
+                              it is one keystroke away rather than gone.
+                            */}
+                            <div
+                              className="px-2 py-1.5 text-[11px] leading-relaxed text-[var(--text-tertiary)]"
+                              data-torrent-details
+                            >
+                              <p className="font-medium text-[var(--text-secondary)]">
+                                Details
+                              </p>
+                              {(() => {
+                                const facts = [
+                                  sourceTierChip(t.name),
+                                  t.category,
+                                  t.peers != null
+                                    ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}`
+                                    : null,
+                                ].filter(Boolean);
+                                return facts.length ? (
+                                  <p className="tabular-nums">
+                                    {facts.join(" · ")}
+                                  </p>
+                                ) : null;
+                              })()}
+                              {t.savePath ? (
+                                <p className="break-all font-mono">
+                                  {t.savePath}
+                                </p>
+                              ) : null}
+                            </div>
+                            <DropdownMenuSeparator />
                             {isBuiltin ? (
                               <>
                                 <DropdownMenuItem
@@ -1777,7 +1790,7 @@ function ClientSkeleton({ visible = true }: { visible?: boolean }) {
         {Array.from({ length: 6 }, (_, i) => (
           <div
             key={i}
-            className="grid grid-cols-1 gap-2 px-3 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_7rem_5.5rem_5.5rem_auto] sm:gap-3"
+            className="grid grid-cols-1 gap-2 px-3 py-2.5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-3"
           >
             <SkeletonBlock className="h-4 w-4" />
             <div className="flex gap-2.5">
@@ -1785,11 +1798,9 @@ function ClientSkeleton({ visible = true }: { visible?: boolean }) {
               <div className="min-w-0 flex-1 space-y-2">
                 <SkeletonBlock className="h-4 w-4/5" />
                 <SkeletonBlock className="h-3 w-2/3" />
+                <SkeletonBlock className="h-3 w-1/2" />
               </div>
             </div>
-            <SkeletonBlock className="h-7 w-full" />
-            <SkeletonBlock className="hidden h-4 w-full sm:block" />
-            <SkeletonBlock className="hidden h-4 w-full sm:block" />
             <SkeletonBlock className="h-8 w-24 justify-self-end" />
           </div>
         ))}
@@ -1797,3 +1808,15 @@ function ClientSkeleton({ visible = true }: { visible?: boolean }) {
     </PageSkeletonFrame>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+

@@ -171,6 +171,19 @@ export async function grabSeasonForTitle(
     episodes: episodeReports,
   };
 
+  // Nothing was sent to the client — no release could be taken for any wanted
+  // episode. Reporting ok:true here (with "0 of N episodes") is the false
+  // success that made the user press Download season twice: a green toast, an
+  // AcquisitionTarget written as "downloading" with no hash, and no download.
+  // Say so, and keep the report so the UI can still show which episodes missed.
+  if (acquired.size === 0) {
+    return {
+      ok: false,
+      message: "No release found for this season yet — try again shortly.",
+      report,
+    };
+  }
+
   return {
     ok: true,
     message: result.coverageLabel,
