@@ -18,9 +18,11 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import {
   EVERYTHING_HREF,
   MORE_ACTIVE_PREFIXES,
+  NOTIFICATIONS_HREF,
   PRIMARY_NAV,
   SECONDARY_NAV,
   SEARCH_HREF,
@@ -59,6 +61,7 @@ const MORE_ITEMS = SECONDARY_NAV.map((item) => ({
 
 export function MobileNav() {
   const pathname = usePathname();
+  const { badge } = useUnreadNotifications();
   const [moreOpen, setMoreOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const activeMoreHref = navActiveHref(SECONDARY_NAV, pathname);
@@ -258,7 +261,7 @@ export function MobileNav() {
                 href={href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
+                  "relative flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
                   // The bar is fixed to the bottom edge and the tabs run
                   // edge-to-edge, so an outer ring is clipped by the viewport on
                   // every side. An inset ring is always fully visible.
@@ -272,6 +275,19 @@ export function MobileNav() {
                   className={cn("h-5 w-5", active && "text-[var(--accent)]")}
                   strokeWidth={active ? 2.25 : 1.75}
                 />
+                {/* The count rides the icon rather than the label: at 78px a
+                    tab has room for "Notifications" or for "Notifications 3",
+                    not both, and truncating the word to fit a number is the
+                    wrong trade. */}
+                {href === NOTIFICATIONS_HREF && badge ? (
+                  <span
+                    data-nav-unread
+                    aria-label={`${badge} unread`}
+                    className="absolute translate-x-3 -translate-y-2 rounded-full bg-[var(--accent)] px-1 text-[9px] font-semibold leading-[14px] text-[var(--bg)]"
+                  >
+                    {badge}
+                  </span>
+                ) : null}
                 <span className="max-w-full truncate px-0.5">{label}</span>
               </Link>
             );

@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Rows3, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { useUiPreferences } from "@/components/providers/ui-preferences";
 import { openSearchOverlay } from "@/components/search/search-overlay";
 import {
   DESKTOP_NAV,
   HEADER_SEARCH_HREF,
   activeNavLabel,
+  NOTIFICATIONS_HREF,
   desktopNavRow,
   navActive,
   navActiveHref,
@@ -21,6 +23,7 @@ export function Header() {
   const pageTitle = activeNavLabel(pathname);
   const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
   const { items: navRow, dividerIndex } = desktopNavRow();
+  const { badge } = useUnreadNotifications();
   const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
 
   // A plain click opens the palette and gives it the durable `/search` URL;
@@ -102,6 +105,17 @@ export function Header() {
                   )}
                 >
                   {label}
+                  {/* Beside the word, not on it: the desktop row has room, so
+                      the count can be read rather than decoded. */}
+                  {href === NOTIFICATIONS_HREF && badge ? (
+                    <span
+                      data-nav-unread
+                      aria-label={`${badge} unread`}
+                      className="ml-1.5 rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold leading-[16px] text-[var(--bg)]"
+                    >
+                      {badge}
+                    </span>
+                  ) : null}
                 </Link>
               </span>
             );

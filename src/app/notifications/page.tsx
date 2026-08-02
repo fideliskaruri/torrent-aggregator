@@ -10,6 +10,8 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { buildInbox } from "./inbox";
+import { MarkNotificationsRead } from "./use-unread";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
 import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
@@ -91,16 +93,31 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
         sendKind: facts.sendKind,
       };
     });
-    return sentOnly
-      ? normalized.filter((item) => item.status === "sent")
-      : normalized;
+    // `/history` keeps the whole log — that is what a log is for. The inbox
+    // does not: it shows only what is news. See `inbox.ts` for why, and for
+    // what "news" means here.
+    if (sentOnly) return normalized.filter((item) => item.status === "sent");
+
+    const news = new Set(
+      buildInbox(
+        normalized.map((item) => ({
+          id: item.id,
+          title: item.title,
+          status: item.status,
+          message: item.message,
+          createdAt: item.createdAt,
+          infoHash: null,
+        })),
+      ).map((n) => n.id),
+    );
+    return normalized.filter((item) => news.has(item.id));
   }, [data, sentOnly]);
 
   const visibleItems = boundedActivityItems(items, visibleLimit);
   const dayGroups = groupActivityByDay(visibleItems);
   const hasOlder = visibleItems.length < items.length;
 
-  const title = sentOnly ? "Download log" : "Activity";
+  const title = sentOnly ? "Download log" : "Notifications";
   const description = sentOnly
     ? "Releases successfully sent to a download client."
     : "Recent sends and automation outcomes.";
@@ -256,7 +273,14 @@ export function NotificationsView({ sentOnly }: { sentOnly?: boolean }) {
 }
 
 export default function NotificationsPage() {
-  return <NotificationsView />;
+  return (
+    <>
+      {/* Opening the page is what marks it read. There is no per-row read
+          state: the user reads the inbox, not the entries. */}
+      <MarkNotificationsRead />
+      <NotificationsView />
+    </>
+  );
 }
 
 function ActivitySkeleton({ visible = true }: { visible?: boolean }) {

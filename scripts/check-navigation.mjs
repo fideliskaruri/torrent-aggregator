@@ -45,8 +45,24 @@ const ok = (m) => console.log(`ok    ${m}`);
       .filter((t) => t.length > 0 && t.length < 24),
   );
   for (const want of EXPECTED) {
-    if (labels.includes(want)) ok(`header shows ${want}`);
+    // `startsWith`, not equality: the Notifications entry carries an unread
+    // badge, so its text node reads "Notifications49". Asserting equality here
+    // would make the badge itself a failure.
+    if (labels.some((l) => l.startsWith(want))) ok(`header shows ${want}`);
     else fail(`header is missing ${want} (saw: ${labels.join(", ")})`);
+  }
+  // The badge is part of the contract: Notifications promised an unread count,
+  // and a promise the nav does not keep is worse than no count at all.
+  const badge = await page.$("[data-nav-unread]");
+  if (badge) {
+    const text = (await badge.textContent())?.trim() ?? "";
+    const labelled = await badge.getAttribute("aria-label");
+    if (/^\d{1,2}$|^99\+$/.test(text)) ok(`unread badge reads "${text}"`);
+    else fail(`unread badge reads "${text}", which will not fit the tab`);
+    if (labelled && /unread/i.test(labelled)) ok("unread badge is labelled for screen readers");
+    else fail(`unread badge aria-label is "${labelled}"`);
+  } else {
+    ok("no unread badge (inbox is empty or already read)");
   }
   for (const gone of ["Client", "Activity", "Rules"]) {
     if (labels.includes(gone)) fail(`header still shows ${gone}`);
