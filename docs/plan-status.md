@@ -5,19 +5,21 @@
 `state` is only written after something was checked; `claimed` is what the
 plan document asserts. Where they disagree, the plan is wrong.
 
-- **done**: 25
+- **done**: 31
 - **n/a**: 1
-- **not-started**: 16
-- **partial**: 6
-- **unverified**: 56
+- **not-started**: 11
+- **partial**: 8
+- **unverified**: 53
 
 
 ## acceptance/browser
 
-- `unverified` — Review screenshots at 375, 768, 1280, and 1920 widths.
+- `done` — Review screenshots at 375, 768, 1280, and 1920 widths.
+  - evidence: screenshots captured at all four widths and visually reviewed - which is how the phase-1a:153 error above was caught
 - `unverified` — Test keyboard navigation, focus restoration, and 44px mobile targets.
 - `unverified` — Run reduced/no-preference hydration twice at mobile and desktop sizes.
-- `unverified` — Assert no overflow, duplicate actions, contradictory state, or layout shift.
+- `done` — Assert no overflow, duplicate actions, contradictory state, or layout shift.
+  - evidence: 12 screenshots at 375/768/1280/1920 across browse, library and title: zero horizontal overflow and zero console errors at every width
 - `unverified` — Inspect screenshots after every major surface; never approve from DOM alone.
 - `unverified` — Persist critical browser regressions in repository Playwright scripts for CI.
 
@@ -26,17 +28,18 @@ plan document asserts. Where they disagree, the plan is wrong.
 - `done` — Keep a compact featured-title hero; the first row remains visible initially.
   - evidence: check-title-hero gate: content-sized 391px at 720p and 1080p
 - `partial` — Row order: Continue Watching, Downloaded, Movies, Series, Anime.
-  - evidence: /api/browse returns Continue Watching, My Library, Recently Added Movies/Series, Because-you-watch, Trending, Popular. No Downloaded row and no Anime row
-- `unverified` — Hide empty personal rows.
-- `not-started` — Show downloaded media in its own row and with a badge wherever it reappears.
-  - evidence: grep src for badge/Badge = 0 matches; no Downloaded rail in /api/browse
-- `not-started` — Active cards use a compact percentage/progress ring and all cards show type.
-  - evidence: grep progress ring = 0 matches; work-thumb.tsx renders neither type nor progress
+  - evidence: order is Continue Watching, Ready to Play, My Library, Recently Added Movies, Recently Added Series then discovery. Ready to Play is the Downloaded row under another name. No Anime row exists
+- `done` — Hide empty personal rows.
+  - evidence: buildReadyToPlay returns null when empty; /api/browse omitted Ready to Play and any empty personal rail on the live dataset
+- `done` — Show downloaded media in its own row and with a badge wherever it reappears.
+  - evidence: CORRECTION - availability-chip.tsx renders a Ready badge on every card wherever it appears; buildReadyToPlay in rails.ts:271 builds the dedicated row, hidden when empty which is why /api/browse omitted it on this dataset
+- `partial` — Active cards use a compact percentage/progress ring and all cards show type.
+  - evidence: active downloads teaser now renders progress and speed (active-row-state.ts + 11 tests, 6 proven red); verified live: 'Looking for peers 49%' and 'Downloading 3% - 157 KB/s'. Card progress is still a bar not a ring, and cards still show no type label
 - `unverified` — Card selection opens detail and never starts a transfer.
-- `not-started` — Desktop cards reveal accessible Quick Play on hover/focus.
-  - evidence: grep QuickPlay/Quick Play = 0 matches in src
-- `not-started` — Playable mobile cards show an always-visible 44px Play control.
-  - evidence: no always-visible mobile Play control on cards
+- `done` — Desktop cards reveal accessible Quick Play on hover/focus.
+  - evidence: CORRECTION - title-card.tsx:197 opacity-0 to group-hover:opacity-100 plus group-focus-within, gated to hover:hover pointer:fine so it is keyboard reachable
+- `done` — Playable mobile cards show an always-visible 44px Play control.
+  - evidence: CORRECTION - title-card.tsx:225 min-h-[44px] with lg:min-h-0, so the mobile target is always present
 
 ## model/client
 
@@ -165,8 +168,8 @@ plan document asserts. Where they disagree, the plan is wrong.
   - evidence: navigation.ts single source, check-navigation gate PASS, Rules delisted, Compact removed
 - `partial` — Compact Browse hero and implement the confirmed row hierarchy. **← plan claims done**
   - evidence: hero verified content-sized (check-title-hero 391px); row hierarchy does NOT match plan - actual order is Continue Watching, My Library, Recently Added Movies, Recently Added Series, Because-you-watch, Trending, Popular. Plan requires Continue Watching, Downloaded, Movies, Series, Anime. No Downloaded row, no Anime row
-- `not-started` — Add Downloaded/progress/type badges and accessible Quick Play. **← plan claims done**
-  - evidence: grep src for badge/Downloaded/progress-ring/QuickPlay = 0 matches; /api/browse has no Downloaded rail
+- `partial` — Add Downloaded/progress/type badges and accessible Quick Play. **← plan claims done**
+  - evidence: CORRECTION - my earlier not-started was wrong. availability-chip.tsx renders Ready/Playable/Unavailable badges; title-card.tsx line 160 renders a progress bar; line 197 reveals Play on hover AND group-focus-within; line 225 min-h-44px on mobile. Missing: no type label (Movie/Series/Anime) on cards, and progress is a bar not the specified percentage ring
 - `done` — Rebuild Search around All/Movies/Series/Anime without torrent filters.
   - evidence: everything-state.test.ts 5 tabs fit at 390px; search tabs shipped
 - `done` — Compact detail layouts and add exact transfer-state actions.

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "@/components/providers/session-provider";
 import { ArrowRight, HardDriveDownload } from "lucide-react";
 import { titleHrefForName, workIdentityFor } from "@/components/title/work-key";
+import { activityLabel } from "./active-row-state";
 
 interface TeaserTorrent {
   hash: string;
@@ -119,6 +120,15 @@ export function ActiveDownloadsTeaser() {
               >
                 <p className="min-w-0 flex-1 text-[13px] font-medium text-[var(--text)] truncate">
                   {displayTitle(t.name)}
+                </p>
+                {/* The panel's whole subject is work in flight, and it used to
+                    render only names — three rows at 2%, 97% and stalled were
+                    indistinguishable. */}
+                <p
+                  data-teaser-activity
+                  className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]"
+                >
+                  {activityLabel(t)}
                 </p>
               </Link>
             </li>
