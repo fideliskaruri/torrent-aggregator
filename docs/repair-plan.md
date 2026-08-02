@@ -134,40 +134,81 @@ drift 0px.
 
 ## Open — found during this work, not yet fixed
 
-### A. Migration `20260731120000_acquisition_target` is not applied
+### A. Migration `20260731120000_acquisition_target` — applied
 
-`prisma migrate status` reports it pending. Without it every title page returns
-500 (`SQLITE_ERROR: no such table: main.AcquisitionTarget`).
+`prisma migrate status` reported it pending, and without it every title page
+returned 500 (`SQLITE_ERROR: no such table: main.AcquisitionTarget`).
 
-**This is pre-existing on `main`** — the code called `acquisitionTarget` before
-any change in this pass. It was applied to a scratch copy of the database for
-testing; **the live `dev.db` has not been touched.**
+**This was pre-existing on `main`** — the code called `acquisitionTarget`
+before any change in this pass.
 
-Worth noting against the deleted plan's claim of a "title-correctness
-milestone… 52/52 passed on 2026-08-02": on this database, title pages do not
+Applied to the live `dev.db` on owner instruction. A pre-migration backup was
+taken first (`%TEMP%\opencode\dev.db.pre-migration.bak`, 9,134,080 bytes). The
+migration is additive — one new table — and no existing row was touched.
+
+Worth recording against the deleted plan's claim of a "title-correctness
+milestone… 52/52 passed on 2026-08-02": on this database, title pages did not
 load at all.
 
-Fix: `npm run db:migrate:deploy`. Not run against live data without
-instruction.
+### B. `/api/client/torrents` 502 — not a defect
 
-### B. `/api/client/torrents` returns 502 on every page load
+Seen on every page load during early browser runs. On investigation the
+endpoint returns 200 with a live torrent list; the 502s were the built-in
+engine still warming up at server start. Nothing to fix. Noted here because a
+recurring 502 in a console log is exactly the sort of thing that gets
+rediscovered and re-investigated six months later.
 
-Seen on `/` and `/client` in every browser run. Not investigated. Unknown
-whether it is configuration (no external client connected) or a defect.
+### C. Navigation rebuild — done
 
-### C. Navigation rebuild — not started
+See "Completed" items 7 and 8.
 
-From the confirmed model: five destinations (Browse, Library, Downloads,
-Notifications, Settings); remove Rules and Compact; Activity becomes
-Notifications with an unread count.
+---
 
-**The Client page is to be renamed Downloads** (owner instruction, 2026-08-02).
+## Completed (continued)
 
-`src/lib/navigation.ts` is the single source of truth and currently lists Rules
-twice; `/rules`, `/activity` and `/history` routes all still exist.
+### 7. Navigation: five destinations, honest names
 
-Deferred deliberately: it changes routes and product surfaces, and wants eyes
-on the result rather than a green unit suite.
+Browse, Library, Downloads, Notifications, Settings. Search left the
+destination list to become a global affordance — a box in the desktop header,
+full-screen on mobile — because it is something you do, not somewhere you are.
+
+- **Client → Downloads.** "Client" named the subsystem. Nobody opens a media
+  app to look at a torrent client.
+- **Activity → Notifications.** Activity was a wall of everything that had
+  happened, which is why nobody read it.
+- Both old paths redirect. Each was a header entry for the app's whole life.
+- **Rules leaves the navigation but keeps its route.** Its replacement — the
+  per-title Add to Library flow — does not exist yet, and removing the only
+  route to automation before building what replaces it would be a regression
+  sold as a cleanup.
+- The Compact density toggle is gone: it answered an implementation question,
+  and every viewer paid header space for it.
+
+One layout fact decided the design: the mobile bar drops its More tab when
+nothing was demoted to it. At six columns each tab gets 65px at 390px and
+"Notifications" truncates to a half-word; at five it gets 78px and renders.
+The pre-existing tab-fit test caught this, which is the system working.
+
+- Gate: `scripts/check-navigation.mjs` — rendered labels, redirects, 44px
+  targets, truncation, no empty More tab. Plus the updated `flow.test.ts`
+  contracts.
+
+### 8. Library tabs: what a thing is, not how far through it you are
+
+All / Movies / Series / Anime, All by default, replacing status chips. Status
+is a property of one title and stays on that title's card, where it is still
+editable.
+
+- A row the app cannot classify is **never** guessed into Movies. It stays
+  under All and claims no narrower home.
+- Counts do not pretend the parts add up: `all` is the total, so `all`
+  exceeding the sum means some row has no media type — a fact about the
+  library, not a rounding error.
+- Empty tabs are hidden; All is always present as the way back.
+
+- Gate: `library-tabs.test.ts`, 8 cases. Verified to go red: defaulting the
+  unknown case to `movies` fails 4 of them. Browser-checked at 390px for 44px
+  targets and no overflow.
 
 ---
 
@@ -175,26 +216,45 @@ on the result rather than a green unit suite.
 
 | Gate | Result |
 |---|---|
-| `npm run test:unit` | 152/152 |
+| `npm run test:unit` | 153/153 |
 | `npm run typecheck` | 0 errors |
-| `npm run lint` | 0 errors, 42 warnings |
+| `npm run lint` | 0 errors, 44 warnings |
 | `npm run build` | succeeds |
 | `check:sabotage` | pass |
-| `scripts/check-hydration.mjs` | 16/16 |
+| `scripts/check-hydration.mjs` | 24/24 |
 | `scripts/check-title-controls.mjs` | 6/6 titles |
 | `scripts/check-title-hero.mjs` | 4/4 titles, 0px drift |
+| `scripts/check-navigation.mjs` | pass |
 
-The three browser scripts need a running server (`PROBE_BASE`, default
+The four browser scripts need a running server (`PROBE_BASE`, default
 `http://127.0.0.1:3100`). They are deliberately repository scripts rather than
 MCP-only checks, so CI can reproduce them.
 
 ## What has *not* been verified
 
-- Nothing here was checked against a real in-flight download. The duplicate-
-  Download fix is proven by unit tests over the payload contract and by a
-  browser run against titles that happened to have no active transfer. The
-  states `queued` / `downloading` / `downloaded` were not observed end to end.
-- No screenshots were reviewed by a human. The browser gates assert measurable
-  facts (mismatch counts, control presence, pixel heights); they do not
-  establish that the result looks right.
-- The 502 in (B) is unexplained.
+- **No screenshots were reviewed by a human.** The browser gates assert
+  measurable facts — mismatch counts, control presence, pixel heights, label
+  truncation. They do not establish that the result looks right. This is the
+  single largest gap.
+- Notifications is renamed but not yet rebuilt. It is still the Activity feed
+  behind a new name: no unread count, no filtering to completions and terminal
+  failures. The name currently promises more than the page delivers.
+- Phase 1B is only started. Library tabs are done; Add to Library questions,
+  per-title preferences, automatic episode downloads, stop-tracking and
+  granular deletion are not.
+
+## What *was* verified end to end
+
+The duplicate-Download fix was checked against a **real in-flight torrent**,
+not only against the payload contract. With a title-scope target reconciled
+against the live engine, the page rendered:
+
+- `data-transfer-status="downloading"`, "Downloading 0%" (engine reported
+  0.068%, floored — a running torrent must not print a number that says it
+  finished)
+- no Download control
+- primary action "Play", enabled — a partial file stays watchable
+- zero console errors
+
+That was the gap flagged in the first version of this document; it is closed.
+
