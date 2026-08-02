@@ -73,6 +73,7 @@ import type {
   TitleSeason,
 } from "@/components/title/types";
 import { resolveTitleIntent } from "@/components/title/title-intent";
+import { bucketTargetsByScope } from "./acquisition-scopes";
 import {
   findCachedCatalogRow,
   resolveArtworkBestEffort,
@@ -174,7 +175,7 @@ export async function buildTitleDetail(
       take: SCAN_LIMIT,
     }),
     prisma.acquisitionTarget.findMany({
-      where: { userId, workKey, scope: "episode" },
+      where: { userId, workKey },
       orderBy: { updatedAt: "desc" },
       take: SCAN_LIMIT,
     }),
@@ -203,10 +204,30 @@ export async function buildTitleDetail(
       engineByHash.set(row.hash.trim().toLowerCase(), row);
     }
   }
+  // Three maps, not one flattened view.
+  //
+  // The write path (`route.ts`) records targets at `title`, `season` and
+  // `episode` scope. This read used to ask for `scope: "episode"` only, so a
+  // movie you had just sent, or a season pack mid-download, came back with no
+  // transfer at all — and the page, seeing nothing in flight, offered Download
+  // again beside a torrent the Client was actively fetching.
+  //
+  // They stay separate because they are separate claims. A season pack at 40%
+  // says nothing about whether episode 3 is playable, and copying its progress
+  // onto every episode row would manufacture exactly the false certainty the
+  // episode contract forbids. Each scope is reconciled against the engine on
+  // its own and read back only by the control that owns it.
+  //
+  // The bucketing itself lives in `acquisition-scopes.ts` so the rule is
+  // testable without a database — the original defect was a `where` clause,
+  // which no offline test could ever have caught.
+  const buckets = bucketTargetsByScope(targetRows);
   const episodeTransfers = new Map<string, AcquisitionTransfer>();
+  const seasonTransfers = new Map<number, AcquisitionTransfer>();
+  let titleTransfer: AcquisitionTransfer | null = null;
   const targetUpdates: Promise<unknown>[] = [];
-  for (const target of targetRows) {
-    if (target.season == null || target.episode == null) continue;
+
+  const reconcile = (target: (typeof targetRows)[number]): AcquisitionTransfer => {
     const persisted = acquisitionTransferFromRow(target);
     const engine = target.infoHash
       ? engineByHash.get(target.infoHash.trim().toLowerCase()) ?? null
@@ -222,7 +243,6 @@ export async function buildTitleDetail(
         : null,
       engine ? localFilePresence(engine) : "unknown",
     );
-    episodeTransfers.set(`${target.season}:${target.episode}`, resolved);
     if (
       resolved.status !== persisted.status ||
       resolved.progress !== persisted.progress ||
@@ -243,7 +263,20 @@ export async function buildTitleDetail(
         }),
       );
     }
+    return resolved;
+  };
+
+  if (buckets.title) titleTransfer = reconcile(buckets.title);
+  for (const [season, target] of buckets.seasons) {
+    seasonTransfers.set(season, reconcile(target));
   }
+  for (const [key, target] of buckets.episodes) {
+    episodeTransfers.set(key, reconcile(target));
+  }
+  // Malformed rows still get reconciled: a stale `downloading` claim must not
+  // outlive the torrent just because its scope columns are inconsistent. They
+  // are simply never read back as a transfer for any control.
+  for (const target of buckets.malformed) reconcile(target);
   if (targetUpdates.length > 0) await Promise.all(targetUpdates);
 
   // `CatalogEntry.workKey` is written by the discovery/catalog pipeline, which
@@ -380,7 +413,7 @@ export async function buildTitleDetail(
 
   // ── Seasons ─────────────────────────────────────────────────────────────
   const seasons = isSeries
-    ? buildSeasons(localReleases, cachedReleases, progress, watch)
+    ? buildSeasons(localReleases, cachedReleases, progress, watch, seasonTransfers)
     : [];
 
   // ── Resume ──────────────────────────────────────────────────────────────
@@ -462,6 +495,9 @@ export async function buildTitleDetail(
     downloadFraction: keptDownloadFraction(titleLocal),
 
     resume,
+    // Title scope only. A film the user sent, or a whole-work grab — never a
+    // roll-up of season or episode targets.
+    transfer: titleTransfer,
     seasons,
     season: selectedSeason,
     episodes,
@@ -628,6 +664,7 @@ function buildSeasons(
   cachedReleases: CachedRelease[],
   progress: { season: number | null; episode: number | null }[],
   watch: { cursorSeason: number | null } | null,
+  seasonTransfers: Map<number, AcquisitionTransfer>,
 ): TitleSeason[] {
   const numbers = new Set<number>();
   for (const r of localReleases) {
@@ -668,6 +705,10 @@ function buildSeasons(
                 downloadFraction: keptDownloadFraction(packRelease),
               }
             : null,
+        // Season-scoped only. `pack` above describes a file we hold; this
+        // describes a grab the user asked for, which may still be queued and
+        // hold nothing at all. They are not interchangeable.
+        transfer: seasonTransfers.get(season) ?? null,
       } satisfies TitleSeason;
     });
 }

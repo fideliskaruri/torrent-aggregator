@@ -58,7 +58,7 @@ console.log("\ntitle episode list");
 check("remote episode row renders distinct Play and Download controls", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null }],
+      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
       season: 1,
       episodes: [episode()],
       truncated: false,
@@ -83,7 +83,7 @@ check("remote episode row renders distinct Play and Download controls", () => {
 check("season actions say exactly what they do without review wording", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 2, pack: null }],
+      seasons: [{ season: 1, knownEpisodes: 2, pack: null, transfer: null }],
       season: 1,
       episodes: [episode(), episode({ episode: 2, label: "S01E02" })],
       truncated: false,
@@ -107,7 +107,7 @@ check("season actions say exactly what they do without review wording", () => {
 check("locally backed episode keeps immediate Play", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 1, pack: null }],
+      seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
       season: 1,
       episodes: [
         episode({
@@ -134,7 +134,7 @@ check("failed missing transfer hides Play unless another local source is verifie
   const render = (row: EpisodeRowModel) =>
     renderToStaticMarkup(
       React.createElement(EpisodeList, {
-        seasons: [{ season: 1, knownEpisodes: 1, pack: null }],
+        seasons: [{ season: 1, knownEpisodes: 1, pack: null, transfer: null }],
         season: 1,
         episodes: [row],
         truncated: false,
@@ -290,6 +290,7 @@ check("a legacy season pack does not make every sibling episode downloaded", () 
             infoHash: "b".repeat(40),
             downloadFraction: 0.061,
           },
+          transfer: null,
         },
       ],
       season: 4,
@@ -328,7 +329,7 @@ check("a legacy season pack does not make every sibling episode downloaded", () 
 check("target-linked episode renders exact transfer progress without leaking to siblings", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
-      seasons: [{ season: 1, knownEpisodes: 2, pack: null }],
+      seasons: [{ season: 1, knownEpisodes: 2, pack: null, transfer: null }],
       season: 1,
       episodes: [
         episode({ episode: 1, label: "S01E01" }),
@@ -364,7 +365,7 @@ check("target-linked episode renders exact transfer progress without leaking to 
 check("completed target renders Downloaded/Available and Play", () => {
   const html = renderToStaticMarkup(
     React.createElement(EpisodeList, {
-      seasons: [{ season: 2, knownEpisodes: 1, pack: null }],
+      seasons: [{ season: 2, knownEpisodes: 1, pack: null, transfer: null }],
       season: 2,
       episodes: [
         episode({

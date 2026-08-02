@@ -34,7 +34,7 @@ function check(name: string, fn: () => void) {
 // --- Factories --------------------------------------------------------------
 
 function season(n: number): TitleSeason {
-  return { season: n, knownEpisodes: 0, pack: null };
+  return { season: n, knownEpisodes: 0, pack: null, transfer: null };
 }
 
 /** A minimal live local release — resolveResume only reads `hash`. */

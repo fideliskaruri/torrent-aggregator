@@ -69,6 +69,14 @@ export interface TitleSeason {
     infoHash: string;
     downloadFraction: number | null;
   } | null;
+  /**
+   * Exact user acquisition state for a season-scoped grab.
+   *
+   * Stays at season scope. An episode row must not render this as its own
+   * progress: a pack being 60% fetched says nothing about which episodes are
+   * complete, and the episode contract forbids claims nobody made.
+   */
+  transfer: TitleEpisodeTransfer | null;
 }
 
 /** Where this work stands in the user's library. */
@@ -140,6 +148,18 @@ export interface TitleDetailPayload {
   downloadFraction: number | null;
 
   resume: TitleResume | null;
+
+  /**
+   * The user's acquisition state for the *work itself* — a film they sent, or
+   * a whole-series grab. Never a summary of its parts.
+   *
+   * Separate from {@link TitleSeason.transfer} and {@link TitleEpisode.transfer}
+   * because the three answer different questions and only the control that owns
+   * a scope may read it. Merging them is how a season pack at 40% ends up
+   * claiming episode 3 is 40% watched-ready, and how a title with one queued
+   * episode starts describing itself as queued.
+   */
+  transfer: TitleEpisodeTransfer | null;
 
   /** Every season we know of, ascending. Empty for a film. */
   seasons: TitleSeason[];

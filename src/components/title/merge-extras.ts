@@ -129,7 +129,14 @@ export function mergeSeasons(
   for (const number of providerSeasons) {
     if (!Number.isInteger(number) || number < 1) continue;
     if (byNumber.has(number)) continue;
-    byNumber.set(number, { season: number, knownEpisodes: 0, pack: null });
+    // A season the provider knows about but we hold nothing for. There is no
+    // transfer to report: the user has never asked for it.
+    byNumber.set(number, {
+      season: number,
+      knownEpisodes: 0,
+      pack: null,
+      transfer: null,
+    });
   }
 
   return [...byNumber.values()].sort((a, b) => a.season - b.season);
