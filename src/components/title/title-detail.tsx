@@ -743,7 +743,7 @@ function TitleContent({
     <article aria-labelledby="title-heading" className="flex grow flex-col">
       <header
         data-title-hero
-        className="relative isolate flex grow flex-col justify-end overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]"
+        className="relative isolate flex flex-col justify-end overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]"
       >
         <div
           className="absolute inset-0 -z-10"
@@ -787,7 +787,15 @@ function TitleContent({
           {/* A tall hero is the point of the page, and it is also what stops a
               film — which has no episode list under it — reading as a short
               band floating over several hundred pixels of nothing. */}
-          <div className="flex min-h-[clamp(360px,56vh,560px)] flex-col justify-end gap-6 py-8 sm:py-10 md:flex-row md:items-end md:justify-start lg:py-12">
+          {/* Bounded, not proportional.
+              `min-h: 56vh` plus `grow` on the header above meant the hero took
+              a fixed share of every viewport, so on a 1080p screen the title,
+              its metadata and its buttons sat alone in a cinema-sized band and
+              the first genuinely useful section — episodes, or similar titles —
+              began below the fold. The content is what sets the height now; the
+              floor only stops a title with no artwork and no overview from
+              collapsing into a strip. */}
+          <div className="flex min-h-[18rem] flex-col justify-end gap-6 py-8 sm:min-h-[20rem] sm:py-10 md:flex-row md:items-end md:justify-start lg:min-h-[22rem] lg:py-12">
             {/* The poster is a mark, not a caption: the title is printed
                 beside it, so the no-artwork tile carries no words of its own. */}
             <div className="hidden w-[168px] shrink-0 md:block lg:w-[196px]">
