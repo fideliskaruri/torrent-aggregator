@@ -99,9 +99,9 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
       <div className="container-app">
         <motion.div
           className="flex min-h-[19rem] max-w-2xl flex-col justify-end py-8 sm:min-h-[23rem] sm:py-10 lg:min-h-[26rem]"
-          initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+          initial={false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
+          transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}
         >
           <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
             {eyebrow}

@@ -120,10 +120,10 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
       aria-labelledby={`rail-${rail.id}`}
       data-rail={rail.id}
       className="group/rail relative py-4 sm:py-5"
-      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+      initial={false}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        duration: 0.18,
+        duration: reduceMotion ? 0 : 0.18,
         delay: reduceMotion ? 0 : Math.min(index, 4) * 0.04,
         ease: "easeOut",
       }}
