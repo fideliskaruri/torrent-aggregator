@@ -960,6 +960,8 @@ function TitleContent({
                 <LibraryControls
                   library={payload.library}
                   isSeries={payload.isSeries}
+                  seasons={payload.seasons.map((s) => s.season)}
+                  releaseDate={payload.releaseDate}
                   onChanged={onLibraryChanged}
                 />
               </div>

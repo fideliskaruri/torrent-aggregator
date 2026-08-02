@@ -66,6 +66,16 @@ model WatchListItem {
   seederWaitSince     DateTime?
   /// ongoing | catchup | on_demand
   monitorMode         String    @default("ongoing")
+  /// Resolution this title should be hunted at, overriding the global
+  /// ClientSettings preference. Null means "whatever the global setting is",
+  /// and is not the same as storing the global value here: a copy taken at add
+  /// time would silently stop tracking the setting it was copied from.
+  ///
+  /// Per title rather than global because the tradeoff is per title. A film
+  /// watched once on a projector and a 500-episode show watched on a laptop
+  /// want different answers, and a single global number forces the user to
+  /// keep changing it or accept the wrong one for one of them.
+  preferredResolution Int?
   latestReleaseTitle  String?
   latestReleaseAt     DateTime?
   latestReleaseMagnet String?

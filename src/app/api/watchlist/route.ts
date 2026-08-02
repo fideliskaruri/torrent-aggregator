@@ -9,6 +9,7 @@ import {
 import { resolveMetadata } from "@/lib/metadata/enrich";
 import { isSeriesMediaType, normalizeMediaType } from "@/lib/metadata/media-type";
 import { promoteLibraryStreamsToKept } from "@/lib/streaming/retention";
+import { SELECTABLE_RESOLUTIONS } from "@/lib/torrents/target-resolution";
 import {
   booleanField,
   enumField,
@@ -18,6 +19,7 @@ import {
   readMutationObject,
   requestFailureResponse,
   stringField,
+  type RequestResult,
 } from "@/lib/http/request";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +36,38 @@ export async function GET() {
   });
 
   return NextResponse.json({ items });
+}
+
+/**
+ * A per-title resolution override.
+ *
+ * Null is a real answer meaning "follow the global preference", and is not the
+ * same as storing today's global value: a copy taken at add time would stop
+ * tracking the setting it came from, so changing the global later would leave
+ * every existing title behind at a number nobody chose deliberately.
+ */
+function resolutionField(
+  fields: ReadonlyMap<string, unknown>,
+): RequestResult<number | null> {
+  const parsed = numberField(fields, "preferredResolution", {
+    nullable: true,
+    integer: true,
+    min: 1,
+    max: 100_000,
+  });
+  if (!parsed.ok) return parsed;
+  if (parsed.value == null) return { ok: true, value: null };
+  // An arbitrary number here would be stored and then silently ignored by the
+  // hunt, which snaps to the ladder it knows. Rejecting is honest; accepting
+  // and rounding would tell the user 1440 was saved when 1080 was.
+  if (!(SELECTABLE_RESOLUTIONS as readonly number[]).includes(parsed.value)) {
+    return {
+      ok: false,
+      status: 400,
+      error: `preferredResolution must be one of ${SELECTABLE_RESOLUTIONS.join(", ")}`,
+    };
+  }
+  return { ok: true, value: parsed.value };
 }
 
 export async function POST(request: NextRequest) {
@@ -94,6 +128,8 @@ export async function POST(request: NextRequest) {
   if (!fromEpisodeInput.ok) return requestFailureResponse(fromEpisodeInput);
   const monitorMode = enumField(fields, "monitorMode", ["ongoing"] as const);
   if (!monitorMode.ok) return requestFailureResponse(monitorMode);
+  const preferredResolution = resolutionField(fields);
+  if (!preferredResolution.ok) return requestFailureResponse(preferredResolution);
   const body = {
     mediaType,
     externalId: externalId.value ?? "",
@@ -106,6 +142,7 @@ export async function POST(request: NextRequest) {
     fromSeason: fromSeasonInput.value,
     fromEpisode: fromEpisodeInput.value,
     monitorMode: monitorMode.value,
+    preferredResolution: preferredResolution.value,
   };
 
   const isSeries = isSeriesMediaType(body.mediaType);
@@ -179,6 +216,7 @@ export async function POST(request: NextRequest) {
       cursorEpisode,
       nextEpisodeHint,
       monitorMode: body.monitorMode ?? "ongoing",
+      preferredResolution: body.preferredResolution,
     },
     update: {
       title: body.title,
@@ -188,7 +226,13 @@ export async function POST(request: NextRequest) {
       ...(art.synopsis ? { synopsis: art.synopsis } : {}),
       ...(art.rating != null ? { rating: art.rating } : {}),
       status: body.status ?? undefined,
-      // Re-adding with a season resets the hunt cursor
+      // Re-adding with a season resets the hunt cursor.
+      //
+      // It does not switch automation on. This used to force `monitored: true`
+      // here, so "start from season 2, but let me choose episodes myself" was
+      // silently stored as "download season 2 onwards forever" — a start point
+      // says *where* to begin, not *whether* to hunt, and the two answers come
+      // from two different questions.
       ...(fromSeason != null
         ? {
             fromSeason,
@@ -196,10 +240,13 @@ export async function POST(request: NextRequest) {
             cursorSeason,
             cursorEpisode,
             nextEpisodeHint,
-            monitored: true,
           }
         : {}),
+      ...(body.monitored != null ? { monitored: body.monitored } : {}),
       ...(body.monitorMode ? { monitorMode: body.monitorMode } : {}),
+      ...(body.preferredResolution !== undefined
+        ? { preferredResolution: body.preferredResolution }
+        : {}),
     },
   });
 
@@ -288,6 +335,8 @@ export async function PATCH(request: NextRequest) {
   if (!cursorEpisode.ok) return requestFailureResponse(cursorEpisode);
   const monitorMode = enumField(fields, "monitorMode", ["ongoing"] as const);
   if (!monitorMode.ok) return requestFailureResponse(monitorMode);
+  const preferredResolution = resolutionField(fields);
+  if (!preferredResolution.ok) return requestFailureResponse(preferredResolution);
   const body = {
     id: id.value ?? "",
     status: status.value,
@@ -298,6 +347,7 @@ export async function PATCH(request: NextRequest) {
     cursorSeason: cursorSeason.value,
     cursorEpisode: cursorEpisode.value,
     monitorMode: monitorMode.value,
+    preferredResolution: preferredResolution.value,
   };
 
   const existing = await prisma.watchListItem.findFirst({
@@ -314,6 +364,9 @@ export async function PATCH(request: NextRequest) {
   if (body.monitored !== undefined) data.monitored = body.monitored;
   if (body.monitorMode !== undefined) data.monitorMode = body.monitorMode;
   if (body.lastEpisode !== undefined) data.lastEpisode = body.lastEpisode;
+  if (body.preferredResolution !== undefined) {
+    data.preferredResolution = body.preferredResolution;
+  }
 
   // Reset hunt start: set from + cursor together
   if (body.fromSeason != null && body.fromSeason >= 1) {

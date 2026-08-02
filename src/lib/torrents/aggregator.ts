@@ -13,7 +13,10 @@ import { ytsAdapter } from "./adapters/yts";
 import { eztvAdapter } from "./adapters/eztv";
 import { dedupeResults, groupReleases, rankResults } from "./ranking";
 import { applyFilters, type SearchFilters } from "./filters";
-import { getTargetResolution } from "./target-resolution";
+import {
+  getTargetResolution,
+  SELECTABLE_RESOLUTIONS,
+} from "./target-resolution";
 import { enrichResultsWithMetadata } from "@/lib/metadata/enrich";
 import {
   attachDownloadRoutes,
@@ -147,7 +150,17 @@ export async function searchTorrents(
   // The target resolution is part of the key: it changes the *order* of the
   // cached pool, so serving a pool ranked for a different target would silently
   // undo the setting the user just changed.
-  const targetResolution = await getTargetResolution();
+  // A per-title override wins over the global preference, and only when it is
+  // one of the values the ladder knows — a corrupt number must fall back to the
+  // setting rather than rank against something meaningless.
+  const override =
+    options.targetResolution != null &&
+    (SELECTABLE_RESOLUTIONS as readonly number[]).includes(
+      options.targetResolution,
+    )
+      ? options.targetResolution
+      : null;
+  const targetResolution = override ?? (await getTargetResolution());
   const cacheKey = cacheKeyFrom({
     q: query.toLowerCase(),
     category: options.category ?? "all",

@@ -37,6 +37,10 @@ export async function checkWatchlistReleases(userId: string) {
         limit: 12,
         enrich: false,
         filters: { minSeeders: 1 },
+        // The title's own quality choice, when it made one. Without this the
+        // per-title preference would be stored, shown, and then ignored by the
+        // one process that acts on it.
+        targetResolution: item.preferredResolution,
       });
 
       const best = result.results[0];
