@@ -210,13 +210,52 @@ editable.
   unknown case to `movies` fails 4 of them. Browser-checked at 390px for 44px
   targets and no overflow.
 
+### 9. Notifications actually became an inbox
+
+The rename shipped in item 7; the behaviour did not. The page was still the
+Activity feed wearing a new name — which is worse than leaving it called
+Activity, because the name implied someone was telling you things worth
+knowing.
+
+A notification must be news, and news is two things: something you wanted is
+ready, or something you wanted failed in a way only you can resolve. Progress
+belongs on the thing making progress.
+
+- One release failing is not news; the app tries other releases and sources
+  first. Only the terminal outcome is the user's to act on.
+- One recovery action per failure, not a menu.
+- Failure messages are translated out of machinery. `ECONNREFUSED
+  127.0.0.1:8080` names a port the user never chose. Unrecognised messages are
+  kept verbatim rather than replaced by "Something went wrong" — a specific
+  unknown is more use than a vague known.
+- Unread count in the nav, stored as a timestamp in `localStorage`. Computed in
+  an effect and starting at 0, because reading storage during render is the
+  hydration defect fixed in item 2.
+
+**A note on a guard that could not fail.** The first version of `inbox.ts` had
+a `NOT_NEWS` set listing `skipped`, `queued`, `searching`. Deleting it failed
+no test — anything absent from the two allowlists already returns null. It was
+removed rather than left implying a protection it never provided. Breaking the
+allowlist instead (adding `skipped` to `COMPLETED`) fails 4 tests, which is
+what a real guard looks like. This is the second time in this pass that a
+check turned out to be decoration; both are recorded rather than quietly
+fixed.
+
+- Gate: `inbox.test.ts`, 10 cases. Verified end to end against this database:
+  50 feed rows (14 sent, 35 failed, 1 skipped) → 49 notifications → badge 49 →
+  clears to nothing once read. Zero console errors.
+
+### 10. Library tabs
+
+See item 8.
+
 ---
 
 ## Verification status
 
 | Gate | Result |
 |---|---|
-| `npm run test:unit` | 153/153 |
+| `npm run test:unit` | 154/154 |
 | `npm run typecheck` | 0 errors |
 | `npm run lint` | 0 errors, 44 warnings |
 | `npm run build` | succeeds |
@@ -224,24 +263,43 @@ editable.
 | `scripts/check-hydration.mjs` | 24/24 |
 | `scripts/check-title-controls.mjs` | 6/6 titles |
 | `scripts/check-title-hero.mjs` | 4/4 titles, 0px drift |
-| `scripts/check-navigation.mjs` | pass |
+| `scripts/check-navigation.mjs` | pass, badge included |
 
 The four browser scripts need a running server (`PROBE_BASE`, default
 `http://127.0.0.1:3100`). They are deliberately repository scripts rather than
 MCP-only checks, so CI can reproduce them.
 
+## Phase 1B — where it actually stands
+
+| Item | State |
+|---|---|
+| All/Movies/Series/Anime tabs | done |
+| Notifications inbox + unread count | done |
+| Add to Library questions, per-title preferences | **not started** |
+| Automatically download new episodes | **not started** |
+| Watching + update/download state on cards | **not started** |
+| Stop-tracking and granular confirmed deletion | **not started** |
+
+The three remaining items were left deliberately rather than rushed. Two of
+them act on the world rather than the screen: automatic episode downloading
+starts real transfers of real files without being asked, and granular deletion
+removes media from disk. Both deserve their own test design and a fresh start,
+not the tail of a long session — which is exactly the condition under which
+the work this document replaces was produced.
+
 ## What has *not* been verified
 
 - **No screenshots were reviewed by a human.** The browser gates assert
   measurable facts — mismatch counts, control presence, pixel heights, label
-  truncation. They do not establish that the result looks right. This is the
-  single largest gap.
-- Notifications is renamed but not yet rebuilt. It is still the Activity feed
-  behind a new name: no unread count, no filtering to completions and terminal
-  failures. The name currently promises more than the page delivers.
-- Phase 1B is only started. Library tabs are done; Add to Library questions,
-  per-title preferences, automatic episode downloads, stop-tracking and
-  granular deletion are not.
+  truncation, badge text. They do not establish that the result looks right.
+  This remains the single largest gap and is not one an agent can close.
+- Notification failure translation is tested against the message shapes found
+  in this database. A cause not in that set falls through to the raw text,
+  which is the intended behaviour but means the phrase list is incomplete by
+  construction.
+- The unread count is per-browser (`localStorage`). Opening the app in a second
+  browser shows everything as unread. Correct for a single-user local app;
+  worth knowing before anyone puts it behind a reverse proxy.
 
 ## What *was* verified end to end
 
@@ -256,5 +314,6 @@ against the live engine, the page rendered:
 - primary action "Play", enabled — a partial file stays watchable
 - zero console errors
 
-That was the gap flagged in the first version of this document; it is closed.
+The notification inbox was checked against the real feed: 50 rows in, 49 out,
+badge matching, clearing on read.
 
