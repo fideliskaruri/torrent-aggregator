@@ -131,3 +131,8 @@ dev.db.postclean-*
 
 # Autopilot arming state is per-machine, not project configuration.
 docs/.autopilot.json
+
+# The plan database is the one .db that IS project state, not local scratch.
+# It is the record of what has actually been verified; losing it means the
+# next session starts guessing again, which is the failure it exists to stop.
+!docs/plan.db
