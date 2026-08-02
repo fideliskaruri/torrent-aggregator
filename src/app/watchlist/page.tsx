@@ -70,6 +70,7 @@ import {
   visibleTabs,
   type LibraryTab,
 } from "./library-tabs";
+import { activityLine, needsAttention, positionLine } from "./card-state";
 import { canonicalWatchlistPlayerTitle } from "./player-identity";
 
 interface WatchItem {
@@ -600,6 +601,9 @@ export default function WatchlistPage() {
               canStream: isBuiltinClient && Boolean(latestInfoHash),
             });
             const nextLabel = itemState.nextLabel;
+            const cardPosition = positionLine(item);
+            const cardActivity = activityLine(item);
+            const cardAttention = needsAttention(item);
             // A library row is a title you asked for, so it opens the page
             // about that title — the same destination its poster on the home
             // board has. Without this the card was inert: every control on it
@@ -869,7 +873,41 @@ export default function WatchlistPage() {
                               </option>
                             ))}
                           </select>
-                        </div>
+                    </div>
+                    {/* Two questions, two lines: where am I, and is anything
+                        happening. The old card answered neither without being
+                        opened - "watching" told you the status you had already
+                        filtered by, and a monitored show with an episode
+                        waiting looked identical to one with nothing to do. */}
+                    {cardPosition || cardActivity ? (
+                      <p
+                        data-card-state
+                        data-card-attention={cardAttention ? "true" : undefined}
+                        className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px]"
+                      >
+                        {cardPosition ? (
+                          <span className="tabular-nums text-[var(--text-secondary)]">
+                            {cardPosition}
+                          </span>
+                        ) : null}
+                        {cardPosition && cardActivity ? (
+                          <span aria-hidden className="text-[var(--text-tertiary)]">
+                            ·
+                          </span>
+                        ) : null}
+                        {cardActivity ? (
+                          <span
+                            className={
+                              cardActivity.kind === "update"
+                                ? "font-medium text-[var(--accent-text)]"
+                                : "text-[var(--text-tertiary)]"
+                            }
+                          >
+                            {cardActivity.text}
+                          </span>
+                        ) : null}
+                      </p>
+                    ) : null}
                       </details>
                     ) : null}
                   </div>
