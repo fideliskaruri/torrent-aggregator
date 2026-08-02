@@ -255,7 +255,7 @@ See item 8.
 
 | Gate | Result |
 |---|---|
-| `npm run test:unit` | 154/154 |
+| `npm run test:unit` | 155/155 |
 | `npm run typecheck` | 0 errors |
 | `npm run lint` | 0 errors, 44 warnings |
 | `npm run build` | succeeds |
@@ -277,10 +277,10 @@ MCP-only checks, so CI can reproduce them.
 | Notifications inbox + unread count | done |
 | Add to Library questions, per-title preferences | **not started** |
 | Automatically download new episodes | **not started** |
-| Watching + update/download state on cards | **not started** |
+| Watching + update/download state on cards | done |
 | Stop-tracking and granular confirmed deletion | **not started** |
 
-The three remaining items were left deliberately rather than rushed. Two of
+The remaining items were left deliberately rather than rushed. Two of
 them act on the world rather than the screen: automatic episode downloading
 starts real transfers of real files without being asked, and granular deletion
 removes media from disk. Both deserve their own test design and a fresh start,
