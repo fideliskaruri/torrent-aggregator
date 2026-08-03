@@ -12,10 +12,15 @@
  */
 import assert from "node:assert/strict";
 import {
+  buildEpisodes,
+  buildPackCoverage,
   pickSeason,
   progressMatchesWork,
   resolveResume,
+  type EpisodeBuildInput,
+  type LocalRelease,
 } from "./detail";
+import type { AcquisitionTransfer } from "./acquisition-target";
 import type { TitleSeason } from "@/components/title/types";
 
 let failures = 0;
@@ -184,6 +189,229 @@ check("pickSeason: a resume season not in the list falls through", () => {
 
 check("pickSeason: empty season list has no season to open", () => {
   assert.equal(pickSeason([], 1, 1, [], null), null);
+});
+
+// --- pack coverage → episode rows -------------------------------------------
+//
+// The season-pack defect: a completed S02 pack seeds episode files on disk, but
+// each episode row read only its own acquisition and rendered a plain Download.
+// These prove the pack now covers those episodes (tick/Play) while leaving the
+// episodes it does not contain untouched, and never over-claiming a phantom.
+
+/** A local pack release, present on disk unless overridden. */
+function packRelease(over: Partial<LocalRelease> = {}): LocalRelease {
+  return {
+    hash: "packhash",
+    name: "Rick and Morty (2013) Season 2 S02 (1080p BluRay)",
+    progress: 1,
+    status: "seeding",
+    season: 2,
+    episode: null,
+    isPack: true,
+    isMultiSeason: false,
+    retentionState: "kept",
+    fileMissing: false,
+    ...over,
+  };
+}
+
+const RM_S02_FILES = JSON.stringify([
+  { path: "D:\\RM S02\\Season 02\\Rick and Morty S02E03 Crewcoo (1080p BluRay).mkv", size: 1_500_000_000, mtimeMs: 1 },
+  { path: "D:\\RM S02\\Season 02\\Rick and Morty S02E04 Total Rickall (1080p BluRay).mkv", size: 1_600_000_000, mtimeMs: 1 },
+  { path: "D:\\RM S02\\Season 02\\Rick and Morty S02E05 Get Schwifty (1080p BluRay).mkv", size: 1_550_000_000, mtimeMs: 1 },
+  { path: "D:\\RM S02\\Featurettes\\Animatics\\01 - A Rickle in Time (Attempt 1).mkv", size: 40_000_000, mtimeMs: 1 },
+  { path: "D:\\RM S02\\Season 02\\Rick and Morty S02E03.nfo", size: 2000, mtimeMs: 1 },
+  { path: "D:\\RM S02\\Torrent Downloaded From ExtraTorrent.txt", size: 100, mtimeMs: 1 },
+]);
+
+function engineMap(hash: string, verifiedFilesJson: string | null) {
+  return new Map([[hash.toLowerCase(), { verifiedFilesJson }]]);
+}
+
+function episodeInput(over: Partial<EpisodeBuildInput>): EpisodeBuildInput {
+  return {
+    season: 2,
+    localReleases: [],
+    cachedReleases: [],
+    progress: [],
+    cursorSeason: null,
+    cursorEpisode: null,
+    transfers: new Map(),
+    packCoverage: new Map(),
+    coveredByPackTransfer: null,
+    ...over,
+  };
+}
+
+check("buildPackCoverage: a ready season pack covers its real episodes", () => {
+  const coverage = buildPackCoverage(
+    [packRelease()],
+    engineMap("packhash", RM_S02_FILES),
+    2,
+  );
+  assert.equal(coverage.get(3)?.availability, "ready");
+  assert.equal(coverage.get(3)?.infoHash, "packhash");
+  assert.equal(
+    coverage.get(3)?.filePath,
+    "D:\\RM S02\\Season 02\\Rick and Morty S02E03 Crewcoo (1080p BluRay).mkv",
+  );
+  assert.ok(coverage.has(4));
+  assert.ok(coverage.has(5));
+});
+
+check("buildPackCoverage: Featurettes/nfo/txt never create phantom episodes", () => {
+  const coverage = buildPackCoverage(
+    [packRelease()],
+    engineMap("packhash", RM_S02_FILES),
+    2,
+  );
+  assert.equal(coverage.has(1), false); // "01 - A Rickle in Time" is not E1
+  assert.equal(coverage.size, 3);
+});
+
+check("buildPackCoverage: a pack whose files land elsewhere covers nothing", () => {
+  // Different-season files must not map onto this season.
+  const coverage = buildPackCoverage(
+    [packRelease()],
+    engineMap(
+      "packhash",
+      JSON.stringify([{ path: "D:\\x\\Show S03E01 A.mkv", size: 10 }]),
+    ),
+    2,
+  );
+  assert.equal(coverage.size, 0);
+});
+
+check("buildPackCoverage: null verifiedFilesJson yields no coverage", () => {
+  const coverage = buildPackCoverage(
+    [packRelease()],
+    engineMap("packhash", null),
+    2,
+  );
+  assert.equal(coverage.size, 0);
+});
+
+check("buildPackCoverage: a file-missing pack makes no local claim", () => {
+  const coverage = buildPackCoverage(
+    [packRelease({ fileMissing: true })],
+    engineMap("packhash", RM_S02_FILES),
+    2,
+  );
+  assert.equal(coverage.size, 0);
+});
+
+check("buildPackCoverage: season pack wins over a multi-season pack", () => {
+  const seasonPack = packRelease({ hash: "seasonhash" });
+  const multi = packRelease({
+    hash: "multihash",
+    isMultiSeason: true,
+    name: "Rick and Morty S01-S05 Complete",
+  });
+  const engines = new Map<string, { verifiedFilesJson: string | null }>([
+    ["seasonhash", { verifiedFilesJson: JSON.stringify([
+      { path: "D:\\season\\Rick and Morty S02E03 SEASON.mkv", size: 100 },
+    ]) }],
+    ["multihash", { verifiedFilesJson: JSON.stringify([
+      { path: "D:\\multi\\Rick and Morty S02E03 MULTI.mkv", size: 999 },
+    ]) }],
+  ]);
+  const coverage = buildPackCoverage([multi, seasonPack], engines, 2);
+  assert.equal(coverage.get(3)?.infoHash, "seasonhash");
+  assert.equal(coverage.get(3)?.filePath, "D:\\season\\Rick and Morty S02E03 SEASON.mkv");
+});
+
+check("buildEpisodes: a pack-covered episode becomes ready+Play, not Download", () => {
+  const rows = buildEpisodes(
+    episodeInput({
+      packCoverage: buildPackCoverage(
+        [packRelease()],
+        engineMap("packhash", RM_S02_FILES),
+        2,
+      ),
+    }),
+  );
+  const e3 = rows.find((r) => r.episode === 3);
+  assert.equal(e3?.availability, "ready");
+  assert.equal(e3?.infoHash, "packhash");
+  assert.equal(
+    e3?.filePath,
+    "D:\\RM S02\\Season 02\\Rick and Morty S02E03 Crewcoo (1080p BluRay).mkv",
+  );
+  assert.equal(e3?.fromPack, true);
+  assert.equal(e3?.coveredByPack ?? null, null);
+});
+
+check("buildEpisodes: an episode the pack lacks stays null", () => {
+  const rows = buildEpisodes(
+    episodeInput({
+      packCoverage: buildPackCoverage(
+        [packRelease()],
+        engineMap("packhash", RM_S02_FILES),
+        2,
+      ),
+    }),
+  );
+  // Highest covered episode is 5; episodes 1 and 2 are not in the pack.
+  const e1 = rows.find((r) => r.episode === 1);
+  const e2 = rows.find((r) => r.episode === 2);
+  assert.equal(e1?.availability ?? null, null);
+  assert.equal(e1?.infoHash ?? null, null);
+  assert.equal(e2?.availability ?? null, null);
+  assert.equal(e2?.fromPack, false);
+});
+
+check("buildEpisodes: the episode's own file wins over the pack fallback", () => {
+  const own: LocalRelease = {
+    hash: "ownhash",
+    name: "Rick and Morty S02E03 720p",
+    progress: 1,
+    status: "seeding",
+    season: 2,
+    episode: 3,
+    isPack: false,
+    isMultiSeason: false,
+    retentionState: "kept",
+    fileMissing: false,
+  };
+  const rows = buildEpisodes(
+    episodeInput({
+      localReleases: [own],
+      packCoverage: buildPackCoverage(
+        [packRelease()],
+        engineMap("packhash", RM_S02_FILES),
+        2,
+      ),
+    }),
+  );
+  const e3 = rows.find((r) => r.episode === 3);
+  assert.equal(e3?.infoHash, "ownhash"); // its own file, not the pack
+  assert.equal(e3?.fromPack, false);
+});
+
+check("buildEpisodes: a mid-download pack marks coveredByPack, not ready", () => {
+  const inFlight: AcquisitionTransfer = {
+    status: "downloading",
+    progress: 0.4,
+    infoHash: "packhash",
+    filePath: null,
+    error: null,
+  };
+  const rows = buildEpisodes(
+    episodeInput({
+      // No files landed yet → empty coverage, but the season is in flight.
+      packCoverage: new Map(),
+      coveredByPackTransfer: inFlight,
+      // Give the list a reason to render rows: a cached episode marker for E3.
+      cachedReleases: [
+        { season: 2, episode: 3, isPack: false, viable: true },
+      ],
+    }),
+  );
+  const e3 = rows.find((r) => r.episode === 3);
+  assert.equal(e3?.coveredByPack?.status, "downloading");
+  // Never marked ready by a pack that holds no file for it yet.
+  assert.notEqual(e3?.availability, "ready");
+  assert.equal(e3?.fromPack, false);
 });
 
 console.log(
