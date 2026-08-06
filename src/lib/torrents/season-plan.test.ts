@@ -150,6 +150,70 @@ for (const count of [24, 26]) {
   assert.equal(plan.pack, null);
 }
 
+{
+  // "I picked 1080p but got 4K." All packs share verdict and coverage, so
+  // selection used to fall through to input index — and a 2160p upscale sitting
+  // at the top of the ranker order beat a 1080p pack with 5x the seeders. An
+  // explicit preferredResolution must win among same-verdict packs.
+  const uhd = result("Rick and Morty S06 2160p HDR Ai Upscale");
+  const hd = result("Rick and Morty Season 6 S06 1080p WEBRip");
+  const wanted = [1, 2, 3];
+  const withPref = planSeason({
+    season: 6,
+    wanted,
+    releases: [uhd, hd], // 4K first, as the ranker ordered it
+    verdictOf: () => "weak", // the real-world case: neither pack is measured good
+    preferredResolution: 1080,
+  });
+  assert.equal(
+    withPref.pack?.release.infoHash,
+    hd.infoHash,
+    "the 1080p pack wins when 1080p was asked for",
+  );
+
+  // No preference → the ranker's order stands (4K was first).
+  const noPref = planSeason({
+    season: 6,
+    wanted,
+    releases: [uhd, hd],
+    verdictOf: () => "weak",
+  });
+  assert.equal(
+    noPref.pack?.release.infoHash,
+    uhd.infoHash,
+    "with no preference the input order is untouched",
+  );
+
+  // 4K only → still downloads (demote, never filter).
+  const only4k = planSeason({
+    season: 6,
+    wanted,
+    releases: [uhd],
+    verdictOf: () => "weak",
+    preferredResolution: 1080,
+  });
+  assert.equal(
+    only4k.pack?.release.infoHash,
+    uhd.infoHash,
+    "a season available only in 4K is still taken",
+  );
+}
+
+{
+  // Singles honour the explicit resolution too, and never let a wrong-res
+  // release win an episode when the asked-for one exists at the same viability.
+  const e1_4k = result("Rick and Morty S09E01 2160p WEB");
+  const e1_hd = result("Rick and Morty S09E01 1080p WEB");
+  const plan = planSeason({
+    season: 9,
+    wanted: [1],
+    releases: [e1_4k, e1_hd], // 4K first
+    verdictOf: () => "unknown",
+    preferredResolution: 1080,
+  });
+  assert.equal(plan.singles[0]?.release.infoHash, e1_hd.infoHash, "1080p single wins");
+}
+
 assert.deepEqual(
   episodesFromFilenames(
     [

@@ -39,6 +39,7 @@ import { parseEpisode } from "./episodes";
 import { isSupportedVideoFileName } from "./filters";
 import { seasonCoverage } from "./pack-preference";
 import { infoHashFromMagnet, normalizeInfoHash } from "./infohash";
+import { parseResolution } from "./quality";
 import type { TorrentResult } from "./types";
 import type { SwarmVerdict } from "./swarm-probe";
 
@@ -70,6 +71,41 @@ function isTakeablePackVerdict(v: SwarmVerdict): boolean {
   // "favour good packs" means we would rather assemble from singles than commit
   // the whole season to one swarm we have measured as failing.
   return v === "good" || v === "unknown";
+}
+
+/**
+ * Collapse the four-way verdict into "viable vs demoted" for the primary sort.
+ *
+ * The user's explicit resolution choice must be honoured *among releases that
+ * will actually download* — but never at the cost of preferring a resolution
+ * match the swarm has measured as failing. So a weak/dead 1080p never beats a
+ * good/unknown 2160p, while within the viable group resolution decides.
+ */
+function demotedTier(v: SwarmVerdict): number {
+  return verdictTier(v) >= 2 ? 1 : 0;
+}
+
+/**
+ * How well a release matches the resolution the user explicitly asked for.
+ *
+ * The heart of the "I picked 1080p but got 4K" fix. Selection cannot lean on
+ * the ranker's soft ordering, because a same-verdict, same-coverage tie falls
+ * through to input index — and an Ai-upscaled 2160p can sit at the top of that
+ * order ahead of a 1080p with five times the seeders. This turns the explicit
+ * choice into a hard preference tier that still *demotes rather than filters*:
+ *
+ *   0 — exact match, or no preference at all
+ *   1 — resolution unknown (might be the one asked for; better than a known miss)
+ *   2 — a resolution the user did not ask for
+ *
+ * A season available only in 4K still downloads: every candidate lands on the
+ * same tier, and the lower keys (verdict, coverage, rank) decide as before.
+ */
+function resolutionRank(title: string, preferred: number | null): number {
+  if (preferred == null) return 0;
+  const res = parseResolution(title);
+  if (res == null) return 1;
+  return res === preferred ? 0 : 2;
 }
 
 function releaseInfoHash(r: TorrentResult): string | null {
@@ -386,12 +422,24 @@ function isPack(
  * Order packs best-first for selection. Verdict dominates advertised order —
  * that is the whole point — but fit comes first among packs so a `good`
  * complete-series torrent does not beat a `good` single-season one for a user
- * who asked for one season. Within equal (fit, verdict) the ranker's order
- * (input index) is the tiebreak, exactly as `orderByVerdict` does.
+ * who asked for one season.
+ *
+ * When the user picked a resolution, it is honoured *within the viable group*:
+ * after fit, a good/unknown release for the wrong resolution is demoted behind
+ * a good/unknown release for the right one — but a weak/dead resolution match
+ * never beats a viable mismatch. Within equal (fit, viability, resolution,
+ * verdict, coverage) the ranker's order (input index) is the final tiebreak.
  */
-function comparePacks(a: ClassifiedPack, b: ClassifiedPack): number {
+function comparePacks(
+  a: ClassifiedPack,
+  b: ClassifiedPack,
+  preferred: number | null = null,
+): number {
   return (
     fitRank(a.fit) - fitRank(b.fit) ||
+    demotedTier(a.verdict) - demotedTier(b.verdict) ||
+    resolutionRank(a.release.title, preferred) -
+      resolutionRank(b.release.title, preferred) ||
     verdictTier(a.verdict) - verdictTier(b.verdict) ||
     b.covers.length - a.covers.length ||
     a.index - b.index
@@ -413,6 +461,11 @@ function pad(n: number): string {
  * @param releases   Candidate releases, already ordered best-first by the
  *                   ranker (`rankResults`). Input order is the tiebreak.
  * @param verdictOf  Pure verdict lookup; unmeasured releases read `unknown`.
+ * @param preferredResolution The vertical pixels the user explicitly asked for,
+ *                   or null for no preference. Honoured as a hard preference
+ *                   tier in selection (demote, never filter) so an explicit
+ *                   "1080p" is not silently served a 4K release that merely
+ *                   sorted higher.
  * @param packContents Reconciliation seam: file-verified episode numbers for a
  *                   pack, or `null` when the torrent metadata is not resolved.
  *                   Omitted entirely on the first (name-only) pass, supplied on
@@ -423,9 +476,16 @@ export function planSeason(input: {
   wanted: readonly number[];
   releases: readonly TorrentResult[];
   verdictOf: (r: TorrentResult) => SwarmVerdict;
+  preferredResolution?: number | null;
   packContents?: (r: TorrentResult) => number[] | null;
 }): SeasonPlan {
   const season = input.season;
+  const preferred =
+    input.preferredResolution != null &&
+    Number.isFinite(input.preferredResolution) &&
+    input.preferredResolution >= 1
+      ? Math.trunc(input.preferredResolution)
+      : null;
   const packContents = input.packContents ?? (() => null);
   const wanted = [...new Set(input.wanted.map((e) => Math.trunc(e)))]
     .filter((e) => e >= 1)
@@ -462,7 +522,7 @@ export function planSeason(input: {
     return emptyPlan("No usable releases found for this season");
   }
 
-  const orderedPacks = packs.slice().sort(comparePacks);
+  const orderedPacks = packs.slice().sort((a, b) => comparePacks(a, b, preferred));
 
   // ── 1. Take the best good/unknown pack, if there is one ───────────────────
   // "Take a good pack when there is one." `unknown` counts as takeable so a
@@ -479,17 +539,24 @@ export function planSeason(input: {
   }
 
   // ── 2. Fill every uncovered wanted episode with the best single ───────────
-  // Best per episode by verdict tier then ranker order. Demote-never-filter:
-  // a weak or even dead single is still taken if it is the only release for
-  // that episode, because reporting the episode missing when a release exists
-  // is the dishonesty we refuse. No double-grab: only episodes the chosen pack
-  // does not already cover get a single.
+  // Best per episode: viable before demoted, then the resolution the user
+  // explicitly asked for, then verdict tier, then ranker order. Demote-never-
+  // filter: a weak or even dead single (or a wrong-resolution one) is still
+  // taken if it is the only release for that episode, because reporting the
+  // episode missing when a release exists is the dishonesty we refuse. No
+  // double-grab: only episodes the chosen pack does not already cover get a
+  // single.
   const chosenSingles: ClassifiedSingle[] = [];
   const bestSingleFor = (episode: number): ClassifiedSingle | null =>
     singles
       .filter((s) => s.episode === episode)
       .sort(
-        (a, b) => verdictTier(a.verdict) - verdictTier(b.verdict) || a.index - b.index,
+        (a, b) =>
+          demotedTier(a.verdict) - demotedTier(b.verdict) ||
+          resolutionRank(a.release.title, preferred) -
+            resolutionRank(b.release.title, preferred) ||
+          verdictTier(a.verdict) - verdictTier(b.verdict) ||
+          a.index - b.index,
       )[0] ?? null;
 
   for (const episode of wanted) {
@@ -514,8 +581,7 @@ export function planSeason(input: {
         .sort(
           (a, b) =>
             b.gap.length - a.gap.length ||
-            verdictTier(a.p.verdict) - verdictTier(b.p.verdict) ||
-            comparePacks(a.p, b.p),
+            comparePacks(a.p, b.p, preferred),
         )[0];
       if (lastResort) {
         chosenPack = lastResort.p;

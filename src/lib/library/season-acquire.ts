@@ -364,6 +364,7 @@ export async function resolveSeasonPlan(
     wanted: target.episodes,
     releases: usable,
     verdictOf,
+    preferredResolution,
     packContents: (release) => {
       const hash = releaseInfoHash(release);
       const files = hash ? manifestFiles.get(hash) : null;
