@@ -214,6 +214,66 @@ for (const count of [24, 26]) {
   assert.equal(plan.singles[0]?.release.infoHash, e1_hd.infoHash, "1080p single wins");
 }
 
+{
+  // Singles-first: when every wanted episode has its own release, a pack is
+  // never downloaded — even a good/unknown one. Per-episode singles seed better
+  // and give real progress; grabbing a whole pack instead was the "downloads a
+  // garbage pack even though every episode is right there" complaint.
+  const pack = result("The Bear S01 COMPLETE");
+  const e1 = result("The Bear S01E01 1080p");
+  const e2 = result("The Bear S01E02 1080p");
+  const e3 = result("The Bear S01E03 1080p");
+  const plan = planSeason({
+    season: 1,
+    wanted: [1, 2, 3],
+    releases: [pack, e1, e2, e3],
+    // The pack is "good" — under the old planner it would have been taken.
+    verdictOf: (r) => (r.title.includes("COMPLETE") ? "good" : "unknown"),
+    packContents: () => [1, 2, 3],
+  });
+  assert.equal(plan.pack, null, "a pack is not chosen when singles cover the season");
+  assert.deepEqual(
+    plan.singles.map((s) => s.episode).sort((a, b) => a - b),
+    [1, 2, 3],
+    "every episode is assembled from its own single",
+  );
+  assert.deepEqual(plan.covered, [1, 2, 3]);
+}
+
+{
+  // A pack is still the last resort for episodes no single covers. Here only
+  // E1/E2 have singles; E3 exists solely inside the pack, so the pack is pulled
+  // in to fill the gap and its now-redundant E1/E2 singles are dropped.
+  const pack = result("Old Show S01 COMPLETE");
+  const e1 = result("Old Show S01E01 1080p");
+  const e2 = result("Old Show S01E02 1080p");
+  const plan = planSeason({
+    season: 1,
+    wanted: [1, 2, 3],
+    releases: [pack, e1, e2],
+    verdictOf: () => "unknown",
+    packContents: () => [1, 2, 3],
+  });
+  assert.equal(plan.pack?.release.infoHash, pack.infoHash, "the pack fills the gap");
+  assert.deepEqual(plan.covered, [1, 2, 3]);
+  // The pack delivers E1/E2 too, so their singles are dropped — no double grab.
+  assert.equal(plan.singles.length, 0, "singles the pack covers are dropped");
+}
+
+{
+  // A pack-only season (no singles anywhere) still downloads via the pack.
+  const pack = result("Anime S01 COMPLETE");
+  const plan = planSeason({
+    season: 1,
+    wanted: [1, 2, 3],
+    releases: [pack],
+    verdictOf: () => "unknown",
+    packContents: () => [1, 2, 3],
+  });
+  assert.equal(plan.pack?.release.infoHash, pack.infoHash, "pack-only seasons still work");
+  assert.deepEqual(plan.covered, [1, 2, 3]);
+}
+
 assert.deepEqual(
   episodesFromFilenames(
     [

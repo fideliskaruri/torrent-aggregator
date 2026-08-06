@@ -64,15 +64,6 @@ function verdictTier(v: SwarmVerdict): number {
   }
 }
 
-/** A pack is eligible to be the *primary* choice only when it is not demoted. */
-function isTakeablePackVerdict(v: SwarmVerdict): boolean {
-  // good = measured pass; unknown = unmeasured, still eligible (cold cache must
-  // not disable the feature). weak/dead packs are demoted out of the fast path:
-  // "favour good packs" means we would rather assemble from singles than commit
-  // the whole season to one swarm we have measured as failing.
-  return v === "good" || v === "unknown";
-}
-
 /**
  * Collapse the four-way verdict into "viable vs demoted" for the primary sort.
  *
@@ -524,29 +515,22 @@ export function planSeason(input: {
 
   const orderedPacks = packs.slice().sort((a, b) => comparePacks(a, b, preferred));
 
-  // ── 1. Take the best good/unknown pack, if there is one ───────────────────
-  // "Take a good pack when there is one." `unknown` counts as takeable so a
-  // cold cache still acquires; weak/dead packs are held back for the singles
-  // fallback below.
-  const primaryPack =
-    orderedPacks.find((p) => isTakeablePackVerdict(p.verdict)) ?? null;
-
+  // ── 1. Singles first — the preferred unit ─────────────────────────────────
+  // Per-episode releases are better-seeded, download faster, and give real
+  // per-episode progress. A pack is NEVER chosen over singles that exist; it is
+  // only the last resort for episodes no single covers (older or anime seasons
+  // that exist solely as packs). This is a deliberate reversal of the old
+  // "favour good packs" default: a season pack is one big swarm whose measured
+  // health was routinely weak/dead, and taking it ahead of the individual
+  // episodes that were right there is exactly the "downloads a garbage pack
+  // even though every episode is available on its own" failure this fixes.
+  //
+  // Best single per episode: viable before demoted, then the resolution the
+  // user explicitly asked for, then verdict tier, then ranker order.
+  // Demote-never-filter — a weak or wrong-resolution single is still taken when
+  // it is the only release for that episode.
   const covered = new Set<number>();
-  let chosenPack: ClassifiedPack | null = null;
-  if (primaryPack) {
-    chosenPack = primaryPack;
-    for (const e of primaryPack.covers) covered.add(e);
-  }
-
-  // ── 2. Fill every uncovered wanted episode with the best single ───────────
-  // Best per episode: viable before demoted, then the resolution the user
-  // explicitly asked for, then verdict tier, then ranker order. Demote-never-
-  // filter: a weak or even dead single (or a wrong-resolution one) is still
-  // taken if it is the only release for that episode, because reporting the
-  // episode missing when a release exists is the dishonesty we refuse. No
-  // double-grab: only episodes the chosen pack does not already cover get a
-  // single.
-  const chosenSingles: ClassifiedSingle[] = [];
+  const singleByEpisode = new Map<number, ClassifiedSingle>();
   const bestSingleFor = (episode: number): ClassifiedSingle | null =>
     singles
       .filter((s) => s.episode === episode)
@@ -560,37 +544,45 @@ export function planSeason(input: {
       )[0] ?? null;
 
   for (const episode of wanted) {
-    if (covered.has(episode)) continue;
     const s = bestSingleFor(episode);
     if (s) {
-      chosenSingles.push(s);
+      singleByEpisode.set(episode, s);
       covered.add(episode);
     }
   }
 
-  // ── 3. Last resort: a verified complete demoted pack ──────────────────────
-  if (!chosenPack) {
-    const stillMissing = wanted.filter((e) => !covered.has(e));
-    if (stillMissing.length > 0) {
-      const lastResort = orderedPacks
-        .map((p) => ({
-          p,
-          gap: p.covers.filter((e) => stillMissing.includes(e)),
-        }))
-        .filter((x) => x.gap.length > 0)
-        .sort(
-          (a, b) =>
-            b.gap.length - a.gap.length ||
-            comparePacks(a.p, b.p, preferred),
-        )[0];
-      if (lastResort) {
-        chosenPack = lastResort.p;
-        for (const e of lastResort.p.covers) {
-          if (wantedSet.has(e)) covered.add(e);
+  // ── 2. A pack ONLY for the gap singles could not fill ─────────────────────
+  // Choose the best pack that covers at least one still-missing episode. A pack
+  // is one torrent that delivers every episode it contains, so the singles for
+  // those episodes are dropped — nothing is grabbed twice. When singles already
+  // cover the whole season this branch never runs, so no pack is downloaded at
+  // all; a season available only as a pack (no singles anywhere) still gets one.
+  let chosenPack: ClassifiedPack | null = null;
+  const gap = wanted.filter((e) => !covered.has(e));
+  if (gap.length > 0 && orderedPacks.length > 0) {
+    const best = orderedPacks
+      .map((p) => ({
+        p,
+        fills: p.covers.filter((e) => gap.includes(e)),
+      }))
+      .filter((x) => x.fills.length > 0)
+      .sort(
+        (a, b) =>
+          b.fills.length - a.fills.length ||
+          comparePacks(a.p, b.p, preferred),
+      )[0];
+    if (best) {
+      chosenPack = best.p;
+      for (const e of best.p.covers) {
+        if (wantedSet.has(e)) {
+          covered.add(e);
+          singleByEpisode.delete(e);
         }
       }
     }
   }
+
+  const chosenSingles: ClassifiedSingle[] = [...singleByEpisode.values()];
 
   const coveredList = [...covered].filter((e) => wantedSet.has(e)).sort((a, b) => a - b);
   const missing = wanted.filter((e) => !covered.has(e));
@@ -649,7 +641,7 @@ function buildReason(
       );
     }
   } else if (singles.length > 0) {
-    parts.push(`No takeable pack — assembling ${singles.length} episode(s) individually`);
+    parts.push(`Assembling ${singles.length} episode(s) from individual releases`);
   } else {
     parts.push(`No releases available for season ${season}`);
   }
