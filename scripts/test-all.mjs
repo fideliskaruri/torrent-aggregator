@@ -234,6 +234,10 @@ run("watchlist-screens", "node", ["scripts/shoot-watchlist.mjs"], {
   timeout: 240_000,
   env: uiEnv,
 });
+run("visual-suite", "node", ["scripts/visual-suite.mjs"], {
+  timeout: 240_000,
+  env: uiEnv,
+});
 
 // 4) Live HTTP (async fetch — Windows curl is unreliable)
 await httpGet("home", "/", (status) => ({

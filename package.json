@@ -26,6 +26,7 @@
     "test:rails": "tsx scripts/test-browse-rails.mts",
     "test:browse": "node scripts/shoot-browse.mjs",
     "test:watchlist": "node scripts/shoot-watchlist.mjs",
+    "test:visual": "node scripts/visual-suite.mjs",
     "test": "node scripts/test-all.mjs",
     "postinstall": "prisma generate",
     "test:torrent": "tsx scripts/e2e-content-layout.mts",
