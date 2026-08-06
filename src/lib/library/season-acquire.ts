@@ -25,7 +25,8 @@ import { getUserClientConfig } from "@/lib/clients";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
-import { assertStorageBudget } from "@/lib/library/disk-space";
+import { checkSendStorage } from "@/lib/library/storage-gate";
+import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
 import { releaseInfoHash } from "@/lib/prewarm/prerank";
 import { foregroundActive } from "@/lib/prewarm/foreground";
@@ -37,6 +38,8 @@ import {
   type SwarmVerdict,
 } from "@/lib/torrents/swarm-probe";
 import { planSeason, episodesFromFilenames, type PackChoice, type SeasonPlan, type SingleChoice } from "@/lib/torrents/season-plan";
+import { parseEpisode } from "@/lib/torrents/episodes";
+import { episodeSearchQuery } from "@/lib/library/cursor";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import { applySendRetention, sendRetentionToPurpose, type SendRetention } from "@/lib/streaming/send-retention";
@@ -52,9 +55,143 @@ import { applySendRetention, sendRetentionToPurpose, type SendRetention } from "
  */
 export const MAX_SEASON_RESOLVE_PROBES = 3;
 
-/** Backend search query for a whole season (packs + episodes come back). */
+/**
+ * Backend search query for a whole season (packs + episodes come back).
+ *
+ * Kept as the canonical first form for ranking / history labels. Indexers do
+ * not all answer it — see {@link seasonSearchQueries}.
+ */
 export function seasonSearchQuery(title: string, season: number): string {
-  return `${title.trim()} S${String(Math.max(1, Math.trunc(season))).padStart(2, "0")}`;
+  const n = Math.max(1, Math.trunc(season));
+  return `${title.trim()} S${String(n).padStart(2, "0")}`;
+}
+
+/**
+ * Every query shape worth asking for a season download, in preference order.
+ *
+ * Measured against public indexers: `Rick and Morty S09` returns 0 hits while
+ * bare `Rick and Morty` (with a season filter) returns every S09Exx single, and
+ * `Season 9` sometimes surfaces multi-season packs. Asking only the Sxx form
+ * is why "Download season" reported "No release found" on a show whose every
+ * episode was one click away on the same page.
+ */
+export function seasonSearchQueries(title: string, season: number): string[] {
+  const t = title.trim();
+  if (!t) return [];
+  const n = Math.max(1, Math.trunc(season));
+  const padded = String(n).padStart(2, "0");
+  // Deduped, order preserved. Title-only is last among the pack-shaped forms
+  // so a real pack still wins when the Sxx query works, but it is always
+  // asked — that is the form that finds per-episode releases for airing seasons.
+  const raw = [
+    `${t} S${padded}`,
+    `${t} Season ${n}`,
+    `${t} S${padded} COMPLETE`,
+    `${t} Season ${n} COMPLETE`,
+    t,
+  ];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const q of raw) {
+    const key = q.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(q);
+  }
+  return out;
+}
+
+function releaseDedupeKey(r: TorrentResult): string | null {
+  return releaseInfoHash(r) ?? (r.magnet ? r.magnet.toLowerCase() : null);
+}
+
+function releaseEpisodeNumber(r: TorrentResult, season: number): number | null {
+  const ep = r.episode ?? parseEpisode(r.title ?? "");
+  if (ep.isSeasonPack) return null;
+  if (ep.season != null && ep.season !== season) return null;
+  return ep.episode ?? null;
+}
+
+function hasSeasonPack(releases: Iterable<TorrentResult>, season: number): boolean {
+  for (const r of releases) {
+    const ep = r.episode ?? parseEpisode(r.title ?? "");
+    if (!ep.isSeasonPack) continue;
+    if (ep.season == null || ep.season === season) return true;
+  }
+  return false;
+}
+
+/**
+ * Search every season query shape and merge unique usable releases.
+ *
+ * Title-only hit lists often skew to the most popular recent episodes (E10
+ * before E01). After the pack-oriented queries, any wanted episode still
+ * missing a single is topped up with an exact `Show SxxEyy` search — the same
+ * shape the per-episode Download button uses, so "Download season" cannot be
+ * emptier than clicking each episode by hand.
+ */
+async function searchSeasonReleases(
+  title: string,
+  season: number,
+  category: NonNullable<Parameters<typeof searchTorrents>[0]["category"]>,
+  wanted: readonly number[],
+  searchFn: typeof searchTorrents = searchTorrents,
+): Promise<TorrentResult[]> {
+  const merged = new Map<string, TorrentResult>();
+  const addAll = (rows: readonly TorrentResult[]) => {
+    for (const r of rows) {
+      const key = releaseDedupeKey(r);
+      if (!key || merged.has(key)) continue;
+      merged.set(key, r);
+    }
+  };
+
+  for (const query of seasonSearchQueries(title, season)) {
+    const res = await searchFn({
+      query,
+      category,
+      limit: 40,
+      enrich: false,
+      skipCache: false,
+      // A season download is an explicit user action, not background work,
+      // so it draws on the interactive indexer budget.
+      background: false,
+      filters: { hasMagnet: true, minSeeders: 1, season },
+    });
+    addAll(res.results);
+    // A pack for this season is enough — the planner prefers it over singles.
+    if (hasSeasonPack(merged.values(), season)) break;
+  }
+
+  // Gap-fill: exact episode queries for anything the season shapes missed.
+  // Cap at the wanted list so a 24-ep season does not fire 24 searches when a
+  // pack already covers it (handled above) or when most episodes already hit.
+  if (!hasSeasonPack(merged.values(), season) && wanted.length > 0) {
+    const covered = new Set<number>();
+    for (const r of merged.values()) {
+      const ep = releaseEpisodeNumber(r, season);
+      if (ep != null) covered.add(ep);
+    }
+    for (const episode of wanted) {
+      if (covered.has(episode)) continue;
+      const res = await searchFn({
+        query: episodeSearchQuery(title, season, episode),
+        category,
+        limit: 10,
+        enrich: false,
+        skipCache: false,
+        background: false,
+        filters: { hasMagnet: true, minSeeders: 1, season, episode },
+      });
+      addAll(res.results);
+      for (const r of res.results) {
+        const ep = releaseEpisodeNumber(r, season);
+        if (ep != null) covered.add(ep);
+      }
+    }
+  }
+
+  return [...merged.values()];
 }
 
 export interface SeasonAcquireTarget {
@@ -78,6 +215,8 @@ export interface ResolveSeasonOptions {
   maxProbes?: number;
   /** Test seam — supply releases directly instead of searching. */
   _releases?: TorrentResult[];
+  /** Test seam — inject the search function used by the multi-query ladder. */
+  _searchFn?: typeof searchTorrents;
   /** Test seam — inject the probe. */
   _probeFn?: typeof probeAndRecord;
   /** Test seam — inject the live-download guard. */
@@ -154,19 +293,13 @@ export async function resolveSeasonPlan(
 
   const releases =
     opts._releases ??
-    (
-      await searchTorrents({
-        query: seasonSearchQuery(target.title, target.season),
-        category,
-        limit: 40,
-        enrich: false,
-        skipCache: false,
-        // A season download is an explicit user action, not background work,
-        // so it draws on the interactive indexer budget.
-        background: false,
-        filters: { hasMagnet: true, minSeeders: 1, season: target.season },
-      })
-    ).results;
+    (await searchSeasonReleases(
+      target.title,
+      target.season,
+      category,
+      target.episodes,
+      opts._searchFn,
+    ));
 
   const usableUnranked = releases.filter(
     (r) => r.magnet && (r.seeders ?? 0) > 0 && releaseInfoHash(r) !== null,
@@ -263,6 +396,12 @@ export interface AcquireSeasonResult {
    * and singles name the exact episode.
    */
   coverageConfirmed: boolean;
+  /**
+   * Set when a storage limit refused every send. Cap/reserve are overridable;
+   * the UI turns this into a "download anyway" confirmation. Null when at least
+   * one release was sent, or when the failure was not a storage refusal.
+   */
+  storage?: StorageOverrideFacts | null;
 }
 
 export interface AcquireSeasonOptions extends ResolveSeasonOptions {
@@ -270,6 +409,11 @@ export interface AcquireSeasonOptions extends ResolveSeasonOptions {
   watchListItemId?: string | null;
   /** "stream" = reclaimable cache; "keep" = permanent download. */
   retention?: SendRetention;
+  /**
+   * The owner saw the real figures and chose to exceed their own storage cap.
+   * Honoured for cap/reserve only — never for a release that genuinely won't fit.
+   */
+  overrideStorageCap?: boolean;
   /** Test seam — override the send function. */
   _sendFn?: typeof import("@/lib/clients").sendToClient;
 }
@@ -315,12 +459,16 @@ export async function acquireSeason(
       acquired: [],
       coverageLabel: plan.coverageLabel,
       coverageConfirmed: plan.coverageConfirmed,
+      storage: null,
     };
   }
 
   const category = searchCategoryForMediaType(target.mediaType) ?? "tv";
   const items: SeasonItemResult[] = [];
   const acquired = new Set<number>();
+  let storageRefusal: StorageOverrideFacts | null = null;
+  const retention = opts.retention ?? "keep";
+  const overrideCap = opts.overrideStorageCap === true;
 
   const send = async (
     release: TorrentResult,
@@ -345,13 +493,16 @@ export async function acquireSeason(
       config,
       grabJobKind: "ondemand",
       externalId: opts.watchListItemId ?? null,
-      purpose: sendRetentionToPurpose(opts.retention, opts.watchListItemId),
+      purpose: sendRetentionToPurpose(retention, opts.watchListItemId),
       downloadHistoryPrefix:
         kind === "pack"
           ? `Season ${target.season} pack`
           : `Season ${target.season} E${String(episode).padStart(2, "0")}`,
       fallbackTitle: release.title,
       selectCandidate: () => release,
+      // Engine-side storage check must see the same override the gate honours,
+      // or a confirmed over-cap grab passes here and is refused there.
+      addPayload: { overrideStorageCap: overrideCap },
       resolveTarget(cfg: ClientConnectionConfig, candidate: TorrentResult) {
         const t = resolveSmartSendTarget(cfg, {
           name: candidate.title,
@@ -370,12 +521,22 @@ export async function acquireSeason(
           t.savePath ||
           config.savePath?.trim() ||
           process.cwd();
-        const space = await assertStorageBudget({
+        const space = await checkSendStorage({
+          userId: target.userId,
+          config,
           root,
-          maxStorageBytes: config.maxStorageBytes,
           incomingBytes: candidate.sizeBytes ?? null,
+          retention,
+          protectHashes: candidate.infoHash ? [candidate.infoHash] : [],
+          overrideCap,
         });
-        return space.ok ? { ok: true as const } : { ok: false as const, message: space.message };
+        if (space.ok) return { ok: true as const };
+        if (space.override && !storageRefusal) storageRefusal = space.override;
+        return {
+          ok: false as const,
+          message: space.message,
+          storage: space.override,
+        };
       },
       _searchFn: (async () =>
         ({
@@ -408,12 +569,13 @@ export async function acquireSeason(
         userId: target.userId,
         config,
         infoHash: releaseInfoHash(release),
-        retention: opts.retention ?? "keep",
+        retention,
         watchListItemId: opts.watchListItemId,
       });
       for (const e of coversEpisodes) acquired.add(e);
       return true;
     }
+    if (res.storage && !storageRefusal) storageRefusal = res.storage;
     return false;
   };
 
@@ -436,5 +598,9 @@ export async function acquireSeason(
     acquired: acquiredList,
     coverageLabel: `${acquiredList.length} of ${plan.wanted.length} episodes`,
     coverageConfirmed: plan.coverageConfirmed,
+    // Only surface a storage refusal when nothing was acquired — a partial
+    // season that hit the cap mid-way still delivered what it could, and the
+    // per-item messages already say which releases failed.
+    storage: acquiredList.length === 0 ? storageRefusal : null,
   };
 }

@@ -363,4 +363,9 @@ export interface TitleSeasonGrabResponse {
   ok: boolean;
   message: string;
   report?: SeasonGrabReport | null;
+  /**
+   * Set only when a storage limit refused every send. Same shape as a single
+   * episode grab so the title page can reuse the cap-override dialog.
+   */
+  storage?: StorageOverrideFacts | null;
 }

@@ -142,6 +142,7 @@ export async function grabSeasonForTitle(
     result = await acquireSeason(target, {
       watchListItemId: input.watchListItemId,
       retention: input.retention ?? "keep",
+      overrideStorageCap: input.overrideStorageCap === true,
     });
   } catch (err) {
     // A failed plan is an error, not an empty season. Saying "no episodes
@@ -153,13 +154,28 @@ export async function grabSeasonForTitle(
   }
 
   const acquired = new Set(result.acquired);
+  // Prefer the real send failure over "no release" when the planner found a
+  // candidate but storage (or the client) refused it — otherwise a full plan
+  // that hit the cap still reads as "nothing exists for this episode".
+  const failureByEpisode = new Map<number, string>();
+  let packFailure: string | null = null;
+  for (const item of result.items) {
+    if (item.status === "sent" || item.status === "already_active") continue;
+    if (item.kind === "pack") {
+      packFailure = item.message;
+      continue;
+    }
+    if (item.episode != null && !failureByEpisode.has(item.episode)) {
+      failureByEpisode.set(item.episode, item.message);
+    }
+  }
   const episodeReports: SeasonGrabEpisodeReport[] = episodes.map((episode) => {
     if (acquired.has(episode)) return { episode, status: "covered" as const };
-    return {
-      episode,
-      status: "missing" as const,
-      reason: "No release found for this episode",
-    };
+    const reason =
+      failureByEpisode.get(episode) ??
+      packFailure ??
+      (result.storage?.message ?? "No release found for this episode");
+    return { episode, status: "missing" as const, reason };
   });
 
   const report: SeasonGrabReport = {
@@ -177,6 +193,17 @@ export async function grabSeasonForTitle(
   // AcquisitionTarget written as "downloading" with no hash, and no download.
   // Say so, and keep the report so the UI can still show which episodes missed.
   if (acquired.size === 0) {
+    // Prefer a storage refusal when that is why nothing was sent — the UI turns
+    // an overridable cap into "download anyway", which a generic "no release"
+    // message cannot. A real empty plan keeps the release-not-found copy.
+    if (result.storage) {
+      return {
+        ok: false,
+        message: result.storage.message,
+        report,
+        storage: result.storage,
+      };
+    }
     return {
       ok: false,
       message: "No release found for this season yet — try again shortly.",

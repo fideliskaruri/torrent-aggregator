@@ -70,6 +70,10 @@ import {
 import { postTitleAction } from "./title-action-request";
 import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
 import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
+import {
+  parseStorageOverrideFacts,
+  StorageLimitError,
+} from "@/lib/library/storage-override";
 import type {
   TitleDetailPayload,
   TitleExtrasPayload,
@@ -420,32 +424,51 @@ export function TitleDetail(props: TitleDetailProps) {
       spentSeasonGrabs.current.add(key);
       setSeasonStatuses((prev) => ({ ...prev, [key]: { status: "pending" } }));
       try {
-        const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: AbortSignal.timeout(30_000),
-          body: JSON.stringify({
-            scope: "season",
-            season: targetSeason,
-            episodes,
-            retention,
-            title: props.title ?? null,
-            mediaType: props.mediaType ?? null,
-            year: props.year ?? null,
-            ...(resolution != null
-              ? { preferredResolution: resolution }
-              : {}),
-          }),
+        const outcome = await cap.run(async ({ overrideStorageCap }) => {
+          const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(30_000),
+            body: JSON.stringify({
+              scope: "season",
+              season: targetSeason,
+              episodes,
+              retention,
+              title: props.title ?? null,
+              mediaType: props.mediaType ?? null,
+              year: props.year ?? null,
+              ...(resolution != null
+                ? { preferredResolution: resolution }
+                : {}),
+              ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
+            }),
+          });
+          const body = (await res.json().catch(() => null)) as
+            | TitleSeasonGrabResponse
+            | null;
+
+          if (!res.ok || !body?.ok || !body.report) {
+            // Re-derive overridability on the client so a wire flag alone cannot
+            // open the "download anyway" path for a hard stop (wont-fit/setup).
+            const storage = parseStorageOverrideFacts(body?.storage);
+            const message =
+              body?.message || `Could not plan season ${targetSeason}`;
+            if (storage) throw new StorageLimitError(message, storage);
+            throw new Error(message);
+          }
+          return body;
         });
-        const body = (await res.json().catch(() => null)) as
-          | TitleSeasonGrabResponse
-          | null;
 
-        if (!res.ok || !body?.ok || !body.report) {
-          throw new Error(body?.message || `Could not plan season ${targetSeason}`);
+        if (outcome.status === "cancelled") {
+          spentSeasonGrabs.current.delete(key);
+          setSeasonStatuses((prev) => ({
+            ...prev,
+            [key]: { status: "idle" },
+          }));
+          return;
         }
-        const report = body.report;
 
+        const report = outcome.value.report!;
         setSeasonStatuses((prev) => ({
           ...prev,
           [key]: { status: "done", report },
@@ -471,7 +494,7 @@ export function TitleDetail(props: TitleDetailProps) {
         );
       }
     },
-    [props.workKey, props.title, props.mediaType, props.year, refetch, seasonStatusFor],
+    [props.workKey, props.title, props.mediaType, props.year, refetch, seasonStatusFor, cap],
   );
 
   // One exclusive chain. A failed request must never be narrowed into "there

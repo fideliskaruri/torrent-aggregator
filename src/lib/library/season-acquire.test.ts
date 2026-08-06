@@ -18,7 +18,12 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { DEFAULT_MAX_STORAGE_BYTES } from "./disk-space";
-import { resolveSeasonPlan, acquireSeason, seasonSearchQuery } from "./season-acquire";
+import {
+  resolveSeasonPlan,
+  acquireSeason,
+  seasonSearchQuery,
+  seasonSearchQueries,
+} from "./season-acquire";
 import type { TorrentResult } from "@/lib/torrents/types";
 
 let failures = 0;
@@ -56,6 +61,137 @@ async function main(): Promise<void> {
   await checkAsync("seasonSearchQuery pads the season", () => {
     assert.equal(seasonSearchQuery("The Bear", 1), "The Bear S01");
     return Promise.resolve();
+  });
+
+  await checkAsync("seasonSearchQueries includes title-only fallback", () => {
+    // RED: without the bare-title form, airing seasons whose Sxx query returns
+    // 0 hits (measured: Rick and Morty S09) report "No release found" while
+    // every episode is one click away on the same page.
+    const qs = seasonSearchQueries("Rick and Morty", 9);
+    assert.deepEqual(qs, [
+      "Rick and Morty S09",
+      "Rick and Morty Season 9",
+      "Rick and Morty S09 COMPLETE",
+      "Rick and Morty Season 9 COMPLETE",
+      "Rick and Morty",
+    ]);
+    return Promise.resolve();
+  });
+
+  await checkAsync("resolve walks the query ladder when Sxx is empty", async () => {
+    // Inject a search that answers only the bare-title form. The multi-query
+    // ladder must keep going until it finds the singles.
+    const singles = [1, 2, 3].map((ep) =>
+      result({
+        title: `Rick and Morty S09E0${ep} 1080p`,
+        episode: {
+          isSeasonPack: false,
+          season: 9,
+          episode: ep,
+        } as TorrentResult["episode"],
+      }),
+    );
+    const queries: string[] = [];
+    const res = await resolveSeasonPlan(
+      {
+        userId: `u_${randomUUID()}`,
+        title: "Rick and Morty",
+        mediaType: "tv",
+        season: 9,
+        episodes: [1, 2, 3],
+      },
+      {
+        maxProbes: 0,
+        _foregroundActive: () => true,
+        _findLive: () => null,
+        _searchFn: (async (opts: { query: string }) => {
+          queries.push(opts.query);
+          const hit = opts.query === "Rick and Morty";
+          return {
+            query: opts.query,
+            results: hit ? singles : [],
+            groups: [],
+            tookMs: 0,
+            sources: [],
+            totalCount: hit ? singles.length : 0,
+            page: 1,
+            pageSize: 40,
+            totalPages: 1,
+          };
+        }) as never,
+      },
+    );
+    assert.ok(
+      queries.includes("Rick and Morty S09"),
+      "must try the canonical Sxx form first",
+    );
+    assert.ok(
+      queries.includes("Rick and Morty"),
+      "must fall through to the bare title when Sxx is empty",
+    );
+    assert.equal(res.plan.singles.length, 3, "all three singles are planned");
+    assert.deepEqual(
+      res.plan.singles.map((s) => s.episode).sort((a, b) => a - b),
+      [1, 2, 3],
+    );
+  });
+
+  await checkAsync("resolve tops up missing episodes with exact SxxEyy queries", async () => {
+    // Title-only returns E02+E03 only. The gap-fill must ask for E01 exactly,
+    // matching what a per-episode Download already does.
+    const e2 = result({
+      title: "Rick and Morty S09E02 1080p",
+      episode: { isSeasonPack: false, season: 9, episode: 2 } as TorrentResult["episode"],
+    });
+    const e3 = result({
+      title: "Rick and Morty S09E03 1080p",
+      episode: { isSeasonPack: false, season: 9, episode: 3 } as TorrentResult["episode"],
+    });
+    const e1 = result({
+      title: "Rick and Morty S09E01 1080p",
+      episode: { isSeasonPack: false, season: 9, episode: 1 } as TorrentResult["episode"],
+    });
+    const queries: string[] = [];
+    const res = await resolveSeasonPlan(
+      {
+        userId: `u_${randomUUID()}`,
+        title: "Rick and Morty",
+        mediaType: "tv",
+        season: 9,
+        episodes: [1, 2, 3],
+      },
+      {
+        maxProbes: 0,
+        _foregroundActive: () => true,
+        _findLive: () => null,
+        _searchFn: (async (opts: { query: string }) => {
+          queries.push(opts.query);
+          let rows: TorrentResult[] = [];
+          if (opts.query === "Rick and Morty") rows = [e2, e3];
+          if (opts.query === "Rick and Morty S09E01") rows = [e1];
+          return {
+            query: opts.query,
+            results: rows,
+            groups: [],
+            tookMs: 0,
+            sources: [],
+            totalCount: rows.length,
+            page: 1,
+            pageSize: 40,
+            totalPages: 1,
+          };
+        }) as never,
+      },
+    );
+    assert.ok(
+      queries.includes("Rick and Morty S09E01"),
+      "must exact-search the missing episode",
+    );
+    assert.deepEqual(
+      res.plan.singles.map((s) => s.episode).sort((a, b) => a - b),
+      [1, 2, 3],
+      "gap-filled E01 joins the title-only hits",
+    );
   });
 
   await checkAsync("a viewer is active → resolve probes nothing", async () => {
