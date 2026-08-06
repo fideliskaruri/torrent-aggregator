@@ -341,6 +341,85 @@ check("buildEpisodes: a pack-covered episode becomes ready+Play, not Download", 
   assert.equal(e3?.coveredByPack ?? null, null);
 });
 
+check("buildEpisodes: a ready pack supersedes an episode's stuck own grab", () => {
+  // Download one episode, then the whole season: the single is redundant and
+  // may be stuck at 0% ("looking for peers") while the finished pack already
+  // holds its file. The pack must win so the row shows Downloaded, not a
+  // forever-spinning single.
+  const rows = buildEpisodes(
+    episodeInput({
+      // E3 has its own in-flight grab that has fetched nothing (progress 0).
+      transfers: new Map([
+        [
+          "2:3",
+          {
+            status: "downloading" as const,
+            progress: 0,
+            infoHash: "singlehash",
+            filePath: null,
+            error: null,
+          },
+        ],
+      ]),
+      // The stuck single is also a local engine row — this is what made
+      // `local != null` wrongly treat the episode as complete.
+      localReleases: [
+        {
+          hash: "singlehash",
+          name: "Rick and Morty S02E03 (1080p)",
+          progress: 0,
+          status: "downloading",
+          season: 2,
+          episode: 3,
+          isPack: false,
+          isMultiSeason: false,
+          retentionState: "kept",
+          fileMissing: false,
+        },
+      ],
+      packCoverage: buildPackCoverage(
+        [packRelease()],
+        engineMap("packhash", RM_S02_FILES),
+        2,
+      ),
+    }),
+  );
+  const e3 = rows.find((r) => r.episode === 3);
+  assert.equal(e3?.availability, "ready", "the ready pack wins over the stuck single");
+  assert.equal(e3?.infoHash, "packhash");
+  assert.equal(e3?.transfer?.status, "downloaded", "and the row reads as downloaded");
+  assert.equal(e3?.fromPack, true);
+});
+
+check("buildEpisodes: an episode's own completed file still ties the pack", () => {
+  // A genuinely complete own download is kept as-is, not overwritten by the
+  // pack — both mean the file exists, and the own one was there first.
+  const rows = buildEpisodes(
+    episodeInput({
+      transfers: new Map([
+        [
+          "2:3",
+          {
+            status: "downloaded" as const,
+            progress: 1,
+            infoHash: "ownhash",
+            filePath: "D:\\own\\S02E03.mkv",
+            error: null,
+          },
+        ],
+      ]),
+      packCoverage: buildPackCoverage(
+        [packRelease()],
+        engineMap("packhash", RM_S02_FILES),
+        2,
+      ),
+    }),
+  );
+  const e3 = rows.find((r) => r.episode === 3);
+  assert.equal(e3?.infoHash, "ownhash", "the own completed file is kept");
+  assert.equal(e3?.fromPack, false);
+});
+
 check("buildEpisodes: an episode the pack lacks stays null", () => {
   const rows = buildEpisodes(
     episodeInput({

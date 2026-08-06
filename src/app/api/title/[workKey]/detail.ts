@@ -955,7 +955,7 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
     const watched = input.progress.find(
       (p) => (p.season ?? 1) === season && p.episode === episode,
     );
-    const transfer = input.transfers.get(`${season}:${episode}`) ?? null;
+    let transfer = input.transfers.get(`${season}:${episode}`) ?? null;
     const linkedHash =
       transfer?.infoHash ?? watched?.infoHash ?? null;
     const local = linkedHash
@@ -986,22 +986,39 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
     );
     let coveredByPack: TitleEpisodeTransfer | null = null;
 
-    // Pack fallback. Only when the episode has neither its own acquisition nor
-    // its own local file: a completed covering pack that holds this episode's
-    // file makes it playable (ready/warm + the pack hash + the mapped file), so
-    // the row shows a tick/Play instead of offering a duplicate Download. A
-    // pack still downloading holds no file for this episode yet, so it only
-    // marks the row as covered-in-flight and leaves availability untouched.
-    if (!transfer && !local) {
-      const cover = input.packCoverage.get(episode);
-      if (cover) {
-        availability = cover.availability;
-        infoHash = cover.infoHash;
-        filePath = cover.filePath;
-        fromPack = true;
-      } else if (input.coveredByPackTransfer) {
-        coveredByPack = input.coveredByPackTransfer;
-      }
+    // Pack coverage. A completed covering pack holds this episode's file, so it
+    // makes the row playable (ready + the pack hash + the mapped file) and its
+    // Download becomes a tick. It wins over the episode's *own incomplete* grab:
+    // downloading one episode and then the whole season leaves that single
+    // redundant, and the finished pack is the file that actually exists — so a
+    // stuck "looking for peers" single must not keep the row spinning when the
+    // pack already delivered it. Only the episode's own *completed* file (a
+    // downloaded transfer or a local file) ties the pack and is kept as-is. A
+    // pack still downloading holds no file yet, so it only marks the row
+    // covered-in-flight, and never over an episode's own acquisition.
+    // Only the episode's own *complete* file ties the pack. `state` already is
+    // the episode's own availability (downloaded transfer or a real local
+    // file); a stuck single grab that has fetched nothing yet is a `local`
+    // release but not a file, so testing `local != null` here wrongly kept the
+    // row spinning. A ready pack supersedes any own-incomplete state.
+    const ownComplete = state === "ready";
+    const cover = input.packCoverage.get(episode);
+    if (!ownComplete && cover) {
+      availability = cover.availability;
+      infoHash = cover.infoHash;
+      filePath = cover.filePath;
+      fromPack = true;
+      // Present the row as downloaded via the pack; the redundant single grab
+      // falls away from the display (Downloaded, not "downloading 0%").
+      transfer = {
+        status: "downloaded",
+        progress: 1,
+        infoHash: cover.infoHash,
+        filePath: cover.filePath,
+        error: null,
+      };
+    } else if (!transfer && !local && input.coveredByPackTransfer) {
+      coveredByPack = input.coveredByPackTransfer;
     }
 
     rows.push({
