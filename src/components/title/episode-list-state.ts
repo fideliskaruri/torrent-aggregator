@@ -54,7 +54,10 @@ export function episodeSeasonCountLabel(
   season: number,
 ): string {
   if (state.status === "loading" && rowCount === 0) {
-    return `Loading season ${season}…`;
+    // No visible count label while loading; the skeleton region carries the
+    // busy state. The toolbar caller guards on truthiness, so "" renders
+    // nothing.
+    return "";
   }
   if (state.status === "error" && rowCount === 0) {
     return `Could not load season ${season}`;

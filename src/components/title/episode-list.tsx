@@ -454,19 +454,14 @@ function EpisodeSkeletonStrip({
   label: string;
 }) {
   return (
-    <div className="mt-3" data-episode-skeletons aria-busy="true">
-      {/* Skeletons alone do not say what is happening. Without this line the
-          strip appears to materialise from nowhere once the extras round-trip
-          finishes — the exact complaint on a title page whose hero settled
-          first. */}
-      <p
-        role="status"
-        aria-live="polite"
-        data-episode-loading
-        className="mb-2 text-[12px] text-[var(--text-tertiary)]"
-      >
-        {label}
-      </p>
+    <div
+      className="mt-3"
+      data-episode-skeletons
+      aria-busy="true"
+      aria-label={label}
+    >
+      {/* The visible loading line was removed as noise; the busy region stays
+          labelled for assistive tech via aria-busy + aria-label above. */}
       <ul
         className="flex gap-3 overflow-x-hidden pb-3"
         aria-label={label}
