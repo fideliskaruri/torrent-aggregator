@@ -288,4 +288,59 @@ assert.deepEqual(
   [1, 2, 3],
 );
 
+// ── seasonComplete guard ─────────────────────────────────────────────────────
+{
+  // An airing season leaves a gap (E3 has no single); the pack must be skipped
+  // so the planner does not grab a stalled torrent for an unaired episode.
+  const pack = result("Airing Show S01 COMPLETE");
+  const e1 = result("Airing Show S01E01 1080p");
+  const e2 = result("Airing Show S01E02 1080p");
+  const plan = planSeason({
+    season: 1,
+    wanted: [1, 2, 3],
+    releases: [pack, e1, e2],
+    verdictOf: () => "good",
+    packContents: () => [1, 2, 3],
+    seasonComplete: false,
+  });
+  assert.equal(plan.pack, null, "airing season: pack is skipped when singles leave a gap");
+  assert.deepEqual(plan.singles.map((s) => s.episode), [1, 2], "only aired singles are taken");
+  assert.deepEqual(plan.missing, [3], "unaired episode stays missing");
+}
+
+{
+  // A pack-only season that is still airing must yield an empty plan — a pack
+  // that would cover unaired episodes must not be grabbed.
+  const pack = result("Still Airing S01 COMPLETE");
+  const plan = planSeason({
+    season: 1,
+    wanted: [1, 2, 3],
+    releases: [pack],
+    verdictOf: () => "good",
+    packContents: () => [1, 2, 3],
+    seasonComplete: false,
+  });
+  assert.equal(plan.pack, null, "airing season: pack-only releases are also skipped");
+  assert.deepEqual(plan.covered, [], "nothing covered");
+  assert.deepEqual(plan.missing, [1, 2, 3]);
+}
+
+{
+  // seasonComplete: true (default) must not change existing behaviour — pack
+  // is still chosen when it fills a gap.
+  const pack = result("Finished Show S01 COMPLETE");
+  const e1 = result("Finished Show S01E01 1080p");
+  const e2 = result("Finished Show S01E02 1080p");
+  const plan = planSeason({
+    season: 1,
+    wanted: [1, 2, 3],
+    releases: [pack, e1, e2],
+    verdictOf: () => "good",
+    packContents: () => [1, 2, 3],
+    seasonComplete: true,
+  });
+  assert.equal(plan.pack?.release.infoHash, pack.infoHash, "completed season: pack still chosen");
+  assert.deepEqual(plan.covered, [1, 2, 3]);
+}
+
 console.log("season-plan.test.ts: PASS (manifest-first selection)");

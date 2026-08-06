@@ -230,6 +230,7 @@ export async function POST(request: Request, context: RouteContext) {
             ...input,
             season: scope.season,
             episodes: body.episodes ?? [],
+            seasonComplete: body.seasonComplete,
           })
         : await grabForTitle(input);
 

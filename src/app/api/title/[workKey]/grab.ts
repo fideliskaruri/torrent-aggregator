@@ -98,6 +98,8 @@ export async function grabForTitle(
 export interface TitleSeasonGrabInput extends TitleGrabInput {
   season: number;
   episodes: number[];
+  /** Whether the season has finished airing — passed through to the planner. */
+  seasonComplete?: boolean;
 }
 
 /**
@@ -138,6 +140,7 @@ export async function grabSeasonForTitle(
       season,
       episodes,
       preferredResolution: input.preferredResolution ?? null,
+      seasonComplete: input.seasonComplete,
     };
     result = await acquireSeason(target, {
       watchListItemId: input.watchListItemId,

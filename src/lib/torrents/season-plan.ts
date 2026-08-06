@@ -469,6 +469,14 @@ export function planSeason(input: {
   verdictOf: (r: TorrentResult) => SwarmVerdict;
   preferredResolution?: number | null;
   packContents?: (r: TorrentResult) => number[] | null;
+  /**
+   * Whether the season has finished airing.  When `false` the planner never
+   * chooses a pack — episodes not yet broadcast cannot be in any release, so a
+   * pack would always "cover" them in name only, leading to a phantom download
+   * that stalls at 0 % until the rest of the season drops.  Omit or pass
+   * `true` (the default) for completed seasons where a pack is fine.
+   */
+  seasonComplete?: boolean;
 }): SeasonPlan {
   const season = input.season;
   const preferred =
@@ -557,9 +565,14 @@ export function planSeason(input: {
   // those episodes are dropped — nothing is grabbed twice. When singles already
   // cover the whole season this branch never runs, so no pack is downloaded at
   // all; a season available only as a pack (no singles anywhere) still gets one.
+  //
+  // Pack selection is skipped entirely for still-airing seasons: any pack would
+  // claim to "cover" unaired episodes it cannot possibly contain yet, causing a
+  // stalled download until the season finishes.
+  const packAllowed = input.seasonComplete !== false;
   let chosenPack: ClassifiedPack | null = null;
   const gap = wanted.filter((e) => !covered.has(e));
-  if (gap.length > 0 && orderedPacks.length > 0) {
+  if (packAllowed && gap.length > 0 && orderedPacks.length > 0) {
     const best = orderedPacks
       .map((p) => ({
         p,

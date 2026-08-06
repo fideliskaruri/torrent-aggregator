@@ -207,6 +207,13 @@ export interface SeasonAcquireTarget {
    * see, so honest "8 of 10" reporting depends on this being the real list.
    */
   episodes: number[];
+  /**
+   * Whether the season has finished airing.  When `false` the planner skips
+   * pack selection to avoid a stalled download for unaired episodes.
+   * Omit or pass `true` for completed seasons.  Defaults to `true` when
+   * omitted so existing call-sites that don't pass the flag are unaffected.
+   */
+  seasonComplete?: boolean;
 }
 
 export interface ResolveSeasonOptions {
@@ -365,6 +372,7 @@ export async function resolveSeasonPlan(
     releases: usable,
     verdictOf,
     preferredResolution,
+    seasonComplete: target.seasonComplete,
     packContents: (release) => {
       const hash = releaseInfoHash(release);
       const files = hash ? manifestFiles.get(hash) : null;

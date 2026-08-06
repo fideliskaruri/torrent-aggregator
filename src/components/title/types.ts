@@ -333,6 +333,13 @@ export interface TitleGrabRequest {
    * Only the cap can be overridden this way — the free-space floor cannot.
    */
   overrideStorageCap?: boolean;
+  /**
+   * Whether the season has finished airing.  The server uses this to decide
+   * whether to allow a pack grab.  The client computes this from TMDB episode
+   * air dates; absence defaults to `true` (completed) on the server so existing
+   * integrations are unaffected.
+   */
+  seasonComplete?: boolean;
 }
 
 /** What `POST /api/title/[workKey]` answers. */

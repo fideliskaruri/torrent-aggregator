@@ -42,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-status";
 import { EpisodeList, episodeIntentKey } from "./episode-list";
 import { LibraryControls } from "./library-controls";
-import { mergeEpisodes, mergeSeasons } from "./merge-extras";
+import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
 import { MoreLikeThis } from "./more-like-this";
 import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
@@ -424,6 +424,16 @@ export function TitleDetail(props: TitleDetailProps) {
       spentSeasonGrabs.current.add(key);
       setSeasonStatuses((prev) => ({ ...prev, [key]: { status: "pending" } }));
       try {
+        // A season is "complete" when every TMDB episode has an air date that
+        // is today or in the past.  Only computed when the extras for this
+        // exact season are loaded — unknown extras default to true (complete)
+        // so the planner stays conservative and may still choose a pack.
+        const seasonComplete =
+          extras != null &&
+          extras.season === targetSeason &&
+          extras.episodes.length > 0
+            ? extras.episodes.every((ep) => !isUnaired(ep.airDate))
+            : true;
         const outcome = await cap.run(async ({ overrideStorageCap }) => {
           const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
             method: "POST",
@@ -437,6 +447,7 @@ export function TitleDetail(props: TitleDetailProps) {
               title: props.title ?? null,
               mediaType: props.mediaType ?? null,
               year: props.year ?? null,
+              seasonComplete,
               ...(resolution != null
                 ? { preferredResolution: resolution }
                 : {}),
