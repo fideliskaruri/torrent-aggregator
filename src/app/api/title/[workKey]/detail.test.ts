@@ -467,6 +467,90 @@ check("buildEpisodes: the episode's own file wins over the pack fallback", () =>
   assert.equal(e3?.fromPack, false);
 });
 
+check("buildEpisodes: an in-flight season single shows as downloading", () => {
+  // A season download grabs each episode as its own release and writes no
+  // per-episode acquisition row — only a live engine torrent. The episode must
+  // still read as "downloading" (its own transfer), or the card shows a plain,
+  // re-clickable Download icon while bytes arrive.
+  const rows = buildEpisodes(
+    episodeInput({
+      localReleases: [
+        {
+          hash: "e1hash",
+          name: "Rick and Morty S02E01 1080p WEB",
+          progress: 0.32,
+          status: "downloading",
+          season: 2,
+          episode: 1,
+          isPack: false,
+          isMultiSeason: false,
+          retentionState: "kept",
+          fileMissing: false,
+        },
+      ],
+    }),
+  );
+  const e1 = rows.find((r) => r.episode === 1);
+  assert.equal(e1?.transfer?.status, "downloading", "its own transfer is downloading");
+  assert.equal(e1?.transfer?.progress, 0.32);
+  assert.equal(e1?.transfer?.infoHash, "e1hash");
+  assert.equal(e1?.availability, "warm");
+});
+
+check("buildEpisodes: a just-queued 0% season single already shows downloading", () => {
+  // The grab returns before the first byte arrives; the row must react
+  // immediately, not wait for progress > 0. availability stays as computed
+  // (nothing to play at 0%) but the transfer says downloading.
+  const rows = buildEpisodes(
+    episodeInput({
+      cachedReleases: [{ season: 2, episode: 1, isPack: false, viable: true }],
+      localReleases: [
+        {
+          hash: "q1hash",
+          name: "Rick and Morty S02E01 1080p WEB",
+          progress: 0,
+          status: "downloading",
+          season: 2,
+          episode: 1,
+          isPack: false,
+          isMultiSeason: false,
+          retentionState: "kept",
+          fileMissing: false,
+        },
+      ],
+    }),
+  );
+  const e1 = rows.find((r) => r.episode === 1);
+  assert.equal(e1?.transfer?.status, "downloading", "0% queued single reads as downloading");
+  assert.equal(e1?.transfer?.progress, 0);
+  assert.equal(e1?.availability, "fetchable", "but nothing is playable yet");
+});
+
+check("buildEpisodes: a stream-cache partial is not shown as downloading", () => {
+  // A reclaimable stream cache holds only the bytes playback touched; its
+  // fraction is not download progress and must not turn a Play into a spinner.
+  const rows = buildEpisodes(
+    episodeInput({
+      localReleases: [
+        {
+          hash: "streamhash",
+          name: "Rick and Morty S02E01 1080p WEB",
+          progress: 0.42,
+          status: "downloading",
+          season: 2,
+          episode: 1,
+          isPack: false,
+          isMultiSeason: false,
+          retentionState: "stream",
+          fileMissing: false,
+        },
+      ],
+    }),
+  );
+  const e1 = rows.find((r) => r.episode === 1);
+  assert.equal(e1?.transfer ?? null, null, "a stream cache is not a download");
+});
+
 check("buildEpisodes: a mid-download pack marks coveredByPack, not ready", () => {
   const inFlight: AcquisitionTransfer = {
     status: "downloading",

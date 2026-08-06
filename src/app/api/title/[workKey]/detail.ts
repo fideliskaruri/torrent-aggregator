@@ -579,6 +579,28 @@ function keptDownloadFraction(release: LocalRelease | null): number | null {
 }
 
 /**
+ * Is this local row a real download still in flight?
+ *
+ * True only for a kept file the user is actually acquiring and that has not
+ * finished: a stream/prewarm cache is reclaimable scratch whose byte fraction
+ * is not download progress, an errored row is not progressing, and a complete
+ * file (progress >= 1) is done. `isInFlightLocal` accepts a just-queued 0% row
+ * (nothing fetched yet but the grab is live); `isDownloadingLocal` is the
+ * stricter variant that also requires visible progress.
+ */
+function isInFlightLocal(release: LocalRelease): boolean {
+  if (release.retentionState === "stream" || release.retentionState === "prewarm") {
+    return false;
+  }
+  if (release.status === "error") return false;
+  return release.progress >= 0 && release.progress < 1;
+}
+
+function isDownloadingLocal(release: LocalRelease): boolean {
+  return isInFlightLocal(release) && release.progress > 0;
+}
+
+/**
  * The best local release for a title, season or episode.
  *
  * "Best" is `ready` over `warm`, because a complete file plays and seeks while
@@ -1021,6 +1043,42 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
       coveredByPack = input.coveredByPackTransfer;
     }
 
+    // A season download grabs each episode as its own release but writes no
+    // per-episode acquisition row — the only trace is the live engine torrent.
+    // Without this, a season grab leaves every covered episode looking
+    // un-started: the still shows a progress bar (from keptDownloadFraction)
+    // while the glyph reads the null `transfer` and prints a plain, still-
+    // clickable Download icon. Surface the in-flight file as the episode's own
+    // transfer so the card reads "Downloading NN%" and its control disables,
+    // exactly like a single-episode Download — including the just-queued 0%
+    // moment, so the row reacts the instant the season grab returns.
+    //
+    // Guarded to a real, still-running download: stream/prewarm caches are
+    // excluded (their fraction is not download progress — see
+    // keptDownloadFraction), a completed file is left to the ready/Play path,
+    // and a pack's own row is handled by the coverage branches above.
+    if (!transfer && !coveredByPack) {
+      const downloading =
+        local && isDownloadingLocal(local)
+          ? local
+          : !local
+            ? pickDownloadingEpisodeLocal(input.localReleases, season, episode)
+            : null;
+      if (downloading) {
+        transfer = {
+          status: "downloading",
+          progress: downloading.progress,
+          infoHash: downloading.hash,
+          filePath: null,
+          error: null,
+        };
+        infoHash = downloading.hash;
+        // Mirror the acquisition-row path: only a started download is `warm`;
+        // a 0% grab has nothing to play yet, so availability stays as computed.
+        if (downloading.progress > 0) availability = "warm";
+      }
+    }
+
     rows.push({
       season,
       episode,
@@ -1069,6 +1127,28 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
       releases.filter((release) => !release.isPack && !release.isMultiSeason),
       season,
       episode,
+    );
+  }
+
+  // Like pickUnpackedEpisodeLocal but includes a just-queued 0% download.
+  // `pickLocal` deliberately requires progress > 0 (a 0% row is not `warm` and
+  // cannot be played), which is right for availability but wrong for "is this
+  // episode being fetched right now?" — a season single sits at 0% for a beat
+  // before its first bytes, and the card must already say so.
+  function pickDownloadingEpisodeLocal(
+    releases: LocalRelease[],
+    season: number,
+    episode: number,
+  ): LocalRelease | null {
+    return (
+      releases.find(
+        (release) =>
+          !release.isPack &&
+          !release.isMultiSeason &&
+          canMakeLocalClaim(release) &&
+          isInFlightLocal(release) &&
+          coversEpisode(release, season, episode),
+      ) ?? null
     );
   }
   return rows;
