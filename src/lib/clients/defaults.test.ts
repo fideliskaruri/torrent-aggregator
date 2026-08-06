@@ -1,18 +1,16 @@
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { defaultDownloadDir } from "./defaults";
 
-const previous = process.env.DOWNLOAD_DIR;
-try {
-  process.env.DOWNLOAD_DIR =
-    "D:\\code\\torrent-aggregator\\.e2e-instant-play\\run\\leech";
-  assert.equal(
-    defaultDownloadDir(),
-    "",
-    "download folder defaults to unset even in an inherited test environment",
-  );
-} finally {
-  if (previous === undefined) delete process.env.DOWNLOAD_DIR;
-  else process.env.DOWNLOAD_DIR = previous;
-}
+// The function must return a non-empty, OS-derived path that the settings page
+// can pre-fill. It must never return "" — the smoke test gates on this.
+const result = defaultDownloadDir();
+assert.ok(result.length > 0, "defaultDownloadDir should be non-empty");
+assert.equal(
+  result,
+  join(homedir(), "Downloads", "TorrentFlow"),
+  "defaultDownloadDir should be ~/Downloads/TorrentFlow",
+);
 
 console.log("defaults.test.ts: all assertions passed");

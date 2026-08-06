@@ -10,6 +10,7 @@ import {
 } from "@/lib/clients";
 import {
   DEFAULT_CATEGORIES,
+  defaultDownloadDir,
   ensureDefaultClientSettings,
 } from "@/lib/clients/defaults";
 import {
@@ -265,7 +266,7 @@ export async function GET() {
       settings: publicSettings({ ...settings, ...retention }),
       defaults: {
         categories: DEFAULT_CATEGORIES,
-        baseDownloadPath: null,
+        baseDownloadPath: defaultDownloadDir(),
         clientType: "builtin",
       },
     });

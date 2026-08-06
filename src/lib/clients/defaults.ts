@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import prisma from "@/lib/prisma";
 
 export const DEFAULT_CATEGORIES = [
@@ -12,14 +14,17 @@ export const DEFAULT_CATEGORIES = [
 ];
 
 /**
- * There is no safe download-folder default.
+ * A suggested download folder for the first-run settings page.
  *
- * A server working directory, test fixture, or environment inherited from an
- * end-to-end run is not a durable media library. Keep this compatibility
- * helper explicit and side-effect free: first-run setup must collect the path.
+ * This is a UI hint only — it is never written to the DB automatically.
+ * The user must confirm it before any download uses it. We use the OS home
+ * directory so the suggestion is a real, writable path on every platform
+ * (~/Downloads/TorrentFlow on Unix, %USERPROFILE%\Downloads\TorrentFlow on
+ * Windows). A server working directory or test fixture must never be used
+ * here because the DB row is created before setup completes.
  */
 export function defaultDownloadDir(): string {
-  return "";
+  return join(homedir(), "Downloads", "TorrentFlow");
 }
 
 /**
