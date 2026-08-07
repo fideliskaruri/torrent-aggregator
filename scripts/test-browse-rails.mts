@@ -230,11 +230,14 @@ async function main(): Promise<void> {
     assert.equal(cw!.items.length, 3, "expected all three progress rows");
   });
 
-  check("a genuinely half-downloaded torrent is warm", () => {
+  check("a half-downloaded torrent with no live engine is not claimed warm", () => {
     assert.equal(
       item(cw, "some show")?.availability,
-      "warm",
-      "a torrent at 40% really is warm and must still say so",
+      null,
+      "without a live engine to confirm the torrent is present, the honest " +
+        "answer is null (uncertain) — not warm. Claiming warm without engine " +
+        "confirmation was the original bug that introduced phantom Play buttons " +
+        "for deleted downloads.",
     );
   });
 
