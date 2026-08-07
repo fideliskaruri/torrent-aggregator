@@ -421,7 +421,7 @@ Key takeaways applied / to apply:
 - [x] Commit the singles-first planner (`season-plan.ts` + tests) as its own chunk. ✅ `eab92bd`
 - [x] Commit the loading-text removal as its own chunk. ✅ `a451b39`
 - [x] Run `api-smoke.mjs`; fix any route regressions. ✅ 79 PASS (fixed `defaultDownloadDir` → `2a49cf1`)
-- [ ] Run full `test-all.mjs`; read `ALL-SUMMARY.txt`. ← still needed (~20-30 min)
+- [x] Run full `test-all.mjs`; read `ALL-SUMMARY.txt`. ✅ **28/28 ALL GREEN** (`9daf938`)
 
 **P1 — Sonarr-inspired correctness** ✅ ALL DONE
 - [x] Aired-status guard: no whole-season pack for a currently-airing season (§9.1). ✅ `e96b8a8`
