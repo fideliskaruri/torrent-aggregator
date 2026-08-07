@@ -123,29 +123,26 @@ icons, sonner `Toaster` mounted in `layout.tsx`). Reuse `Button`, `toast`, `cn`.
 
 Branch `main`, remote `github.com/fideliskaruri/torrent-aggregator`.
 
-### Committed & pushed (through `2a49cf1`)
+### Committed & pushed (through `1bffdfe`)
+- `1bffdfe` refactor: P2 — single scoreRelease() total-order in quality.ts
+- `67adb5f` feat: P1.2 — surface plan.reason in season-grab report and UI
+- `e96b8a8` feat: P1.1 — aired-status guard in season planner
+- `f63c929` docs: AGENT-GUIDE.md first commit
 - `2a49cf1` fix: settings/client returns a sensible default download path for first-run
 - `fd33332` add visual-suite: route sweep + download-state proof with cleanup
 - `a451b39` remove visible loading text from episode strip
 - `eab92bd` singles-first planner: pack only fills gaps singles can't cover
-- `608bde8` season-grabbed episodes show a downloading state
-- `3b465d9` honour the picked resolution in pack and single selection
-- `ee25bf8` find airing-season releases (multi-query search) + cap override for season grabs
 - …plus the earlier title-page redesign and downloads-page cleanup.
 
 ### Uncommitted working tree
 Clean — all changes committed.
 
-### Confirmed green (last full gate run)
+### Confirmed green (last targeted test run)
 - `npm run typecheck` → 0 errors
-- `npm run lint` → 0 errors (45 pre-existing warnings, tolerated)
-- `season-plan.test.ts` → PASS (red-proven for singles-first change)
-- `season-acquire.test.ts` → PASS
-- `detail.test.ts` → PASS
-- `defaults.test.ts` → PASS (red-proven for defaultDownloadDir change)
-- `check-no-sabotage.mjs` → PASS
-- `visual-suite.mjs` → **84 PASS** (14 routes × 6 assertions + download-state proof + cleanup)
-- `api-smoke.mjs` → **79 PASS** (0 failures)
+- `season-plan.test.ts` → PASS (red-proven for P1.1 seasonComplete guard)
+- `quality.test.ts` → PASS (red-proven for P2 scoreRelease)
+- `title.test.ts` → PASS
+- `defaults.test.ts` → PASS
 
 ### Visual confirmation done
 - Playwright snapshot of title page: no "Loading season N…" text, clean episode strip.
@@ -426,12 +423,12 @@ Key takeaways applied / to apply:
 - [x] Run `api-smoke.mjs`; fix any route regressions. ✅ 79 PASS (fixed `defaultDownloadDir` → `2a49cf1`)
 - [ ] Run full `test-all.mjs`; read `ALL-SUMMARY.txt`. ← still needed (~20-30 min)
 
-**P1 — Sonarr-inspired correctness**
-- [ ] Aired-status guard: no whole-season pack for a currently-airing season (§9.1).
-- [ ] Surface `plan.reason` in the season-grab report/toast (§9.3).
+**P1 — Sonarr-inspired correctness** ✅ ALL DONE
+- [x] Aired-status guard: no whole-season pack for a currently-airing season (§9.1). ✅ `e96b8a8`
+- [x] Surface `plan.reason` in the season-grab report/toast (§9.3). ✅ `67adb5f`
 
-**P2 — refactor**
-- [ ] Single `scoreRelease()` total-order; migrate `comparePacks`/`bestSingleFor` to it (§9.2).
+**P2 — refactor** ✅ ALL DONE
+- [x] Single `scoreRelease()` total-order; migrate `comparePacks`/`bestSingleFor` to it (§9.2). ✅ `1bffdfe`
 
 **P3 — verification infrastructure**
 - [ ] Extend `visual-suite.mjs` with per-state seeding (queued / 30% / ready / pack in-flight)
