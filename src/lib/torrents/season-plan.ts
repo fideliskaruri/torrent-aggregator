@@ -586,17 +586,19 @@ function buildReason(
 ): string {
   const parts: string[] = [];
   if (pack) {
-    const verb = pack.verdict === "good" ? "measured good" : `verdict ${pack.verdict}`;
-    // "should cover" for an unopened bare-season pack, "covers" once the name
-    // enumerates it or the file list confirms it — the report must not present
-    // an inference as a fact.
-    const claim = pack.coverageBasis === "inferred" ? "should cover" : "covers";
+    // Translate verdict to user-friendly quality description
+    const qualityLabel = pack.verdict === "good" ? "reliable" : 
+                        pack.verdict === "weak" ? "limited availability" :
+                        pack.verdict === "dead" ? "unavailable seeders" :
+                        "unknown quality";
+    // Replace "should cover" with "estimated coverage"; "covers" with "includes"
+    const claim = pack.coverageBasis === "inferred" ? "estimated to include" : "includes";
     if (singles.length === 0 && missing.length === 0) {
-      const scope = pack.coverageBasis === "inferred" ? "the whole season (unconfirmed)" : "the whole season";
-      parts.push(`Season ${season} pack (${verb}) ${claim} ${scope}`);
+      const scope = pack.coverageBasis === "inferred" ? "the whole season (based on release name, may not match exactly)" : "the whole season";
+      parts.push(`Season ${season} pack (${qualityLabel}) ${claim} ${scope}`);
     } else {
       parts.push(
-        `Season ${season} pack (${verb}) ${claim} ${pack.covers.length} episode(s)`,
+        `Season ${season} pack (${qualityLabel}) ${claim} ${pack.covers.length} episode(s)`,
       );
     }
   } else if (singles.length > 0) {
@@ -605,7 +607,7 @@ function buildReason(
     parts.push(`No releases available for season ${season}`);
   }
   if (singles.length > 0 && pack) {
-    parts.push(`plus ${singles.length} single(s) for the gap`);
+    parts.push(`plus ${singles.length} single(s) for the rest`);
   }
   if (missing.length > 0) {
     parts.push(`missing E${missing.map(pad).join(", E")}`);

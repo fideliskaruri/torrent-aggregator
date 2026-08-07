@@ -289,6 +289,9 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Ensure settings row exists (prevents null pointer in subsequent operations)
+    await ensureDefaultClientSettings(session.user.id);
+
     const parsedBody = await readMutationObject(request);
     if (!parsedBody.ok) return requestFailureResponse(parsedBody);
     const fields = parsedBody.value;

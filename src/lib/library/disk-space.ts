@@ -79,23 +79,21 @@ export function storageCapMessage(
     `"Delete reclaimable stream-only files".`;
 
   if (incomingBytes == null || !Number.isFinite(incomingBytes) || incomingBytes <= 0) {
-    // No size to speak of: the old shape is honest here, since usage really is
-    // the only fact involved.
-    return `Storage cap reached — using ${used} of ${cap} under the download folder. ${advice}`;
+    // No size to speak of: only usage is the fact involved.
+    return `Not enough space — using ${used} of ${cap}. ${advice}`;
   }
 
   const needs = formatBytesShort(incomingBytes);
   if (incomingEstimated) {
-    // Naming the assumption matters: without it the arithmetic looks broken,
-    // and the owner cannot tell that supplying a real size might fix it.
+    // User-friendly: explain why we're being cautious without technical jargon.
     return (
-      `This release does not report its size, so TorrentFlow sets aside ${needs} for it — ` +
-      `more than the ${free} left under your ${cap} cap (${used} in use). ${advice}`
+      `Not enough space for this release. We're reserving ${needs} for it ` +
+      `(size unknown), but only ${free} is available (${used} already in use). ${advice}`
     );
   }
   return (
-    `This needs about ${needs}, but only ${free} is left under your ${cap} cap ` +
-    `(${used} in use). ${advice}`
+    `This release needs about ${needs}, but only ${free} is available ` +
+    `(${used} already in use). ${advice}`
   );
 }
 
@@ -370,6 +368,17 @@ export async function measureDirectorySize(
 export function resetDirectorySizeCache(): void {
   dirSizeCache.clear();
   dirSizeInFlight.clear();
+}
+
+/**
+ * Invalidate cached size for a specific path. Called after a torrent send to
+ * refresh the next capacity check (instead of waiting up to 30s for TTL expiry).
+ */
+export function invalidateDirectorySizeCache(pathStr: string): void {
+  if (pathStr?.trim()) {
+    const key = path.resolve(pathStr);
+    dirSizeCache.delete(key);
+  }
 }
 
 /** Refuse send if free space is known and below hard floor. */

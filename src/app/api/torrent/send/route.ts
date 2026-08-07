@@ -36,6 +36,7 @@ import {
   type RequestResult,
 } from "@/lib/http/request";
 import { infoHashFromMagnet, normalizeInfoHash } from "@/lib/torrents/infohash";
+import { invalidateDirectorySizeCache } from "@/lib/library/disk-space";
 
 export const dynamic = "force-dynamic";
 /** WebTorrent / disk I/O must run in Node, not Edge. */
@@ -597,6 +598,13 @@ export async function POST(request: NextRequest) {
         retention: historyRetention,
       },
     });
+
+    // Invalidate directory size cache on successful send so next capacity check
+    // reads fresh disk state instead of stale 30s cache. Only invalidate the
+    // actual target path, not entire root (other categories may still be valid).
+    if (result.ok && savePath) {
+      invalidateDirectorySizeCache(savePath);
+    }
 
     let retentionState = retentionStateForOrigin(
       existingOrigin ?? (purpose === "stream" ? "stream" : "user"),
