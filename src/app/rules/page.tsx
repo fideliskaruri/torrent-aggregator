@@ -355,7 +355,7 @@ export default function RulesPage() {
 
 
   return (
-    <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">
+    <div className="container-app max-w-3xl py-6 pb-24 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
         title="Auto-download rules"
         description="Automatically grab watchable video releases when they become healthy enough to play."
@@ -826,7 +826,7 @@ function RulesSkeleton({ visible = true }: { visible?: boolean }) {
     <PageSkeletonFrame
       aria-label="Loading rules"
       className={cn(
-        "container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
+        "container-app max-w-3xl py-6 pb-24 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
         !visible && "opacity-0",
       )}
     >

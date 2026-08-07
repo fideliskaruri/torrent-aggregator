@@ -684,8 +684,17 @@ export function compareReleases(a: ReleaseRank, b: ReleaseRank): number {
     return b.languagePreference - a.languagePreference;
   }
 
-  if (a.seeders !== b.seeders) return b.seeders - a.seeders;
+  // `encodeScore` buckets seeders as `Math.min(seeders, 9)` and uses recency
+  // as the tiebreaker within the same bucket. The comparator must mirror that
+  // ordering so that `score` is monotonically non-increasing in the sorted
+  // array. When both releases exceed the cap (≥9 seeders) but differ on raw
+  // count, fall through to recency rather than using raw count directly.
+  const aCapped = Math.min(a.seeders, 9);
+  const bCapped = Math.min(b.seeders, 9);
+  if (aCapped !== bCapped) return bCapped - aCapped;
   if (a.recency !== b.recency) return b.recency - a.recency;
+  // Fine-grained seeder tiebreak within the same bucket and recency slot.
+  if (a.seeders !== b.seeders) return b.seeders - a.seeders;
   return b.sizeBytes - a.sizeBytes;
 }
 

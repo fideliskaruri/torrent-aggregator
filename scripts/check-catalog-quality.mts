@@ -58,6 +58,16 @@ const DISCOVERY_RAIL_IDS = new Set([
 ]);
 
 /**
+ * Personal rails reflect whatever the user actually has. A home-ripped file
+ * legitimately has no poster. These rails are held to the title/dedupe rules
+ * but NOT the poster-coverage floor.
+ */
+const PERSONAL_RAIL_IDS = new Set([
+  "continue-watching",
+  "my-library",
+]);
+
+/**
  * Markers of a scene release name.
  *
  * Each one is a token that appears in filenames and effectively never in a
@@ -209,14 +219,18 @@ async function main() {
       }
     }
 
+    const isPersonal = PERSONAL_RAIL_IDS.has(rail.id ?? "");
+
     // A rail where *nothing* has art, on a page where other rails are fully
     // illustrated, is a row of grey placeholders. This caught the user's own
     // library rendering worse than the recommendations below it: Ready to Play
     // and Recently Added were at 0 posters while Trending sat at 100%, because
     // those two rails looked artwork up in a local cache with a known-high miss
     // rate instead of the provider path.
+    // Personal rails (continue-watching, my-library) are exempt: the user's
+    // own files may legitimately have no artwork if they were home-ripped.
     const anyPoster = items.some((i) => Boolean(i.posterUrl));
-    if (!anyPoster && items.length >= 3) {
+    if (!anyPoster && items.length >= 3 && !isPersonal) {
       fail(
         `rail "${railName}" has no artwork at all on ${items.length} cards`,
       );
@@ -229,14 +243,16 @@ async function main() {
     const ratio = withPoster / items.length;
     const pct = (ratio * 100).toFixed(0);
 
-    // Coverage is checked on EVERY rail, not just the discovery ones. This
-    // check used to `continue` on non-discovery rails, and Recently Added sat
-    // at 5/10 (50%) un-flagged while the gate happily reported 100% for the
-    // three rails below it. The rail showing the user their OWN downloads was
-    // the worst-looking one on the page and the gate said PASS.
+    // Coverage is checked on every non-personal rail. This check used to
+    // `continue` on non-discovery rails, and Recently Added sat at 5/10 (50%)
+    // un-flagged while the gate happily reported 100% for the three rails below
+    // it. The rail showing the user their OWN downloads was the worst-looking
+    // one on the page and the gate said PASS.
+    // Personal rails (Continue Watching, My Library) are exempt: they reflect
+    // whatever the user actually has, and sparse artwork is not a product bug.
     // Rails of 1-2 cards are exempt: a single missing poster is 0% or 50% and
     // says nothing about a systemic artwork failure.
-    if (items.length >= 3 && ratio < MIN_POSTER_RATIO) {
+    if (items.length >= 3 && ratio < MIN_POSTER_RATIO && !isPersonal) {
       fail(
         `rail "${railName}" poster coverage ${withPoster}/${items.length} ` +
           `(${pct}%) is below the ${(MIN_POSTER_RATIO * 100).toFixed(0)}% floor`,

@@ -207,10 +207,13 @@ async function downloadFlow(browser) {
     // environment's near-full cap never blocks the proof. UI clicks are still
     // tested in Part 1; this step only needs the engine to accept a torrent.
     //
-    // Find the first episode in "Download" state (not Retry, not Downloaded,
-    // not Queued/Downloading). Parse "Download — S09E10" → episodeNumber 10.
+    // Find the first episode in "Download" or "Retry download" state (not
+    // actively Downloading/Queued, not a finished Downloaded). A Retry means
+    // a previous run left the episode in a failed state — the grab flow is
+    // identical. Parse "Download — S09E10" or "Retry download — S09E10".
     const freshEpisode = await page.$$eval(
-      'button[data-episode-action][aria-label^="Download — "]',
+      'button[data-episode-action][aria-label^="Download — "], ' +
+        'button[data-episode-action][aria-label^="Retry download — "]',
       (els) => {
         const el = els[0];
         if (!el) return null;
@@ -226,7 +229,7 @@ async function downloadFlow(browser) {
       record(
         "found a fresh episode to grab",
         false,
-        "no 'Download — SxxExx' buttons — all episodes already downloaded or retrying",
+        "no 'Download — SxxExx' or 'Retry download — SxxExx' buttons — all episodes actively downloading or fully complete",
       );
     } else {
       record("found a fresh episode to grab", true, freshEpisode.label);

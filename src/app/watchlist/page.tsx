@@ -614,7 +614,7 @@ export default function WatchlistPage() {
   const counts = tabCounts(items);
 
   return (
-    <div className="container-app py-6 sm:py-8 space-y-5 min-w-0">
+    <div className="container-app py-6 pb-24 sm:py-8 space-y-5 min-w-0">
       <TfPageHeader
         title="Library"
         description={libraryPageSummary(items)}
@@ -1320,7 +1320,7 @@ function LibrarySkeleton({ visible = true }: { visible?: boolean }) {
     <PageSkeletonFrame
       aria-label="Loading library"
       className={cn(
-        "container-app py-6 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
+        "container-app py-6 pb-24 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
         !visible && "opacity-0",
       )}
     >
