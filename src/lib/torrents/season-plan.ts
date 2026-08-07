@@ -39,65 +39,9 @@ import { parseEpisode } from "./episodes";
 import { isSupportedVideoFileName } from "./filters";
 import { seasonCoverage } from "./pack-preference";
 import { infoHashFromMagnet, normalizeInfoHash } from "./infohash";
-import { parseResolution } from "./quality";
+import { scoreRelease } from "./quality";
 import type { TorrentResult } from "./types";
 import type { SwarmVerdict } from "./swarm-probe";
-
-/**
- * Verdict → tier, identical to `prerank.ts:verdictTier`. Kept as its own copy
- * rather than imported because `prerank.ts` pulls in Prisma at module load and
- * this planner must stay pure enough to run under the unit harness with no DB.
- * The ordering is the contract, not the source: good beats unknown beats weak
- * beats dead, and two judges of "which release" that could drift apart is a
- * bug generator, so the numbers must match `prerank.ts` exactly.
- */
-function verdictTier(v: SwarmVerdict): number {
-  switch (v) {
-    case "good":
-      return 0;
-    case "unknown":
-      return 1;
-    case "weak":
-      return 2;
-    case "dead":
-      return 3;
-  }
-}
-
-/**
- * Collapse the four-way verdict into "viable vs demoted" for the primary sort.
- *
- * The user's explicit resolution choice must be honoured *among releases that
- * will actually download* — but never at the cost of preferring a resolution
- * match the swarm has measured as failing. So a weak/dead 1080p never beats a
- * good/unknown 2160p, while within the viable group resolution decides.
- */
-function demotedTier(v: SwarmVerdict): number {
-  return verdictTier(v) >= 2 ? 1 : 0;
-}
-
-/**
- * How well a release matches the resolution the user explicitly asked for.
- *
- * The heart of the "I picked 1080p but got 4K" fix. Selection cannot lean on
- * the ranker's soft ordering, because a same-verdict, same-coverage tie falls
- * through to input index — and an Ai-upscaled 2160p can sit at the top of that
- * order ahead of a 1080p with five times the seeders. This turns the explicit
- * choice into a hard preference tier that still *demotes rather than filters*:
- *
- *   0 — exact match, or no preference at all
- *   1 — resolution unknown (might be the one asked for; better than a known miss)
- *   2 — a resolution the user did not ask for
- *
- * A season available only in 4K still downloads: every candidate lands on the
- * same tier, and the lower keys (verdict, coverage, rank) decide as before.
- */
-function resolutionRank(title: string, preferred: number | null): number {
-  if (preferred == null) return 0;
-  const res = parseResolution(title);
-  if (res == null) return 1;
-  return res === preferred ? 0 : 2;
-}
 
 function releaseInfoHash(r: TorrentResult): string | null {
   if (r.infoHash) {
@@ -428,10 +372,11 @@ function comparePacks(
 ): number {
   return (
     fitRank(a.fit) - fitRank(b.fit) ||
-    demotedTier(a.verdict) - demotedTier(b.verdict) ||
-    resolutionRank(a.release.title, preferred) -
-      resolutionRank(b.release.title, preferred) ||
-    verdictTier(a.verdict) - verdictTier(b.verdict) ||
+    // scoreRelease encodes demotedTier → resolutionPreferenceTier → verdictTier
+    // in one positional number, so a single subtraction replaces the old
+    // three-step chain and cannot drift between packs and singles.
+    scoreRelease(b.verdict, b.release.title, preferred) -
+      scoreRelease(a.verdict, a.release.title, preferred) ||
     b.covers.length - a.covers.length ||
     a.index - b.index
   );
@@ -544,10 +489,11 @@ export function planSeason(input: {
       .filter((s) => s.episode === episode)
       .sort(
         (a, b) =>
-          demotedTier(a.verdict) - demotedTier(b.verdict) ||
-          resolutionRank(a.release.title, preferred) -
-            resolutionRank(b.release.title, preferred) ||
-          verdictTier(a.verdict) - verdictTier(b.verdict) ||
+          // scoreRelease produces a positional total-order identical to
+          // the old demotedTier → resolutionPreferenceTier → verdictTier
+          // chain, in one number so it cannot drift from comparePacks.
+          scoreRelease(b.verdict, b.release.title, preferred) -
+            scoreRelease(a.verdict, a.release.title, preferred) ||
           a.index - b.index,
       )[0] ?? null;
 

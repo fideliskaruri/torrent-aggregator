@@ -43,6 +43,7 @@ import {
 } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { rankResults } from "@/lib/torrents/ranking";
+import { verdictTier } from "@/lib/torrents/quality";
 import { filterReleasesForWork } from "@/lib/torrents/work-match";
 import { infoHashFromMagnet, normalizeInfoHash } from "@/lib/torrents/infohash";
 import { advanceCursor, episodeSearchQuery, resolveHuntCursor } from "@/lib/library/cursor";
@@ -247,19 +248,6 @@ export function releaseInfoHash(r: TorrentResult): string | null {
  * index tiebreak, so among equally-verdicted releases the better-ranked one
  * still wins.
  */
-function verdictTier(v: SwarmVerdict): number {
-  switch (v) {
-    case "good":
-      return 0;
-    case "unknown":
-      return 1;
-    case "weak":
-      return 2;
-    case "dead":
-      return 3;
-  }
-}
-
 export function orderByVerdict(
   results: readonly TorrentResult[],
   verdictOf: (r: TorrentResult) => SwarmVerdict,

@@ -26,6 +26,7 @@
  * explicitly, which lives in the caller.
  */
 import type { TorrentResult } from "./types";
+import type { SwarmVerdict } from "./swarm-probe";
 import { normalizeTitle } from "@/lib/utils";
 import type { ProbeResult, ProbeStream } from "@/lib/media/probe-shape";
 import { normalizeCodecName } from "@/lib/media/probe-shape";
@@ -686,4 +687,93 @@ export function compareReleases(a: ReleaseRank, b: ReleaseRank): number {
   if (a.seeders !== b.seeders) return b.seeders - a.seeders;
   if (a.recency !== b.recency) return b.recency - a.recency;
   return b.sizeBytes - a.sizeBytes;
+}
+
+// ── Swarm-verdict helpers ────────────────────────────────────────────────────
+//
+// These three functions were previously duplicated between season-plan.ts and
+// prerank.ts.  They live here because quality.ts is the shared, Prisma-free
+// module that both the pure planner and the Prisma-aware prewarm code can
+// safely import.
+
+/**
+ * Verdict → numeric tier (lower = better).
+ * Contract: good=0 < unknown=1 < weak=2 < dead=3.
+ * Any two callers that sort by verdict must agree on this mapping — a drift
+ * between copies is a subtle tie-break bug, which is why there is exactly one
+ * source of truth here.
+ */
+export function verdictTier(v: SwarmVerdict): number {
+  switch (v) {
+    case "good":
+      return 0;
+    case "unknown":
+      return 1;
+    case "weak":
+      return 2;
+    case "dead":
+      return 3;
+  }
+}
+
+/**
+ * Collapse the four-way verdict into "viable vs demoted" (0 or 1).
+ *
+ * A weak or dead release is demoted so an explicit resolution choice is
+ * honoured *among releases that will actually download* — a dead 1080p must
+ * never beat a good/unknown 2160p purely because the resolution matched.
+ */
+export function demotedTier(v: SwarmVerdict): number {
+  return verdictTier(v) >= 2 ? 1 : 0;
+}
+
+/**
+ * How well a release title matches an explicitly requested resolution.
+ *
+ * Returns:
+ *   0 — exact match, or no preference expressed
+ *   1 — resolution unknown (could be the right one; better than a known miss)
+ *   2 — known mismatch (the name names a resolution the user did not ask for)
+ *
+ * A season available only in 4K still downloads when the user asked for 1080p:
+ * every candidate lands on tier 2 and the lower comparators decide.
+ */
+export function resolutionPreferenceTier(
+  title: string,
+  preferred: number | null,
+): number {
+  if (preferred == null) return 0;
+  const res = parseResolution(title);
+  if (res == null) return 1;
+  return res === preferred ? 0 : 2;
+}
+
+/**
+ * Single positional score that encodes the verdict + resolution preference
+ * total-order for the season-planner's pack and single-episode selection.
+ * Higher is better.
+ *
+ * Positional encoding: each slot's multiplier is strictly greater than the
+ * maximum combined value of all lower-priority slots, so a lower-priority
+ * term can never compensate for a higher-priority one.
+ *
+ *   demotedTier    0 or 1   → (1 - x) * 100 = 0 or 100
+ *   resPreference  0–2      → (2 - x) * 10  = 0, 10, or 20
+ *   verdictTier    0–3      → (3 - x)        = 0, 1, 2, or 3
+ *
+ * Scores range from 0 (dead + mismatch + dead) to 123 (viable + exact + good).
+ *
+ * This replaces the repeated `demotedTier || resolutionRank || verdictTier`
+ * pattern in both `comparePacks` and `bestSingleFor` so they use one contract.
+ */
+export function scoreRelease(
+  verdict: SwarmVerdict,
+  title: string,
+  preferred: number | null,
+): number {
+  return (
+    (1 - demotedTier(verdict)) * 100 +
+    (2 - resolutionPreferenceTier(title, preferred)) * 10 +
+    (3 - verdictTier(verdict))
+  );
 }

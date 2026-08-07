@@ -27,6 +27,10 @@ import {
   stripEpisodeTokens,
   MIN_VIABLE_SEEDERS,
   DEFAULT_TARGET_RESOLUTION,
+  scoreRelease,
+  verdictTier,
+  demotedTier,
+  resolutionPreferenceTier,
 } from "./quality";
 import { extractTags, rankResults } from "./ranking";
 import type { TorrentResult } from "./types";
@@ -752,5 +756,67 @@ check("score encoding agrees with the comparator when recency is live", () => {
   }
 });
 
+
+// ── scoreRelease: shared verdict+resolution total-order ─────────────────────
+
+check("scoreRelease: verdictTier contracts", () => {
+  assert.equal(verdictTier("good"), 0);
+  assert.equal(verdictTier("unknown"), 1);
+  assert.equal(verdictTier("weak"), 2);
+  assert.equal(verdictTier("dead"), 3);
+});
+
+check("scoreRelease: demotedTier contracts", () => {
+  assert.equal(demotedTier("good"), 0);
+  assert.equal(demotedTier("unknown"), 0);
+  assert.equal(demotedTier("weak"), 1);
+  assert.equal(demotedTier("dead"), 1);
+});
+
+check("scoreRelease: resolutionPreferenceTier contracts", () => {
+  assert.equal(resolutionPreferenceTier("Show 1080p", 1080), 0, "exact match");
+  assert.equal(resolutionPreferenceTier("Show 2160p", 1080), 2, "known mismatch");
+  assert.equal(resolutionPreferenceTier("Show HDTV", 1080), 1, "resolution unknown");
+  assert.equal(resolutionPreferenceTier("Show 1080p", null), 0, "no preference → 0");
+});
+
+check("scoreRelease: viable always beats dead/weak", () => {
+  // Any viable release (good or unknown) must score higher than any non-viable
+  // (weak or dead) release regardless of resolution match.
+  const viable = scoreRelease("good", "Show 480p", 1080);
+  const demoted = scoreRelease("weak", "Show 1080p", 1080); // exact res but demoted
+  assert.ok(
+    viable > demoted,
+    `viable 480p (${viable}) must beat demoted 1080p (${demoted})`,
+  );
+});
+
+check("scoreRelease: within viable, exact resolution beats unknown beats mismatch", () => {
+  const exact   = scoreRelease("good", "Show 1080p", 1080);
+  const unknown = scoreRelease("good", "Show HDTV",  1080);
+  const mismatch = scoreRelease("good", "Show 2160p", 1080);
+  assert.ok(exact > unknown,  `exact (${exact}) > unknown (${unknown})`);
+  assert.ok(unknown > mismatch, `unknown (${unknown}) > mismatch (${mismatch})`);
+});
+
+check("scoreRelease: within same resolution tier, good > unknown > weak > dead", () => {
+  const good    = scoreRelease("good",    "Show 1080p", 1080);
+  const unknown = scoreRelease("unknown", "Show 1080p", 1080);
+  const weak    = scoreRelease("weak",    "Show 1080p", 1080);
+  const dead    = scoreRelease("dead",    "Show 1080p", 1080);
+  assert.ok(good > unknown, `good (${good}) > unknown (${unknown})`);
+  assert.ok(unknown > weak, `unknown (${unknown}) > weak (${weak})`);
+  assert.ok(weak > dead,    `weak (${weak}) > dead (${dead})`);
+});
+
+check("scoreRelease: positional — no lower-priority field compensates for a higher one", () => {
+  // A dead release with a perfect resolution should never beat a viable unknown.
+  const deadExact   = scoreRelease("dead",    "Show 1080p", 1080);
+  const viableWrong = scoreRelease("unknown", "Show 2160p", 1080);
+  assert.ok(
+    viableWrong > deadExact,
+    `viable-wrong-res (${viableWrong}) must beat dead-exact-res (${deadExact})`,
+  );
+});
 
 if (failures > 0) process.exit(1);
