@@ -188,6 +188,7 @@ export async function grabSeasonForTitle(
     strategy: planStrategy(result.plan),
     coverageConfirmed: result.coverageConfirmed,
     episodes: episodeReports,
+    planReason: result.plan.reason ?? null,
   };
 
   // Nothing was sent to the client — no release could be taken for any wanted

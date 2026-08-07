@@ -21,6 +21,13 @@ export interface SeasonGrabReport {
    */
   coverageConfirmed: boolean;
   episodes: SeasonGrabEpisodeReport[];
+  /**
+   * Human-readable explanation from the planner, e.g.
+   * "Season 1 pack (measured good) covers the whole season" or
+   * "Assembling 8 episode(s) from individual releases".
+   * Null when the planner did not produce one.
+   */
+  planReason?: string | null;
 }
 
 export type SeasonGrabStatus =
