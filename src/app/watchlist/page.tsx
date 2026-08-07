@@ -1324,6 +1324,8 @@ function LibrarySkeleton({ visible = true }: { visible?: boolean }) {
         !visible && "opacity-0",
       )}
     >
+      {/* Always-present h1 so a11y tools are never left without a page landmark. */}
+      <h1 className="sr-only">Library</h1>
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-2">
           <SkeletonBlock className="h-8 w-28" />

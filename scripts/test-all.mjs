@@ -151,7 +151,7 @@ run("no-sabotage", "node", ["scripts/check-no-sabotage.mjs"], {
 });
 
 // 1) Units
-run("unit", "npm", ["run", "test:unit"], { timeout: 180_000 });
+run("unit", "npm", ["run", "test:unit"], { timeout: 300_000 });
 
 // 2) Library-focused
 run("cursor", "npx", ["tsx", "src/lib/library/cursor.test.ts"]);

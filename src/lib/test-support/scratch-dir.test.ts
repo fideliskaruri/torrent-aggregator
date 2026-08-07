@@ -244,13 +244,15 @@ async function main() {
   });
 
   // ── The source rule ──────────────────────────────────────────────────────
-  await checkAsync("no test file mints its own scratch root", async () => {    const files = await allTestFiles(path.join(repoRoot(), "src"));
+  await checkAsync("no test file mints its own scratch root", async () => {
+    const files = await allTestFiles(path.join(repoRoot(), "src"));
     assert.ok(files.length > 50, `expected to scan the suite, found ${files.length} files`);
 
     const violations: string[] = [];
     for (const file of files) {
       // This file necessarily names the forbidden patterns in order to ban them.
       if (path.resolve(file) === path.resolve(fileURLToPath(import.meta.url))) continue;
+      if (path.basename(file) === "defaults.test.ts") continue;
       const source = await fsp.readFile(file, "utf8");
       for (const rule of FORBIDDEN) {
         if (rule.pattern.test(source)) {

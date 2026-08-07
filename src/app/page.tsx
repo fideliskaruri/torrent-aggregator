@@ -42,6 +42,8 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   return (
     <div className="min-w-0">
+      {/* Ensures a11y tools always find an h1, even before the browse payload lands. */}
+      <h1 className="sr-only">Browse</h1>
       <Suspense fallback={<BrowseSkeleton />}>
         <BrowseContent />
       </Suspense>

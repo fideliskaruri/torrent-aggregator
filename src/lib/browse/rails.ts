@@ -241,7 +241,10 @@ function engineAvailability(
     if (live === "present") return "ready";
     return null;
   }
-  if (t.progress > 0 && t.status !== "error" && live === "present") {
+  if (t.progress > 0 && t.status !== "error" && live !== "absent") {
+    // `present` means the engine is actively serving it.
+    // `unknown` means the engine hasn't finished rehydrating yet — a torrent
+    // that is actively downloading is warm regardless of rehydration state.
     return "warm";
   }
   return null;

@@ -712,6 +712,7 @@ export default function RulesPage() {
               </div>
               <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
                 <Checkbox
+                  aria-label="Enabled"
                   checked={rule.enabled}
                   disabled={!category.supported}
                   onCheckedChange={(checked) =>

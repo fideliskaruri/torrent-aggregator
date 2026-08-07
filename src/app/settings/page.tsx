@@ -170,6 +170,7 @@ export default function SettingsPage() {
   const [hasPassword, setHasPassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadKey, setLoadKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
     null,
@@ -319,7 +320,7 @@ export default function SettingsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadKey]);
 
   const currentPathEntries = useMemo(
     () => [
@@ -633,7 +634,11 @@ export default function SettingsPage() {
         <TfErrorState
           title="Could not load your settings"
           message={`${loadError} — the form stays hidden so saved values cannot be overwritten.`}
-          onRetry={() => window.location.reload()}
+          onRetry={() => {
+            setLoadError(null);
+            setLoading(true);
+            setLoadKey((k) => k + 1);
+          }}
         />
       </div>
     );
@@ -1361,6 +1366,8 @@ function SettingsSkeleton({ visible = true }: { visible?: boolean }) {
         !visible && "opacity-0",
       )}
     >
+      {/* Always-present h1 so a11y tools are never left without a page landmark. */}
+      <h1 className="sr-only">Settings</h1>
       <div className="space-y-2">
         <SkeletonBlock className="h-8 w-32" />
         <SkeletonBlock className="h-4 w-80 max-w-full" />

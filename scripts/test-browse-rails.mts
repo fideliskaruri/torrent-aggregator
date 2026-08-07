@@ -118,6 +118,10 @@ async function seed(): Promise<void> {
       title: "Children.of.Dune.S01.COMPLETE.720p.BluRay.x264-GalaxyTV",
       infoHash: "a".repeat(40),
       status: "sent",
+      // Explicitly "keep" so the `retention: { not: "stream" }` filter in
+      // buildRecentlyAdded includes this row even when the DB adapter treats
+      // NULL as excluded by != comparisons.
+      retention: "keep",
     },
   });
 

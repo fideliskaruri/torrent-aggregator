@@ -112,9 +112,13 @@ try {
     fullPage: true,
   });
 
-  const planned = page.getByRole("button", { name: /^Planned/i }).first();
-  if (await planned.count()) {
-    await planned.click();
+  // The library once had status-chip filters (All / Planned / Watching / …).
+  // They were replaced by media-type tabs (All / Movies / Series / Anime).
+  // Test the current tabs: clicking "Movies" should keep only Dune Part Two
+  // and hide Severance (a series) — same assertion goal, current UI.
+  const moviesTab = page.getByRole("tab", { name: /^Movies/i }).first();
+  if (await moviesTab.count()) {
+    await moviesTab.click();
     await page.waitForTimeout(600);
     const filtered = await page.locator("body").innerText();
     check(filtered.includes("Dune Part Two"), "filtering keeps the matching row");

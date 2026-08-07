@@ -58,7 +58,7 @@ export function TitleResultCard({
           {featured ? (
             <span className="badge badge-accent">Best match</span>
           ) : null}
-          <h3
+          <h2
             className={cn(
               "font-medium leading-snug text-[var(--text)]",
               featured
@@ -80,7 +80,7 @@ export function TitleResultCard({
                 </span>
               </>
             ) : null}
-          </h3>
+          </h2>
           <div className="flex flex-wrap items-center gap-1.5">
             {typeLabel ? (
               <span className="badge text-[11px] text-[var(--text-tertiary)]">{typeLabel}</span>

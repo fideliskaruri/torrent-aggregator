@@ -45,8 +45,10 @@ const CASES = [
   {
     name: "history",
     route: "/history",
-    api: "**/api/history*",
-    emptyText: "No downloads",
+    // /history renders NotificationsView with sentOnly=true, which calls
+    // /api/activity?filter=sent — NOT a /api/history route.
+    api: "**/api/activity*",
+    emptyText: "No sent downloads yet",
   },
   {
     // The library is the page where a wrong empty state is most expensive: it

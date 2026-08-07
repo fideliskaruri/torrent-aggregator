@@ -176,12 +176,20 @@ export function rankResults(
 function sameRankBeforeEpisode(a: ReleaseRank, b: ReleaseRank): boolean {
   const aBad = Number(a.junk) + Number(a.implausible);
   const bBad = Number(b.junk) + Number(b.implausible);
+  // All fields that `encodeScore` encodes ahead of episode order must match,
+  // otherwise the episode-preference override would produce a `results[]` order
+  // that disagrees with the `score` field — breaking the monotonicity
+  // contract the search API exposes. Seeders are capped at 9 in the score
+  // encoding, so we compare the same capped value here.
   return (
     a.categoryMatch === b.categoryMatch &&
     a.relevance === b.relevance &&
     aBad === bBad &&
     a.viable === b.viable &&
-    a.affinity === b.affinity
+    a.affinity === b.affinity &&
+    a.languagePreference === b.languagePreference &&
+    directPlayableRank(a.directPlayable) === directPlayableRank(b.directPlayable) &&
+    Math.min(a.seeders, 9) === Math.min(b.seeders, 9)
   );
 }
 
