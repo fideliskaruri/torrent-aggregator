@@ -27,7 +27,6 @@ const EYEBROW_BY_RAIL: Record<string, string> = {
   "ready-to-play": "Ready to play",
   "next-up": "Next up",
   "my-library": "From your library",
-  "recently-added": "Recently added",
 };
 
 /**

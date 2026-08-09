@@ -13,6 +13,7 @@
  * we cannot make that claim. The UI renders a neutral affordance for `unknown`.
  */
 import prisma from "@/lib/prisma";
+import { armIntervalOnce } from "@/lib/observability/arm-interval-once";
 import { isViable } from "@/lib/torrents/quality";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { normalizeTitle } from "@/lib/utils";
@@ -26,6 +27,7 @@ import {
   type LocalFilePresence,
 } from "@/lib/library/local-file-presence";
 import type { SearchResponse } from "@/lib/torrents/types";
+import { persistedTorrentIsDownloaded } from "@/lib/clients/builtin-engine-lifecycle";
 import type { Availability } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -73,10 +75,18 @@ function pruneCache(): void {
   }
 }
 
-// Prune every 60s (only while the process is alive)
-if (typeof setInterval !== "undefined") {
-  setInterval(pruneCache, 60_000).unref?.();
-}
+// Prune every 60s (only while the process is alive).
+//
+// Armed through the shared once-per-process guard: Next re-evaluates this
+// module on every dev HMR pass and once per route bundle, and an unguarded
+// `setInterval` at module scope therefore stacked a new 60s sweep each time,
+// each pinning a discarded copy of `memoryCache` alive. See
+// `armIntervalOnce` for the full reasoning.
+export const AVAILABILITY_SWEEP_KEY = Symbol.for(
+  "torrentflow.browse.availability.sweep",
+);
+
+armIntervalOnce(AVAILABILITY_SWEEP_KEY, 60_000, pruneCache);
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -100,19 +110,25 @@ export async function resolveAvailability(
   userId: string,
   query: AvailabilityQuery,
 ): Promise<Availability> {
-  const cacheKey = availCacheKey(userId, query);
-  const cached = getCached(cacheKey);
-  if (cached) return cached;
-
   const torrents = await prisma.engineTorrent.findMany({
     where: { userId },
     select: TORRENT_SELECT,
   });
-
-  const result = await computeAvailabilityWithTorrents(
-    userId,
+  const local = resolveLocalOnly(
     query,
     torrents,
+    readyPresenceForUser(userId),
+    localFilePresenceLookup(torrents),
+  );
+  if (local !== null) return local;
+
+  const cacheKey = availCacheKey(userId, query);
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const result = resolveFromSearchCache(
+    query,
+    await getSingleSearchByTitle(query.title),
   );
   setCached(cacheKey, result);
   return result;
@@ -140,10 +156,14 @@ export async function resolveAvailabilityBatch(
 
   // Resolve local state first; collect queries that need the search cache
   const localResults: (Availability | null)[] = queries.map((q) => {
-    const cacheKey = availCacheKey(userId, q);
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-    return resolveLocalOnly(q, allTorrents, readyPresenceForUser(userId), filePresence);
+    const local = resolveLocalOnly(
+      q,
+      allTorrents,
+      readyPresenceForUser(userId),
+      filePresence,
+    );
+    if (local !== null) return local;
+    return getCached(availCacheKey(userId, q));
   });
 
   // Identify which queries still need the search-cache check (got null above,
@@ -237,6 +257,7 @@ interface TorrentRow {
   /** Presence evidence — see `library/local-file-presence.ts`. */
   savePath?: string | null;
   verifiedFilesJson?: string | null;
+  verifiedBitfield?: string | null;
 }
 
 type ReadyTorrentPresence = BuiltinTorrentPresence;
@@ -251,6 +272,7 @@ const TORRENT_SELECT = {
   status: true,
   savePath: true,
   verifiedFilesJson: true,
+  verifiedBitfield: true,
 } as const;
 
 function readyPresenceForUser(userId: string): ReadyPresenceLookup {
@@ -311,7 +333,7 @@ function torrentMatchesQuery(
  * search cache answer honestly instead of offering a Resume that cannot work.
  * `unknown` presence is left alone — see `library/local-file-presence.ts`.
  */
-function resolveLocalOnly(
+export function resolveLocalOnly(
   query: AvailabilityQuery,
   torrents: TorrentRow[],
   readyPresence: ReadyPresenceLookup,
@@ -322,11 +344,15 @@ function resolveLocalOnly(
   );
 
   const readyCandidates = matching.filter(
-    (t) => t.progress === 1 && t.status !== "removed",
+    (t) => persistedTorrentIsDownloaded(t) && t.status !== "removed",
   );
   let sawUnknownReady = false;
   let sawAbsentReady = false;
   for (const ready of readyCandidates) {
+    const diskPresence = filePresence(ready.hash);
+    if (diskPresence === "present") {
+      return { state: "ready", infoHash: ready.hash };
+    }
     const presence = readyPresence(ready.hash);
     if (presence === "present") {
       return { state: "ready", infoHash: ready.hash };
@@ -359,37 +385,13 @@ function resolveLocalOnly(
     sawAbsentReady ||
     sawAbsentWarm
   ) {
-    // A DB row is only playable while the live engine owns its hash. During
-    // rehydrate, or once rehydrate proves it absent, the honest result is "not
-    // checked". Returning an Availability (rather than `null`) also prevents
-    // the full resolver from replacing this local uncertainty with an unrelated
-    // stale indexer-cache claim.
+    // Partial content still needs a live engine. A completed row with a
+    // verified file manifest was returned as ready above and never reaches this
+    // fallback.
     return { state: null };
   }
 
   return null;
-}
-
-/**
- * Full availability with search cache. Called for the single-resolve path and
- * for batch items that had no local torrent.
- */
-async function computeAvailabilityWithTorrents(
-  userId: string,
-  query: AvailabilityQuery,
-  torrents: TorrentRow[],
-): Promise<Availability> {
-  const local = resolveLocalOnly(
-    query,
-    torrents,
-    readyPresenceForUser(userId),
-    localFilePresenceLookup(torrents),
-  );
-  if (local !== null) return resolveWithSearchCache(query, local, null);
-
-  // No local torrent — check the search cache
-  const cached = await getSingleSearchByTitle(query.title);
-  return resolveWithSearchCache(query, null, cached);
 }
 
 /**

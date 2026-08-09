@@ -780,7 +780,7 @@ export default function SettingsPage() {
                 htmlFor="preferred-quality"
                 className="text-xs font-medium text-[var(--text-secondary)]"
               >
-                Preferred quality
+                Minimum download quality
               </label>
               <select
                 id="preferred-quality"

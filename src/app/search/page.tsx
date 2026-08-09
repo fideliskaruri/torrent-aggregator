@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { openSearchOverlay } from "@/components/search/search-overlay";
 import { searchUrlFor } from "@/components/search/search-overlay-state";
 import { Search } from "lucide-react";
-import { parseWorkSearchCategory } from "@/lib/search/work-search";
+import { parseWorkSearchScope } from "@/lib/search/work-search";
 
 /**
  * `/search` is the durable home of the search palette.
@@ -24,7 +24,7 @@ export default function SearchRedirect() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const q = params.get("q")?.trim() ?? "";
-    const category = parseWorkSearchCategory(params.get("category"));
+    const category = parseWorkSearchScope(params.get("category"));
     window.history.replaceState(null, "", searchUrlFor(q, category));
     const timer = window.setTimeout(
       () => openSearchOverlay(q, { preserveUrl: true, category }),
@@ -35,26 +35,22 @@ export default function SearchRedirect() {
 
   return (
     <div className="container-app max-w-2xl py-10 sm:py-14">
-      <div className="surface flex flex-col items-start gap-3 p-5 sm:p-6">
-        <div>
-          <h1 className="text-lg font-semibold text-[var(--text)]">Search</h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            Find movies, series, and anime by title.
-          </p>
-        </div>
+      <h1 className="sr-only">Search</h1>
+      <div className="flex flex-col items-center gap-2 py-16 text-center text-[var(--text-secondary)]">
+        <Search className="h-6 w-6 opacity-60" aria-hidden />
+        <p className="text-sm">Search is open. Start typing to find anything.</p>
         <button
           type="button"
-          className="btn btn-primary btn-lg"
+          className="btn btn-ghost btn-sm"
           onClick={() => {
             const params = new URLSearchParams(window.location.search);
             openSearchOverlay(params.get("q")?.trim() ?? "", {
               preserveUrl: true,
-              category: parseWorkSearchCategory(params.get("category")),
+              category: parseWorkSearchScope(params.get("category")),
             });
           }}
         >
-          <Search className="h-4 w-4" aria-hidden />
-          Open search
+          Reopen search
         </button>
       </div>
     </div>

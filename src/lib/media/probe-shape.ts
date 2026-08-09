@@ -26,6 +26,11 @@ export type ProbeStream = {
 export type ProbeResult = {
   container: string;
   duration: number | null;
+  /**
+   * Container-level bitrate in bits per second (ffprobe `format.bit_rate`), or
+   * null when the container does not report one. Never derived or guessed.
+   */
+  bitRate?: number | null;
   streams: ProbeStream[];
 };
 
@@ -40,9 +45,18 @@ type FfprobeJson = {
   format?: {
     format_name?: string;
     duration?: string;
+    bit_rate?: string;
   };
   streams?: Array<Record<string, unknown>>;
 };
+
+/** Parse an ffprobe bit_rate field (string or number) into positive bits/sec, else null. */
+export function parseBitrateBps(raw: unknown): number | null {
+  const value =
+    typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
 
 /** Parse raw ffprobe JSON output into our ProbeResult. */
 export function parseProbeOutput(stdout: string): ProbeOutcome {
@@ -77,11 +91,32 @@ export function parseProbeOutput(stdout: string): ProbeOutcome {
     language: extractTag(s, "language"),
     title: extractTag(s, "title"),
     dispositionDefault: extractDefaultDisposition(s),
-    bitRate: typeof s.bit_rate === "string" ? parseInt(s.bit_rate, 10) || null : null,
+    bitRate: parseBitrateBps(s.bit_rate),
     sampleRate: typeof s.sample_rate === "string" ? parseInt(s.sample_rate, 10) || null : null,
   }));
 
-  return { ok: true, result: { container, duration: Number.isFinite(duration) ? duration : null, streams } };
+  return {
+    ok: true,
+    result: {
+      container,
+      duration: Number.isFinite(duration) ? duration : null,
+      bitRate: parseBitrateBps(data.format?.bit_rate),
+      streams,
+    },
+  };
+}
+
+/**
+ * Real playback bitrate for this file, in bits per second, or null.
+ *
+ * Prefers the video stream's own bit_rate (what the decoder actually pulls) and
+ * falls back to the container-level rate. Both come from ffprobe; nothing is
+ * estimated, so `null` genuinely means "unknown" and callers fall back to their
+ * own heuristics rather than sizing against a made-up number.
+ */
+export function probeBitrateBps(probe: ProbeResult): number | null {
+  const video = probe.streams.find((s) => s.codecType === "video");
+  return parseBitrateBps(video?.bitRate) ?? parseBitrateBps(probe.bitRate);
 }
 
 function extractTag(stream: Record<string, unknown>, key: string): string | null {

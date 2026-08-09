@@ -26,11 +26,16 @@ import { grabSingleEpisode } from "@/lib/library/ondemand";
 import { checkSendStorage } from "@/lib/library/storage-gate";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
+import { searchAniList } from "@/lib/metadata/anilist";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { matchesTargetEpisode } from "@/lib/torrents/pack-preference";
 import { rankResults } from "@/lib/torrents/ranking";
+import {
+  meetsResolutionFloor,
+  normalizeResolutionFloor,
+} from "@/lib/torrents/quality";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
 import { acquireSeason } from "@/lib/library/season-acquire";
@@ -39,6 +44,7 @@ import type { SeasonPlan } from "@/lib/torrents/season-plan";
 import type {
   TitleGrabRequest,
   TitleGrabResponse,
+  TitleSeasonEpisodeTransfer,
   TitleSeasonGrabResponse,
 } from "@/components/title/types";
 import type {
@@ -46,13 +52,23 @@ import type {
   SeasonGrabReport,
 } from "@/components/title/season-grab-state";
 import prisma from "@/lib/prisma";
+import { normalizeTitle } from "@/lib/utils";
+import type { MediaMetadata } from "@/lib/torrents/types";
 
 export interface TitleGrabInput extends TitleGrabRequest {
   userId: string;
   workKey: string;
   /** Resolved server-side; the client is never trusted for identity. */
   resolvedTitle: string;
+  resolvedYear: number | null;
   resolvedMediaType: string | null;
+  /**
+   * Verified provider aliases (AniList romaji/native, etc.), resolved
+   * server-side alongside the title. Threaded into the episode grab so anime is
+   * acquirable under the name indexers carry, not only its English label
+   * (BUG-010). Empty for works without aliases.
+   */
+  resolvedAliases: readonly string[];
   isSeries: boolean;
   watchListItemId: string | null;
 }
@@ -67,15 +83,17 @@ export async function grabForTitle(
     const reused = await reuseStreamingEpisode(input, { season, episode });
     if (reused) return reused;
 
+    const searchIdentity = await resolveEpisodeSearchIdentity(input);
     const request: Parameters<typeof grabSingleEpisode>[0] = {
       userId: input.userId,
       showTitle: input.resolvedTitle,
       // A row we are hunting episode-by-episode is a series by construction;
       // this states that default in the open rather than hiding it in the
       // shared media-type module (see the comment there).
-      mediaType: input.resolvedMediaType ?? "tv",
+      mediaType: searchIdentity.mediaType,
       season,
       episode,
+      aliases: searchIdentity.aliases,
       watchListItemId: input.watchListItemId,
       retention: input.retention ?? "keep",
       overrideStorageCap: input.overrideStorageCap === true,
@@ -93,6 +111,92 @@ export async function grabForTitle(
   }
 
   return grabWholeWork(input);
+}
+
+type AnimeLookup = (
+  query: string,
+  limit?: number,
+) => Promise<MediaMetadata[]>;
+
+/**
+ * Recover AniList aliases when a TMDB-backed title page describes anime as TV.
+ *
+ * The English title and year must agree exactly before an AniList result may
+ * influence acquisition. This prevents same-name catalog collisions while
+ * allowing indexer names such as "Tensei Shitara Slime Datta Ken" to enter the
+ * exact-episode ladder.
+ */
+export async function resolveEpisodeSearchIdentity(
+  input: Pick<
+    TitleGrabInput,
+    | "resolvedTitle"
+    | "resolvedYear"
+    | "resolvedMediaType"
+    | "resolvedAliases"
+  >,
+  lookup: AnimeLookup = searchAniList,
+): Promise<{ mediaType: string; aliases: string[] }> {
+  const existing = uniqueNames(input.resolvedAliases, input.resolvedTitle);
+  if (existing.length > 0 || input.resolvedMediaType === "anime") {
+    return {
+      mediaType: input.resolvedMediaType ?? "tv",
+      aliases: existing,
+    };
+  }
+
+  let matches: MediaMetadata[];
+  try {
+    matches = await lookup(input.resolvedTitle, 5);
+  } catch {
+    return {
+      mediaType: input.resolvedMediaType ?? "tv",
+      aliases: existing,
+    };
+  }
+
+  const wantedTitle = normalizeTitle(input.resolvedTitle);
+  const anime = matches.find((candidate) => {
+    if (candidate.mediaType !== "anime") return false;
+    if (
+      input.resolvedYear != null &&
+      candidate.year != null &&
+      candidate.year !== input.resolvedYear
+    ) {
+      return false;
+    }
+    return [candidate.title, ...(candidate.aliases ?? [])].some(
+      (name) => normalizeTitle(name) === wantedTitle,
+    );
+  });
+  if (!anime) {
+    return {
+      mediaType: input.resolvedMediaType ?? "tv",
+      aliases: existing,
+    };
+  }
+
+  return {
+    mediaType: "anime",
+    aliases: uniqueNames(
+      [anime.title, ...(anime.aliases ?? [])],
+      input.resolvedTitle,
+    ),
+  };
+}
+
+function uniqueNames(
+  names: readonly string[],
+  canonicalTitle: string,
+): string[] {
+  const canonical = normalizeTitle(canonicalTitle);
+  const seen = new Set<string>();
+  return names.flatMap((name) => {
+    const trimmed = name.trim();
+    const normalized = normalizeTitle(trimmed);
+    if (!trimmed || normalized === canonical || seen.has(normalized)) return [];
+    seen.add(normalized);
+    return [trimmed];
+  });
 }
 
 export interface TitleSeasonGrabInput extends TitleGrabInput {
@@ -128,6 +232,7 @@ export async function grabSeasonForTitle(
     return {
       ok: false,
       message: "No known episodes to plan for this season",
+      episodeTransfers: [],
     };
   }
 
@@ -150,9 +255,12 @@ export async function grabSeasonForTitle(
   } catch (err) {
     // A failed plan is an error, not an empty season. Saying "no episodes
     // found" here would be the same lie the episode list used to tell.
+    const message =
+      err instanceof Error ? err.message : "Could not plan this season";
     return {
       ok: false,
-      message: err instanceof Error ? err.message : "Could not plan this season",
+      message,
+      episodeTransfers: failedEpisodeTransfers(episodes, message),
     };
   }
 
@@ -190,6 +298,13 @@ export async function grabSeasonForTitle(
     episodes: episodeReports,
     planReason: result.plan.reason ?? null,
   };
+  const episodeTransfers = exactSeasonEpisodeTransfers(
+    episodes,
+    result.items,
+    failureByEpisode,
+    packFailure,
+    result.storage?.message ?? null,
+  );
 
   // Nothing was sent to the client — no release could be taken for any wanted
   // episode. Reporting ok:true here (with "0 of N episodes") is the false
@@ -206,12 +321,14 @@ export async function grabSeasonForTitle(
         message: result.storage.message,
         report,
         storage: result.storage,
+        episodeTransfers,
       };
     }
     return {
       ok: false,
       message: "No release found for this season yet — try again shortly.",
       report,
+      episodeTransfers,
     };
   }
 
@@ -219,7 +336,69 @@ export async function grabSeasonForTitle(
     ok: true,
     message: result.coverageLabel,
     report,
+    episodeTransfers,
   };
+}
+
+export function exactSeasonEpisodeTransfers(
+  episodes: readonly number[],
+  items: readonly {
+    kind: "pack" | "single";
+    episode?: number;
+    status: "sent" | "failed" | "skipped" | "already_active";
+    message: string;
+    infoHash: string | null;
+  }[],
+  failureByEpisode: ReadonlyMap<number, string>,
+  packFailure: string | null,
+  storageMessage: string | null,
+): TitleSeasonEpisodeTransfer[] {
+  const singles = new Map<number, (typeof items)[number]>();
+  for (const item of items) {
+    if (item.kind === "single" && item.episode != null) {
+      singles.set(item.episode, item);
+    }
+  }
+
+  return episodes.map((episode) => {
+    const item = singles.get(episode);
+    if (
+      item &&
+      (item.status === "sent" || item.status === "already_active") &&
+      item.infoHash
+    ) {
+      return {
+        episode,
+        status: "downloading",
+        infoHash: item.infoHash,
+        error: null,
+      };
+    }
+    const error =
+      failureByEpisode.get(episode) ??
+      item?.message ??
+      packFailure ??
+      storageMessage ??
+      "No exact episode release was found.";
+    return {
+      episode,
+      status: "failed",
+      infoHash: null,
+      error,
+    };
+  });
+}
+
+function failedEpisodeTransfers(
+  episodes: readonly number[],
+  error: string,
+): TitleSeasonEpisodeTransfer[] {
+  return episodes.map((episode) => ({
+    episode,
+    status: "failed",
+    infoHash: null,
+    error,
+  }));
 }
 
 /** Read the strategy off the plan itself, rather than guessing from counts. */
@@ -259,6 +438,11 @@ async function grabWholeWork(
     return { ok: false, message: "No client configured" };
   }
 
+  const minimumResolution =
+    (input.retention ?? "keep") === "keep"
+      ? normalizeResolutionFloor(input.preferredResolution)
+      : null;
+
   const result = await runGrabPipeline({
     userId: input.userId,
     search: {
@@ -275,11 +459,12 @@ async function grabWholeWork(
     grabJobKind: "ondemand",
     externalId: input.watchListItemId,
     purpose: sendRetentionToPurpose(input.retention, input.watchListItemId),
+    minimumResolution,
     downloadHistoryPrefix: "Title page",
     noMatchMessage: (count) =>
       count
-        ? `No release for ${title} in ${count} results`
-        : `No seeded torrent for ${title}`,
+        ? `No ${minimumResolution ? `${minimumResolution}p-or-higher ` : ""}release for ${title} in ${count} results`
+        : `No seeded ${minimumResolution ? `${minimumResolution}p-or-higher ` : ""}torrent for ${title}`,
 
     selectCandidate(results) {
       return selectWorkCandidate(
@@ -289,6 +474,7 @@ async function grabWholeWork(
         input.preferredResolution,
         title,
         searchCategory,
+        minimumResolution,
       );
     },
 
@@ -377,6 +563,7 @@ export function selectWorkCandidate(
   preferredResolution?: number | null,
   query = workKey,
   category: string | null | undefined = "all",
+  minimumResolution: number | null | undefined = preferredResolution,
 ): TorrentResult | null {
   const ordered =
     preferredResolution == null
@@ -387,7 +574,12 @@ export function selectWorkCandidate(
           preferredResolution,
           category,
         );
-  const usable = ordered.filter((r) => r.magnet && (r.seeders ?? 0) > 0);
+  const usable = ordered.filter(
+    (r) =>
+      r.magnet &&
+      (r.seeders ?? 0) > 0 &&
+      meetsResolutionFloor(r.title, minimumResolution),
+  );
 
   const mine = usable.filter((r) => {
     const identity = workIdentityFor(r.title, r.metadata ?? null);
@@ -423,7 +615,12 @@ export interface ReusableLocalEpisode {
  */
 export function selectReusableLocalEpisode<T extends ReusableLocalEpisode>(
   rows: readonly T[],
-  target: { season: number; episode: number; workKey?: string | null },
+  target: {
+    season: number;
+    episode: number;
+    workKey?: string | null;
+    minimumResolution?: number | null;
+  },
   isLive: (hash: string) => boolean = () => true,
 ): T | null {
   for (const row of rows) {
@@ -440,6 +637,7 @@ export function selectReusableLocalEpisode<T extends ReusableLocalEpisode>(
       const identity = workIdentityFor(row.name, null);
       if (!workKeyMatches(target.workKey, identity.name, identity.year)) continue;
     }
+    if (!meetsResolutionFloor(row.name, target.minimumResolution)) continue;
     return row;
   }
   return null;
@@ -464,7 +662,11 @@ async function reuseStreamingEpisode(
     });
     const local = selectReusableLocalEpisode(
       rows,
-      { ...target, workKey: input.workKey },
+      {
+        ...target,
+        workKey: input.workKey,
+        minimumResolution: input.preferredResolution,
+      },
       (hash) => findLiveBuiltinTorrent(hash) !== null,
     );
     const hash = normalizeInfoHash(local?.hash);

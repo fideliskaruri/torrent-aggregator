@@ -345,6 +345,31 @@ async function main() {
     assert.equal(noReason, "no_results");
   });
 
+  await checkAsync("sub-floor candidate is classified separately and never sent", async () => {
+    let noReason: string | undefined;
+    let sendCalled = false;
+    const r = await runGrabPipeline(
+      baseOpts({
+        minimumResolution: 1080,
+        _searchFn: async () =>
+          fakeSearchResponse([
+            fakeResult({ title: "Family Guy S09E01 720p WEB-DL" }),
+          ]),
+        _sendFn: async () => {
+          sendCalled = true;
+          return { ok: true, message: "should not send" };
+        },
+        onNoCandidate: async (reason) => {
+          noReason = reason;
+        },
+      }),
+    );
+    assert.equal(r.status, "skipped");
+    assert.equal(noReason, "below_resolution_floor");
+    assert.equal(sendCalled, false);
+    assert.match(r.message, /1080p minimum quality/);
+  });
+
   // ── 3. 0-seeder inside 6h window (deferred, NOT a miss) ────────────────
 
   await checkAsync("0-seeder within grace window → deferred, not a miss", async () => {

@@ -8,6 +8,10 @@ import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { selectSeriesCandidateWithPackPreference, matchesTargetEpisode } from "@/lib/torrents/pack-preference";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { rankResults } from "@/lib/torrents/ranking";
+import {
+  meetsResolutionFloor,
+  normalizeResolutionFloor,
+} from "@/lib/torrents/quality";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import type { ClientConnectionConfig } from "@/lib/clients";
 import {
@@ -23,6 +27,7 @@ import {
   getUserClientConfig,
 } from "@/lib/clients";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
+import { searchTitleVariants } from "@/lib/search/query-variants";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import {
   searchCategoryForMediaType,
@@ -35,6 +40,11 @@ import type {
   TxClient,
 } from "@/lib/grab/types";
 import { applySendRetention, sendRetentionToPurpose, type SendRetention } from "@/lib/streaming/send-retention";
+import {
+  workIdentityFor,
+  workKeyFor,
+  workKeyMatches,
+} from "@/components/title/work-key";
 
 export type OnDemandResult = {
   ok: boolean;
@@ -244,52 +254,11 @@ function candidateKey(r: TorrentResult): string {
  * use. Live proof (Re:ZERO): the full TMDB name → 0 hits; "Re Zero S01E01" on
  * anime → seeded Nyaa results.
  *
- * Exported for unit tests — keep the rule class here, not re-derived in tests.
+ * The rule now lives in `@/lib/search/query-variants` so discovery search and
+ * the grab ladder share ONE normalizer. Re-exported here for the ladder's own
+ * callers and existing imports.
  */
-export function searchTitleVariants(title: string): string[] {
-  const raw = title.trim();
-  if (!raw) return [];
-  const out: string[] = [];
-  const add = (value: string) => {
-    const v = value.replace(/\s+/g, " ").trim();
-    if (v.length < 2) return;
-    if (out.some((x) => x.toLowerCase() === v.toLowerCase())) return;
-    out.push(v);
-  };
-
-  add(raw);
-  // Drop parenthetical years: "Show (2016)" → "Show"
-  const noYear = raw
-    .replace(/\(\s*(?:19|20)\d{2}\s*\)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  add(noYear);
-
-  // Head before a dash subtitle. TMDB often writes "-Starting" with NO space
-  // after the dash (`Re:ZERO -Starting Life in Another World-`), so require
-  // whitespace only *before* the dash; trailing spaces are optional.
-  const dashHead = (noYear.split(/\s+[-–—]\s*/)[0] ?? noYear)
-    .replace(/[-–—]+$/g, "")
-    .trim();
-  add(dashHead);
-
-  // Prefer short cleaned heads — these are what Nyaa ranks ("Re Zero", "ReZero").
-  for (const base of [dashHead, noYear]) {
-    add(base.replace(/:/g, " "));
-    add(base.replace(/:/g, ""));
-    const alnum = base
-      .replace(/[:._]/g, " ")
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    add(alnum);
-    // Compact token users type into search: "rezero"
-    add(alnum.replace(/\s+/g, ""));
-  }
-
-  // Cap — ladder budget is finite; formal + short aliases is enough.
-  return out.slice(0, 6);
-}
+export { searchTitleVariants };
 
 /** "Show 1x02" — the other common single-episode naming indexers use. */
 function altEpisodeQuery(title: string, season: number, episode: number): string {
@@ -371,6 +340,7 @@ function buildEpisodeRungs(
   season: number,
   episode: number,
   mediaType: string,
+  extraTitles: readonly string[] = [],
 ): EpisodeRung[] {
   const target = { season, episode };
   const packPreferred = (results: TorrentResult[], attempted: Set<string>) =>
@@ -386,9 +356,24 @@ function buildEpisodeRungs(
 
   const titles = searchTitleVariants(title);
   const primaryTitle = titles[0] ?? title.trim();
-  const aliases = rankAliases(
-    titles.filter((t) => t.toLowerCase() !== primaryTitle.toLowerCase()),
-  );
+  // Real provider aliases (AniList romaji/native — "Tensei Shitara Slime Datta
+  // Ken" for the English "That Time I Got Reincarnated as a Slime") are
+  // genuinely different names that no punctuation-normalization of the English
+  // title can ever reach, so without injecting them here an anime episode grab
+  // searches only a name indexers never carry and finds nothing despite hundreds
+  // of seeded releases (BUG-010). Their variants join the alias pool below the
+  // canonical title. Empty by default → ordinary TV ladders are unchanged.
+  const seenAlias = new Set<string>([primaryTitle.toLowerCase()]);
+  const injectedAliases = extraTitles
+    .flatMap((t) => searchTitleVariants(t))
+    .filter((t) => {
+      const k = t.toLowerCase();
+      return seenAlias.has(k) ? false : (seenAlias.add(k), true);
+    });
+  const aliases = rankAliases([
+    ...titles.filter((t) => t.toLowerCase() !== primaryTitle.toLowerCase()),
+    ...injectedAliases,
+  ]);
 
   // A *rescue* alias is one that changes the name, not just its punctuation:
   // "Re ZERO" for "Re:ZERO -Starting Life in Another World-". "FamilyGuy" for
@@ -498,13 +483,31 @@ export function rankAliases(aliases: string[]): string[] {
   return [...aliases].sort((a, b) => cost(a) - cost(b));
 }
 
+export function episodeReleaseMatchesWork(
+  release: TorrentResult,
+  titles: readonly string[],
+): boolean {
+  const identity = workIdentityFor(release.title, release.metadata ?? null);
+  return titles.some((title) => {
+    const key = workKeyFor(title, null);
+    return Boolean(key) && workKeyMatches(key, identity.name, identity.year);
+  });
+}
+
 export async function grabSingleEpisode(opts: {
   userId: string;
   showTitle: string;
   mediaType: string;
   season: number;
   episode: number;
-  /** Preferred output height. Used for affinity ordering, never as a filter. */
+  /**
+   * Genuinely-different provider names for this work (AniList romaji/native and
+   * other verified aliases). Fed into the fallback ladder so anime — whose
+   * English catalog title indexers rarely carry — is searched under the name
+   * fansubs actually use (BUG-010). Optional; ordinary TV passes none.
+   */
+  aliases?: readonly string[];
+  /** Minimum output height for kept downloads. */
   preferredResolution?: number | null;
   /** Optional library item id for GrabJob externalId + hunt-cursor advance */
   watchListItemId?: string | null;
@@ -543,6 +546,10 @@ export async function grabSingleEpisode(opts: {
   }
 
   const label = formatEpisodeLabel(season, episode);
+  const minimumResolution =
+    (opts.retention ?? "keep") === "keep"
+      ? normalizeResolutionFloor(opts.preferredResolution)
+      : null;
   const searchFn = opts._searchFn ?? searchTorrents;
   const db = opts._prisma ?? prisma;
   const rungs = buildEpisodeRungs(
@@ -550,7 +557,12 @@ export async function grabSingleEpisode(opts: {
     season,
     episode,
     opts.mediaType,
+    opts.aliases ?? [],
   );
+  const acceptedWorkTitles = [
+    opts.showTitle,
+    ...(opts.aliases ?? []),
+  ].flatMap((title) => searchTitleVariants(title));
 
   let cursorAdvance: Awaited<
     ReturnType<typeof advanceLibraryItemIfHuntMatch>
@@ -589,13 +601,22 @@ export async function grabSingleEpisode(opts: {
     if (!searchPromise) continue;
     if (rung.kind === "pack") triedPacks = true;
     const rawSearchResp = await searchPromise;
+    const workEligibleResults = rawSearchResp.results.filter((result) =>
+      episodeReleaseMatchesWork(result, acceptedWorkTitles),
+    );
+    const floorEligibleResults =
+      minimumResolution == null
+        ? workEligibleResults
+        : workEligibleResults.filter((result) =>
+            meetsResolutionFloor(result.title, minimumResolution),
+          );
     const searchResp =
       opts.preferredResolution == null
-        ? rawSearchResp
+        ? { ...rawSearchResp, results: floorEligibleResults }
         : {
             ...rawSearchResp,
             results: rankResults(
-              [...rawSearchResp.results],
+              [...floorEligibleResults],
               rung.query,
               opts.preferredResolution,
               rung.category,
@@ -629,6 +650,7 @@ export async function grabSingleEpisode(opts: {
         grabJobKind: "ondemand",
         externalId: opts.watchListItemId ?? null,
         purpose: sendRetentionToPurpose(opts.retention, opts.watchListItemId),
+        minimumResolution,
         downloadHistoryPrefix: `On-demand ${label}`,
         // `checkStorageBudget` below honours the override, but the engine runs
         // its own storage check when the payload reaches it. Both have to know,
@@ -779,9 +801,10 @@ export async function grabSingleEpisode(opts: {
   // honest skip row — not one per rung. Do NOT push the user to "search
   // manually": the title page already *is* the search, and a dead CTA that
   // opens the same indexer path is noise (user report on Re:ZERO S01E01).
-  const message = `Couldn't find a working release for ${label} after ${searches} search${
+  const quality = minimumResolution == null ? "" : ` at ${minimumResolution}p or higher`;
+  const message = `Couldn't find a working release for ${label}${quality} after ${searches} search${
     searches === 1 ? "" : "es"
-  }${triedPacks ? " (including season packs)" : ""}. Try again in a bit — more seeders may show up.`;
+  }${triedPacks ? " (including season packs)" : ""}. Try again in a bit — another eligible release may show up.`;
   await db.grabJob.create({
     data: {
       userId: opts.userId,

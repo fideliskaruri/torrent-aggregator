@@ -169,7 +169,7 @@ function isVideoSupportedInFmp4(
 // ── Audio codec support checks ──
 
 /** Audio codecs known to be browser-safe in fMP4. */
-const BROWSER_AUDIO_CODECS = new Set(["aac", "opus", "flac", "mp3", "vorbis"]);
+const BROWSER_AUDIO_CODECS = new Set(["aac", "opus", "flac", "vorbis"]);
 
 /** Audio codecs that need transcoding (no browser decodes these). */
 const UNSUPPORTED_AUDIO_CODECS = new Set(["dts", "truehd", "pcm", "mp2"]);

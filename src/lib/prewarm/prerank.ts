@@ -172,6 +172,7 @@ export function searchPayloadFor(options: PipelineSearchOptions) {
     enrich: options.enrich,
     skipCache: options.skipCache,
     background: options.background,
+    targetResolution: options.targetResolution,
     filters: {
       hasMagnet: options.filters.hasMagnet,
       minSeeders: options.filters.minSeeders,

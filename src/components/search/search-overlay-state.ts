@@ -16,7 +16,7 @@ import {
   getScope,
   type SearchScope,
 } from "@/lib/torrents/search-scopes";
-import type { WorkSearchCategory } from "@/lib/search/work-search";
+import type { WorkSearchScope } from "@/lib/search/work-search";
 
 /** The minimum query length worth sending. */
 export const MIN_QUERY_LENGTH = 2;
@@ -30,7 +30,7 @@ export interface SearchRequest {
 /** A durable URL for an open search palette. */
 export function searchUrlFor(
   query: string,
-  category: WorkSearchCategory = "movies",
+  category: WorkSearchScope = "all",
 ): string {
   const q = query.trim();
   const params = new URLSearchParams({ category });
@@ -46,7 +46,7 @@ export function searchUrlFor(
  * query spends it on results nobody can use.
  */
 export function searchRequestFor(
-  scopeId: WorkSearchCategory,
+  scopeId: WorkSearchScope,
   query: string,
   opts: { limit?: number } = {},
 ): SearchRequest | null {
@@ -79,7 +79,7 @@ export type SearchDisplay =
   | { state: "results"; scope: SearchScope; kind: "work" | "release" };
 
 export function searchDisplayFor(input: {
-  scopeId: WorkSearchCategory;
+  scopeId: WorkSearchScope;
   query: string;
   loading: boolean;
   error: string | null;
@@ -112,7 +112,7 @@ export function searchDisplayFor(input: {
  * query shape differs per scope — "Daft Punk Discovery" and "Mistborn epub"
  * teach the owner that format words work, which is not obvious.
  */
-export function placeholderFor(scopeId: WorkSearchCategory): string {
+export function placeholderFor(scopeId: WorkSearchScope): string {
   return getScope(scopeId).placeholder;
 }
 

@@ -15,6 +15,9 @@ import {
   primaryAudioStream,
   audioStreams,
   isHDR,
+  buildProbeArgs,
+  parseBitrateBps,
+  probeBitrateBps,
   streamUrl,
   requestOrigin,
   type ProbeResult,
@@ -342,6 +345,21 @@ async function main() {
     assert.ok(url.startsWith("https://box.lan:8443/api/stream/abc123/"), url);
   });
 
+  await check("local probes omit HTTP-only read timeout options", () => {
+    const args = buildProbeArgs("D:\\Media\\Episode.mkv");
+    assert.equal(args.includes("-rw_timeout"), false);
+    assert.equal(args.at(-1), "D:\\Media\\Episode.mkv");
+  });
+
+  await check("network probes retain the bounded read timeout", () => {
+    const args = buildProbeArgs("http://127.0.0.1:3000/api/stream/hash/file.mkv", {
+      timeoutMs: 3000,
+      networkSource: true,
+    });
+    assert.equal(args.includes("-rw_timeout"), true);
+    assert.equal(args[args.indexOf("-rw_timeout") + 1], "3000000");
+  });
+
   // ── requestOrigin ──
 
   const originCases: Array<{ name: string; url: string; headers: Record<string, string>; expected: string }> = [
@@ -377,6 +395,66 @@ async function main() {
       assert.equal(requestOrigin({ url: c.url, headers }), c.expected);
     });
   }
+
+  // ── Bitrate: parsed from ffprobe, never invented ──
+
+  await check("parseBitrateBps accepts positive string and number rates", () => {
+    assert.equal(parseBitrateBps("48000000"), 48_000_000);
+    assert.equal(parseBitrateBps(12_345), 12_345);
+  });
+
+  await check("parseBitrateBps rejects absent, zero, negative and unparseable rates", () => {
+    for (const raw of [undefined, null, "", "N/A", "0", 0, -1, Number.NaN]) {
+      assert.equal(parseBitrateBps(raw), null, `expected null for ${String(raw)}`);
+    }
+  });
+
+  await check("parseProbeOutput carries the container bit_rate", () => {
+    const out = parseProbeOutput(
+      JSON.stringify({
+        format: { format_name: "matroska,webm", duration: "600.0", bit_rate: "42000000" },
+        streams: [{ index: 0, codec_type: "video", codec_name: "hevc", width: 3840, height: 2160 }],
+      }),
+    );
+    assert.ok(out.ok);
+    assert.equal(out.result.bitRate, 42_000_000);
+  });
+
+  await check("probeBitrateBps prefers the video stream rate over the container rate", () => {
+    const out = parseProbeOutput(
+      JSON.stringify({
+        format: { format_name: "matroska,webm", duration: "600.0", bit_rate: "42000000" },
+        streams: [
+          { index: 0, codec_type: "video", codec_name: "hevc", bit_rate: "38000000" },
+          { index: 1, codec_type: "audio", codec_name: "eac3", bit_rate: "640000" },
+        ],
+      }),
+    );
+    assert.ok(out.ok);
+    assert.equal(probeBitrateBps(out.result), 38_000_000);
+  });
+
+  await check("probeBitrateBps falls back to the container rate when the stream has none", () => {
+    const out = parseProbeOutput(
+      JSON.stringify({
+        format: { format_name: "matroska,webm", duration: "600.0", bit_rate: "42000000" },
+        streams: [{ index: 0, codec_type: "video", codec_name: "hevc" }],
+      }),
+    );
+    assert.ok(out.ok);
+    assert.equal(probeBitrateBps(out.result), 42_000_000);
+  });
+
+  await check("probeBitrateBps is null when ffprobe reported no usable rate", () => {
+    const out = parseProbeOutput(
+      JSON.stringify({
+        format: { format_name: "matroska,webm", duration: "600.0", bit_rate: "N/A" },
+        streams: [{ index: 0, codec_type: "video", codec_name: "hevc", bit_rate: "N/A" }],
+      }),
+    );
+    assert.ok(out.ok);
+    assert.equal(probeBitrateBps(out.result), null);
+  });
 }
 
 main().then(() => {

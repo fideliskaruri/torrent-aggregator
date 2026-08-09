@@ -81,6 +81,30 @@ export function parseResolution(title: string): number | null {
   return null;
 }
 
+export function normalizeResolutionFloor(
+  minimum: number | null | undefined,
+): number | null {
+  if (minimum == null || !Number.isFinite(minimum) || minimum < 1) return null;
+  return Math.trunc(minimum);
+}
+
+/**
+ * Whether a release name proves it meets the user's minimum download quality.
+ *
+ * Unknown resolution is rejected when a floor exists. Treating "unknown" as
+ * eligible would make the guarantee meaningless: a nameless 480p release could
+ * still be selected for a 1080p request.
+ */
+export function meetsResolutionFloor(
+  title: string,
+  minimum: number | null | undefined,
+): boolean {
+  const floor = normalizeResolutionFloor(minimum);
+  if (floor == null) return true;
+  const resolution = parseResolution(title);
+  return resolution != null && resolution >= floor;
+}
+
 /**
  * Camcorder and screener rips.
  *

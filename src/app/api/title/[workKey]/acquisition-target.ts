@@ -142,9 +142,21 @@ export function resolveAcquisitionTransfer(
     };
   }
 
+  const torrentStatus = torrent.status.toLowerCase();
+  if (torrentStatus === "error" || torrentStatus === "missingfiles") {
+    return {
+      ...target,
+      status: "failed",
+      progress: 0,
+      infoHash: null,
+      filePath: null,
+      error: target.error || "The downloaded release could not be used. TorrentFlow will choose another release.",
+    };
+  }
+
   const progress = clampProgress(torrent.progress);
   const downloaded =
-    progress >= 1 || torrent.status.toLowerCase() === "seeding";
+    progress >= 1 || torrentStatus === "seeding";
   const status: AcquisitionStatus = downloaded
     ? "downloaded"
     : target.status === "failed"

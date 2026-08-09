@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { grabSingleEpisode } from "@/lib/library/ondemand";
+import { getTargetResolution } from "@/lib/torrents/target-resolution";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,7 @@ export async function POST(request: NextRequest) {
     let title = body.title?.trim();
     let mediaType = body.mediaType?.trim() || "tv";
     const watchListItemId = body.watchListItemId?.trim() || null;
+    let preferredResolution: number | null = null;
 
     if (watchListItemId) {
       const item = await prisma.watchListItem.findFirst({
@@ -77,6 +79,11 @@ export async function POST(request: NextRequest) {
       }
       title = item.title;
       mediaType = item.mediaType;
+      preferredResolution = item.preferredResolution;
+    }
+
+    if (body.retention !== "stream" && preferredResolution == null) {
+      preferredResolution = await getTargetResolution();
     }
 
     if (!title) {
@@ -98,6 +105,8 @@ export async function POST(request: NextRequest) {
       episode,
       watchListItemId,
       retention: body.retention === "stream" ? "stream" : "keep",
+      preferredResolution:
+        body.retention === "stream" ? null : preferredResolution,
       protectHashes: Array.isArray(body.protectHashes)
         ? body.protectHashes.filter((h): h is string => typeof h === "string" && h.length > 0)
         : undefined,

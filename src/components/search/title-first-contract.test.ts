@@ -24,7 +24,11 @@ const overlay = stripComments(read("src/components/search/search-overlay.tsx"));
 const searchBar = stripComments(read("src/components/search/search-bar.tsx"));
 const searchPage = stripComments(read("src/app/search/page.tsx"));
 const everythingPage = stripComments(read("src/app/everything/page.tsx"));
-const titlesRoute = stripComments(read("src/app/api/search/titles/route.ts"));
+const titlesRoute = stripComments(
+  read("src/app/api/search/titles/route.ts") +
+    "\n" +
+    read("src/lib/search/work-search-fanout.ts"),
+);
 const anilist = stripComments(read("src/lib/metadata/anilist.ts"));
 
 let failures = 0;
@@ -41,12 +45,13 @@ function check(name: string, fn: () => void) {
 
 console.log("title-first-contract.test.ts");
 
-const categories = ["movies", "series", "anime"] as const;
+const categories = ["all", "movies", "series", "anime"] as const;
 
-check("normal Search exposes exactly Movies, Series, Anime", () => {
+check("normal Search exposes All, then Movies, Series, Anime", () => {
   assert.deepEqual(
     SEARCH_SCOPES.map(({ id, label }) => ({ id, label })),
     [
+      { id: "all", label: "All" },
       { id: "movies", label: "Movies" },
       { id: "series", label: "Series" },
       { id: "anime", label: "Anime" },
@@ -66,9 +71,9 @@ for (const category of categories) {
   });
 }
 
-check("invalid product category falls back to Movies", () => {
-  assert.equal(getScope("music").id, "movies");
-  assert.equal(getScope("not-a-category").id, "movies");
+check("invalid product category falls back to the All default", () => {
+  assert.equal(getScope("music").id, "all");
+  assert.equal(getScope("not-a-category").id, "all");
 });
 
 check("durable URL round-trips Unicode q + category", () => {

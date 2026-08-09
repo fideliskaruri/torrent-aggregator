@@ -146,6 +146,24 @@ for (const c of shapeCases) {
   });
 }
 
+check("local files never receive HTTP reconnect input options", () => {
+  const localPath =
+    "D:\\Torrents\\TV\\Rick And Morty\\Season 09\\Rick.and.Morty.S09E09.avi";
+  const args = buildFfmpegArgs({ sourceUrl: localPath, plan: plan() });
+  for (const flag of [
+    "-rw_timeout",
+    "-reconnect",
+    "-reconnect_streamed",
+    "-reconnect_on_network_error",
+    "-reconnect_delay_max",
+  ]) {
+    assert.ok(!args.includes(flag), `${flag} is invalid for the file protocol`);
+  }
+  assert.equal(valueOf(args, "-analyzeduration"), "5000000");
+  assert.equal(valueOf(args, "-probesize"), "10000000");
+  assert.equal(valueOf(args, "-i"), localPath);
+});
+
 // ── Stream mapping ──
 
 check("maps the planned video and selected audio stream explicitly", () => {

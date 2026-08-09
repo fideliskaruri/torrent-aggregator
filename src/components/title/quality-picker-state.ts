@@ -18,22 +18,22 @@ export const QUALITY_CHOICES = [
   {
     value: 480,
     label: "480p",
-    hint: "Smallest files. Higher quality is only chosen when no 480p exists.",
+    hint: "Minimum 480p. Releases without a stated quality are skipped.",
   },
   {
     value: 720,
     label: "720p",
-    hint: "Prefers 720p; falls back to 480p before taking 1080p or 4K.",
+    hint: "Minimum 720p. Never downloads 480p or an unknown quality.",
   },
   {
     value: 1080,
     label: "1080p",
-    hint: "Prefers 1080p; falls back to 720p then 480p, and 4K as a last resort.",
+    hint: "Minimum 1080p. Uses 4K only when no eligible 1080p release exists.",
   },
   {
     value: 2160,
     label: "4K",
-    hint: "Prefers 2160p. Expect large files and longer downloads.",
+    hint: "4K minimum. Lower or unknown qualities are skipped.",
   },
 ] as const;
 

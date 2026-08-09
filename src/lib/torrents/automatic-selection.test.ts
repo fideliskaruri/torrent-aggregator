@@ -52,15 +52,14 @@ for (const count of [24, 27]) {
     verdictOf: () => "unknown",
     packContents: () => Array.from({ length: count }, (_, index) => index + 1),
   });
-  assert.equal(plan.pack?.release.infoHash, pack.infoHash, `${count}/24 verified pack is eligible`);
-  assert.deepEqual(plan.covered, wanted);
+  assert.equal(plan.pack, null, `${count}/24 verified pack is still not an acquisition unit`);
+  assert.deepEqual(plan.covered, []);
+  assert.deepEqual(plan.missing, wanted);
 }
 
 {
-  // A complete-sounding name with no readable files is no longer dropped — a
-  // season's packs are never live on a first grab, so dropping them left whole
-  // seasons un-downloadable. It is taken, but marked inferred so its coverage
-  // is reported as "should cover", never claimed as verified fact.
+  // A complete-sounding name is not episode evidence. Season acquisition must
+  // keep the gap honest instead of inferring coverage from release text.
   const namedOnly = release("Shogun S01 COMPLETE ALL EPISODES 2160p");
   const plan = planSeason({
     season: 1,
@@ -68,10 +67,10 @@ for (const count of [24, 27]) {
     releases: [namedOnly],
     verdictOf: () => "good",
   });
-  assert.equal(plan.pack?.release.infoHash, namedOnly.infoHash, "a name-only pack is takeable");
-  assert.equal(plan.pack?.coverageBasis, "inferred", "its coverage is inferred, not verified");
-  assert.equal(plan.coverageConfirmed, false, "and is not reported as confirmed");
-  assert.deepEqual(plan.covered, wanted);
+  assert.equal(plan.pack, null, "a name-only pack is ignored");
+  assert.equal(plan.coverageConfirmed, true);
+  assert.deepEqual(plan.covered, []);
+  assert.deepEqual(plan.missing, wanted);
 }
 
 {

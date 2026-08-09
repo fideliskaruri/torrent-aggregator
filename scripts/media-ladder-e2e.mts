@@ -24,7 +24,11 @@ import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { probeUrl, parseProbeOutput, type ProbeResult } from "../src/lib/media/probe";
+import { probeUrl } from "../src/lib/media/probe";
+import {
+  parseProbeOutput,
+  type ProbeResult,
+} from "../src/lib/media/probe-shape.js";
 import { DEFAULT_CAPABILITIES, type ClientCapabilities } from "../src/lib/media/capabilities";
 import { decidePlayback, type PlaybackPlan, type PlaybackRung } from "../src/lib/media/decide";
 import {

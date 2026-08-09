@@ -44,6 +44,10 @@ import { sendToClient } from "@/lib/clients";
 import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
 import type { GrabPipelineOptions, GrabPipelineResult } from "./types";
 import { historyMessageFromFacts } from "@/lib/activity/history";
+import {
+  meetsResolutionFloor,
+  normalizeResolutionFloor,
+} from "@/lib/torrents/quality";
 
 /**
  * How long a prior grab blocks a second grab of the same infoHash.
@@ -132,6 +136,7 @@ export async function runGrabPipeline(
     enrich: search.enrich,
     skipCache: search.skipCache,
     background: search.background,
+    targetResolution: search.targetResolution,
     filters: {
       hasMagnet: search.filters.hasMagnet,
       minSeeders: search.filters.minSeeders,
@@ -164,6 +169,36 @@ export async function runGrabPipeline(
     });
     await onNoCandidate?.("no_results", message, null);
     return { status: "skipped", message, candidate: null, target: null, offline: false };
+  }
+
+  const minimumResolution = normalizeResolutionFloor(opts.minimumResolution);
+  if (
+    minimumResolution != null &&
+    !meetsResolutionFloor(candidate.title, minimumResolution)
+  ) {
+    const message = `Skipped ${candidate.title}: it does not meet the ${minimumResolution}p minimum quality`;
+    await db.grabJob.create({
+      data: {
+        userId,
+        title: candidate.title,
+        query: search.query,
+        status: "skipped",
+        message,
+        magnet: candidate.magnet,
+        infoHash: normalizeInfoHash(candidate.infoHash),
+        source: candidate.source,
+        kind: grabJobKind,
+        externalId,
+      },
+    });
+    await onNoCandidate?.("below_resolution_floor", message, candidate);
+    return {
+      status: "skipped",
+      message,
+      candidate,
+      target: null,
+      offline: false,
+    };
   }
 
   // ── 3. Dedupe ──────────────────────────────────────────────────────────

@@ -29,14 +29,18 @@
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { prisma } from "../src/lib/prisma";
 import { buildBrowsePayload } from "../src/lib/browse/rails";
 import { shutdownBuiltinEngine } from "../src/lib/clients/builtin-engine";
 import type { Rail, RailItem } from "../src/lib/browse/types";
+import { makeScratchDir, removeScratchDir } from "../src/lib/test-support/scratch-dir";
 
 const userId = `rails-test-${randomUUID()}`;
 const DUNE_POSTER = "https://example.invalid/poster-dune.jpg";
 const metadataKeys: string[] = [];
+let readyScratchDir: string | null = null;
 
 let failures = 0;
 function check(name: string, fn: () => void): void {
@@ -83,15 +87,28 @@ async function seed(): Promise<void> {
     },
   });
 
+  // A real on-disk file backs the completed release below, so Ready to
+  // Play's local-file-presence check (see ../src/lib/library/local-file-presence.ts)
+  // can confirm it is genuinely present without a live torrent engine.
+  readyScratchDir = makeScratchDir("browse-rails-ready");
+  const readyFilePath = path.join(
+    readyScratchDir,
+    "Children.of.Dune.S01.COMPLETE.720p.BluRay.x264-GalaxyTV.mkv",
+  );
+  fs.writeFileSync(readyFilePath, "");
+
   await prisma.engineTorrent.createMany({
     data: [
-      // Completed DB row: a *different* work whose name contains "dune".
+      // Completed DB row: a *different* work whose name contains "dune". Backed
+      // by a real file (above) so it surfaces in Ready to Play, the only
+      // remaining personal rail that resolves posters from the raw release name.
       {
         userId,
         hash: "a".repeat(40),
         name: "Children.of.Dune.S01.COMPLETE.720p.BluRay.x264-GalaxyTV",
         status: "seeding",
         progress: 1,
+        verifiedFilesJson: JSON.stringify([{ path: readyFilePath }]),
       },
       // Continue Watching: genuinely half-downloaded.
       {
@@ -110,19 +127,6 @@ async function seed(): Promise<void> {
         progress: 1,
       },
     ],
-  });
-
-  await prisma.downloadHistory.create({
-    data: {
-      userId,
-      title: "Children.of.Dune.S01.COMPLETE.720p.BluRay.x264-GalaxyTV",
-      infoHash: "a".repeat(40),
-      status: "sent",
-      // Explicitly "keep" so the `retention: { not: "stream" }` filter in
-      // buildRecentlyAdded includes this row even when the DB adapter treats
-      // NULL as excluded by != comparisons.
-      retention: "keep",
-    },
   });
 
   await prisma.playbackProgress.createMany({
@@ -163,6 +167,7 @@ async function seed(): Promise<void> {
 }
 
 async function cleanup(): Promise<void> {
+  removeScratchDir(readyScratchDir);
   await shutdownBuiltinEngine().catch(() => undefined);
   await prisma.cachedMetadata
     .deleteMany({ where: { cacheKey: { in: metadataKeys } } })
@@ -180,15 +185,20 @@ async function main(): Promise<void> {
   const rails = payload.rails;
 
   // --- Poster borrowing ---------------------------------------------------
+  // Recently Added used to be where this fixture surfaced (it did not require
+  // confirmed presence). Now that rail is gone, Ready to Play is the only
+  // remaining personal rail that resolves posters from the raw release name
+  // (see resolveArtworkForReleases in rails.ts), so the completed release is
+  // seeded with a real backing file (see seed() above) to genuinely earn its
+  // "ready" state and exercise the same poster-matching code path.
   const ready = rail(rails, "ready-to-play");
-  const recent = rail(rails, "recently-added");
-  const children = item(recent, "children of dune");
+  const children = item(ready, "children of dune");
 
-  check("Recently Added contains the completed release", () => {
+  check("Ready to Play contains the confirmed-present completed release", () => {
     assert.ok(
       children,
       `expected a Children of Dune card; got ${JSON.stringify(
-        recent?.items.map((i) => i.title) ?? null,
+        ready?.items.map((i) => i.title) ?? null,
       )}`,
     );
   });
@@ -213,14 +223,12 @@ async function main(): Promise<void> {
     );
   });
 
-  check("a completed DB row absent from the live engine is not called ready", () => {
-    const unbackedReady = item(ready, "children of dune");
-    assert.equal(
-      unbackedReady,
-      undefined,
-      "Ready to Play may only contain torrents the live engine can actually serve",
-    );
-  });
+  // The companion regression — a completed DB row with no confirmed presence
+  // must not be called ready — is covered at the unit level by
+  // engineAvailability's "stale completed DB row becomes not checked" case in
+  // src/lib/browse/browse.test.ts, so it is not duplicated here. This fixture
+  // is deliberately backed by a real file above, so it belongs in Ready to
+  // Play by design rather than demonstrating exclusion from it.
 
   // --- Unearned availability ----------------------------------------------
   const cw = rail(rails, "continue-watching");

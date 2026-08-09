@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { badgeText, buildInbox, unreadCount, type InboxCandidate } from "./inbox";
+import { badgeText, unreadCountUrl } from "./inbox";
 
 const STORAGE_KEY = "tf-notifications-read-at";
 const READ_EVENT = "tf:notifications-read";
@@ -46,21 +46,19 @@ export function useUnreadNotifications(): {
 
   const compute = useCallback(async () => {
     try {
-      const res = await fetch("/api/activity", { cache: "no-store" });
-      if (!res.ok) return;
-      const json = (await res.json()) as { items?: InboxCandidate[] };
-      const inbox = buildInbox(
-        (json.items ?? []).map((i) => ({
-          id: i.id,
-          title: i.title,
-          status: i.status,
-          message: i.message ?? null,
-          createdAt: i.createdAt,
-          infoHash: null,
-        })),
-      );
       const lastReadAt = localStorage.getItem(STORAGE_KEY);
-      setCount(unreadCount(inbox, lastReadAt));
+      // Counted by the server, not by measuring a page of the feed. The old
+      // implementation fetched `/api/activity` and counted what came back,
+      // which meant the badge could never exceed one page — a 300-unread inbox
+      // and a 50-unread inbox showed the same number.
+      const res = await fetch(unreadCountUrl(lastReadAt), {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as { count?: unknown };
+      setCount(
+        typeof json.count === "number" && json.count >= 0 ? json.count : 0,
+      );
     } catch {
       // A badge is not worth an error state. If the count cannot be fetched
       // the nav simply shows no badge, which is the honest default: we do not

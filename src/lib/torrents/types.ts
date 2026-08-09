@@ -164,6 +164,8 @@ export interface ClientTorrent {
   peers?: number;
   /** Client-reported failure reason, when state is "error". */
   error?: string | null;
+  /** False only when the app has proof this transfer contains no playable video. */
+  playable?: boolean;
   category?: string;
   /** Absolute download directory from the torrent client */
   savePath?: string | null;

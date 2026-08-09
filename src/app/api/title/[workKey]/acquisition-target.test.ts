@@ -153,6 +153,24 @@ check("a confirmed-missing linked file is reconciled to failed", () => {
   assert.equal(resolved.infoHash, null);
 });
 
+check("a 100 percent errored transfer cannot re-promote a failed target", () => {
+  const hash = "2".repeat(40);
+  const resolved = resolveAcquisitionTransfer(
+    {
+      status: "failed",
+      progress: 1,
+      infoHash: hash,
+      filePath: "Show.S01E10.scr",
+      error: "The downloaded release could not be used.",
+    },
+    { hash, status: "error", progress: 1 },
+    "unknown",
+  );
+  assert.equal(resolved.status, "failed");
+  assert.equal(resolved.progress, 0);
+  assert.equal(resolved.infoHash, null);
+});
+
 console.log(
   `\n${failures === 0 ? "acquisition-target: all tests passed" : `acquisition-target: ${failures} failing`}`,
 );

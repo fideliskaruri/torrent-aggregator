@@ -46,9 +46,8 @@ links, save paths) stay off-stage.
 - **Episode lists show the full provider catalog**, marking what we hold locally.
 - **Storage cap is mostly for automation.** Manual downloads may override the cap (never the
   physical "won't fit" floor). The owner set the cap; the app may warn but must not overrule.
-- **Singles-first for season downloads** (NEW, see §3/§4). A season pack is a last resort,
-  never preferred over per-episode releases that exist. This matches how Sonarr actually
-  behaves by default (see §9).
+- **Exact episodes only for season downloads** (see §3/§4). A season action batches
+  per-episode releases; it never acquires a season pack.
 
 ### Who it's for
 Local, single-user app. Auth was removed. Read routes answer directly (no 401).
@@ -77,9 +76,97 @@ icons, sonner `Toaster` mounted in `layout.tsx`). Reuse `Button`, `toast`, `cn`.
 - `src/components/title/title-action-request.ts` — `postTitleAction`; re-derives storage
   overridability client-side (never trusts the wire flag).
 
+### The player — playback pipeline (Play → pixels)
+- `src/components/watch/inline-player.tsx` (~5k lines) — the ONLY player. One overlay, one
+  continuous loader. **There is no "torrent link" fallback; the info-hash *is* the source.**
+
+**Decision tree, top to bottom (this is the answer to "how does fallback work"):**
+0. **Serve a completed local file without booting WebTorrent** — a concrete
+   `/api/stream/{infoHash}/{file}` request first resolves the torrent-relative path against
+   `EngineTorrent.verifiedFilesJson` (absolute verified paths + sizes) and `savePath`. If the
+   row is complete and the file's real path remains inside the save root with
+   the exact persisted size + mtime, the route serves the requested byte range directly from
+   disk with `ok_disk_fastpath` / `partial_disk_fastpath`. Completed rows are terminal local
+   assets: they are never rehydrated or seeded. Missing, stale, malformed, path-mismatched,
+   symlink-escaped, or not-yet-complete evidence falls through unchanged to the engine path.
+   Successful direct responses also carry
+   `X-TorrentFlow-Stream-Source: disk-fastpath` for browser/network verification.
+1. **Pick the file** — `loadManifest()` GETs `/api/stream/{infoHash}?season&episode`, then:
+   - server sent `targetVideoIndex` → play that file;
+   - else exactly **one** video file → play it (a lone video is unambiguous — always select it).
+     *This branch used to be missing: a single-episode torrent whose manifest had no
+     `targetVideoIndex` fell through every case, `selectedPath` stayed null, and the player hung
+     forever on the loader on a fully-downloaded file. Fixed 2026-08-07 — see BUG-016.*
+   - else multiple videos → `mainFeatureFile()` dominance heuristic (movies) or the file picker (real packs);
+   - zero videos → "No video file was listed."
+   Selection sets `selectedPath` → `effectiveSelectedPath`; the plan effect is **gated on it**, so
+   nothing selected ⇒ nothing plays (no plan request is ever sent).
+2. **Decide how to play** — the main effect POSTs `/api/playback/plan` with browser `capabilities`:
+   - `direct` → `<video src>` = `/api/stream/{infoHash}/{file}`;
+   - transcode/remux → HLS session;
+   - **plan returns non-OK (e.g. 400)** → `tryDirectStream()` probes with `Range: bytes=0-0`;
+     a `200/206` ⇒ set `playbackMode:"direct"` and play anyway.
+3. **Bytes come from disk first, then the engine** — `/api/stream/{infoHash}/{file}` directly reads
+   a persisted, size-matched completed file without waiting for engine metadata. On any disk
+   fast-path miss, the built-in WebTorrent path is unchanged: complete/verified range ⇒ read
+   disk through the live torrent; partial/cold ⇒ fetch those byte ranges from the swarm on
+   demand. There is no "file missing, use the link instead" branch.
+4. **Fall back to another release** — `attemptAutoFailover()` fires ONLY on a *structured* stream
+   failure (dead/stalled swarm, or an unplayable-codec verdict): POST `/api/playback/candidates`
+   → pick the next-best **info-hash** → `/api/playback/switch`. This is the real "fall back" — a
+   different release of the same episode, never a raw link. A codec problem is NOT retryable
+   against the same-quality pool, so it surfaces a terminal verdict instead of failing over.
+
+**Codec truth (memorise, don't re-derive):** Chromium decodes H.264 video but NOT Dolby Digital
+Plus (E-AC-3 / `DDP5.1`), AC-3, or DTS audio. Such releases (e.g. `AMZN WEB-DL DDP5.1`) reach a
+real `<video>` — video decodes, `videoWidth/Height` and `currentTime` advance — but the player
+correctly surfaces **"This release won't play in the browser (audio can't be decoded)."** That is
+correct behaviour, not a bug; pick a `WEB h264` / AAC release to get sound.
+
+**Open finding (unverified):** `/api/playback/plan` returns **400** for the E-AC-3 file above, which
+is what forces the `tryDirectStream` fallback every time. Confirm whether 400 is the intended
+"unsupported audio" signal or a malformed-request bug (the api-ledger sweep captures the body).
+
+**Disk-first integrity tradeoff:** the direct route does not SHA-1 every torrent piece on every
+Play. It trusts the engine's previously persisted completed-file fingerprint, then rechecks
+save-root containment, realpath containment, exact size, and exact mtime before opening. This is
+the latency win. An external actor that rewrites bytes while preserving both size and mtime could
+evade this check; the fallback `openVerifiedDiskStream` still performs piece verification when the
+persisted completed-file proof is unavailable.
+
+**Built-in engine lifecycle:** WebTorrent exists only for incomplete downloads and foreground
+partial streaming. Progress snapshots are event-driven, coalesced per user/hash, serialized, and
+written no more than once every five seconds. Completion disconnects peers immediately, drains
+older snapshots, persists the verified file manifest and linked acquisition state transactionally,
+then calls `torrent.destroy({ destroyStore: false })`. When the last live torrent leaves, the shared
+client is destroyed to release its listener, DHT, tracker pools, timers, and handles. Downloads and
+Browse GETs read durable rows plus already-live snapshots; they never initialize, rehydrate, scan,
+or persist the engine.
+
+**Verified playback regression matrix (2026-08-08):**
+
+| Case | Result | Evidence |
+| --- | --- | --- |
+| Completed single-file direct read | PASS for video delivery; no confirmed AAC fixture | E08 attached at 1280×720, `readyState=4`, advanced to 2.15s, direct stream returned 206 with `X-TorrentFlow-Stream-Source: disk-fastpath`. The player then classified its audio as unsupported, so full browser-compatible A/V remains unproven with the current fixtures. |
+| Pause/resume + seek + reopen + reload | PASS for E08 video | Pause held time steady; seek 0.4→15→1s; resume advanced; close/reopen and page reload/replay both attached and advanced. |
+| Known DDP5.1 release | PASS | E05 attached at 1920×1080, advanced, hit disk-fastpath, then showed the truthful unsupported-audio verdict — no 425 or endless Preparing. |
+| Partial E09 | PASS | At ~68%, its 206 response had no disk-fastpath header, proving engine fallback; the probe was bounded/closed rather than awaited indefinitely. |
+| Missing/stale/traversal/symlink | PASS (fixtures) | Unit coverage proves missing and size-mismatched files fall through, `..` is rejected before lookup, mismatched relative paths miss, and a junction escaping the save root is refused. |
+| Range + cancellation | PASS | HEAD/no Range=200, bytes 10-19=206 with length 10, out-of-bounds=416, cancelled full response left `/api/health` at 200. |
+| Partial/growing playback | PASS | A 98% episode attached as `source:"swarm"` / `strategy:"session"`, reached `readyState=4`, held more than 30 seconds buffered, and continued after changing playback speed to 1.5x. |
+| Downloaded Next transitions | PASS | Four consecutive disk-backed advances completed in 1.35-1.67 seconds at 1280px. Additional transitions completed in 1.03 seconds at 768px and 1.15 seconds at 390px, with at most one loader and no blank samples. |
+| Swarm-backed Next transition | PASS | S09E02 advanced to S09E03 in 1.85 seconds; the destination reported `source:"swarm"` / `strategy:"session"`, reached `readyState=4`, and showed no terminal error or blank loader gap. |
+| Next warm planning | PASS | Each known local next episode issued one `warm:true` plan followed by the real plan. The warm route is unit-proven to use persisted local files and `probeFile` only, without WebTorrent activation, VOD/HLS session creation, or UI loading state. |
+| Season navigation + reload | PASS | Selecting Season 2 wrote `?s=2`; SPA navigation away/back and a hard navigation both restored Season 2 with 10 episode rows and zero terminal skeletons. |
+| Desktop 1280 | PASS layout | No document/body overflow, the Next target remained 44x44, and disk/swarm player states rendered without clipped controls. |
+| Tablet 768 | PASS layout | No document/body overflow, the Next target remained 44x44, and the measured transition completed with one continuous loader. |
+| Mobile 390 | PASS layout | No page-level horizontal overflow, the Next target remained 44x44, and the measured transition completed without clipped transport controls or a blank frame. |
+| True process cold start | SUSPECT / not run | Server restart is owner-only. Unit seam proves `findBuiltinTorrentFile` is not called on a persisted hit; live requests show the disk-fastpath header and no 425 before attachment. |
+| Console/network | PASS for the current matrix | A fresh title-page navigation logged only the React DevTools notice and HMR connection. Next flows issued `action:"next"` rather than `action:"trigger"`, did not duplicate on-demand acquisition for already-held episodes, and rendered no `data-stream-error`. |
+
 ### The title API (server truth)
 - `src/app/api/title/[workKey]/detail.ts` — `buildTitleDetail`, `buildEpisodes`,
-  `buildPackCoverage`, `inFlightPackTransfer`, `pickLocal`/`pickUnpackedEpisodeLocal`/
+  `buildPackCoverage`, `pickLocal`/`pickUnpackedEpisodeLocal`/
   `pickDownloadingEpisodeLocal`, `isDownloadingLocal`/`isInFlightLocal`, `LocalRelease`,
   `pickSeason` (honors requested season even with no local files).
 - `src/app/api/title/[workKey]/grab.ts` — `grabForTitle`, `grabSeasonForTitle` (returns
@@ -90,8 +177,8 @@ icons, sonner `Toaster` mounted in `layout.tsx`). Reuse `Button`, `toast`, `cn`.
   `NEG_TTL_MS` (2min negative cache).
 
 ### Season acquisition (the planner)
-- `src/lib/torrents/season-plan.ts` — **pure** planner. `planSeason` (singles-first now),
-  `comparePacks`, `resolutionRank`, `demotedTier`, `classify`, `packEpisodeRange`,
+- `src/lib/torrents/season-plan.ts` — **pure** planner. `planSeason` (exact episodes only),
+  `resolutionRank`, `demotedTier`, `classify`, `packEpisodeRange`,
   `episodesFromFilenames`. **All acquisition strategy lives here, tested without a swarm.**
 - `src/lib/library/season-acquire.ts` — orchestration over the pure planner.
   `resolveSeasonPlan`, `acquireSeason`, `seasonSearchQuery`, `seasonSearchQueries`
@@ -131,7 +218,7 @@ Branch `main`, remote `github.com/fideliskaruri/torrent-aggregator`.
 - `2a49cf1` fix: settings/client returns a sensible default download path for first-run
 - `fd33332` add visual-suite: route sweep + download-state proof with cleanup
 - `a451b39` remove visible loading text from episode strip
-- `eab92bd` singles-first planner: pack only fills gaps singles can't cover
+- `eab92bd` introduced singles-first planning; current owner contract is exact episodes only
 - …plus the earlier title-page redesign and downloads-page cleanup.
 
 ### Uncommitted working tree
@@ -188,9 +275,8 @@ Clean — all changes committed.
    and an Ai-upscaled 2160p sat on top. Fixed with an explicit `resolutionRank` tier. Lesson:
    soft ranker ordering is NOT a substitute for honoring an explicit user choice.
 
-6. **"It grabbed a garbage pack."** The planner *preferred* packs and would take a `weak` one as
-   last resort even when singles existed. Now **singles-first**. (This is the current
-   uncommitted change.)
+6. **"It grabbed a garbage pack."** Season acquisition now ignores packs entirely and batches
+   exact episode releases.
 
 7. **Episodes didn't show "downloading."** A season grab writes no per-episode
    `AcquisitionTarget` — only a live engine torrent. The card read the null `transfer` and
@@ -395,9 +481,8 @@ Sonarr's release comparison is **"Quality Trumps All"**, in this precedence:
 → Seeders/peers → Age → Size`.
 
 Key takeaways applied / to apply:
-- **Sonarr does NOT prefer season packs by default** (opt-in via a custom format), and **won't
-  grab a pack for a partially-aired season** — it fills airing seasons episode-by-episode. →
-  validates our **singles-first** change. ✅ (done, committed `eab92bd`)
+- **Sonarr does NOT prefer season packs by default** (opt-in via a custom format). TorrentFlow
+  now uses exact episode releases for every season action.
 - **Seeders are only the #7 tiebreaker** for Sonarr — it trusts indexers and grabs dead
   torrents. **Our `swarm-probe` verdict is genuinely better**; keep and lean on it.
 - **Ideas worth stealing (not yet done):**
@@ -524,3 +609,6 @@ rework anything that fails on:
 Make the critique a *separate* step from writing (ideally a separate `critique`-classified
 agent, or at minimum a fresh read of your own `git diff` with these five lenses). Author and
 reviewer being the same tired context is how weak code ships.
+## TorrentFlow user-journey critic/orchestrator
+
+Invoke `.github/agents/torrentflow-user-journey-critic.agent.md` for read-only current-product evaluation, strict phase-plan judgment, design proposals (including explicitly authorized Figma proposal work), or post-implementation evaluation. It launches only read-only critic/research fleets, never changes application code or user data, and never dispatches implementation or fixes; it stops at evidence, verdicts, design artifacts, recommendations, acceptance criteria, and specifications.

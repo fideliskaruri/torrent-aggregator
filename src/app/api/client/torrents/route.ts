@@ -8,6 +8,8 @@ import {
 import { formatClientError } from "@/lib/clients/errors";
 import { pruneEmptyParents } from "@/lib/clients/prune-empty-parents";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
+import { resetDiskInventoryCache } from "@/lib/library/disk-inventory";
+import { resetLocalFilePresenceCache } from "@/lib/library/local-file-presence";
 import prisma from "@/lib/prisma";
 import {
   isDownloadRetention,
@@ -62,50 +64,7 @@ export async function GET(request: Request) {
             .filter((h): h is string => Boolean(h)),
         ),
       ];
-      if (hashes.length > 0) {
-        const torrentByHash = new Map(
-          torrents
-            .filter((torrent) => Boolean(torrent.hash))
-            .map((torrent) => [torrent.hash!.toLowerCase(), torrent] as const),
-        );
-        const targets = await prisma.acquisitionTarget.findMany({
-          where: {
-            userId: session.user.id,
-            infoHash: { in: hashes },
-            status: { in: ["queued", "downloading"] },
-          },
-          select: { id: true, infoHash: true, progress: true, status: true },
-        });
-        await Promise.all(
-          targets.map((target) => {
-            const torrent = target.infoHash
-              ? torrentByHash.get(target.infoHash.toLowerCase())
-              : null;
-            if (!torrent) return Promise.resolve();
-            const progress = Math.min(
-              1,
-              Math.max(0, Number(torrent.progress) || 0),
-            );
-            const downloaded =
-              progress >= 1 ||
-              String(torrent.state ?? "").toLowerCase().includes("seeding");
-            if (
-              target.progress === (downloaded ? 1 : progress) &&
-              target.status === (downloaded ? "downloaded" : "downloading")
-            ) {
-              return Promise.resolve();
-            }
-            return prisma.acquisitionTarget.update({
-              where: { id: target.id },
-              data: {
-                status: downloaded ? "downloaded" : "downloading",
-                progress: downloaded ? 1 : progress,
-              },
-            });
-          }),
-        );
-      }
-      const origins = hashes.length
+      const origins = config.clientType === "builtin" && hashes.length
         ? new Map(
             (
               await prisma.engineTorrent.findMany({
@@ -115,7 +74,10 @@ export async function GET(request: Request) {
             ).map((row) => [row.hash.toLowerCase(), row.origin] as const),
           )
         : new Map<string, string>();
-      const annotated = torrents.map((torrent) => {
+      const annotated =
+        config.clientType !== "builtin"
+          ? torrents
+          : torrents.map((torrent) => {
         const retentionState = retentionStateForOrigin(
           torrent.hash ? origins.get(torrent.hash.toLowerCase()) : null,
         );
@@ -137,7 +99,7 @@ export async function GET(request: Request) {
           };
         }
         return { ...torrent, retentionState };
-      });
+            });
       observer.success("TORRENT_LIST_SUCCEEDED", {
         clientType: config.clientType,
         count: annotated.length,
@@ -262,9 +224,14 @@ export async function POST(request: NextRequest) {
 
         // The storage budget memoises the download tree's size; deleting files
         // is the one event that makes it shrink, so drop it now rather than
-        // refusing the next send against a stale total.
+        // refusing the next send against a stale total. The inventory and
+        // file-presence memos are dropped for the same reason `library/delete`
+        // drops them: left stale they keep the title page claiming the content
+        // is present and offer a Play against files that are gone.
         if (deleteFiles && result.ok) {
           resetDirectorySizeCache();
+          resetDiskInventoryCache();
+          resetLocalFilePresenceCache();
         }
 
         // Built-in already prunes inside deleteTorrent; still safe to run for
@@ -288,6 +255,33 @@ export async function POST(request: NextRequest) {
             }
           } catch {
             /* best-effort */
+          }
+        }
+
+        // Delete means gone — the client and the files are already removed, so
+        // the rows that remember this infoHash must go too. Left behind, they
+        // keep the title page claiming the content is present (stale
+        // AcquisitionTarget), block an immediate re-grab (a "sent" GrabJob
+        // inside the dedup window), and offer a broken resume (PlaybackProgress
+        // pointing at a deleted file). A hash is hex, so the three case
+        // spellings below cover every way a client or indexer stored it.
+        if (deleteFiles && result.ok) {
+          const hash = body.hash;
+          const infoHashes = [hash, hash.toLowerCase(), hash.toUpperCase()];
+          try {
+            await prisma.$transaction([
+              prisma.grabJob.deleteMany({
+                where: { userId: session.user.id, infoHash: { in: infoHashes } },
+              }),
+              prisma.acquisitionTarget.deleteMany({
+                where: { userId: session.user.id, infoHash: { in: infoHashes } },
+              }),
+              prisma.playbackProgress.deleteMany({
+                where: { userId: session.user.id, infoHash: { in: infoHashes } },
+              }),
+            ]);
+          } catch {
+            /* best-effort: the torrent and files are already gone */
           }
         }
       } else {

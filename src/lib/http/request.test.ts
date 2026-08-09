@@ -116,6 +116,34 @@ async function main() {
     value: ["movie", "1080p"],
   });
 
+  assert.deepEqual(
+    numberField(new Map([['audioStreamIndex', null]]), 'audioStreamIndex', {
+      integer: true,
+      min: 0,
+      max: 10_000,
+      nullable: true,
+    }),
+    { ok: true, value: null },
+  );
+  assert.deepEqual(
+    numberField(new Map(), 'audioStreamIndex', {
+      integer: true,
+      min: 0,
+      max: 10_000,
+      nullable: true,
+    }),
+    { ok: true, value: undefined },
+  );
+  assert.deepEqual(
+    numberField(new Map([['audioStreamIndex', 2]]), 'audioStreamIndex', {
+      integer: true,
+      min: 0,
+      max: 10_000,
+      nullable: true,
+    }),
+    { ok: true, value: 2 },
+  );
+
   const queryCases = [
     ["1", true],
     ["1.5", false],

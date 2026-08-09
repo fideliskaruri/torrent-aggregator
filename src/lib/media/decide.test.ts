@@ -176,6 +176,22 @@ const cases: TestCase[] = [
     expectedRung: "direct",
     expectChannels: [2],
   },
+  {
+    name: "H.264 + MP3 in MKV → transcode audio when fMP4 MP3 was not advertised",
+    probe: makeProbe({ container: "matroska", video: { codec: "h264" }, audio: { codec: "mp3", channels: 2 } }),
+    caps: MINIMAL_CAPS,
+    expectedRung: "transcode-audio",
+    expectChannels: [2],
+    expectAudioTarget: "aac",
+  },
+  {
+    name: "MPEG-4 + MP3 in AVI → full transcode with AAC audio",
+    probe: makeProbe({ container: "avi", video: { codec: "mpeg4" }, audio: { codec: "mp3", channels: 2 } }),
+    caps: MINIMAL_CAPS,
+    expectedRung: "transcode-full",
+    expectChannels: [2],
+    expectAudioTarget: "aac",
+  },
 
   // ── Remux cases (the dominant MKV scenario) ──
   {

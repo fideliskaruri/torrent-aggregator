@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import nodeAssert from "node:assert/strict";
+import fs from "node:fs";
 import {
   bufferedAheadOf,
   bufferedSourceRanges,
@@ -13,9 +14,15 @@ import {
   encodeStreamFilePath,
   fileOptionLabel,
   findSidecarSubtitle,
+  hlsBufferSettingsForSource,
+  hlsSeekNeedsLoadRestart,
+  hlsSeekShouldRestartLoader,
+  timeRangesToRanges,
   infoHashFromMagnet,
   interpretMediaElementError,
   isUpNextPlayableEnoughToAdvance,
+  loaderStatusFromSamples,
+  planSourceFromPlan,
   mainFeatureFile,
   nextAutomaticCandidate,
   playbackFailureCopy,
@@ -43,11 +50,16 @@ import {
   streamPath,
   streamStatusMessage,
   sourceTimeInRanges,
+  shouldSuppressPlanEcho,
+  normalizeProbeBitrate,
+  normalizeUpNextCard,
+  type PlanAudioEcho,
   upNextUnavailableActionLabel,
   upNextFailureMessage,
   type OnDemandGrabResponse,
   upNextStatusSentence,
   type StreamFile,
+  videoPlaybackQualitySnapshot,
 } from "./inline-player";
 import { peerText, rateText, swarmHealth, swarmSummary, deadEvidenceFromSamples } from "./swarm-chip";
 
@@ -835,6 +847,234 @@ assert(
   swarmSummary(null),
 );
 
+// --- BUG-003: the one loader says what kind of wait this is -----------------
+{
+  const startupSample = (
+    peers: number | null,
+    speed: number | null,
+    progress: number | null,
+  ) => ({ peers, downloadSpeedBps: speed, progress, observedAt: Date.now() });
+  assert(
+    "loader status says it is finding peers before the swarm is reached",
+    loaderStatusFromSamples({ sample: startupSample(0, 0, 0), elapsedSec: 2 }) ===
+      "Finding peers…",
+  );
+  assert(
+    "loader status says it is connecting when peers exist but no bytes have arrived",
+    loaderStatusFromSamples({ sample: startupSample(3, 0, 0), elapsedSec: 5 }) ===
+      "Connecting…",
+  );
+  assert(
+    "loader status says buffering once bytes are arriving",
+    loaderStatusFromSamples({ sample: startupSample(3, 42_000, 0), elapsedSec: 5 }) ===
+      "Buffering…",
+  );
+  assert(
+    "loader status admits a long no-progress wait",
+    loaderStatusFromSamples({ sample: startupSample(0, 0, 0), elapsedSec: 15 }) ===
+      "Still working…",
+  );
+  assert(
+    "specific preparation copy wins over generic sample copy",
+    loaderStatusFromSamples({
+      preparingLabel: "Opening stream",
+      sample: startupSample(0, 0, 0),
+      elapsedSec: 2,
+    }) === "Opening stream…",
+  );
+}
+
+// --- BUG: seeking a fully-downloaded episode inside a still-partial season
+// pack must never replan as "session" and show peer/swarm language -----------
+{
+  const startupSample = (
+    peers: number | null,
+    speed: number | null,
+    progress: number | null,
+  ) => ({ peers, downloadSpeedBps: speed, progress, observedAt: Date.now() });
+
+  // Once the fresh plan has come back proving this file is served from the
+  // whole-file (or on-demand vod-segments) strategy, the swarm sample must be
+  // ignored entirely — even one still showing live peer/download activity
+  // from the REST of the season pack downloading in the background.
+  const busySwarmSample = startupSample(6, 250_000, 0.4);
+  for (const strategy of ["whole-file", "vod-segments"] as const) {
+    const status = loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: busySwarmSample,
+      elapsedSec: 3,
+      strategy,
+      playbackEstablished: true,
+    });
+    assert(
+      `established seek proven local (${strategy}) shows a neutral seek status, not peer copy`,
+      status === "Seeking…",
+      status,
+    );
+    assert(
+      `established seek proven local (${strategy}) never mentions peers/connecting/finding`,
+      !/peer|connecting|finding/i.test(status),
+      status,
+    );
+  }
+
+  // A cold open (never played before) of an already-local file must not show
+  // peer language either — there is no established playback yet, so the copy
+  // is the neutral "Preparing…", still never swarm-derived.
+  {
+    const status = loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: busySwarmSample,
+      elapsedSec: 3,
+      strategy: "whole-file",
+      playbackEstablished: false,
+    });
+    assert(
+      "a cold open already proven local shows neutral preparing copy, not peer copy",
+      status === "Preparing…",
+      status,
+    );
+  }
+
+  {
+    const status = loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: startupSample(0, 0, 0),
+      elapsedSec: 2,
+      strategy: null,
+      playbackEstablished: false,
+    });
+    assert(
+      "an unresolved plan stays neutral even when a stale zero-progress swarm sample exists",
+      status === "Preparing…",
+      status,
+    );
+  }
+
+  // While the seek's fresh plan is still in flight (strategy not yet known),
+  // an ALREADY-established playback assumes the local continuation the vast
+  // majority of seeks are, rather than flashing stale peer/swarm text left
+  // over from the sample of a moment ago.
+  {
+    const status = loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: busySwarmSample,
+      elapsedSec: 3,
+      strategy: null,
+      playbackEstablished: true,
+    });
+    assert(
+      "an in-flight replan for an already-established playback stays neutral until the new strategy lands",
+      status === "Seeking…",
+      status,
+    );
+  }
+
+  // Aggregate torrent peers do not prove this selected file needs the swarm:
+  // another episode in the same season pack may still be downloading. Stay
+  // neutral until the plan explicitly confirms the session strategy.
+  {
+    const status = loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: startupSample(3, 0, 0),
+      elapsedSec: 3,
+      strategy: null,
+      playbackEstablished: false,
+    });
+    assert(
+      "an unresolved cold open does not infer peer dependency from aggregate torrent peers",
+      status === "Preparing…",
+      status,
+    );
+  }
+
+  // A genuinely incomplete file — the server confirms `session` even for an
+  // established seek — must still show real swarm language, because the seek
+  // truly does depend on the swarm fetching new pieces.
+  {
+    const status = loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: startupSample(0, 0, 0),
+      elapsedSec: 3,
+      strategy: "session",
+      playbackEstablished: true,
+    });
+    assert(
+      "a genuinely incomplete file (strategy: session) keeps peer/swarm language even mid-playback",
+      status === "Finding peers…",
+      status,
+    );
+  }
+}
+
+// --- BUG: post-seek jitter investigation needs a smoothness signal ---------
+// `videoPlaybackQualitySnapshot` is diagnostic-only instrumentation added
+// alongside the per-file completeness fix so a smoothness check can diff
+// dropped/total video frame counts across a seek → strategy-switch instead of
+// eyeballing a recording. It must never throw and must degrade to an
+// all-zero snapshot for elements/environments (like jsdom in unit tests, or
+// older browsers) that lack `getVideoPlaybackQuality`.
+{
+  const missing = videoPlaybackQualitySnapshot(null);
+  assert(
+    "a null video yields an all-zero snapshot rather than throwing",
+    missing.droppedVideoFrames === 0 && missing.totalVideoFrames === 0 && missing.corruptedVideoFrames === 0,
+    JSON.stringify(missing),
+  );
+
+  const withoutApi = videoPlaybackQualitySnapshot({} as unknown as Pick<HTMLVideoElement, "getVideoPlaybackQuality">);
+  assert(
+    "an element without getVideoPlaybackQuality yields an all-zero snapshot",
+    withoutApi.droppedVideoFrames === 0 && withoutApi.totalVideoFrames === 0,
+    JSON.stringify(withoutApi),
+  );
+
+  const healthy = videoPlaybackQualitySnapshot({
+    getVideoPlaybackQuality: () => ({
+      droppedVideoFrames: 3,
+      totalVideoFrames: 900,
+      corruptedVideoFrames: 0,
+      creationTime: 0,
+    }),
+  } as unknown as Pick<HTMLVideoElement, "getVideoPlaybackQuality">);
+  assert(
+    "real dropped/total frame counts pass through unchanged",
+    healthy.droppedVideoFrames === 3 && healthy.totalVideoFrames === 900,
+    JSON.stringify(healthy),
+  );
+
+  const throwing = videoPlaybackQualitySnapshot({
+    getVideoPlaybackQuality: () => {
+      throw new Error("no MSE handle");
+    },
+  } as unknown as Pick<HTMLVideoElement, "getVideoPlaybackQuality">);
+  assert(
+    "a throwing implementation degrades to an all-zero snapshot instead of crashing the caller",
+    throwing.droppedVideoFrames === 0 && throwing.totalVideoFrames === 0,
+    JSON.stringify(throwing),
+  );
+
+  // A real-world smoothness check: after a seek that switched strategy to
+  // whole-file/vod-segments, a jittery playback would show a growing dropped-
+  // frame count between two samples taken a few seconds apart. This proves
+  // the two snapshots are independently comparable so that comparison is
+  // possible without this module making the smoothness judgment itself.
+  let calls = 0;
+  const drifting = {
+    getVideoPlaybackQuality: () => {
+      calls += 1;
+      return { droppedVideoFrames: calls === 1 ? 2 : 40, totalVideoFrames: calls === 1 ? 100 : 260, corruptedVideoFrames: 0, creationTime: 0 };
+    },
+  } as unknown as Pick<HTMLVideoElement, "getVideoPlaybackQuality">;
+  const before = videoPlaybackQualitySnapshot(drifting);
+  const after = videoPlaybackQualitySnapshot(drifting);
+  assert(
+    "two snapshots across time can be diffed to reveal a frame-drop spike",
+    after.droppedVideoFrames - before.droppedVideoFrames === 38,
+    JSON.stringify({ before, after }),
+  );
+}
+
 // --- I11: exactly one loader — spatially (union) AND temporally (continuous) -
 {
   const base = {
@@ -1308,6 +1548,713 @@ while (duplicateCandidate) {
 assert(
   "automatic failover deduplicates repeated and case-varied hashes",
   duplicateAttempts.length === 3 && new Set(duplicateAttempts).size === 3,
+);
+
+const playerSource = fs.readFileSync("src/components/watch/inline-player.tsx", "utf8");
+
+const releaseResetBlock =
+  /if \(activeInfoHash !== resetInfoHash\) \{[\s\S]*?setPlanNonce\(/.exec(playerSource)?.[0] ?? "";
+assert(
+  "given a release switch, the reset path clears strategy before the next plan",
+  /setStrategy\(null\);/.test(releaseResetBlock) &&
+    /setStrategyReason\(null\);/.test(releaseResetBlock),
+);
+
+const fileResetBlock =
+  /if \(effectiveSelectedPath !== resetForPath\) \{[\s\S]*?\n  \}/.exec(playerSource)?.[0] ?? "";
+assert(
+  "given a selected-file switch, the reset path clears strategy before the next plan",
+  /setStrategy\(null\);/.test(fileResetBlock) &&
+    /setStrategyReason\(null\);/.test(fileResetBlock),
+);
+
+const coldSwarmSample = { peers: 0, downloadSpeedBps: 0, progress: 0, observedAt: 0 };
+assert(
+  "given a cold swarm on a fresh release, when strategy is null and nothing played yet, the loader stays honest",
+  loaderStatusFromSamples({
+    preparingLabel: null,
+    sample: coldSwarmSample,
+    elapsedSec: 1,
+    strategy: null,
+    playbackEstablished: false,
+  }) === "Finding peers…",
+);
+
+assert(
+  "given a stale proven-local strategy, the loader falsely claims Preparing — which is why the reset clears it",
+  loaderStatusFromSamples({
+    preparingLabel: null,
+    sample: coldSwarmSample,
+    elapsedSec: 1,
+    strategy: "whole-file",
+    playbackEstablished: false,
+  }) === "Preparing…",
+);
+
+const planFailureBlock =
+  /if \(!planRes\.ok\) \{[\s\S]*?\n        \}/.exec(playerSource)?.[0] ?? "";
+assert(
+  "given a non-503 plan failure, the effect hands off to tryDirectStream instead of a terminal error",
+  /probeError === "timeout"/.test(planFailureBlock) &&
+    /await tryDirectStream\(activeInfoHash, filePath, controller\.signal\)/.test(planFailureBlock),
+);
+assert(
+  "given a non-503 plan failure, no immediate generic terminal problem is set",
+  planFailureBlock.length > 0 && !/setProblem\("generic"\)/.test(planFailureBlock),
+);
+assert(
+  "given a 503 probe timeout, the special auto-failover + probe-wait copy is preserved",
+  /planRes\.status === 503[\s\S]*?await attemptAutoFailover\(\)[\s\S]*?setProblem\("stalled"\)/.test(
+    planFailureBlock,
+  ),
+);
+assert(
+  "given a non-503 plan failure, failover is not looped twice on the same branch",
+  (planFailureBlock.match(/attemptAutoFailover\(/g) ?? []).length === 1,
+);
+
+const planCatchBlock =
+  /\} catch \{\r?\n        \/\/ A network error[\s\S]*?\r?\n      \} finally \{/.exec(playerSource)?.[0] ?? "";
+assert(
+  "given a fetch exception planning playback, recovery runs instead of an immediate terminal error",
+  /await tryDirectStream\(activeInfoHash, filePath, controller\.signal\)/.test(planCatchBlock) &&
+    !/setProblem\("generic"\)/.test(planCatchBlock),
+);
+
+assert(
+  "tryDirectStream is genuinely called, not a dead callback",
+  (playerSource.match(/await tryDirectStream\(/g) ?? []).length >= 2 &&
+    /const tryDirectStream = useCallback\(/.test(playerSource),
+);
+assert(
+  "the plan-selected default audio track is marked with the full plan identity before updating UI state",
+  /planSelectedAudioRef\.current = \{\s*infoHash: activeInfoHash,\s*filePath,\s*planNonce,\s*audioStreamIndex: planData\.plan\.selectedAudioIndex,\s*\};\s*setAudioStreamIndex\(planData\.plan\.selectedAudioIndex\)/.test(
+    playerSource,
+  ),
+);
+assert(
+  "a plan-derived audio state update is consumed without starting an identical second plan",
+  /if \(shouldSuppressPlanEcho\(planSelectedAudioRef\.current, echo\)\) \{[\s\S]*?planSelectedAudioRef\.current = null;\s*return;\s*\}[\s\S]*?planSelectedAudioRef\.current = null;\s*const controller = new AbortController\(\)/.test(
+    playerSource,
+  ),
+);
+assert(
+  "the elapsed loader copy resets and advances for every visible loader episode",
+  /if \(showLoader !== loaderElapsedActive\) \{\s*setLoaderElapsedActive\(showLoader\);\s*setVerboseElapsedSec\(0\);\s*\}[\s\S]*?if \(!showLoader\)[\s\S]*?setInterval\([\s\S]*?\}, 1000\);[\s\S]*?\}, \[showLoader\]\);/.test(
+    playerSource,
+  ),
+);
+assert(
+  "the elapsed loader timer is not frozen once playback has started",
+  !/verboseStartTimeRef\.current = Date\.now\(\)[\s\S]*?\}, \[expanded, activeInfoHash, playbackStarted\]\);/.test(
+    playerSource,
+  ),
+);
+
+const directStreamBlock =
+  /const tryDirectStream = useCallback\([\s\S]*?\r?\n    \[attemptAutoFailover\],\r?\n  \);/.exec(playerSource)?.[0] ??
+  "";
+assert(
+  "tryDirectStream handles direct success and escalates structured failures to auto-failover",
+  /setPlaybackMode\("direct"\)/.test(directStreamBlock) &&
+    /setPlayableSrc\(streamPath\(hash, filePath\)\)/.test(directStreamBlock) &&
+    /structuredFailureFromBody/.test(directStreamBlock) &&
+    (directStreamBlock.match(/attemptAutoFailover\(\)/g) ?? []).length === 2,
+);
+
+// ---------------------------------------------------------------------------
+// 4K playback hardening: buffer sizing, seek restarts, callback lifecycle
+// ---------------------------------------------------------------------------
+
+assert(
+  "given a 1080p source, the buffer budget keeps the tuned 120 MB / 90s back buffer",
+  hlsBufferSettingsForSource({ width: 1920, height: 1080 }).maxBufferSize === 120 * 1000 * 1000 &&
+    hlsBufferSettingsForSource({ width: 1920, height: 1080 }).backBufferLength === 90,
+);
+
+assert(
+  "given a 2160p source, the byte budget grows well past the 1080p constant",
+  hlsBufferSettingsForSource({ width: 3840, height: 2160 }).maxBufferSize === 600 * 1000 * 1000,
+);
+
+assert(
+  "given a 2160p source, the back buffer shrinks so history cannot pin memory",
+  hlsBufferSettingsForSource({ width: 3840, height: 2160 }).backBufferLength === 30,
+);
+
+assert(
+  "given anamorphic 4K reporting a short height, width still lifts it into the 4K tier",
+  hlsBufferSettingsForSource({ width: 3840, height: 1600 }).maxBufferSize === 600 * 1000 * 1000,
+);
+
+assert(
+  "given a 1440p source, the budget sits between the 1080p and 4K tiers",
+  hlsBufferSettingsForSource({ width: 2560, height: 1440 }).maxBufferSize === 300 * 1000 * 1000 &&
+    hlsBufferSettingsForSource({ width: 2560, height: 1440 }).backBufferLength === 45,
+);
+
+assert(
+  "given an unknown resolution, the budget falls back to the safe 1080p tier",
+  hlsBufferSettingsForSource({ width: null, height: null }).maxBufferSize === 120 * 1000 * 1000,
+);
+
+assert(
+  "given a measured 80 Mbps bitrate, the budget holds ~60s of real bytes",
+  hlsBufferSettingsForSource({ width: 3840, height: 2160, bitrateBps: 80_000_000 }).maxBufferSize ===
+    600 * 1000 * 1000,
+);
+
+assert(
+  "given an implausibly low bitrate, the budget never drops below the 1080p floor",
+  hlsBufferSettingsForSource({ width: 3840, height: 2160, bitrateBps: 1_000 }).maxBufferSize ===
+    120 * 1000 * 1000,
+);
+
+assert(
+  "given an implausibly high bitrate, the budget is clamped so memory stays bounded",
+  hlsBufferSettingsForSource({ width: 3840, height: 2160, bitrateBps: 2_000_000_000 }).maxBufferSize ===
+    800 * 1000 * 1000,
+);
+
+assert(
+  "given a seek target already deep in the buffer, the fragment loader is not restarted",
+  hlsSeekNeedsLoadRestart({ buffered: [{ start: 0, end: 60 }], targetSec: 20 }) === false,
+);
+
+assert(
+  "given a seek target outside the buffer, the fragment loader is restarted",
+  hlsSeekNeedsLoadRestart({ buffered: [{ start: 0, end: 60 }], targetSec: 300 }) === true,
+);
+
+assert(
+  "given a seek target at the very edge of the buffer, the loader restarts rather than starving",
+  hlsSeekNeedsLoadRestart({ buffered: [{ start: 0, end: 60 }], targetSec: 59.5 }) === true,
+);
+
+assert(
+  "given a seek target inside a later island after a gap, the loader restarts",
+  hlsSeekNeedsLoadRestart({ buffered: [{ start: 0, end: 10 }], targetSec: 40 }) === true,
+);
+
+assert(
+  "an automatic hls.js gap nudge never restarts the fragment loader",
+  hlsSeekShouldRestartLoader({
+    hasUserSeekIntent: false,
+    buffered: [],
+    targetSec: 40,
+  }) === false,
+);
+
+assert(
+  "an explicit user seek outside the buffer restarts the fragment loader",
+  hlsSeekShouldRestartLoader({
+    hasUserSeekIntent: true,
+    buffered: [{ start: 0, end: 10 }],
+    targetSec: 40,
+  }) === true,
+);
+
+assert(
+  "an explicit user seek already buffered does not restart the fragment loader",
+  hlsSeekShouldRestartLoader({
+    hasUserSeekIntent: true,
+    buffered: [{ start: 0, end: 60 }],
+    targetSec: 20,
+  }) === false,
+);
+
+assert(
+  "media-element buffered ranges convert to plain ranges, dropping empty spans",
+  JSON.stringify(timeRangesToRanges(timeRanges([[0, 10], [10, 10], [20, 35]]))) ===
+    JSON.stringify([{ start: 0, end: 10 }, { start: 20, end: 35 }]),
+);
+
+assert(
+  "a missing buffered list converts to no ranges instead of throwing",
+  timeRangesToRanges(null).length === 0,
+);
+
+const attachHlsBlock =
+  /const attachHls = useCallback\(\(video: HTMLVideoElement \| null\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/.exec(
+    playerSource,
+  )?.[0] ?? "";
+
+assert(
+  "attachHls does not depend on playbackRate, so a speed change cannot destroy the hls.js buffer",
+  attachHlsBlock.length > 0 && /\}, \[playableSrc, playbackMode\]\);$/.test(attachHlsBlock),
+);
+
+assert(
+  "attachHls applies the current rate from a ref instead of a reactive dependency",
+  /video\.playbackRate = playbackRateRef\.current;/.test(attachHlsBlock),
+);
+
+assert(
+  "the rate effect owns both the ref mirror and the element write",
+  /playbackRateRef\.current = playbackRate;\s*if \(videoRef\.current\) videoRef\.current\.playbackRate = playbackRate;\s*\}, \[playbackRate, playableSrc\]\);/.test(
+    playerSource,
+  ),
+);
+
+assert(
+  "the native attach callback is also stable across playbackRate",
+  /const attachNativeVideo = useCallback\([\s\S]*?video\.playbackRate = playbackRateRef\.current;\s*\},\s*\[\],\s*\);/.test(
+    playerSource,
+  ),
+);
+
+assert(
+  "hls.js buffer options are derived per source, not hardcoded 1080p constants",
+  /maxBufferSize: bufferSettings\.maxBufferSize/.test(attachHlsBlock) &&
+    /backBufferLength: bufferSettings\.backBufferLength/.test(attachHlsBlock) &&
+    /hlsBufferSettingsForSource\(\{/.test(attachHlsBlock),
+);
+
+assert(
+  "the seek handler requires explicit user intent and consults the buffer before tearing the loader down",
+  /const hasUserSeekIntent = requestedSeekRef\.current != null;[\s\S]*?if \(!hlsSeekShouldRestartLoader\(\{\s*hasUserSeekIntent,\s*buffered: timeRangesToRanges\(video\.buffered\),\s*targetSec: target,\s*\}\)\) \{\s*return;\s*\}\s*try \{\s*hls\.stopLoad\(\);\s*hls\.startLoad\(target\);/.test(
+    attachHlsBlock,
+  ),
+);
+
+assert(
+  "the source profile used for buffer sizing is reset before each new plan",
+  /sourceProfileRef\.current = \{ width: null, height: null, bitrateBps: null \};/.test(playerSource) &&
+    /sourceProfileRef\.current = \{\s*width: planData\.probe\.width \?\? null,/.test(playerSource),
+);
+
+assert(
+  "source changes, cleanup and error recovery survive the rework",
+  /hls\.loadSource\(playableSrc\)/.test(attachHlsBlock) &&
+    /hlsRef\.current\.destroy\(\)/.test(attachHlsBlock) &&
+    /Hls\.ErrorTypes\.NETWORK_ERROR/.test(attachHlsBlock) &&
+    /hlsSeekAbortRef\.current = \(\) => \{/.test(attachHlsBlock),
+);
+
+// --- Strict disk-vs-swarm loader locality -----------------------------------
+// Root cause: strategy `session` can still read a complete local file via
+// absolutePath, so strategy alone let a purely local wait render peer copy,
+// and startup swarm polling ran for local plans.
+{
+  const sampleOf = (peers: number | null, speed: number | null, progress: number | null) => ({
+    peers,
+    downloadSpeedBps: speed,
+    progress,
+    observedAt: Date.now(),
+  });
+
+  assert(
+    "an explicit disk answer from the server settles locality",
+    planSourceFromPlan({ source: "disk", strategy: "session" }) === "disk",
+  );
+  assert(
+    "an explicit swarm answer is honoured even for a local-looking strategy",
+    planSourceFromPlan({ source: "swarm", strategy: "whole-file" }) === "swarm",
+  );
+  assert(
+    "the locality alias is accepted from servers that use it",
+    planSourceFromPlan({ locality: "local", strategy: "session" }) === "disk",
+  );
+  assert(
+    "a session plan holding an absolutePath is disk-backed, not swarm-backed",
+    planSourceFromPlan({ strategy: "session", absolutePath: "D:/media/Show.S01E01.mkv" }) === "disk",
+  );
+  assert(
+    "a blank absolutePath does not fake disk locality",
+    planSourceFromPlan({ strategy: "session", absolutePath: "   " }) === null,
+  );
+  assert(
+    "whole-file still implies disk for older servers with no explicit field",
+    planSourceFromPlan({ strategy: "whole-file" }) === "disk",
+  );
+  assert(
+    "a bare session plan stays unknown rather than being guessed as swarm",
+    planSourceFromPlan({ strategy: "session" }) === null,
+  );
+  assert(
+    "a missing plan is unknown, not a crash",
+    planSourceFromPlan(null) === null,
+  );
+
+  // THE regression: a local session with zero peers must never emit peer text.
+  for (const elapsed of [0, 3, 15, 120]) {
+    for (const sample of [null, sampleOf(0, 0, 0), sampleOf(0, null, null), sampleOf(4, 0, 0)]) {
+      for (const established of [false, true]) {
+        const status = loaderStatusFromSamples({
+          preparingLabel: "preparing",
+          sample,
+          elapsedSec: elapsed,
+          strategy: "session",
+          planSource: "disk",
+          playbackEstablished: established,
+        });
+        assert(
+          `a local session (elapsed ${elapsed}, established ${established}) never emits peer/connecting copy`,
+          !/peer|connecting|finding|swarm/i.test(status),
+          status,
+        );
+        assert(
+          `a local session (elapsed ${elapsed}, established ${established}) uses neutral loader copy`,
+          status === "Preparing…" || status === "Seeking…" || status === "Still working…",
+          status,
+        );
+      }
+    }
+  }
+
+  assert(
+    "a local session that has run long says still working, not finding peers",
+    loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: sampleOf(0, 0, 0),
+      elapsedSec: 30,
+      strategy: "session",
+      planSource: "disk",
+    }) === "Still working…",
+  );
+  assert(
+    "a disk plan mid-playback reads as a seek",
+    loaderStatusFromSamples({
+      sample: sampleOf(9, 900_000, 0.6),
+      elapsedSec: 2,
+      strategy: "session",
+      planSource: "disk",
+      playbackEstablished: true,
+    }) === "Seeking…",
+  );
+  assert(
+    "a confirmed swarm session still gets honest peer copy",
+    loaderStatusFromSamples({
+      preparingLabel: "preparing",
+      sample: sampleOf(0, 0, 0),
+      elapsedSec: 3,
+      strategy: "session",
+      planSource: "swarm",
+    }) === "Finding peers…",
+  );
+  assert(
+    "the pre-plan default with no evidence at all is neutral, not peer copy",
+    loaderStatusFromSamples({}) === "Preparing…",
+  );
+  assert(
+    "the pre-plan default never mentions peers",
+    !/peer|connecting/i.test(loaderStatusFromSamples({ elapsedSec: 1 })),
+    loaderStatusFromSamples({ elapsedSec: 1 }),
+  );
+}
+
+assert(
+  "the player stores plan locality and feeds it to the loader before sample copy",
+  /const \[planSource, setPlanSource\] = useState<PlanSource \| null>\(null\)/.test(playerSource) &&
+  /setPlanSource\(resolvedPlanSource\)/.test(playerSource) &&
+    /planSource,\s*\r?\n\s*playbackEstablished: playbackStarted,/.test(playerSource),
+);
+
+assert(
+  "plan locality is cleared on release and file changes so it cannot describe the next wait",
+  (playerSource.match(/setPlanSource\(null\)/g) ?? []).length >= 2,
+);
+
+assert(
+  "startup swarm polling is suppressed and its samples cleared for a disk plan",
+  /if \(planSource === "disk"\) \{[\s\S]*?startupSamplesRef\.current = \[\];[\s\S]*?return;[\s\S]*?\}/.test(
+    playerSource,
+  ) &&
+    /if \(resolvedPlanSource === "disk"\) setSwarmSample\(null\);/.test(playerSource) &&
+    /playbackStarted, !!streamFailure, attemptAutoFailover, planSource\]/.test(playerSource),
+);
+
+// ── Plan-echo suppression: identity-keyed, never a bare audio index ──
+
+type PlanRun = {
+  expanded: boolean;
+  infoHash: string | null;
+  filePath: string | null;
+  planNonce: number;
+  audioStreamIndex: number | null;
+};
+
+/** Mirrors the plan effect's guard exactly, so the rule can be exercised without React. */
+function runPlanEffect(state: { armed: PlanAudioEcho | null; plans: number }, run: PlanRun): void {
+  if (!run.expanded || !run.filePath || !run.infoHash) {
+    state.armed = null;
+    return;
+  }
+  const echo: PlanAudioEcho = {
+    infoHash: run.infoHash,
+    filePath: run.filePath,
+    planNonce: run.planNonce,
+    audioStreamIndex: run.audioStreamIndex,
+  };
+  if (shouldSuppressPlanEcho(state.armed, echo)) {
+    state.armed = null;
+    return;
+  }
+  state.armed = null;
+  state.plans += 1;
+}
+
+const OPEN_RUN: PlanRun = {
+  expanded: true,
+  infoHash: "aaaa",
+  filePath: "Show/S01E01.mkv",
+  planNonce: 0,
+  audioStreamIndex: null,
+};
+const ARMED_ECHO: PlanAudioEcho = {
+  infoHash: "aaaa",
+  filePath: "Show/S01E01.mkv",
+  planNonce: 0,
+  audioStreamIndex: 3,
+};
+
+{
+  // A plan-derived audio update suppresses exactly one duplicate re-plan.
+  const state = { armed: null as PlanAudioEcho | null, plans: 0 };
+  runPlanEffect(state, OPEN_RUN);
+  state.armed = { ...ARMED_ECHO };
+  runPlanEffect(state, { ...OPEN_RUN, audioStreamIndex: 3 });
+  assert(
+    "a plan-derived audio index suppresses only the matching duplicate re-plan",
+    state.plans === 1 && state.armed === null,
+    `plans=${state.plans}`,
+  );
+  // The viewer picking a track afterwards (new plan generation) must still plan.
+  runPlanEffect(state, { ...OPEN_RUN, audioStreamIndex: 3, planNonce: 1 });
+  assert(
+    "a viewer audio selection after the echo was consumed still plans",
+    state.plans === 2,
+    `plans=${state.plans}`,
+  );
+}
+
+{
+  // Closing the player while an echo is armed must disarm it, so reopening on
+  // the same file/index cannot be swallowed.
+  const state = { armed: { ...ARMED_ECHO } as PlanAudioEcho | null, plans: 0 };
+  runPlanEffect(state, { ...OPEN_RUN, expanded: false, audioStreamIndex: 3 });
+  assert("collapsing the player disarms the plan echo", state.armed === null);
+  runPlanEffect(state, { ...OPEN_RUN, audioStreamIndex: 3 });
+  assert("reopening the player after a close still plans", state.plans === 1, `plans=${state.plans}`);
+}
+
+{
+  // Switching file / release / plan generation with an echo still armed must
+  // never swallow the required plan.
+  const state = { armed: { ...ARMED_ECHO } as PlanAudioEcho | null, plans: 0 };
+  runPlanEffect(state, { ...OPEN_RUN, filePath: "Show/S01E02.mkv", audioStreamIndex: 3 });
+  assert("switching file cannot be suppressed by a stale echo", state.plans === 1);
+
+  state.armed = { ...ARMED_ECHO };
+  runPlanEffect(state, { ...OPEN_RUN, infoHash: "bbbb", audioStreamIndex: 3 });
+  assert("switching release cannot be suppressed by a stale echo", state.plans === 2);
+
+  state.armed = { ...ARMED_ECHO };
+  runPlanEffect(state, { ...OPEN_RUN, planNonce: 1, audioStreamIndex: 3 });
+  assert("a newer plan generation (seek/retry) cannot be suppressed", state.plans === 3);
+
+  state.armed = { ...ARMED_ECHO };
+  runPlanEffect(state, { ...OPEN_RUN, filePath: null, audioStreamIndex: 3 });
+  assert("a file reset disarms the echo", state.armed === null && state.plans === 3);
+}
+
+assert(
+  "nothing armed never suppresses",
+  shouldSuppressPlanEcho(null, ARMED_ECHO) === false &&
+    shouldSuppressPlanEcho(undefined, ARMED_ECHO) === false,
+);
+
+assert(
+  "the player disarms the plan echo on release/file change, on failed preconditions and after every real plan",
+  (playerSource.match(/planSelectedAudioRef\.current = null;/g) ?? []).length >= 4 &&
+    /useEffect\(\(\) => \{\s*planSelectedAudioRef\.current = null;\s*\}, \[activeInfoHash, effectiveSelectedPath\]\);/.test(
+      playerSource,
+    ) &&
+    /shouldSuppressPlanEcho\(planSelectedAudioRef\.current, echo\)/.test(playerSource),
+);
+
+// ── Bitrate wiring: real values only, resolution tiers otherwise ──
+
+assert(
+  "the plan route reports a measured bitrate under probe.bitrate",
+  /bitrate: probeBitrateBps\(probeResult!\)/.test(
+    fs.readFileSync("src/app/api/playback/plan/route.ts", "utf8"),
+  ),
+);
+
+assert(
+  "the player feeds the plan's bitrate into buffer sizing",
+  /bitrateBps: normalizeProbeBitrate\(planData\.probe\.bitrate\)/.test(playerSource),
+);
+
+assert(
+  "a valid plan bitrate is normalized to bits per second",
+  normalizeProbeBitrate(48_000_000) === 48_000_000 && normalizeProbeBitrate("48000000") === 48_000_000,
+);
+
+assert(
+  "an absent, zero, negative or unparseable bitrate is null (never fabricated)",
+  normalizeProbeBitrate(undefined) === null &&
+    normalizeProbeBitrate(null) === null &&
+    normalizeProbeBitrate(0) === null &&
+    normalizeProbeBitrate(-5) === null &&
+    normalizeProbeBitrate(Number.NaN) === null &&
+    normalizeProbeBitrate("abc") === null,
+);
+
+{
+  const uhd = { width: 3840, height: 2160 };
+  const tiered = hlsBufferSettingsForSource({ ...uhd, bitrateBps: normalizeProbeBitrate(undefined) });
+  const measured = hlsBufferSettingsForSource({ ...uhd, bitrateBps: normalizeProbeBitrate(100_000_000) });
+  assert(
+    "an absent bitrate falls back to the 4K resolution tier",
+    tiered.maxBufferSize === 600 * 1000 * 1000,
+    String(tiered.maxBufferSize),
+  );
+  assert(
+    "a measured high bitrate sizes the buffer above the resolution tier",
+    measured.maxBufferSize === 750 * 1000 * 1000,
+    String(measured.maxBufferSize),
+  );
+  const invalid = hlsBufferSettingsForSource({ ...uhd, bitrateBps: normalizeProbeBitrate("nonsense") });
+  assert(
+    "an invalid bitrate falls back to the resolution tier rather than starving the buffer",
+    invalid.maxBufferSize === tiered.maxBufferSize,
+  );
+}
+
+// ── Fast episode transitions: identity, exact files, invisible warming ──
+
+assert(
+  "the up-next card accepts an optional exact filePath and defaults it to null",
+  normalizeUpNextCard({
+    title: "Severance",
+    label: "S02E02",
+    season: 2,
+    episode: 2,
+    availability: "ready",
+    infoHash: "abc",
+    filePath: "Pack/S02E02.mkv",
+    progress: 1,
+  })?.filePath === "Pack/S02E02.mkv" &&
+    normalizeUpNextCard({
+      title: "Severance",
+      label: "S02E02",
+      season: 2,
+      episode: 2,
+      availability: "ready",
+      infoHash: "abc",
+      progress: 1,
+    })?.filePath === null,
+);
+
+assert(
+  "a malformed or empty up-next payload yields no card rather than a broken one",
+  normalizeUpNextCard(null) === null &&
+    normalizeUpNextCard({ title: "x" }) === null &&
+    normalizeUpNextCard({ title: "x", label: "S1E1", season: 1, episode: 1, infoHash: "", progress: null })
+      ?.infoHash === null,
+);
+
+assert(
+  "an unknown availability degrades to not-fetched instead of being trusted",
+  normalizeUpNextCard({
+    title: "x",
+    label: "S1E1",
+    season: 1,
+    episode: 1,
+    availability: "sort-of",
+    infoHash: "abc",
+    progress: null,
+  })?.availability === "not-fetched",
+);
+
+assert(
+  "the player's target identity includes season, episode and file — not just the infoHash",
+  /const targetIdentity = `\$\{activeInfoHash \?\? ""\}\|\$\{activeSeason \?\? ""\}\|\$\{activeEpisode \?\? ""\}\|\$\{activeFilePath \?\? ""\}`/.test(
+    playerSource,
+  ),
+);
+
+assert(
+  "manifest reuse is keyed on the whole target identity, so a same-pack episode change cannot reuse stale media",
+  /if \(manifest\?\.infoHash === activeInfoHash && manifestKey === targetIdentity\) \{\s*\r?\n\s*return manifest;/.test(
+    playerSource,
+  ) &&
+    /const activeManifest =\s*\r?\n\s*manifest\?\.infoHash === activeInfoHash && manifestKey === targetIdentity/.test(
+      playerSource,
+    ),
+);
+
+const identityResetBlock =
+  /if \(targetIdentity !== resetTargetIdentity\) \{[\s\S]*?setPlanNonce\(/.exec(playerSource)?.[0] ?? "";
+assert(
+  "a same-hash episode change resets playback state and re-plans",
+  /setPlayableSrc\(null\);/.test(identityResetBlock) &&
+    /setPlaybackStarted\(false\);/.test(identityResetBlock) &&
+    /setStrategy\(null\);/.test(identityResetBlock),
+);
+assert(
+  "a same-hash episode change selects the named file and keeps the manifest it already holds",
+  /manifest\.files\.some\(\(file\) => file\.path === activeFilePath\)/.test(identityResetBlock) &&
+    /setManifestKey\(known \? targetIdentity : null\);/.test(identityResetBlock) &&
+    /if \(!known\) setManifest\(null\);/.test(identityResetBlock) &&
+    /setSelectedPath\(known\);/.test(identityResetBlock),
+);
+
+assert(
+  "an advance carries the server's exact filePath into the new target",
+  /filePath: next\.filePath \?\? null,/.test(playerSource),
+);
+assert(
+  "an advance still takes a fresh transition token before re-targeting",
+  /transitionGenRef\.current \+= 1;[\s\S]{0,600}?setTarget\(\{\s*\r?\n\s*infoHash: next\.infoHash,/.test(
+    playerSource,
+  ),
+);
+
+const warmEffect =
+  /const warmedTargetRef = useRef<string \| null>\(null\);[\s\S]*?\}, \[upNextInfoHash, upNextFilePath\]\);/.exec(
+    playerSource,
+  )?.[0] ?? "";
+assert(
+  "warming runs at most once per resolved episode+file",
+  /const key = `\$\{upNextInfoHash\}\|\$\{upNextFilePath\}`;/.test(warmEffect) &&
+    /if \(warmedTargetRef\.current === key\) return;/.test(warmEffect),
+);
+assert(
+  "warming only happens for known media, while the page is visible",
+  /if \(!upNextInfoHash \|\| !upNextFilePath\) return;/.test(warmEffect) &&
+    /document\.hidden\) return;/.test(warmEffect),
+);
+assert(
+  "warming is abortable and cancels its idle callback on target change or unmount",
+  /controller\.abort\(\);/.test(warmEffect) &&
+    /cancelIdle\(idleHandle\)/.test(warmEffect) &&
+    /window\.clearTimeout\(timer\)/.test(warmEffect),
+);
+assert(
+  "warming asks only for the narrow warm plan and never reads the answer",
+  /warm: true,/.test(warmEffect) &&
+    /\.catch\(\(\) => \{\}\);/.test(warmEffect) &&
+    !/setUpNextLoading|setProblem|setMessage|setPlayableSrc|setTarget|setUpNextError/.test(warmEffect),
+);
+assert(
+  "requestIdleCallback is feature-detected with a timeout fallback",
+  /typeof view\.requestIdleCallback === "function"/.test(playerSource) &&
+    /window\.setTimeout\(callback, WARM_IDLE_TIMEOUT_MS\)/.test(playerSource),
+);
+
+assert(
+  "there is no speculative background acquisition that could steal bandwidth from playback",
+  !/JSON\.stringify\(\{[^}]*action: "trigger"/.test(playerSource) &&
+    !/"\/api\/prewarm"[\s\S]{0,300}action: "trigger"/.test(playerSource),
+);
+assert(
+  "a viewer-initiated fetch of an unheld episode still goes to the on-demand path with stream retention",
+  /fetch\("\/api\/library\/ondemand"/.test(playerSource) &&
+    /retention: "stream",/.test(playerSource) &&
+    /protectHashes: activeInfoHash \? \[activeInfoHash\] : \[\],/.test(playerSource),
 );
 
 console.log(

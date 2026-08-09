@@ -56,6 +56,10 @@ import { parseEpisode } from "@/lib/torrents/episodes";
 import { packEpisodeFiles } from "@/lib/torrents/pack-episode-files";
 import { heldFilesFromVerifiedJson } from "@/lib/library/deletion-plan";
 import { isViable } from "@/lib/torrents/quality";
+import {
+  persistedTorrentHasInvalidMedia,
+  persistedTorrentIsDownloaded,
+} from "@/lib/clients/builtin-engine-lifecycle";
 import type { SearchResponse } from "@/lib/torrents/types";
 import {
   retentionStateForOrigin,
@@ -102,6 +106,13 @@ export interface TitleDetailQuery {
   year?: number | null;
   mediaType?: string | null;
   season?: number | null;
+  /**
+   * A season the user picked by hand on a previous visit to this title, read
+   * from the durable `tf_season` cookie by the server page component (never
+   * by this route directly — see `src/lib/title/remembered-season.ts`). Beats
+   * a stale watch cursor / default in `pickSeason`, never resume/progress.
+   */
+  rememberedSeason?: number | null;
   providerIdentity?: import("./provider-identity").TitleProviderIdentity | null;
 }
 
@@ -235,16 +246,17 @@ export async function buildTitleDetail(
     const engine = target.infoHash
       ? engineByHash.get(target.infoHash.trim().toLowerCase()) ?? null
       : null;
+    const invalidMedia = engine ? persistedTorrentHasInvalidMedia(engine) : false;
     const resolved = resolveAcquisitionTransfer(
       persisted,
       engine
         ? {
             hash: engine.hash,
-            status: engine.status,
+            status: invalidMedia ? "error" : engine.status,
             progress: engine.progress,
           }
         : null,
-      engine ? localFilePresence(engine) : "unknown",
+      engine ? (invalidMedia ? "absent" : localFilePresence(engine)) : "unknown",
     );
     if (
       resolved.status !== persisted.status ||
@@ -304,17 +316,18 @@ export async function buildTitleDetail(
     const identity = workIdentityFor(row.name);
     if (!workKeyMatches(workKey, identity.name, identity.year)) continue;
     const ep = parseEpisode(row.name);
+    const invalidMedia = persistedTorrentHasInvalidMedia(row);
     localReleases.push({
       hash: row.hash,
       name: row.name,
       progress: row.progress,
-      status: row.status,
+      status: invalidMedia ? "error" : row.status,
       season: ep.season ?? null,
       episode: ep.episode ?? null,
       isPack: ep.isSeasonPack === true,
       isMultiSeason: ep.isMultiSeason === true,
       retentionState: retentionStateForOrigin(row.origin),
-      fileMissing: fileConfirmedMissing(localFilePresence(row)),
+      fileMissing: invalidMedia || fileConfirmedMissing(localFilePresence(row)),
     });
   }
 
@@ -428,7 +441,14 @@ export async function buildTitleDetail(
   const resume = resolveResume(progress, localReleases);
 
   const selectedSeason = isSeries
-    ? pickSeason(seasons, query.season, resume?.season ?? null, progress, watch)
+    ? pickSeason(
+        seasons,
+        query.season,
+        resume?.season ?? null,
+        progress,
+        watch,
+        query.rememberedSeason ?? null,
+      )
     : null;
 
   const episodes =
@@ -446,11 +466,6 @@ export async function buildTitleDetail(
             selectedSeason == null
               ? new Map()
               : buildPackCoverage(localReleases, engineByHash, selectedSeason),
-          coveredByPackTransfer:
-            selectedSeason == null
-              ? null
-              : inFlightPackTransfer(seasonTransfers.get(selectedSeason)) ??
-                inFlightPackTransfer(titleTransfer),
         });
 
   const episodesTruncated =
@@ -468,7 +483,6 @@ export async function buildTitleDetail(
         engineByHash,
         selectedSeason,
       ),
-      coveredByPackTransfer: null,
     }) > EPISODE_CAP;
 
   const known =
@@ -483,6 +497,11 @@ export async function buildTitleDetail(
   return {
     workKey,
     title,
+    // Alternate names (AniList romaji/native, etc.) minus the canonical title,
+    // so the episode grab can search anime under the name indexers carry.
+    aliases: (providerMetadata?.aliases ?? []).filter(
+      (a) => a && a.trim().toLowerCase() !== title.trim().toLowerCase(),
+    ),
     year,
     mediaType,
     isSeries,
@@ -781,11 +800,20 @@ function countKnownEpisodes(
 /**
  * Which season the page opens on.
  *
- * The one asked for, else the one being resumed, else the one being watched,
- * else the one the library is hunting, else the first. Resume is preferred over
- * a bare "watching" scan so the season the page opens on and the hero's
- * Resume button are the *same* decision — never a split where the button says
- * S02E06 but the list shows season 1.
+ * The one asked for, else the one the user last picked by hand, else the one
+ * being resumed, else the one being watched, else the one the library is
+ * hunting, else the first.
+ *
+ * A manual pick governs which episode LIST the user was browsing, and must
+ * win over resume/progress here: resume describes *actual playback
+ * progress*, but this page-open decision is about what the user chose to
+ * look at, and Resume stays available as its own separate action/button
+ * regardless of which season this function opens the list on — it is never
+ * reduced or hidden by picking a different season to display. Without this,
+ * an old resume/progress row for a season far behind what the user is
+ * actually rewatching (the exact owner repro: pick Season 2, an unrelated
+ * stale progress row for Season 9 wins) silently overrides the user's own
+ * manual choice on the very next visit.
  */
 export function pickSeason(
   seasons: TitleSeason[],
@@ -793,6 +821,7 @@ export function pickSeason(
   resumeSeason: number | null,
   progress: { season: number | null; updatedAt: Date }[],
   watch: { cursorSeason: number | null } | null,
+  rememberedSeason: number | null = null,
 ): number | null {
   if (seasons.length === 0) return null;
   const available = new Set(seasons.map((s) => s.season));
@@ -805,6 +834,13 @@ export function pickSeason(
   // episode list: the requested season never matched the answered season, so
   // every background poll read as a season change and swapped in skeletons.
   if (requested != null && requested >= 1) return requested;
+
+  // A remembered manual pick is validated the same way an explicit request is:
+  // any positive season number is legitimate, because the client's season
+  // picker lists provider seasons we hold no local files for. Gating it on the
+  // local `available` set silently discarded provider-only picks (the owner
+  // repro: remembered Season 2 dropped, stale resume Season 9 wins).
+  if (rememberedSeason != null && rememberedSeason >= 1) return rememberedSeason;
 
   if (resumeSeason != null && available.has(resumeSeason)) return resumeSeason;
 
@@ -839,12 +875,6 @@ export interface EpisodeBuildInput {
    * its own acquisition never reads this. See {@link buildPackCoverage}.
    */
   packCoverage: Map<number, PackCoverage>;
-  /**
-   * An in-flight (queued/downloading) season/title pack covering this season,
-   * or null. Reconciles "the season is downloading" onto episodes the pack has
-   * not yet landed a file for — never marks them ready.
-   */
-  coveredByPackTransfer: AcquisitionTransfer | null;
 }
 
 /** One episode's file inside a pack we already hold on disk. */
@@ -855,26 +885,35 @@ export interface PackCoverage {
   filePath: string;
 }
 
+interface PackCoverageEngine {
+  progress: number;
+  status: string;
+  verifiedBitfield: string | null;
+  verifiedFilesJson: string | null;
+}
+
 /**
  * Which episodes of `season` a completed covering pack puts on disk, and where.
  *
  * Covering packs are the season pack for this season and any multi-season /
  * whole-series pack, restricted to ones that may make a local claim and are
  * actually present (`progress > 0`, not errored) — the same evidence
- * `buildSeasons` uses for `seasons[].pack`. Each pack's real episode files are
- * read from its `verifiedFilesJson` (the absolute paths the engine wrote after
- * verifying them on disk) and mapped by {@link packEpisodeFiles}, which drops
+ * `buildSeasons` uses for `seasons[].pack`. The engine must also carry its
+ * authoritative completed bitfield plus verified file fingerprints; a
+ * full-length sparse allocation alone is never enough. Each pack's exact
+ * episode files are then mapped by {@link packEpisodeFiles}, which drops
  * featurettes, samples and non-video junk that would otherwise parse to
  * phantom episodes.
  *
  * The season pack wins over a multi-season pack, and a more complete pack over
  * a less complete one, so an episode is attributed to the strongest evidence.
- * Never over-claims: only episodes with a real file entry are mapped, so a
- * mid-download pack contributes only the parts already landed.
+ * Never over-claims: partial packs contribute nothing here. Playback may still
+ * verify a specifically requested file against the live piece bitfield, but
+ * the title payload cannot infer that from aggregate progress or file length.
  */
 export function buildPackCoverage(
   localReleases: LocalRelease[],
-  engineByHash: Map<string, { verifiedFilesJson: string | null }>,
+  engineByHash: Map<string, PackCoverageEngine>,
   season: number,
 ): Map<number, PackCoverage> {
   const covering = localReleases
@@ -900,7 +939,7 @@ export function buildPackCoverage(
     const state = localState(pack);
     if (!state) continue;
     const engine = engineByHash.get(pack.hash.trim().toLowerCase());
-    if (!engine) continue;
+    if (!engine || !persistedTorrentIsDownloaded(engine)) continue;
     const files = heldFilesFromVerifiedJson(engine.verifiedFilesJson).map(
       (f) => ({ path: f.path, size: f.sizeBytes }),
     );
@@ -915,16 +954,6 @@ export function buildPackCoverage(
     }
   }
   return coverage;
-}
-
-/** The season/title pack transfer that is genuinely mid-flight, or null. */
-function inFlightPackTransfer(
-  transfer: AcquisitionTransfer | null | undefined,
-): AcquisitionTransfer | null {
-  if (!transfer) return null;
-  return transfer.status === "queued" || transfer.status === "downloading"
-    ? transfer
-    : null;
 }
 
 /**
@@ -1006,7 +1035,6 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
     let fromPack = Boolean(
       transfer?.infoHash && local && (local.isPack || local.isMultiSeason),
     );
-    let coveredByPack: TitleEpisodeTransfer | null = null;
 
     // Pack coverage. A completed covering pack holds this episode's file, so it
     // makes the row playable (ready + the pack hash + the mapped file) and its
@@ -1039,8 +1067,6 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
         filePath: cover.filePath,
         error: null,
       };
-    } else if (!transfer && !local && input.coveredByPackTransfer) {
-      coveredByPack = input.coveredByPackTransfer;
     }
 
     // A season download grabs each episode as its own release but writes no
@@ -1057,7 +1083,7 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
     // excluded (their fraction is not download progress — see
     // keptDownloadFraction), a completed file is left to the ready/Play path,
     // and a pack's own row is handled by the coverage branches above.
-    if (!transfer && !coveredByPack) {
+    if (!transfer) {
       const downloading =
         local && isDownloadingLocal(local)
           ? local
@@ -1100,7 +1126,6 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
         input.cursorSeason === season && input.cursorEpisode === episode,
       fromPack,
       transfer,
-      coveredByPack,
     });
   }
 

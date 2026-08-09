@@ -23,6 +23,12 @@ import {
   planReleaseRemoval,
 } from "./release-file-removal";
 import { findTorrentByHash } from "./find-torrent-by-hash";
+import { noteCompletionVerificationGap } from "./engine-pressure";
+import {
+  runCompletionSweep,
+  clearCompletionSweepOwnerState,
+  type CompletionSweepStats,
+} from "./completion-sweep";
 import {
   releaseFailedAllocation,
   snapshotAllocation,
@@ -35,7 +41,7 @@ import {
 } from "./torrent-metadata-cache";
 import { haltTransfer, resumeTransfer as resumeTransferCore } from "./transfer-control";
 import prisma from "@/lib/prisma";
-import { foregroundActive } from "@/lib/prewarm/foreground";
+import { foregroundActive, foregroundHash, foregroundIdleMs } from "@/lib/prewarm/foreground";
 import { USER_ORIGIN } from "@/lib/prewarm/types";
 import {
   purposeFromOrigin,
@@ -45,6 +51,38 @@ import {
   type ExistingOriginLookup,
   type OriginValue,
 } from "./add-purpose";
+import {
+  DOWNLOAD_COMPLETE_PROGRESS,
+  persistedTorrentDisplayState,
+  persistedTorrentHasInvalidMedia,
+  persistedTorrentIsDownloaded,
+  shouldRehydrateTorrent,
+} from "./builtin-engine-lifecycle";
+import { createSnapshotScheduler } from "./snapshot-scheduler";
+import { finalizeCompletedDownload } from "./completion-finalizer";
+import {
+  isSupportedVideoFileName,
+  validateTorrentMediaPayload,
+} from "@/lib/torrents/filters";
+import { probeFile } from "@/lib/media/probe";
+
+export const INVALID_COMPLETED_MEDIA_MESSAGE =
+  "The downloaded release did not contain playable video. TorrentFlow will choose another release.";
+
+class InvalidCompletedMediaError extends Error {
+  constructor() {
+    super(INVALID_COMPLETED_MEDIA_MESSAGE);
+    this.name = "InvalidCompletedMediaError";
+  }
+}
+
+function hasSupportedVideoPayload(
+  files: readonly { name?: string | null; path?: string | null }[],
+): boolean {
+  return files.some((file) =>
+    isSupportedVideoFileName(String(file.path ?? file.name ?? "")),
+  );
+}
 
 type WebTorrentLike = {
   torrents: Array<WtTorrent>;
@@ -165,20 +203,18 @@ type WtTorrent = {
  * We do not pin `torrentPort`: measurement showed it made no difference, and a
  * fixed port collides with a qBittorrent install on the same machine.
  *
- * `maxConns` stays at WebTorrent's 55 deliberately. Re-measured after public
+ * `maxConns` is deliberately bounded below WebTorrent's default. Re-measured after public
  * fallback trackers were restored, using Ubuntu 24.04.3
  * (d160b8d8ea35a5b4e52837468fc8f03d55cef1f7) with this probe:
  *
  *   metadata 5.7s; peak 32 peers / 32 wires in 60s; peak 14.9 MiB/s
  *
- * The default was not saturated. Raising the per-torrent budget now would also
- * give every background seed the same larger socket pool, so ten torrents could
- * multiply the very contention this file is trying to remove. If a future
- * measurement shows a playing torrent pinned at 55 connected peers while still
- * starved, the right next step is a foreground connection policy, not just a
- * bigger number for all torrents.
+ * The measured swarm peaked at 32 peers, so 32 preserves the observed useful
+ * ceiling while preventing each active torrent from inheriting a 55-socket
+ * budget. Completed torrents are parked rather than seeded, so this budget is
+ * reserved for work that is still downloading or serving a partial file.
  */
-const BUILTIN_CLIENT_OPTIONS = { utp: false } as const;
+const BUILTIN_CLIENT_OPTIONS = { utp: false, maxConns: 32 } as const;
 
 export const builtinClientOptions = BUILTIN_CLIENT_OPTIONS;
 
@@ -217,9 +253,11 @@ export const PUBLIC_TRACKERS = [
   "wss://tracker.webtorrent.dev",
 ] as const;
 
-// Keep the normal playback working set hot: with the common 1 MiB piece size,
-// this holds roughly four minutes of 8 Mbps video plus the head/tail windows.
-export const STREAMING_STORE_CACHE_SLOTS = 256;
+// WebTorrent's store cache is per torrent, not global. Applying the former
+// 256-piece value to eleven torrents retained roughly 2.75 GiB on the measured
+// workload. Twenty is WebTorrent's own disk-backed default: enough to absorb
+// active sequential reads without turning every transfer into a RAM cache.
+export const STREAMING_STORE_CACHE_SLOTS = 20;
 
 const ADD_OPTIONS: BuiltinAddOptions = {
   strategy: "sequential",
@@ -966,6 +1004,7 @@ function applyAddSelection(
 }
 
 const REHYDRATE_METADATA_TIMEOUT_MS = 90_000;
+const UNOWNED_HANDLE_RELEASE_WAIT_MS = 15_000;
 
 type PersistedFileFingerprint = {
   path: string;
@@ -991,10 +1030,46 @@ export function rehydrateFailureDataForTests(
   return rehydrateFailureData(err);
 }
 
+async function waitForUnownedHandleRelease(
+  client: WebTorrentLike,
+  torrent: WtTorrent,
+  hash: string,
+): Promise<void> {
+  const deadline = Date.now() + UNOWNED_HANDLE_RELEASE_WAIT_MS;
+  while (
+    Date.now() < deadline &&
+    !state().meta.has(hash) &&
+    findTorrent(client, hash) === torrent
+  ) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 async function recordRehydrateFailure(
   row: EngineTorrentRehydrateRow,
   err: unknown,
 ): Promise<void> {
+  if (err instanceof InvalidCompletedMediaError) {
+    await prisma.$transaction([
+      prisma.engineTorrent.updateMany({
+        where: { id: row.id },
+        data: {
+          progress: 1,
+          status: "error",
+          error: INVALID_COMPLETED_MEDIA_MESSAGE,
+        },
+      }),
+      prisma.acquisitionTarget.updateMany({
+        where: { infoHash: { in: [row.hash, row.hash.toUpperCase()] } },
+        data: {
+          progress: 0,
+          status: "failed",
+          error: INVALID_COMPLETED_MEDIA_MESSAGE,
+        },
+      }),
+    ]);
+    return;
+  }
   await prisma.engineTorrent.updateMany({
     where: { id: row.id },
     data: rehydrateFailureData(err),
@@ -1005,36 +1080,15 @@ function scheduleRehydrateReadyPersist(
   row: EngineTorrentRehydrateRow,
   t: WtTorrent,
 ): void {
-  void (async () => {
-    const verified = await persistedVerifiedState(t);
-    await prisma.engineTorrent.updateMany({
-      where: { id: row.id },
-      data: {
-        error: null,
-        progress: readProp(() => t.progress, 0),
-        sizeBytes: BigInt(
-          Math.max(0, Math.floor(readProp(() => t.length, 0))),
-        ),
-        status:
-          row.status === "paused"
-            ? "paused"
-            : isComplete(t)
-              ? "seeding"
-              : "downloading",
-        name: readProp(() => t.name, "") || row.name,
-        ...(verified
-          ? {
-              verifiedBitfield: verified.verifiedBitfield,
-              verifiedFilesJson: verified.verifiedFilesJson,
-              verifiedAt: new Date(),
-            }
-          : {}),
-      },
-    });
-  })()
-    .catch(() => {
-      /* best-effort */
-    });
+  if (isComplete(t)) {
+    void persistAndParkCompletedTorrent(row.userId, t);
+    return;
+  }
+  scheduleProgressPersist(
+    row.userId,
+    t,
+    row.status === "paused" ? "paused" : "downloading",
+  );
 }
 
 type TorrentMeta = {
@@ -1068,12 +1122,25 @@ type EngineState = {
   client: WebTorrentLike | null;
   loading: Promise<WebTorrentLike> | null;
   uploadThrottleTimer: ReturnType<typeof setInterval> | null;
+  /** Replaces stale interval closures after a development hot reload. */
+  uploadThrottleVersion: number;
   /** hash -> last known save path / category for list enrichment */
   meta: Map<string, TorrentMeta>;
   /** userIds (or "*" for all-users) already rehydrated this process */
   rehydrated: Set<string>;
   /** in-flight rehydrate promises keyed by userId or "*" */
   rehydrating: Map<string, Promise<void>>;
+  /** Torrent objects already wired to the completion observer. */
+  completionObserved: WeakSet<object>;
+  /** userId:hash -> one durable completion/park transition. */
+  parking: Map<string, Promise<boolean>>;
+  /** Failed detach retries; completed torrents stay disconnected meanwhile. */
+  parkingRetryTimers: Map<string, ReturnType<typeof setTimeout>>;
+  /** Active engine-backed HTTP responses keyed by info hash. */
+  streamLeases: Map<string, number>;
+  streamLeaseWaiters: Map<string, Set<() => void>>;
+  /** Releases shared DHT/listener resources after the final torrent leaves. */
+  idleDestroyTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const g = globalThis as unknown as { __tfBuiltinEngine?: EngineState };
@@ -1084,25 +1151,178 @@ function state(): EngineState {
       client: null,
       loading: null,
       uploadThrottleTimer: null,
+      uploadThrottleVersion: 0,
       meta: new Map(),
       rehydrated: new Set(),
       rehydrating: new Map(),
+      completionObserved: new WeakSet(),
+      parking: new Map(),
+      parkingRetryTimers: new Map(),
+      streamLeases: new Map(),
+      streamLeaseWaiters: new Map(),
+      idleDestroyTimer: null,
     };
   }
   // Backfill fields if an older singleton is still hot-reloaded in dev
   const s = g.__tfBuiltinEngine;
   (s as Partial<EngineState>).uploadThrottleTimer ??= null;
+  (s as Partial<EngineState>).uploadThrottleVersion ??= 0;
   if (!s.rehydrated) s.rehydrated = new Set();
   if (!s.rehydrating) s.rehydrating = new Map();
+  if (!s.completionObserved) s.completionObserved = new WeakSet();
+  if (!s.parking) s.parking = new Map();
+  if (!s.parkingRetryTimers) s.parkingRetryTimers = new Map();
+  if (!s.streamLeases) s.streamLeases = new Map();
+  if (!s.streamLeaseWaiters) s.streamLeaseWaiters = new Map();
+  (s as Partial<EngineState>).idleDestroyTimer ??= null;
   return s;
 }
 
+/**
+ * How long after the last foreground playback sample the sweep leaves the
+ * foreground hash alone. A paused player holds no stream lease, so without this
+ * the sweep could park the exact torrent the viewer is about to resume.
+ */
+const COMPLETION_SWEEP_FOREGROUND_GRACE_MS = 120_000;
+
+/**
+ * Catch torrents that finished without a completion event, on the 5s beat.
+ *
+ * See `completion-sweep.ts` for why this is needed at all: park is otherwise
+ * only reachable from `download`/`done`/`verified` or attach, so a torrent
+ * whose last piece verifies after its final triggering event seeds forever.
+ * Deliberately reuses this loop rather than adding a timer — a CPU-pressure fix
+ * that arms another interval is not a fix.
+ */
+export function sweepCompletedBuiltinTorrents(): CompletionSweepStats {
+  const s = state();
+  const torrents = s.client?.torrents ?? [];
+  return runCompletionSweep<WtTorrent>({
+    torrents: torrents as WtTorrent[],
+    hashOf: (t) => readProp(() => t.infoHash, "")?.toLowerCase?.() ?? "",
+    // The full verification predicate — never the latched WebTorrent done flag
+    // and never bare progress. `isComplete` short-circuits on progress before
+    // touching the bitfield, so the per-beat cost for an incomplete torrent is
+    // one float compare, and a bitfield hole always reads as incomplete.
+    isVerifiedComplete: (t) => isComplete(t),
+    leaseCount: (hash) => s.streamLeases.get(hash) ?? 0,
+    // A *paused* player holds no lease, so leases alone would let the sweep
+    // park a torrent the viewer is about to resume. Parking is recoverable
+    // (Play rehydrates from the persisted files), but re-attaching costs a
+    // visible stall, so the recently-foreground hash gets a grace window.
+    isForeground: (hash) =>
+      !!hash &&
+      foregroundHash()?.toLowerCase() === hash &&
+      foregroundIdleMs() < COMPLETION_SWEEP_FOREGROUND_GRACE_MS,
+    isParking: (hash) => s.parking.has(hash),
+    // The engine's own 30 s park-retry backoff owns the torrent while it is
+    // armed; the sweep must not shortcut it into a tighter 5 s retry loop.
+    isParkRetryPending: (hash) => s.parkingRetryTimers.has(hash),
+    ownerOf: (hash) => s.meta.get(hash)?.userId?.trim() || undefined,
+    // In-memory meta can be missing after a restart that has not rehydrated
+    // this hash. Fall back to the durable row on the sweep's bounded owner
+    // retry cadence — never per beat — and only backfill meta, so the next
+    // sweep can park it normally. The promise is returned so a transient
+    // failure is retried later instead of being written off permanently.
+    onMissingOwner: (hash) => backfillSweepOwnerFromDatabase(hash),
+    // Deselect only: no pause, no destroy, no file or DB mutation. A completed
+    // torrent needs no pieces, so dropping the selection stops the redundant
+    // request/discard traffic while every byte, row and resume path survives.
+    // Reuses `parkBuiltinStreamTorrent` so the stream-priority bookkeeping is
+    // cleared the same way it is everywhere else — a raw deselect would leave
+    // `prioritizeBuiltinStreamFile` short-circuiting on a selection that no
+    // longer exists, and a later Play stalled.
+    quiesce: (t) => {
+      const hash = readProp(() => t.infoHash, "") ?? "";
+      if (!hash || !parkBuiltinStreamTorrent(hash)) {
+        deselectAllFiles(t);
+        prioritizedStreamFiles.delete(t as unknown as object);
+        prioritizedEdgePrefetches.delete(t as unknown as object);
+      }
+    },
+    park: (userId, t) => persistAndParkCompletedTorrent(userId, t),
+  });
+}
+
+/**
+ * Recover an owning user id for a swept hash from the durable engine row.
+ *
+ * Purely a read plus an in-memory meta backfill: it creates nothing and deletes
+ * nothing. Returns whether an owner was actually recovered, so the sweep can
+ * tell "no durable row" and "the query failed" apart from success and retry
+ * only on its bounded cadence — a lookup that failed once must not be
+ * suppressed for the life of the process, or the torrent stays quiesced but
+ * live forever. While unresolved the hash stays quiesced and unparked, visible
+ * in the sweep's `parkSkippedNoOwner` counter.
+ */
+async function backfillSweepOwnerFromDatabase(hash: string): Promise<boolean> {
+  const expectedClient = state().client;
+  if (!expectedClient) return false;
+  try {
+    const row = await prisma.engineTorrent.findFirst({
+      where: { hash },
+      select: { userId: true, savePath: true, category: true, name: true },
+    });
+    const userId = row?.userId?.trim();
+    if (!userId) return false;
+    // The lookup may outlive an idle destroy or explicit shutdown. Never
+    // resurrect meta for the dead engine, or let its owner leak into a fresh
+    // client created while this query was in flight.
+    if (state().client !== expectedClient) return false;
+    const s = state();
+    const existing = s.meta.get(hash);
+    s.meta.set(hash, {
+      savePath: existing?.savePath ?? row?.savePath ?? undefined,
+      category: existing?.category ?? row?.category ?? undefined,
+      name: existing?.name ?? row?.name ?? undefined,
+      userId,
+    });
+    return true;
+  } catch (err) {
+    console.warn(
+      `[completion-sweep] durable owner lookup failed for ${hash}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
+function resetEngineBookkeeping(s: EngineState): void {
+  for (const timer of s.parkingRetryTimers.values()) clearTimeout(timer);
+  s.parkingRetryTimers.clear();
+  if (s.uploadThrottleTimer) clearInterval(s.uploadThrottleTimer);
+  s.uploadThrottleTimer = null;
+  s.uploadThrottleVersion = 0;
+  s.meta.clear();
+  clearCompletionSweepOwnerState();
+  s.rehydrated.clear();
+  s.rehydrating.clear();
+}
+
+const UPLOAD_THROTTLE_LOOP_VERSION = 2;
+
 function startUploadThrottleLoop(client: WebTorrentLike): void {
   const s = state();
-  if (s.uploadThrottleTimer) return;
+  if (
+    s.uploadThrottleTimer &&
+    s.uploadThrottleVersion === UPLOAD_THROTTLE_LOOP_VERSION
+  ) {
+    return;
+  }
+  if (s.uploadThrottleTimer) clearInterval(s.uploadThrottleTimer);
+  s.uploadThrottleVersion = UPLOAD_THROTTLE_LOOP_VERSION;
   applyForegroundUploadThrottle(client, foregroundActive());
   s.uploadThrottleTimer = setInterval(() => {
     applyForegroundUploadThrottle(client, foregroundActive());
+    // Re-check live torrents for completions no event ever reported.
+    try {
+      sweepCompletedBuiltinTorrents();
+    } catch (err) {
+      console.warn(
+        "[completion-sweep] sweep failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
     // Same 5s beat drives the swarm-delivery watchdog: when a torrent is the
     // foreground stream, sample it and fail over if it has stalled. Loaded
     // dynamically so the watchdog (which imports this engine for its effects)
@@ -1140,11 +1360,9 @@ export async function shutdownBuiltinEngine(): Promise<boolean> {
 
   s.client = null;
   s.loading = null;
-  if (s.uploadThrottleTimer) clearInterval(s.uploadThrottleTimer);
-  s.uploadThrottleTimer = null;
-  s.meta.clear();
-  s.rehydrated.clear();
-  s.rehydrating.clear();
+  if (s.idleDestroyTimer) clearTimeout(s.idleDestroyTimer);
+  s.idleDestroyTimer = null;
+  resetEngineBookkeeping(s);
 
   if (!client) return false;
 
@@ -1224,6 +1442,10 @@ function probeExisting(
 
 async function getWtClient(): Promise<WebTorrentLike> {
   const s = state();
+  if (s.idleDestroyTimer) {
+    clearTimeout(s.idleDestroyTimer);
+    s.idleDestroyTimer = null;
+  }
   if (s.client) return s.client;
   if (s.loading) return s.loading;
 
@@ -1520,6 +1742,31 @@ async function persistedVerifiedState(torrent: WtTorrent): Promise<{
   return { verifiedBitfield, verifiedFilesJson: JSON.stringify(files) };
 }
 
+async function validatedPersistedVerifiedState(torrent: WtTorrent): Promise<{
+  verifiedBitfield: string;
+  verifiedFilesJson: string;
+} | null> {
+  const verified = await persistedVerifiedState(torrent);
+  if (!verified) return null;
+  const files = JSON.parse(verified.verifiedFilesJson) as PersistedFileFingerprint[];
+  const videos = files.filter((file) => isSupportedVideoFileName(file.path));
+  if (videos.length === 0) throw new InvalidCompletedMediaError();
+
+  for (const file of videos) {
+    const outcome = await probeFile(file.path, { timeoutMs: 15_000 });
+    if (!outcome.ok) {
+      if (outcome.error.message.includes("ffprobe is unavailable")) {
+        throw new Error(outcome.error.message);
+      }
+      throw new InvalidCompletedMediaError();
+    }
+    if (!outcome.result.streams.some((stream) => stream.codecType === "video")) {
+      throw new InvalidCompletedMediaError();
+    }
+  }
+  return verified;
+}
+
 async function startupBitfieldForRow(
   row: Pick<EngineTorrentRehydrateRow, "verifiedBitfield" | "verifiedFilesJson">,
 ): Promise<Uint8Array | null> {
@@ -1684,6 +1931,8 @@ async function rehydrateFromDb(
   }
 
   const work = (async () => {
+    let succeeded = false;
+    let retryNeeded = false;
     try {
       const rows = await prisma.engineTorrent.findMany({
         where: {
@@ -1694,6 +1943,7 @@ async function rehydrateFromDb(
       });
 
       for (const row of rows) {
+        if (!shouldRehydrateTorrent(row)) continue;
         const addUri = row.torrentUrl?.trim() || row.magnet?.trim();
         if (!addUri) continue;
         if (!row.hash) continue;
@@ -1701,14 +1951,49 @@ async function rehydrateFromDb(
         try {
           // Must use findTorrent — client.get() is async in WebTorrent 3 and
           // a bare Promise is always truthy (would skip re-add forever).
-          const already = findTorrent(client, hash);
+          let already = findTorrent(client, hash);
+          if (already && !s.meta.has(hash)) {
+            await waitForUnownedHandleRelease(client, already, hash);
+            already = findTorrent(client, hash);
+          }
+          if (already && !s.meta.has(hash)) {
+            retryNeeded = true;
+            continue;
+          }
           if (already) {
-            s.meta.set(hash, {
-              savePath: row.savePath ?? undefined,
-              category: row.category ?? undefined,
-              name: row.name,
-              userId: row.userId,
-            });
+            const acceptExisting = () => {
+              if (!hasSupportedVideoPayload(already.files ?? [])) {
+                s.meta.delete(hash);
+                try {
+                  already.destroy?.({ destroyStore: false });
+                } catch {
+                  /* best-effort */
+                }
+                void recordRehydrateFailure(
+                  row,
+                  new InvalidCompletedMediaError(),
+                ).catch(() => {
+                  /* best-effort */
+                });
+                return;
+              }
+              s.meta.set(hash, {
+                savePath: row.savePath ?? undefined,
+                category: row.category ?? undefined,
+                name: row.name,
+                userId: row.userId,
+              });
+            };
+            if (already.ready) {
+              acceptExisting();
+            } else {
+              const onExistingReady = () => {
+                already.removeListener?.("ready", onExistingReady);
+                acceptExisting();
+              };
+              already.on("ready", onExistingReady);
+              if (already.ready) onExistingReady();
+            }
             continue;
           }
 
@@ -1754,12 +2039,17 @@ async function rehydrateFromDb(
           };
           const onReady = () => {
             if (settled) return;
+            if (!hasSupportedVideoPayload(t.files ?? [])) {
+              fail(new InvalidCompletedMediaError());
+              return;
+            }
             settled = true;
             cleanup();
             const h = t.infoHash?.toLowerCase?.() || hash;
             applyPersistedStatus(t, row.status, row.origin);
             cacheTorrentMetadata(dest, h, t);
             scheduleRehydrateReadyPersist(row, t);
+            observeCompletion(row.userId, t);
             s.meta.set(h, {
               savePath: dest,
               category: row.category ?? undefined,
@@ -1786,6 +2076,7 @@ async function rehydrateFromDb(
             } catch {
               /* best-effort */
             }
+            s.meta.delete(hash);
             void recordRehydrateFailure(row, err).catch(() => {
               /* best-effort */
             });
@@ -1809,10 +2100,17 @@ async function rehydrateFromDb(
           });
         }
       }
+      succeeded = !retryNeeded;
+      if (retryNeeded) {
+        const retry = setTimeout(() => {
+          void rehydrateFromDb(client, userId);
+        }, 1_000);
+        retry.unref?.();
+      }
     } catch (err) {
       console.warn("[builtin-engine] rehydrate query failed", err);
     } finally {
-      s.rehydrated.add(key);
+      if (succeeded) s.rehydrated.add(key);
       s.rehydrating.delete(key);
     }
   })();
@@ -1828,6 +2126,77 @@ async function ensureClientAndRehydrate(
   // Rehydrate for this user (or all rows if no userId) on first list/add
   await rehydrateFromDb(client, config?.userId);
   return client;
+}
+
+export function rehydrateBuiltinEngineInBackground(
+  config: ClientConnectionConfig,
+): void {
+  setTimeout(() => {
+    void ensureClientAndRehydrate(config).catch((err) => {
+      console.warn(
+        "[builtin-engine] background rehydrate failed",
+        err instanceof Error ? err.message : err,
+      );
+    });
+  }, 0);
+}
+
+let runtimeStartScheduled = false;
+const BUILTIN_RUNTIME_RETRY_MS = 30_000;
+
+export function startBuiltinEngineRuntime(): void {
+  if (runtimeStartScheduled) return;
+  runtimeStartScheduled = true;
+  const timer = setTimeout(() => {
+    void (async () => {
+      const externalUsers = await prisma.clientSettings.findMany({
+        where: { clientType: { in: ["qbittorrent", "transmission"] } },
+        select: { userId: true },
+      });
+      const excludedUsers = new Set(externalUsers.map((row) => row.userId));
+      const rows = await prisma.engineTorrent.findMany({
+        where: {
+          status: { notIn: ["removed", "error"] },
+          OR: [{ magnet: { not: null } }, { torrentUrl: { not: null } }],
+        },
+        select: {
+          userId: true,
+          progress: true,
+          status: true,
+          magnet: true,
+          torrentUrl: true,
+          verifiedBitfield: true,
+          verifiedFilesJson: true,
+        },
+      });
+      for (const userId of new Set(
+        rows
+          .filter(
+            (row) =>
+              !excludedUsers.has(row.userId) && shouldRehydrateTorrent(row),
+          )
+          .map((row) => row.userId),
+      )) {
+        await ensureClientAndRehydrate({
+          clientType: "builtin",
+          host: "",
+          userId,
+        });
+      }
+    })().catch((err) => {
+      runtimeStartScheduled = false;
+      console.warn(
+        "[builtin-engine] startup rehydrate failed",
+        err instanceof Error ? err.message : err,
+      );
+      const retry = setTimeout(
+        startBuiltinEngineRuntime,
+        BUILTIN_RUNTIME_RETRY_MS,
+      );
+      retry.unref?.();
+    });
+  }, 0);
+  timer.unref?.();
 }
 
 /**
@@ -1848,6 +2217,53 @@ export function readProp<T>(read: () => T, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+type TorrentTransferMetrics = {
+  at: number;
+  downloaded: number;
+  length: number;
+  progress: number;
+  remainingMs: number;
+};
+
+const TORRENT_TRANSFER_METRICS_TTL_MS = 500;
+const torrentTransferMetricsCache = new WeakMap<object, TorrentTransferMetrics>();
+
+/**
+ * WebTorrent derives `downloaded`, `progress`, and `timeRemaining` by walking
+ * every piece. Cache that snapshot briefly so a block event, status render, and
+ * persistence request share one walk instead of repeating it on the event loop.
+ */
+function torrentTransferMetrics(
+  t: WtTorrent,
+  now = Date.now(),
+): TorrentTransferMetrics {
+  const cached = torrentTransferMetricsCache.get(t as object);
+  if (cached && now - cached.at < TORRENT_TRANSFER_METRICS_TTL_MS) return cached;
+
+  const length = Math.max(0, readProp(() => t.length, 0));
+  const rawDownloaded = readProp<number>(
+    () => t.downloaded ?? Number.NaN,
+    Number.NaN,
+  );
+  const hasDownloaded = Number.isFinite(rawDownloaded);
+  const fallbackProgress = hasDownloaded
+    ? 0
+    : Math.max(0, Math.min(1, readProp(() => t.progress, 0)));
+  const downloaded = hasDownloaded
+    ? Math.max(0, Math.min(length, rawDownloaded))
+    : Math.round(length * fallbackProgress);
+  const progress =
+    length > 0 ? Math.max(0, Math.min(1, downloaded / length)) : fallbackProgress;
+  const remainingMs = readProp(() => t.timeRemaining, 0);
+  const metrics = { at: now, downloaded, length, progress, remainingMs };
+  torrentTransferMetricsCache.set(t as object, metrics);
+  return metrics;
+}
+
+function invalidateTorrentTransferMetrics(t: WtTorrent): void {
+  torrentTransferMetricsCache.delete(t as object);
 }
 
 /**
@@ -1871,11 +2287,36 @@ export function readProp<T>(read: () => T, fallback: T): T {
  * optimistic high-water mark even after `_markUnverified` clears bits on a
  * failed hash check. `progress` is recomputed from the bitfield on every read.
  */
+function everyPieceVerified(t: WtTorrent): boolean {
+  const pieces = readProp(() => t.pieces, undefined);
+  const get = readProp(() => t.bitfield?.get, undefined);
+  if (!Array.isArray(pieces) || pieces.length === 0 || typeof get !== "function") {
+    return false;
+  }
+  for (let index = 0; index < pieces.length; index += 1) {
+    if (!get.call(t.bitfield, index)) return false;
+  }
+  return true;
+}
+
 function isComplete(t: WtTorrent): boolean {
-  return readProp(() => t.progress, 0) >= 0.9999;
+  const atCompleteProgress =
+    torrentTransferMetrics(t).progress >= DOWNLOAD_COMPLETE_PROGRESS;
+  if (!atCompleteProgress) return false;
+  const verified = everyPieceVerified(t);
+  // Observational only: the return value below is unchanged either way. This
+  // just makes the "100% but the bitfield disagrees" case leave a record the
+  // first time it happens for a hash, instead of being silently invisible.
+  noteCompletionVerificationGap(
+    readProp(() => t.infoHash, ""),
+    atCompleteProgress,
+    verified,
+  );
+  return verified;
 }
 
 export function torrentStatus(t: WtTorrent): string {
+  if (isComplete(t)) return "downloaded";
   if (readProp(() => t.paused, false)) return "paused";
 
   // `ready` flips only after existing data has been hash-checked, so anything
@@ -1891,8 +2332,6 @@ export function torrentStatus(t: WtTorrent): string {
   // `t.done` cannot be trusted here — see {@link isComplete}. Observed live:
   // three torrents reporting `done` at 47–52% progress, drawn as "Seeding"
   // while they were still missing half their data.
-  const complete = isComplete(t);
-  if (complete) return peers > 0 ? "uploading" : "stalledUP";
   return peers > 0 ? "downloading" : "stalledDL";
 }
 
@@ -1900,8 +2339,14 @@ export function mapTorrent(
   t: WtTorrent,
   extra?: TorrentMeta,
 ): ClientTorrent {
+  const metrics = torrentTransferMetrics(t);
   const st = torrentStatus(t);
-  const remainingMs = readProp(() => t.timeRemaining, 0);
+  const files = readProp(() => t.files, undefined);
+  const playable =
+    readProp(() => t.ready, false) && Array.isArray(files)
+      ? hasSupportedVideoPayload(files)
+      : undefined;
+  const remainingMs = metrics.remainingMs;
   const eta =
     remainingMs > 0 && remainingMs < 8640000 * 1000
       ? Math.round(remainingMs / 1000)
@@ -1910,11 +2355,12 @@ export function mapTorrent(
   return {
     hash: t.infoHash,
     name: readProp(() => t.name, "") || extra?.name || t.infoHash,
-    progress: readProp(() => t.progress, 0),
-    sizeBytes: readProp(() => t.length, 0),
+    progress: metrics.progress,
+    sizeBytes: metrics.length,
     dlspeed: readProp(() => t.downloadSpeed, 0),
     upspeed: readProp(() => t.uploadSpeed, 0),
     state: st,
+    playable,
     eta,
     peers: readProp(() => t.numPeers, 0),
     category: extra?.category,
@@ -1938,31 +2384,9 @@ export function getBuiltinTorrentPresenceForAvailability(
   if (!normalizedHash) return "unknown";
 
   const s = state();
-  const key = userId.trim() || "*";
-  if (!s.client || s.loading) {
-    requestAvailabilityRehydrate(userId);
-    return "unknown";
-  }
-  if (s.rehydrating.has("*") || s.rehydrating.has(key)) return "unknown";
-  if (!s.rehydrated.has("*") && !s.rehydrated.has(key)) {
-    requestAvailabilityRehydrate(userId);
-    return "unknown";
-  }
+  if (!s.client || s.loading) return "unknown";
 
   return findTorrent(s.client, normalizedHash) ? "present" : "absent";
-}
-
-function requestAvailabilityRehydrate(userId: string): void {
-  void ensureClientAndRehydrate({
-    clientType: "builtin",
-    host: "",
-    userId: userId.trim() || null,
-  }).catch((err) => {
-    console.warn(
-      "[builtin-engine] availability rehydrate failed",
-      err instanceof Error ? err.message : err,
-    );
-  });
 }
 
 /** Hashes this user may see/control (meta + durable EngineTorrent rows). */
@@ -2025,6 +2449,72 @@ export function findLiveBuiltinTorrent(hash: string): WtTorrent | null {
   const normalized = hash.trim().toLowerCase();
   if (!normalized) return null;
   return findTorrent(s.client, normalized) ?? null;
+}
+
+export function acquireBuiltinStreamLease(infoHash: string): () => void {
+  const hash = infoHash.trim().toLowerCase();
+  const s = state();
+  s.streamLeases.set(hash, (s.streamLeases.get(hash) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = Math.max(0, (s.streamLeases.get(hash) ?? 1) - 1);
+    if (remaining > 0) {
+      s.streamLeases.set(hash, remaining);
+      return;
+    }
+    s.streamLeases.delete(hash);
+    const waiters = s.streamLeaseWaiters.get(hash);
+    s.streamLeaseWaiters.delete(hash);
+    for (const resolve of waiters ?? []) resolve();
+  };
+}
+
+const STREAM_LEASE_RELEASE_WAIT_MS = 15_000;
+let streamLeaseReleaseWaitMsOverrideForTests: number | null = null;
+
+async function waitForBuiltinStreamLeases(infoHash: string): Promise<void> {
+  const hash = infoHash.trim().toLowerCase();
+  const s = state();
+  if ((s.streamLeases.get(hash) ?? 0) === 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const waiters = s.streamLeaseWaiters.get(hash) ?? new Set();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      const currentWaiters = s.streamLeaseWaiters.get(hash);
+      currentWaiters?.delete(onReleased);
+      if (currentWaiters?.size === 0) s.streamLeaseWaiters.delete(hash);
+      if (err) reject(err);
+      else resolve();
+    };
+    const onReleased = () => finish();
+    waiters.add(onReleased);
+    s.streamLeaseWaiters.set(hash, waiters);
+    const timeoutMs =
+      streamLeaseReleaseWaitMsOverrideForTests ?? STREAM_LEASE_RELEASE_WAIT_MS;
+    timer = setTimeout(() => {
+      finish(new Error(`stream lease did not release within ${timeoutMs}ms`));
+    }, timeoutMs);
+    if (streamLeaseReleaseWaitMsOverrideForTests === null) timer.unref?.();
+    if ((s.streamLeases.get(hash) ?? 0) === 0) finish();
+  });
+}
+
+export function configureBuiltinStreamLeaseWaitForTests(
+  timeoutMs: number | null,
+): void {
+  streamLeaseReleaseWaitMsOverrideForTests = timeoutMs;
+}
+
+export async function waitForBuiltinStreamLeasesForTests(
+  infoHash: string,
+): Promise<void> {
+  await waitForBuiltinStreamLeases(infoHash);
 }
 
 /**
@@ -2098,6 +2588,25 @@ export async function findBuiltinTorrentFile(
   filePath?: string,
 ): Promise<BuiltinStreamLookup> {
   const client = await ensureClientAndRehydrate(config);
+  return lookupBuiltinTorrentFile(client, config, hash, filePath);
+}
+
+export async function findLiveBuiltinTorrentFile(
+  config: ClientConnectionConfig,
+  hash: string,
+  filePath?: string,
+): Promise<BuiltinStreamLookup> {
+  const client = state().client;
+  if (!client) return { status: "not_found" };
+  return lookupBuiltinTorrentFile(client, config, hash, filePath);
+}
+
+async function lookupBuiltinTorrentFile(
+  client: WebTorrentLike,
+  config: ClientConnectionConfig,
+  hash: string,
+  filePath?: string,
+): Promise<BuiltinStreamLookup> {
   const normalizedHash = hash.toLowerCase().trim();
   const torrent = findTorrentByHash(client.torrents, normalizedHash);
   if (!torrent) return { status: "not_found" };
@@ -2206,6 +2715,7 @@ function destroyLiveTorrent(
       );
       return;
     }
+
     try {
       const hash = readProp(() => t.infoHash, "");
       const savePath = readProp(() => t.path, "");
@@ -2226,6 +2736,54 @@ function destroyLiveTorrent(
   });
 }
 
+function quiesceCompletedTorrent(t: WtTorrent): void {
+  try {
+    t.pause();
+  } catch {
+    // Destroy remains the authoritative cleanup.
+  }
+  for (const wire of readProp(() => t.wires, []) ?? []) {
+    try {
+      wire.destroy?.();
+    } catch {
+      // Continue disconnecting the remaining peers.
+    }
+  }
+  for (const peer of (readProp(() => t._peers, new Map()) ?? new Map()).values()) {
+    try {
+      peer.destroy?.();
+    } catch {
+      // Continue disconnecting the remaining peers.
+    }
+  }
+}
+
+function scheduleIdleClientDestroy(): void {
+  const s = state();
+  if (s.idleDestroyTimer || !s.client || s.client.torrents.length > 0) return;
+  const timer = setTimeout(() => {
+    s.idleDestroyTimer = null;
+    const client = s.client;
+    if (!client || client.torrents.length > 0) return;
+    s.client = null;
+    s.loading = null;
+    // This is the same engine-generation boundary as explicit shutdown. A
+    // fresh client must rehydrate again and must not inherit owners/cooldowns
+    // from the destroyed instance.
+    resetEngineBookkeeping(s);
+    client.destroy((err) => {
+      if (err) {
+        console.warn(
+          "[builtin-engine] failed to destroy idle WebTorrent client:",
+          errorMessage(err),
+        );
+      }
+    });
+  }, 2_000);
+  timer.unref?.();
+  s.idleDestroyTimer = timer;
+}
+
 async function assertOwnsTorrent(
   config: ClientConnectionConfig,
   hash: string,
@@ -2235,7 +2793,27 @@ async function assertOwnsTorrent(
   return allowed.has(hash.toLowerCase());
 }
 
-/** Best-effort progress snapshot into EngineTorrent (non-blocking). */
+type ProgressSnapshot = {
+  progress: number;
+  sizeBytes: bigint;
+  status: string;
+  name: string | undefined;
+};
+
+const progressSnapshotScheduler = createSnapshotScheduler<string, ProgressSnapshot>({
+  intervalMs: 5_000,
+  persist: async (key, snapshot) => {
+    const separator = key.indexOf(":");
+    const userId = key.slice(0, separator);
+    const hash = key.slice(separator + 1);
+    await prisma.engineTorrent.updateMany({
+      where: { userId, hash },
+      data: snapshot,
+    });
+  },
+});
+
+/** Best-effort throttled progress snapshot from engine events. */
 function scheduleProgressPersist(
   userId: string | null | undefined,
   t: WtTorrent,
@@ -2244,30 +2822,181 @@ function scheduleProgressPersist(
   if (!userId?.trim()) return;
   const hash = t.infoHash?.toLowerCase?.();
   if (!hash) return;
-  void (async () => {
-    const verified = await persistedVerifiedState(t);
-    await prisma.engineTorrent.updateMany({
-      where: { userId: userId.trim(), hash },
-      data: {
-        progress: readProp(() => t.progress, 0),
-        sizeBytes: BigInt(
-          Math.max(0, Math.floor(readProp(() => t.length, 0))),
-        ),
-        status,
-        name: readProp(() => t.name, "") || undefined,
-        ...(verified
-          ? {
-              verifiedBitfield: verified.verifiedBitfield,
-              verifiedFilesJson: verified.verifiedFilesJson,
-              verifiedAt: new Date(),
-            }
-          : {}),
-      },
-    });
+  const uid = userId.trim();
+  const metrics = torrentTransferMetrics(t);
+  progressSnapshotScheduler.schedule(`${uid}:${hash}`, {
+    progress: metrics.progress,
+    sizeBytes: BigInt(
+      Math.floor(metrics.length),
+    ),
+    status,
+    name: readProp(() => t.name, "") || undefined,
+  });
+}
+
+/**
+ * Persist the final verified snapshot durably before releasing WebTorrent.
+ *
+ * A completed download is a local media file, not an indefinitely live seed.
+ * The DB/filesystem become the source of truth and WebTorrent is destroyed with
+ * `destroyStore:false`, preserving every byte while releasing trackers, peers,
+ * piece caches, sockets and file handles.
+ */
+async function persistAndParkCompletedTorrent(
+  userId: string,
+  t: WtTorrent,
+): Promise<boolean> {
+  if (!isComplete(t)) return false;
+  const hash = t.infoHash?.toLowerCase?.();
+  if (!hash) return false;
+
+  const key = hash;
+  const existing = state().parking.get(key);
+  if (existing) return existing;
+
+  const work = (async () => {
+    if (!isComplete(t)) return false;
+    const afterDetach = () => {
+      state().meta.delete(hash);
+      const retry = state().parkingRetryTimers.get(key);
+      if (retry) clearTimeout(retry);
+      state().parkingRetryTimers.delete(key);
+      scheduleIdleClientDestroy();
+    };
+    let ownerIds = [userId];
+    let finalized: boolean;
+    try {
+      finalized = await finalizeCompletedDownload({
+        quiesce: () => quiesceCompletedTorrent(t),
+        drainSnapshots: async () => {
+          const owners = await prisma.engineTorrent.findMany({
+            where: { hash },
+            select: { userId: true },
+          });
+          ownerIds = [...new Set([userId, ...owners.map((row) => row.userId)])];
+          await Promise.all(
+            ownerIds.map((ownerId) =>
+              progressSnapshotScheduler.cancelAndDrain(`${ownerId}:${hash}`),
+            ),
+          );
+        },
+        buildManifest: () => validatedPersistedVerifiedState(t),
+        persistManifest: async (verified) => {
+          const [updated] = await prisma.$transaction([
+            prisma.engineTorrent.updateMany({
+              where: { hash },
+              data: {
+                progress: 1,
+                status: "downloaded",
+                error: null,
+                sizeBytes: BigInt(
+                  Math.max(0, Math.floor(readProp(() => t.length, 0))),
+                ),
+                name: readProp(() => t.name, "") || undefined,
+                verifiedBitfield: verified.verifiedBitfield,
+                verifiedFilesJson: verified.verifiedFilesJson,
+                verifiedAt: new Date(),
+              },
+            }),
+            prisma.acquisitionTarget.updateMany({
+              where: {
+                infoHash: { in: [hash, hash.toUpperCase()] },
+                status: { in: ["queued", "downloading"] },
+              },
+              data: { progress: 1, status: "downloaded", error: null },
+            }),
+          ]);
+          if (updated.count < 1) {
+            throw new Error("completion manifest did not match a durable torrent row");
+          }
+        },
+        detachPreservingFiles: async () => {
+          await waitForBuiltinStreamLeases(hash);
+          await destroyLiveTorrent(t, false);
+        },
+        afterDetach,
+      });
+    } catch (err) {
+      if (!(err instanceof InvalidCompletedMediaError)) throw err;
+      const [updated] = await prisma.$transaction([
+        prisma.engineTorrent.updateMany({
+          where: { hash },
+          data: {
+            progress: 1,
+            status: "error",
+            error: INVALID_COMPLETED_MEDIA_MESSAGE,
+          },
+        }),
+        prisma.acquisitionTarget.updateMany({
+          where: { infoHash: { in: [hash, hash.toUpperCase()] } },
+          data: {
+            progress: 0,
+            status: "failed",
+            error: INVALID_COMPLETED_MEDIA_MESSAGE,
+          },
+        }),
+      ]);
+      if (updated.count < 1) {
+        throw new Error("invalid media result did not match a durable torrent row");
+      }
+      await waitForBuiltinStreamLeases(hash);
+      await destroyLiveTorrent(t, false);
+      afterDetach();
+      console.warn(`[builtin-engine] rejected completed non-media payload ${hash}`);
+      return true;
+    }
+    if (!finalized) {
+      throw new Error("completed torrent manifest is not yet durable");
+    }
+    return true;
   })()
-    .catch(() => {
-      /* best-effort */
+    .catch((err) => {
+      console.warn(
+        `[builtin-engine] failed to park completed torrent ${hash}:`,
+        errorMessage(err),
+      );
+      if (!state().parkingRetryTimers.has(key)) {
+        const timer = setTimeout(() => {
+          state().parkingRetryTimers.delete(key);
+          void persistAndParkCompletedTorrent(userId, t);
+        }, 30_000);
+        timer.unref?.();
+        state().parkingRetryTimers.set(key, timer);
+      }
+      return false;
+    })
+    .finally(() => {
+      state().parking.delete(key);
     });
+
+  state().parking.set(key, work);
+  return work;
+}
+
+function observeCompletion(
+  userId: string | null | undefined,
+  t: WtTorrent,
+): void {
+  const uid = userId?.trim();
+  if (!uid || state().completionObserved.has(t as object)) return;
+  state().completionObserved.add(t as object);
+
+  let lastCheckAt = 0;
+  const check = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastCheckAt < 1_000) return;
+    lastCheckAt = now;
+    invalidateTorrentTransferMetrics(t);
+    if (isComplete(t)) {
+      void persistAndParkCompletedTorrent(uid, t);
+      return;
+    }
+    scheduleProgressPersist(uid, t, torrentStatus(t));
+  };
+  t.on("download", () => check());
+  t.on("verified", () => check());
+  t.on("done", () => check(true));
+  check(true);
 }
 
 function defaultDownloadRoot(config: ClientConnectionConfig): string {
@@ -2515,6 +3244,26 @@ export class BuiltinClient implements TorrentClientAdapter {
         extractInfoHash(payload.magnet || "") ||
         extractInfoHash(payload.torrentUrl || "") ||
         extractInfoHash(addUri);
+      if (config.userId && existingHash) {
+        const knownBad = await prisma.engineTorrent.findUnique({
+          where: {
+            userId_hash: {
+              userId: config.userId,
+              hash: existingHash.toLowerCase(),
+            },
+          },
+          select: { status: true, error: true },
+        });
+        if (
+          knownBad?.status === "error" &&
+          knownBad.error === INVALID_COMPLETED_MEDIA_MESSAGE
+        ) {
+          return {
+            ok: false,
+            message: "That release was already rejected because it contains no playable video.",
+          };
+        }
+      }
       // Resolve intent → mechanism ONCE, from the stated purpose plus the origin
       // already on disk. This is where issue A (never halt a kept download) and
       // issue B (monotonic origin transitions) are enforced.
@@ -2528,7 +3277,22 @@ export class BuiltinClient implements TorrentClientAdapter {
         );
       }
       if (existingHash) {
-        const existing = findTorrent(client, existingHash);
+        const normalizedExistingHash = existingHash.toLowerCase();
+        let existing = findTorrent(client, normalizedExistingHash);
+        if (existing && !state().meta.has(normalizedExistingHash)) {
+          await waitForUnownedHandleRelease(
+            client,
+            existing,
+            normalizedExistingHash,
+          );
+          existing = findTorrent(client, normalizedExistingHash);
+        }
+        if (existing && !state().meta.has(normalizedExistingHash)) {
+          return {
+            ok: false,
+            message: "That release is still being checked. Try again in a moment.",
+          };
+        }
         if (existing) {
           const hash = (
             existing.infoHash ||
@@ -2558,7 +3322,7 @@ export class BuiltinClient implements TorrentClientAdapter {
               torrentUrl: payload.torrentUrl?.trim() || null,
               savePath: dest,
               category: payload.category,
-              status: isComplete(existing) ? "seeding" : "downloading",
+              status: isComplete(existing) ? "downloaded" : "downloading",
               progress: readProp(() => existing.progress, 0),
               sizeBytes: readProp(() => existing.length, 0),
               torrent: existing,
@@ -2566,6 +3330,24 @@ export class BuiltinClient implements TorrentClientAdapter {
               promoteTo: eff.promoteTo,
               promoteFrom: eff.promoteFrom,
             });
+            const completed = isComplete(existing);
+            if (completed) {
+              void persistAndParkCompletedTorrent(config.userId, existing);
+            } else {
+              observeCompletion(config.userId, existing);
+            }
+            if (completed) {
+              return {
+                ok: true,
+                message: "",
+                details: {
+                  type: "builtin-transfer",
+                  action: "already_complete",
+                  pct: 100,
+                  peers: 0,
+                },
+              };
+            }
           }
           const peers = readProp(() => existing.numPeers, 0);
           const pct = Math.round(readProp(() => existing.progress, 0) * 100);
@@ -2640,6 +3422,15 @@ export class BuiltinClient implements TorrentClientAdapter {
         }, 90_000);
         const t = addTorrentWithEngineDefaults(client, addUri, dest, (ready) => {
           if (settled) return;
+          const validation = validateTorrentMediaPayload(ready.files ?? []);
+          if (!validation.ok) {
+            settled = true;
+            clearTimeout(timer);
+            holder.t = ready;
+            reap();
+            reject(new Error(validation.message));
+            return;
+          }
           settled = true;
           clearTimeout(timer);
           resolve(ready);
@@ -2683,6 +3474,8 @@ export class BuiltinClient implements TorrentClientAdapter {
       // Multi-file → often savePath/torrentName/…; flatten junk root when done
 
       if (config.userId) {
+        const transferMetrics = torrentTransferMetrics(torrent);
+        const completed = isComplete(torrent);
         await upsertEngineTorrent({
           userId: config.userId,
           hash,
@@ -2691,14 +3484,31 @@ export class BuiltinClient implements TorrentClientAdapter {
           torrentUrl: payload.torrentUrl?.trim() || null,
           savePath: dest,
           category: payload.category,
-          status: isComplete(torrent) ? "seeding" : "downloading",
-          progress: readProp(() => torrent.progress, 0),
-          sizeBytes: readProp(() => torrent.length, 0),
+          status: completed ? "downloaded" : "downloading",
+          progress: transferMetrics.progress,
+          sizeBytes: transferMetrics.length,
           torrent,
           birthOrigin: eff.birthOrigin,
           promoteTo: eff.promoteTo,
           promoteFrom: eff.promoteFrom,
         });
+        if (completed) {
+          void persistAndParkCompletedTorrent(config.userId, torrent);
+        } else {
+          observeCompletion(config.userId, torrent);
+        }
+        if (completed) {
+          return {
+            ok: true,
+            message: "",
+            details: {
+              type: "builtin-transfer",
+              action: "already_complete",
+              pct: 100,
+              peers: 0,
+            },
+          };
+        }
       }
 
       // Verify still in live client (defensive)
@@ -2739,16 +3549,26 @@ export class BuiltinClient implements TorrentClientAdapter {
   async listTorrents(
     config: ClientConnectionConfig,
   ): Promise<ClientTorrent[]> {
-    // Let failures propagate so the API can show builtin tips (not silent empty).
-    const client = await ensureClientAndRehydrate(config);
     const s = state();
     const uid = config.userId?.trim() || null;
-    const allowed = uid ? await allowedHashesForUser(uid) : null;
+    const persistedRows = uid
+      ? await prisma.engineTorrent.findMany({
+          where: { userId: uid, status: { not: "removed" } },
+        })
+      : [];
+    // Listing is observational. Process startup restores incomplete transfers;
+    // opening Downloads only overlays already-live engine state on durable rows.
+    const client = s.client;
+    // A dev hot reload can leave the process-global client alive with an older
+    // interval closure. Re-arm only lifecycle maintenance; never create or
+    // rehydrate a client from this read path.
+    if (client) startUploadThrottleLoop(client);
+    const allowed = uid && client ? await allowedHashesForUser(uid) : null;
 
     const out: ClientTorrent[] = [];
     const seen = new Set<string>();
 
-    for (const t of client.torrents) {
+    for (const t of client?.torrents ?? []) {
       // A torrent mid-teardown can throw from its own getters. Degrade that one
       // row instead of failing the whole list — the Client page is how the user
       // finds and removes a bad torrent in the first place.
@@ -2780,12 +3600,6 @@ export class BuiltinClient implements TorrentClientAdapter {
         if (allowed && !allowed.has(h)) continue;
         seen.add(h);
         const m = s.meta.get(h);
-        const status = torrentStatus(t);
-        scheduleProgressPersist(
-          uid,
-          t,
-          status === "stalledDL" ? "downloading" : status,
-        );
         out.push(
           mapTorrent(t, {
             savePath: m?.savePath || readProp(() => t.path, "") || undefined,
@@ -2804,49 +3618,9 @@ export class BuiltinClient implements TorrentClientAdapter {
     // DB rows not yet live (after restart / before rehydrate peers) — still show
     if (uid) {
       try {
-        const rows = await prisma.engineTorrent.findMany({
-          where: { userId: uid, status: { not: "removed" } },
-        });
-        for (const row of rows) {
+        for (const row of persistedRows) {
           const h = row.hash.toLowerCase();
           if (seen.has(h)) continue;
-          // Kick re-add if we have either saved metadata URL or a magnet.
-          const addUri = row.torrentUrl?.trim() || row.magnet?.trim();
-          if (row.status !== "error" && addUri) {
-            const dest =
-              row.savePath?.trim() || defaultDownloadRoot(config);
-            try {
-              if (!findTorrent(client, h)) {
-                repairExistingLayout(dest, row.name);
-                const startupBitfield = await startupBitfieldForRow(row);
-                // Same rule as rehydrateFromDb: cached metadata beats a magnet,
-                // so a listing that re-adds a finished torrent does not depend
-                // on the swarm to learn what it already knows.
-                const addInput = preferredAddInput(dest, h, addUri);
-                const t = addTorrentWithEngineDefaults(
-                  client,
-                  addInput.input,
-                  dest,
-                  undefined,
-                  startupBitfield ? { bitfield: startupBitfield } : {},
-                );
-                t.on("ready", () => {
-                  applyPersistedStatus(t, row.status, row.origin);
-                  cacheTorrentMetadata(dest, h, t);
-                  scheduleRehydrateReadyPersist(row, t);
-                });
-                t.on("error", (err: unknown) => {
-                  void recordRehydrateFailure(row, err).catch(() => {
-                    /* best-effort */
-                  });
-                });
-              }
-            } catch (err) {
-              void recordRehydrateFailure(row, err).catch(() => {
-                /* best-effort */
-              });
-            }
-          }
           out.push({
             hash: row.hash,
             name: row.name,
@@ -2855,16 +3629,8 @@ export class BuiltinClient implements TorrentClientAdapter {
             dlspeed: 0,
             upspeed: 0,
             // Prefer "downloading" so UI filters show it; metaDL was easy to miss
-            state:
-              row.status === "error"
-                ? "error"
-                : row.status === "paused"
-                ? "paused"
-                : row.status === "seeding"
-                  ? "seeding"
-                  : row.progress > 0
-                    ? "downloading"
-                    : "metaDL",
+            state: persistedTorrentDisplayState(row),
+            playable: persistedTorrentHasInvalidMedia(row) ? false : undefined,
             category: row.category ?? undefined,
             savePath: row.savePath,
             error: row.error ?? undefined,
@@ -2908,9 +3674,16 @@ export class BuiltinClient implements TorrentClientAdapter {
       }
       const t = findTorrent(client, hash);
       if (!t) return { ok: false, message: "Torrent not found in engine" };
+      if (isComplete(t)) {
+        if (config.userId) void persistAndParkCompletedTorrent(config.userId, t);
+        return { ok: false, message: "Downloaded files cannot be paused" };
+      }
       haltTransfer(t);
       if (config.userId) {
         try {
+          await progressSnapshotScheduler.cancelAndDrain(
+            `${config.userId}:${hash.toLowerCase()}`,
+          );
           await prisma.engineTorrent.updateMany({
             where: {
               userId: config.userId,
@@ -2942,6 +3715,12 @@ export class BuiltinClient implements TorrentClientAdapter {
       }
       const t = findTorrent(client, hash);
       if (!t) return { ok: false, message: "Torrent not found in engine" };
+      if (isComplete(t)) {
+        if (config.userId) {
+          void persistAndParkCompletedTorrent(config.userId, t);
+        }
+        return { ok: true, message: "Already downloaded" };
+      }
       const lookup = await lookupExistingOrigin(config.userId, hash.toLowerCase());
       resumeTransferForLookup(t, lookup);
       if (config.userId) {
@@ -2952,7 +3731,7 @@ export class BuiltinClient implements TorrentClientAdapter {
               hash: hash.toLowerCase(),
             },
             data: {
-              status: isComplete(t) ? "seeding" : "downloading",
+              status: "downloading",
             },
           });
         } catch {
@@ -2985,7 +3764,14 @@ export class BuiltinClient implements TorrentClientAdapter {
   ): Promise<AddTorrentResult> {
     const h = hash.toLowerCase();
     try {
-      const client = await ensureClientAndRehydrate(config);
+      const row = config.userId
+        ? await prisma.engineTorrent.findFirst({
+            where: { userId: config.userId, hash: h },
+          })
+        : null;
+      if (row && persistedTorrentIsDownloaded(row)) {
+        return { ok: false, message: "Downloaded files do not need retrying" };
+      }
 
       // Lift any dead-mark first so a re-add is not filtered out by rehydrate's
       // status notIn ["removed","error"] guard.
@@ -3003,12 +3789,8 @@ export class BuiltinClient implements TorrentClientAdapter {
       // The persisted origin decides how a retry behaves: a stream/prewarm must
       // NOT be resurrected as a whole-file download (issue C). Read it once, up
       // front, so both the live and the re-add path can honour it.
-      const row = config.userId
-        ? await prisma.engineTorrent.findFirst({
-            where: { userId: config.userId, hash: h },
-          })
-        : null;
       const purpose = purposeFromOrigin(row?.origin);
+      const client = await ensureClientAndRehydrate(config);
 
       // Still live in the engine? A transient no-peer failure only needs a fresh
       // announce. A kept download re-selects and re-announces; a stream/prewarm
@@ -3053,11 +3835,11 @@ export class BuiltinClient implements TorrentClientAdapter {
     deleteFiles = false,
   ): Promise<AddTorrentResult> {
     try {
-      const client = await ensureClientAndRehydrate(config);
       if (!(await assertOwnsTorrent(config, hash))) {
         return { ok: false, message: "Torrent not found in engine" };
       }
-      const t = findTorrent(client, hash);
+      const client = state().client;
+      const t = client ? findTorrent(client, hash) : null;
       const h = hash.toLowerCase();
       const meta = state().meta.get(h);
 
@@ -3066,7 +3848,7 @@ export class BuiltinClient implements TorrentClientAdapter {
       // live WebTorrent handle exists — the case that left whole release folders
       // on disk after "Delete + files".
       const owned = deleteFiles
-        ? await ownedFilesForDelete(config, h, t)
+        ? await ownedFilesForDelete(config, h, t ?? undefined)
         : { files: [] as string[], savePath: null as string | null };
 
       // Capture leaf path before destroy (for empty-parent prune)
@@ -3105,42 +3887,36 @@ export class BuiltinClient implements TorrentClientAdapter {
 
       if (!t) {
         state().meta.delete(h);
-        if (config.userId) {
-          try {
-            await prisma.engineTorrent.deleteMany({
-              where: {
-                userId: config.userId,
-                hash: h,
-              },
-            });
-          } catch {
-            /* optional */
-          }
-        } else {
-          try {
-            await prisma.engineTorrent.deleteMany({
-              where: { hash: { equals: h } },
-            });
-          } catch {
-            /* optional */
-          }
-        }
         // Still remove files if a live handle was already gone but the release
         // folder and its bytes remain on disk. This is the path that used to
         // only prune EMPTY folders and so left everything behind.
-        if (deleteFiles && leafPath) {
+        if (deleteFiles && leafPath && otherOwners === 0) {
           forgetTorrentMetadata(leafPath, h);
           const base = defaultDownloadRoot(config);
           await removeReleaseFilesFromDisk(config, h, leafPath, owned.files, base);
           pruneEmptyDescendants(leafPath, base);
           pruneEmptyParents(leafPath, base);
         }
+        if (config.userId) {
+          await prisma.engineTorrent.deleteMany({
+            where: {
+              userId: config.userId,
+              hash: h,
+            },
+          });
+        } else {
+          await prisma.engineTorrent.deleteMany({
+            where: { hash: { equals: h } },
+          });
+        }
+        scheduleIdleClientDestroy();
         return { ok: true, message: "Already removed" };
       }
 
       if (otherOwners === 0) {
         await destroyLiveTorrent(t, deleteFiles);
         state().meta.delete(h);
+        scheduleIdleClientDestroy();
 
         // Remove empty Season NN / Show folders left after file delete
         if (deleteFiles && leafPath) {

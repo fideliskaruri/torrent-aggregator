@@ -40,6 +40,8 @@ export type PipelineSearchOptions = {
   background: boolean;
   /** Bypass the search cache. */
   skipCache: boolean;
+  /** Per-title ranking target; null/undefined uses the global setting. */
+  targetResolution?: number | null;
   filters: {
     hasMagnet: boolean;
     minSeeders?: number;
@@ -173,8 +175,16 @@ export type OnGrabFailure = (
  * Automation uses this to record hunt misses and count them toward
  * season rollover.
  */
+export type OnNoCandidateReason =
+  | "no_results"
+  | "no_match"
+  | "below_resolution_floor"
+  | "duplicate"
+  | "deferred"
+  | "not_viable";
+
 export type OnNoCandidate = (
-  reason: "no_results" | "no_match" | "duplicate" | "deferred" | "not_viable",
+  reason: OnNoCandidateReason,
   message: string,
   candidate: TorrentResult | null,
 ) => Promise<void>;
@@ -206,6 +216,11 @@ export type GrabPipelineOptions = {
    * "Recently Added" can exclude ephemeral streams.
    */
   purpose: TorrentPurpose;
+  /**
+   * Hard minimum for kept downloads. A selected release below this height, or
+   * one whose name does not state a resolution, is refused before any send.
+   */
+  minimumResolution?: number | null;
   /**
    * Prefix for the DownloadHistory message, e.g. "Library automation" or
    * "Auto-rule: Weekly anime". Defaults to a label derived from grabJobKind.

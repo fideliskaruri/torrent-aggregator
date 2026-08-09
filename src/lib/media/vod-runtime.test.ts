@@ -27,6 +27,7 @@ import {
   vodCacheDir,
   VOD_DIR_NAME,
   MAX_WHOLE_FILE_CONVERSION_ATTEMPTS,
+  buildVodRuntimeSegmentArgs,
   recordWholeFileConversionReady,
   shouldRetryWholeFileConversion,
   shouldCountWholeFileConversionAttempt,
@@ -88,37 +89,74 @@ check("the cache lives under the reserved directory, not loose in .sessions", ()
   assert.equal(path.basename(vodCacheDir()), VOD_DIR_NAME);
 });
 
-check("the same file, track and rung always resolve to the same directory", () => {
+check("the same file, track and plan always resolve to the same directory", () => {
   const key = {
     infoHash: "abc123",
     filePath: "Rick and Morty/Season 01/S01E01.mkv",
     audioStreamIndex: 1,
-    rung: "remux",
+    plan: plan(),
   };
-  assert.equal(vodId(key), vodId({ ...key }));
+  assert.equal(vodId(key), vodId({ ...key, plan: plan() }));
   assert.match(vodId(key), /^[a-f0-9]{20}$/);
 });
 
 const identityCases: Array<{ name: string; a: Parameters<typeof vodId>[0]; b: Parameters<typeof vodId>[0] }> = [
   {
     name: "a different audio track is a different conversion",
-    a: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 1, rung: "remux" },
-    b: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 2, rung: "remux" },
+    a: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 1, plan: plan() },
+    b: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 2, plan: plan() },
   },
   {
     name: "a different rung is a different conversion",
-    a: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 1, rung: "remux" },
-    b: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 1, rung: "transcode-full" },
+    a: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 1, plan: plan() },
+    b: {
+      infoHash: "h",
+      filePath: "f.mkv",
+      audioStreamIndex: 1,
+      plan: plan({ rung: "transcode-full" }),
+    },
   },
   {
     name: "two files in the same torrent do not share a conversion",
-    a: { infoHash: "h", filePath: "Season 01/E01.mkv", audioStreamIndex: 1, rung: "remux" },
-    b: { infoHash: "h", filePath: "Season 01/E02.mkv", audioStreamIndex: 1, rung: "remux" },
+    a: {
+      infoHash: "h",
+      filePath: "Season 01/E01.mkv",
+      audioStreamIndex: 1,
+      plan: plan(),
+    },
+    b: {
+      infoHash: "h",
+      filePath: "Season 01/E02.mkv",
+      audioStreamIndex: 1,
+      plan: plan(),
+    },
   },
   {
     name: "no audio track selected is not the same as track zero",
-    a: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: null, rung: "remux" },
-    b: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 0, rung: "remux" },
+    a: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: null, plan: plan() },
+    b: { infoHash: "h", filePath: "f.mkv", audioStreamIndex: 0, plan: plan() },
+  },
+  {
+    name: "copying and transcoding the same audio codec use different caches",
+    a: { infoHash: "h", filePath: "f.avi", audioStreamIndex: 1, plan: plan() },
+    b: {
+      infoHash: "h",
+      filePath: "f.avi",
+      audioStreamIndex: 1,
+      plan: plan({
+        audio: [
+          {
+            streamIndex: 1,
+            codec: "eac3",
+            action: "transcode",
+            targetCodec: "aac",
+            channels: 6,
+            language: "eng",
+            title: null,
+          },
+        ],
+      }),
+    },
   },
 ];
 
@@ -308,6 +346,25 @@ for (const testCase of retryCases) {
     assert.equal(shouldRetryWholeFileConversion(testCase.entry), testCase.expectRetry);
   });
 }
+
+check("on-demand VOD production requests software encoding from the first attempt", () => {
+  const args = buildVodRuntimeSegmentArgs({
+    sourcePath: "film.mkv",
+    plan: plan({
+      rung: "transcode-full",
+      video: {
+        codec: "vc1",
+        streamIndex: 0,
+        action: "transcode",
+        targetCodec: "h264",
+        hwAccel: "h264_amf",
+      },
+    }),
+    segment: { index: 0, start: 0, duration: 4 },
+    segmentSeconds: VOD_SEGMENT_SECONDS,
+  });
+  assert.equal(args[args.indexOf("-c:v") + 1], "libx264");
+});
 
 const attemptChargeCases: Array<{
   name: string;

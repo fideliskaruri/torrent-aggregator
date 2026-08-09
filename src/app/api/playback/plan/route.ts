@@ -29,10 +29,13 @@ import { auth } from "@/lib/auth";
 import { getUserClientConfig } from "@/lib/clients";
 import { parseCapabilities } from "@/lib/media/capabilities";
 import {
+  probeFile,
   probeUrl,
   streamUrl,
   requestOrigin,
   normalizeContainer,
+  parseBitrateBps,
+  probeBitrateBps,
   type ProbeResult,
 } from "@/lib/media/probe";
 import { decidePlayback } from "@/lib/media/decide";
@@ -41,14 +44,16 @@ import {
   installSessionCleanup,
   SEGMENT_SECONDS,
 } from "@/lib/media/session";
-import { resolveCompleteLocalFile } from "@/lib/media/local-file";
+import { resolveCompleteLocalFile, resolvePersistedLocalFile, type PlaybackSource } from "@/lib/media/local-file";
 import { chooseStrategy, trimVodPlaylist, WHOLE_FILE_PLAYLIST } from "@/lib/media/vod";
 import { playlistPath, prepareVod } from "@/lib/media/vod-runtime";
+import { runWarmProbe, warmProbeKey } from "@/lib/media/warm-probe-lock";
 import fs from "node:fs";
 import prisma from "@/lib/prisma";
 import {
   numberField,
   objectField,
+  booleanField,
   readMutationObject,
   requestFailureResponse,
   stringField,
@@ -64,6 +69,53 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/**
+ * Current generation of the probe cache. Bump this whenever a newly stored
+ * field would be missing from previously written rows: older rows then become a
+ * one-shot cache miss and are re-probed once, rather than serving a permanently
+ * degraded answer forever. Version 1 added `bitRateBps`.
+ */
+export const PROBE_CACHE_VERSION = 1;
+
+/**
+ * The subset of a cached `MediaProbe` row the plan needs to rebuild a probe.
+ * `bitRateBps` and `probeVersion` are optional so rows written before those
+ * columns existed (and any partial select) type-check as "unknown"/"legacy"
+ * rather than "bitrate zero"/"current".
+ */
+export type CachedProbeRow = {
+  container: string | null;
+  durationSec: number | null;
+  bitRateBps?: number | null;
+  probeVersion?: number | null;
+  streamsJson: string | null;
+};
+
+/**
+ * Rebuild a `ProbeResult` from a cached row.
+ *
+ * A row from an older cache generation is rejected (returns null) so the caller
+ * cold-probes once and rewrites it at the current version — that is what stops
+ * legacy rows from losing their container bitrate forever. It cannot loop: the
+ * rewrite stamps the current version, so a file whose ffprobe honestly reports
+ * no bitrate is cached as "unknown" and served from cache next time.
+ *
+ * The cached bitrate is re-normalized on read too: a non-positive or garbage
+ * value yields null so the client falls back to its resolution tiers. Nothing
+ * is ever estimated from size or duration.
+ */
+export function probeFromCacheRow(row: CachedProbeRow | null): ProbeResult | null {
+  if (!row?.streamsJson) return null;
+  if ((row.probeVersion ?? 0) < PROBE_CACHE_VERSION) return null;
+  const streams = JSON.parse(row.streamsJson);
+  return {
+    container: row.container ?? "unknown",
+    duration: row.durationSec,
+    bitRate: parseBitrateBps(row.bitRateBps),
+    streams,
+  };
+}
+
 /** Try to load a cached probe result from the database. */
 async function getCachedProbe(
   infoHash: string,
@@ -74,60 +126,61 @@ async function getCachedProbe(
     const cached = await prisma.mediaProbe.findUnique({
       where: { infoHash_filePath: { infoHash, filePath } },
     });
-    if (!cached?.streamsJson) return null;
-    const streams = JSON.parse(cached.streamsJson);
-    return {
-      container: cached.container ?? "unknown",
-      duration: cached.durationSec,
-      streams,
-    };
+    return probeFromCacheRow(cached);
   } catch {
     observer.degraded("PLAYBACK_CACHE_FAILED", { status: "read" });
     return null;
   }
 }
 
+/**
+ * The column values a probe result maps to, shared by both halves of the cache
+ * upsert so create and update can never drift apart (which is exactly how the
+ * bitrate would have gone missing on refresh).
+ */
+export function buildProbeCacheData(result: ProbeResult) {
+  const video = result.streams.find((s) => s.codecType === "video");
+  const audio = result.streams.find((s) => s.codecType === "audio");
+  return {
+    container: result.container,
+    durationSec: result.duration,
+    videoCodec: video?.codec ?? null,
+    videoProfile: video?.profile ?? null,
+    width: video?.width ?? null,
+    height: video?.height ?? null,
+    colorTransfer: video?.colorTransfer ?? null,
+    audioCodec: audio?.codec ?? null,
+    audioChannels: audio?.channels ?? null,
+    audioLayout: audio?.channelLayout ?? null,
+    bitRateBps: probeBitrateBps(result),
+    probeVersion: PROBE_CACHE_VERSION,
+    streamsJson: JSON.stringify(result.streams),
+  };
+}
+
+/** The slice of the Prisma client the probe cache writer needs. */
+export type ProbeCacheWriter = {
+  upsert(args: {
+    where: { infoHash_filePath: { infoHash: string; filePath: string } };
+    create: Record<string, unknown>;
+    update: Record<string, unknown>;
+  }): Promise<unknown>;
+};
+
 /** Save a probe result to the database. Returns true on a successful write. */
-async function cacheProbe(
+export async function cacheProbe(
   infoHash: string,
   filePath: string,
   result: ProbeResult,
-  observer: OperationObserver,
+  observer: Pick<OperationObserver, "degraded">,
+  writer: ProbeCacheWriter = prisma.mediaProbe as unknown as ProbeCacheWriter,
 ): Promise<boolean> {
-  const video = result.streams.find((s) => s.codecType === "video");
-  const audio = result.streams.find((s) => s.codecType === "audio");
+  const data = buildProbeCacheData(result);
   try {
-    await prisma.mediaProbe.upsert({
+    await writer.upsert({
       where: { infoHash_filePath: { infoHash, filePath } },
-      create: {
-        infoHash,
-        filePath,
-        container: result.container,
-        durationSec: result.duration,
-        videoCodec: video?.codec ?? null,
-        videoProfile: video?.profile ?? null,
-        width: video?.width ?? null,
-        height: video?.height ?? null,
-        colorTransfer: video?.colorTransfer ?? null,
-        audioCodec: audio?.codec ?? null,
-        audioChannels: audio?.channels ?? null,
-        audioLayout: audio?.channelLayout ?? null,
-        streamsJson: JSON.stringify(result.streams),
-      },
-      update: {
-        container: result.container,
-        durationSec: result.duration,
-        videoCodec: video?.codec ?? null,
-        videoProfile: video?.profile ?? null,
-        width: video?.width ?? null,
-        height: video?.height ?? null,
-        colorTransfer: video?.colorTransfer ?? null,
-        audioCodec: audio?.codec ?? null,
-        audioChannels: audio?.channels ?? null,
-        audioLayout: audio?.channelLayout ?? null,
-        streamsJson: JSON.stringify(result.streams),
-        updatedAt: new Date(),
-      },
+      create: { infoHash, filePath, ...data },
+      update: { ...data, updatedAt: new Date() },
     });
     return true;
   } catch {
@@ -137,6 +190,62 @@ async function cacheProbe(
     observer.degraded("PLAYBACK_CACHE_FAILED", { status: "write" });
     return false;
   }
+}
+
+/**
+ * Warm mode: "get this file's probe cached, and do nothing else."
+ *
+ * Additive and optional — a body without `warm` plans exactly as before. A warm
+ * request never creates a playback session, never spawns ffmpeg, and never
+ * touches the swarm; it is background work for a file the viewer has not asked
+ * for yet, so it must not be able to cost the file they ARE watching anything.
+ */
+export function parsePlaybackPlanWarm(
+  body: ReadonlyMap<string, unknown>,
+): ReturnType<typeof booleanField> {
+  return booleanField(body, "warm");
+}
+
+export function parsePlaybackPlanAudioStreamIndex(  body: ReadonlyMap<string, unknown>,
+): ReturnType<typeof numberField> {
+  return numberField(body, "audioStreamIndex", {
+    integer: true,
+    min: 0,
+    max: 10_000,
+    nullable: true,
+  });
+}
+
+export function parsePlaybackPlanCodecEntry(
+  entry: ReadonlyMap<string, unknown>,
+): ReturnType<typeof stringField> | { ok: true; value: { mime: string; canPlay: string } } {
+  const mimeField = stringField(entry, "mime", { required: true, maxLength: 500 });
+  if (!mimeField.ok) return mimeField;
+  if (!entry.has("canPlay")) {
+    return { ok: false, status: 400, error: "canPlay is required", field: "canPlay" };
+  }
+  const canPlay = entry.get("canPlay");
+  if (typeof canPlay !== "string") {
+    return { ok: false, status: 400, error: "canPlay must be a string", field: "canPlay" };
+  }
+  if (canPlay.length > 32) {
+    return { ok: false, status: 400, error: "canPlay must be at most 32 characters", field: "canPlay" };
+  }
+  if (!/^(|maybe|probably)$/.test(canPlay)) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'canPlay must be one of: "", "maybe", "probably"',
+      field: "canPlay",
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      mime: mimeField.value as string,
+      canPlay,
+    },
+  };
 }
 
 export async function POST(request: Request) {
@@ -190,12 +299,11 @@ export async function POST(request: Request) {
     });
   }
 
-  const audioStreamIndexResult = numberField(body, "audioStreamIndex", {
-    integer: true,
-    min: 0,
-    max: 10_000,
-  });
+  const audioStreamIndexResult = parsePlaybackPlanAudioStreamIndex(body);
   if (!audioStreamIndexResult.ok) return requestError(audioStreamIndexResult);
+  const warmResult = parsePlaybackPlanWarm(body);
+  if (!warmResult.ok) return requestError(warmResult);
+  const warm = warmResult.value === true;
   const startSecResult = numberField(body, "startSec", {
     min: 0,
     max: 1_000_000_000,
@@ -237,10 +345,8 @@ export async function POST(request: Request) {
           });
         }
         const entryFields = new Map(Object.entries(entry));
-        const mime = stringField(entryFields, "mime", { required: true, maxLength: 500 });
-        const canPlay = stringField(entryFields, "canPlay", { required: true, maxLength: 32 });
-        if (!mime.ok) return requestError(mime);
-        if (!canPlay.ok) return requestError(canPlay);
+        const parsedEntry = parsePlaybackPlanCodecEntry(entryFields);
+        if (!parsedEntry.ok) return requestError(parsedEntry);
         const mse = entryFields.get("mse");
         if (typeof mse !== "boolean") {
           return json(400, {
@@ -252,9 +358,9 @@ export async function POST(request: Request) {
     }
   }
 
-  installSessionCleanup();
-  let config: Awaited<ReturnType<typeof getUserClientConfig>>;
-  try {
+  // Session cleanup exists for sessions; a warm request never creates one.
+  if (!warm) installSessionCleanup();
+  let config: Awaited<ReturnType<typeof getUserClientConfig>>;  try {
     config = await getUserClientConfig(session.user.id);
   } catch (error) {
     const safeError = observer.failure("PLAYBACK_PLAN_FAILED", error, {
@@ -280,6 +386,61 @@ export async function POST(request: Request) {
   const audioStreamIndex = audioStreamIndexResult.value ?? null;
   const requestedStartSec = Math.floor(startSecResult.value ?? 0);
 
+  // ── Warm mode ──
+  //
+  // The whole point is that this is invisible and cheap. It resolves locality
+  // from the DATABASE ONLY (`resolvePersistedLocalFile` never wakes WebTorrent),
+  // it probes only a file already proven to be on disk, and it stops there: no
+  // decision, no VOD preparation, no ffmpeg session, no swarm probe. Media that
+  // is not provably local is a successful no-op, not an error — the caller is
+  // speculating, and nothing the viewer did went wrong.
+  if (warm) {
+    const warmLocal = await resolvePersistedLocalFile(
+      session.user.id,
+      infoHash,
+      filePath,
+    ).catch(() => null);
+    if (!warmLocal?.ok) {
+      observer.success("PLAYBACK_PLAN_SUCCEEDED", { status: "warm-skipped" });
+      return jsonResponse(observer, { warm: true, ready: false, reason: "not-local" });
+    }
+    const cached = await getCachedProbe(infoHash, filePath, observer);
+    if (cached) {
+      observer.success("PLAYBACK_PLAN_SUCCEEDED", { status: "warm-hit" });
+      return jsonResponse(observer, { warm: true, ready: true, probeCache: "hit" });
+    }
+    const outcome = await runWarmProbe(
+      warmProbeKey(infoHash, filePath),
+      async () => {
+        const probed = await probeFile(warmLocal.absolutePath);
+        if (!probed.ok) return { ready: false as const, reason: "probe-failed" };
+        const written = await cacheProbe(infoHash, filePath, probed.result, observer);
+        return { ready: true as const, probeCache: written ? "written" : "failed" };
+      },
+    ).catch(() => ({ ready: false as const, reason: "probe-failed" }));
+    observer.success("PLAYBACK_PLAN_SUCCEEDED", {
+      status: outcome.ready ? "warm-written" : "warm-failed",
+    });
+    return jsonResponse(observer, { warm: true, ...outcome });
+  }
+
+  // Resolve verified disk media before probing. Probing the byte-stream route
+  // first rehydrates a parked torrent just to inspect a file already on disk,
+  // which adds peer acquisition and engine pressure to downloaded playback.
+  let local: Awaited<ReturnType<typeof resolveCompleteLocalFile>>;
+  try {
+    local = await resolveCompleteLocalFile({ config, infoHash, filePath });
+  } catch (error) {
+    const safeError = observer.failure("PLAYBACK_PLAN_FAILED", error, {
+      status: "local-file",
+    });
+    return json(500, {
+      error: "Playback planning failed",
+      code: safeError.code,
+      message: safeError.message,
+    });
+  }
+
   // ── Step 1: Probe (cached) ──
   const origin = requestOrigin(request);
   // Diagnostics for the probe cache: "hit" served from cache (no write),
@@ -292,7 +453,9 @@ export async function POST(request: Request) {
     const url = streamUrl(infoHash, filePath, origin);
     let outcome: Awaited<ReturnType<typeof probeUrl>>;
     try {
-      outcome = await probeUrl(url);
+      outcome = local.ok
+        ? await probeFile(local.absolutePath)
+        : await probeUrl(url);
     } catch (error) {
       const safeError = observer.failure("PLAYBACK_PLAN_FAILED", error, {
         status: "probe",
@@ -349,6 +512,7 @@ export async function POST(request: Request) {
     startSec: number;
     strategy: string;
     strategyReason: string;
+    source: PlaybackSource;
   }): Response {
     const video = probeResult!.streams.find((s) => s.codecType === "video");
     const primaryAudio = probeResult!.streams.find((s) => s.codecType === "audio");
@@ -356,6 +520,7 @@ export async function POST(request: Request) {
     observer.success("PLAYBACK_PLAN_SUCCEEDED", {
       status: plan.rung,
       strategy: result.strategy,
+      source: result.source,
     });
     return jsonResponse(observer, {
       plan: {
@@ -392,6 +557,16 @@ export async function POST(request: Request) {
       /** How this file is being served, and why — surfaced for diagnosis. */
       strategy: result.strategy,
       strategyReason: result.strategyReason,
+      /**
+       * Where the bytes come from, independent of `strategy`.
+       *
+       * `strategy` answers "what shape is the playback" (direct byte range /
+       * VOD playlist / live HLS session); `source` answers "does this touch the
+       * swarm". They are orthogonal: `strategy: "session"` is `source: "disk"`
+       * whenever the file is fully on disk, because ffmpeg is handed the local
+       * absolutePath. Do not infer one from the other.
+       */
+      source: result.source,
       probe: {
         container: normalizeContainer(probeResult!.container),
         duration: probeResult!.duration,
@@ -401,6 +576,12 @@ export async function POST(request: Request) {
         audioChannels: primaryAudio?.channels ?? null,
         width: video?.width ?? null,
         height: video?.height ?? null,
+        /**
+         * Measured source bitrate in bits/sec, or null when ffprobe did not
+         * report one. The player sizes its HLS buffer against this and falls
+         * back to resolution tiers on null — so nothing is ever invented here.
+         */
+        bitrate: probeBitrateBps(probeResult!),
       },
       /**
        * Probe-cache write status for this request (I34): "hit" (served from
@@ -414,6 +595,13 @@ export async function POST(request: Request) {
   let playUrl: string;
   let sessionId: string | null = null;
   const timelineOffset = startSec;
+  /**
+   * Locality is decided by `resolveCompleteLocalFile`, not by the branch taken
+   * below. Even the `direct` branch points at `/api/stream`, which has its own
+   * verified-disk fast path — so when the file is fully local no byte of it
+   * comes off the swarm regardless of which URL shape the player receives.
+   */
+  const source: PlaybackSource = local.source;
 
   // ── Step 2b: complete-file strategy ──
   //
@@ -425,19 +613,6 @@ export async function POST(request: Request) {
   // instead, and a seek becomes an ordinary byte range.
   //
   // Anything this cannot serve falls through to the session path untouched.
-  let local: Awaited<ReturnType<typeof resolveCompleteLocalFile>>;
-  try {
-    local = await resolveCompleteLocalFile({ config, infoHash, filePath });
-  } catch (error) {
-    const safeError = observer.failure("PLAYBACK_PLAN_FAILED", error, {
-      status: "local-file",
-    });
-    return json(500, {
-      error: "Playback planning failed",
-      code: safeError.code,
-      message: safeError.message,
-    });
-  }
   const decision = chooseStrategy({ complete: local.ok, plan, duration });
   let strategy = decision.strategy;
   let strategyReason = local.ok ? decision.reason : `${decision.reason}: ${local.reason}`;
@@ -474,6 +649,7 @@ export async function POST(request: Request) {
         startSec: offset,
         strategy,
         strategyReason,
+        source: local.source,
       });
     }
 
@@ -521,5 +697,5 @@ export async function POST(request: Request) {
     playUrl = `/api/playback/hls/${result.session.id}/playlist.m3u8`;
   }
 
-  return respond({ playUrl, sessionId, startSec, strategy, strategyReason });
+  return respond({ playUrl, sessionId, startSec, strategy, strategyReason, source });
 }

@@ -13,6 +13,7 @@ import {
   externalClientConfig,
 } from "./types";
 import { withFormattedAddTorrentMessage } from "./messages";
+import { isUnsafeExecutableFileName } from "@/lib/torrents/filters";
 
 export function getClient(type: TorrentClientType) {
   if (type === "transmission") return transmissionClient;
@@ -30,6 +31,12 @@ export async function sendToClient(
   config: ClientConnectionConfig,
   payload: AddTorrentPayload,
 ): Promise<AddTorrentResult> {
+  if (payload.name && isUnsafeExecutableFileName(payload.name)) {
+    return {
+      ok: false,
+      message: "That release is not a playable video. Trying another release.",
+    };
+  }
   return withFormattedAddTorrentMessage(
     await getClient(config.clientType).addTorrent(config, payload),
   );

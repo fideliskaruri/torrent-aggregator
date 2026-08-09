@@ -33,6 +33,8 @@ import {
   invalidateTargetResolution,
 } from "@/lib/torrents/target-resolution";
 import { primaryDownloadRoot } from "@/lib/download/path-containment";
+import { resetDirectorySizeCache } from "@/lib/library/disk-space";
+import { resetDiskInventoryCache } from "@/lib/library/disk-inventory";
 import {
   booleanField,
   enumField,
@@ -54,6 +56,13 @@ function downloadRootFor(settings: {
 }): string | null {
   return primaryDownloadRoot(settings);
 }
+
+type DownloadStorageCacheState = {
+  baseDownloadPath?: string | null;
+  savePath?: string | null;
+  maxStorageBytes?: bigint | number | null;
+  storageCapConfigured?: boolean | null;
+};
 
 /**
  * Intervals the UI offers. 0 means "never on a timer".
@@ -161,6 +170,16 @@ function configuredStorageCap(settings: {
       ? Number(settings.maxStorageBytes)
       : Number(settings.maxStorageBytes);
   return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function shouldResetDownloadStorageCaches(
+  previous: DownloadStorageCacheState | null | undefined,
+  next: DownloadStorageCacheState,
+): boolean {
+  return (
+    downloadRootFor(previous ?? {}) !== downloadRootFor(next) ||
+    configuredStorageCap(previous ?? {}) !== configuredStorageCap(next)
+  );
 }
 
 function publicSettings(settings: {
@@ -713,6 +732,15 @@ export async function PUT(request: NextRequest) {
         pathRules: pathRulesJson,
       },
     });
+
+    if (shouldResetDownloadStorageCaches(existing, settings)) {
+      // A settings save is the moment the app should stop trusting any
+      // previous storage snapshot for this user. The next settings read and
+      // the next download check both need the post-save tree, not a memo from
+      // before the path or cap change.
+      resetDirectorySizeCache();
+      resetDiskInventoryCache();
+    }
 
     let retentionWrite = { persisted: true };
     if (body.defaultRetentionPolicy !== undefined) {

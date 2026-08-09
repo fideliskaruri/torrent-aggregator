@@ -25,6 +25,7 @@ export function applyFilters(
   filters: SearchFilters,
 ): TorrentResult[] {
   return results.filter((r) => {
+    if (isUnsafeExecutableFileName(r.title)) return false;
     if (filters.minSeeders != null && (r.seeders ?? 0) < filters.minSeeders) {
       return false;
     }
@@ -128,10 +129,59 @@ export interface MainFeatureSelection<T> {
 
 const VIDEO_EXT_RE =
   /\.(?:mkv|mp4|avi|m4v|mov|wmv|flv|webm|ts|m2ts|mpg|mpeg|vob)$/i;
+const SUBTITLE_EXT_RE = /\.(?:vtt|srt|ass|ssa)$/i;
+const EXECUTABLE_EXT_RE =
+  /\.(?:exe|scr|com|bat|cmd|ps1|psm1|msi|msp|cpl|hta|jar|js|jse|vbs|vbe|wsf|wsh|lnk|pif|reg|dll|sys)$/i;
 
 /** One authoritative filename rule for content the app can treat as video. */
 export function isSupportedVideoFileName(name: string): boolean {
   return VIDEO_EXT_RE.test(name.replace(/\\/g, "/"));
+}
+
+/** Subtitle sidecars that completed-media routes may expose alongside video. */
+export function isSupportedSubtitleFileName(name: string): boolean {
+  return SUBTITLE_EXT_RE.test(name.replace(/\\/g, "/"));
+}
+
+/** Files the media app must never download or expose as playback assets. */
+export function isUnsafeExecutableFileName(name: string): boolean {
+  return EXECUTABLE_EXT_RE.test(name.replace(/\\/g, "/"));
+}
+
+export function isSupportedMediaAssetFileName(name: string): boolean {
+  return isSupportedVideoFileName(name) || isSupportedSubtitleFileName(name);
+}
+
+export type TorrentPayloadValidation =
+  | { ok: true; videoCount: number }
+  | { ok: false; reason: "unsafe-file" | "no-video"; message: string };
+
+/**
+ * Validate names after torrent metadata arrives, before any durable row exists.
+ *
+ * A valid release may include subtitles, NFOs and artwork. Executable/script
+ * payloads are never acceptable, even beside a real video: choosing a different
+ * release is safer than downloading an unrelated program with the film.
+ */
+export function validateTorrentMediaPayload(
+  files: readonly SelectableFile[],
+): TorrentPayloadValidation {
+  const names = files.map((file) => String(file.path ?? file.name ?? ""));
+  if (names.some(isUnsafeExecutableFileName)) {
+    return {
+      ok: false,
+      reason: "unsafe-file",
+      message: "That release contains an unsafe non-media file. Trying another release.",
+    };
+  }
+  const videoCount = names.filter(isSupportedVideoFileName).length;
+  return videoCount > 0
+    ? { ok: true, videoCount }
+    : {
+        ok: false,
+        reason: "no-video",
+        message: "That release does not contain a supported video file. Trying another release.",
+      };
 }
 
 /**
@@ -141,8 +191,8 @@ export function isSupportedVideoFileName(name: string): boolean {
  * when the extra sorts first or the pack bundles both. The rule: among video
  * files, prefer non-extras; within that class pick the largest by byte length
  * (the feature is the big file, extras are short). Falls back to extras-only
- * video, then to the largest file of any kind, so a single-file torrent (or one
- * that names nothing recognisably) still resolves to something playable.
+ * video, but never to an arbitrary non-video file: an executable, archive or
+ * image is not a playable main feature.
  */
 export function selectMainFeatureFile<T extends SelectableFile>(
   files: readonly T[],
@@ -157,7 +207,8 @@ export function selectMainFeatureFile<T extends SelectableFile>(
   }));
 
   const videos = named.filter((f) => isSupportedVideoFileName(f.name));
-  const pool = videos.length > 0 ? videos : named;
+  if (videos.length === 0) return null;
+  const pool = videos;
 
   const mains = pool.filter((f) => !isExtrasRelease(f.name));
   const candidates = mains.length > 0 ? mains : pool;

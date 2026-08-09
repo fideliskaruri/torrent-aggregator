@@ -306,7 +306,11 @@ check("titlePath: carries what the card knew", () => {
 check("titlePath: never points at the release table", () => {
   const href = titlePath("severance", { title: "Severance", season: 2 });
   assert.ok(!href.includes("/search"), href);
-  assert.equal(new URLSearchParams(href.split("?")[1]).get("s"), "2");
+  assert.equal(
+    new URLSearchParams(href.split("?")[1]).get("s"),
+    null,
+    "selected seasons live in the per-title cookie, not the URL",
+  );
 });
 
 check("titlePath: a bare key needs no query string", () => {
@@ -505,6 +509,7 @@ function payload(over: Partial<TitleDetailPayload> = {}): TitleDetailPayload {
     workKey: "severance",
     transfer: null,
     title: "Severance",
+    aliases: [],
     year: null,
     mediaType: "tv",
     isSeries: true,

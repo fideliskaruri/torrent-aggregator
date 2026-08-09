@@ -3,6 +3,8 @@ import {
   type AniListFormat,
   type AniListWork,
 } from "@/lib/metadata/anilist";
+import { getTmdbById } from "@/lib/metadata/tmdb";
+import { normalizeMediaType } from "@/lib/metadata/media-type";
 import { identitiesAgree } from "@/components/title/title-intent";
 import { workKeyMatches } from "@/components/title/work-key";
 import type { MediaMetadata } from "@/lib/torrents/types";
@@ -17,10 +19,14 @@ const ANILIST_FORMATS = new Set<AniListFormat>([
   "MUSIC",
 ]);
 
+export type TitleIdentityProvider = "anilist" | "tmdb";
+export type TitleIdentityMediaType = "anime" | "movie" | "tv";
+
 export interface TitleProviderIdentity {
-  provider: "anilist";
+  provider: TitleIdentityProvider;
   externalId: string;
-  mediaType: "anime";
+  mediaType: TitleIdentityMediaType;
+  /** AniList-only shape hint; always null for TMDB. */
   format: AniListFormat | null;
   isSeries: boolean;
   metadata: MediaMetadata;
@@ -46,18 +52,51 @@ export type TitleProviderIdentityResult =
   | { kind: "verified"; identity: VerifiedTitleProviderIdentity };
 
 type AniListLookup = (id: string) => Promise<AniListWork | null>;
+type TmdbLookup = (
+  mediaType: "movie" | "tv",
+  id: string,
+) => Promise<MediaMetadata | null>;
 
+/**
+ * Verify the identity a title link carries, for any supported provider.
+ *
+ * Search links carry a provider-native id (`provider`, `providerId`,
+ * `sourceType`) so the title page can key off a verified work rather than
+ * re-guessing one from a slug. This dispatches on `provider` and applies the
+ * *same* agreement contract to every provider — `identitiesAgree` plus
+ * `workKeyMatches` — so a hand-typed `?providerId=` can never repoint a work
+ * key at an unrelated title. Adding a provider means adding a branch here and
+ * nothing downstream: `buildTitleDetail` consumes the result provider-agnostically.
+ *
+ * The lookups are injected so the route tests can drive them without the
+ * network; production defaults reach the real clients.
+ */
 export async function resolveTitleProviderIdentity(
   params: URLSearchParams,
   workKey: string,
   lookup: AniListLookup = getAniListWorkById,
+  tmdbLookup: TmdbLookup = getTmdbById,
 ): Promise<TitleProviderIdentityResult> {
   const provider = params.get("provider")?.trim().toLowerCase();
   if (!provider) return { kind: "absent" };
-  if (provider !== "anilist") {
-    return { kind: "invalid", reason: "Unsupported title provider" };
+  if (provider === "anilist") {
+    return resolveAniListIdentity(params, workKey, lookup);
   }
+  if (provider === "tmdb") {
+    return resolveTmdbIdentity(params, workKey, tmdbLookup);
+  }
+  return { kind: "invalid", reason: "Unsupported title provider" };
+}
 
+// ---------------------------------------------------------------------------
+// AniList
+// ---------------------------------------------------------------------------
+
+async function resolveAniListIdentity(
+  params: URLSearchParams,
+  workKey: string,
+  lookup: AniListLookup,
+): Promise<TitleProviderIdentityResult> {
   const externalId = params.get("providerId")?.trim() ?? "";
   if (!/^[1-9]\d{0,11}$/.test(externalId)) {
     return { kind: "invalid", reason: "Invalid AniList identity" };
@@ -66,7 +105,7 @@ export async function resolveTitleProviderIdentity(
     return { kind: "invalid", reason: "AniList identity must be anime" };
   }
 
-  const carried = carriedIdentity(params, workKey, externalId);
+  const carried = carriedAniListIdentity(params, workKey, externalId);
   if ("reason" in carried) return { kind: "invalid", reason: carried.reason };
 
   let work: AniListWork | null;
@@ -142,7 +181,7 @@ export async function resolveTitleProviderIdentity(
   };
 }
 
-function carriedIdentity(
+function carriedAniListIdentity(
   params: URLSearchParams,
   workKey: string,
   externalId: string,
@@ -167,23 +206,15 @@ function carriedIdentity(
   }
   const rawYear = params.get("y");
   const year = intParam(rawYear);
-  if (
-    rawYear &&
-    (year == null || year < 1800 || year > 2200)
-  ) {
+  if (rawYear && (year == null || year < 1800 || year > 2200)) {
     return { reason: "Invalid AniList year" };
   }
   if (!workKeyMatches(workKey, title, isSeries ? null : year)) {
     return { reason: "Work key did not match carried AniList identity" };
   }
 
-  const aliases = params
-    .getAll("alias")
-    .map((alias) => alias.trim())
-    .filter(Boolean);
-  if (aliases.length > 8 || aliases.some((alias) => alias.length > 200)) {
-    return { reason: "Invalid AniList aliases" };
-  }
+  const aliases = cleanAliases(params);
+  if (aliases == null) return { reason: "Invalid AniList aliases" };
 
   return {
     provider: "anilist",
@@ -196,11 +227,159 @@ function carriedIdentity(
       mediaType: "anime",
       externalId,
       title,
-      aliases: [...new Set(aliases)],
+      aliases,
       year,
     },
     verified: false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// TMDB
+// ---------------------------------------------------------------------------
+
+async function resolveTmdbIdentity(
+  params: URLSearchParams,
+  workKey: string,
+  lookup: TmdbLookup,
+): Promise<TitleProviderIdentityResult> {
+  const externalId = params.get("providerId")?.trim() ?? "";
+  if (!/^[1-9]\d{0,11}$/.test(externalId)) {
+    return { kind: "invalid", reason: "Invalid TMDB identity" };
+  }
+  const sourceType = params.get("sourceType")?.trim().toLowerCase();
+  if (sourceType !== "movie" && sourceType !== "tv") {
+    return { kind: "invalid", reason: "TMDB identity must be a movie or series" };
+  }
+  const mediaType: "movie" | "tv" = sourceType;
+  const isSeries = mediaType === "tv";
+
+  const carried = carriedTmdbIdentity(params, workKey, externalId, mediaType);
+  if ("reason" in carried) return { kind: "invalid", reason: carried.reason };
+
+  let work: MediaMetadata | null;
+  try {
+    work = await lookup(mediaType, externalId);
+  } catch {
+    return {
+      kind: "carried",
+      reason: "TMDB identity lookup failed",
+      identity: carried,
+    };
+  }
+  if (!work) {
+    return {
+      kind: "carried",
+      reason: "TMDB identity was not found",
+      identity: carried,
+    };
+  }
+  if (work.source !== "tmdb" || work.externalId.trim() !== externalId) {
+    return { kind: "invalid", reason: "TMDB identity did not match" };
+  }
+  if (normalizeMediaType(work.mediaType) !== mediaType) {
+    return { kind: "invalid", reason: "TMDB media type did not match" };
+  }
+
+  const selectedTitle = params.get("t")?.trim() ?? "";
+  const selectedYear = intParam(params.get("y"));
+  if (
+    !selectedTitle ||
+    !identitiesAgree(
+      { title: selectedTitle, year: selectedYear, mediaType },
+      {
+        title: work.title,
+        aliases: work.aliases,
+        year: work.year,
+        mediaType,
+      },
+    )
+  ) {
+    return { kind: "invalid", reason: "Title did not match TMDB identity" };
+  }
+
+  const identityYear = isSeries ? null : (work.year ?? selectedYear);
+  const names = [work.title, ...(work.aliases ?? [])];
+  if (!names.some((name) => workKeyMatches(workKey, name, identityYear))) {
+    return { kind: "invalid", reason: "Work key did not match TMDB identity" };
+  }
+
+  return {
+    kind: "verified",
+    identity: {
+      provider: "tmdb",
+      externalId,
+      mediaType,
+      format: null,
+      isSeries,
+      metadata: work,
+      verified: true,
+    },
+  };
+}
+
+function carriedTmdbIdentity(
+  params: URLSearchParams,
+  workKey: string,
+  externalId: string,
+  mediaType: "movie" | "tv",
+): CarriedTitleProviderIdentity | { reason: string } {
+  const isSeries = mediaType === "tv";
+  if (params.get("series") !== (isSeries ? "1" : "0")) {
+    return { reason: "Series shape did not match TMDB source" };
+  }
+  if (normalizeMediaType(params.get("type")) !== mediaType) {
+    return { reason: "Title route shape did not match TMDB source" };
+  }
+
+  const title = params.get("t")?.trim() ?? "";
+  if (!title || title.length > 200) {
+    return { reason: "Invalid TMDB title" };
+  }
+  const rawYear = params.get("y");
+  const year = intParam(rawYear);
+  if (rawYear && (year == null || year < 1800 || year > 2200)) {
+    return { reason: "Invalid TMDB year" };
+  }
+  if (!workKeyMatches(workKey, title, isSeries ? null : year)) {
+    return { reason: "Work key did not match carried TMDB identity" };
+  }
+
+  const aliases = cleanAliases(params);
+  if (aliases == null) return { reason: "Invalid TMDB aliases" };
+
+  return {
+    provider: "tmdb",
+    externalId,
+    mediaType,
+    format: null,
+    isSeries,
+    metadata: {
+      source: "tmdb",
+      mediaType,
+      externalId,
+      title,
+      aliases,
+      year,
+    },
+    verified: false,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/** Trimmed, de-duped, bounded alias list — or null when a bound is exceeded. */
+function cleanAliases(params: URLSearchParams): string[] | null {
+  const aliases = params
+    .getAll("alias")
+    .map((alias) => alias.trim())
+    .filter(Boolean);
+  if (aliases.length > 8 || aliases.some((alias) => alias.length > 200)) {
+    return null;
+  }
+  return [...new Set(aliases)];
 }
 
 function intParam(raw: string | null): number | null {

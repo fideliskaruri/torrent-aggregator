@@ -39,6 +39,8 @@ export type Session = {
   state: SessionState;
   /** Seconds into the source this session's output begins at. */
   startSec: number;
+  /** Whether ffmpeg's input is the local file or the loopback stream route. */
+  source: SessionSourceKind;
   /** ffprobe stream index of the audio track being muxed, if any. */
   audioStreamIndex: number | null;
   /** Absolute path to the HLS output directory */
@@ -87,13 +89,29 @@ export { resolveFfmpegPath } from "./ff-binaries";
 
 // ── Keys and paths ──
 
+/**
+ * Which kind of input ffmpeg was given. Part of the session's identity because
+ * a session is a *running ffmpeg bound to one input*, and the input can change
+ * underneath the same (infoHash, filePath, audio, startSec) tuple: while the
+ * torrent is downloading the source is a loopback `/api/stream` URL, and once
+ * it completes the plan route switches to the local absolute path. Keying
+ * without this reused the swarm-backed ffmpeg forever, so a finished download
+ * kept paying for peer latency and the engine could never be parked.
+ */
+export type SessionSourceKind = "disk" | "swarm";
+
+export function sessionSourceKind(sourceUrl: string): SessionSourceKind {
+  return /^https?:\/\//i.test(sourceUrl) ? "swarm" : "disk";
+}
+
 function sessionKey(
   infoHash: string,
   filePath: string,
   audioStreamIndex: number | null,
   startSec: number,
+  source: SessionSourceKind,
 ): string {
-  return `${infoHash}/${filePath}#a${audioStreamIndex ?? "none"}@${startSec}`;
+  return `${infoHash}/${filePath}#a${audioStreamIndex ?? "none"}@${startSec}~${source}`;
 }
 
 function newSessionId(): string {
@@ -148,26 +166,33 @@ export function buildFfmpegArgs(input: FfmpegArgsInput): string[] {
   const startSec = Math.max(0, Math.floor(input.startSec ?? 0));
   const args: string[] = ["-hide_banner", "-loglevel", "warning", "-nostdin", "-y"];
 
-  // Input options — bounded so a cold torrent does not hang ffmpeg forever.
-  args.push("-rw_timeout", "15000000"); // 15s read timeout, in microseconds
+  const networkSource = /^https?:\/\//i.test(sourceUrl);
+
+  // Network input options — bounded so a cold torrent does not hang ffmpeg
+  // forever. These are protocol options, not generic input options: passing
+  // them to a proven local file makes Windows FFmpeg reject the input with
+  // "Option reconnect not found".
+  if (networkSource) {
+    args.push("-rw_timeout", "15000000"); // 15s read timeout, in microseconds
+  }
   args.push("-analyzeduration", "5000000");
   args.push("-probesize", "10000000");
 
   // The source is a live torrent behind our own stream route, not a static
-  // file, so a read *will* be cut short: the route caps an open-ended
-  // `bytes=N-` at OPEN_ENDED_RANGE_CAP_BYTES, and a swarm can drop a peer
-  // mid-response. Without these, ffmpeg treats the first short read as a fatal
-  // "Stream ends prematurely at 8388608, should be ..." and the session dies —
-  // which meant *every* file larger than the cap failed to remux. Reconnecting
-  // re-issues a Range request from the current offset instead.
+  // file, so a read can be cut short: the route bounds an open-ended
+  // `bytes=N-` to a sustained delivery window, and a swarm can drop a peer
+  // mid-response. Without these, ffmpeg treats the first short read as fatal.
+  // Reconnecting re-issues a Range request from the current offset instead.
   // `-reconnect_at_eof` is deliberately NOT set: at a genuine EOF the session
   // is finished, and retrying there would stop it ever completing.
-  args.push("-reconnect", "1");
-  args.push("-reconnect_streamed", "1");
-  args.push("-reconnect_on_network_error", "1");
-  // Bounded backoff, so a source that is truly gone still reaches the stall
-  // watchdog rather than retrying forever.
-  args.push("-reconnect_delay_max", "5");
+  if (networkSource) {
+    args.push("-reconnect", "1");
+    args.push("-reconnect_streamed", "1");
+    args.push("-reconnect_on_network_error", "1");
+    // Bounded backoff, so a source that is truly gone still reaches the stall
+    // watchdog rather than retrying forever.
+    args.push("-reconnect_delay_max", "5");
+  }
 
   // Input seeking (before -i) is the fast form: ffmpeg jumps via byte-range
   // requests instead of decoding from zero. With stream copy the landing point
@@ -267,7 +292,8 @@ export function getOrCreateSession(
   options: GetOrCreateOptions = {},
 ): GetOrCreateResult {
   const startSec = Math.max(0, Math.floor(options.startSec ?? 0));
-  const key = sessionKey(infoHash, filePath, plan.selectedAudioIndex, startSec);
+  const source = sessionSourceKind(sourceUrl);
+  const key = sessionKey(infoHash, filePath, plan.selectedAudioIndex, startSec, source);
 
   const existing = sessions.get(key);
   if (
@@ -322,6 +348,7 @@ export function getOrCreateSession(
     plan,
     state: "starting",
     startSec,
+    source,
     audioStreamIndex: plan.selectedAudioIndex,
     outputDir,
     manifestPath: path.join(outputDir, "playlist.m3u8"),
@@ -673,6 +700,7 @@ export function listSessions(): Array<{
   state: SessionState;
   refs: number;
   startSec: number;
+  source: SessionSourceKind;
   timeToFirstSegmentMs: number | null;
 }> {
   return Array.from(sessions.values()).map((s) => ({
@@ -683,6 +711,7 @@ export function listSessions(): Array<{
     state: s.state,
     refs: s.refs,
     startSec: s.startSec,
+    source: s.source,
     timeToFirstSegmentMs: s.timeToFirstSegmentMs,
   }));
 }

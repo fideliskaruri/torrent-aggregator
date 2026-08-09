@@ -2,18 +2,14 @@
  * Season acquisition — orchestration + execution over the pure planner.
  *
  * `season-plan.ts` decides *what* to acquire from a table of releases and a
- * verdict lookup; this module supplies that table (one search), the verdicts
- * (cached, with a tiny bounded top-up probe), and then executes the plan by
- * adding the chosen torrents. It is deliberately thin: every non-trivial
- * decision lives in the pure planner where it is tested without a swarm.
+ * verdict lookup; this module supplies that table and executes the exact
+ * episode plan. It is deliberately thin: every non-trivial decision lives in
+ * the pure planner where it is tested without a swarm.
  *
- * The user's request was "download a whole season, favour good packs but also
- * be able to find multiple episodes if available, automatically." The seam the
- * UI (`wt-title`) calls:
+ * The UI asks for a season; this layer turns that into one exact torrent per
+ * episode so each card has its own truthful transfer state.
  *
- *   - {@link resolveSeasonPlan} — preview: what would we grab, and why. Reads
- *     cached verdicts, probes at most a few top *packs* to firm up the choice,
- *     never touches the client. Safe to call to render a plan.
+ *   - {@link resolveSeasonPlan} — preview: which exact episodes can be grabbed.
  *   - {@link acquireSeason} — commit: resolve the plan, then add each chosen
  *     release through the normal grab pipeline with the caller's explicit
  *     stream/keep retention, and report honest coverage.
@@ -21,6 +17,10 @@
 import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { rankResults } from "@/lib/torrents/ranking";
+import {
+  meetsResolutionFloor,
+  normalizeResolutionFloor,
+} from "@/lib/torrents/quality";
 import { getUserClientConfig } from "@/lib/clients";
 import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
@@ -29,31 +29,17 @@ import { checkSendStorage } from "@/lib/library/storage-gate";
 import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
 import { releaseInfoHash } from "@/lib/prewarm/prerank";
-import { foregroundActive } from "@/lib/prewarm/foreground";
-import { findLiveBuiltinTorrent } from "@/lib/clients/builtin-engine";
 import {
-  getSwarmMeasurement,
   loadSwarmVerdicts,
-  probeAndRecord,
   type SwarmVerdict,
 } from "@/lib/torrents/swarm-probe";
-import { planSeason, episodesFromFilenames, type PackChoice, type SeasonPlan, type SingleChoice } from "@/lib/torrents/season-plan";
+import { planSeason, type SeasonPlan, type SingleChoice } from "@/lib/torrents/season-plan";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { isEpisodeRangeRelease } from "@/lib/torrents/pack-preference";
 import { episodeSearchQuery } from "@/lib/library/cursor";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import { applySendRetention, sendRetentionToPurpose, type SendRetention } from "@/lib/streaming/send-retention";
-
-/**
- * How many top candidates a *synchronous* resolve will probe.
- *
- * A user pressing "Download season" wants an answer now, so this path leans on
- * cached verdicts (from the background pre-probe) and only tops up a couple of
- * the most consequential releases — the packs, because the whole strategy
- * pivots on whether a pack is good. Small on purpose: an 8s window × 3 is at
- * most ~24s of trickle, and it never runs while a viewer is active.
- */
-export const MAX_SEASON_RESOLVE_PROBES = 3;
 
 /**
  * Backend search query for a whole season (packs + episodes come back).
@@ -80,9 +66,8 @@ export function seasonSearchQueries(title: string, season: number): string[] {
   if (!t) return [];
   const n = Math.max(1, Math.trunc(season));
   const padded = String(n).padStart(2, "0");
-  // Deduped, order preserved. Title-only is last among the pack-shaped forms
-  // so a real pack still wins when the Sxx query works, but it is always
-  // asked — that is the form that finds per-episode releases for airing seasons.
+  // Deduped, order preserved. Title-only is always asked because it often finds
+  // exact episode releases that season-shaped searches omit.
   const raw = [
     `${t} S${padded}`,
     `${t} Season ${n}`,
@@ -107,18 +92,16 @@ function releaseDedupeKey(r: TorrentResult): string | null {
 
 function releaseEpisodeNumber(r: TorrentResult, season: number): number | null {
   const ep = r.episode ?? parseEpisode(r.title ?? "");
-  if (ep.isSeasonPack) return null;
+  if (
+    ep.isSeasonPack ||
+    ep.isBatch ||
+    ep.isMultiSeason ||
+    isEpisodeRangeRelease(r.title ?? "")
+  ) {
+    return null;
+  }
   if (ep.season != null && ep.season !== season) return null;
   return ep.episode ?? null;
-}
-
-function hasSeasonPack(releases: Iterable<TorrentResult>, season: number): boolean {
-  for (const r of releases) {
-    const ep = r.episode ?? parseEpisode(r.title ?? "");
-    if (!ep.isSeasonPack) continue;
-    if (ep.season == null || ep.season === season) return true;
-  }
-  return false;
 }
 
 /**
@@ -159,14 +142,10 @@ async function searchSeasonReleases(
       filters: { hasMagnet: true, minSeeders: 1, season },
     });
     addAll(res.results);
-    // A pack for this season is enough — the planner prefers it over singles.
-    if (hasSeasonPack(merged.values(), season)) break;
   }
 
-  // Gap-fill: exact episode queries for anything the season shapes missed.
-  // Cap at the wanted list so a 24-ep season does not fire 24 searches when a
-  // pack already covers it (handled above) or when most episodes already hit.
-  if (!hasSeasonPack(merged.values(), season) && wanted.length > 0) {
+  // Gap-fill exact episode queries for anything the season shapes missed.
+  if (wanted.length > 0) {
     const covered = new Set<number>();
     for (const r of merged.values()) {
       const ep = releaseEpisodeNumber(r, season);
@@ -199,7 +178,7 @@ export interface SeasonAcquireTarget {
   title: string;
   mediaType: string;
   season: number;
-  /** Preferred output height. Used for affinity ordering, never as a filter. */
+  /** Minimum output height. Lower and unknown resolutions are ineligible. */
   preferredResolution?: number | null;
   /**
    * Authoritative wanted-episode numbers. The caller knows the season's
@@ -208,42 +187,25 @@ export interface SeasonAcquireTarget {
    */
   episodes: number[];
   /**
-   * Whether the season has finished airing.  When `false` the planner skips
-   * pack selection to avoid a stalled download for unaired episodes.
-   * Omit or pass `true` for completed seasons.  Defaults to `true` when
-   * omitted so existing call-sites that don't pass the flag are unaffected.
+   * Retained in the API contract for callers that already compute it. Exact
+   * episode acquisition never grabs unaired gaps regardless.
    */
   seasonComplete?: boolean;
 }
 
 export interface ResolveSeasonOptions {
   db?: typeof prisma;
-  /** Cap synchronous probes. */
-  maxProbes?: number;
   /** Test seam — supply releases directly instead of searching. */
   _releases?: TorrentResult[];
   /** Test seam — inject the search function used by the multi-query ladder. */
   _searchFn?: typeof searchTorrents;
-  /** Test seam — inject the probe. */
-  _probeFn?: typeof probeAndRecord;
-  /** Test seam — inject the live-download guard. */
-  _findLive?: (hash: string) => unknown;
-  /** Test seam — override the foreground check. */
-  _foregroundActive?: () => boolean;
-  /**
-   * Read a torrent's actual file manifest without sending it. A pack is not
-   * eligible when this returns null/empty or when the manifest is incomplete.
-   */
-  _packFilesOf?: (
-    hash: string,
-  ) => string[] | null | Promise<string[] | null>;
 }
 
 export interface ResolveSeasonResult {
   plan: SeasonPlan;
   /** Every usable release considered, in ranker order (for the preview UI). */
   releases: TorrentResult[];
-  /** Info-hashes freshly probed while resolving. */
+  /** Retained for response compatibility; exact planning performs no pack probes. */
   probed: string[];
   /**
    * The verdict lookup used to build the plan.
@@ -251,51 +213,14 @@ export interface ResolveSeasonResult {
   verdictOf: (r: TorrentResult) => SwarmVerdict;
 }
 
-const MANIFEST_READ_CONCURRENCY = 3;
-
-async function readPackManifests(
-  releases: readonly TorrentResult[],
-  filesOf: NonNullable<ResolveSeasonOptions["_packFilesOf"]>,
-): Promise<Map<string, string[]>> {
-  const hashes = [
-    ...new Set(
-      releases
-        .map((release) => releaseInfoHash(release))
-        .filter((hash): hash is string => hash !== null),
-    ),
-  ];
-  const manifests = new Map<string, string[]>();
-  let cursor = 0;
-  const workers = Array.from(
-    { length: Math.min(MANIFEST_READ_CONCURRENCY, hashes.length) },
-    async () => {
-      while (cursor < hashes.length) {
-        const hash = hashes[cursor++];
-        const files = await filesOf(hash);
-        if (Array.isArray(files) && files.length > 0) {
-          manifests.set(hash, files);
-        }
-      }
-    },
-  );
-  await Promise.all(workers);
-  return manifests;
-}
-
 /**
- * Search once, load cached verdicts, top up a couple of pack probes, and build
- * the plan. Pure planner does the deciding; this only feeds it.
+ * Search, load cached verdicts, and build an exact-episode plan.
  */
 export async function resolveSeasonPlan(
   target: SeasonAcquireTarget,
   opts: ResolveSeasonOptions = {},
 ): Promise<ResolveSeasonResult> {
   const db = opts.db ?? prisma;
-  const probe = opts._probeFn ?? probeAndRecord;
-  const findLive = opts._findLive ?? findLiveBuiltinTorrent;
-  const isForeground = opts._foregroundActive ?? foregroundActive;
-  const maxProbes = Math.max(0, opts.maxProbes ?? MAX_SEASON_RESOLVE_PROBES);
-
   const category = searchCategoryForMediaType(target.mediaType) ?? "tv";
 
   const releases =
@@ -308,15 +233,15 @@ export async function resolveSeasonPlan(
       opts._searchFn,
     ));
 
-  const usableUnranked = releases.filter(
-    (r) => r.magnet && (r.seeders ?? 0) > 0 && releaseInfoHash(r) !== null,
-  );
   const preferredResolution =
-    target.preferredResolution != null &&
-    Number.isFinite(target.preferredResolution) &&
-    target.preferredResolution >= 1
-      ? Math.trunc(target.preferredResolution)
-      : null;
+    normalizeResolutionFloor(target.preferredResolution);
+  const usableUnranked = releases.filter(
+    (r) =>
+      r.magnet &&
+      (r.seeders ?? 0) > 0 &&
+      releaseInfoHash(r) !== null &&
+      meetsResolutionFloor(r.title, preferredResolution),
+  );
   const usable =
     preferredResolution == null
       ? usableUnranked
@@ -327,31 +252,7 @@ export async function resolveSeasonPlan(
           category,
         );
 
-  // ── Bounded, speculative top-up probe ─────────────────────────────────────
-  // Never compete with a viewer: if someone is watching, rely purely on the
-  // cache. Probe only the top few *packs* (unknown, not live, not already
-  // fresh) — those are the releases whose verdict changes the whole plan.
   const probed: string[] = [];
-  if (maxProbes > 0 && !isForeground()) {
-    const packCandidates = usable.filter((r) => r.episode?.isSeasonPack).slice(0, maxProbes * 2);
-    for (const candidate of packCandidates) {
-      if (probed.length >= maxProbes) break;
-      if (isForeground()) break;
-      const hash = releaseInfoHash(candidate);
-      if (!hash) continue;
-      // Never probe a live download — that guard protects a user's real files.
-      if (findLive(hash)) continue;
-      const existing = await getSwarmMeasurement(hash, { db });
-      if (existing && existing.verdict !== "unknown") continue;
-      await probe(
-        { magnet: candidate.magnet ?? null, infoHash: hash },
-        { db, sizeBytes: candidate.sizeBytes ?? null, name: candidate.title ?? null },
-      );
-      probed.push(hash);
-    }
-  }
-
-  // Load verdicts AFTER the top-up so freshly-probed packs are reflected.
   const verdicts = await loadSwarmVerdicts(
     usable.map((r) => releaseInfoHash(r)),
     { db },
@@ -361,11 +262,6 @@ export async function resolveSeasonPlan(
     return (h && verdicts.get(h)) || "unknown";
   };
 
-  const manifestFiles = await readPackManifests(
-    usable,
-    opts._packFilesOf ?? livePackFiles,
-  );
-
   const plan = planSeason({
     season: target.season,
     wanted: target.episodes,
@@ -373,11 +269,6 @@ export async function resolveSeasonPlan(
     verdictOf,
     preferredResolution,
     seasonComplete: target.seasonComplete,
-    packContents: (release) => {
-      const hash = releaseInfoHash(release);
-      const files = hash ? manifestFiles.get(hash) : null;
-      return files ? episodesFromFilenames(files, target.season) : null;
-    },
   });
 
   return { plan, releases: usable, probed, verdictOf };
@@ -401,8 +292,7 @@ export interface AcquireSeasonResult {
   /** Honest end-state summary, e.g. "8 of 10 episodes". */
   coverageLabel: string;
   /**
-   * Always true for a returned plan: packs require a complete verified manifest
-   * and singles name the exact episode.
+   * Always true for a returned plan because singles name exact episodes.
    */
   coverageConfirmed: boolean;
   /**
@@ -428,30 +318,12 @@ export interface AcquireSeasonOptions extends ResolveSeasonOptions {
 }
 
 /**
- * Read the real file paths of an already-live torrent. New packs remain
- * ineligible until a metadata-only manifest provider is wired; the planner
- * falls back to exact episodes rather than sending first and checking later.
- */
-function livePackFiles(hash: string): string[] | null {
-  const t = findLiveBuiltinTorrent(hash) as
-    | { files?: Array<{ path?: string; name?: string }> }
-    | null
-    | undefined;
-  const files = t?.files;
-  if (!Array.isArray(files) || files.length === 0) return null;
-  const paths = files.map((f) => f.path || f.name || "").filter(Boolean);
-  return paths.length > 0 ? paths : null;
-}
-
-/**
- * Resolve then execute: add the chosen pack and singles as `origin: "user"`.
+ * Resolve then execute: add the chosen exact singles as `origin: "user"`.
  *
  * Each add goes through the shared grab pipeline, which sends via the client
  * (builtin → `addTorrentWithEngineDefaults`, inheriting the private-swarm
  * tracker rule and the `origin: "user"` default) and records GrabJob +
- * DownloadHistory. The pipeline's own 5-minute infoHash dedupe means an episode
- * already covered by the pack and re-requested cannot double-add — but the plan
- * already guarantees no double-grab, so that is only a backstop.
+ * DownloadHistory. The pipeline's own infoHash dedupe remains a backstop.
  */
 export async function acquireSeason(
   target: SeasonAcquireTarget,
@@ -503,6 +375,8 @@ export async function acquireSeason(
       grabJobKind: "ondemand",
       externalId: opts.watchListItemId ?? null,
       purpose: sendRetentionToPurpose(retention, opts.watchListItemId),
+      minimumResolution:
+        retention === "keep" ? target.preferredResolution : null,
       downloadHistoryPrefix:
         kind === "pack"
           ? `Season ${target.season} pack`
@@ -588,14 +462,6 @@ export async function acquireSeason(
     return false;
   };
 
-  // The planner chose this pack: file-confirmed when its torrent was already
-  // live, otherwise taken on its name and marked unconfirmed. Either way it is
-  // the plan's choice to send — a pack whose files cannot be read yet is the
-  // normal first-grab case, not a reason to send nothing.
-  if (plan.pack) {
-    const p: PackChoice = plan.pack;
-    await send(p.release, p.verdict, "pack", undefined, p.covers);
-  }
   for (const s of plan.singles as SingleChoice[]) {
     await send(s.release, s.verdict, "single", s.episode, [s.episode]);
   }

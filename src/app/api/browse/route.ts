@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
  * One round-trip payload for the Netflix-style home page.
  *
  * Returns typed rails — the personal ones first (Continue Watching, Ready to
- * Play, Next Up, My Library, Recently Added), then the discovery ones
- * (Because you're watching X, Trending now, Popular series). Empty rails are
+ * Play, Next Up, My Library), then the discovery ones (Because you're
+ * watching X, Trending now, Popular series). Empty rails are
  * omitted.
  *
  * The discovery rails read a cache that `@/lib/catalog/refresh` fills on a

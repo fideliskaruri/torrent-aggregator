@@ -14,6 +14,7 @@
  *     zero.
  */
 import assert from "node:assert/strict";
+import { isTorrentFileFullyVerifiedOnDisk } from "@/lib/clients/disk-fastpath";
 import {
   buildKeyframeProbeArgs,
   buildVodPlaylist,
@@ -171,6 +172,95 @@ for (const testCase of routingCases) {
     });
     assert.equal(decision.strategy, testCase.expect, decision.reason);
     assert.ok(decision.reason.length > 0, "every decision explains itself");
+  });
+}
+
+// ── Downloaded-seek fix: strategy wiring for a partial season pack ──
+//
+// `chooseStrategy`'s `complete` flag must come from the per-file bitfield
+// primitive (`isTorrentFileFullyVerifiedOnDisk`), never from the torrent's own
+// aggregate `progress` — a season pack can sit under 100% while one episode
+// inside it is already fully verified. This proves the two ends actually wire
+// together the way `resolveCompleteLocalFile` depends on: the requested
+// file's own pieces decide `complete`, and `complete: true` is what actually
+// produces `whole-file`/`vod-segments`, never a bare "not session" claim.
+console.log("\nstrategy wiring: per-file bitfield drives chooseStrategy, not aggregate progress");
+{
+  const packTorrent = {
+    infoHash: "abcdef1234567890abcdef1234567890abcdef12",
+    name: "Season pack",
+    progress: 0.5, // the pack overall is still only half downloaded
+    downloadSpeed: 0,
+    numPeers: 0,
+    files: [],
+    pieceLength: 1024,
+    pieces: Array.from({ length: 8 }, () => ({})),
+    ready: true,
+    bitfield: { get: (index: number) => index < 4 }, // only episode one's pieces are in
+  };
+  const episodeOne = {
+    name: "Episode.01.mkv",
+    path: "Season 01/Episode.01.mkv",
+    length: 4096,
+    offset: 0,
+    stream() {
+      throw new Error("not used");
+    },
+  };
+  const episodeTwo = {
+    name: "Episode.02.mkv",
+    path: "Season 01/Episode.02.mkv",
+    length: 4096,
+    offset: 4096,
+    stream() {
+      throw new Error("not used");
+    },
+  };
+
+  check("a fully verified episode inside a partial pack resolves whole-file, not session", () => {
+    const complete = isTorrentFileFullyVerifiedOnDisk(
+      packTorrent as never,
+      episodeOne as never,
+    );
+    assert.equal(complete, true, "episode one's own pieces are all verified");
+    const decision = chooseStrategy({
+      complete,
+      duration: 1200,
+      plan: plan({ rung: "remux", video: { codec: "hevc", streamIndex: 0, action: "copy" } }),
+    });
+    assert.equal(decision.strategy, "whole-file");
+    assert.notEqual(decision.strategy, "session");
+  });
+
+  check("a fully verified episode needing full transcode resolves vod-segments, not session", () => {
+    const complete = isTorrentFileFullyVerifiedOnDisk(
+      packTorrent as never,
+      episodeOne as never,
+    );
+    const decision = chooseStrategy({
+      complete,
+      duration: 1200,
+      plan: plan({
+        rung: "transcode-full",
+        video: { codec: "vc1", streamIndex: 0, action: "transcode", targetCodec: "h264" },
+      }),
+    });
+    assert.equal(decision.strategy, "vod-segments");
+    assert.notEqual(decision.strategy, "session");
+  });
+
+  check("an episode still missing pieces in the same pack stays on the session path", () => {
+    const complete = isTorrentFileFullyVerifiedOnDisk(
+      packTorrent as never,
+      episodeTwo as never,
+    );
+    assert.equal(complete, false, "episode two is still missing pieces");
+    const decision = chooseStrategy({
+      complete,
+      duration: 1200,
+      plan: plan({ rung: "remux", video: { codec: "hevc", streamIndex: 0, action: "copy" } }),
+    });
+    assert.equal(decision.strategy, "session");
   });
 }
 
@@ -544,44 +634,130 @@ check("a re-encoded audio track keeps its channel count", () => {
   assert.equal(args[args.indexOf("-ac") + 1], "6", "5.1 must never become stereo");
 });
 
-check("a re-encoded video forces a keyframe on every segment boundary", () => {
+const encodePlan = () =>
+  plan({
+    rung: "transcode-full",
+    video: { codec: "mpeg2video", streamIndex: 0, action: "transcode", targetCodec: "libx264" },
+  });
+
+check("a re-encoded video forces one keyframe at its own segment start", () => {
   const args = buildVodSegmentArgs({
     sourcePath: "film.mkv",
-    plan: plan({
-      rung: "transcode-full",
-      video: { codec: "mpeg2video", streamIndex: 0, action: "transcode", targetCodec: "libx264" },
-    }),
+    plan: encodePlan(),
     segment: { index: 5, start: 20, duration: 4 },
     segmentSeconds: VOD_SEGMENT_SECONDS,
   });
   assert.equal(
     args[args.indexOf("-force_key_frames") + 1],
-    `expr:gte(t,n_forced*${VOD_SEGMENT_SECONDS})`,
+    "20",
+    "a bare timestamp list forces exactly one keyframe at the absolute boundary",
   );
   assert.equal(args[args.indexOf("-sc_threshold") + 1], "0", "scene cuts must not move boundaries");
 });
 
-check("the hardware encoder is dropped on the software retry", () => {
+check("a deep segment forces one keyframe, never an always-true expression", () => {
+  const args = buildVodSegmentArgs({
+    sourcePath: "film.mkv",
+    plan: encodePlan(),
+    segment: { index: 100, start: 400, duration: 4 },
+    segmentSeconds: VOD_SEGMENT_SECONDS,
+  });
+  const value = args[args.indexOf("-force_key_frames") + 1];
+  assert.equal(value, "400");
+  assert.ok(
+    !value.startsWith("expr:"),
+    "under -copyts gte(t,start) is true for every frame in the segment — every frame becomes an IDR",
+  );
+  assert.ok(
+    !value.includes("n_forced"),
+    "a cadence expr makes every frame past a boundary an IDR — the post-seek jitter",
+  );
+});
+
+check("segment zero forces its keyframe at t=0", () => {
+  const args = buildVodSegmentArgs({
+    sourcePath: "film.mkv",
+    plan: encodePlan(),
+    segment: { index: 0, start: 0, duration: 4 },
+  });
+  const value = args[args.indexOf("-force_key_frames") + 1];
+  assert.equal(value, "0");
+  assert.ok(!value.startsWith("expr:"));
+});
+
+check("the forced keyframe timestamp follows the segment start, not the grid size", () => {
+  const args = buildVodSegmentArgs({
+    sourcePath: "film.mkv",
+    plan: encodePlan(),
+    segment: { index: 7, start: 37.5, duration: 2.5 },
+    segmentSeconds: VOD_SEGMENT_SECONDS,
+  });
+  const value = args[args.indexOf("-force_key_frames") + 1];
+  assert.equal(value, "37.5");
+  assert.ok(!value.startsWith("expr:"));
+  assert.equal(args[args.indexOf("-to") + 1], "40");
+});
+
+check("an encoded segment keeps the timestamp flags that make it joinable", () => {
+  const args = buildVodSegmentArgs({
+    sourcePath: "film.mkv",
+    plan: encodePlan(),
+    segment: { index: 100, start: 400, duration: 4 },
+  });
+  assert.ok(args.includes("-copyts"));
+  assert.equal(args[args.indexOf("-avoid_negative_ts") + 1], "disabled");
+});
+
+check("a copy plan never emits -force_key_frames", () => {
+  const args = buildVodSegmentArgs({
+    sourcePath: "film.mkv",
+    plan: plan(),
+    segment: { index: 100, start: 400, duration: 4 },
+  });
+  assert.equal(args[args.indexOf("-c:v") + 1], "copy");
+  assert.ok(!args.includes("-force_key_frames"), "ffmpeg cannot move keyframes when copying");
+});
+
+check("software mode maps H.264 to libx264 even when hardware is available", () => {
   const encodePlan = plan({
     rung: "transcode-full",
     video: {
       codec: "vc1",
       streamIndex: 0,
       action: "transcode",
-      targetCodec: "libx264",
+      targetCodec: "h264",
       hwAccel: "h264_amf",
     },
   });
   const segment = { index: 0, start: 0, duration: 4 };
-  const hw = buildVodSegmentArgs({ sourcePath: "f.mkv", plan: encodePlan, segment });
-  const sw = buildVodSegmentArgs({
+  const args = buildVodSegmentArgs({
     sourcePath: "f.mkv",
     plan: encodePlan,
     segment,
     forceSoftware: true,
   });
-  assert.equal(hw[hw.indexOf("-c:v") + 1], "h264_amf");
-  assert.equal(sw[sw.indexOf("-c:v") + 1], "libx264");
+  assert.equal(args[args.indexOf("-c:v") + 1], "libx264");
+});
+
+check("software mode maps HEVC to libx265", () => {
+  const encodePlan = plan({
+    rung: "transcode-full",
+    video: {
+      codec: "av1",
+      streamIndex: 0,
+      action: "transcode",
+      targetCodec: "hevc",
+      hwAccel: "hevc_amf",
+    },
+  });
+  const args = buildVodSegmentArgs({
+    sourcePath: "f.mkv",
+    plan: encodePlan,
+    segment: { index: 0, start: 0, duration: 4 },
+    forceSoftware: true,
+  });
+  assert.equal(args[args.indexOf("-c:v") + 1], "libx265");
+  assert.ok(args.includes("-crf"), "software HEVC must receive software encoder options");
 });
 
 check("HEVC copies carry the hvc1 tag browsers require", () => {

@@ -38,13 +38,35 @@ const DEFAULT_PROBE_SIZE = 10_000_000; // 10MB
  */
 export { FfBinaryMissingError, resolveFfprobePath } from "./ff-binaries";
 
-/**
- * Run ffprobe against an HTTP URL and return parsed stream info.
- * The URL should point at the app's own stream endpoint.
- */
-export async function probeUrl(
-  url: string,
-  deps: ProbeDeps = {},
+export function buildProbeArgs(
+  input: string,
+  options: {
+    timeoutMs?: number;
+    analyzeDuration?: number;
+    probeSize?: number;
+    networkSource?: boolean;
+  } = {},
+): string[] {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const args = [
+    "-v", "quiet",
+    "-print_format", "json",
+    "-show_format",
+    "-show_streams",
+    "-analyzeduration", String(options.analyzeDuration ?? DEFAULT_ANALYZE_DURATION),
+    "-probesize", String(options.probeSize ?? DEFAULT_PROBE_SIZE),
+  ];
+  if (options.networkSource) {
+    args.push("-rw_timeout", String(Math.max(1_000_000, timeoutMs * 1000)));
+  }
+  args.push(input);
+  return args;
+}
+
+async function probeInput(
+  input: string,
+  networkSource: boolean,
+  deps: ProbeDeps,
 ): Promise<ProbeOutcome> {
   let ffprobe: string;
   try {
@@ -59,56 +81,69 @@ export async function probeUrl(
     };
   }
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const analyzeDuration = deps.analyzeDuration ?? DEFAULT_ANALYZE_DURATION;
-  const probeSize = deps.probeSize ?? DEFAULT_PROBE_SIZE;
-
-  const args = [
-    "-v", "quiet",
-    "-print_format", "json",
-    "-show_format",
-    "-show_streams",
-    "-analyzeduration", String(analyzeDuration),
-    "-probesize", String(probeSize),
-    // A torrent that stops sending mid-probe must not hold the request open for
-    // the whole execFile timeout; ffprobe aborts the read instead.
-    "-rw_timeout", String(Math.max(1_000_000, timeoutMs * 1000)),
-    url,
-  ];
+  const args = buildProbeArgs(input, {
+    timeoutMs,
+    analyzeDuration: deps.analyzeDuration,
+    probeSize: deps.probeSize,
+    networkSource,
+  });
 
   return new Promise<ProbeOutcome>((resolve) => {
-    const child = execFile(ffprobe, args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
-      clearTimeout(hardKill);
-      if (err) {
-        const isTimeout = ("killed" in err && err.killed) || err.message.includes("ETIMEDOUT");
-        resolve({
-          ok: false,
-          error: {
-            error: isTimeout ? "timeout" : "probe_failed",
-            message: err.message,
-          },
-        });
-        return;
-      }
-      try {
-        const parsed = parseProbeOutput(stdout);
-        resolve(parsed);
-      } catch (e) {
-        resolve({
-          ok: false,
-          error: {
-            error: "probe_failed",
-            message: e instanceof Error ? e.message : String(e),
-          },
-        });
-      }
-    });
-    // Safety net for the case execFile's own timeout does not fire. Unref'd so a
-    // completed probe never keeps a CLI script or test process alive.
+    const child = execFile(
+      ffprobe,
+      args,
+      { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 },
+      (err, stdout) => {
+        clearTimeout(hardKill);
+        if (err) {
+          const isTimeout =
+            ("killed" in err && err.killed) || err.message.includes("ETIMEDOUT");
+          resolve({
+            ok: false,
+            error: {
+              error: isTimeout ? "timeout" : "probe_failed",
+              message: err.message,
+            },
+          });
+          return;
+        }
+        try {
+          resolve(parseProbeOutput(stdout));
+        } catch (e) {
+          resolve({
+            ok: false,
+            error: {
+              error: "probe_failed",
+              message: e instanceof Error ? e.message : String(e),
+            },
+          });
+        }
+      },
+    );
     const hardKill = setTimeout(() => {
       try { child.kill("SIGKILL"); } catch { /* already dead */ }
     }, timeoutMs + 2000);
     hardKill.unref?.();
   });
+}
+
+/**
+ * Run ffprobe against an HTTP URL and return parsed stream info.
+ * The URL should point at the app's own stream endpoint.
+ */
+export async function probeUrl(
+  url: string,
+  deps: ProbeDeps = {},
+): Promise<ProbeOutcome> {
+  return probeInput(url, true, deps);
+}
+
+/** Probe a completed local file without applying HTTP-only ffprobe options. */
+export async function probeFile(
+  filePath: string,
+  deps: ProbeDeps = {},
+): Promise<ProbeOutcome> {
+  return probeInput(filePath, false, deps);
 }
 
 // ── Prisma cache layer ──

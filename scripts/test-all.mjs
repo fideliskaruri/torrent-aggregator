@@ -3,23 +3,24 @@
  * Always run after changes. Exit 1 if any step fails.
  *
  * Usage: node scripts/test-all.mjs
- * Optional: BASE=http://localhost:3000 SCRATCH=./tmp
+ * Optional: BASE=http://localhost:3000 SCRATCH=./.next-scratch/test-all-out
  */
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cleanupPrivateDb, preparePrivateDb } from "./lib/private-db.mjs";
+import { PRIVATE_DB_RUNS } from "./lib/test-all-private-runs.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scratch =
-  process.env.SCRATCH ||
-  path.join(
-    process.env.TEMP || process.env.TMP || root,
-    "tf-test-all-out",
-  );
+  process.env.SCRATCH || path.join(root, ".next-scratch", "test-all-out");
 const BASE = process.env.BASE || "http://localhost:3000";
 
 fs.mkdirSync(scratch, { recursive: true });
+const privateDb = preparePrivateDb("test-all");
+const privateDbEnv = { ...process.env, DATABASE_URL: privateDb.url };
+console.log(`Using private database ${privateDb.url} for backend-only scripts\n`);
 
 const results = [];
 
@@ -156,18 +157,8 @@ run("unit", "npm", ["run", "test:unit"], { timeout: 300_000 });
 // 2) Library-focused
 run("cursor", "npx", ["tsx", "src/lib/library/cursor.test.ts"]);
 run("disk-space", "npx", ["tsx", "src/lib/library/disk-space.test.ts"]);
-run("settings-upsert", "npx", ["tsx", "scripts/test-settings-upsert.ts"]);
 run("library-hunt", "npx", ["tsx", "scripts/test-library-hunt.ts"], {
   timeout: 120_000,
-});
-run("ondemand-estimate", "npx", ["tsx", "scripts/test-ondemand-and-estimate.ts"], {
-  timeout: 180_000,
-});
-run("ondemand-advance", "npx", ["tsx", "scripts/test-ondemand-advance.ts"], {
-  timeout: 60_000,
-});
-run("builtin-send", "npx", ["tsx", "scripts/test-builtin-send.ts"], {
-  timeout: 180_000,
 });
 // Real torrents over a real socket — proves where the bytes actually land.
 run("content-layout-e2e", "npx", ["tsx", "scripts/e2e-content-layout.mts"], {
@@ -195,14 +186,12 @@ run("api-smoke", "node", ["scripts/api-smoke.mjs", BASE], { timeout: 180_000 });
 // them are pinned to BASE here.
 const uiEnv = { BASE_URL: BASE, PLAYWRIGHT_BASE_URL: BASE, TF_BASE_URL: BASE };
 
-run("availability-seam", "npx", ["tsx", "scripts/test-availability-seam.mts"], {
-  timeout: 120_000,
-  env: uiEnv,
-});
-run("browse-rails", "npx", ["tsx", "scripts/test-browse-rails.mts"], {
-  timeout: 120_000,
-  env: uiEnv,
-});
+for (const task of PRIVATE_DB_RUNS) {
+  run(task.name, task.cmd, task.args, {
+    timeout: task.timeout,
+    env: privateDbEnv,
+  });
+}
 // Asks the question the owner actually asked: does the front page read like a
 // catalog, or like a torrent list? Catches filename captions and rails of
 // grey letter-tiles, both of which have shipped through a fully green suite.
@@ -359,5 +348,6 @@ log(
     : `\n${failed.length} FAILED → ${scratch}`,
 );
 if (devServerPid) log(`dev server left running (pid ${devServerPid})`);
+cleanupPrivateDb(privateDb);
 
 process.exit(failed.length === 0 ? 0 : 1);

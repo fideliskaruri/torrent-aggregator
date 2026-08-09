@@ -1,19 +1,14 @@
 /**
- * Active download row wording.
+ * Download row numbers, shared with `/downloads`.
  *
  * Run: npx tsx src/components/tf/active-row-state.test.ts
  *
  * The cases worth writing are the ones where a plausible number lies: a
- * rounded 100% on an incomplete file, a zero speed presented as a measurement,
- * or the client's own vocabulary leaking through as an apparent error.
+ * rounded 100% on an incomplete file, or a zero speed presented as a
+ * measurement.
  */
 import assert from "node:assert/strict";
-import {
-  activityLabel,
-  progressPercent,
-  speedLabel,
-  stateLabel,
-} from "./active-row-state";
+import { progressPercent, speedLabel } from "./active-row-state";
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -63,63 +58,6 @@ check("speed scales into units a person reads", () => {
   assert.equal(speedLabel(512), "512 B/s");
   assert.equal(speedLabel(1536), "1.5 KB/s");
   assert.equal(speedLabel(5 * 1024 * 1024), "5 MB/s");
-});
-
-check("the client's vocabulary never reaches the user", () => {
-  // stalledDL is the dangerous one: it reads as an error and means only
-  // "no peers right now", which usually resolves itself.
-  assert.equal(stateLabel("stalledDL"), "Looking for peers");
-  assert.equal(stateLabel("metaDL"), "Finding files");
-  assert.equal(stateLabel("queuedDL"), "Queued");
-  assert.equal(stateLabel("checkingDL"), "Checking");
-  assert.equal(stateLabel("allocating"), "Preparing");
-  for (const raw of ["stalledDL", "metaDL", "queuedDL", "allocating"]) {
-    assert.ok(
-      !/DL|stalled|alloc/i.test(stateLabel(raw)),
-      `raw client word leaked for ${raw}`,
-    );
-  }
-});
-
-check("an unknown state is described as downloading, not as unknown", () => {
-  assert.equal(stateLabel("someNewQbitState"), "Downloading");
-  assert.equal(stateLabel(""), "Downloading");
-});
-
-check("a moving download states progress and speed", () => {
-  assert.equal(
-    activityLabel({ progress: 0.41, dlspeed: 2 * 1024 * 1024, state: "downloading" }),
-    "Downloading 41% · 2 MB/s",
-  );
-});
-
-check("a stopped download omits the speed rather than printing zero", () => {
-  assert.equal(
-    activityLabel({ progress: 0.41, dlspeed: 0, state: "stalledDL" }),
-    "Looking for peers 41%",
-  );
-});
-
-check("a torrent with nothing yet reports its phase, not 0%", () => {
-  // "Finding files 0%" reads as stalled at nothing. There is simply no
-  // progress to report until there are files to measure.
-  assert.equal(
-    activityLabel({ progress: 0, dlspeed: 0, state: "metaDL" }),
-    "Finding files",
-  );
-  assert.equal(
-    activityLabel({ progress: 0, dlspeed: 0, state: "queuedDL" }),
-    "Queued",
-  );
-});
-
-check("a running download at zero still says zero, because it has started", () => {
-  // The distinction matters: queued means not begun, downloading at 0% means
-  // begun and not yet productive. Collapsing them hides a stuck transfer.
-  assert.equal(
-    activityLabel({ progress: 0, dlspeed: 0, state: "downloading" }),
-    "Downloading 0%",
-  );
 });
 
 if (failures) {

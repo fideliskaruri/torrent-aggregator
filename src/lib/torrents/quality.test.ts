@@ -21,6 +21,8 @@ import {
   isJunkSource,
   isImplausible,
   isViable,
+  meetsResolutionFloor,
+  normalizeResolutionFloor,
   parseResolution,
   relevanceTier,
   resolutionAffinity,
@@ -634,6 +636,16 @@ check("standalone UHD reads as 2160", () => {
   assert.equal(parseResolution("Movie 2160p UHD"), 2160);
   // Bare 4k stays marketing text.
   assert.equal(parseResolution("Movie 4k Remastered 1080p BluRay"), 1080);
+});
+
+check("download quality floor accepts only stated resolutions at or above it", () => {
+  assert.equal(normalizeResolutionFloor(1080.9), 1080);
+  assert.equal(normalizeResolutionFloor(0), null);
+  assert.equal(meetsResolutionFloor("Show S01E01", null), true);
+  assert.equal(meetsResolutionFloor("Show S01E01 720p", 1080), false);
+  assert.equal(meetsResolutionFloor("Show S01E01", 1080), false);
+  assert.equal(meetsResolutionFloor("Show S01E01 1080p", 1080), true);
+  assert.equal(meetsResolutionFloor("Show S01E01 2160p", 1080), true);
 });
 
 // [5] The user-settable target is the newest surface; every target must keep a

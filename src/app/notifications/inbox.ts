@@ -62,6 +62,26 @@ const COMPLETED = new Set(["sent", "completed", "downloaded", "done"]);
 const TERMINAL_FAILURE = new Set(["failed", "error", "exhausted"]);
 
 /**
+ * Every status the inbox recognises, for the server to filter on.
+ *
+ * The unread count is answered by a query, not by counting a page of the feed,
+ * and a query needs the allowlist as data. Kept derived from the two sets
+ * above so a status can never be added to one and forgotten here.
+ */
+export const INBOX_STATUSES: readonly string[] = [
+  ...COMPLETED,
+  ...TERMINAL_FAILURE,
+];
+
+/**
+ * The most unread notifications worth counting.
+ *
+ * {@link badgeText} renders anything over 99 as "99+", so counting past 100
+ * would buy a number nobody sees at the cost of an unbounded read.
+ */
+export const UNREAD_COUNT_CAP = 100;
+
+/**
  * Turn a raw row into a notification, or `null` if it is not news.
  *
  * Unknown statuses return `null` rather than being shown. An inbox that
@@ -190,4 +210,17 @@ export function unreadCount(
 export function badgeText(count: number): string | null {
   if (count <= 0) return null;
   return count > 99 ? "99+" : String(count);
+}
+
+/**
+ * Where the nav badge asks for its number.
+ *
+ * A builder rather than an inline template so the read-mark contract — the
+ * timestamp goes to the server, the server counts — is one testable thing
+ * instead of a string spread across components.
+ */
+export function unreadCountUrl(lastReadAt: string | null): string {
+  return lastReadAt
+    ? `/api/activity/unread?since=${encodeURIComponent(lastReadAt)}`
+    : "/api/activity/unread";
 }

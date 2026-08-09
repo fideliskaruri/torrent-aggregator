@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { TitleDetail } from "@/components/title/title-detail";
 import { displayTitleFromWorkKey } from "@/components/title/work-key";
+import {
+  readRememberedSeason,
+  REMEMBERED_SEASON_COOKIE_NAME,
+} from "@/lib/title/remembered-season";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +19,7 @@ interface TitlePageProps {
  *
  * The key is enough on its own whenever the work is in the local database. The
  * query string carries what a linking card already knew (`t` title, `y` year,
- * `type` media type, `s` season) so a title we hold no row for still renders
+ * `type` media type) so a title we hold no row for still renders
  * with its real name instead of a heading reverse-engineered from a slug.
  *
  * A thin server shell: the payload is one client fetch of local state, which
@@ -41,6 +46,11 @@ export default async function TitlePage({
 }: TitlePageProps) {
   const { workKey } = await params;
   const sp = await searchParams;
+  const cookieStore = await cookies();
+  const rememberedSeason = readRememberedSeason(
+    cookieStore.get(REMEMBERED_SEASON_COOKIE_NAME)?.value ?? null,
+    workKey,
+  );
 
   return (
     <TitleDetail
@@ -48,13 +58,14 @@ export default async function TitlePage({
       title={firstValue(sp.t) ?? null}
       year={intOrNull(firstValue(sp.y))}
       mediaType={firstValue(sp.type) ?? null}
-      season={intOrNull(firstValue(sp.s))}
+      legacySeason={intOrNull(firstValue(sp.s))}
       provider={firstValue(sp.provider) ?? null}
       providerId={firstValue(sp.providerId) ?? null}
       sourceType={firstValue(sp.sourceType) ?? null}
       format={firstValue(sp.format) ?? null}
       seriesHint={firstValue(sp.series) ?? null}
       aliases={allValues(sp.alias)}
+      rememberedSeason={rememberedSeason}
     />
   );
 }

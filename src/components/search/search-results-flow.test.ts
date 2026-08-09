@@ -30,7 +30,11 @@ const overlay = read("components/search/search-overlay.tsx");
 const overlayState = read("components/search/search-overlay-state.ts");
 const header = read("components/layout/header.tsx");
 const shortcuts = read("hooks/use-keyboard-shortcuts.ts");
-const titlesApi = read("app/api/search/titles/route.ts");
+const titlesApi =
+  read("app/api/search/titles/route.ts") +
+  "\n" +
+  read("lib/search/work-search-fanout.ts");
+const suggestApi = read("app/api/suggest/route.ts") + "\n" + read("lib/search/suggest.ts");
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -81,6 +85,14 @@ check("titles API calls scoped TMDB and AniList only", () => {
 // behaviourally below — a source grep alone would not have caught this.
 check("titles API ranks results by relevance", () => {
   assert.match(titlesApi, /rankTitleHitsByRelevance/);
+});
+
+check("suggestions rank compact matches above fallback noise", () => {
+  assert.match(suggestApi, /rankTitleHitsByRelevance\(unique,\s*query\)/);
+});
+
+check("suggestions cap oversized queries before provider calls", () => {
+  assert.match(suggestApi, /q\.length > 200/);
 });
 
 check("exact title beats a longer substring match", () => {
@@ -234,6 +246,13 @@ check("future-dated works can be visually gated", () => {
 check("the '/' shortcut opens the overlay, not a route", () => {
   assert.match(shortcuts, /openSearchOverlay/);
   assert.doesNotMatch(shortcuts, /router\.push\(SEARCH_HREF\)[\s\S]*?el\.focus/);
+});
+
+check("the overlay aborts stale searches and suppresses late updates after close", () => {
+  assert.match(overlay, /mountedRef\.current/);
+  assert.match(overlay, /activeRef\.current/);
+  assert.match(overlay, /abortRef\.current\?\.abort\(\)/);
+  assert.match(overlay, /if \(!canCommit\(reqId\)\) return/);
 });
 
 check("the overlay is a single focused input that closes on Esc", () => {

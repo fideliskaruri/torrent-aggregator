@@ -33,7 +33,6 @@
 import { useCallback, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ActiveDownloadsTeaser } from "@/components/tf/active-downloads-teaser";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SEARCH_HREF } from "@/lib/navigation";
 
@@ -61,10 +60,6 @@ export function BrowseEmptyState({
 
   return (
     <div className="min-w-0 py-10" data-browse-empty>
-      {/* Self-hiding, and the one thing that can still be true when nothing
-          else loaded: a download already running is local. */}
-      <ActiveDownloadsTeaser />
-
       <TfErrorState
         title="Nothing could be loaded"
         message="TorrentFlow could not reach any source, and nothing is cached on this machine yet. Check the connection and try again."

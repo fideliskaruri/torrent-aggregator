@@ -790,7 +790,7 @@ async function main() {
         // The number that actually caused the refusal has to appear.
         assert.match(
           msg,
-          /needs|sets aside/i,
+          /needs|sets aside|reserving/i,
           `the incoming release must be accounted for: ${msg}`,
         );
       }
@@ -798,7 +798,7 @@ async function main() {
         // Otherwise the owner cannot tell an assumption from a measurement.
         assert.match(
           msg,
-          /does not report its size/i,
+          /does not report its size|size unknown/i,
           `an assumed size must be named as an assumption: ${msg}`,
         );
       }

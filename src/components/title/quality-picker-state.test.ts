@@ -141,6 +141,13 @@ check("QUALITY_CHOICES values match QUALITY_VALUES", () => {
   assert.deepEqual(choiceValues, QUALITY_VALUES);
 });
 
+check("quality hints describe a hard minimum without downgrade language", () => {
+  for (const choice of QUALITY_CHOICES) {
+    assert.match(choice.hint, /minimum/i);
+    assert.doesNotMatch(choice.hint, /falls? back/i);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------

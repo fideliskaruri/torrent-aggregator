@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
-import { ActiveDownloadsTeaser } from "@/components/tf/active-downloads-teaser";
 import {
   cleanDisplayTitle,
   type ActionStatus,
@@ -132,11 +131,6 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
       ) : null}
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
-        {/* Kept from the old home page: it self-hides when nothing is
-            downloading, and when something is, it is the most time-sensitive
-            thing on the page — rails only know about titles the library or a
-            progress record already knows about. */}
-        <ActiveDownloadsTeaser />
         {payload.rails.map((rail, index) => (
           <Rail
             key={rail.id}

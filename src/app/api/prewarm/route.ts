@@ -33,6 +33,7 @@ import { PREWARM_ORIGIN } from "@/lib/prewarm/types";
 import type { NextEpisode } from "@/lib/prewarm/types";
 import { formatEpisodeLabel } from "@/lib/library/cursor";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { episodeFileInTorrent } from "@/lib/prewarm/next-episode-file";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import { normalizeTitle } from "@/lib/utils";
@@ -313,6 +314,42 @@ export async function POST(request: NextRequest) {
         return reply({ ok: true, next: null });
       }
 
+      // The fastest possible answer first: the episode the viewer is about to
+      // watch is very often ANOTHER FILE IN THE TORRENT ALREADY PLAYING (a
+      // season pack). Scanning torrent *names* can never see that — every name
+      // in the row is the pack's name — so it fell through to "not-fetched" and
+      // the viewer paid for an indexer search and a second acquisition of bytes
+      // already on their disk. Read the playing torrent's own verified files
+      // instead; a hit ends the resolution here, with the same infoHash and the
+      // exact file to play.
+      const current = await prisma.engineTorrent.findFirst({
+        where: { userId, hash: infoHash, status: { not: "removed" } },
+        select: { hash: true, progress: true, savePath: true, verifiedFilesJson: true },
+        orderBy: { updatedAt: "desc" },
+      });
+      const inPackPath = current
+        ? episodeFileInTorrent(current, next.season, next.episode)
+        : null;
+      if (current && inPackPath) {
+        const packProgress = Math.max(0, Math.min(1, current.progress));
+        return reply({
+          ok: true,
+          next: {
+            title: next.title,
+            label: formatEpisodeLabel(next.season, next.episode),
+            season: next.season,
+            episode: next.episode,
+            // The file is in the verified list, so its bytes are on disk even
+            // when the rest of the pack is still landing.
+            availability: "ready",
+            infoHash: current.hash,
+            filePath: inPackPath,
+            progress: packProgress,
+            source: next.source,
+          },
+        });
+      }
+
       const targetName = normalizeTitle(next.title);
       const heldRows = await prisma.engineTorrent.findMany({
         where: { userId, status: { not: "removed" } },
@@ -340,6 +377,12 @@ export async function POST(request: NextRequest) {
           : progress != null && progress >= 1
             ? "ready"
             : "downloading";
+      // An already-known separate torrent still deserves an exact file when its
+      // verified files answer deterministically — a pack that happens to hold
+      // this episode saves the player a manifest round trip too.
+      const matchedPath = byEpisode
+        ? episodeFileInTorrent(byEpisode, next.season, next.episode)
+        : null;
 
       return reply({
         ok: true,
@@ -350,6 +393,7 @@ export async function POST(request: NextRequest) {
           episode: next.episode,
           availability,
           infoHash: byEpisode?.hash ?? null,
+          filePath: matchedPath,
           progress,
           source: next.source,
         },

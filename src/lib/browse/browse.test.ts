@@ -52,11 +52,17 @@ function check(name: string, fn: () => void) {
 function torrent(
   partial: Partial<TorrentRow> & { name: string },
 ): TorrentRow {
+  const progress = partial.progress ?? 0;
   return {
     hash: partial.hash ?? partial.name.slice(0, 16),
     name: partial.name,
-    progress: partial.progress ?? 0,
+    progress,
     status: partial.status ?? "downloading",
+    verifiedBitfield:
+      partial.verifiedBitfield ?? (progress >= 0.9999 ? "AQ==" : null),
+    verifiedFilesJson:
+      partial.verifiedFilesJson ??
+      (progress >= 0.9999 ? `[{"path":"${partial.name}.mkv"}]` : null),
   };
 }
 
@@ -929,6 +935,21 @@ for (const tc of CONTINUE_AVAILABILITY_CASES) {
     );
   });
 }
+
+check("completed disk media stays ready after its engine handle is detached", () => {
+  const result = engineAvailability(
+    {
+      hash: "moon-knight",
+      progress: 1,
+      status: "downloaded",
+      savePath: "D:\\Media",
+      verifiedFilesJson: '[{"path":"Moon Knight S01E01.mkv"}]',
+    },
+    enginePresence({ "moon-knight": "absent" }),
+    () => "present",
+  );
+  assert.equal(result, "ready");
+});
 
 check("stale partial local evidence cannot fall through to unavailable", () => {
   const staleLocal: Availability = { state: null };

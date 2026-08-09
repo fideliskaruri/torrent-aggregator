@@ -330,6 +330,20 @@ type PlaybackPlanResponse = {
    */
   strategy?: string;
   strategyReason?: string;
+  /**
+   * Where the bytes ffmpeg reads actually come from, independent of
+   * `strategy`. A `session` strategy is NOT proof of a swarm read: the server
+   * can hand an already-complete local file to a session for remuxing. Only
+   * this field (or an `absolutePath`) settles locality, so peer-flavoured
+   * copy and swarm polling can be suppressed for disk-backed plans.
+   *
+   * Optional: older servers omit it and we fall back to strategy/absolutePath.
+   */
+  source?: string;
+  /** Alias some server versions use for the same answer. */
+  locality?: string;
+  /** Present when the plan reads a complete file straight off disk. */
+  absolutePath?: string | null;
   probe: {
     container: string;
     duration: number | null;
@@ -339,10 +353,62 @@ type PlaybackPlanResponse = {
     audioChannels: number | null;
     width: number | null;
     height: number | null;
+    /** Optional; older servers do not report it, so buffer sizing falls back to pixels. */
+    bitrate?: number | null;
   };
 };
 
 export type PlanAudioTrack = PlaybackPlanResponse["plan"]["audio"][number];
+
+/**
+ * Identity of the plan whose own answer is being mirrored back into state.
+ *
+ * The player used to remember only the audio index the plan chose, which made
+ * the suppression a bare "skip the next run that happens to carry this index".
+ * A bare index cannot tell "the echo of the plan I just received" apart from
+ * "the viewer picked that track again after closing and reopening the player",
+ * so an armed-but-unconsumed value could survive a close/reopen or a file
+ * switch and swallow a plan the player genuinely needed.
+ */
+export type PlanAudioEcho = {
+  infoHash: string;
+  filePath: string;
+  /** Plan generation the echo belongs to. A seek/retry bumps it, invalidating the echo. */
+  planNonce: number;
+  audioStreamIndex: number | null;
+};
+
+/**
+ * Should this plan-effect run be skipped as the echo of the plan that produced it?
+ *
+ * Only an exact match on every field of the plan identity suppresses. Anything
+ * else (different release, different file, newer plan generation, different
+ * audio index, nothing armed) must plan — suppression is never the default.
+ */
+export function shouldSuppressPlanEcho(
+  armed: PlanAudioEcho | null | undefined,
+  current: PlanAudioEcho,
+): boolean {
+  if (!armed) return false;
+  return (
+    armed.infoHash === current.infoHash &&
+    armed.filePath === current.filePath &&
+    armed.planNonce === current.planNonce &&
+    armed.audioStreamIndex === current.audioStreamIndex
+  );
+}
+
+/**
+ * Bitrate reported by the plan, in bits per second, or null.
+ *
+ * Never fabricated: a missing, non-numeric, non-finite or non-positive value is
+ * `null`, and buffer sizing falls back to the resolution tiers.
+ */
+export function normalizeProbeBitrate(raw: unknown): number | null {
+  const value = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
 
 export function candidateVerdictLabel(verdict: CandidateVerdict): string {
   if (verdict === "good") return "Fast";
@@ -465,14 +531,162 @@ export function shouldShowUnifiedLoader(args: {
   return args.preparing || args.checking || args.seeking || args.waiting;
 }
 
+export type VideoPlaybackQualitySnapshot = {
+  droppedVideoFrames: number;
+  totalVideoFrames: number;
+  corruptedVideoFrames: number;
+};
+
+const EMPTY_PLAYBACK_QUALITY: VideoPlaybackQualitySnapshot = {
+  droppedVideoFrames: 0,
+  totalVideoFrames: 0,
+  corruptedVideoFrames: 0,
+};
+
 /**
- * THE one loader — a bare spinner and nothing else.
+ * Reads the browser's own dropped/total video frame counters straight off the
+ * `<video>` element (`HTMLVideoElement.getVideoPlaybackQuality()`).
+ *
+ * This exists to let a smoothness investigation (jitter/frame-drop reports
+ * around the seek → strategy-switch path) diff two snapshots taken before and
+ * after a seek and see the browser's own drop count, instead of eyeballing a
+ * recording. It is intentionally pure and judgment-free: it does not decide
+ * what counts as "jittery", does not feed back into strategy or playback
+ * selection, and never throws — a browser without the API (or jsdom in
+ * tests) yields an all-zero snapshot rather than breaking rendering.
+ */
+export function videoPlaybackQualitySnapshot(
+  video: Pick<HTMLVideoElement, "getVideoPlaybackQuality"> | null | undefined,
+): VideoPlaybackQualitySnapshot {
+  if (!video || typeof video.getVideoPlaybackQuality !== "function") return EMPTY_PLAYBACK_QUALITY;
+  try {
+    const quality = video.getVideoPlaybackQuality();
+    if (!quality) return EMPTY_PLAYBACK_QUALITY;
+    return {
+      droppedVideoFrames: Number(quality.droppedVideoFrames) || 0,
+      totalVideoFrames: Number(quality.totalVideoFrames) || 0,
+      corruptedVideoFrames: Number((quality as { corruptedVideoFrames?: number }).corruptedVideoFrames) || 0,
+    };
+  } catch {
+    // A hostile/unusual embedding could theoretically throw here; this is a
+    // read-only diagnostic, so degrade to "no data" rather than disrupt playback.
+    return EMPTY_PLAYBACK_QUALITY;
+  }
+}
+
+export type PlanSource = "disk" | "swarm";
+
+/**
+ * Decide whether the current plan reads from local disk or from the swarm.
+ *
+ * Priority: an explicit server answer wins; otherwise an `absolutePath` proves
+ * disk; otherwise the strategy is used (`whole-file`/`vod-segments` only ever
+ * come back for a fully-local file). `session` alone proves nothing — the
+ * server remuxes complete local files through a session too — so it returns
+ * null (unknown) rather than lying in either direction.
+ */
+export function planSourceFromPlan(plan: {
+  source?: string | null;
+  locality?: string | null;
+  absolutePath?: string | null;
+  strategy?: string | null;
+} | null | undefined): PlanSource | null {
+  if (!plan) return null;
+  const explicit = (plan.source ?? plan.locality ?? "").trim().toLowerCase();
+  if (explicit === "disk" || explicit === "local" || explicit === "file") return "disk";
+  if (explicit === "swarm" || explicit === "torrent" || explicit === "peers") return "swarm";
+  if (typeof plan.absolutePath === "string" && plan.absolutePath.trim().length > 0) return "disk";
+  if (plan.strategy === "whole-file" || plan.strategy === "vod-segments") return "disk";
+  return null;
+}
+
+export function loaderStatusFromSamples({
+  preparingLabel,
+  sample,
+  elapsedSec,
+  strategy,
+  planSource,
+  playbackEstablished,
+}: {
+  preparingLabel?: string | null;
+  sample?: SwarmSample | null;
+  elapsedSec?: number;
+  /**
+   * The server's own answer for the CURRENT plan (`session` | `whole-file` |
+   * `vod-segments`), when known. `whole-file`/`vod-segments` only ever come
+   * back once `resolveCompleteLocalFile` has proved the requested file is
+   * fully on disk — a season pack sitting at 40% overall can still hand this
+   * back for the one episode inside it that finished first. Swarm-derived
+   * copy ("Finding peers…"/"Connecting…") would be a straight-up lie there:
+   * the wait is ffmpeg/remux setup, not peer discovery.
+   */
+  strategy?: string | null;
+  /**
+   * True once the viewer already saw a frame of THIS playback before this
+   * loader render — i.e. this is a re-plan the seek triggered, not the swarm
+   * being reached for the first time. Used only while the new plan's own
+   * `strategy` has not landed yet: the prior plan already proved the swarm
+   * was not the bottleneck for an established session, so the same
+   * assumption holds for the brief gap until the fresh strategy confirms or
+   * corrects it.
+   */
+  playbackEstablished?: boolean;
+  /**
+   * Strict locality for the CURRENT plan. `"disk"` means ffmpeg is reading a
+   * complete local file — no peer is on the critical path, so peer-flavoured
+   * copy must never render, however stale engine samples happen to read. This
+   * is evaluated before every sample-derived branch.
+   */
+  planSource?: PlanSource | null;
+}): string {
+  const label = preparingLabel?.trim();
+  if (label && !/^(preparing|loading)$/i.test(label)) {
+    return label.endsWith("…") || label.endsWith("...") ? label.replace(/\.\.\.$/, "…") : `${label}…`;
+  }
+
+  // Strict disk locality: decided BEFORE any sample-derived branch so no
+  // peer/connecting/buffering-from-swarm copy can be reached for a local plan.
+  // A `session` strategy over a local absolutePath lands here too, which is
+  // exactly the case the strategy check below cannot see.
+  if (planSource === "disk") {
+    if ((elapsedSec ?? 0) >= LOADER_STILL_WORKING_AFTER_SECONDS) return "Still working…";
+    return playbackEstablished ? "Seeking…" : "Preparing…";
+  }
+
+  const provenLocal = strategy === "whole-file" || strategy === "vod-segments";
+  if (provenLocal || (strategy == null && playbackEstablished)) {
+    if ((elapsedSec ?? 0) >= LOADER_STILL_WORKING_AFTER_SECONDS) return "Still working…";
+    return playbackEstablished ? "Seeking…" : "Preparing…";
+  }
+
+  // Until the plan explicitly says `session`, a generic preparation phase is
+  // not evidence that peers are involved. This is especially important for a
+  // parked completed torrent: the plan is resolving/probing its disk file, and
+  // stale engine samples must not turn that wait into a false swarm message.
+  if (strategy == null && label) return "Preparing…";
+
+  const hasProgress =
+    (sample?.downloadSpeedBps ?? 0) > 0 || (sample?.progress ?? 0) > 0;
+  if (!hasProgress && (elapsedSec ?? 0) >= LOADER_STILL_WORKING_AFTER_SECONDS) {
+    return "Still working…";
+  }
+  if (hasProgress) return "Buffering…";
+  if ((sample?.peers ?? 0) > 0) return "Connecting…";
+  // Peer copy needs actual swarm evidence. With no plan, no label and no
+  // sample we are still pre-plan: stay neutral instead of claiming a peer
+  // search that may never happen (the plan can still come back disk-backed).
+  if (sample) return "Finding peers…";
+  return "Preparing…";
+}
+
+/**
+ * THE one loader — one spinner plus one short, honest status line.
  *
  * Every "still getting there" moment in the player (no source yet, preparing,
  * checking, buffering, seeking, switching release) renders THIS and only this,
- * overlaid on the persistent stage. Deliberately copy-free: the viewer asked,
- * repeatedly, to be shown one spinner and never a sentence narrating the
- * mechanism, so the only words here are an accessible name for screen readers.
+ * overlaid on the persistent stage. The short line below the spinner must stay
+ * non-technical and evidence-based; it explains that work is still happening
+ * without narrating internals.
  *
  * Probe-integrity note. A spinner audit counts three selectors —
  * `[data-stream-loading]`, `.animate-spin` and `[role="status"]` — as a union.
@@ -481,7 +695,7 @@ export function shouldShowUnifiedLoader(args: {
  * child would read as two spinners and is precisely the mismatch that produced
  * earlier false "there is only one loader" proofs.
  */
-function StreamLoader({ className }: { className?: string }) {
+function StreamLoader({ className, status }: { className?: string; status?: string }) {
   return (
     <div
       className={cn(
@@ -489,13 +703,20 @@ function StreamLoader({ className }: { className?: string }) {
         className,
       )}
     >
-      <Loader2
-        data-stream-loading
-        data-player-loader
-        role="status"
-        aria-label="Loading video"
-        className="h-8 w-8 animate-spin text-white/90"
-      />
+      <div className="flex flex-col items-center gap-3 text-center">
+        <Loader2
+          data-stream-loading
+          data-player-loader
+          role="status"
+          aria-label={status ? `Loading video. ${status}` : "Loading video"}
+          className="h-8 w-8 animate-spin text-white/90"
+        />
+        {status ? (
+          <p className="max-w-[12rem] text-[12px] font-medium text-white/80 drop-shadow">
+            {status}
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1191,8 +1412,54 @@ type UpNextEpisodeCard = {
   episode: number;
   availability: UpNextAvailability;
   infoHash: string | null;
+  /**
+   * The exact file to play inside `infoHash`, when the server could name it.
+   *
+   * Season packs are the common case for "next episode": the successor lives in
+   * the torrent already on screen. Carrying its path means the transition can
+   * select the new file directly instead of re-fetching a manifest it is
+   * already holding.
+   */
+  filePath?: string | null;
   progress: number | null;
 };
+
+/**
+ * Accept an up-next card from the server, or nothing.
+ *
+ * `filePath` is optional and additive: a server that does not send one yields a
+ * card with `filePath: null`, and every existing behaviour is unchanged.
+ */
+export function normalizeUpNextCard(raw: unknown): UpNextEpisodeCard | null {
+  if (!raw || typeof raw !== "object") return null;
+  const card = raw as Record<string, unknown>;
+  if (
+    typeof card.title !== "string" ||
+    typeof card.label !== "string" ||
+    typeof card.season !== "number" ||
+    typeof card.episode !== "number"
+  ) {
+    return null;
+  }
+  const availability: UpNextAvailability =
+    card.availability === "ready" || card.availability === "downloading"
+      ? card.availability
+      : "not-fetched";
+  const filePath =
+    typeof card.filePath === "string" && card.filePath.trim().length > 0
+      ? card.filePath
+      : null;
+  return {
+    title: card.title,
+    label: card.label,
+    season: card.season,
+    episode: card.episode,
+    availability,
+    infoHash: typeof card.infoHash === "string" && card.infoHash ? card.infoHash : null,
+    filePath,
+    progress: typeof card.progress === "number" ? card.progress : null,
+  };
+}
 
 type UpNextResponse = {
   ok?: boolean;
@@ -1207,11 +1474,60 @@ type CurrentTarget = {
   resumeSec?: number;
   season?: number | null;
   episode?: number | null;
+  /**
+   * The exact file inside `infoHash` this target means, when it is known. Part
+   * of the target's identity: changing episode inside one season pack changes
+   * nothing else, so without it the player cannot tell it has been asked for
+   * different media at all.
+   */
+  filePath?: string | null;
   posterUrl?: string | null;
   watchListItemId?: string | null;
 };
 
 const AUTO_ADVANCE_SECONDS = 8;
+/** How long background warming may wait for an idle moment before running. */
+const WARM_IDLE_TIMEOUT_MS = 2000;
+
+type IdleWindow = Window & {
+  requestIdleCallback?: (
+    callback: () => void,
+    options?: { timeout: number },
+  ) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
+/**
+ * Run `callback` when the browser is idle, or after a short timeout.
+ *
+ * `requestIdleCallback` is feature-detected rather than assumed: Safari only
+ * shipped it recently, and background warming must degrade to a plain timer
+ * there instead of throwing inside a playback effect.
+ */
+export function requestIdle(callback: () => void): {
+  handle: number | null;
+  timer: number | null;
+} {
+  const view = typeof window === "undefined" ? null : (window as IdleWindow);
+  if (view && typeof view.requestIdleCallback === "function") {
+    return {
+      handle: view.requestIdleCallback(callback, { timeout: WARM_IDLE_TIMEOUT_MS }),
+      timer: null,
+    };
+  }
+  return {
+    handle: null,
+    timer: window.setTimeout(callback, WARM_IDLE_TIMEOUT_MS),
+  };
+}
+
+/** Cancel a handle returned by {@link requestIdle}. */
+export function cancelIdle(handle: number): void {
+  const view = typeof window === "undefined" ? null : (window as IdleWindow);
+  if (view && typeof view.cancelIdleCallback === "function") {
+    view.cancelIdleCallback(handle);
+  }
+}
 const SEEK_RETRY_DELAY_MS = 700;
 const SEEK_TOLERANCE_SECONDS = 2;
 const SEEK_MAX_ATTEMPTS = 3;
@@ -1245,6 +1561,7 @@ const MAX_METADATA_RETRIES = 8;
  * never on a slow-but-working start.
  */
 const OPENING_WATCHDOG_MS = 30000;
+const LOADER_STILL_WORKING_AFTER_SECONDS = 15;
 
 function sourceChip(title: string): string | null {
   const tier = parseSourceTier(title);
@@ -1291,6 +1608,7 @@ async function readJson<T>(res: Response): Promise<T | null> {
     return null;
   }
 }
+
 
 /**
  * Detect what the current browser can actually decode.
@@ -1521,6 +1839,106 @@ export function canPlayNatively(rung: string, playUrl: string): boolean {
   return !/\.m3u8(?:$|[?#])/i.test(playUrl);
 }
 
+/**
+ * What hls.js should be told to hold in memory, for THIS source.
+ *
+ * The old constants were tuned against HEVC/AVC 1080p (~120 MB is a few
+ * minutes there). The same 120 MB at 2160p is well under a minute, so a 4K
+ * stream evicts what it just paid a slow swarm for and re-fetches it — felt as
+ * a stutter on every small move. Sizing by pixels (or by measured bitrate when
+ * the server reports one) keeps the cushion measured in *time*, not bytes.
+ *
+ * The back buffer moves the other way: at 4K, 90s behind the playhead is
+ * hundreds of MB of decoded fragments pinned for a rewind that usually never
+ * comes, so the tiers trade seconds of history for headroom ahead.
+ */
+export type HlsBufferSettings = {
+  maxBufferLength: number;
+  maxMaxBufferLength: number;
+  maxBufferSize: number;
+  backBufferLength: number;
+};
+
+/** Pixel-height tiers. Width is consulted too: anamorphic 4K can report <1440 high. */
+export function hlsBufferSettingsForSource(input: {
+  width?: number | null;
+  height?: number | null;
+  bitrateBps?: number | null;
+}): HlsBufferSettings {
+  const height = Number.isFinite(input.height) ? Number(input.height) : 0;
+  const width = Number.isFinite(input.width) ? Number(input.width) : 0;
+  const effectiveHeight = Math.max(height, width > 0 ? Math.round(width / (16 / 9)) : 0);
+
+  let settings: HlsBufferSettings;
+  if (effectiveHeight >= 2000) {
+    settings = { maxBufferLength: 30, maxMaxBufferLength: 90, maxBufferSize: 600 * 1000 * 1000, backBufferLength: 30 };
+  } else if (effectiveHeight >= 1400) {
+    settings = { maxBufferLength: 30, maxMaxBufferLength: 90, maxBufferSize: 300 * 1000 * 1000, backBufferLength: 45 };
+  } else {
+    settings = { maxBufferLength: 30, maxMaxBufferLength: 90, maxBufferSize: 120 * 1000 * 1000, backBufferLength: 90 };
+  }
+
+  // A measured bitrate beats a guess from pixels: hold ~60s of real bytes,
+  // clamped so a bad probe can neither starve the buffer nor pin memory.
+  const bitrate = Number.isFinite(input.bitrateBps) ? Number(input.bitrateBps) : 0;
+  if (bitrate > 0) {
+    const bytesForSixtySeconds = (bitrate / 8) * 60;
+    settings = {
+      ...settings,
+      maxBufferSize: Math.round(
+        Math.min(800 * 1000 * 1000, Math.max(120 * 1000 * 1000, bytesForSixtySeconds)),
+      ),
+    };
+  }
+  return settings;
+}
+
+/**
+ * Must the fragment loader be torn down and restarted for this seek target?
+ *
+ * `stopLoad`/`startLoad` exists to abandon an in-flight fragment for a position
+ * the viewer has left. When the target is already sitting in the buffer there
+ * is nothing to abandon and nothing to fetch: restarting there throws away the
+ * append queue and re-requests fragments the browser already holds, which at 4K
+ * is exactly the stutter this is supposed to prevent. Pure so the rule is
+ * testable without a media element.
+ */
+export function hlsSeekNeedsLoadRestart(args: {
+  buffered: SourceRange[];
+  targetSec: number;
+  /** Seconds of continuous buffer ahead of the target that count as "already there". */
+  minAheadSec?: number;
+}): boolean {
+  const minAhead = args.minAheadSec ?? 2;
+  return bufferedAheadOf(args.buffered, args.targetSec) < minAhead;
+}
+
+export function hlsSeekShouldRestartLoader(args: {
+  hasUserSeekIntent: boolean;
+  buffered: SourceRange[];
+  targetSec: number;
+}): boolean {
+  return (
+    args.hasUserSeekIntent &&
+    hlsSeekNeedsLoadRestart({
+      buffered: args.buffered,
+      targetSec: args.targetSec,
+    })
+  );
+}
+
+/** Media-element `buffered` as plain ranges, for the pure seek rule above. */
+export function timeRangesToRanges(buffered: TimeRanges | null | undefined): SourceRange[] {
+  const ranges: SourceRange[] = [];
+  if (!buffered) return ranges;
+  for (let i = 0; i < buffered.length; i += 1) {
+    const start = buffered.start(i);
+    const end = buffered.end(i);
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) ranges.push({ start, end });
+  }
+  return ranges;
+}
+
 /** Below this, a stored position is noise rather than a place to resume. */
 export const RESUME_MIN_SEC = 5;
 
@@ -1679,6 +2097,17 @@ function InlineStreamPlayerInner({
   const activeEpisode = target.episode;
   const activePosterUrl = target.posterUrl;
   const activeWatchListItemId = target.watchListItemId;
+  const activeFilePath = target.filePath ?? null;
+  /**
+   * What the player has been asked to play, as one comparable value.
+   *
+   * The infoHash alone was never the whole answer: inside a season pack every
+   * episode shares it, so advancing an episode changed nothing the player
+   * looked at — the manifest was reused, the old file stayed selected, and the
+   * viewer got the episode they had just finished. Season, episode and the
+   * requested file are part of the identity for exactly that reason.
+   */
+  const targetIdentity = `${activeInfoHash ?? ""}|${activeSeason ?? ""}|${activeEpisode ?? ""}|${activeFilePath ?? ""}`;
   // Adopt an infoHash that arrives (or changes) via props AFTER mount. The
   // player opens in an "opening" state (props.infoHash null) the instant Play is
   // pressed, so ONE loader owns the whole journey; when the grab resolves the
@@ -1693,6 +2122,11 @@ function InlineStreamPlayerInner({
   // puppeteered through its own public surface is one that was missing a prop.
   const [expanded, setExpanded] = useState(theatre);
   const [manifest, setManifest] = useState<StreamManifest | null>(null);
+  /**
+   * The target identity the held manifest (and its file selection) was resolved
+   * for. A manifest is only "current" for the identity that asked for it.
+   */
+  const [manifestKey, setManifestKey] = useState<string | null>(null);
   const [manifestLoading, setManifestLoading] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -1709,17 +2143,15 @@ function InlineStreamPlayerInner({
   // transient seek/buffer indicator thereafter.
   const [playbackStarted, setPlaybackStarted] = useState(false);
   const [copied, setCopied] = useState(false);
-  // Presence flag only — a non-null value means "a preparation phase is in
-  // flight" and is consumed solely as Boolean(preparingLabel). It is never
-  // rendered, so it must never carry user-facing mechanism copy.
+  // Presence flag first — a non-null value means "a preparation phase is in
+  // flight". Generic values stay internal; any future human phrase is normalized
+  // by loaderStatusFromSamples before it reaches the loader.
   const [preparingLabel, setPreparingLabel] = useState<string | null>(null);
   // I19: the engine's structured failure for the current attempt (from a stream
   // 503 body or a decode verdict). Drives friendly, mechanism-free terminal copy
   // and the one right affordance (retry the same release vs try another version).
   const [streamFailure, setStreamFailure] = useState<StructuredPlaybackFailure | null>(null);
-  // Task 4: verbose diagnostics — default OFF; consumed from /api/settings/client.
-  const [verboseDiagnostics, setVerboseDiagnostics] = useState(false);
-  // Elapsed seconds since the current source started opening (verbose mode only).
+  // Elapsed seconds in the current visible loader episode.
   const [verboseElapsedSec, setVerboseElapsedSec] = useState(0);
   // I19b: a "Retry this release" attempt is in flight (re-announcing the same
   // infoHash). Keeps the button from double-firing and shows the calm loader.
@@ -1737,6 +2169,15 @@ function InlineStreamPlayerInner({
   const [advanceCountdown, setAdvanceCountdown] = useState(AUTO_ADVANCE_SECONDS);
   const [audioTracks, setAudioTracks] = useState<PlanAudioTrack[]>([]);
   const [audioStreamIndex, setAudioStreamIndex] = useState<number | null>(null);
+  // The plan chooses the initial/default track. Mirroring that answer into UI
+  // state must not trigger a second identical plan that aborts the first media
+  // load; only a viewer-initiated audio change should re-plan.
+  //
+  // Keyed to the *exact* plan identity (release + file + plan generation +
+  // chosen index), not a bare index, and disarmed on every release/file reset
+  // and whenever the effect's preconditions are not met — so an armed value can
+  // never survive a close/reopen or a file switch and swallow a required plan.
+  const planSelectedAudioRef = useRef<PlanAudioEcho | null>(null);
   const [sourceDuration, setSourceDuration] = useState<number | null>(null);
   /**
    * Seconds of source the current HLS timeline starts at. The ffmpeg session is
@@ -1746,6 +2187,13 @@ function InlineStreamPlayerInner({
    */
   const [timelineOffset, setTimelineOffset] = useState(0);
   const [currentSourceTime, setCurrentSourceTime] = useState(0);
+  /**
+   * Browser-reported dropped/total video frame counts, sampled while playing.
+   * Diagnostic-only (see `videoPlaybackQualitySnapshot`): lets a smoothness
+   * check diff two samples across a seek/strategy-switch instead of guessing
+   * from a screen recording. Never read by playback/strategy logic.
+   */
+  const [playbackQuality, setPlaybackQuality] = useState<VideoPlaybackQualitySnapshot>(EMPTY_PLAYBACK_QUALITY);
   /**
    * Transport state for the HLS control bar. The native controls are suppressed
    * in HLS mode because their scrubber measures the *generated segment window*
@@ -1781,6 +2229,13 @@ function InlineStreamPlayerInner({
    */
   const [strategy, setStrategy] = useState<string | null>(null);
   const [strategyReason, setStrategyReason] = useState<string | null>(null);
+  /**
+   * Strict disk-vs-swarm locality for the current plan. Drives loader copy and
+   * gates startup swarm polling: a disk-backed plan has no peers on the
+   * critical path, so polling for them is both pointless and a source of
+   * misleading samples.
+   */
+  const [planSource, setPlanSource] = useState<PlanSource | null>(null);
   const [playbackRung, setPlaybackRung] = useState<string | null>(null);
   /**
    * A seek is in flight. Rendered as a spinner over the frame: without it the
@@ -1808,17 +2263,10 @@ function InlineStreamPlayerInner({
    const [playPulse, setPlayPulse] = useState<"play" | "pause" | null>(null);
    const [resetInfoHash, setResetInfoHash] = useState(activeInfoHash);
    const [resetPlayableSrc, setResetPlayableSrc] = useState(playableSrc);
-   const verboseElapsedScope =
-     verboseDiagnostics && expanded ? activeInfoHash : null;
-   const [previousVerboseElapsedScope, setPreviousVerboseElapsedScope] =
-     useState(verboseElapsedScope);
-   if (verboseElapsedScope !== previousVerboseElapsedScope) {
-     setPreviousVerboseElapsedScope(verboseElapsedScope);
-     setVerboseElapsedSec(0);
-   }
    if (activeInfoHash !== resetInfoHash) {
      setResetInfoHash(activeInfoHash);
      setManifest(null);
+     setManifestKey(null);
      setManifestLoading(false);
      setSelectedPath(null);
      setMessage(null);
@@ -1846,7 +2294,62 @@ function InlineStreamPlayerInner({
      setQualityLoading(false);
      setQualityError(null);
      setSwitchingInfoHash(null);
+     // The strategy belongs to the plan of the release we just left. Leaving it
+     // set would let the next release's cold swarm be read as proven-local
+     // ("Preparing…"/"Seeking…") for the whole window before its own plan lands.
+     setStrategy(null);
+     setStrategyReason(null);
+     setPlanSource(null);
      setPlanNonce((nonce) => nonce + 1);
+   }
+   /**
+    * Same release, different episode (a season pack).
+    *
+    * The hash-keyed reset above cannot see this transition at all, so nothing
+    * was invalidated and the player kept playing the file it already had. The
+    * manifest itself is still correct — it lists every episode in the pack — so
+    * when the server named the file, this selects it directly and no manifest
+    * round trip happens at all. When it did not, the manifest is dropped so it
+    * is re-resolved for the new episode.
+    */
+   const [resetTargetIdentity, setResetTargetIdentity] = useState(targetIdentity);
+   if (targetIdentity !== resetTargetIdentity) {
+     setResetTargetIdentity(targetIdentity);
+     if (activeInfoHash === resetInfoHash) {
+       const known =
+         activeFilePath &&
+         manifest?.infoHash === activeInfoHash &&
+         manifest.files.some((file) => file.path === activeFilePath)
+           ? activeFilePath
+           : null;
+       setManifestKey(known ? targetIdentity : null);
+       if (!known) setManifest(null);
+       setSelectedPath(known);
+       setMessage(null);
+       setProblem(null);
+       setPlayableSrc(null);
+       setPlaybackMode("direct");
+       setCheckingStream(false);
+       setWaiting(false);
+       setActiveVideoAdvancing(false);
+       setPlaybackStarted(false);
+       setPreparingLabel(null);
+       setStreamFailure(null);
+       setSwarmSample(null);
+       setUpNext(null);
+       setUpNextError(null);
+       setEnded(false);
+       setAutoAdvanceCancelled(false);
+       setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
+       setCurrentSourceTime(0);
+       setSourceDuration(null);
+       setTimelineOffset(0);
+       setBufferedRanges([]);
+       setStrategy(null);
+       setStrategyReason(null);
+       setPlanSource(null);
+       setPlanNonce((nonce) => nonce + 1);
+     }
    }
    if (playableSrc !== resetPlayableSrc) {
      setResetPlayableSrc(playableSrc);
@@ -1915,6 +2418,25 @@ function InlineStreamPlayerInner({
   const resumeConsumedRef = useRef(false);
   /** Detaches the seek-abort listener from the previous media element. */
   const hlsSeekAbortRef = useRef<(() => void) | null>(null);
+  /**
+   * Playback rate as a ref, so `attachHls` does not depend on it.
+   *
+   * As a dependency it made every speed change a new callback identity, which
+   * React treats as a new `ref` — detaching, destroying the hls.js instance and
+   * rebuilding it from an empty buffer. At 4K that is a full re-download of the
+   * cushion for a 1.25x press. The rate is applied by the element effect below.
+   */
+  const playbackRateRef = useRef(1);
+  /**
+   * Video geometry/bitrate for the source currently being played, from the plan
+   * probe. A ref, not state, for the same reason: buffer sizing must be
+   * readable at attach time without making the callback unstable.
+   */
+  const sourceProfileRef = useRef<{ width: number | null; height: number | null; bitrateBps: number | null }>({
+    width: null,
+    height: null,
+    bitrateBps: null,
+  });
   /** Live mirrors of playhead/duration, readable from unload handlers. */
   const currentSourceTimeRef = useRef(0);
   const sourceDurationRef = useRef<number | null>(null);
@@ -1931,7 +2453,10 @@ function InlineStreamPlayerInner({
       ? Math.floor(target.resumeSec)
       : 0;
 
-  const activeManifest = manifest?.infoHash === activeInfoHash ? manifest : null;
+  const activeManifest =
+    manifest?.infoHash === activeInfoHash && manifestKey === targetIdentity
+      ? manifest
+      : null;
   const videoFiles = useMemo(
     () => (activeManifest ? selectVideoFiles(activeManifest.files) : []),
     [activeManifest],
@@ -2189,6 +2714,29 @@ function InlineStreamPlayerInner({
     [timelineOffset, sourceDuration],
   );
 
+  /**
+   * Sample dropped/total video frame counts on a plain 1s timer rather than
+   * from `onTimeUpdate` (which fires several times a second): this is a
+   * diagnostic instrumentation hook for verifying post-seek smoothness, and a
+   * high-frequency `setState` here would add its own render pressure to the
+   * very jank it exists to help diagnose. Dedup-checked so a steady stream of
+   * identical samples (paused, or between drops) does not force re-renders.
+   */
+  useEffect(() => {
+    if (!playbackStarted) return;
+    const id = window.setInterval(() => {
+      const next = videoPlaybackQualitySnapshot(videoRef.current);
+      setPlaybackQuality((prev) =>
+        prev.droppedVideoFrames === next.droppedVideoFrames &&
+        prev.totalVideoFrames === next.totalVideoFrames &&
+        prev.corruptedVideoFrames === next.corruptedVideoFrames
+          ? prev
+          : next,
+      );
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [playbackStarted]);
+
   // Mirror the values the unload handlers need. Those fire outside React's
   // render cycle (and `sendBeacon` gets one shot), so reading state through a
   // closure there would write whatever the last committed render happened to
@@ -2401,7 +2949,12 @@ function InlineStreamPlayerInner({
 
   const loadManifest = useCallback(async () => {
     if (!activeInfoHash) return null;
-    if (manifest?.infoHash === activeInfoHash) return manifest;
+    // Reuse is keyed on the WHOLE target identity, not the hash. Inside a
+    // season pack the hash is the same for every episode, so a hash-only guard
+    // handed back the previous episode's manifest and file selection.
+    if (manifest?.infoHash === activeInfoHash && manifestKey === targetIdentity) {
+      return manifest;
+    }
     setManifestLoading(true);
     setMessage(null);
     setProblem(null);
@@ -2445,13 +2998,30 @@ function InlineStreamPlayerInner({
         targetVideoIndex,
       };
       setManifest(next);
+      setManifestKey(targetIdentity);
       const videos = selectVideoFiles(files);
       const requested =
         targetVideoIndex == null
           ? null
           : videos.find((file) => file.index === targetVideoIndex) ?? null;
-      if (requested) {
+      // A file the caller already named wins over any inference: the server
+      // resolved it from the pack's verified files, which is stronger evidence
+      // than an index or a dominance heuristic.
+      const named =
+        activeFilePath && videos.some((file) => file.path === activeFilePath)
+          ? activeFilePath
+          : null;
+      if (named) {
+        setSelectedPath(named);
+      } else if (requested) {
         setSelectedPath(requested.path);
+      } else if (videos.length === 1) {
+        // A lone video file is unambiguous — always play it, even when the
+        // manifest carried no targetVideoIndex (single-episode torrents often
+        // don't set one). Without this the sole file is never selected,
+        // effectiveSelectedPath stays null, the plan effect never runs, and the
+        // player hangs on the loader forever on a fully-downloaded file.
+        setSelectedPath(videos[0].path);
       } else if (videos.length > 1) {
         // No episode target means this is a movie, not a season pack. A film
         // ships one feature plus junk (samples, trailers, featurettes); pick the
@@ -2482,7 +3052,7 @@ function InlineStreamPlayerInner({
     } finally {
       setManifestLoading(false);
     }
-  }, [activeInfoHash, manifest, requestedEpisode]);
+  }, [activeInfoHash, manifest, manifestKey, targetIdentity, activeFilePath, requestedEpisode]);
 
   const fetchPlayerSample = useCallback(
     async (signal: AbortSignal): Promise<SwarmSample | null> => {
@@ -2577,7 +3147,7 @@ function InlineStreamPlayerInner({
         });
         const data = await readJson<UpNextResponse>(res);
         if (!res.ok || signal?.aborted) return null;
-        const next = data?.next ?? null;
+        const next = normalizeUpNextCard(data?.next);
         setUpNext(next);
         return next;
       } catch {
@@ -2610,6 +3180,58 @@ function InlineStreamPlayerInner({
     };
   }, [playableSrc, effectiveSelectedPath, loadUpNext]);
 
+  /**
+   * Warm the next episode's probe while the current one plays.
+   *
+   * The measurable cost of an episode transition that needs no download is the
+   * cold ffprobe the next plan has to run. Warming it in idle time removes that
+   * from the transition entirely — and the request is deliberately the narrow
+   * `warm: true` plan, which reads only proven-local files and creates no
+   * session, no ffmpeg and no swarm activity. There is no speculative
+   * acquisition here on purpose: fetching bytes in the background would steal
+   * bandwidth from the 4K stream the viewer is actually watching.
+   *
+   * Exactly once per resolved episode+file, only while the page is visible,
+   * abortable, and completely invisible: the response is never read, so no
+   * loading flag, message, source or target can be affected by it — a late or
+   * failed warm cannot touch the episode on screen.
+   */
+  const warmedTargetRef = useRef<string | null>(null);
+  const upNextInfoHash = upNext?.infoHash ?? null;
+  const upNextFilePath = upNext?.filePath ?? null;
+  useEffect(() => {
+    if (!upNextInfoHash || !upNextFilePath) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    const key = `${upNextInfoHash}|${upNextFilePath}`;
+    if (warmedTargetRef.current === key) return;
+    const controller = new AbortController();
+    let idleHandle: number | null = null;
+    let timer: number | null = null;
+    const run = () => {
+      idleHandle = null;
+      timer = null;
+      warmedTargetRef.current = key;
+      void fetch("/api/playback/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          infoHash: upNextInfoHash,
+          filePath: upNextFilePath,
+          warm: true,
+        }),
+        signal: controller.signal,
+      }).catch(() => {});
+    };
+    const idle = requestIdle(run);
+    idleHandle = idle.handle;
+    timer = idle.timer;
+    return () => {
+      controller.abort();
+      if (idleHandle !== null) cancelIdle(idleHandle);
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [upNextInfoHash, upNextFilePath]);
+
   const playUpNext = useCallback(
     (next: UpNextEpisodeCard | null = upNext) => {
       if (!next?.infoHash) return;
@@ -2628,6 +3250,11 @@ function InlineStreamPlayerInner({
         title: next.title,
         season: next.season,
         episode: next.episode,
+        // When the server named the file, the transition can select it without
+        // asking for a manifest it already holds — the whole point of the
+        // same-pack fast path. When it did not, this is null and the manifest
+        // is re-resolved exactly as before.
+        filePath: next.filePath ?? null,
         watchListItemId: activeWatchListItemId,
         posterUrl: activePosterUrl,
         resumeSec: 0,
@@ -3069,11 +3696,43 @@ function InlineStreamPlayerInner({
     pendingSeekRef.current = 0;
   }, [effectiveSelectedPath, resumeTargetSec]);
 
+  /**
+   * Disarm the plan echo whenever the release or the selected file changes.
+   *
+   * Identity keying already makes a stale echo unmatchable, but holding one is
+   * still a live hazard, so it is dropped at the source. Declared *before* the
+   * playback effect (and keyed only on release/file, never on the audio index)
+   * so on a switch it runs first, while the commit that merely mirrors the
+   * plan's own chosen track back into state leaves the armed echo intact.
+   */
+  useEffect(() => {
+    planSelectedAudioRef.current = null;
+  }, [activeInfoHash, effectiveSelectedPath]);
+
   // Main playback effect: when a file is selected, negotiate the playback plan.
   // Also re-runs on `planNonce` — bumped when the viewer seeks past what the
   // current ffmpeg session has produced, or picks a different audio track.
   useEffect(() => {
-    if (!expanded || !effectiveSelectedPath || !activeInfoHash) return;
+    if (!expanded || !effectiveSelectedPath || !activeInfoHash) {
+      // Preconditions failed (collapsed player, no file, no release). A value
+      // armed by an earlier plan can no longer be consumed by the run it was
+      // meant for, so it must not survive to match a later, unrelated run.
+      planSelectedAudioRef.current = null;
+      return;
+    }
+    const echo: PlanAudioEcho = {
+      infoHash: activeInfoHash,
+      filePath: effectiveSelectedPath,
+      planNonce,
+      audioStreamIndex,
+    };
+    if (shouldSuppressPlanEcho(planSelectedAudioRef.current, echo)) {
+      // This run is the plan mirroring its own chosen track back into state.
+      planSelectedAudioRef.current = null;
+      return;
+    }
+    // Any other run is a real plan; a stale echo must not outlive it.
+    planSelectedAudioRef.current = null;
     const controller = new AbortController();
     const filePath = effectiveSelectedPath;
     const startSec = pendingSeekRef.current;
@@ -3096,6 +3755,8 @@ function InlineStreamPlayerInner({
       // A new session produces a new media element with an empty buffer; keeping
       // the old spans on screen for even one frame would be a stale claim.
       setBufferedRanges([]);
+      // Buffer sizing belongs to the file being negotiated, never the last one.
+      sourceProfileRef.current = { width: null, height: null, bitrateBps: null };
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
@@ -3135,7 +3796,10 @@ function InlineStreamPlayerInner({
             setMessage("Waiting for torrent data to probe the file. Try again in a moment.");
             return;
           }
-          // Try direct stream as fallback
+          // Any other plan failure is not necessarily terminal: the byte route
+          // may still serve this file directly. `tryDirectStream` owns the
+          // recovery ladder from here (direct success → structured stall →
+          // auto-failover), so no failover is attempted twice on this branch.
           await tryDirectStream(activeInfoHash, filePath, controller.signal);
           return;
         }
@@ -3144,10 +3808,29 @@ function InlineStreamPlayerInner({
         if (!planData || controller.signal.aborted) return;
 
         setAudioTracks(planData.plan.audio);
-        setAudioStreamIndex(planData.plan.selectedAudioIndex);
+        if (audioStreamIndex !== planData.plan.selectedAudioIndex) {
+          planSelectedAudioRef.current = {
+            infoHash: activeInfoHash,
+            filePath,
+            planNonce,
+            audioStreamIndex: planData.plan.selectedAudioIndex,
+          };
+          setAudioStreamIndex(planData.plan.selectedAudioIndex);
+        }
         setSourceDuration(planData.probe.duration);
+        sourceProfileRef.current = {
+          width: planData.probe.width ?? null,
+          height: planData.probe.height ?? null,
+          bitrateBps: normalizeProbeBitrate(planData.probe.bitrate),
+        };
         setStrategy(planData.strategy ?? null);
         setStrategyReason(planData.strategyReason ?? null);
+        const resolvedPlanSource = planSourceFromPlan(planData);
+        setPlanSource(resolvedPlanSource);
+        // A disk-backed plan has no swarm on the critical path: drop any
+        // sample collected while locality was still unknown so it cannot leak
+        // peer copy into the loader.
+        if (resolvedPlanSource === "disk") setSwarmSample(null);
         setPlaybackRung(planData.plan.rung);
         if (/whole-file.*failed after/i.test(planData.strategyReason ?? "")) {
           // Optimized local playback fell back to the plain stream — an internal
@@ -3188,12 +3871,11 @@ function InlineStreamPlayerInner({
           setTransitioningTitle(null);
         }
       } catch {
+        // A network error / exception reaching the plan endpoint says nothing
+        // about the byte route. Same recovery ladder as a non-503 plan failure;
+        // it only sets terminal copy once recovery is genuinely exhausted.
         if (!controller.signal.aborted) {
-          // Network error — fall back to direct stream check
-          await tryDirectStream(activeInfoHash, filePath, controller.signal).catch(() => {
-            setProblem("generic");
-            setMessage("Could not check the stream.");
-          });
+          await tryDirectStream(activeInfoHash, filePath, controller.signal);
         }
       } finally {
         // Only the plan that actually settled may clear the in-flight flag. A
@@ -3271,6 +3953,14 @@ function InlineStreamPlayerInner({
   // "Unknown" (null peers / null speed) is never treated as dead.
   useEffect(() => {
     if (!expanded || !activeInfoHash || playbackStarted || streamFailure) return;
+    // A disk-backed plan reads a complete local file: there is no swarm on the
+    // critical path, so polling for peers can only produce misleading samples
+    // (and a false dead-swarm failover). Drop any sample already collected so
+    // no stale peer reading can leak into the loader copy.
+    if (planSource === "disk") {
+      startupSamplesRef.current = [];
+      return;
+    }
     startupSamplesRef.current = [];
     let stopped = false;
 
@@ -3287,7 +3977,9 @@ function InlineStreamPlayerInner({
           data.downloadSpeedBps != null &&
           data.progress != null
         ) {
-          startupSamplesRef.current = [...startupSamplesRef.current, data as SwarmSample];
+          const sample = data as SwarmSample;
+          startupSamplesRef.current = [...startupSamplesRef.current, sample];
+          setSwarmSample(sample);
         }
         if (deadEvidenceFromSamples(startupSamplesRef.current)) {
           stopped = true;
@@ -3324,32 +4016,7 @@ function InlineStreamPlayerInner({
       clearTimeout(timerId);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, activeInfoHash, playbackStarted, !!streamFailure, attemptAutoFailover]);
-
-  // Task 4: Fetch verbose-diagnostics flag from settings once on mount.
-  useEffect(() => {
-    fetch("/api/settings/client")
-      .then((r) => r.json())
-      .then((s: Record<string, unknown>) => {
-        if (s.verboseDiagnostics === true) setVerboseDiagnostics(true);
-      })
-      .catch(() => {/* non-critical — default stays false */});
-  }, []);
-
-  // Task 4: Track elapsed seconds for verbose display; resets per source.
-  useEffect(() => {
-    if (!verboseDiagnostics || !expanded || !activeInfoHash) return;
-    verboseStartTimeRef.current = Date.now();
-    const id = setInterval(() => {
-      setVerboseElapsedSec(
-        Math.floor((Date.now() - (verboseStartTimeRef.current ?? Date.now())) / 1000),
-      );
-    }, 1000);
-    return () => {
-      clearInterval(id);
-      verboseStartTimeRef.current = null;
-    };
-  }, [verboseDiagnostics, expanded, activeInfoHash]);
+  }, [expanded, activeInfoHash, playbackStarted, !!streamFailure, attemptAutoFailover, planSource]);
 
   // Selecting a different file must not inherit the previous file's seek offset
   // or audio-track choice.
@@ -3374,6 +4041,11 @@ function InlineStreamPlayerInner({
     setSubtitleTrackId("");
     setSubtitleStatus("idle");
     setSubtitleNote(null);
+    // Same reason as the release reset: the previous file's strategy must not
+    // describe the new file's wait until its own plan answers.
+    setStrategy(null);
+    setStrategyReason(null);
+    setPlanSource(null);
   }
 
   /**
@@ -3749,7 +4421,7 @@ function InlineStreamPlayerInner({
     hlsSeekAbortRef.current?.();
     hlsSeekAbortRef.current = null;
     if (!video || !playableSrc || playbackMode !== "hls") return;
-    video.playbackRate = playbackRate;
+    video.playbackRate = playbackRateRef.current;
 
     // Destroy previous instance
     if (hlsRef.current) {
@@ -3768,6 +4440,12 @@ function InlineStreamPlayerInner({
       return;
     }
 
+    const bufferSettings = hlsBufferSettingsForSource({
+      width: sourceProfileRef.current.width ?? (video.videoWidth || null),
+      height: sourceProfileRef.current.height ?? (video.videoHeight || null),
+      bitrateBps: sourceProfileRef.current.bitrateBps,
+    });
+
     const hls = new Hls({
       /**
        * VOD, never live. Low-latency mode shrinks the buffer hls.js is willing
@@ -3782,17 +4460,23 @@ function InlineStreamPlayerInner({
        * throw away a minute of work it already paid for. `maxMaxBufferLength`
        * is the ceiling hls.js may grow to when bandwidth is plentiful.
        */
-      maxBufferLength: 30,
-      maxMaxBufferLength: 90,
-      /** Bytes matter more than seconds for HEVC 1080p; ~120 MB is a few minutes. */
-      maxBufferSize: 120 * 1000 * 1000,
+      maxBufferLength: bufferSettings.maxBufferLength,
+      maxMaxBufferLength: bufferSettings.maxMaxBufferLength,
       /**
-       * Keep 90s behind the playhead. hls.js defaults to evicting the back
+       * Bytes matter more than seconds: the same seconds cost several times
+       * more at 2160p than at 1080p, so the budget is sized from the source's
+       * own resolution/bitrate (see `hlsBufferSettingsForSource`) instead of a
+       * single 1080p-shaped constant.
+       */
+      maxBufferSize: bufferSettings.maxBufferSize,
+      /**
+       * Keep history behind the playhead. hls.js defaults to evicting the back
        * buffer aggressively, so nudging back 10s re-downloaded a fragment the
        * browser had held moments earlier — the exact "stutter when I move"
-       * complaint. Bounded, so a two-hour film cannot pin memory.
+       * complaint. Bounded, and shorter at 4K, so a two-hour film cannot pin
+       * memory.
        */
-      backBufferLength: 90,
+      backBufferLength: bufferSettings.backBufferLength,
       /**
        * How far off a fragment's declared start a seek may land and still be
        * served by that fragment. The default (0.25) plus keyframe-aligned VOD
@@ -3840,9 +4524,24 @@ function InlineStreamPlayerInner({
       if (seekRestartTimer !== null) window.clearTimeout(seekRestartTimer);
       seekRestartTimer = window.setTimeout(() => {
         seekRestartTimer = null;
+        const target = video.currentTime;
+        // hls.js also emits `seeking` while nudging across a gap. Restarting the
+        // loader for those automatic corrections discards the append queue and
+        // can turn one small under-run into a repeated stop/start cycle.
+        const hasUserSeekIntent = requestedSeekRef.current != null;
+        // Already buffered: there is no in-flight fragment worth abandoning,
+        // and restarting would discard the append queue and re-fetch what the
+        // browser already holds. Let the loader keep going.
+        if (!hlsSeekShouldRestartLoader({
+          hasUserSeekIntent,
+          buffered: timeRangesToRanges(video.buffered),
+          targetSec: target,
+        })) {
+          return;
+        }
         try {
           hls.stopLoad();
-          hls.startLoad(video.currentTime);
+          hls.startLoad(target);
         } catch {
           /* instance already destroyed by a re-plan */
         }
@@ -3874,7 +4573,7 @@ function InlineStreamPlayerInner({
     });
 
     hlsRef.current = hls;
-  }, [playableSrc, playbackMode, playbackRate]);
+  }, [playableSrc, playbackMode]);
 
   /**
    * Seek on the *source* timeline.
@@ -4014,12 +4713,13 @@ function InlineStreamPlayerInner({
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
-      video.playbackRate = playbackRate;
+      video.playbackRate = playbackRateRef.current;
     },
-    [playbackRate],
+    [],
   );
 
   useEffect(() => {
+    playbackRateRef.current = playbackRate;
     if (videoRef.current) videoRef.current.playbackRate = playbackRate;
   }, [playbackRate, playableSrc]);
 
@@ -4293,7 +4993,7 @@ function InlineStreamPlayerInner({
   const compactSelectClass = cn(
     "h-8 min-w-0 appearance-none truncate py-1 pl-3 pr-8 text-[11px] outline-none transition focus-visible:ring-2",
     theatre
-      ? "w-40 rounded-full border border-white/15 bg-white/10 text-white focus-visible:ring-white/25"
+      ? "w-24 rounded-full border border-white/15 bg-white/10 text-white focus-visible:ring-white/25 sm:w-40"
       : "input-field flex-1 px-1.5 focus-visible:ring-[var(--accent-dim)]",
   );
   const selectChevron = (
@@ -4310,12 +5010,13 @@ function InlineStreamPlayerInner({
           theatre && "text-white/70",
         )}
       >
-        <span>Audio</span>
+        <span className={theatre ? "hidden sm:inline" : undefined}>Audio</span>
         <span className="relative min-w-0">
           <select
             className={compactSelectClass}
             value={audioStreamIndex ?? ""}
             data-stream-audio-select
+            aria-label="Audio track"
             onChange={(e) => {
               // Restart at the current position so switching language
               // doesn't throw the viewer back to the beginning.
@@ -4357,7 +5058,7 @@ function InlineStreamPlayerInner({
           theatre && "text-white/70",
         )}
       >
-        <span>Subtitles</span>
+        <span className={theatre ? "hidden sm:inline" : undefined}>Subtitles</span>
         <span className="relative min-w-0">
           <select
             className={compactSelectClass}
@@ -4418,10 +5119,10 @@ function InlineStreamPlayerInner({
       <div
         data-stream-transport-row
         className={cn(
-          "flex items-center gap-2",
+          "flex items-center",
           large
-            ? "text-white"
-            : "mx-auto w-full max-w-6xl flex-wrap rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-[var(--shadow-md)] backdrop-blur",
+            ? "flex-wrap gap-1 text-white sm:gap-2"
+            : "mx-auto w-full max-w-6xl flex-wrap gap-2 rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-[var(--shadow-md)] backdrop-blur",
         )}
       >
         <button type="button" data-stream-transport onClick={togglePlay} disabled={!playableSrc} aria-label={isPlaying ? "Pause" : "Play"} className={playButtonClass}>
@@ -4460,7 +5161,7 @@ function InlineStreamPlayerInner({
           {formatClock(currentSourceTime)} / {sourceDuration && sourceDuration > 0 ? formatClock(sourceDuration) : "0:00"}
         </span>
         {sourceDuration && sourceDuration > 0 ? (
-          <span className={cn("relative flex flex-1 items-center", large ? "min-w-[200px]" : "min-w-[180px]")}>
+          <span className={cn("relative flex flex-1 items-center", large ? "basis-full min-w-0 sm:basis-auto sm:min-w-[200px]" : "min-w-[180px]")}>
             <span aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
             <TimelineBands sourceDuration={sourceDuration} bufferedRanges={bufferedRanges} downloadedRanges={downloadedRanges} currentSourceTime={currentSourceTime} />
             <span aria-hidden="true" className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%` }} />
@@ -4507,16 +5208,16 @@ function InlineStreamPlayerInner({
           // scrubber footprint with an inert rail so the control bar doesn't shift
           // (CLS) and no second loading indicator appears here. The single
           // StreamLoader over the stage is the only busy signal.
-          <span aria-hidden="true" className={cn("relative flex flex-1 items-center", large ? "min-w-[200px]" : "min-w-[180px]")}>
+          <span aria-hidden="true" className={cn("relative flex flex-1 items-center", large ? "basis-full min-w-0 sm:basis-auto sm:min-w-[200px]" : "min-w-[180px]")}>
             <span className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
           </span>
         )}
         <button type="button" onClick={toggleMute} disabled={!playableSrc} aria-label={muted ? "Unmute" : "Mute"} className={buttonClass}>
           {muted ? <VolumeX className={iconClass} /> : <Volume2 className={iconClass} />}
         </button>
-        <input data-stream-volume type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" className={cn("w-20", !large && "hidden sm:block")} onChange={(e) => changeVolume(Number(e.target.value))} />
+        <input data-stream-volume type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" className="hidden w-20 sm:block" onChange={(e) => changeVolume(Number(e.target.value))} />
         <label className={cn("flex shrink-0 items-center gap-1.5 text-[11px]", large ? "text-white/70" : "text-white/65")}>
-          <span>Speed</span>
+          <span className={large ? "hidden sm:inline" : undefined}>Speed</span>
           <select
             data-stream-speed-select
             aria-label="Playback speed"
@@ -4605,6 +5306,37 @@ function InlineStreamPlayerInner({
       terminal: terminalFailure,
       playbackStarted,
     }) || manifestLoading;
+  const [loaderElapsedActive, setLoaderElapsedActive] = useState(showLoader);
+  if (showLoader !== loaderElapsedActive) {
+    setLoaderElapsedActive(showLoader);
+    setVerboseElapsedSec(0);
+  }
+  useEffect(() => {
+    if (!showLoader) {
+      verboseStartTimeRef.current = null;
+      return;
+    }
+    verboseStartTimeRef.current = Date.now();
+    const id = setInterval(() => {
+      setVerboseElapsedSec(
+        Math.floor((Date.now() - (verboseStartTimeRef.current ?? Date.now())) / 1000),
+      );
+    }, 1000);
+    return () => {
+      clearInterval(id);
+      verboseStartTimeRef.current = null;
+    };
+  }, [showLoader]);
+  const loaderStatus = showLoader
+    ? loaderStatusFromSamples({
+        preparingLabel: preparingLabel ?? (checkingStream || manifestLoading || switchingLoader ? "preparing" : null),
+        sample: swarmSample,
+        elapsedSec: verboseElapsedSec,
+        strategy,
+        planSource,
+        playbackEstablished: playbackStarted,
+      })
+    : undefined;
 
   if (theatre) {
     const chromeVisible = theatreControlsVisible || controlsPinned;
@@ -4629,7 +5361,7 @@ function InlineStreamPlayerInner({
     return (
       <div
         className={cn(
-          "flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden px-4 pb-4 pt-14 sm:px-6",
+          "flex h-[100dvh] min-h-0 w-full flex-col overflow-hidden sm:px-6 sm:pb-4 sm:pt-14",
           !theatreControlsVisible && !controlsPinned && "cursor-none",
           className,
         )}
@@ -4638,9 +5370,12 @@ function InlineStreamPlayerInner({
         data-player-chrome={chrome}
         data-playback-mode={playbackMode}
         data-playback-strategy={strategy ?? undefined}
+        data-plan-source={planSource ?? undefined}
         data-playback-rung={playbackRung ?? undefined}
         data-strategy-reason={strategyReason ?? undefined}
         data-resume-sec={resumeTargetSec > 0 ? resumeTargetSec : undefined}
+        data-dropped-video-frames={playbackQuality.droppedVideoFrames}
+        data-total-video-frames={playbackQuality.totalVideoFrames}
         onPointerMove={showTheatreControls}
         onFocusCapture={showTheatreControls}
       >
@@ -4744,7 +5479,7 @@ function InlineStreamPlayerInner({
               ref={fullscreenSurfaceRef}
               data-stream-stage
               data-player-fullscreen-surface
-              className="relative flex aspect-video w-full max-h-full items-center justify-center overflow-hidden rounded-2xl border border-white/12 bg-black bg-cover bg-center shadow-[0_24px_90px_rgba(0,0,0,0.68)] ring-1 ring-black/50"
+              className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black bg-cover bg-center sm:h-auto sm:aspect-video sm:max-h-full sm:rounded-2xl sm:border sm:border-white/12 sm:shadow-[0_24px_90px_rgba(0,0,0,0.68)] sm:ring-1 sm:ring-black/50"
               style={
                 activePosterUrl
                   ? { backgroundImage: `linear-gradient(rgba(0,0,0,.66), rgba(0,0,0,.72)), url(${activePosterUrl})` }
@@ -4783,17 +5518,18 @@ function InlineStreamPlayerInner({
                   </div>
                 </div>
               ) : showLoader ? (
-                // COMPLAINTS 1 & 2: exactly one spinner-only loader for the union
+                // COMPLAINTS 1 & 2: exactly one loader for the union
                 // of every "getting there" moment (no source yet ∪ preparing ∪
                 // checking ∪ buffering ∪ seeking ∪ switching release), rendered
-                // once over the persistent stage with no narration copy. All three
-                // probe selectors live on its single node so a union count is 1.
-                <StreamLoader />
+                // once over the persistent stage. All three probe selectors live
+                // on the spinner node so a union count is 1; the copy is a short
+                // evidence-based status line, not a second loader.
+                <StreamLoader status={loaderStatus} />
               ) : null}
 
               <div
                 className={cn(
-                  "pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-5 transition-opacity duration-200",
+                  "pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-3 pt-14 transition-opacity duration-200 sm:p-5",
                   controlsOpacity,
                 )}
               >
@@ -4809,7 +5545,7 @@ function InlineStreamPlayerInner({
 
               <div
                 className={cn(
-                  "absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-4 pt-24 transition-opacity duration-200",
+                  "absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/65 to-transparent px-3 pb-3 pt-14 transition-opacity duration-200 sm:px-5 sm:pb-4 sm:pt-24",
                   controlsOpacity,
                   pointerWhenHidden,
                 )}
@@ -4916,9 +5652,12 @@ function InlineStreamPlayerInner({
       data-player-chrome={chrome}
       data-playback-mode={playbackMode}
       data-playback-strategy={strategy ?? undefined}
+        data-plan-source={planSource ?? undefined}
       data-playback-rung={playbackRung ?? undefined}
       data-strategy-reason={strategyReason ?? undefined}
       data-resume-sec={resumeTargetSec > 0 ? resumeTargetSec : undefined}
+      data-dropped-video-frames={playbackQuality.droppedVideoFrames}
+      data-total-video-frames={playbackQuality.totalVideoFrames}
     >
       <div className={cn("flex flex-wrap items-center gap-1.5", theatre && "hidden")}>
         <Button
@@ -5076,7 +5815,7 @@ function InlineStreamPlayerInner({
               {playableSrc && selectedFile
                 ? renderStreamVideo({ className: "w-full rounded-md bg-black" })
                 : null}
-              {showLoader ? <StreamLoader className="rounded-md" /> : null}
+              {showLoader ? <StreamLoader className="rounded-md" status={loaderStatus} /> : null}
               {ended && upNext ? (
                 <div
                   data-up-next-card

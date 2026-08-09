@@ -19,6 +19,10 @@ const SAFE_FIELD_NAMES = [
   "limit",
   "offline",
   "resultCount",
+  // Playback byte locality: "disk" | "swarm". Low-cardinality and carries no
+  // user content — it is the field that tells you whether a completed download
+  // is still being read through the swarm.
+  "source",
   "status",
   "statusCode",
   "strategy",

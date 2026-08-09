@@ -12,10 +12,11 @@ import assert from "node:assert/strict";
 import {
   combinedProgress,
   combinedState,
+  canStreamTransfer,
   groupDownloads,
   isDownloading,
   isPaused,
-  isSeeding,
+  isDownloaded,
   type DownloadGroup,
   type SeriesGroup,
   type TransferRow,
@@ -36,6 +37,20 @@ function check(name: string, fn: () => void) {
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;
+
+check("proven invalid media never enables Play at 100 percent", () => {
+  assert.equal(
+    canStreamTransfer({ state: "error", progress: 1, playable: false }),
+    false,
+  );
+});
+
+check("downloaded video remains playable even when progress metadata is stale", () => {
+  assert.equal(
+    canStreamTransfer({ state: "downloaded", progress: 0, playable: true }),
+    true,
+  );
+});
 
 function row(partial: Partial<TransferRow> & { name: string }): TransferRow {
   return {
@@ -112,7 +127,7 @@ check("a group's state is its least finished member, not its first", () => {
     true,
   );
   assert.equal(
-    isSeeding(combinedState([{ state: "uploading" }, { state: "downloading" }])),
+    isDownloaded(combinedState([{ state: "uploading" }, { state: "downloading" }])),
     false,
     "nine seeding episodes and one downloading is not a group you can watch through",
   );
@@ -122,7 +137,7 @@ check("a group's state is its least finished member, not its first", () => {
     true,
   );
   assert.equal(
-    isSeeding(combinedState([{ state: "uploading" }, { state: "pausedDL" }])),
+    isDownloaded(combinedState([{ state: "uploading" }, { state: "pausedDL" }])),
     false,
   );
   // But downloading still outranks paused: something IS happening.
@@ -132,10 +147,61 @@ check("a group's state is its least finished member, not its first", () => {
   );
   // All seeding really is seeding.
   assert.equal(
-    isSeeding(combinedState([{ state: "uploading" }, { state: "stalledUP" }])),
+    isDownloaded(combinedState([{ state: "uploading" }, { state: "stalledUP" }])),
     true,
   );
   assert.equal(combinedState([]), "");
+});
+
+check("client state vocabulary maps to one truthful status", () => {
+  for (const state of [
+    "downloading",
+    "forcedDL",
+    "metaDL",
+    "checking",
+    "stalledDL",
+    "queuedCheck",
+    "queuedDownload",
+    "queuedDL",
+    "checkingDL",
+    "checkingResumeData",
+    "checkingUP",
+    "allocating",
+  ]) {
+    assert.equal(isDownloading(state), true, `${state} should be downloading`);
+    assert.equal(isDownloaded(state), false, `${state} must not be ready`);
+    assert.equal(isPaused(state), false, `${state} must not be paused`);
+  }
+
+  for (const state of [
+    "downloaded",
+    "complete",
+    "uploading",
+    "forcedUP",
+    "queuedSeed",
+    "stalledUP",
+    "queuedUP",
+    "seeding",
+  ]) {
+    assert.equal(isDownloading(state), false, `${state} must not be downloading`);
+    assert.equal(isDownloaded(state), true, `${state} should be ready`);
+    assert.equal(isPaused(state), false, `${state} must not be paused`);
+  }
+
+  for (const state of [
+    "paused",
+    "pausedDL",
+    "pausedUP",
+    "stopped",
+    "stoppedDL",
+    "stoppedUP",
+    "error",
+    "missingFiles",
+  ]) {
+    assert.equal(isDownloading(state), false, `${state} must not be downloading`);
+    assert.equal(isDownloaded(state), false, `${state} must not be ready`);
+    assert.equal(isPaused(state), true, `${state} should be paused`);
+  }
 });
 
 check("a group never badges itself finished while a member is still going", () => {
@@ -145,7 +211,7 @@ check("a group never badges itself finished while a member is still going", () =
   ]);
   const group = seriesGroups(groups)[0];
   assert.ok(group, "expected one series group");
-  assert.equal(isSeeding(group.state), false);
+  assert.equal(isDownloaded(group.state), false);
   assert.equal(isDownloading(group.state), true);
   assert.ok(group.progress < 1, `group claimed ${group.progress}`);
 });
@@ -192,7 +258,7 @@ check("a pack still fetching its metadata does not swallow real episodes", () =>
     [false, false],
   );
   // And the group is not "done" merely because the sized member is complete.
-  assert.equal(isSeeding(group.state), false);
+  assert.equal(isDownloaded(group.state), false);
   assert.equal(isDownloading(group.state), true);
 });
 

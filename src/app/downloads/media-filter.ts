@@ -1,7 +1,7 @@
 /**
  * The Downloads page's media-type filter: All, Movies, Series, Anime.
  *
- * The page already had a *status* filter — Active / Downloading / Seeding /
+ * The page already had a *status* filter — Active / Downloading / Ready /
  * Paused — which answers "what is this transfer doing right now". It could not
  * answer "which of these is the show I came here for", and on a client holding
  * forty episodes and six films that is the question you actually arrive with.

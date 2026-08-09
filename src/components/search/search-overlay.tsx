@@ -7,17 +7,18 @@ import {
   useState,
 } from "react";
 import { usePathname } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { Search, X, AlertTriangle } from "lucide-react";
 import { TitleResultsList } from "./title-results-list";
 import { titlesFromSearchHits } from "./title-search";
+import { partialResultsNotice } from "./partial-results-notice";
 import type { TitleResult } from "./group-titles";
 import {
   DEFAULT_SCOPE_ID,
   SEARCH_SCOPES,
 } from "@/lib/torrents/search-scopes";
 import {
-  parseWorkSearchCategory,
-  type WorkSearchCategory,
+  parseWorkSearchScope,
+  type WorkSearchScope,
 } from "@/lib/search/work-search";
 import {
   placeholderFor,
@@ -41,7 +42,7 @@ export function openSearchOverlay(
   initialQuery?: string,
   options: {
     preserveUrl?: boolean;
-    category?: WorkSearchCategory;
+    category?: WorkSearchScope;
   } = {},
 ) {
   if (typeof window === "undefined") return;
@@ -67,8 +68,9 @@ export function SearchOverlay() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [scopeId, setScopeId] =
-    useState<WorkSearchCategory>(DEFAULT_SCOPE_ID);
+    useState<WorkSearchScope>(DEFAULT_SCOPE_ID);
   const [titles, setTitles] = useState<TitleResult[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -82,8 +84,11 @@ export function SearchOverlay() {
   const returnUrlRef = useRef<string | null>(null);
   const ownsSearchUrlRef = useRef(false);
   const openRef = useRef(false);
+  const mountedRef = useRef(false);
+  const activeRef = useRef(false);
 
   const close = useCallback(() => {
+    activeRef.current = false;
     openRef.current = false;
     setOpen(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -99,6 +104,20 @@ export function SearchOverlay() {
     returnUrlRef.current = null;
   }, []);
 
+  const canCommit = useCallback((reqId: number) => {
+    return mountedRef.current && activeRef.current && reqId === reqIdRef.current;
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeRef.current = false;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
+    };
+  }, []);
+
   // Open on the global event; set the query if one was passed. Focus is handled
   // by a dedicated effect below, once the input is actually mounted.
   useEffect(() => {
@@ -107,10 +126,11 @@ export function SearchOverlay() {
         e as CustomEvent<{
           query?: string;
           preserveUrl?: boolean;
-          category?: WorkSearchCategory;
+          category?: WorkSearchScope;
         }>
       ).detail;
-      const category = parseWorkSearchCategory(detail?.category);
+      activeRef.current = true;
+      const category = parseWorkSearchScope(detail?.category);
       if (!openRef.current) {
         openerRef.current =
           document.activeElement instanceof HTMLElement
@@ -132,6 +152,7 @@ export function SearchOverlay() {
       setQuery(detail?.query ?? "");
       setTitles([]);
       setError(null);
+      setNotice(null);
       if (detail?.query) {
         runSearch(detail.query, category);
       } else {
@@ -208,11 +229,14 @@ export function SearchOverlay() {
     return () => cancelAnimationFrame(frame);
   }, [open, pathname, close]);
 
-  function runSearch(q: string, scope: WorkSearchCategory) {
+  function runSearch(q: string, scope: WorkSearchScope) {
+    if (!mountedRef.current || !activeRef.current) return;
+
     const request = searchRequestFor(scope, q);
     if (!request) {
       setTitles([]);
       setError(null);
+      setNotice(null);
       setLoading(false);
       return;
     }
@@ -222,17 +246,21 @@ export function SearchOverlay() {
     abortRef.current = ac;
     setLoading(true);
     setError(null);
+    setNotice(null);
 
     fetch(request.url, { signal: ac.signal })
       .then(async (res) => {
         const json = (await res.json().catch(() => null)) as {
           results?: unknown;
           error?: string | null;
+          partial?: boolean;
+          failedProviders?: string[];
         } | null;
-        if (reqId !== reqIdRef.current) return;
+        if (!canCommit(reqId)) return;
 
         if (!res.ok) {
           setTitles([]);
+          setNotice(null);
           setError(searchErrorMessage(res.status, json));
           setLoading(false);
           return;
@@ -243,12 +271,21 @@ export function SearchOverlay() {
             (json?.results ?? []) as Parameters<typeof titlesFromSearchHits>[0],
           ),
         );
+        // Partial success is still success: keep the results and name what is
+        // missing instead of replacing the panel with an error.
+        setNotice(
+          partialResultsNotice({
+            partial: json?.partial,
+            failedProviders: json?.failedProviders,
+          }),
+        );
         setLoading(false);
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        if (reqId !== reqIdRef.current) return;
+        if (!canCommit(reqId)) return;
         setTitles([]);
+        setNotice(null);
         setError("Could not reach the server.");
         setLoading(false);
       });
@@ -264,6 +301,7 @@ export function SearchOverlay() {
       abortRef.current?.abort();
       setTitles([]);
       setError(null);
+      setNotice(null);
       setLoading(false);
       return;
     }
@@ -271,13 +309,14 @@ export function SearchOverlay() {
   }
 
   /** Switching category re-runs immediately for the query already entered. */
-  function onScopeChange(next: WorkSearchCategory) {
+  function onScopeChange(next: WorkSearchScope) {
     if (next === scopeId) return;
     setScopeId(next);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     abortRef.current?.abort();
     setTitles([]);
     setError(null);
+    setNotice(null);
     if (window.location.pathname === "/search") {
       window.history.replaceState(null, "", searchUrlFor(query, next));
     }
@@ -336,7 +375,7 @@ export function SearchOverlay() {
       return;
     }
     event.preventDefault();
-    const category = SEARCH_SCOPES[next].id as WorkSearchCategory;
+    const category = SEARCH_SCOPES[next].id as WorkSearchScope;
     onScopeChange(category);
     requestAnimationFrame(() => tabRefs.current[next]?.focus());
   }
@@ -373,7 +412,7 @@ export function SearchOverlay() {
     : error
       ? `Search problem: ${error}`
       : query.trim().length >= 2
-        ? `${titles.length} results for ${query.trim()}`
+        ? `${titles.length} ${titles.length === 1 ? "result" : "results"} for ${query.trim()}`
         : `Search ${display.scope.label.toLowerCase()}`;
 
   return (
@@ -439,7 +478,7 @@ export function SearchOverlay() {
           <div
             role="tablist"
             aria-label="Search category"
-            className="mt-2.5 grid grid-cols-3 gap-1.5"
+            className="mt-2.5 grid grid-cols-4 gap-1.5"
           >
             {SEARCH_SCOPES.map((s, index) => {
               const active = s.id === scopeId;
@@ -456,7 +495,7 @@ export function SearchOverlay() {
                   aria-controls="search-results-region"
                   title={s.blurb}
                   tabIndex={active ? 0 : -1}
-                  onClick={() => onScopeChange(s.id as WorkSearchCategory)}
+                  onClick={() => onScopeChange(s.id as WorkSearchScope)}
                   onKeyDown={(event) => onCategoryKeyDown(event, index)}
                   className={cn(
                     "min-h-11 touch-manipulation rounded-full border px-2 text-[13px] transition-colors duration-200 ease-out motion-reduce:transition-none sm:min-h-8 sm:px-3",
@@ -480,6 +519,22 @@ export function SearchOverlay() {
           onKeyDown={onResultsKeyDown}
           className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4"
         >
+          {notice && display.state === "results" ? (
+            <div
+              className="mb-3 flex items-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2.5"
+              role="status"
+              aria-live="polite"
+              data-partial-notice
+            >
+              <AlertTriangle
+                className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]"
+                aria-hidden
+              />
+              <p className="min-w-0 text-[12px] text-[var(--text-secondary)]">
+                {notice}
+              </p>
+            </div>
+          ) : null}
           {(() => {
             switch (display.state) {
               case "prompt":

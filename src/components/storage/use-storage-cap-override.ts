@@ -18,7 +18,7 @@
  *   <StorageCapDialog {...cap.dialogProps} />
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   runWithStorageOverride,
   type StorageOverrideFacts,
@@ -73,5 +73,12 @@ export function useStorageCapOverride(): UseStorageCapOverride {
   const onCancel = useCallback(() => settle(false), [settle]);
   const onConfirm = useCallback(() => settle(true), [settle]);
 
-  return { run, dialogProps: { facts, onCancel, onConfirm } };
+  // Memoised so `cap`'s identity only changes when the dialog's `facts` change,
+  // not on every render of a consumer. `run`/`onCancel`/`onConfirm` are already
+  // stable, so a consumer that lists `cap` in a dependency array does not churn
+  // on unrelated re-renders (e.g. transfer polls on the title page).
+  return useMemo(
+    () => ({ run, dialogProps: { facts, onCancel, onConfirm } }),
+    [run, facts, onCancel, onConfirm],
+  );
 }

@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { boundedTtlCache } from "@/lib/cache/bounded-ttl-cache";
 import type { MediaMetadata } from "@/lib/torrents/types";
 
 const DEFAULT_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
@@ -117,19 +118,15 @@ function metadataReleaseDate(value: string | null | undefined): Date | null {
 }
 
 /** In-memory short TTL cache for query → best match (per process) */
-const memoryQueryCache = new Map<
-  string,
-  { expires: number; value: MediaMetadata | null }
->();
+const memoryQueryCache = boundedTtlCache<MediaMetadata | null>({
+  maxEntries: 1000,
+  ttlMs: 1000 * 60 * 30,
+  pruneIntervalMs: 1000 * 60 * 5,
+  name: "metadata:query",
+});
 
 export function getMemoryQueryCache(key: string): MediaMetadata | null | undefined {
-  const hit = memoryQueryCache.get(key);
-  if (!hit) return undefined;
-  if (hit.expires < Date.now()) {
-    memoryQueryCache.delete(key);
-    return undefined;
-  }
-  return hit.value;
+  return memoryQueryCache.get(key);
 }
 
 export function setMemoryQueryCache(
@@ -137,5 +134,5 @@ export function setMemoryQueryCache(
   value: MediaMetadata | null,
   ttlMs = 1000 * 60 * 30,
 ) {
-  memoryQueryCache.set(key, { expires: Date.now() + ttlMs, value });
+  memoryQueryCache.set(key, value, ttlMs);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Radar } from "lucide-react";
@@ -17,9 +17,13 @@ import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import {
   ACTIVITY_BATCH_SIZE,
+  ACTIVITY_PAGE_SIZE,
   activityKindLabel,
+  activityPageUrl,
   boundedActivityItems,
   groupActivityByDay,
+  mergeActivityPages,
+  olderActivityAction,
 } from "./presentation";
 
 interface ActivityItem {
@@ -38,6 +42,12 @@ interface ActivityItem {
   clientType?: string | null;
   sendKind?: string | null;
   createdAt: string;
+}
+
+interface ActivityPage {
+  items: ActivityItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
 
 function statusVariant(
@@ -63,36 +73,77 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
   const sentOnly =
     sentOnlyOverride ?? searchParams.get("filter") === "sent";
   const [visibleLimit, setVisibleLimit] = useState(ACTIVITY_BATCH_SIZE);
-  const activityUrl = sentOnly
-    ? "/api/activity?filter=sent"
-    : "/api/activity";
-  const { data, loading, error, refetch } = useApiQuery<ActivityItem[]>(
+  const activityUrl = activityPageUrl({ sentOnly, limit: ACTIVITY_PAGE_SIZE });
+  const { data, loading, error, refetch } = useApiQuery<ActivityPage>(
     activityUrl,
-    { select: (json) => (json as { items?: ActivityItem[] }).items ?? [] },
+    {
+      select: (json) => {
+        const body = json as Partial<ActivityPage>;
+        return {
+          items: body.items ?? [],
+          nextCursor: body.nextCursor ?? null,
+          hasMore: Boolean(body.hasMore),
+        };
+      },
+    },
   );
+
+  // Pages fetched after the first. Held here rather than in the query hook
+  // because the hook owns one request, and "older activity" is a sequence of
+  // them whose results accumulate.
+  const [olderItems, setOlderItems] = useState<ActivityItem[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [serverHasMore, setServerHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  // Guards double-clicks without making the click handler depend on render
+  // state, which is what a `loadingOlder` check would do.
+  const inFlightRef = useRef(false);
+
+  // A new filter is a new feed: anything paged in under the old one describes
+  // a different question and must not be carried over.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOlderItems([]);
+    setVisibleLimit(ACTIVITY_BATCH_SIZE);
+    setOlderError(null);
+  }, [activityUrl]);
+
+  useEffect(() => {
+    if (!data) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCursor(data.nextCursor);
+    setServerHasMore(data.hasMore);
+  }, [data]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const showLoading = useStableLoading(loading && data == null && !error);
   // `data ?? []` is a fresh array on every render, which would make the memo
   // below — and therefore the artwork lookup — recompute forever.
   const items = useMemo(() => {
-    const normalized = (data ?? []).map((item) => {
-      const facts = parseHistoryFacts({
-        message: item.message,
-        context: item.context,
-        category: item.category,
-        savePath: item.savePath,
-        clientType: item.clientType,
-        sendKind: item.sendKind,
-      });
-      return {
-        ...item,
-        message: facts.message,
-        context: facts.context,
-        category: facts.category,
-        savePath: facts.savePath,
-        clientType: facts.clientType,
-        sendKind: facts.sendKind,
-      };
-    });
+    const normalized = mergeActivityPages(data?.items ?? [], olderItems).map(
+      (item) => {
+        const facts = parseHistoryFacts({
+          message: item.message,
+          context: item.context,
+          category: item.category,
+          savePath: item.savePath,
+          clientType: item.clientType,
+          sendKind: item.sendKind,
+        });
+        return {
+          ...item,
+          message: facts.message,
+          context: facts.context,
+          category: facts.category,
+          savePath: facts.savePath,
+          clientType: facts.clientType,
+          sendKind: facts.sendKind,
+        };
+      },
+    );
     // `/history` keeps the whole log — that is what a log is for. The inbox
     // does not: it shows only what is news. See `inbox.ts` for why, and for
     // what "news" means here.
@@ -111,16 +162,66 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       ).map((n) => n.id),
     );
     return normalized.filter((item) => news.has(item.id));
-  }, [data, sentOnly]);
+  }, [data, olderItems, sentOnly]);
 
   const visibleItems = boundedActivityItems(items, visibleLimit);
   const dayGroups = groupActivityByDay(visibleItems);
-  const hasOlder = visibleItems.length < items.length;
+  const olderAction = olderActivityAction(
+    visibleItems.length,
+    items.length,
+    serverHasMore,
+  );
+  const hasOlder = olderAction !== "none";
+
+  // A plain function rather than `useCallback`: the in-flight guard lives in a
+  // ref, so there is nothing here for a dependency array to get wrong, and the
+  // compiler memoizes it for us.
+  async function loadOlder() {
+    if (olderAction === "none") return;
+    if (olderAction === "reveal") {
+      setVisibleLimit((limit) => limit + ACTIVITY_BATCH_SIZE);
+      return;
+    }
+    if (inFlightRef.current || !cursor) return;
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    inFlightRef.current = true;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const res = await fetch(
+        activityPageUrl({ sentOnly, cursor, limit: ACTIVITY_PAGE_SIZE }),
+        { cache: "no-store", signal: controller.signal },
+      );
+      if (!res.ok) {
+        // Never a silent no-op: a button that does nothing reads as "there is
+        // nothing older", which is the one thing we do not know.
+        throw new Error(`Request failed (${res.status})`);
+      }
+      const body = (await res.json()) as Partial<ActivityPage>;
+      setOlderItems((current) =>
+        mergeActivityPages(current, body.items ?? []),
+      );
+      setCursor(body.nextCursor ?? null);
+      setServerHasMore(Boolean(body.hasMore));
+      setVisibleLimit((limit) => limit + ACTIVITY_BATCH_SIZE);
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") return;
+      setOlderError("Could not load older activity. Try again.");
+    } finally {
+      inFlightRef.current = false;
+      if (!controller.signal.aborted) setLoadingOlder(false);
+    }
+  }
 
   const title = sentOnly ? "Download log" : "Notifications";
   const description = sentOnly
     ? "Releases successfully sent to a download client."
-    : "Recent sends and automation outcomes.";
+    : // Truthful about what `buildInbox` actually keeps: this is not "all
+      // activity", and calling it that is what made the old page a wall.
+      "Finished downloads and failures that need you. Everything else is in the download log.";
 
   const filterControls = (
     <div
@@ -136,7 +237,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
             : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
         }`}
       >
-        All activity
+        Inbox
       </Link>
       <Link
         href="/history"
@@ -175,11 +276,11 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       ) : !items.length ? (
         <TfEmptyState
           icon={Radar}
-          title={sentOnly ? "No sent downloads yet" : "No activity yet"}
+          title={sentOnly ? "No sent downloads yet" : "You're all caught up"}
           description={
             sentOnly
               ? "Successful manual and automation sends will appear here."
-              : "Add titles in Library, turn Monitor on, then Run automation. Manual sends from Search also appear here."
+              : "Finished downloads and failures that need you show up here. Everything else stays in the download log."
           }
           actionLabel="Open library"
           actionHref="/watchlist"
@@ -248,15 +349,27 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
             </section>
           ))}
           {hasOlder ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-md"
-              onClick={() =>
-                setVisibleLimit((limit) => limit + ACTIVITY_BATCH_SIZE)
-              }
-            >
-              Show older activity
-            </button>
+            <div className="space-y-2">
+              {olderError ? (
+                <p
+                  role="status"
+                  className="text-[12px] text-[var(--danger)]"
+                  data-older-error
+                >
+                  {olderError}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-secondary btn-md"
+                disabled={loadingOlder}
+                aria-busy={loadingOlder || undefined}
+                onClick={() => void loadOlder()}
+                data-load-older
+              >
+                {loadingOlder ? "Loading…" : "Show older activity"}
+              </button>
+            </div>
           ) : null}
         </div>
       )}

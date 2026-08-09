@@ -2,12 +2,20 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserClientConfig, type ClientConnectionConfig } from "@/lib/clients";
 import {
-  findBuiltinTorrentFile,
+  findLiveBuiltinTorrentFile,
   type BuiltinStreamTorrent,
 } from "@/lib/clients/builtin-engine";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
-import { selectMainFeatureFile } from "@/lib/torrents/filters";
+import {
+  isSupportedMediaAssetFileName,
+  isSupportedVideoFileName,
+  selectMainFeatureFile,
+} from "@/lib/torrents/filters";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import {
+  getCompletedMediaManifest,
+  type CompletedMediaManifest,
+} from "@/lib/library/completed-media";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,7 +26,7 @@ type RouteParams = {
 
 type IndexDeps = {
   getConfig?: () => Promise<ClientConnectionConfig | null>;
-  findFile?: typeof findBuiltinTorrentFile;
+  findFile?: typeof findLiveBuiltinTorrentFile;
   /**
    * The player polls this route for the swarm-health chip. A poll is not worth
    * a log line each time — the diagnostics exist for the one-off resolve.
@@ -32,6 +40,9 @@ type IndexDeps = {
    */
   downloadedRangesFor?: string | null;
   targetEpisode?: { season: number; episode: number } | null;
+  getCompletedManifest?: (
+    infoHash: string,
+  ) => Promise<CompletedMediaManifest | null>;
 };
 
 function torrentPeers(torrent?: BuiltinStreamTorrent): number | null {
@@ -167,12 +178,17 @@ export function downloadedFileRanges(
   if (!file.length || file.length <= 0) return [];
   const t = torrent as TorrentPieceState | undefined;
   if (!t) return [];
-  if (t.done === true || (typeof t.progress === "number" && t.progress >= 1)) {
-    return [{ start: 0, end: file.length }];
-  }
-
   const bitfield = t.bitfield;
   if (typeof bitfield?.get !== "function") return [];
+  const pieceCount = Array.isArray(t.pieces) ? t.pieces.length : 0;
+  if (
+    pieceCount > 0 &&
+    Array.from({ length: pieceCount }, (_, index) => index).every((index) =>
+      bitfield.get?.(index),
+    )
+  ) {
+    return [{ start: 0, end: file.length }];
+  }
   const pieceLength = finiteNumber(t.pieceLength);
   if (!pieceLength || pieceLength <= 0) return [];
 
@@ -253,20 +269,72 @@ export async function handleStreamIndexRequest(
       { status: 503 },
     );
   }
+  const completedManifest = await (
+    deps.getCompletedManifest ??
+    ((hash) =>
+      config.userId
+        ? getCompletedMediaManifest(config.userId, hash)
+        : Promise.resolve(null))
+  )(infoHash);
+  if (completedManifest) {
+    const targetEpisode = deps.targetEpisode;
+    const targetFileIndex =
+      targetEpisode == null
+        ? -1
+        : completedManifest.files.findIndex((file) => {
+            if (!isSupportedVideoFileName(file.relativePath)) return false;
+            const parsed = parseEpisode(file.relativePath);
+            return (
+              parsed.season === targetEpisode.season &&
+              parsed.episode === targetEpisode.episode
+            );
+          });
+    const targetVideoIndex = targetFileIndex >= 0 ? targetFileIndex : null;
+    const primaryVideoIndex =
+      targetVideoIndex ??
+      selectMainFeatureFile(
+        completedManifest.files.map((file) => ({
+          path: file.relativePath,
+          length: file.length,
+        })),
+      )?.index ??
+      null;
+    return NextResponse.json({
+      files: completedManifest.files.map((file, index) => ({
+        path: file.relativePath,
+        length: file.length,
+        index,
+        ...(deps.downloadedRangesFor == null ||
+        manifestPath(deps.downloadedRangesFor) === file.relativePath
+          ? { downloadedRanges: [{ start: 0, end: file.length }] }
+          : {}),
+      })),
+      primaryVideoIndex,
+      targetVideoIndex,
+      clientType: "builtin",
+      swarm: {
+        peers: 0,
+        downloadSpeedBps: 0,
+        progress: 1,
+        observedAt: Date.now(),
+      },
+    });
+  }
+
   if (config.clientType !== "builtin") {
     logStreamIndex({ infoHash, outcome: "non_builtin" });
     return NextResponse.json(
       {
         error: "Streaming requires the built-in client",
         message:
-          "Only the built-in WebTorrent engine has live in-process file streams. Switch Settings → Built-in to play in the app.",
+          "This title is not available as completed local media. Switch Settings → Built-in to stream an active torrent.",
         clientType: config.clientType,
       },
       { status: 409 },
     );
   }
 
-  const lookup = await (deps.findFile ?? findBuiltinTorrentFile)(config, infoHash);
+  const lookup = await (deps.findFile ?? findLiveBuiltinTorrentFile)(config, infoHash);
   if (lookup.status === "not_found") {
     logStreamIndex({ infoHash, outcome: "not_found" });
     return NextResponse.json({ error: "Torrent not found" }, { status: 404 });
@@ -293,7 +361,9 @@ export async function handleStreamIndexRequest(
   const downloadedRangesFor = deps.downloadedRangesFor
     ? manifestPath(deps.downloadedRangesFor)
     : null;
-  const torrentFiles = lookup.torrent.files ?? [];
+  const torrentFiles = (lookup.torrent.files ?? []).filter((file) =>
+    isSupportedMediaAssetFileName(file.path),
+  );
   // I14b: tell the player which file is the main feature so "Play" on a movie
   // lands on the feature, not a bonus/extra/sample bundled in the same torrent.
   // Additive: the player MAY read `primaryVideoIndex` to pick a default file; a
@@ -303,6 +373,7 @@ export async function handleStreamIndexRequest(
     targetEpisode == null
       ? -1
       : torrentFiles.findIndex((file) => {
+          if (!isSupportedVideoFileName(file.path)) return false;
           const parsed = parseEpisode(file.path);
           return (
             parsed.season === targetEpisode.season &&

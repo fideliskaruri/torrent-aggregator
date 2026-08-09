@@ -23,4 +23,8 @@ export async function register() {
     "@/lib/library/retention-sweep-scheduler"
   );
   startRetentionSweepScheduler();
+  const { startBuiltinEngineRuntime } = await import(
+    "@/lib/clients/builtin-engine"
+  );
+  startBuiltinEngineRuntime();
 }

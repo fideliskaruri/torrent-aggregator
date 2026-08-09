@@ -1,6 +1,17 @@
 import type { MediaMetadata } from "@/lib/torrents/types";
+import {
+  canonicalizeSearchQuery,
+  searchDiscoveryVariants,
+} from "@/lib/search/query-variants";
 
 const ANILIST_URL = "https://graphql.anilist.co";
+
+function isSearchDeadlineError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
 
 const SEARCH_QUERY = `
 query ($search: String, $perPage: Int) {
@@ -98,35 +109,55 @@ async function fetchAniListMedia(
   search: string,
   perPage: number,
 ): Promise<AniListMedia[]> {
-  const res = await fetch(ANILIST_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      query: SEARCH_QUERY,
-      variables: { search, perPage },
-    }),
-    signal: AbortSignal.timeout(10_000),
-    next: { revalidate: 3600 },
-  });
+  const term = canonicalizeSearchQuery(search);
+  if (!term) return [];
+  const deadline = Date.now() + 10_000;
 
-  if (!res.ok) {
-    throw new Error(`AniList HTTP ${res.status}`);
-  }
+  const runQuery = async (query: string): Promise<AniListMedia[]> => {
+    const res = await fetch(ANILIST_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        query: SEARCH_QUERY,
+        variables: { search: query, perPage },
+      }),
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+      next: { revalidate: 3600 },
+    });
 
-  const json = (await res.json()) as {
-    data?: { Page?: { media?: AniListMedia[] } };
-    errors?: { message: string }[];
+    if (!res.ok) {
+      throw new Error(`AniList HTTP ${res.status}`);
+    }
+
+    const json = (await res.json()) as {
+      data?: { Page?: { media?: AniListMedia[] } };
+      errors?: { message: string }[];
+    };
+
+    if (json.errors?.length) {
+      throw new Error(json.errors[0].message);
+    }
+
+    return json.data?.Page?.media ?? [];
   };
 
-  if (json.errors?.length) {
-    throw new Error(json.errors[0].message);
+  const primary = await runQuery(term);
+  if (primary.length > 0) return primary;
+  for (const variant of searchDiscoveryVariants(term)) {
+    if (variant.toLowerCase() === term.toLowerCase()) continue;
+    if (Date.now() >= deadline) break;
+    try {
+      const media = await runQuery(variant);
+      if (media.length > 0) return media;
+    } catch (error) {
+      if (isSearchDeadlineError(error)) break;
+      throw error;
+    }
   }
-
-  const media = json.data?.Page?.media ?? [];
-  return media;
+  return primary;
 }
 
 export async function getAniListWorkById(id: string): Promise<AniListWork | null> {

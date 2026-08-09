@@ -1,7 +1,12 @@
 import prisma from "@/lib/prisma";
 import { SearchThrottledError } from "@/lib/torrents/aggregator";
 import { parseEpisode } from "@/lib/torrents/episodes";
-import { isViable, MIN_VIABLE_SEEDERS } from "@/lib/torrents/quality";
+import {
+  isViable,
+  meetsResolutionFloor,
+  MIN_VIABLE_SEEDERS,
+} from "@/lib/torrents/quality";
+import { getTargetResolution } from "@/lib/torrents/target-resolution";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
 import type { ViabilityDecision, TxClient } from "@/lib/grab/types";
 
@@ -30,6 +35,7 @@ import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { acquireRunLock, releaseRunLock } from "@/lib/automation/run-lock";
 import { runAutoRules } from "@/lib/rules/runner";
+import { shouldRecordHuntMiss } from "@/lib/automation/quality-floor";
 
 export type AutomationSummary = {
   rules: {
@@ -180,6 +186,7 @@ async function runUserAutomationUnlocked(
   });
 
   let config: ClientConnectionConfig | null = null;
+  const globalMinimumResolution = await getTargetResolution();
   try {
     config = await getUserClientConfig(userId);
   } catch (err) {
@@ -227,6 +234,8 @@ async function runUserAutomationUnlocked(
     // Unknown media type falls back to "all": a library row can be a film as
     // well as a series, so narrowing to one category would hide the other.
     const searchCategory = searchCategoryForMediaType(item.mediaType) ?? "all";
+    const minimumResolution =
+      item.preferredResolution ?? globalMinimumResolution;
 
     // Client already known offline from rules — fail fast without hammering
     if (summary.offline) {
@@ -289,11 +298,13 @@ async function runUserAutomationUnlocked(
               ? { season: huntCursor.season, episode: huntCursor.episode }
               : {}),
           },
+          targetResolution: minimumResolution,
         },
         config,
         fallbackTitle: item.title,
         grabJobKind: "library",
         externalId: item.id,
+        minimumResolution,
         noMatchMessage: huntCursor
           ? (count) =>
               count
@@ -308,15 +319,28 @@ async function runUserAutomationUnlocked(
         // With a cursor, only the exact episode matches. Without, first is fine.
         selectCandidate(results) {
           const withMagnet = results.filter((t) => t.magnet);
-          if (!huntCursor) return withMagnet[0] ?? null;
-          return (
-            withMagnet.find((t) => {
+          if (!huntCursor) {
+            return (
+              withMagnet.find((t) =>
+                meetsResolutionFloor(t.title, minimumResolution),
+              ) ??
+              withMagnet[0] ??
+              null
+            );
+          }
+          const exact = withMagnet.filter((t) => {
               const ep = parseEpisode(t.title);
               return (
                 ep.season === huntCursor.season &&
                 ep.episode === huntCursor.episode
               );
-            }) ?? null
+            });
+          return (
+            exact.find((t) =>
+              meetsResolutionFloor(t.title, minimumResolution),
+            ) ??
+            exact[0] ??
+            null
           );
         },
 
@@ -459,8 +483,15 @@ async function runUserAutomationUnlocked(
 
         // ── No candidate: record miss / deferred / duplicate ────────────
         async onNoCandidate(reason, _message, candidate) {
-          if (reason === "no_results" || reason === "no_match") {
+          if (shouldRecordHuntMiss(reason)) {
             await recordHuntMiss(item.id, huntCursor, item.cursorMisses);
+            return;
+          }
+          if (reason === "below_resolution_floor") {
+            await prisma.watchListItem.update({
+              where: { id: item.id },
+              data: { lastChecked: new Date() },
+            });
             return;
           }
 

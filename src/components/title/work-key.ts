@@ -182,7 +182,7 @@ export interface TitleLinkParams {
   title: string;
   year?: number | null;
   mediaType?: string | null;
-  /** Land the page on the season this item belongs to, when it has one. */
+  /** Accepted for caller compatibility; season persistence lives in a cookie. */
   season?: number | null;
 }
 
@@ -202,13 +202,6 @@ export function titlePath(key: string, params: TitleLinkParams): string {
   if (params.year) search.set("y", String(params.year));
   const mediaType = params.mediaType?.trim();
   if (mediaType) search.set("type", mediaType);
-  if (
-    params.season != null &&
-    Number.isInteger(params.season) &&
-    params.season >= 1
-  ) {
-    search.set("s", String(params.season));
-  }
   const qs = search.toString();
   const segment = encodeKeySegment(key);
   return qs ? `${TITLE_HREF}/${segment}?${qs}` : `${TITLE_HREF}/${segment}`;

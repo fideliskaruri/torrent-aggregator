@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserClientConfig, type ClientConnectionConfig } from "@/lib/clients";
 import {
-  findBuiltinTorrentFile,
+  acquireBuiltinStreamLease,
+  findLiveBuiltinTorrentFile,
   prefetchBuiltinFileEdges,
   prioritizeBuiltinStreamFile,
   resetBuiltinStreamPriorityForTests,
@@ -11,10 +12,23 @@ import {
   type BuiltinStreamTorrent,
 } from "@/lib/clients/builtin-engine";
 import {
+  diskFileLengthByPath,
+  openDiskFileByPath,
   openVerifiedDiskStream,
+  readDiskFileByPath,
   readVerifiedDiskFile,
+  resolveCompletedPersistedDiskFile,
+  type PersistedDiskFile,
 } from "@/lib/clients/disk-fastpath";
+import {
+  hybridStreamEnabled,
+  openHybridRangeStream,
+  planHybridRange,
+  type HybridSegment,
+} from "@/lib/clients/hybrid-range";
+import prisma from "@/lib/prisma";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
+import { isSupportedMediaAssetFileName } from "@/lib/torrents/filters";
 import { isWebVtt, srtToVtt } from "@/lib/media/subtitles";
 import { markForegroundActive } from "@/lib/prewarm/foreground";
 import {
@@ -38,7 +52,10 @@ export const runtime = "nodejs";
  * still receiving bytes is never abandoned; see {@link readWithStallGuard}.
  */
 export const STREAM_STALL_TIMEOUT_MS = 15_000;
-export const OPEN_ENDED_RANGE_CAP_BYTES = 8 * 1024 * 1024;
+// Keep open-ended reads bounded so abandoned consumers release their stream
+// selection, but large enough that high-bitrate 4K inputs do not reconnect
+// every second and repeatedly repay torrent first-chunk latency.
+export const OPEN_ENDED_RANGE_CAP_BYTES = 128 * 1024 * 1024;
 
 type RouteParams = {
   infoHash: string;
@@ -54,10 +71,25 @@ type StreamRange = {
 
 type StreamDeps = {
   getConfig?: () => Promise<ClientConnectionConfig | null>;
-  findFile?: typeof findBuiltinTorrentFile;
+  findPersistedFile?: (
+    config: ClientConnectionConfig,
+    infoHash: string,
+    filePath: string,
+  ) => Promise<PersistedDiskFile | null>;
+  findFile?: typeof findLiveBuiltinTorrentFile;
   prefetchEdges?: typeof prefetchBuiltinFileEdges;
   prioritizeFile?: typeof prioritizeBuiltinStreamFile;
+  diskFileLength?: typeof diskFileLengthByPath;
+  openDiskFile?: typeof openDiskFileByPath;
   openDiskStream?: typeof openVerifiedDiskStream;
+  openHybridStream?: typeof openHybridRangeStream;
+  hybridEnabled?: boolean;
+  acquireLease?: typeof acquireBuiltinStreamLease;
+  /**
+   * Injectable clock for the foreground keepalive. Production passes nothing;
+   * tests use it to drive the 5s beacon interval without real wall time.
+   */
+  foregroundClock?: { now?: () => number; mark?: (hash: string) => void };
   stallTimeoutMs?: number;
 };
 
@@ -231,7 +263,10 @@ function logStreamRequest(entry: {
   else console.info(line);
 }
 
-function responseHeaders(file: BuiltinStreamFile, range: StreamRange): Headers {
+function responseHeaders(
+  file: Pick<BuiltinStreamFile, "name" | "path" | "length">,
+  range: StreamRange,
+): Headers {
   const headers = new Headers({
     "Accept-Ranges": "bytes",
     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
@@ -241,6 +276,37 @@ function responseHeaders(file: BuiltinStreamFile, range: StreamRange): Headers {
   });
   if (range.header) headers.set("Content-Range", range.header);
   return headers;
+}
+
+async function findPersistedDiskFile(
+  config: ClientConnectionConfig,
+  infoHash: string,
+  filePath: string,
+): Promise<PersistedDiskFile | null> {
+  try {
+    const row = await prisma.engineTorrent.findFirst({
+      where: {
+        hash: infoHash,
+        status: { not: "removed" },
+        ...(config.userId ? { userId: config.userId } : {}),
+      },
+      select: {
+        progress: true,
+        savePath: true,
+        verifiedBitfield: true,
+        verifiedFilesJson: true,
+      },
+    });
+    if (!row?.verifiedBitfield?.trim()) return null;
+    return resolveCompletedPersistedDiskFile(
+      row.progress,
+      row.savePath,
+      row.verifiedFilesJson,
+      filePath,
+    );
+  } catch {
+    return null;
+  }
 }
 
 async function forceSettleParkedIterator(
@@ -350,6 +416,7 @@ function prependFirstChunkStream(
       controller.enqueue(slice);
       remaining -= slice.length;
     }
+
     if (remaining <= 0) finish(controller);
   };
 
@@ -415,6 +482,145 @@ function prependFirstChunkStream(
   });
 }
 
+/**
+ * Wrap ONE engine segment of a hybrid body in the same byte-progress stall
+ * guard the pure-engine path uses.
+ *
+ * Without this, a hybrid response that starts on disk and then reaches a hole
+ * whose swarm has dried up would park on a `verified` listener forever: bytes
+ * already flowed, so the client sees a live-but-frozen body that never ends and
+ * never errors — strictly worse than the pure-engine path, which at least
+ * fails. Erroring the segment errors the whole body, which is the correct
+ * signal: the promised `Content-Length` can no longer be met, so the response
+ * MUST break rather than end short and let the player treat truncation as EOF.
+ */
+function stallGuardedEngineSegment(
+  request: Request,
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+  guardDeps: StallGuardDeps,
+  start: number,
+  end: number,
+): ReadableStream<Uint8Array> {
+  // `end: 0` is falsy to WebTorrent and silently widens to the whole file; the
+  // hybrid loop clamps the byte count, so flooring the bound is safe.
+  const source = file.stream({ start, end: Math.max(end, 1) });
+  const reader = source.getReader();
+  let closed = false;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (closed) return;
+      const guard = await readWithStallGuard(
+        () => reader.read(),
+        request.signal,
+        guardDeps,
+      );
+      if (closed) return;
+      if (guard.ok) {
+        if (guard.value.done) {
+          closed = true;
+          controller.close();
+          void forceSettleParkedIterator(torrent, reader, "segment complete");
+          return;
+        }
+        controller.enqueue(guard.value.value);
+        return;
+      }
+      closed = true;
+      await forceSettleParkedIterator(torrent, reader, "stalled mid-segment");
+      throw guard.reason === "aborted"
+        ? new DOMException("Request aborted", "AbortError")
+        : guard.error instanceof Error
+          ? guard.error
+          : new Error("stalled");
+    },
+    async cancel(reason) {
+      closed = true;
+      await forceSettleParkedIterator(torrent, reader, String(reason ?? "cancelled"));
+    },
+  });
+}
+
+/**
+ * Interval between foreground beacons while a body is streaming.
+ *
+ * `markForegroundActive` is a timestamp, and `FOREGROUND_IDLE_MS` is 20s. A
+ * single beacon at response start is therefore only enough for a SHORT
+ * response. An open-ended read is capped at `OPEN_ENDED_RANGE_CAP_BYTES`
+ * (128 MiB) — minutes of wall time on a slow swarm, and hybrid makes long
+ * bodies *more* likely because a fast verified prefix is followed by a slow
+ * engine tail. Without a refresh the stamp expires while bytes are still
+ * flowing and `syncPrewarmSuspension` parks the very torrent being watched,
+ * stalling the response it is in the middle of serving.
+ *
+ * Refreshing on a clock rather than per chunk keeps the hot path to one
+ * `Date.now()` comparison per chunk; the beacon itself fires at most once per
+ * interval however many chunks pass.
+ */
+export const FOREGROUND_KEEPALIVE_MS = 5_000;
+
+/**
+ * Keep the foreground stamp fresh for as long as the response is producing
+ * bytes. Purely a side-channel: chunks pass through untouched, and a failure to
+ * beacon can never affect the body.
+ */
+export function withForegroundKeepalive(
+  body: ReadableStream<Uint8Array>,
+  infoHash: string,
+  clock: { now?: () => number; mark?: (hash: string) => void } = {},
+): ReadableStream<Uint8Array> {
+  const now = clock.now ?? Date.now;
+  const mark = clock.mark ?? markForegroundActive;
+  const reader = body.getReader();
+  let lastMarkedAt = now();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await reader.read();
+      if (next.done) {
+        controller.close();
+        return;
+      }
+      const at = now();
+      if (at - lastMarkedAt >= FOREGROUND_KEEPALIVE_MS) {
+        lastMarkedAt = at;
+        mark(infoHash);
+      }
+      controller.enqueue(next.value);
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
+function releaseWhenSettled(
+  body: ReadableStream<Uint8Array>,
+  release: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          release();
+          controller.close();
+        } else {
+          controller.enqueue(next.value);
+        }
+      } catch (error) {
+        release();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      release();
+      await reader.cancel(reason).catch(() => undefined);
+    },
+  });
+}
+
 function triggerStreamPriority(
   infoHash: string,
   filePath: string,
@@ -457,7 +663,7 @@ export async function handleStreamFileRequest(
 ): Promise<Response> {
   const infoHash = normalizeInfoHash(params.infoHash);
   const filePath = normalizeFilePath(params.filePath);
-  if (!infoHash || !filePath) {
+  if (!infoHash || !filePath || !isSupportedMediaAssetFileName(filePath)) {
     logStreamRequest({
       infoHash: params.infoHash,
       file: filePath,
@@ -484,6 +690,117 @@ export async function handleStreamFileRequest(
     });
     return json(503, { error: "No torrent client configured" });
   }
+  const persisted = await (deps.findPersistedFile ?? findPersistedDiskFile)(
+    config,
+    infoHash,
+    filePath,
+  );
+  persistedFastPath: if (persisted) {
+    const length = await (deps.diskFileLength ?? diskFileLengthByPath)(
+      persisted.path,
+      persisted.length,
+      persisted.mtimeMs,
+      persisted.rootPath,
+    );
+    if (length != null) {
+      if (isSubtitlePath(filePath) && length <= MAX_SUBTITLE_BYTES) {
+        try {
+          const subtitle = await readDiskFileByPath(
+            persisted.path,
+            persisted.length,
+            persisted.mtimeMs,
+            MAX_SUBTITLE_BYTES,
+            persisted.rootPath,
+          );
+          if (!subtitle) throw new Error("persisted subtitle changed");
+          const raw = new TextDecoder("utf-8").decode(subtitle);
+          const vtt = isWebVtt(raw) ? raw : srtToVtt(raw);
+          const bytes = new TextEncoder().encode(vtt);
+          const headers = new Headers({
+            "Content-Type": "text/vtt; charset=utf-8",
+            "Content-Length": String(bytes.length),
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Accept-Ranges": "none",
+            "X-TorrentFlow-Stream-Source": "disk-fastpath",
+          });
+          logStreamRequest({
+            infoHash,
+            file: filePath,
+            range: request.headers.get("range"),
+            outcome: "subtitle_disk_fastpath",
+          });
+          return new Response(request.method === "HEAD" ? null : bytes, {
+            status: 200,
+            headers,
+          });
+        } catch {
+          // The normal engine-backed subtitle path remains the safe fallback.
+        }
+      }
+      if (isSubtitlePath(filePath)) break persistedFastPath;
+
+      const range = parseStreamRange(request.headers.get("range"), length);
+      if ("error" in range) {
+        logStreamRequest({
+          infoHash,
+          file: filePath,
+          range: request.headers.get("range"),
+          outcome: "bad_range",
+        });
+        return new Response(null, {
+          status: 416,
+          headers: {
+            "Accept-Ranges": "bytes",
+            "Content-Range": `bytes */${length}`,
+          },
+        });
+      }
+
+      const file = {
+        name: filePath.split("/").pop() || filePath,
+        path: filePath,
+        length,
+      };
+      const headers = responseHeaders(file, range);
+      headers.set("X-TorrentFlow-Stream-Source", "disk-fastpath");
+      if (request.method === "HEAD") {
+        logStreamRequest({
+          infoHash,
+          file: filePath,
+          range: request.headers.get("range"),
+          outcome:
+            range.status === 206
+              ? "partial_head_disk_fastpath"
+              : "head_disk_fastpath",
+        });
+        return new Response(null, { status: range.status, headers });
+      }
+
+      const disk = await (deps.openDiskFile ?? openDiskFileByPath)(
+        persisted.path,
+        persisted.length,
+        range,
+        {
+          expectedMtimeMs: persisted.mtimeMs,
+          rootPath: persisted.rootPath,
+        },
+      );
+      if (disk) {
+        markForegroundActive(infoHash);
+        logStreamRequest({
+          infoHash,
+          file: filePath,
+          range: request.headers.get("range"),
+          outcome:
+            range.status === 206
+              ? "partial_disk_fastpath"
+              : "ok_disk_fastpath",
+        });
+        return new Response(disk.body, { status: range.status, headers });
+      }
+    }
+  }
+
   if (config.clientType !== "builtin") {
     logStreamRequest({
       infoHash,
@@ -494,12 +811,12 @@ export async function handleStreamFileRequest(
     return json(409, {
       error: "Streaming requires the built-in client",
       message:
-        "Only the built-in WebTorrent engine has live in-process file streams. Switch Settings → Built-in to play in the app.",
+        "This file is not available as completed local media. Switch Settings → Built-in to stream an active torrent.",
       clientType: config.clientType,
     });
   }
 
-  const lookup = await (deps.findFile ?? findBuiltinTorrentFile)(
+  const lookup = await (deps.findFile ?? findLiveBuiltinTorrentFile)(
     config,
     infoHash,
     filePath,
@@ -603,6 +920,112 @@ export async function handleStreamFileRequest(
     return new Response(disk.body, { status: range.status, headers });
   }
 
+  const stallWindowMs = deps.stallTimeoutMs ?? STREAM_STALL_TIMEOUT_MS;
+  const guardDeps = streamStallGuardDeps(lookup.torrent, stallWindowMs);
+
+  // ── Hybrid disk + engine body ──
+  //
+  // `openVerifiedDiskStream` above is all-or-nothing PER REQUEST: one missing
+  // byte anywhere in the range sends the entire response to the swarm, even the
+  // megabytes already verified on the user's own disk. That is the gap this
+  // closes — serve the verified prefix from the sparse file at disk speed and
+  // only pay swarm latency for the actual holes, inside the SAME response, so
+  // `Content-Length`/`Content-Range` stay exactly what was promised.
+  //
+  // Entered whenever the range's FIRST segment is already on disk. That
+  // restriction is deliberate and load-bearing:
+  //   - the first byte is then instantaneous, so the `firstChunkOrError`
+  //     pre-header stall probe below (which turns a cold start into a 503 JSON
+  //     *before* any headers are sent) is not needed and not bypassed;
+  //   - a range that starts inside a hole gains nothing from hybrid and falls
+  //     through to the untouched pure-engine path.
+  // So this can only ever improve a request the engine path would have served,
+  // never take over one it handled well.
+  //
+  // Note there is deliberately NO "must contain a hole" condition. A range that
+  // is entirely verified is not necessarily served by `openVerifiedDiskStream`
+  // above: that helper additionally requires `stat().size === file.length`, so
+  // for a still-GROWING file it refuses even a range whose every byte is
+  // present and hash-verified, and the whole request would fall through to the
+  // swarm. Hybrid's reader bounds reads by the file's *current* size instead,
+  // so an all-disk range of a growing file is exactly the case that must be
+  // allowed through here.
+  const hybridOn = deps.hybridEnabled ?? hybridStreamEnabled();
+  if (hybridOn) {
+    const segments = planHybridRange(lookup.torrent, lookup.file, range);
+    if (segments[0]?.source === "disk") {
+      const releaseLease = (deps.acquireLease ?? acquireBuiltinStreamLease)(
+        infoHash,
+      );
+      let body: ReadableStream<Uint8Array>;
+      try {
+        body = (deps.openHybridStream ?? openHybridRangeStream)(
+          lookup.torrent,
+          lookup.file,
+          range,
+          {
+            signal: request.signal,
+            openEngine: (start, end) =>
+              stallGuardedEngineSegment(
+                request,
+                lookup.torrent,
+                lookup.file,
+                guardDeps,
+                start,
+                end,
+              ),
+            // The offset handed to the engine is the FILE-RELATIVE start of the
+            // hole about to be read, not the request's range start — telling the
+            // swarm to seek to bytes we already have would waste the deadline on
+            // pieces that are already verified.
+            prioritize: (byteOffset: number) =>
+              triggerStreamPriority(
+                infoHash,
+                filePath,
+                lookup.torrent,
+                lookup.file,
+                byteOffset,
+                deps.prefetchEdges ?? prefetchBuiltinFileEdges,
+                deps.prioritizeFile ?? prioritizeBuiltinStreamFile,
+              ),
+            onSegment: (segment: HybridSegment) => {
+              // One line per source switch is enough to prove in the field that
+              // disk segments really are being served from disk.
+              if (segment.source === "engine") {
+                logStreamRequest({
+                  infoHash,
+                  file: filePath,
+                  range: `bytes=${segment.start}-${segment.end}`,
+                  torrent: lookup.torrent,
+                  outcome: "hybrid_hole",
+                });
+              }
+            },
+          },
+        );
+      } catch (error) {
+        releaseLease();
+        throw error;
+      }
+      markForegroundActive(infoHash);
+      headers.set("X-TorrentFlow-Stream-Source", "hybrid");
+      logStreamRequest({
+        infoHash,
+        file: filePath,
+        range: request.headers.get("range"),
+        torrent: lookup.torrent,
+        outcome: range.status === 206 ? "partial_hybrid" : "ok_hybrid",
+      });
+      return new Response(
+        releaseWhenSettled(withForegroundKeepalive(body, infoHash, deps.foregroundClock), releaseLease),
+        {
+          status: range.status,
+          headers,
+        },
+      );
+    }
+  }
+
   triggerStreamPriority(
     infoHash,
     filePath,
@@ -613,25 +1036,37 @@ export async function handleStreamFileRequest(
     deps.prioritizeFile ?? prioritizeBuiltinStreamFile,
   );
 
-  const stallWindowMs = deps.stallTimeoutMs ?? STREAM_STALL_TIMEOUT_MS;
-  const guardDeps = streamStallGuardDeps(lookup.torrent, stallWindowMs);
+  const releaseLease = acquireBuiltinStreamLease(infoHash);
   // WebTorrent treats `end: 0` as "unset" and selects the whole file at
   // streaming priority. The player probes with `bytes=0-0` on every Play, so
   // without this floor each press would inject a whole-file critical selection
   // into the live download engine. The response body is clamped back to the
   // range we actually promised.
-  const source = lookup.file.stream({
-    start: range.start,
-    end: Math.max(range.end, 1),
-  });
+  let source: ReadableStream<Uint8Array>;
+  try {
+    source = lookup.file.stream({
+      start: range.start,
+      end: Math.max(range.end, 1),
+    });
+  } catch (error) {
+    releaseLease();
+    throw error;
+  }
   const reader = source.getReader();
-  const first = await firstChunkOrError(
-    request,
-    lookup.torrent,
-    reader,
-    guardDeps,
-  );
+  let first: Awaited<ReturnType<typeof firstChunkOrError>>;
+  try {
+    first = await firstChunkOrError(
+      request,
+      lookup.torrent,
+      reader,
+      guardDeps,
+    );
+  } catch (error) {
+    releaseLease();
+    throw error;
+  }
   if (!first.ok) {
+    releaseLease();
     logStreamRequest({
       infoHash,
       file: filePath,
@@ -674,13 +1109,25 @@ export async function handleStreamFileRequest(
     outcome: range.status === 206 ? "partial" : "ok",
   });
   return new Response(
-    prependFirstChunkStream(
-      request,
-      lookup.torrent,
-      reader,
-      first.first,
-      range.end - range.start + 1,
-      guardDeps,
+    releaseWhenSettled(
+      // The pure-engine body needs the same keepalive as hybrid, and needs it
+      // MORE: it has no verified prefix to race through, so every byte waits on
+      // the swarm and a 128 MiB open-ended read can easily outlive the 20s
+      // foreground stamp. Without this the prewarm sweep deselects and parks
+      // the torrent mid-body and the response it is serving stalls forever.
+      withForegroundKeepalive(
+        prependFirstChunkStream(
+        request,
+        lookup.torrent,
+        reader,
+        first.first,
+        range.end - range.start + 1,
+        guardDeps,
+        ),
+        infoHash,
+        deps.foregroundClock,
+      ),
+      releaseLease,
     ),
     {
       status: range.status,

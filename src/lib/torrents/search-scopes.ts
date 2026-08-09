@@ -1,4 +1,4 @@
-import type { WorkSearchCategory } from "@/lib/search/work-search";
+import type { WorkSearchCategory, WorkSearchScope } from "@/lib/search/work-search";
 
 /** Legacy `/everything` ids remain parseable only for bookmark redirects. */
 export type LegacySectionScopeId =
@@ -8,7 +8,7 @@ export type LegacySectionScopeId =
   | "software"
   | "books"
   | "everything";
-export type SearchScopeId = WorkSearchCategory | LegacySectionScopeId;
+export type SearchScopeId = WorkSearchScope | LegacySectionScopeId;
 
 /**
  * How a scope's results are chosen.
@@ -73,6 +73,16 @@ export interface SearchScope {
 /** Normal Search is work discovery only. Raw release scopes are not UI tabs. */
 export const SEARCH_SCOPES = [
   {
+    id: "all",
+    label: "All",
+    blurb: "Search films, series and anime together — best matches first.",
+    kind: "work",
+    playable: false,
+    category: null,
+    downloadCategory: null,
+    placeholder: "Dune, Severance, Frieren…",
+  },
+  {
     id: "movies",
     label: "Movies",
     blurb: "Find a movie by title.",
@@ -104,7 +114,7 @@ export const SEARCH_SCOPES = [
   },
 ] as const satisfies readonly SearchScope[];
 
-export const DEFAULT_SCOPE_ID: WorkSearchCategory = "movies";
+export const DEFAULT_SCOPE_ID: WorkSearchScope = "all";
 
 /**
  * Compatibility vocabulary for old `/everything` bookmarks.

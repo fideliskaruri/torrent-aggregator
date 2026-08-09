@@ -2,11 +2,11 @@
  * The rails a brand-new install has on day zero.
  *
  * Every rail this app shipped with was personal — Continue Watching, Ready to
- * Play, Next Up, My Library, Recently Added — and every one of them required
- * the user to have already done something. So the home page of a fresh install
- * was blank, and it covered for that with a heading reading "What this page
- * becomes" over a diagram of dashed rectangles. A catalog that explains what
- * it will one day contain is not a catalog.
+ * Play, Next Up, My Library — and every one of them required the user to have
+ * already done something. So the home page of a fresh install was blank, and
+ * it covered for that with a heading reading "What this page becomes" over a
+ * diagram of dashed rectangles. A catalog that explains what it will one day
+ * contain is not a catalog.
  *
  * These three rows are what makes the page a product on first launch:
  *

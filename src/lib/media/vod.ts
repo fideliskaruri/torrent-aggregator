@@ -382,8 +382,13 @@ export type VodSegmentArgsInput = {
   sourcePath: string;
   plan: PlaybackPlan;
   segment: VodSegment;
+  /**
+   * Accepted for call-site symmetry with {@link planVodSegments}; the segment's
+   * own `start`/`duration` fully determine the arguments, so the grid size is
+   * deliberately not used here.
+   */
   segmentSeconds?: number;
-  /** Retry without the hardware encoder. */
+  /** Use the deterministic software encoder for the VOD rendition. */
   forceSoftware?: boolean;
 };
 
@@ -402,7 +407,6 @@ export type VodSegmentArgsInput = {
  */
 export function buildVodSegmentArgs(input: VodSegmentArgsInput): string[] {
   const { sourcePath, plan, segment, forceSoftware = false } = input;
-  const segmentSeconds = input.segmentSeconds ?? VOD_SEGMENT_SECONDS;
   const end = round3(segment.start + segment.duration);
 
   const args = ["-hide_banner", "-loglevel", "error", ...ANALYZE_ARGS, "-copyts"];
@@ -418,15 +422,26 @@ export function buildVodSegmentArgs(input: VodSegmentArgsInput): string[] {
       args.push("-c:v", "copy");
       if (plan.video.codec === "hevc") args.push("-tag:v", "hvc1");
     } else {
+      const softwareEncoder =
+        plan.video.targetCodec === "hevc" || plan.video.targetCodec === "libx265"
+          ? "libx265"
+          : "libx264";
       const encoder =
-        !forceSoftware && plan.video.hwAccel ? plan.video.hwAccel : plan.video.targetCodec ?? "libx264";
+        !forceSoftware && plan.video.hwAccel ? plan.video.hwAccel : softwareEncoder;
       args.push("-c:v", encoder);
-      if (encoder === "libx264") args.push("-preset", "veryfast", "-crf", "23");
-      // A keyframe on every segment boundary is what makes an independently
-      // produced segment joinable to its neighbours.
+      if (encoder === "libx264" || encoder === "libx265") {
+        args.push("-preset", "veryfast", "-crf", "23");
+      }
+      // Each invocation produces exactly ONE segment, so the only keyframe that
+      // matters is the one at this segment's own start. This must be the
+      // *timestamp-list* form, not an expression: under `-copyts` `t` is the
+      // absolute source time, so `expr:gte(t,start)` is true for every frame in
+      // the segment and ffmpeg forces an IDR on all of them — spiking bitrate
+      // and encode latency, which is the post-seek jitter. A bare timestamp
+      // list forces exactly one keyframe at that absolute time.
       args.push(
         "-force_key_frames",
-        `expr:gte(t,n_forced*${segmentSeconds})`,
+        String(segment.start),
         "-sc_threshold",
         "0",
         "-pix_fmt",

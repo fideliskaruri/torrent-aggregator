@@ -53,10 +53,39 @@ export function buildPublicHealthResponse(
 export function buildDiagnosticsHealthResponse(
   database: DatabaseReadiness,
   components: ComponentHealthSummary[],
-  options: { now?: Date; uptimeSeconds?: number; buildId?: string } = {},
+  options: {
+    now?: Date;
+    uptimeSeconds?: number;
+    buildId?: string;
+    caches?: Record<string, number>;
+    /** Names currently present in the cache registry (proof it is not empty). */
+    cacheNames?: string[];
+    /** Registered-cache names the barrel expected but did not find. */
+    missingCaches?: string[];
+    enginePressure?: unknown;
+    /** Cumulative completion-sweep counters (park attempts vs. failures). */
+    completionSweep?: unknown;
+    eventLoopDelay?: unknown;
+  /** Recent-window event-loop lag; see vent-loop-recent.ts. */
+  eventLoopDelayRecent?: unknown;
+  } = {},
 ) {
   return {
     ...buildPublicHealthResponse(database, options),
+    // Cache cardinality over the session — a growing map here is the signature
+    // of the slow-degradation bug (BUG-011); one request now diagnoses it.
+    caches: options.caches ?? {},
+    // Additive only. Every field below is new; nothing above changed shape, so
+    // existing consumers of this payload keep reading exactly what they read
+    // before.
+    cacheRegistry: {
+      names: options.cacheNames ?? Object.keys(options.caches ?? {}).sort(),
+      missing: options.missingCaches ?? [],
+    },
+    enginePressure: options.enginePressure ?? null,
+    completionSweep: options.completionSweep ?? null,
+    eventLoopDelay: options.eventLoopDelay ?? null,
+    eventLoopDelayRecent: options.eventLoopDelayRecent ?? null,
     components: components.map((component) => ({
       component: component.component,
       status: component.status,

@@ -109,6 +109,26 @@ const CASES: Case[] = [
     expectRung: "transcode-audio",
     expectChannels: 6,
   },
+  {
+    name: "MPEG-2 + MP2 / MKV",
+    file: "mpeg2_mp2.mkv",
+    encode: [
+      "-c:v", "mpeg2video", "-pix_fmt", "yuv420p", "-g", "24", "-b:v", "2M",
+      "-c:a", "mp2", "-ac", "2",
+    ],
+    expectRung: "transcode-full",
+    expectChannels: 2,
+  },
+  {
+    name: "WMV2 + WMAv2 / AVI",
+    file: "wmv2.avi",
+    encode: [
+      "-c:v", "wmv2", "-pix_fmt", "yuv420p", "-g", "24", "-b:v", "2M",
+      "-c:a", "wmav2", "-ac", "2",
+    ],
+    expectRung: "transcode-full",
+    expectChannels: 2,
+  },
 ];
 
 type Row = {

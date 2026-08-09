@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
 import {
+  resolveEpisodeSearchIdentity,
   selectReusableLocalEpisode,
   selectWorkCandidate,
 } from "./grab";
 import { workKeyFor } from "@/components/title/work-key";
 import type { TorrentResult } from "@/lib/torrents/types";
+import type { MediaMetadata } from "@/lib/torrents/types";
 
 function release(title: string): TorrentResult {
   const hash = createHash("sha1").update(title).digest("hex");
@@ -51,8 +53,33 @@ assert.match(
     "Dune",
     "movies",
   )?.title ?? "",
+  /2160p/,
+  "when 1080p is absent, 2160p is eligible while 720p is below the floor",
+);
+assert.equal(
+  selectWorkCandidate(
+    [movies[2]],
+    movieKey,
+    false,
+    1080,
+    "Dune",
+    "movies",
+  ),
+  null,
+  "a whole-work download never falls below its selected minimum",
+);
+assert.match(
+  selectWorkCandidate(
+    [movies[2]],
+    movieKey,
+    false,
+    1080,
+    "Dune",
+    "movies",
+    null,
+  )?.title ?? "",
   /720p/,
-  "when 1080p is absent, 720p beats an oversized 2160p fallback",
+  "a stream keeps preferred-quality ranking without imposing a download floor",
 );
 
 const exactHash = createHash("sha1").update("exact-local").digest("hex");
@@ -82,6 +109,23 @@ assert.equal(
   "server-known exact local episode is reusable while ranges and packs are not",
 );
 assert.equal(
+  selectReusableLocalEpisode(rows, {
+    season: 1,
+    episode: 1,
+    minimumResolution: 2160,
+  }),
+  null,
+  "a lower-quality stream allocation is not promoted into a higher-quality kept download",
+);
+assert.equal(
+  selectReusableLocalEpisode(
+    [{ ...rows[2], name: "The Bear S01E01 WEB-DL" }],
+    { season: 1, episode: 1, minimumResolution: 1080 },
+  ),
+  null,
+  "unknown-quality stream allocations cannot bypass a configured floor",
+);
+assert.equal(
   selectReusableLocalEpisode(
     [{ ...rows[2], origin: "user" }],
     { season: 1, episode: 1 },
@@ -103,4 +147,53 @@ assert.equal(
   "missing local state falls back to discovery",
 );
 
-console.log("grab-selection.test.ts: PASS");
+const slimeMetadata: MediaMetadata = {
+  source: "anilist",
+  mediaType: "anime",
+  externalId: "101280",
+  title: "Tensei Shitara Slime Datta Ken",
+  aliases: ["That Time I Got Reincarnated as a Slime", "転生したらスライムだった件"],
+  year: 2018,
+};
+async function verifyAnimeAliasRecovery() {
+  const recovered = await resolveEpisodeSearchIdentity(
+    {
+      resolvedTitle: "That Time I Got Reincarnated as a Slime",
+      resolvedYear: 2018,
+      resolvedMediaType: "tv",
+      resolvedAliases: [],
+    },
+    async () => [slimeMetadata],
+  );
+  assert.equal(recovered.mediaType, "anime");
+  assert.ok(recovered.aliases.includes("Tensei Shitara Slime Datta Ken"));
+
+  const collision = await resolveEpisodeSearchIdentity(
+    {
+      resolvedTitle: "The Bear",
+      resolvedYear: 2022,
+      resolvedMediaType: "tv",
+      resolvedAliases: [],
+    },
+    async () => [
+      {
+        ...slimeMetadata,
+        title: "The Bear",
+        aliases: [],
+        year: 2004,
+      },
+    ],
+  );
+  assert.deepEqual(
+    collision,
+    { mediaType: "tv", aliases: [] },
+    "a same-name anime from another year cannot redirect a TV download",
+  );
+}
+
+void verifyAnimeAliasRecovery()
+  .then(() => console.log("grab-selection.test.ts: PASS"))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

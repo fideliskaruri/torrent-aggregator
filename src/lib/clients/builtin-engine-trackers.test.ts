@@ -6,13 +6,16 @@ import { fileURLToPath } from "node:url";
 import {
   addTorrentWithEngineDefaults,
   applyForegroundUploadThrottleForTests,
+  acquireBuiltinStreamLease,
   builtinAddOptions,
   configureBuiltinClientListeningWaitForTests,
+  configureBuiltinStreamLeaseWaitForTests,
   PUBLIC_TRACKERS,
   rehydrateFailureDataForTests,
   selectBuiltinAddUriForTests,
   STREAMING_STORE_CACHE_SLOTS,
   waitForClientListeningForTests,
+  waitForBuiltinStreamLeasesForTests,
   withPublicTrackers,
 } from "./builtin-engine";
 import { resolveEffectiveAdd } from "./add-purpose";
@@ -270,6 +273,28 @@ async function checkClientListeningTimeoutContinues() {
   }
 }
 
+async function checkStreamLeaseTimeoutRecovers() {
+  const hash = "lease-timeout-test";
+  const releaseStuckLease = acquireBuiltinStreamLease(hash);
+  configureBuiltinStreamLeaseWaitForTests(1);
+  try {
+    await assert.rejects(
+      waitForBuiltinStreamLeasesForTests(hash),
+      /stream lease did not release within 1ms/,
+      "a leaked response lease cannot wedge completion parking forever",
+    );
+    releaseStuckLease();
+
+    const releaseNextLease = acquireBuiltinStreamLease(hash);
+    const nextWait = waitForBuiltinStreamLeasesForTests(hash);
+    releaseNextLease();
+    await nextWait;
+  } finally {
+    releaseStuckLease();
+    configureBuiltinStreamLeaseWaitForTests(null);
+  }
+}
+
 {
   const source = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "builtin-engine.ts"),
@@ -289,6 +314,26 @@ async function checkClientListeningTimeoutContinues() {
     !source.includes("Download started (") &&
       !source.includes("Downloading in built-in engine"),
     "the engine must return structured transfer details, not product copy",
+  );
+  assert.match(
+    source,
+    /const onReady = \(\) => \{[\s\S]*?hasSupportedVideoPayload\(t\.files \?\? \[\]\)[\s\S]*?fail\(new InvalidCompletedMediaError\(\)\)[\s\S]*?applyPersistedStatus/,
+    "rehydrated metadata must contain playable video before the torrent resumes",
+  );
+  assert.match(
+    source,
+    /if \(already\) \{[\s\S]*?hasSupportedVideoPayload\(already\.files \?\? \[\]\)[\s\S]*?recordRehydrateFailure\([\s\S]*?new InvalidCompletedMediaError\(\)[\s\S]*?if \(already\.ready\)[\s\S]*?already\.on\("ready", onExistingReady\)/,
+    "existing ready and metadata-pending handles must contain playable video",
+  );
+  assert.match(
+    source,
+    /if \(already && !s\.meta\.has\(hash\)\) \{[\s\S]*?waitForUnownedHandleRelease\(client, already, hash\)[\s\S]*?if \(already && !s\.meta\.has\(hash\)\) \{[\s\S]*?retryNeeded = true/,
+    "rehydration must not adopt a temporary probe handle without durable ownership",
+  );
+  assert.match(
+    source,
+    /let existing = findTorrent\(client, normalizedExistingHash\)[\s\S]*?if \(existing && !state\(\)\.meta\.has\(normalizedExistingHash\)\) \{[\s\S]*?waitForUnownedHandleRelease\([\s\S]*?if \(existing && !state\(\)\.meta\.has\(normalizedExistingHash\)\) \{[\s\S]*?still being checked/,
+    "normal adds must wait for temporary probe handles instead of adopting them",
   );
 }
 
@@ -380,6 +425,7 @@ for (const err of [
 }
 
 checkClientListeningTimeoutContinues()
+  .then(checkStreamLeaseTimeoutRecovers)
   .then(() => {
     console.log("builtin-engine-trackers.test.ts: all assertions passed");
   })

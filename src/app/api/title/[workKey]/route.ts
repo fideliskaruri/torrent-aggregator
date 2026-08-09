@@ -3,7 +3,12 @@ import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { buildTitleDetail } from "./detail";
 import { grabForTitle, grabSeasonForTitle } from "./grab";
-import type { TitleGrabRequest } from "@/components/title/types";
+import type {
+  TitleGrabRequest,
+  TitleGrabResponse,
+  TitleSeasonEpisodeTransfer,
+  TitleSeasonGrabResponse,
+} from "@/components/title/types";
 import {
   readMutationObject,
   type RequestResult,
@@ -82,6 +87,11 @@ export async function GET(request: Request, context: RouteContext) {
       year: intParam(url.searchParams.get("y")),
       mediaType: url.searchParams.get("type"),
       season: intParam(url.searchParams.get("s")),
+      // A season the user picked by hand on a previous visit — see
+      // `src/lib/title/remembered-season.ts`. Read from the cookie by the
+      // server page component and threaded through as a plain query param
+      // here, never read from a cookie by this route directly.
+      rememberedSeason: intParam(url.searchParams.get("remembered")),
       providerIdentity:
         providerResult.kind === "verified" || providerResult.kind === "carried"
           ? providerResult.identity
@@ -169,6 +179,9 @@ export async function POST(request: Request, context: RouteContext) {
     scope.episode,
   );
   const trackTransfer = (body.retention ?? "keep") === "keep";
+  const requestedSeasonEpisodes =
+    scope.scope === "season" ? uniquePositiveInts(body.episodes ?? []) : [];
+  const trackScopedTransfer = trackTransfer && scope.scope !== "season";
 
   try {
     const detail = await buildTitleDetail({
@@ -179,7 +192,15 @@ export async function POST(request: Request, context: RouteContext) {
       mediaType: body.mediaType ?? null,
     });
 
-    if (trackTransfer) {
+    if (trackTransfer && scope.scope === "season") {
+      await seedSeasonEpisodeTargets({
+        userId: session.user.id,
+        workKey: key,
+        season: scope.season,
+        episodes: requestedSeasonEpisodes,
+        preferredResolution,
+      });
+    } else if (trackScopedTransfer) {
       await prisma.acquisitionTarget.upsert({
         where: {
           userId_targetKey: {
@@ -219,22 +240,39 @@ export async function POST(request: Request, context: RouteContext) {
       // honoured for the cap — never the free-space floor.
       overrideStorageCap: body.overrideStorageCap === true,
       resolvedTitle: detail.title,
+      resolvedYear: detail.year,
       resolvedMediaType: detail.mediaType,
+      resolvedAliases: detail.aliases,
       isSeries: detail.isSeries,
       watchListItemId: detail.library.watchListItemId,
     };
 
-    const result =
-      scope.scope === "season"
-        ? await grabSeasonForTitle({
-            ...input,
-            season: scope.season,
-            episodes: body.episodes ?? [],
-            seasonComplete: body.seasonComplete,
-          })
-        : await grabForTitle(input);
+    let result:
+      | TitleGrabResponse
+      | Omit<TitleSeasonGrabResponse, "episodeTransfers">;
+    if (scope.scope === "season") {
+      const seasonResult: TitleSeasonGrabResponse = await grabSeasonForTitle({
+        ...input,
+        season: scope.season,
+        episodes: body.episodes ?? [],
+        seasonComplete: body.seasonComplete,
+      });
+      if (trackTransfer) {
+        await settleSeasonEpisodeTargets({
+          userId: session.user.id,
+          workKey: key,
+          season: scope.season,
+          transfers: seasonResult.episodeTransfers ?? [],
+        });
+      }
+      const { episodeTransfers: _episodeTransfers, ...publicResult } =
+        seasonResult;
+      result = publicResult;
+    } else {
+      result = await grabForTitle(input);
+    }
 
-    if (trackTransfer) {
+    if (trackScopedTransfer) {
       await prisma.acquisitionTarget.update({
         where: {
           userId_targetKey: {
@@ -257,7 +295,17 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   } catch (err) {
     console.error("[title:grab]", err);
-    if (trackTransfer) {
+    if (trackTransfer && scope.scope === "season") {
+      await failQueuedSeasonEpisodeTargets({
+        userId: session.user.id,
+        workKey: key,
+        season: scope.season,
+        episodes: requestedSeasonEpisodes,
+        error: err instanceof Error ? err.message : String(err),
+      }).catch((targetErr) => {
+        console.error("[title:grab:targets]", targetErr);
+      });
+    } else if (trackScopedTransfer) {
       await prisma.acquisitionTarget
         .update({
           where: {
@@ -296,4 +344,142 @@ function intParam(raw: string | null): number | null {
   if (!raw) return null;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) ? n : null;
+}
+
+function uniquePositiveInts(values: readonly unknown[]): number[] {
+  return [
+    ...new Set(
+      values.filter(
+        (value): value is number =>
+          typeof value === "number" &&
+          Number.isInteger(value) &&
+          value > 0,
+      ),
+    ),
+  ].sort((a, b) => a - b);
+}
+
+async function seedSeasonEpisodeTargets(input: {
+  userId: string;
+  workKey: string;
+  season: number;
+  episodes: readonly number[];
+  preferredResolution: number | null;
+}): Promise<void> {
+  const targets = input.episodes.map((episode) => ({
+    episode,
+    targetKey: acquisitionTargetKey(
+      input.workKey,
+      "episode",
+      input.season,
+      episode,
+    ),
+  }));
+  if (targets.length === 0) return;
+  const targetKeys = targets.map((target) => target.targetKey);
+
+  // A retry may reset terminal failures, but never downgrades a direct episode
+  // grab that is already downloading or downloaded.
+  await prisma.acquisitionTarget.updateMany({
+    where: {
+      userId: input.userId,
+      targetKey: { in: targetKeys },
+      status: "failed",
+    },
+    data: {
+      preferredResolution: input.preferredResolution,
+      status: "queued",
+      progress: 0,
+      infoHash: null,
+      filePath: null,
+      error: null,
+    },
+  });
+  await Promise.all(
+    targets.map(({ episode, targetKey }) =>
+      prisma.acquisitionTarget.upsert({
+        where: {
+          userId_targetKey: {
+            userId: input.userId,
+            targetKey,
+          },
+        },
+        create: {
+          userId: input.userId,
+          targetKey,
+          workKey: input.workKey,
+          scope: "episode",
+          season: input.season,
+          episode,
+          preferredResolution: input.preferredResolution,
+          status: "queued",
+        },
+        update: {
+          preferredResolution: input.preferredResolution,
+        },
+      }),
+    ),
+  );
+}
+
+async function settleSeasonEpisodeTargets(input: {
+  userId: string;
+  workKey: string;
+  season: number;
+  transfers: readonly TitleSeasonEpisodeTransfer[];
+}): Promise<void> {
+  await Promise.all(
+    input.transfers.map((transfer) => {
+      const targetKey = acquisitionTargetKey(
+        input.workKey,
+        "episode",
+        input.season,
+        transfer.episode,
+      );
+      return prisma.acquisitionTarget.updateMany({
+        where: {
+          userId: input.userId,
+          targetKey,
+          status:
+            transfer.status === "downloading"
+              ? { in: ["queued", "failed"] }
+              : "queued",
+        },
+        data: {
+          status: transfer.status,
+          progress: 0,
+          infoHash: transfer.infoHash,
+          filePath: null,
+          error: transfer.error,
+        },
+      });
+    }),
+  );
+}
+
+async function failQueuedSeasonEpisodeTargets(input: {
+  userId: string;
+  workKey: string;
+  season: number;
+  episodes: readonly number[];
+  error: string;
+}): Promise<void> {
+  const targetKeys = input.episodes.map((episode) =>
+    acquisitionTargetKey(input.workKey, "episode", input.season, episode),
+  );
+  if (targetKeys.length === 0) return;
+  await prisma.acquisitionTarget.updateMany({
+    where: {
+      userId: input.userId,
+      targetKey: { in: targetKeys },
+      status: "queued",
+    },
+    data: {
+      status: "failed",
+      progress: 0,
+      infoHash: null,
+      filePath: null,
+      error: input.error,
+    },
+  });
 }

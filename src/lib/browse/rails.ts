@@ -24,6 +24,10 @@ import type {
   BrowsePayload,
   AvailabilityState,
 } from "./types";
+import {
+  localFilePresenceLookup,
+  type LocalFilePresence,
+} from "@/lib/library/local-file-presence";
 
 // ---------------------------------------------------------------------------
 // Continue Watching
@@ -48,6 +52,8 @@ interface ContinueWatchingTorrentRow {
   name: string;
   progress: number;
   status: string;
+  savePath?: string | null;
+  verifiedFilesJson?: string | null;
 }
 
 interface ContinueWatchingWatchItemRow {
@@ -107,7 +113,14 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
   const [torrents, watchItems] = await Promise.all([
     prisma.engineTorrent.findMany({
       where: { userId, hash: { in: hashes } },
-      select: { hash: true, name: true, progress: true, status: true },
+      select: {
+        hash: true,
+        name: true,
+        progress: true,
+        status: true,
+        savePath: true,
+        verifiedFilesJson: true,
+      },
     }),
     watchListItemIds.length > 0
       ? prisma.watchListItem.findMany({
@@ -126,7 +139,13 @@ async function buildContinueWatching(userId: string): Promise<Rail | null> {
   const works = continueWatchingWorksFromRows(rows, torrents, watchItems).slice(0, 20);
   const artwork = await resolveArtworkForReleases(works.map((w) => w.artworkName));
 
-  return continueWatchingRailFromWorks(userId, works, artwork);
+  return continueWatchingRailFromWorks(
+    userId,
+    works,
+    artwork,
+    torrentPresenceForUser(userId),
+    localFilePresenceLookup(torrents),
+  );
 }
 
 function continueWatchingWorksFromRows(
@@ -177,6 +196,7 @@ function continueWatchingRailFromWorks(
   works: readonly ContinueWatchingWork[],
   artwork: readonly Artwork[],
   presence: TorrentPresenceLookup = torrentPresenceForUser(userId),
+  filePresence: (hash: string) => LocalFilePresence = () => "unknown",
 ): Rail | null {
   const items: RailItem[] = works.map((work, i) => {
     const r = work.progress;
@@ -188,7 +208,7 @@ function continueWatchingRailFromWorks(
       posterUrl:
         r.posterUrl ?? work.watchItem?.posterUrl ?? art?.posterUrl ?? null,
       backdropUrl: art?.backdropUrl ?? null,
-      availability: engineAvailability(work.torrent, presence),
+      availability: engineAvailability(work.torrent, presence, filePresence),
       progressFraction:
         r.durationSec && r.durationSec > 0
           ? Math.min(r.positionSec / r.durationSec, 1)
@@ -232,12 +252,22 @@ function torrentPresenceForUser(userId: string): TorrentPresenceLookup {
 }
 
 function engineAvailability(
-  t: { hash: string; progress: number; status: string } | undefined,
+  t:
+    | {
+        hash: string;
+        progress: number;
+        status: string;
+        savePath?: string | null;
+        verifiedFilesJson?: string | null;
+      }
+    | undefined,
   presence: TorrentPresenceLookup,
+  filePresence: (hash: string) => LocalFilePresence = () => "unknown",
 ): AvailabilityState | null {
   if (!t || t.status === "removed") return null;
   const live = presence(t.hash);
   if (t.progress === 1) {
+    if (filePresence(t.hash) === "present") return "ready";
     if (live === "present") return "ready";
     return null;
   }
@@ -279,6 +309,7 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
     take: 50,
   });
   const torrents = rows.filter(readyToPlayTorrentCanSurface);
+  const filePresence = localFilePresenceLookup(rows);
 
   if (torrents.length === 0) return null;
 
@@ -317,6 +348,7 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       availability: engineAvailability(
         torrent,
         torrentPresenceForUser(userId),
+        filePresence,
       ),
       progressFraction: null,
       resumePositionSec: null,
@@ -473,89 +505,6 @@ async function buildMyLibrary(userId: string): Promise<Rail | null> {
 }
 
 // ---------------------------------------------------------------------------
-// Recently Added
-// ---------------------------------------------------------------------------
-
-/**
- * Recent successful grabs from DownloadHistory, one card per *work*.
- *
- * These were successfully sent to a client, but we don't know their current
- * download state without checking EngineTorrent. Uses local-only availability
- * to show ready/warm when possible, `unknown` otherwise.
- *
- * ## One card per work, not per grab
- *
- * `DownloadHistory` records releases, and a user who grabs the 1080p and the
- * 2160p print of one film has two rows describing one thing they can watch.
- * Rendering both spends two of twenty slots on the same film and pushes a
- * different film off the end of the rail. `Ready to Play` has always collapsed
- * for the same reason; this rail now agrees with it, through the shared rule
- * in ./collapse.ts. Identity is the full `workIdentity()` key, so *Dune*
- * (1984) and *Dune* (2021) stay two cards.
- */
-async function buildRecentlyAdded(userId: string): Promise<Rail | null> {
-  // Read wider than the rail is long: collapsing removes rows, and a rail that
-  // shrinks because someone grabbed two prints of one film is the same defect
-  // in the other direction.
-  const history = await prisma.downloadHistory.findMany({
-    // `retention: { not: "stream" }` hides ephemeral Play cache entries while
-    // still INCLUDING legacy NULL rows (a `notIn`/equality filter would drop
-    // NULLs). Streams are not downloads and must never surface here (issue E).
-    where: { userId, status: "sent", retention: { not: "stream" } },
-    orderBy: { createdAt: "desc" },
-    take: 60,
-  });
-
-  if (history.length === 0) return null;
-
-  // `DownloadHistory` has no artwork column, so no member can win on artwork
-  // and the rule reduces to "newest survives" — which is what preserves the
-  // `createdAt desc` ordering the query asked for.
-  const works = collapseReleasesByWork(
-    history.map((h) => ({ name: h.title, sortAt: h.createdAt, value: h })),
-  ).slice(0, 20);
-
-  const queries = works.map((w) => ({ title: w.value.title }));
-  const [availabilities, artwork] = await Promise.all([
-    resolveLocalAvailabilityBatch(userId, queries),
-    resolveArtworkForReleases(works.map((w) => w.name)),
-  ]);
-
-  const items: RailItem[] = works.map((work, i) => {
-    const h = work.value;
-    const wi = workIdentity(h.title);
-    const ep = parseEpisode(h.title);
-    const art = artwork[i];
-    return {
-      id: h.id,
-      title: work.title,
-      // Only a collapsed group says anything worth saying here; a single grab
-      // of an episode already says it in its own subtitle.
-      subtitle:
-        work.releaseCount > 1
-          ? `${work.releaseCount} releases`
-          : formatEpisodeSubtitle(
-              wi.isSeries ? (ep.season ?? null) : null,
-              wi.isSeries ? (ep.episode ?? null) : null,
-            ),
-      posterUrl: art?.posterUrl ?? null,
-      backdropUrl: art?.backdropUrl ?? null,
-      availability: availabilities[i].state,
-      progressFraction: availabilities[i].progress ?? null,
-      resumePositionSec: null,
-      infoHash: h.infoHash ?? availabilities[i].infoHash ?? null,
-      filePath: null,
-      watchListItemId: null,
-      mediaType: mediaTypeFromWorkIdentity(wi),
-      season: null,
-      episode: null,
-    };
-  });
-
-  return { id: "recently-added", title: "Recently Added", items };
-}
-
-// ---------------------------------------------------------------------------
 // Payload assembler
 // ---------------------------------------------------------------------------
 
@@ -567,7 +516,7 @@ async function buildRecentlyAdded(userId: string): Promise<Rail | null> {
  * ## Order: personal first, discovery beneath
  *
  * Continue Watching is the most valuable row in the product and must never be
- * pushed below a chart of things the user has never heard of. So the five
+ * pushed below a chart of things the user has never heard of. So the four
  * personal rails keep their order and their place at the top, and the
  * discovery rails — which read a background-refreshed cache and require
  * nothing of the user — fill the page underneath them.
@@ -592,22 +541,20 @@ export async function buildBrowsePayload(
       buildReadyToPlay(userId),
       buildNextUp(userId),
       buildMyLibrary(userId),
-      buildRecentlyAdded(userId),
     ]),
     buildDiscoveryRails(userId),
   ]);
 
-  // One item, one state. Continue Watching, Ready to Play and Recently Added
-  // read three different tables (PlaybackProgress, EngineTorrent,
-  // DownloadHistory) and the same work can surface in all three at once — the
-  // in-progress episode you are watching is also a local torrent and also a
-  // recent grab. Rendered together that reads as the same title in three
-  // contradictory states. Collapse to a single source of truth: a work is kept
-  // only in the highest-priority rail it appears in, in the order the user
-  // cares about (what I'm watching → what's ready → what just arrived).
+  // One item, one state. Continue Watching and Ready to Play read two
+  // different tables (PlaybackProgress, EngineTorrent) and the same work can
+  // surface in both at once — the in-progress episode you are watching is
+  // also a local torrent. Rendered together that reads as the same title in
+  // two contradictory states. Collapse to a single source of truth: a work is
+  // kept only in the highest-priority rail it appears in, in the order the
+  // user cares about (what I'm watching → what's ready).
   const dedupedPersonal = dedupeAcrossRails(
     personalResults.filter((r): r is Rail => r !== null),
-    ["continue-watching", "ready-to-play", "recently-added"],
+    ["continue-watching", "ready-to-play"],
   );
 
   // Movies and series must not jumble in one rail. Split the personal content
@@ -634,7 +581,7 @@ export async function buildBrowsePayload(
 export type MediaGroup = "movie" | "series" | "unknown";
 
 /** Personal content rails that jumble movies and series and should be split. */
-const SPLITTABLE_RAIL_IDS = new Set(["ready-to-play", "recently-added"]);
+const SPLITTABLE_RAIL_IDS = new Set(["ready-to-play"]);
 
 /**
  * Coarse movie/series bucket for a mediaType string.

@@ -1,32 +1,18 @@
 /**
  * Season acquisition planner — pure.
  *
- * The user asked to "download a whole season, favour good packs but also be
- * able to find multiple episodes if available, automatically." Read literally:
- *
- *   - "favour good packs" is *not* "prefer packs". It is prefer packs that are
- *     actually **good** — good as in *measured to deliver*, the swarm-probe
- *     verdict, not the seeder count an indexer advertised. A pack advertising
- *     40 seeders that probed `dead` must lose to one advertising 12 that
- *     probed `good`. That is the exact failure this whole subsystem exists to
- *     fix: the app trusted a claim, picked a corpse, and stalled.
- *   - "but also be able to find multiple episodes … automatically" is the
- *     fallback: when there is no good pack, assemble the season out of
- *     individual episode releases without making the user do it by hand.
+ * A season download is a batch of exact episode downloads. Packs are still
+ * parsed by legacy/local-file code, but this planner never selects one.
  *
  * This module is the strategy, expressed as a **pure function** so the whole
- * matrix — good pack wins, dead pack loses to good singles, partial pack plus
- * gap-filling singles, no double-grab, nothing-available reported honestly,
- * `unknown` pack still eligible — is testable without ever touching a swarm.
+ * matrix — exact matching, deterministic ranking, no double-grab and honest
+ * missing coverage — is testable without ever touching a swarm.
  * Execution (actually adding torrents) is a thin layer over the returned plan.
  *
  * Invariants carried verbatim from the ranker (`prerank.ts`) and the quality
  * rule (`quality.ts`, docs/handover.md §3):
  *
- *   - **`unknown` is not `dead`.** An unmeasured pack stays eligible. If the
- *     planner only ever took *measured* releases a cold cache would mean the
- *     feature never works, so absence of a verdict is neutral, never a reason
- *     to drop a candidate.
+ *   - **`unknown` is not `dead`.** An unmeasured exact episode stays eligible.
  *   - **Demote, never filter.** A `dead`/`weak` release is pushed to the back,
  *     never removed. A release that is the *only* way to get an episode is
  *     still offered — the alternative is telling the user that episode is
@@ -37,7 +23,10 @@
  */
 import { parseEpisode } from "./episodes";
 import { isSupportedVideoFileName } from "./filters";
-import { seasonCoverage } from "./pack-preference";
+import {
+  isEpisodeRangeRelease,
+  seasonCoverage,
+} from "./pack-preference";
 import { infoHashFromMagnet, normalizeInfoHash } from "./infohash";
 import { scoreRelease } from "./quality";
 import type { TorrentResult } from "./types";
@@ -134,12 +123,6 @@ export function packEpisodeRange(title: string): { from: number; to: number } | 
   return null;
 }
 
-/** The season number a title's `Sxx` marker names, if any. */
-function titleSeason(title: string): number | null {
-  const m = title.match(/\bS(?:eason)?\s*(\d{1,3})\b/i);
-  return m ? parseInt(m[1], 10) : null;
-}
-
 export type PackFit = "single-season" | "range" | "multi-season" | "complete";
 
 /**
@@ -219,24 +202,6 @@ interface ClassifiedSingle {
   episode: number;
 }
 
-function fitRank(fit: PackFit): number {
-  // Prefer the tightest pack for the season the user asked for. A whole-series
-  // "complete" pack downloaded for a single wanted season is 20x the bytes for
-  // 1x the value and competes with playback for content nobody asked for, so
-  // it ranks last among otherwise-equal packs. Demotion, not exclusion: if the
-  // only pack is a complete one, it is still reachable.
-  switch (fit) {
-    case "single-season":
-      return 0;
-    case "range":
-      return 1;
-    case "multi-season":
-      return 2;
-    case "complete":
-      return 3;
-  }
-}
-
 /**
  * Classify a usable release against the wanted season into a pack (with the
  * wanted episodes it covers) or a single episode. Returns `null` for anything
@@ -257,28 +222,7 @@ function classify(
   packContents: (r: TorrentResult) => number[] | null,
 ): ClassifiedPack | ClassifiedSingle | null {
   const wanted = [...wantedSet];
-  const ts = titleSeason(release.title);
-
-  // ── Explicit range names still require an actual manifest ────────────────
-  const range = packEpisodeRange(release.title);
-  if (range) {
-    // Respect an explicit season marker; a range on the wrong season is not
-    // ours. A range with no season marker at all is assumed to be this season,
-    // because the caller scoped the search to this show + season.
-    if (ts == null || ts === season) {
-      const files = packContents(release);
-      if (files && wanted.every((episode) => files.includes(episode))) {
-        return {
-          release,
-          index,
-          verdict,
-          covers: wanted.slice(),
-          fit: "range",
-          coverageBasis: "confirmed",
-        };
-      }
-    }
-  }
+  if (isEpisodeRangeRelease(release.title)) return null;
 
   const ep = release.episode ?? parseEpisode(release.title);
 
@@ -353,35 +297,6 @@ function isPack(
   return "covers" in c;
 }
 
-/**
- * Order packs best-first for selection. Verdict dominates advertised order —
- * that is the whole point — but fit comes first among packs so a `good`
- * complete-series torrent does not beat a `good` single-season one for a user
- * who asked for one season.
- *
- * When the user picked a resolution, it is honoured *within the viable group*:
- * after fit, a good/unknown release for the wrong resolution is demoted behind
- * a good/unknown release for the right one — but a weak/dead resolution match
- * never beats a viable mismatch. Within equal (fit, viability, resolution,
- * verdict, coverage) the ranker's order (input index) is the final tiebreak.
- */
-function comparePacks(
-  a: ClassifiedPack,
-  b: ClassifiedPack,
-  preferred: number | null = null,
-): number {
-  return (
-    fitRank(a.fit) - fitRank(b.fit) ||
-    // scoreRelease encodes demotedTier → resolutionPreferenceTier → verdictTier
-    // in one positional number, so a single subtraction replaces the old
-    // three-step chain and cannot drift between packs and singles.
-    scoreRelease(b.verdict, b.release.title, preferred) -
-      scoreRelease(a.verdict, a.release.title, preferred) ||
-    b.covers.length - a.covers.length ||
-    a.index - b.index
-  );
-}
-
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -402,10 +317,8 @@ function pad(n: number): string {
  *                   tier in selection (demote, never filter) so an explicit
  *                   "1080p" is not silently served a 4K release that merely
  *                   sorted higher.
- * @param packContents Reconciliation seam: file-verified episode numbers for a
- *                   pack, or `null` when the torrent metadata is not resolved.
- *                   Omitted entirely on the first (name-only) pass, supplied on
- *                   the reconciliation pass once a pack's files are known.
+ * @param packContents Retained for pack parsing callers; acquisition ignores
+ *                   every classified pack.
  */
 export function planSeason(input: {
   season: number;
@@ -415,11 +328,7 @@ export function planSeason(input: {
   preferredResolution?: number | null;
   packContents?: (r: TorrentResult) => number[] | null;
   /**
-   * Whether the season has finished airing.  When `false` the planner never
-   * chooses a pack — episodes not yet broadcast cannot be in any release, so a
-   * pack would always "cover" them in name only, leading to a phantom download
-   * that stalls at 0 % until the rest of the season drops.  Omit or pass
-   * `true` (the default) for completed seasons where a pack is fine.
+   * Retained for caller compatibility. Exact episode planning does not use it.
    */
   seasonComplete?: boolean;
 }): SeasonPlan {
@@ -430,7 +339,6 @@ export function planSeason(input: {
     input.preferredResolution >= 1
       ? Math.trunc(input.preferredResolution)
       : null;
-  const packContents = input.packContents ?? (() => null);
   const wanted = [...new Set(input.wanted.map((e) => Math.trunc(e)))]
     .filter((e) => e >= 1)
     .sort((a, b) => a - b);
@@ -452,31 +360,28 @@ export function planSeason(input: {
     return { ...emptyPlan("No episodes requested"), missing: [] };
   }
 
-  const packs: ClassifiedPack[] = [];
   const singles: ClassifiedSingle[] = [];
   input.releases.forEach((release, index) => {
     if (!isUsable(release)) return;
-    const c = classify(release, index, season, wantedSet, input.verdictOf(release), packContents);
+    const c = classify(
+      release,
+      index,
+      season,
+      wantedSet,
+      input.verdictOf(release),
+      input.packContents ?? (() => null),
+    );
     if (!c) return;
-    if (isPack(c)) packs.push(c);
-    else singles.push(c);
+    if (!isPack(c)) singles.push(c);
   });
 
-  if (packs.length === 0 && singles.length === 0) {
+  if (singles.length === 0) {
     return emptyPlan("No usable releases found for this season");
   }
 
-  const orderedPacks = packs.slice().sort((a, b) => comparePacks(a, b, preferred));
-
-  // ── 1. Singles first — the preferred unit ─────────────────────────────────
-  // Per-episode releases are better-seeded, download faster, and give real
-  // per-episode progress. A pack is NEVER chosen over singles that exist; it is
-  // only the last resort for episodes no single covers (older or anime seasons
-  // that exist solely as packs). This is a deliberate reversal of the old
-  // "favour good packs" default: a season pack is one big swarm whose measured
-  // health was routinely weak/dead, and taking it ahead of the individual
-  // episodes that were right there is exactly the "downloads a garbage pack
-  // even though every episode is available on its own" failure this fixes.
+  // Per-episode releases are the only acquisition unit. They give every card a
+  // real torrent identity and progress value instead of projecting one pack's
+  // aggregate state across a whole season.
   //
   // Best single per episode: viable before demoted, then the resolution the
   // user explicitly asked for, then verdict tier, then ranker order.
@@ -489,9 +394,7 @@ export function planSeason(input: {
       .filter((s) => s.episode === episode)
       .sort(
         (a, b) =>
-          // scoreRelease produces a positional total-order identical to
-          // the old demotedTier → resolutionPreferenceTier → verdictTier
-          // chain, in one number so it cannot drift from comparePacks.
+          // scoreRelease produces the shared quality/verdict ordering.
           scoreRelease(b.verdict, b.release.title, preferred) -
             scoreRelease(a.verdict, a.release.title, preferred) ||
           a.index - b.index,
@@ -505,109 +408,38 @@ export function planSeason(input: {
     }
   }
 
-  // ── 2. A pack ONLY for the gap singles could not fill ─────────────────────
-  // Choose the best pack that covers at least one still-missing episode. A pack
-  // is one torrent that delivers every episode it contains, so the singles for
-  // those episodes are dropped — nothing is grabbed twice. When singles already
-  // cover the whole season this branch never runs, so no pack is downloaded at
-  // all; a season available only as a pack (no singles anywhere) still gets one.
-  //
-  // Pack selection is skipped entirely for still-airing seasons: any pack would
-  // claim to "cover" unaired episodes it cannot possibly contain yet, causing a
-  // stalled download until the season finishes.
-  const packAllowed = input.seasonComplete !== false;
-  let chosenPack: ClassifiedPack | null = null;
-  const gap = wanted.filter((e) => !covered.has(e));
-  if (packAllowed && gap.length > 0 && orderedPacks.length > 0) {
-    const best = orderedPacks
-      .map((p) => ({
-        p,
-        fills: p.covers.filter((e) => gap.includes(e)),
-      }))
-      .filter((x) => x.fills.length > 0)
-      .sort(
-        (a, b) =>
-          b.fills.length - a.fills.length ||
-          comparePacks(a.p, b.p, preferred),
-      )[0];
-    if (best) {
-      chosenPack = best.p;
-      for (const e of best.p.covers) {
-        if (wantedSet.has(e)) {
-          covered.add(e);
-          singleByEpisode.delete(e);
-        }
-      }
-    }
-  }
-
   const chosenSingles: ClassifiedSingle[] = [...singleByEpisode.values()];
 
   const coveredList = [...covered].filter((e) => wantedSet.has(e)).sort((a, b) => a - b);
   const missing = wanted.filter((e) => !covered.has(e));
 
-  const packChoice: PackChoice | null = chosenPack
-    ? {
-        release: chosenPack.release,
-        verdict: chosenPack.verdict,
-        covers: chosenPack.covers.filter((e) => wantedSet.has(e)).sort((a, b) => a - b),
-        fit: chosenPack.fit,
-        coverageBasis: chosenPack.coverageBasis,
-      }
-    : null;
-
   const singleChoices: SingleChoice[] = chosenSingles
     .sort((a, b) => a.episode - b.episode)
     .map((s) => ({ release: s.release, verdict: s.verdict, episode: s.episode }));
 
-  // Coverage is trustworthy unless a chosen pack's coverage is merely inferred
-  // from a bare season name. Singles are episode-explicit; an asserted range or
-  // a file-confirmed pack is trustworthy; only `inferred` overclaims.
-  const coverageConfirmed = packChoice?.coverageBasis !== "inferred";
-
   return {
     season,
     wanted,
-    pack: packChoice,
+    pack: null,
     singles: singleChoices,
     covered: coveredList,
     missing,
     coverageLabel: `${coveredList.length} of ${wanted.length} episodes`,
-    coverageConfirmed,
-    reason: buildReason(packChoice, singleChoices, missing, season),
+    coverageConfirmed: true,
+    reason: buildReason(singleChoices, missing, season),
   };
 }
 
 function buildReason(
-  pack: PackChoice | null,
   singles: SingleChoice[],
   missing: number[],
   season: number,
 ): string {
   const parts: string[] = [];
-  if (pack) {
-    // Translate verdict to user-friendly quality description
-    const qualityLabel = pack.verdict === "good" ? "reliable" : 
-                        pack.verdict === "weak" ? "limited availability" :
-                        pack.verdict === "dead" ? "unavailable seeders" :
-                        "unknown quality";
-    // Replace "should cover" with "estimated coverage"; "covers" with "includes"
-    const claim = pack.coverageBasis === "inferred" ? "estimated to include" : "includes";
-    if (singles.length === 0 && missing.length === 0) {
-      const scope = pack.coverageBasis === "inferred" ? "the whole season (based on release name, may not match exactly)" : "the whole season";
-      parts.push(`Season ${season} pack (${qualityLabel}) ${claim} ${scope}`);
-    } else {
-      parts.push(
-        `Season ${season} pack (${qualityLabel}) ${claim} ${pack.covers.length} episode(s)`,
-      );
-    }
-  } else if (singles.length > 0) {
+  if (singles.length > 0) {
     parts.push(`Assembling ${singles.length} episode(s) from individual releases`);
   } else {
     parts.push(`No releases available for season ${season}`);
-  }
-  if (singles.length > 0 && pack) {
-    parts.push(`plus ${singles.length} single(s) for the rest`);
   }
   if (missing.length > 0) {
     parts.push(`missing E${missing.map(pad).join(", E")}`);

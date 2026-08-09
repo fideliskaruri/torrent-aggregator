@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
+import type { ProgressEntry } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
+import { resumePositionForTarget } from "./resume-progress";
+
+const RESUME_LOOKUP_TIMEOUT_MS = 3_000;
 
 export interface PlayOverlayProps {
   /**
@@ -62,6 +66,68 @@ export function PlayOverlay({
     () => (subtitle ? parseEpisode(subtitle) : null),
     [subtitle],
   );
+  const resolvedSeason = season ?? parsedEpisode?.season;
+  const resolvedEpisode = episode ?? parsedEpisode?.episode;
+  const [lookedUpResume, setLookedUpResume] = useState<{
+    infoHash: string;
+    positionSec: number | null;
+  } | null>(null);
+  const needsResumeLookup = resumePositionSec === undefined && infoHash !== null;
+  const resumeLookupReady =
+    !needsResumeLookup || lookedUpResume?.infoHash === infoHash;
+  const playerInfoHash = resumeLookupReady ? infoHash : null;
+  const playerResumeSec =
+    resumePositionSec !== undefined
+      ? resumePositionSec
+      : lookedUpResume?.infoHash === infoHash
+        ? lookedUpResume.positionSec
+        : null;
+
+  useEffect(() => {
+    if (!needsResumeLookup || !infoHash) return;
+
+    const controller = new AbortController();
+    let disposed = false;
+    const timeoutId = window.setTimeout(
+      () => controller.abort(),
+      RESUME_LOOKUP_TIMEOUT_MS,
+    );
+    void fetch(
+      `/api/progress?active=1&infoHash=${encodeURIComponent(infoHash)}`,
+      { signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) return [];
+        const data = (await response.json()) as { entries?: ProgressEntry[] };
+        return Array.isArray(data.entries) ? data.entries : [];
+      })
+      .then((entries) => {
+        if (disposed) return;
+        setLookedUpResume({
+          infoHash,
+          positionSec: resumePositionForTarget(entries, {
+            season: resolvedSeason,
+            episode: resolvedEpisode,
+          }),
+        });
+      })
+      .catch(() => {
+        if (disposed) return;
+        setLookedUpResume({ infoHash, positionSec: null });
+      })
+      .finally(() => window.clearTimeout(timeoutId));
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [
+    infoHash,
+    needsResumeLookup,
+    resolvedEpisode,
+    resolvedSeason,
+  ]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -160,13 +226,13 @@ export function PlayOverlay({
         </div>
 
         <InlineStreamPlayer
-          infoHash={infoHash}
+          infoHash={playerInfoHash}
           title={title}
           episodeTitle={episodeTitle}
           year={year}
-          season={season ?? parsedEpisode?.season}
-          episode={episode ?? parsedEpisode?.episode}
-          resumeSec={resumePositionSec ?? undefined}
+          season={resolvedSeason}
+          episode={resolvedEpisode}
+          resumeSec={playerResumeSec ?? undefined}
           chrome="theatre"
           className="min-h-0"
         />

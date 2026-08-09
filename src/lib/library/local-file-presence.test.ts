@@ -310,7 +310,14 @@ function main(): void {
   console.log("resolveLocalOnly");
 
   const rows: TorrentRow[] = [
-    { hash: "ready-kept", name: "Severance S01E01 1080p", progress: 1, status: "downloaded" },
+    {
+      hash: "ready-kept",
+      name: "Severance S01E01 1080p",
+      progress: 1,
+      status: "downloaded",
+      verifiedBitfield: "AQ==",
+      verifiedFilesJson: verified(["D:\\Downloads\\Severance\\S01E01.mkv"]),
+    },
     { hash: "warm-kept", name: "Andor S01E04 1080p", progress: 0.4, status: "downloading" },
   ];
   const enginePresent = () => "present" as const;

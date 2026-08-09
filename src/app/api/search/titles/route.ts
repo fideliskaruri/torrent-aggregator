@@ -1,13 +1,13 @@
 import { NextRequest } from "next/server";
-import { searchTmdbByType } from "@/lib/metadata/tmdb";
-import { searchAniListWorks } from "@/lib/metadata/anilist";
-import { rankTitleHitsByRelevance } from "@/components/search/title-search";
 import { rateLimit } from "@/lib/torrents/search-cache";
 import {
-  parseWorkSearchCategory,
-  workSearchHitFromMetadata,
+  parseWorkSearchScope,
   type WorkSearchHit,
 } from "@/lib/search/work-search";
+import {
+  AllProvidersFailedError,
+  searchWorksByScope,
+} from "@/lib/search/work-search-fanout";
 import {
   jsonResponse,
   observeRequest,
@@ -20,6 +20,9 @@ export const dynamic = "force-dynamic";
  *
  * Search must never touch torrent indexers. Movies and series use their
  * dedicated TMDB endpoints; anime uses AniList and preserves its format.
+ * The query is canonicalized once (see `canonicalizeSearchQuery`) so casing and
+ * whitespace variants of the same search take the same provider requests, the
+ * same ranking and the same upstream cache entries.
  */
 export async function GET(request: NextRequest) {
   const observer = observeRequest(request, "title-search", "search-titles");
@@ -35,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = request.nextUrl;
   const q = searchParams.get("q")?.trim() ?? "";
-  const category = parseWorkSearchCategory(searchParams.get("category"));
+  const category = parseWorkSearchScope(searchParams.get("category"));
   if (!q) {
     return jsonResponse(
       observer,
@@ -58,48 +61,31 @@ export async function GET(request: NextRequest) {
   );
 
   try {
-    const results: WorkSearchHit[] = [];
-    switch (category) {
-      case "movies": {
-        const works = await searchTmdbByType("movie", q, limit);
-        for (const metadata of works) {
-          const hit = workSearchHitFromMetadata(metadata, category);
-          if (hit) results.push(hit);
-        }
-        break;
-      }
-      case "series": {
-        const works = await searchTmdbByType("tv", q, limit);
-        for (const metadata of works) {
-          const hit = workSearchHitFromMetadata(metadata, category);
-          if (hit) results.push(hit);
-        }
-        break;
-      }
-      case "anime": {
-        const works = await searchAniListWorks(q, limit);
-        for (const work of works) {
-          const hit = workSearchHitFromMetadata(
-            work.metadata,
-            category,
-            work.format,
-          );
-          if (hit) results.push(hit);
-        }
-        break;
-      }
+    const outcome = await searchWorksByScope(category, q, limit);
+
+    if (outcome.partial) {
+      // Honest partial: the categories that answered are returned, and the
+      // failure is named in the payload instead of failing the whole search.
+      observer.degraded("TITLE_SEARCH_FAILED", {
+        category,
+        status: `partial:${outcome.failed.join(",")}`,
+        resultCount: outcome.results.length,
+      });
+    } else {
+      observer.success("TITLE_SEARCH_SUCCEEDED", {
+        category,
+        resultCount: outcome.results.length,
+        limit,
+      }, { emit: false });
     }
 
-    const ranked = rankTitleHitsByRelevance(results, q);
-    observer.success("TITLE_SEARCH_SUCCEEDED", {
-      category,
-      resultCount: ranked.length,
-      limit,
-    }, { emit: false });
     return jsonResponse(observer, {
-      results: ranked,
-      query: q,
+      results: outcome.results,
+      query: outcome.displayQuery,
+      canonicalQuery: outcome.query,
       category,
+      partial: outcome.partial,
+      failedProviders: outcome.failed,
     });
   } catch (err) {
     const safeError = observer.failure("TITLE_SEARCH_FAILED", err, { category });
@@ -110,6 +96,9 @@ export async function GET(request: NextRequest) {
         code: safeError.code,
         message: safeError.message,
         results: [] as WorkSearchHit[],
+        partial: false,
+        failedProviders:
+          err instanceof AllProvidersFailedError ? err.failed : [],
       },
       { status: 500 },
     );

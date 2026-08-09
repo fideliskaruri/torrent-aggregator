@@ -1,7 +1,9 @@
 import type { ReadStream } from "node:fs";
-import { open, readFile, stat, type FileHandle } from "node:fs/promises";
+import { open, readFile, realpath, stat, type FileHandle } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { isSupportedMediaAssetFileName } from "@/lib/torrents/filters";
+import { DOWNLOAD_COMPLETE_PROGRESS } from "@/lib/clients/builtin-engine-lifecycle";
 import type {
   BuiltinStreamFile,
   BuiltinStreamTorrent,
@@ -65,10 +67,227 @@ export type DiskFastPathOptions = {
   onClose?: (reason: "end" | "error" | "cancel" | "close") => void;
 };
 
+export type DiskFileByPathOptions = DiskFastPathOptions & {
+  expectedMtimeMs?: number;
+  rootPath?: string;
+};
+
+export type PersistedDiskFile = {
+  path: string;
+  rootPath: string;
+  length: number;
+  mtimeMs: number;
+};
+
 function finiteWholeNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.floor(value)
     : null;
+}
+
+function pathKey(value: string): string {
+  const normalized = value.replace(/\\/g, "/").replace(/\/+/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function requestedPathKey(value: string): string {
+  return pathKey(value).replace(/^\/+/, "");
+}
+
+/**
+ * Match a route's torrent-relative file path to the absolute fingerprints the
+ * engine persisted after verifying every file. No live WebTorrent object is
+ * needed. A missing save root, traversal, or path mismatch deliberately falls
+ * back to the engine rather than guessing from a filename suffix.
+ */
+export function resolvePersistedDiskFile(
+  savePath: string | null | undefined,
+  verifiedFilesJson: string | null | undefined,
+  requestedPath: string,
+): PersistedDiskFile | null {
+  const requested = requestedPathKey(requestedPath);
+  const rootValue = savePath?.trim();
+  if (!requested || !rootValue || !verifiedFilesJson?.trim()) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(verifiedFilesJson);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+
+  const root = path.resolve(rootValue);
+  const matches = new Map<string, PersistedDiskFile>();
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as { path?: unknown; size?: unknown };
+    if (typeof record.path !== "string" || !record.path.trim()) continue;
+    const absolutePath = record.path.trim();
+    if (!path.isAbsolute(absolutePath)) continue;
+
+    const length = finiteWholeNumber(record.size);
+    const mtimeMs =
+      typeof (record as { mtimeMs?: unknown }).mtimeMs === "number" &&
+      Number.isFinite((record as { mtimeMs: number }).mtimeMs)
+        ? (record as { mtimeMs: number }).mtimeMs
+        : null;
+    if (length == null || mtimeMs == null) continue;
+    const resolved = path.resolve(absolutePath);
+    const relative = path.relative(root, resolved);
+    const contained =
+      relative.length > 0 &&
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative);
+    if (!contained || requestedPathKey(relative) !== requested) continue;
+    matches.set(pathKey(absolutePath), {
+      path: absolutePath,
+      rootPath: root,
+      length,
+      mtimeMs,
+    });
+  }
+
+  return matches.size === 1 ? matches.values().next().value ?? null : null;
+}
+
+/**
+ * Is this torrent's recorded progress "done"?
+ *
+ * There is exactly one completion threshold in this codebase and it is
+ * `DOWNLOAD_COMPLETE_PROGRESS` (0.9999), because WebTorrent's reported progress
+ * is a float sum over piece lengths and lands on 0.99999994 as often as it
+ * lands on 1. A strict `>= 1` here was a silent trapdoor: every caller that
+ * *queried* at `gte: 0.9999` (`completed-media.ts`, `local-file.ts`) would find
+ * the row, hand it to this function, and get `null` back — so a finished
+ * download reported itself as unplayable-from-disk and fell back to the swarm.
+ */
+export function isCompletedProgress(progress: number): boolean {
+  return Number.isFinite(progress) && progress >= DOWNLOAD_COMPLETE_PROGRESS;
+}
+
+export function resolveCompletedPersistedDiskFile(
+  progress: number,
+  savePath: string | null | undefined,
+  verifiedFilesJson: string | null | undefined,
+  requestedPath: string,
+): PersistedDiskFile | null {
+  if (!isSupportedMediaAssetFileName(requestedPath)) return null;
+  return isCompletedProgress(progress)
+    ? resolvePersistedDiskFile(savePath, verifiedFilesJson, requestedPath)
+    : null;
+}
+
+async function isRealPathInsideRoot(
+  rootPath: string,
+  absolutePath: string,
+): Promise<boolean> {
+  try {
+    const [root, target] = await Promise.all([
+      realpath(rootPath),
+      realpath(absolutePath),
+    ]);
+    const relative = path.relative(root, target);
+    return (
+      relative.length > 0 &&
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function diskFileLengthByPath(
+  absolutePath: string,
+  expectedLength: number,
+  expectedMtimeMs?: number,
+  rootPath?: string,
+): Promise<number | null> {
+  try {
+    if (rootPath && !(await isRealPathInsideRoot(rootPath, absolutePath))) {
+      return null;
+    }
+    const s = await stat(absolutePath);
+    if (!s.isFile()) return null;
+    if (s.size !== expectedLength) return null;
+    if (expectedMtimeMs != null && s.mtimeMs !== expectedMtimeMs) return null;
+    return s.size;
+  } catch {
+    return null;
+  }
+}
+
+export async function openDiskFileByPath(
+  absolutePath: string,
+  expectedLength: number,
+  range: ByteRange,
+  opts: DiskFileByPathOptions = {},
+): Promise<DiskFastPathStream | null> {
+  let handle: FileHandle | null = null;
+  try {
+    if (
+      opts.rootPath &&
+      !(await isRealPathInsideRoot(opts.rootPath, absolutePath))
+    ) {
+      return null;
+    }
+    handle = await open(absolutePath, "r");
+    const s = await handle.stat();
+    if (
+      !s.isFile() ||
+      s.size !== expectedLength ||
+      (opts.expectedMtimeMs != null && s.mtimeMs !== opts.expectedMtimeMs) ||
+      range.start < 0 ||
+      range.end < range.start ||
+      range.end >= s.size
+    ) {
+      await handle.close().catch(() => undefined);
+      return null;
+    }
+    const nodeStream = handle.createReadStream({
+      start: range.start,
+      end: range.end,
+    });
+    const body = fileHandleStreamToWeb(handle, nodeStream, opts);
+    handle = null;
+    return { path: absolutePath, body };
+  } catch {
+    if (handle) await handle.close().catch(() => undefined);
+    return null;
+  }
+}
+
+export async function readDiskFileByPath(
+  absolutePath: string,
+  expectedLength: number,
+  expectedMtimeMs: number,
+  maxBytes: number,
+  rootPath?: string,
+): Promise<Uint8Array | null> {
+  if (expectedLength > maxBytes) return null;
+  let handle: FileHandle | null = null;
+  try {
+    if (rootPath && !(await isRealPathInsideRoot(rootPath, absolutePath))) {
+      return null;
+    }
+    handle = await open(absolutePath, "r");
+    const s = await handle.stat();
+    if (
+      !s.isFile() ||
+      s.size !== expectedLength ||
+      s.mtimeMs !== expectedMtimeMs ||
+      s.size > maxBytes
+    ) {
+      return null;
+    }
+    const data = await handle.readFile();
+    return data.byteLength === expectedLength ? data : null;
+  } catch {
+    return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
 
 function safeDiskPath(
@@ -218,6 +437,34 @@ export function isTorrentRangeVerifiedOnDisk(
   } catch {
     return false;
   }
+}
+
+/**
+ * Is this ENTIRE file already covered by verified pieces in the live
+ * WebTorrent bitfield, regardless of the whole torrent's own progress?
+ *
+ * This is the primitive a season pack needs: a single episode can finish
+ * downloading — and be fully hash-verified — long before the rest of the pack
+ * does, and `verifiedFilesJson`/`verifiedBitfield` are only persisted once the
+ * *whole* torrent completes (see `disk-fastpath.ts` header and
+ * `local-file.ts`). Checking `torrentPieceRangeForFileRange` +
+ * `isTorrentRangeVerifiedOnDisk` over the file's own byte range answers "is
+ * this file done" without ever consulting the torrent-level progress number,
+ * and without touching disk — it is a bitfield lookup, safe to call on every
+ * plan request.
+ *
+ * A zero-length file has nothing to verify and is trivially complete; only
+ * junk entries (empty NFOs, placeholder files) ever have zero length, and a
+ * real video file never does.
+ */
+export function isTorrentFileFullyVerifiedOnDisk(
+  torrent: BuiltinStreamTorrent,
+  file: BuiltinStreamFile,
+): boolean {
+  const length = finiteWholeNumber(file.length);
+  if (length == null) return false;
+  if (length === 0) return true;
+  return isTorrentRangeVerifiedOnDisk(torrent, file, { start: 0, end: length - 1 });
 }
 
 async function verifiedDiskPath(

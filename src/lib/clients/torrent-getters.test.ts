@@ -52,6 +52,7 @@ function torrent(overrides: Record<string, unknown>): AnyTorrent {
     done: false,
     ready: true,
     pieces: [{}, {}],
+    bitfield: { get: () => true },
   };
   return { ...base, ...overrides } as unknown as AnyTorrent;
 }
@@ -132,9 +133,8 @@ function main() {
         [
           "downloading",
           "paused",
-          "uploading",
+          "downloaded",
           "stalledDL",
-          "stalledUP",
           "checkingDL",
           "metaDL",
         ].includes(row.state),
@@ -152,6 +152,30 @@ function main() {
     assert.equal(row.name, "Some Release");
   }
 
+  // WebTorrent derives these getters by walking every piece. One status render
+  // must share a short-lived snapshot instead of repeating that walk.
+  {
+    let downloadedReads = 0;
+    let progressReads = 0;
+    const t = torrent({});
+    Object.defineProperty(t, "downloaded", {
+      get: () => {
+        downloadedReads += 1;
+        return 50;
+      },
+    });
+    Object.defineProperty(t, "progress", {
+      get: () => {
+        progressReads += 1;
+        return 0.5;
+      },
+    });
+    assert.equal(mapTorrent(t).progress, 0.5);
+    assert.equal(mapTorrent(t).progress, 0.5);
+    assert.equal(downloadedReads, 1);
+    assert.equal(progressReads, 0);
+  }
+
   // Status derivation stays correct for healthy torrents.
   {
     const cases: {
@@ -159,16 +183,20 @@ function main() {
       t: AnyTorrent;
       expected: string;
     }[] = [
-      { name: "paused wins", t: torrent({ paused: true, done: true }), expected: "paused" },
       {
-        name: "done with peers uploads",
-        t: torrent({ done: true, progress: 1 }),
-        expected: "uploading",
+        name: "verified completion wins over a stale paused flag",
+        t: torrent({ paused: true, done: true, progress: 1 }),
+        expected: "downloaded",
       },
       {
-        name: "done with nobody to serve is idle, not stalled download",
+        name: "done with peers is a downloaded local file",
+        t: torrent({ done: true, progress: 1 }),
+        expected: "downloaded",
+      },
+      {
+        name: "done with nobody to serve is still downloaded",
         t: torrent({ done: true, progress: 1, numPeers: 0 }),
-        expected: "stalledUP",
+        expected: "downloaded",
       },
       {
         // WebTorrent latches per-file `done` and never re-evaluates it, so the
@@ -179,9 +207,18 @@ function main() {
         expected: "downloading",
       },
       {
-        name: "full progress uploads even before done latches",
+        name: "full progress is downloaded even before done latches",
         t: torrent({ done: false, progress: 1 }),
-        expected: "uploading",
+        expected: "downloaded",
+      },
+      {
+        name: "full-looking progress with one unverified piece stays downloading",
+        t: torrent({
+          done: true,
+          progress: 1,
+          bitfield: { get: (index: number) => index === 0 },
+        }),
+        expected: "downloading",
       },
       {
         name: "no peers and incomplete stalls",

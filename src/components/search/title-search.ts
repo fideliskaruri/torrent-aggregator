@@ -33,6 +33,37 @@ export function rankTitleHitsByRelevance<T extends { title: string }>(
     .map((x) => x.hit);
 }
 
+/**
+ * Merge provider-ranked lists without making the first provider in the
+ * request the permanent tie-break. Each provider contributes at most one hit
+ * per rank round; the round starts at a query-derived offset so category order
+ * is deterministic but not movie-first.
+ */
+export function interleaveByProviderRank<T extends { title: string }>(
+  groups: readonly (readonly T[])[],
+  query: string,
+): T[] {
+  const out: T[] = [];
+  const maxLength = Math.max(0, ...groups.map((group) => group.length));
+  let hash = 2166136261;
+  for (const codePoint of Array.from(query.trim().toLowerCase())) {
+    hash ^= codePoint.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+
+  for (let rank = 0; rank < maxLength; rank += 1) {
+    const round = groups
+      .map((group, index) => ({ hit: group[rank], index }))
+      .filter((entry): entry is { hit: T; index: number } => entry.hit != null);
+    if (round.length === 0) continue;
+    const offset = Math.abs(hash + rank) % round.length;
+    for (let i = 0; i < round.length; i += 1) {
+      out.push(round[(offset + i) % round.length].hit);
+    }
+  }
+  return out;
+}
+
 /** Map API hits into the card model. Pure — safe for tests. */
 export function titlesFromSearchHits(
   hits: readonly WorkSearchHit[],

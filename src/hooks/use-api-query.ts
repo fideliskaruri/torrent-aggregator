@@ -33,6 +33,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { createRequestLifecycle } from "@/lib/observability/poll-schedule";
+
 export type ApiQueryState<T> = {
   data: T | null;
   /** True only for a load with nothing to show yet — never for a refetch. */
@@ -41,6 +43,18 @@ export type ApiQueryState<T> = {
   refreshing: boolean;
   /** Human-readable failure, or null. Never set for an aborted request. */
   error: string | null;
+  /**
+   * True once a request for the URL currently being asked for has finished —
+   * with data, with an error, or with a deliberately-empty 401.
+   *
+   * `data`/`error`/`loading` alone cannot express "this request is done and
+   * the honest answer is nothing": `emptyOnUnauthorized` settles with
+   * `data: null, error: null, loading: false`, which is indistinguishable
+   * from "not started yet". Panels that decide between a skeleton and an
+   * empty state need a positively outstanding request, not an absence of
+   * data — otherwise they show a skeleton forever.
+   */
+  settled: boolean;
   /** Re-runs the request. Safe to wire straight to a retry button. */
   refetch: () => void;
 };
@@ -92,6 +106,12 @@ export function useApiQuery<T = unknown>(
   const [loading, setLoading] = useState<boolean>(Boolean(url) && enabled);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * The URL whose request has actually finished. Compared against the URL now
+   * being asked for, so a season switch (which changes the URL) reads as
+   * "outstanding" for exactly as long as it really is.
+   */
+  const [settledUrl, setSettledUrl] = useState<string | null>(null);
 
   /** Whether this query is currently supposed to be running at all. */
   const active = Boolean(url) && enabled;
@@ -119,6 +139,27 @@ export function useApiQuery<T = unknown>(
   // refresh failure and does not blank the screen.
   const hasDataRef = useRef(false);
 
+  // Poll-gating state. Refs, not state: reading them must never re-render, and
+  // the interval closure has to see the *current* value, not the one captured
+  // when the interval was armed.
+  /**
+   * The request lifecycle that currently owns this query.
+   *
+   * A boolean cannot express ownership, and ownership is the whole problem: a
+   * superseded request's `finally` still runs after its abort, and with a
+   * shared boolean it cleared the *new* request's flag — so the next tick saw
+   * an idle query while one was outstanding, and (worse) a never-settling
+   * fetch left the flag stuck true and polling stopped for good. The
+   * lifecycle is generation-checked so only the owner can clear it, and it
+   * carries the deadline policy so a wedged request is recoverable while a
+   * slow-but-working endpoint is not aborted in a loop.
+   */
+  const lifecycleRef = useRef(createRequestLifecycle());
+  /** When the tab went hidden, or null while visible. */
+  const hiddenSinceRef = useRef<number | null>(null);
+  /** A poll tick was dropped because the tab was hidden. */
+  const missedTickRef = useRef(false);
+
   const refetch = useCallback(() => {
     setAttempt((n) => n + 1);
   }, []);
@@ -132,6 +173,10 @@ export function useApiQuery<T = unknown>(
 
     const controller = new AbortController();
     let cancelled = false;
+    // Captured once: the lifecycle instance is stable for the life of the
+    // hook, and reading it here keeps the cleanup off `ref.current`.
+    const lifecycle = lifecycleRef.current;
+    const generation = lifecycle.begin(Date.now());
 
     if (hasDataRef.current) setRefreshing(true);
     else setLoading(true);
@@ -178,9 +223,14 @@ export function useApiQuery<T = unknown>(
         if (cancelled || (err as Error)?.name === "AbortError") return;
         setError(messageFor(err));
       } finally {
+        // Only the generation that still owns the lifecycle may settle it. A
+        // superseded request settling late must not report the current one as
+        // idle, nor claim the endpoint answered — it was aborted.
+        lifecycle.settled(generation);
         if (!cancelled) {
           setLoading(false);
           setRefreshing(false);
+          setSettledUrl(url);
         }
       }
     })();
@@ -188,6 +238,10 @@ export function useApiQuery<T = unknown>(
     return () => {
       cancelled = true;
       controller.abort();
+      // Abandoned the moment it is aborted: an abandoned request must not
+      // suppress the next poll, and waiting for `finally` to say so depends on
+      // the fetch actually rejecting.
+      lifecycle.abandon(generation);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, active, attempt, emptyOnUnauthorized, ...deps]);
@@ -196,8 +250,52 @@ export function useApiQuery<T = unknown>(
   // in-flight request.
   useEffect(() => {
     if (!url || !enabled || !refreshMs || refreshMs <= 0) return;
-    const id = setInterval(() => setAttempt((n) => n + 1), refreshMs);
+    const id = setInterval(() => {
+      const decision = lifecycleRef.current.decide({
+        hidden:
+          typeof document !== "undefined" &&
+          document.visibilityState === "hidden",
+        now: Date.now(),
+        intervalMs: refreshMs,
+      });
+      if (!decision.poll) {
+        if (decision.reason === "hidden") missedTickRef.current = true;
+        return;
+      }
+      setAttempt((n) => n + 1);
+    }, refreshMs);
     return () => clearInterval(id);
+  }, [url, enabled, refreshMs]);
+
+  // Coming back to a tab that missed a poll refreshes once, immediately.
+  // Without this the visibility gate would trade server load for a stale
+  // first screen, which is not a trade this app gets to make.
+  useEffect(() => {
+    if (!url || !enabled || !refreshMs || refreshMs <= 0) return;
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenSinceRef.current = Date.now();
+        return;
+      }
+      const hiddenSince = hiddenSinceRef.current;
+      const hiddenForMs = hiddenSince ? Date.now() - hiddenSince : 0;
+      hiddenSinceRef.current = null;
+      const missedTick = missedTickRef.current;
+      missedTickRef.current = false;
+      // Same lifecycle that gates the interval: a stale screen is a reason to
+      // want fresh data, never a reason to abort a request still inside its
+      // deadline.
+      const decision = lifecycleRef.current.decideVisibilityRefresh({
+        now: Date.now(),
+        intervalMs: refreshMs,
+        hiddenForMs,
+        missedTick,
+      });
+      if (decision.refresh) setAttempt((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [url, enabled, refreshMs]);
 
   return {
@@ -207,6 +305,7 @@ export function useApiQuery<T = unknown>(
     loading: active && loading,
     refreshing: active && refreshing,
     error,
+    settled: active ? settledUrl === url : false,
     refetch,
   };
 }

@@ -245,7 +245,7 @@ async function main(): Promise<void> {
     });
     assert.equal(decision.ok, false, "the cap still bounds kept media");
     assert.equal(decision.reclaim, null, "nothing was deleted on this path");
-    assert.match(decision.message, /Storage cap reached/);
+    assert.match(decision.message, /Not enough space/);
     assert.deepEqual(calls, ["assert"], "one check, no reclaim, no second look");
   });
 

@@ -26,7 +26,7 @@
  *    blocks — the bug that told `/watchlist` users their library was empty
  *    when the request had actually failed.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Download, Loader2, Play, Search } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +41,7 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
 import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-status";
 import { EpisodeList, episodeIntentKey } from "./episode-list";
+import { extrasRequestPending } from "./episode-list-state";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
 import { MoreLikeThis } from "./more-like-this";
@@ -68,6 +69,16 @@ import {
   type SeasonGrabStatus,
 } from "./season-grab-state";
 import { postTitleAction } from "./title-action-request";
+import {
+  isValidSeason,
+  nextRememberedSeasonCookieValue,
+  readRememberedSeason,
+  REMEMBERED_SEASON_COOKIE_NAME,
+} from "@/lib/title/remembered-season";
+import {
+  resolveInitialSeason,
+  resolveSeasonOnPropsChange,
+} from "./season-persistence";
 import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
 import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
 import {
@@ -87,13 +98,21 @@ export interface TitleDetailProps {
   title?: string | null;
   year?: number | null;
   mediaType?: string | null;
-  season?: number | null;
+  /** One-time compatibility seed from an old inbound `?s=` link. */
+  legacySeason?: number | null;
   provider?: string | null;
   providerId?: string | null;
   sourceType?: string | null;
   format?: string | null;
   seriesHint?: string | null;
   aliases?: string[];
+  /**
+   * A season the user picked by hand on a previous visit, read server-side
+   * from the durable `tf_season` cookie (see
+   * `@/lib/title/remembered-season`). Threaded through to the API as a plain
+   * query param so `pickSeason` can prefer it over a stale watch cursor.
+   */
+  rememberedSeason?: number | null;
 }
 
 /** The player, once a Play has been pressed. */
@@ -150,7 +169,12 @@ function ButtonBody({
 }
 
 export function TitleDetail(props: TitleDetailProps) {
-  const [season, setSeason] = useState<number | null>(props.season ?? null);
+  const [season, setSeason] = useState<number | null>(() =>
+    resolveInitialSeason({
+      legacySeason: props.legacySeason,
+      rememberedSeason: props.rememberedSeason,
+    }),
+  );
   const [statuses, setStatuses] = useState<Record<string, TitleActionStatus>>({});
   const [seasonStatuses, setSeasonStatuses] = useState<
     Record<string, SeasonGrabStatus>
@@ -178,6 +202,45 @@ export function TitleDetail(props: TitleDetailProps) {
     };
   }, []);
 
+  // Resync on props change — the SPA half of cookie persistence. A cached RSC
+  // payload can carry an old server cookie, so the live browser cookie wins.
+  const previousWorkKey = useRef(props.workKey);
+  const manualSeasonSelection = useRef(false);
+  useEffect(() => {
+    const workKey = props.workKey;
+    const workKeyChanged = workKey !== previousWorkKey.current;
+    if (workKeyChanged) manualSeasonSelection.current = false;
+    const legacySeason = readLegacySeasonFromLocation();
+    if (legacySeason != null) {
+      writeRememberedSeasonCookie(workKey, legacySeason);
+    }
+    const cookieSeason = readRememberedSeasonFromDocument(workKey);
+    setSeason((current) =>
+      resolveSeasonOnPropsChange({
+        previousWorkKey: previousWorkKey.current,
+        workKey,
+        legacySeason,
+        rememberedSeason: props.rememberedSeason,
+        cookieSeason,
+        currentSeason: current,
+        preserveCurrentSeason: manualSeasonSelection.current,
+      }),
+    );
+    removeLegacySeasonFromLocation();
+    previousWorkKey.current = workKey;
+  }, [props.workKey, props.legacySeason, props.rememberedSeason]);
+
+  const handleSeasonChange = useCallback(
+    (nextSeason: number) => {
+      manualSeasonSelection.current = true;
+      setSeason(nextSeason);
+      // This is the only durable write: an explicit user pick, never inferred
+      // playback progress or a provider default.
+      writeRememberedSeasonCookie(props.workKey, nextSeason);
+    },
+    [props.workKey],
+  );
+
   const url = useMemo(
     () => buildDetailUrl({ ...props, season }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,6 +255,7 @@ export function TitleDetail(props: TitleDetailProps) {
       props.format,
       props.seriesHint,
       props.aliases,
+      props.rememberedSeason,
       season,
     ],
   );
@@ -203,7 +267,11 @@ export function TitleDetail(props: TitleDetailProps) {
   const [transferPoll, setTransferPoll] = useState(false);
   const { data, loading, refreshing, error, refetch } =
     useApiQuery<TitleDetailPayload>(url, {
-      refreshMs: transferPoll ? 2_500 : 0,
+      // Theatre playback owns the screen and the player already polls its own
+      // stream state. Rebuilding the hidden title page every 2.5s competes with
+      // video presentation and caused otherwise-buffered frames to be dropped.
+      // Closing the overlay performs one explicit refetch below.
+      refreshMs: transferPoll && !playing ? 2_500 : 0,
     });
   useEffect(() => {
     setTransferPoll(titleNeedsTransferPoll(data));
@@ -227,6 +295,7 @@ export function TitleDetail(props: TitleDetailProps) {
     loading: extrasLoading,
     refreshing: extrasRefreshing,
     error: extrasError,
+    settled: extrasSettled,
     refetch: refetchExtras,
   } = useApiQuery<TitleExtrasPayload>(extrasUrl);
 
@@ -234,6 +303,22 @@ export function TitleDetail(props: TitleDetailProps) {
     (key: string) => statuses[key] ?? "idle",
     [statuses],
   );
+
+  // runAction must keep ONE identity for the life of the page. It flows through
+  // handleEpisodeListAction into every memoised <EpisodeCard>, whose comparator
+  // bails on a changed `onAction`. Depending on `cap` (a fresh object every
+  // render) or `extras`/`data` (a fresh object every 2.5s transfer poll) rebuilt
+  // it on every poll and reflashed every card. The volatile values it reads are
+  // therefore kept in a ref refreshed each render and shadowed at the top of the
+  // body, so the callback itself carries an empty dependency list.
+  const actionDeps = useRef({ props, statusFor, cap, extras, data, refetch });
+  // Refresh the ref *after commit* (latest-ref pattern), not during render.
+  // runAction only fires from user events, which always run post-commit, so it
+  // sees committed values — and an interrupted/discarded concurrent render can
+  // never leave the committed handler reading uncommitted props.
+  useLayoutEffect(() => {
+    actionDeps.current = { props, statusFor, cap, extras, data, refetch };
+  });
 
   const runAction = useCallback(
     async (
@@ -243,6 +328,8 @@ export function TitleDetail(props: TitleDetailProps) {
       retention: TitleRetention,
       resolution?: number,
     ) => {
+      const { props, statusFor, cap, extras, data, refetch } =
+        actionDeps.current;
       if (!shouldRunTitleAction(action, statusFor(key))) return;
 
       if (action.kind === "play" && retention === "stream") {
@@ -390,17 +477,11 @@ export function TitleDetail(props: TitleDetailProps) {
         );
       }
     },
-    [
-      props.workKey,
-      props.title,
-      props.mediaType,
-      props.year,
-      refetch,
-      statusFor,
-      cap,
-      data?.title,
-      extras,
-    ],
+    // Empty by design: every reactive value runAction needs is read from
+    // `actionDeps.current` (a ref refreshed each render), so its identity is
+    // stable across transfer polls and the memoised episode cards never rebuild.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
   );
 
   const seasonStatusFor = useCallback(
@@ -548,11 +629,13 @@ export function TitleDetail(props: TitleDetailProps) {
           extrasLoading={extrasLoading}
           extrasRefreshing={extrasRefreshing}
           extrasError={extrasError}
+          extrasSettled={extrasSettled}
+          extrasSeason={activeSeason}
           season={season}
           refreshing={refreshing}
           statusFor={statusFor}
           seasonStatusFor={seasonStatusFor}
-          onSeasonChange={setSeason}
+          onSeasonChange={handleSeasonChange}
           onSeasonGrab={runSeasonGrab}
           onAction={runAction}
           onLibraryChanged={refetch}
@@ -590,6 +673,8 @@ function TitleContent({
   extrasLoading,
   extrasRefreshing,
   extrasError,
+  extrasSettled,
+  extrasSeason,
   season,
   refreshing,
   statusFor,
@@ -604,6 +689,10 @@ function TitleContent({
   extrasLoading: boolean;
   extrasRefreshing: boolean;
   extrasError: string | null;
+  /** Has the extras request for the URL currently in play finished? */
+  extrasSettled: boolean;
+  /** The season the extras request was built for — not always the one shown. */
+  extrasSeason: number | null;
   season: number | null;
   refreshing: boolean;
   statusFor: (key: string) => TitleActionStatus;
@@ -714,11 +803,16 @@ function TitleContent({
   // inactive and an empty episode list ("no default season selected").
   const activeSeason = season ?? payload.season ?? seasons[0]?.season ?? null;
   const onKnownSeason = activeSeason === payload.season;
+  const extrasDescribeActiveSeason =
+    !payload.isSeries ||
+    activeSeason == null ||
+    (extras != null && extras.season === activeSeason);
+  const episodeExtras = extrasDescribeActiveSeason ? extras : null;
   const { rows, truncated } = mergeEpisodes({
     season: activeSeason,
     episodes: onKnownSeason ? payload.episodes : [],
-    meta: extras?.episodes ?? [],
-    metaSeason: extras?.season ?? null,
+    meta: episodeExtras?.episodes ?? [],
+    metaSeason: episodeExtras?.season ?? null,
     truncated: onKnownSeason && payload.episodesTruncated,
   });
 
@@ -760,13 +854,27 @@ function TitleContent({
   // for skeletons — that was the flashing episode list: every 2.5s poll set
   // `refreshing`, and while the answered season lagged the requested one the
   // list blinked to skeletons and back.
+  //
+  // A mismatch between the extras' season and the shown season only counts as
+  // loading while a request for the shown season is actually pending
+  // (`extrasRequestPending`). The page's extras URL falls back to the payload
+  // season only, while this panel also falls back to the first merged
+  // (provider) season — so extras could answer `season: null` for good while
+  // the panel showed Season 1, with no error and no further request. That is a
+  // terminal empty/provider state, not a permanent skeleton.
+  const extrasPending = extrasRequestPending({
+    activeSeason,
+    requestedSeason: extrasSeason,
+    extrasDescribeActiveSeason,
+    extrasLoading,
+    extrasRefreshing,
+    extrasSettled,
+  });
   const episodeListLoading =
     payload.isSeries &&
     rows.length === 0 &&
-    ((refreshing && season !== payload.season) ||
-      extrasLoading ||
-      extrasRefreshing ||
-      (!extras && !extrasError));
+    (extrasPending ||
+      (refreshing && season != null && season !== payload.season));
   const episodeListState =
     extrasError && rows.length === 0
       ? ({ status: "error", message: extrasError } as const)
@@ -1115,7 +1223,7 @@ function TitleContent({
             episodes={rows}
             truncated={truncated}
             loadState={episodeListState}
-            busy={refreshing && season !== payload.season}
+            busy={rows.length === 0 && refreshing && season != null && season !== payload.season}
             statusFor={statusFor}
             seasonGrabStatus={activeSeasonGrabStatus}
             gated={gated}
@@ -1167,9 +1275,85 @@ function buildDetailUrl(
   if (props.format) params.set("format", props.format);
   if (props.seriesHint) params.set("series", props.seriesHint);
   for (const alias of props.aliases ?? []) params.append("alias", alias);
+  // Threaded through so `pickSeason` can fall back to a manual pick from a
+  // previous visit, even on a fresh link with no `?s=`. Server-side only
+  // (read from the cookie in the page component) — see
+  // `@/lib/title/remembered-season`.
+  if (props.rememberedSeason != null) {
+    params.set("remembered", String(props.rememberedSeason));
+  }
   const qs = params.toString();
   const base = `/api/title/${encodeURIComponent(props.workKey)}`;
   return qs ? `${base}?${qs}` : base;
+}
+
+/**
+ * Persists a manually-picked season to the durable `tf_season` cookie.
+ *
+ * Client-only (reads/writes `document.cookie`) — the bounded parse/serialize
+ * logic itself lives in the isomorphic `@/lib/title/remembered-season` so the
+ * same rules apply whether the value is read here or in the server page
+ * component. A year-long `max-age` matches the "durable" requirement: this is
+ * a preference, not a session artifact, and should survive well past a single
+ * browsing session.
+ */
+function writeRememberedSeasonCookie(workKey: string, season: number): void {
+  if (typeof document === "undefined") return;
+  const current = readCookieRaw(REMEMBERED_SEASON_COOKIE_NAME);
+  const next = nextRememberedSeasonCookieValue(current, workKey, season);
+  if (next == null) return;
+  const oneYearSeconds = 60 * 60 * 24 * 365;
+  const secure =
+    typeof window !== "undefined" && window.location.protocol === "https:"
+      ? "; Secure"
+      : "";
+  document.cookie = `${REMEMBERED_SEASON_COOKIE_NAME}=${next}; Path=/; Max-Age=${oneYearSeconds}; SameSite=Lax${secure}`;
+}
+
+/**
+ * The remembered season for this title as the *browser* currently knows it.
+ *
+ * The server-rendered `rememberedSeason` prop can be stale on a client-side
+ * navigation (a router-cached RSC payload predates the pick); `document.cookie`
+ * never is, because `writeRememberedSeasonCookie` above set it in this tab.
+ */
+function readRememberedSeasonFromDocument(workKey: string): number | null {
+  if (typeof document === "undefined") return null;
+  return readRememberedSeason(
+    readCookieRaw(REMEMBERED_SEASON_COOKIE_NAME),
+    workKey,
+  );
+}
+
+function readCookieRaw(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) return trimmed.slice(prefix.length);
+  }
+  return null;
+}
+
+function readLegacySeasonFromLocation(): number | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URL(window.location.href).searchParams.get("s");
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return isValidSeason(parsed) ? parsed : null;
+}
+
+function removeLegacySeasonFromLocation(): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("s")) return;
+  url.searchParams.delete("s");
+  const query = url.searchParams.toString();
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${url.pathname}${query ? `?${query}` : ""}${url.hash}`,
+  );
 }
 
 /**

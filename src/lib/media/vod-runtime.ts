@@ -47,6 +47,7 @@ import {
   WHOLE_FILE_DATA,
   WHOLE_FILE_PLAYLIST,
   type VodSegment,
+  type VodSegmentArgsInput,
   type VodStrategy,
 } from "./vod";
 
@@ -122,16 +123,45 @@ export function vodCacheDir(): string {
  * Stable id for a (file, audio track, plan shape) triple.
  *
  * The audio index is part of the key because switching language produces
- * genuinely different media — and the rung is in there because a client whose
- * codec support differs needs a different conversion of the same file.
+ * genuinely different media. The output-affecting parts of the plan are also
+ * included: two clients can choose the same rung while one copies a codec and
+ * another transcodes it. Reusing that directory would serve stale,
+ * browser-incompatible fragments after capability or planner changes.
  */
 export function vodId(input: {
   infoHash: string;
   filePath: string;
   audioStreamIndex: number | null;
-  rung: string;
+  plan: PlaybackPlan;
 }): string {
-  const material = `${input.infoHash}|${input.filePath}|a${input.audioStreamIndex ?? "none"}|${input.rung}`;
+  const audio = input.plan.audio.find(
+    (stream) => stream.streamIndex === input.plan.selectedAudioIndex,
+  );
+  const material = JSON.stringify({
+    version: 2,
+    infoHash: input.infoHash,
+    filePath: input.filePath,
+    audioStreamIndex: input.audioStreamIndex,
+    rung: input.plan.rung,
+    video: input.plan.video
+      ? {
+          streamIndex: input.plan.video.streamIndex,
+          codec: input.plan.video.codec,
+          action: input.plan.video.action,
+          targetCodec: input.plan.video.targetCodec ?? null,
+          hwAccel: input.plan.video.hwAccel ?? null,
+        }
+      : null,
+    audio: audio
+      ? {
+          streamIndex: audio.streamIndex,
+          codec: audio.codec,
+          action: audio.action,
+          targetCodec: audio.targetCodec ?? null,
+          channels: audio.channels,
+        }
+      : null,
+  });
   return crypto.createHash("sha1").update(material).digest("hex").slice(0, 20);
 }
 
@@ -460,7 +490,7 @@ export function prepareVod(input: PrepareInput): VodEntry {
     infoHash: input.infoHash,
     filePath: input.filePath,
     audioStreamIndex: input.audioStreamIndex,
-    rung: input.plan.rung,
+    plan: input.plan,
   });
 
   const existing = entries.get(id);
@@ -792,6 +822,17 @@ export type SegmentResult =
   | { ok: false; status: number; message: string };
 
 /**
+ * All on-demand segments use the software encoder from the first attempt.
+ * Keeping this choice at the runtime seam prevents a shared init fragment from
+ * mixing hardware and software encoder parameters across sibling segments.
+ */
+export function buildVodRuntimeSegmentArgs(
+  input: Omit<VodSegmentArgsInput, "forceSoftware">,
+): string[] {
+  return buildVodSegmentArgs({ ...input, forceSoftware: true });
+}
+
+/**
  * Produce (or return from cache) one segment, plus the shared init segment.
  *
  * The first segment produced also yields `init.mp4`: every segment is made with
@@ -848,7 +889,26 @@ function produceSegment(
   segment: VodSegment,
   target: string,
 ): Promise<SegmentResult> {
+  return produceSegmentAttempt(entry, segment, target);
+}
+
+function produceSegmentAttempt(
+  entry: VodEntry,
+  segment: VodSegment,
+  target: string,
+): Promise<SegmentResult> {
   return new Promise((resolve) => {
+    const partial = `${target}.part`;
+    const initTarget = path.join(entry.dir, INIT_FILE);
+    const cleanupPartial = () => {
+      try {
+        fs.rmSync(partial, { force: true });
+      } catch {
+        /* best effort; the next attempt still never trusts a .part file */
+      }
+    };
+    cleanupPartial();
+
     let ffmpegPath: string;
     try {
       ffmpegPath = resolveFfmpegPath();
@@ -857,7 +917,7 @@ function produceSegment(
       return;
     }
 
-    const args = buildVodSegmentArgs({
+    const args = buildVodRuntimeSegmentArgs({
       sourcePath: entry.sourcePath,
       plan: entry.plan,
       segment,
@@ -889,6 +949,7 @@ function produceSegment(
         /* already gone */
       }
       liveProcesses.delete(proc);
+      cleanupPartial();
       resolve({ ok: false, status: 504, message: `segment ${segment.index} timed out` });
     }, SEGMENT_TIMEOUT_MS);
     timer.unref?.();
@@ -898,6 +959,7 @@ function produceSegment(
       settled = true;
       clearTimeout(timer);
       liveProcesses.delete(proc);
+      if (!result.ok) cleanupPartial();
       resolve(result);
     };
 
@@ -917,10 +979,11 @@ function produceSegment(
         return;
       }
       try {
-        const initTarget = path.join(entry.dir, INIT_FILE);
-        if (!fs.existsSync(initTarget)) fs.writeFileSync(initTarget, split.init);
+        if (!fs.existsSync(initTarget)) {
+          fs.writeFileSync(initTarget, split.init);
+        }
         // Write-then-rename: a reader must never see a partial segment.
-        const temp = `${target}.part`;
+        const temp = partial;
         fs.writeFileSync(temp, split.media);
         fs.renameSync(temp, target);
       } catch (err) {

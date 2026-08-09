@@ -16,7 +16,7 @@
  *    average of the percentages says 91%. The second number sends someone to
  *    the sofa.
  *  - **A group never claims more than its members.** If anything under it is
- *    still downloading, the group is not seeding and not done, whatever the
+ *    still downloading, the group is not downloaded, whatever the
  *    percentage rounds to.
  *  - **A season pack and the loose episodes of that season are not counted
  *    twice.** They are the same content held twice on disk; summing both
@@ -47,6 +47,7 @@ export interface TransferRow {
   upspeed: number;
   /** Raw client state string, in qBittorrent's vocabulary. */
   state: string;
+  playable?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,19 +56,65 @@ export interface TransferRow {
 //
 // These moved out of `page.tsx` rather than being rewritten here. The status
 // filter, the badge colours and a group's combined state all have to agree
-// about what "seeding" means, and a second copy of these regexes is how the
-// Seeding filter and a group badge start disagreeing about the same row.
+// about what "downloaded" means, including legacy external-client seed states.
+
+const DOWNLOADING_STATES = new Set([
+  "allocating",
+  "checking",
+  "checkingdl",
+  "checkingresumedata",
+  "checkingup",
+  "downloading",
+  "forceddl",
+  "metadl",
+  "queuedcheck",
+  "queueddownload",
+  "queueddl",
+  "stalleddl",
+]);
+
+const DOWNLOADED_STATES = new Set([
+  "complete",
+  "downloaded",
+  "forcedup",
+  "queuedseed",
+  "queuedup",
+  "seeding",
+  "stalledup",
+  "uploading",
+]);
+
+const PAUSED_STATES = new Set([
+  "error",
+  "missingfiles",
+  "paused",
+  "pauseddl",
+  "pausedup",
+  "stopped",
+  "stoppeddl",
+  "stoppedup",
+]);
 
 export function isDownloading(state: string): boolean {
-  return /down|meta|stalledDL|allocat|queuedDL|checking/i.test(state);
+  return DOWNLOADING_STATES.has(state.trim().toLowerCase());
 }
 
-export function isSeeding(state: string): boolean {
-  return /up|seed|stalledUP|queuedUP/i.test(state) && !isDownloading(state);
+export function isDownloaded(state: string): boolean {
+  return DOWNLOADED_STATES.has(state.trim().toLowerCase());
 }
 
 export function isPaused(state: string): boolean {
-  return /paused|stopped|error|missing/i.test(state);
+  return PAUSED_STATES.has(state.trim().toLowerCase());
+}
+
+export function canStreamTransfer(
+  transfer: Pick<TransferRow, "playable" | "progress" | "state">,
+): boolean {
+  if (transfer.playable === false) return false;
+  const state = transfer.state.trim().toLowerCase();
+  if (state === "error" || state === "missingfiles") return false;
+  if (isDownloaded(state)) return true;
+  return Math.floor(Math.min(1, Math.max(0, transfer.progress)) * 100) > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,12 +163,12 @@ export function combinedProgress(
  * The one state string that speaks for a set of transfers.
  *
  * Picked by *least finished*, not by majority or by first: a group with nine
- * seeding episodes and one still downloading is a group you cannot watch
- * through, and badging it "Seeding" claims completion that no member has. The
+ * downloaded episodes and one still downloading is a group you cannot watch
+ * through, and badging it "Ready" claims completion that no member has. The
  * page renders whatever comes back through its own `stateLabel`, so this
  * returns a real member's raw state rather than inventing a vocabulary.
  *
- * Paused outranks seeding for the same reason: unfinished-and-stopped is the
+ * Paused outranks downloaded for the same reason: unfinished-and-stopped is the
  * honest description of a group holding one paused episode, and it is the
  * state the user has to act on.
  */
@@ -136,7 +183,7 @@ export function combinedState(
       ? 3
       : isPaused(state)
         ? 2
-        : isSeeding(state)
+        : isDownloaded(state)
           ? 1
           : 0;
     if (rank > bestRank) {

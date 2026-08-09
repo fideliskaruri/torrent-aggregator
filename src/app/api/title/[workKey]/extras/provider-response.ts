@@ -18,6 +18,20 @@ export function providerExtrasResponse(
   empty: TitleExtrasPayload,
 ): TitleExtrasPayload | null {
   if (result.kind === "absent") return null;
+
+  // TMDB identities carry a verified provider id that the extras route resolves
+  // through the ordinary TMDB pipeline — real episodes, seasons, genres and the
+  // "more like this" rail. Returning null lets that path run; returning `empty`
+  // here is exactly the silent-empty defect (BUG-008/002a) that blanked every
+  // movie/series reached from search. AniList stays terminal below because this
+  // app has no AniList episode catalog to resolve.
+  if (
+    (result.kind === "verified" || result.kind === "carried") &&
+    result.identity.provider === "tmdb"
+  ) {
+    return null;
+  }
+
   if (result.kind !== "verified") return empty;
 
   const metadata = result.identity.metadata;

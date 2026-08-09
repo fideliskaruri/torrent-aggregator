@@ -44,23 +44,10 @@ export interface TitleEpisode {
   watched: boolean;
   /** The episode the library hunt is waiting for, if this show is monitored. */
   nextUp: boolean;
-  /** Covered by a season pack rather than a file of its own. */
+  /** Satisfied by an exact file inside a legacy pack already held locally. */
   fromPack: boolean;
   /** Exact user acquisition state. Never inferred from a covering pack. */
   transfer: TitleEpisodeTransfer | null;
-  /**
-   * An in-flight season/title pack that covers this episode, when the episode
-   * has no acquisition of its own. This is the single signal that reconciles
-   * "the season is downloading" onto the episode: it disables the episode's
-   * own Download (so pressing it cannot start a duplicate of what the pack is
-   * already fetching) and lets the row say the season download is in progress.
-   *
-   * Deliberately never `downloaded`: a pack finishing does not make an episode
-   * playable — the episode's own file presence decides that once files land.
-   * So this only ever carries `queued` / `downloading` / `failed`, and never
-   * claims a per-episode percent as fact.
-   */
-  coveredByPack?: TitleEpisodeTransfer | null;
 }
 
 export interface TitleEpisodeTransfer {
@@ -133,6 +120,13 @@ export interface TitleResume {
 export interface TitleDetailPayload {
   workKey: string;
   title: string;
+  /**
+   * Alternate provider names for this work — AniList romaji/native and other
+   * verified aliases. Threaded into the episode grab ladder so anime is
+   * acquirable under the name indexers actually carry, not just its English
+   * label (BUG-010). Empty when the provider offers none.
+   */
+  aliases: string[];
   year: number | null;
   /** Canonical media type, or null when nothing vouches for one. */
   mediaType: string | null;
@@ -366,10 +360,22 @@ export interface TitleGrabResponse {
 }
 
 /** What a season-level one-click grab answers. */
+export interface TitleSeasonEpisodeTransfer {
+  episode: number;
+  status: "downloading" | "failed";
+  infoHash: string | null;
+  error: string | null;
+}
+
 export interface TitleSeasonGrabResponse {
   ok: boolean;
   message: string;
   report?: SeasonGrabReport | null;
+  /**
+   * Exact episode outcomes used by the route to persist card-level transfer
+   * state. The route removes this internal field before returning JSON.
+   */
+  episodeTransfers?: TitleSeasonEpisodeTransfer[];
   /**
    * Set only when a storage limit refused every send. Same shape as a single
    * episode grab so the title page can reuse the cap-override dialog.

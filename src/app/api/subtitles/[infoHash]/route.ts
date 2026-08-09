@@ -22,7 +22,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getUserClientConfig, type ClientConnectionConfig } from "@/lib/clients";
 import {
-  findBuiltinTorrentFile,
+  acquireBuiltinStreamLease,
+  findLiveBuiltinTorrentFile,
   type BuiltinStreamFile,
 } from "@/lib/clients/builtin-engine";
 import { normalizeInfoHash } from "@/lib/torrents/infohash";
@@ -49,6 +50,11 @@ import {
 } from "@/lib/media/extract-subtitles";
 import prisma from "@/lib/prisma";
 import { markForegroundActive } from "@/lib/prewarm/foreground";
+import {
+  getCompletedMediaManifest,
+  resolveCompletedMediaFile,
+} from "@/lib/library/completed-media";
+import { readDiskFileByPath } from "@/lib/clients/disk-fastpath";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -146,27 +152,36 @@ export async function handleSubtitlesRequest(
   if (!session?.user?.id) return json(401, { error: "Not authenticated" });
   const config = await getUserClientConfig(session.user.id);
   if (!config) return json(503, { error: "No torrent client configured" });
-  if (config.clientType !== "builtin") {
-    return json(409, {
-      error: "Subtitles require the built-in client",
-      message:
-        "Only the built-in WebTorrent engine exposes in-process file streams. Switch Settings → Built-in to use subtitles in the app.",
-      clientType: config.clientType,
-    });
+  const completedManifest = await getCompletedMediaManifest(
+    session.user.id,
+    infoHash,
+  );
+  let files: Array<{ path: string }>;
+  if (completedManifest) {
+    files = completedManifest.files.map((file) => ({
+      path: file.relativePath,
+    }));
+  } else {
+    if (config.clientType !== "builtin") {
+      return json(409, {
+        error: "Subtitles require the built-in client",
+        message:
+          "This title is not available as completed local media. Switch Settings → Built-in to inspect an active torrent.",
+        clientType: config.clientType,
+      });
+    }
+    const lookup = await findLiveBuiltinTorrentFile(config, infoHash);
+    if (lookup.status === "not_found") return json(404, { error: "Torrent not found" });
+    if (lookup.status === "metadata_pending") {
+      return json(425, {
+        error: "Torrent metadata is not ready yet",
+        message: "The torrent is still fetching metadata; try again in a moment.",
+      });
+    }
+    files = (lookup.torrent.files ?? []).map((f) => ({
+      path: f.path.replace(/\\/g, "/"),
+    }));
   }
-
-  const lookup = await findBuiltinTorrentFile(config, infoHash);
-  if (lookup.status === "not_found") return json(404, { error: "Torrent not found" });
-  if (lookup.status === "metadata_pending") {
-    return json(425, {
-      error: "Torrent metadata is not ready yet",
-      message: "The torrent is still fetching metadata; try again in a moment.",
-    });
-  }
-
-  const files = (lookup.torrent.files ?? []).map((f) => ({
-    path: f.path.replace(/\\/g, "/"),
-  }));
   const soleVideo = files.filter((f) => isVideoPath(f.path)).length === 1;
 
   // ── Content: one track, as WebVTT ──
@@ -177,6 +192,7 @@ export async function handleSubtitlesRequest(
     return serveTrack({
       request,
       config,
+      userId: session.user.id,
       infoHash,
       filePath,
       trackId,
@@ -251,6 +267,7 @@ function withSrc(track: SubtitleTrack, infoHash: string, filePath: string) {
 async function serveTrack(input: {
   request: Request;
   config: ClientConnectionConfig;
+  userId: string;
   infoHash: string;
   filePath: string;
   trackId: string;
@@ -263,7 +280,16 @@ async function serveTrack(input: {
    */
   offsetSec: number;
 }): Promise<Response> {
-  const { request, config, infoHash, filePath, trackId, origin, offsetSec } = input;
+  const {
+    request,
+    config,
+    userId,
+    infoHash,
+    filePath,
+    trackId,
+    origin,
+    offsetSec,
+  } = input;
   const parsed = parseSubtitleTrackId(trackId);
   if (!parsed) return json(400, { error: "Unknown subtitle track" });
   const rebase = (vtt: string) => shiftVttCues(vtt, -offsetSec);
@@ -289,10 +315,33 @@ async function serveTrack(input: {
     }).some((t) => t.id === trackId);
     if (!allowed) return json(404, { error: "Subtitle file not found for this video" });
 
-    const found = await findBuiltinTorrentFile(config, infoHash, parsed.filePath);
-    if (found.status !== "found") return json(404, { error: "Subtitle file not found" });
-
-    const bytes = await readTorrentFile(found.file);
+    const persisted = await resolveCompletedMediaFile(
+      userId,
+      infoHash,
+      parsed.filePath,
+    );
+    const bytes = persisted
+      ? await readDiskFileByPath(
+          persisted.path,
+          persisted.length,
+          persisted.mtimeMs,
+          MAX_SUBTITLE_BYTES,
+          persisted.rootPath,
+        )
+      : await (async () => {
+          const found = await findLiveBuiltinTorrentFile(
+            config,
+            infoHash,
+            parsed.filePath,
+          );
+          if (found.status !== "found") return null;
+          const release = acquireBuiltinStreamLease(infoHash);
+          try {
+            return await readTorrentFile(found.file);
+          } finally {
+            release();
+          }
+        })();
     if (!bytes) {
       return json(503, {
         error: "Could not read the subtitle file",

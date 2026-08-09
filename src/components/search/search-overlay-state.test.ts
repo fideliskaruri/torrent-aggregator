@@ -103,11 +103,11 @@ function main() {
   });
 
   const urlCases = [
-    ["", "/search?category=movies"],
-    ["  ", "/search?category=movies"],
-    ["dune", "/search?category=movies&q=dune"],
-    [" one piece ", "/search?category=movies&q=one+piece"],
-    ["a&b", "/search?category=movies&q=a%26b"],
+    ["", "/search?category=all"],
+    ["  ", "/search?category=all"],
+    ["dune", "/search?category=all&q=dune"],
+    [" one piece ", "/search?category=all&q=one+piece"],
+    ["a&b", "/search?category=all&q=a%26b"],
   ] as const;
   for (const [query, expected] of urlCases) {
     check(`durable URL encodes ${JSON.stringify(query)}`, () => {

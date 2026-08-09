@@ -12,6 +12,7 @@ import type {
 } from "@/lib/clients/builtin-engine";
 import {
   diskFastPathVerificationCacheStatsForTests,
+  openDiskFileByPath,
   openVerifiedDiskStream,
   resetDiskFastPathVerificationCacheForTests,
 } from "@/lib/clients/disk-fastpath";
@@ -218,12 +219,14 @@ async function requestFile(
   headers: Record<string, string>,
   file = makeFile("Folder/Movie.mkv", 2048),
   config = builtinConfig,
+  method = "GET",
 ): Promise<Response> {
   resetStreamPrefetchForTests();
   const torrent = new FakeTorrent();
   return handleStreamFileRequest(
     new Request(`http://localhost/api/stream/${HASH}/Folder/Movie.mkv`, {
       headers,
+      method,
     }),
     { infoHash: HASH, filePath: ["Folder", "Movie.mkv"] },
     depsFor(torrent, file, config),
@@ -295,11 +298,13 @@ async function main() {
       assert.equal(body[99], byteAt(199));
     });
 
-    await check("bytes=0- is capped to a sane 8 MiB 206", async () => {
+    await check("bytes=0- uses a sustained 128 MiB 4K window", async () => {
       const length = OPEN_ENDED_RANGE_CAP_BYTES + 1024;
       const res = await requestFile(
         { range: "bytes=0-" },
         makeFile("Folder/Movie.mp4", length),
+        builtinConfig,
+        "HEAD",
       );
       assert.equal(res.status, 206);
       assert.equal(
@@ -310,7 +315,7 @@ async function main() {
         Number(res.headers.get("content-length")),
         OPEN_ENDED_RANGE_CAP_BYTES,
       );
-      assert.equal((await bodyBytes(res)).length, OPEN_ENDED_RANGE_CAP_BYTES);
+      assert.equal(await res.text(), "");
     });
 
     await check("suffix bytes=-500 returns the last 500 bytes", async () => {
@@ -637,6 +642,251 @@ async function main() {
         assert.equal(priorities, 0, "complete disk bytes need no swarm priority");
       } finally {
         await disk.cleanup();
+      }
+    });
+
+    await check("persisted disk bytes are served before the torrent engine lookup", async () => {
+      const root = makeScratchDir("persisted-disk-fastpath");
+      const diskPath = path.join(root, "Movie.mkv");
+      try {
+        await fs.writeFile(diskPath, Uint8Array.from([11, 22, 33, 44]));
+        const diskStat = await fs.stat(diskPath);
+        let engineLookups = 0;
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Movie.mkv`, {
+            headers: { range: "bytes=1-2" },
+          }),
+          { infoHash: HASH, filePath: ["Movie.mkv"] },
+          {
+            getConfig: async () => ({
+              ...builtinConfig,
+              clientType: "qbittorrent",
+              host: "http://127.0.0.1:8080",
+            }),
+            findPersistedFile: async () => ({
+              path: diskPath,
+              rootPath: root,
+              length: 4,
+              mtimeMs: diskStat.mtimeMs,
+            }),
+            findFile: async () => {
+              engineLookups += 1;
+              throw new Error("engine lookup must not gate persisted disk playback");
+            },
+            openDiskFile(path, expectedLength, range, opts) {
+              return openDiskFileByPath(path, expectedLength, range, opts);
+            },
+          },
+        );
+        assert.equal(res.status, 206);
+        assert.equal(res.headers.get("content-range"), "bytes 1-2/4");
+        assert.equal(res.headers.get("content-length"), "2");
+        assert.equal(
+          res.headers.get("x-torrentflow-stream-source"),
+          "disk-fastpath",
+        );
+        assert.deepEqual(Array.from(await bodyBytes(res)), [22, 33]);
+        assert.equal(engineLookups, 0);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    await check("persisted disk responses preserve the full range contract", async () => {
+      const root = makeScratchDir("persisted-disk-ranges");
+      const diskPath = path.join(root, "Movie.mkv");
+      try {
+        await fs.writeFile(diskPath, Uint8Array.from([10, 20, 30, 40]));
+        const s = await fs.stat(diskPath);
+        const persisted = {
+          path: diskPath,
+          rootPath: root,
+          length: s.size,
+          mtimeMs: s.mtimeMs,
+        };
+        const baseDeps = {
+          getConfig: async () => builtinConfig,
+          findPersistedFile: async () => persisted,
+          findFile: async () => {
+            throw new Error("valid persisted ranges must not boot the engine");
+          },
+        };
+
+        const full = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Movie.mkv`),
+          { infoHash: HASH, filePath: ["Movie.mkv"] },
+          baseDeps,
+        );
+        assert.equal(full.status, 200);
+        assert.equal(full.headers.get("content-length"), "4");
+        assert.equal(full.headers.get("content-range"), null);
+        assert.equal(full.headers.get("accept-ranges"), "bytes");
+        assert.deepEqual(Array.from(await bodyBytes(full)), [10, 20, 30, 40]);
+
+        const head = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Movie.mkv`, {
+            method: "HEAD",
+          }),
+          { infoHash: HASH, filePath: ["Movie.mkv"] },
+          baseDeps,
+        );
+        assert.equal(head.status, 200);
+        assert.equal(head.headers.get("content-length"), "4");
+        assert.equal(head.body, null);
+
+        const partial = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Movie.mkv`, {
+            headers: { range: "bytes=1-2" },
+          }),
+          { infoHash: HASH, filePath: ["Movie.mkv"] },
+          baseDeps,
+        );
+        assert.equal(partial.status, 206);
+        assert.equal(partial.headers.get("content-range"), "bytes 1-2/4");
+        assert.equal(partial.headers.get("content-length"), "2");
+        assert.deepEqual(Array.from(await bodyBytes(partial)), [20, 30]);
+
+        const invalid = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Movie.mkv`, {
+            headers: { range: "bytes=99-100" },
+          }),
+          { infoHash: HASH, filePath: ["Movie.mkv"] },
+          baseDeps,
+        );
+        assert.equal(invalid.status, 416);
+        assert.equal(invalid.headers.get("content-range"), "bytes */4");
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    await check("a persisted disk miss falls through to the existing engine path", async () => {
+      const torrent = new FakeTorrent();
+      const file = makeFile("Movie.mkv", 4);
+      let engineLookups = 0;
+      const res = await handleStreamFileRequest(
+        new Request(`http://localhost/api/stream/${HASH}/Movie.mkv`, {
+          headers: { range: "bytes=0-0" },
+        }),
+        { infoHash: HASH, filePath: ["Movie.mkv"] },
+        {
+          ...depsFor(torrent, file),
+          findPersistedFile: async () => null,
+          findFile: async () => {
+            engineLookups += 1;
+            return {
+              status: "found",
+              torrent: torrent as unknown as BuiltinStreamTorrent,
+              file,
+            };
+          },
+        },
+      );
+      assert.equal(res.status, 206);
+      assert.equal((await bodyBytes(res)).length, 1);
+      assert.equal(engineLookups, 1);
+    });
+
+    await check("a stale persisted size falls through to the engine", async () => {
+      const root = makeScratchDir("persisted-disk-stale-size");
+      const diskPath = path.join(root, "Movie.mkv");
+      const torrent = new FakeTorrent();
+      const file = makeFile("Movie.mkv", 4);
+      try {
+        await fs.writeFile(diskPath, Uint8Array.from([1, 2, 3, 4]));
+        const s = await fs.stat(diskPath);
+        let engineLookups = 0;
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/Movie.mkv`, {
+            headers: { range: "bytes=0-0" },
+          }),
+          { infoHash: HASH, filePath: ["Movie.mkv"] },
+          {
+            ...depsFor(torrent, file),
+            findPersistedFile: async () => ({
+              path: diskPath,
+              rootPath: root,
+              length: 5,
+              mtimeMs: s.mtimeMs,
+            }),
+            findFile: async () => {
+              engineLookups += 1;
+              return {
+                status: "found",
+                torrent: torrent as unknown as BuiltinStreamTorrent,
+                file,
+              };
+            },
+          },
+        );
+        assert.equal(res.status, 206);
+        assert.equal((await bodyBytes(res)).length, 1);
+        assert.equal(res.headers.get("x-torrentflow-stream-source"), null);
+        assert.equal(engineLookups, 1);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+
+    await check("traversal segments are rejected before any disk or engine lookup", async () => {
+      let lookups = 0;
+      const res = await handleStreamFileRequest(
+        new Request(`http://localhost/api/stream/${HASH}/../secret.mkv`),
+        { infoHash: HASH, filePath: ["..", "secret.mkv"] },
+        {
+          getConfig: async () => {
+            lookups += 1;
+            return builtinConfig;
+          },
+          findPersistedFile: async () => {
+            lookups += 1;
+            return null;
+          },
+          findFile: async () => {
+            lookups += 1;
+            return { status: "not_found" };
+          },
+        },
+      );
+      assert.equal(res.status, 404);
+      assert.equal(lookups, 0);
+    });
+
+    await check("persisted subtitles convert to WebVTT before engine lookup", async () => {
+      const root = makeScratchDir("persisted-subtitle-fastpath");
+      const diskPath = path.join(root, "English.srt");
+      try {
+        const raw = "1\n00:00:01,000 --> 00:00:02,000\nHello\n";
+        await fs.writeFile(diskPath, raw);
+        const diskStat = await fs.stat(diskPath);
+        let engineLookups = 0;
+        const res = await handleStreamFileRequest(
+          new Request(`http://localhost/api/stream/${HASH}/English.srt`),
+          { infoHash: HASH, filePath: ["English.srt"] },
+          {
+            getConfig: async () => builtinConfig,
+            findPersistedFile: async () => ({
+              path: diskPath,
+              rootPath: root,
+              length: diskStat.size,
+              mtimeMs: diskStat.mtimeMs,
+            }),
+            findFile: async () => {
+              engineLookups += 1;
+              throw new Error("persisted subtitle should not boot the engine");
+            },
+          },
+        );
+        assert.equal(res.status, 200);
+        assert.equal(res.headers.get("content-type"), "text/vtt; charset=utf-8");
+        assert.equal(
+          res.headers.get("x-torrentflow-stream-source"),
+          "disk-fastpath",
+        );
+        assert.match(await res.text(), /^WEBVTT/);
+        assert.equal(engineLookups, 0);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
       }
     });
 

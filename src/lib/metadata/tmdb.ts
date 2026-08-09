@@ -1,7 +1,18 @@
 import type { MediaMetadata } from "@/lib/torrents/types";
+import {
+  canonicalizeSearchQuery,
+  searchDiscoveryVariants,
+} from "@/lib/search/query-variants";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p";
+
+function isSearchDeadlineError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
 
 /** Poster width. 500px is the smallest size that still looks sharp on a card. */
 const POSTER_SIZE = "w500";
@@ -94,32 +105,47 @@ export async function searchTmdb(
   limit = 5,
 ): Promise<MediaMetadata[]> {
   const key = apiKey();
-  if (!key) return [];
+  const term = canonicalizeSearchQuery(query);
+  if (!key || !term) return [];
+  const deadline = Date.now() + 10_000;
 
-  const url = new URL(`${TMDB_BASE}/search/multi`);
-  url.searchParams.set("api_key", key);
-  url.searchParams.set("query", query);
-  url.searchParams.set("include_adult", "false");
-  url.searchParams.set("language", "en-US");
-  url.searchParams.set("page", "1");
+  const runQuery = async (q: string): Promise<MediaMetadata[]> => {
+    const url = new URL(`${TMDB_BASE}/search/multi`);
+    url.searchParams.set("api_key", key);
+    url.searchParams.set("query", q);
+    url.searchParams.set("include_adult", "false");
+    url.searchParams.set("language", "en-US");
+    url.searchParams.set("page", "1");
 
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(10_000),
-    next: { revalidate: 3600 },
-  });
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) throw new Error(`TMDB HTTP ${res.status}`);
 
-  if (!res.ok) {
-    throw new Error(`TMDB HTTP ${res.status}`);
-  }
-
-  const json = (await res.json()) as {
-    results?: TmdbMultiResult[];
+    const json = (await res.json()) as {
+      results?: TmdbMultiResult[];
+    };
+    return (json.results ?? [])
+      .filter((r) => r.media_type === "movie" || r.media_type === "tv")
+      .slice(0, limit)
+      .map(mapTmdb);
   };
 
-  return (json.results ?? [])
-    .filter((r) => r.media_type === "movie" || r.media_type === "tv")
-    .slice(0, limit)
-    .map(mapTmdb);
+  const primary = await runQuery(term);
+  if (primary.length > 0) return primary;
+  for (const variant of searchDiscoveryVariants(term)) {
+    if (variant.toLowerCase() === term.toLowerCase()) continue;
+    if (Date.now() >= deadline) break;
+    try {
+      const hits = await runQuery(variant);
+      if (hits.length > 0) return hits;
+    } catch (error) {
+      if (isSearchDeadlineError(error)) break;
+      throw error;
+    }
+  }
+  return primary;
 }
 
 /** Search one canonical TMDB work type for title-first discovery. */
@@ -129,26 +155,50 @@ export async function searchTmdbByType(
   limit = 12,
 ): Promise<MediaMetadata[]> {
   const key = apiKey();
-  const term = query.trim();
+  const term = canonicalizeSearchQuery(query);
   if (!key || !term) return [];
+  const deadline = Date.now() + 10_000;
 
-  const url = new URL(`${TMDB_BASE}/search/${mediaType}`);
-  url.searchParams.set("api_key", key);
-  url.searchParams.set("query", term);
-  url.searchParams.set("include_adult", "false");
-  url.searchParams.set("language", "en-US");
-  url.searchParams.set("page", "1");
+  const runQuery = async (q: string): Promise<MediaMetadata[]> => {
+    const url = new URL(`${TMDB_BASE}/search/${mediaType}`);
+    url.searchParams.set("api_key", key);
+    url.searchParams.set("query", q);
+    url.searchParams.set("include_adult", "false");
+    url.searchParams.set("language", "en-US");
+    url.searchParams.set("page", "1");
 
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(10_000),
-    next: { revalidate: 3600 },
-  });
-  if (!res.ok) throw new Error(`TMDB HTTP ${res.status}`);
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) throw new Error(`TMDB HTTP ${res.status}`);
 
-  const json = (await res.json()) as { results?: TmdbMultiResult[] };
-  return (json.results ?? [])
-    .slice(0, limit)
-    .map((result) => mapTmdb({ ...result, media_type: mediaType }));
+    const json = (await res.json()) as { results?: TmdbMultiResult[] };
+    return (json.results ?? [])
+      .slice(0, limit)
+      .map((result) => mapTmdb({ ...result, media_type: mediaType }));
+  };
+
+  // The raw term first — it is what the owner typed and TMDB is genuinely good
+  // at popular exact titles. Only when it comes back empty do we spend extra
+  // calls on the normalized short forms (`Re:ZERO -Starting…` → `Re Zero`),
+  // the exact rescue the grab ladder already relies on. The first variant that
+  // finds anything wins; we never merge weaker forms into a good exact match.
+  const primary = await runQuery(term);
+  if (primary.length > 0) return primary;
+
+  for (const variant of searchDiscoveryVariants(term)) {
+    if (variant.toLowerCase() === term.toLowerCase()) continue;
+    if (Date.now() >= deadline) break;
+    try {
+      const hits = await runQuery(variant);
+      if (hits.length > 0) return hits;
+    } catch (error) {
+      if (isSearchDeadlineError(error)) break;
+      throw error;
+    }
+  }
+  return primary;
 }
 
 export async function getTmdbById(

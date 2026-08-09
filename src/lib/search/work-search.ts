@@ -3,6 +3,13 @@ import type { MediaMetadata } from "@/lib/torrents/types";
 
 export const WORK_SEARCH_CATEGORIES = ["movies", "series", "anime"] as const;
 export type WorkSearchCategory = (typeof WORK_SEARCH_CATEGORIES)[number];
+/**
+ * A *request* scope. `all` fans out across every category and merges the hits;
+ * the individual categories narrow. Kept distinct from {@link WorkSearchCategory}
+ * because a hit always belongs to one real category — only the request can be
+ * "all".
+ */
+export type WorkSearchScope = WorkSearchCategory | "all";
 export type WorkSearchProvider = "tmdb" | "anilist";
 export type WorkSearchMediaType = "movie" | "tv" | "anime";
 
@@ -32,6 +39,19 @@ export function parseWorkSearchCategory(
 ): WorkSearchCategory {
   if (typeof value !== "string") return fallback;
   const normalized = value.trim().toLowerCase();
+  return (WORK_SEARCH_CATEGORIES as readonly string[]).includes(normalized)
+    ? (normalized as WorkSearchCategory)
+    : fallback;
+}
+
+/** Like {@link parseWorkSearchCategory} but also accepts the `all` fan-out scope. */
+export function parseWorkSearchScope(
+  value: unknown,
+  fallback: WorkSearchScope = "all",
+): WorkSearchScope {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "all") return "all";
   return (WORK_SEARCH_CATEGORIES as readonly string[]).includes(normalized)
     ? (normalized as WorkSearchCategory)
     : fallback;

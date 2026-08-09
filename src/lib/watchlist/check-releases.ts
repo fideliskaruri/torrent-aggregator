@@ -2,6 +2,8 @@ import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { parseEpisode, compareEpisodes, nextEpisodeQuery } from "@/lib/torrents/episodes";
+import { meetsResolutionFloor } from "@/lib/torrents/quality";
+import { getTargetResolution } from "@/lib/torrents/target-resolution";
 
 /**
  * Check watchlist items for newer releases and update latestRelease* fields.
@@ -20,6 +22,7 @@ export async function checkWatchlistReleases(userId: string) {
     latestReleaseTitle: string | null;
     nextEpisodeHint: string | null;
   }[] = [];
+  const globalMinimumResolution = await getTargetResolution();
 
   for (const item of items) {
     try {
@@ -43,7 +46,11 @@ export async function checkWatchlistReleases(userId: string) {
         targetResolution: item.preferredResolution,
       });
 
-      const best = result.results[0];
+      const minimumResolution =
+        item.preferredResolution ?? globalMinimumResolution;
+      const best = result.results.find((release) =>
+        meetsResolutionFloor(release.title, minimumResolution),
+      );
       if (!best) {
         updates.push({
           id: item.id,

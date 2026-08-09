@@ -382,6 +382,132 @@ async function main() {
       assert.equal(countCreate(calls, "grabJob", "sent"), 1);
     });
 
+    // 5c-bis. Real provider aliases (AniList romaji) must reach the ladder.
+    // "That Time I Got Reincarnated as a Slime" is a name indexers rarely carry;
+    // its romaji "Tensei Shitara Slime Datta Ken" is what fansubs seed under.
+    // No punctuation-normalization of the English title can produce the romaji,
+    // so the grab succeeds ONLY if the injected alias is actually searched.
+    await checkAsync("real provider aliases (romaji) reach the grab ladder", async () => {
+      const romajiRelease = (): TorrentResult => ({
+        id: "slime-01",
+        title: "[SubsPlease] Tensei Shitara Slime Datta Ken S01E01 (1080p) [AABBCCDD]",
+        magnet: `magnet:?xt=urn:btih:${hex40("slime-01")}&dn=slime`,
+        infoHash: hex40("slime-01"),
+        sizeBytes: 400_000_000,
+        seeders: 120,
+        leechers: 4,
+        source: "nyaa",
+        sourceUrl: "https://example.com",
+        tags: ["1080p"],
+      });
+      const search = makeSearchFn((q) => {
+        // The English catalog title indexers do not carry → nothing.
+        if (/Reincarnated as a Slime/i.test(q)) return [];
+        // Only the romaji alias surfaces the seeded release.
+        if (/Tensei Shitara Slime/i.test(q)) return [romajiRelease()];
+        return [];
+      });
+      const { proxy, calls } = mockPrisma();
+      const res = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "That Time I Got Reincarnated as a Slime",
+        aliases: ["Tensei Shitara Slime Datta Ken"],
+        mediaType: "tv",
+        season: 1,
+        episode: 1,
+        _config: fakeConfig(),
+        _searchFn: search.fn,
+        _sendFn: okSend(),
+        _prisma: proxy,
+      });
+      assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+      assert.ok(
+        search.calls.some((c) => /Tensei Shitara Slime/i.test(c.query)),
+        `romaji alias never searched; tried: ${search.calls.map((c) => c.query).join(" | ")}`,
+      );
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+    });
+
+    await checkAsync("wrong show with the right episode number is never sent", async () => {
+      const wrong: TorrentResult = {
+        ...single(91, 200),
+        title: "Lucky 2026 S01E01 1080p WEB h264-ETHEL",
+        tags: ["1080p", "WEB"],
+      };
+      const correct: TorrentResult = {
+        ...single(92, 40),
+        title: "Tensei Shitara Slime Datta Ken S01E01 1080p WEB-DL",
+        tags: ["1080p", "WEB-DL"],
+      };
+      const search = makeSearchFn((q) => {
+        if (/Tensei Shitara Slime/i.test(q)) return [wrong, correct];
+        return [wrong];
+      });
+      const sent: string[] = [];
+      const { proxy } = mockPrisma();
+      const res = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "That Time I Got Reincarnated as a Slime",
+        aliases: ["Tensei Shitara Slime Datta Ken"],
+        mediaType: "anime",
+        season: 1,
+        episode: 1,
+        preferredResolution: 1080,
+        _config: fakeConfig(),
+        _searchFn: search.fn,
+        _sendFn: (async (_config: unknown, request: { name?: string }) => {
+          sent.push(request.name ?? "");
+          return { ok: true, message: "Added" };
+        }) as SendFn,
+        _prisma: proxy,
+      });
+      assert.equal(res.ok, true, res.message);
+      assert.deepEqual(sent, [correct.title]);
+      assert.equal(res.title, correct.title);
+    });
+
+    // 5c-ter. The guard that proves the alias is load-bearing: the identical
+    // English-only title with NO alias must fail, because nothing else can reach
+    // the romaji name. If this ever passes, the "rescue" came from somewhere else
+    // and 5c-bis is not testing what it claims.
+    await checkAsync("English-only anime title without aliases finds nothing", async () => {
+      const search = makeSearchFn((q) =>
+        /Tensei Shitara Slime/i.test(q)
+          ? [
+              {
+                id: "unreachable",
+                title: "Tensei Shitara Slime Datta Ken S01E01",
+                magnet: `magnet:?xt=urn:btih:${hex40("unreachable")}&dn=x`,
+                infoHash: hex40("unreachable"),
+                sizeBytes: 1,
+                seeders: 99,
+                leechers: 0,
+                source: "nyaa",
+                sourceUrl: "https://example.com",
+                tags: ["1080p"],
+              } as TorrentResult,
+            ]
+          : [],
+      );
+      const { proxy } = mockPrisma();
+      const res = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "That Time I Got Reincarnated as a Slime",
+        mediaType: "tv",
+        season: 1,
+        episode: 1,
+        _config: fakeConfig(),
+        _searchFn: search.fn,
+        _sendFn: okSend(),
+        _prisma: proxy,
+      });
+      assert.equal(res.ok, false, "without the alias there is no route to the romaji release");
+      assert.ok(
+        !search.calls.some((c) => /Tensei Shitara Slime/i.test(c.query)),
+        "the romaji name must never be reachable from the English title alone",
+      );
+    });
+
     // 5d. The fast path for ordinary TV must not pay for the anime rescues:
     // a formal-title episode query still resolves on the very first search.
     await checkAsync("ordinary TV still resolves on the first search", async () => {
@@ -394,7 +520,7 @@ async function main() {
       assert.equal(search.calls.length, 1, "no extra rungs once rung 1 succeeds");
     });
 
-    await checkAsync("preferred resolution ranks exact affinity then deterministic fallback", async () => {
+    await checkAsync("selected resolution is an exact-first hard minimum", async () => {
       const at = (resolution: number, n: number) => ({
         ...single(n, 40),
         title: `Family Guy S01E02 I Never Met the Dead Man ${resolution}p WEB-DL`,
@@ -435,7 +561,31 @@ async function main() {
         _sendFn: okSend(),
         _prisma: fallbackDb.proxy,
       });
-      assert.match(fallback.title ?? "", /720p/, "720p must beat oversized 2160p fallback");
+      assert.match(fallback.title ?? "", /2160p/, "720p is ineligible below a 1080p floor");
+
+      let lowerOnlySends = 0;
+      const lowerOnlySearch = makeSearchFn((q) =>
+        isEpisodeQuery(q) ? [at(720, 6), at(480, 7)] : [],
+      );
+      const lowerOnlyDb = mockPrisma();
+      const lowerOnly = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "Family Guy",
+        mediaType: "tv",
+        season: 1,
+        episode: 2,
+        preferredResolution: 1080,
+        _config: fakeConfig(),
+        _searchFn: lowerOnlySearch.fn,
+        _sendFn: (async () => {
+          lowerOnlySends += 1;
+          return { ok: true, message: "should not send" };
+        }) as SendFn,
+        _prisma: lowerOnlyDb.proxy,
+      });
+      assert.equal(lowerOnly.ok, false);
+      assert.equal(lowerOnlySends, 0, "sub-floor releases never reach the client");
+      assert.match(lowerOnly.message, /1080p or higher/);
     });
 
     // 5. Offline is environmental — stop immediately, don't burn more rungs.

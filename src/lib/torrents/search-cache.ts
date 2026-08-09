@@ -1,17 +1,47 @@
 import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { normalizeTitle } from "@/lib/utils";
+import { boundedTtlCache } from "@/lib/cache/bounded-ttl-cache";
+import { armIntervalOnce } from "@/lib/observability/arm-interval-once";
 import type { SearchResponse } from "./types";
 
-const memory = new Map<string, { expires: number; value: SearchResponse }>();
 const DEFAULT_TTL_MS = 1000 * 60 * 3; // 3 minutes
 const RATE_WINDOW_MS = 1000 * 60;
 const RATE_MAX = 40;
 
+// Bounded so a long session of distinct queries cannot grow it without limit
+// (BUG-011). The hard `maxEntries` cap alone does the bounding; there is
+// deliberately no periodic prune, because `allowStale` serves expired entries
+// via `peek` and a timer that deleted them would make stale-serving vanish
+// under upstream throttling. Expired entries linger until FIFO eviction.
+const memory = boundedTtlCache<SearchResponse>({
+  maxEntries: 500,
+  ttlMs: DEFAULT_TTL_MS,
+  name: "search:memory",
+});
+
 const rateBuckets = new Map<string, { count: number; reset: number }>();
 
+// Expired rate-limit windows must be swept on a timer, not by eviction: dropping
+// a bucket that is still inside its window would silently reset a limit early.
+//
+// Armed once per process through the shared guard (see `armIntervalOnce`).
+// Without it, every dev HMR re-evaluation and every route bundle that imports
+// this module started another sweep over a *different* `rateBuckets` map,
+// pinning the old module closure alive forever.
+export const SEARCH_RATE_SWEEP_KEY = Symbol.for(
+  "torrentflow.search-cache.rate-sweep",
+);
+
+armIntervalOnce(SEARCH_RATE_SWEEP_KEY, RATE_WINDOW_MS, () => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (bucket.reset < now) rateBuckets.delete(key);
+  }
+});
+
 export async function invalidateSearchCacheStores(
-  memoryStore: Map<string, unknown>,
+  memoryStore: { clear(): void },
   deletePersisted: () => Promise<unknown>,
 ): Promise<{ memoryCleared: true; persistedCleared: boolean }> {
   memoryStore.clear();
@@ -94,8 +124,8 @@ export async function getSearchCache(
   key: string,
   opts: { allowStale?: boolean } = {},
 ): Promise<SearchResponse | null> {
-  const mem = memory.get(key);
-  if (mem && (opts.allowStale || mem.expires > Date.now())) return mem.value;
+  const mem = memory.peek(key);
+  if (mem && (opts.allowStale || !mem.expired)) return mem.value;
 
   try {
     const row = await prisma.searchCache.findUnique({ where: { cacheKey: key } });
@@ -108,7 +138,7 @@ export async function getSearchCache(
       return null;
     }
     const value = JSON.parse(row.payload) as SearchResponse;
-    memory.set(key, { expires: row.expiresAt.getTime(), value });
+    memory.set(key, value, row.expiresAt.getTime() - Date.now());
     return value;
   } catch {
     return null;
@@ -125,7 +155,7 @@ export async function setSearchCache(
   // for this title" without reconstructing this row's opaque `cacheKey` from
   // an option set it does not know. See the field comment in schema.prisma.
   const normalizedQuery = normalizeTitle(value.query ?? "") || null;
-  memory.set(key, { expires: expiresAt.getTime(), value });
+  memory.set(key, value, ttlMs);
   try {
     await prisma.searchCache.upsert({
       where: { cacheKey: key },

@@ -1207,7 +1207,6 @@ const DATA_LAYER_RAIL_IDS = [
   "ready-to-play",
   "next-up",
   "my-library",
-  "recently-added",
 ] as const;
 
 check("first-run previews cover every rail the data layer emits, in order", () => {
@@ -1249,7 +1248,7 @@ const MISSING_CASES: Array<{
   {
     name: "one populated rail",
     rails: [railOf("ready-to-play", 3)],
-    expect: ["continue-watching", "next-up", "my-library", "recently-added"],
+    expect: ["continue-watching", "next-up", "my-library"],
   },
   {
     name: "populated and empty side by side",
@@ -1258,7 +1257,7 @@ const MISSING_CASES: Array<{
       railOf("next-up", 0),
       railOf("my-library", 7),
     ],
-    expect: ["ready-to-play", "next-up", "recently-added"],
+    expect: ["ready-to-play", "next-up"],
   },
   {
     name: "everything populated — nothing to say",
@@ -1281,11 +1280,10 @@ for (const c of MISSING_CASES) {
 check("missingRailPreviews always answers in canonical order", () => {
   // Payload order must not leak into the note, or the same install reads
   // differently on two loads.
-  const shuffled = [railOf("recently-added", 1), railOf("continue-watching", 1)];
+  const shuffled = [railOf("my-library", 1), railOf("continue-watching", 1)];
   assert.deepEqual(missingRailPreviews(shuffled).map((p) => p.id), [
     "ready-to-play",
     "next-up",
-    "my-library",
   ]);
 });
 

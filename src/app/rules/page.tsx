@@ -180,13 +180,32 @@ export default function RulesPage() {
     }
   }
 
+  /**
+   * Enable or disable a rule.
+   *
+   * The response is checked. Previously it was not: a 401, a 500 or a rejected
+   * fetch all fell through to the same `load()`, which re-rendered the rule in
+   * its unchanged state with no explanation — the toggle appeared to snap back
+   * on its own.
+   */
   async function toggle(id: string, enabled: boolean) {
-    await fetch("/api/rules", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildRuleTogglePayload(id, enabled)),
-    });
-    void load();
+    try {
+      const res = await fetch("/api/rules", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildRuleTogglePayload(id, enabled)),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(
+          data.error || (enabled ? "Could not enable rule" : "Could not disable rule"),
+        );
+        return;
+      }
+      void load();
+    } catch {
+      toast.error("Network error");
+    }
   }
 
   async function retarget(rule: Rule) {
@@ -222,9 +241,18 @@ export default function RulesPage() {
     if (!pendingRemove) return;
     setRemoving(true);
     try {
-      await fetch(`/api/rules?id=${encodeURIComponent(pendingRemove.id)}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/rules?id=${encodeURIComponent(pendingRemove.id)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        // The dialog stays open and the rule stays listed. Closing it and
+        // announcing "Rule deleted" on a failed request told the user the
+        // thing was gone while it was still running.
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || "Could not delete rule");
+        return;
+      }
       setPendingRemove(null);
       toast.success("Rule deleted");
       void load();
@@ -795,7 +823,7 @@ export default function RulesPage() {
             <AlertDialogTitle>Delete rule?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingRemove
-                ? `“${pendingRemove.name}” will stop matching releases. Past sends stay in Activity.`
+                ? `"${pendingRemove.name}" will stop matching releases. Past sends stay in Notifications.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>

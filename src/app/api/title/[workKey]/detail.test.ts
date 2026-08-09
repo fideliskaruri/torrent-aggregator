@@ -20,7 +20,6 @@ import {
   type EpisodeBuildInput,
   type LocalRelease,
 } from "./detail";
-import type { AcquisitionTransfer } from "./acquisition-target";
 import type { TitleSeason } from "@/components/title/types";
 
 let failures = 0;
@@ -191,6 +190,77 @@ check("pickSeason: empty season list has no season to open", () => {
   assert.equal(pickSeason([], 1, 1, [], null), null);
 });
 
+// --- pickSeason: remembered manual season (durable persistence fix) --------
+//
+// A season the user picked by hand on a previous visit. Governs which
+// episode LIST the page opens on, so it must beat resume/progress and the
+// watch cursor/default — the exact owner repro was a stale resume/progress
+// row for a season far ahead of what was picked (Season 2 chosen, an old
+// Season 9 progress row won). It must never outrank an explicit `?s=`
+// request, which is the one thing that can override even a manual pick.
+// Resume itself stays a separate action untouched by this ordering.
+
+check("pickSeason: remembered season wins over resume", () => {
+  assert.equal(pickSeason(SEASONS, null, 9, [], null, 2), 2);
+});
+
+check("pickSeason: remembered season wins over a bare watching scan", () => {
+  const progress = [{ season: 1, updatedAt: new Date() }];
+  assert.equal(pickSeason(SEASONS, null, null, progress, null, 2), 2);
+});
+
+check("pickSeason: remembered season wins over the watch cursor", () => {
+  assert.equal(
+    pickSeason(SEASONS, null, null, [], { cursorSeason: 1 }, 3),
+    3,
+  );
+});
+
+check("pickSeason: remembered season wins over the bare default (first season)", () => {
+  assert.equal(pickSeason(SEASONS, null, null, [], null, 2), 2);
+});
+
+check("pickSeason: an explicit request still overrides a remembered season", () => {
+  assert.equal(pickSeason(SEASONS, 3, null, [], null, 1), 3);
+});
+
+check("pickSeason: a remembered provider-only season we hold nothing for still wins over resume", () => {
+  // Same semantics as an explicit `?s=` request: the client's picker lists
+  // provider seasons we hold no local files for, so a remembered pick of one
+  // is legitimate. Gating it on the local set was the Rick and Morty defect —
+  // remembered Season 2 was discarded and stale resume Season 9 won.
+  assert.equal(pickSeason(SEASONS, null, 9, [], { cursorSeason: 1 }, 2), 2);
+  assert.equal(pickSeason(SEASONS, null, 9, [], { cursorSeason: 1 }, 99), 99);
+});
+
+check("pickSeason: an explicit request beats a remembered provider-only season", () => {
+  assert.equal(pickSeason(SEASONS, 5, 9, [], { cursorSeason: 1 }, 2), 5);
+});
+
+check("pickSeason: an invalid remembered season falls through to resume", () => {
+  assert.equal(pickSeason(SEASONS, null, 2, [], { cursorSeason: 1 }, 0), 2);
+  assert.equal(pickSeason(SEASONS, null, 2, [], { cursorSeason: 1 }, -3), 2);
+});
+
+check("pickSeason: no remembered season falls through to resume, then watching, then cursor", () => {
+  assert.equal(
+    pickSeason(SEASONS, null, 2, [], { cursorSeason: 1 }, null),
+    2,
+  );
+  const progress = [{ season: 1, updatedAt: new Date() }];
+  assert.equal(
+    pickSeason(SEASONS, null, null, progress, { cursorSeason: 2 }, null),
+    1,
+  );
+});
+
+check("pickSeason: no remembered season falls through to the watch cursor", () => {
+  assert.equal(
+    pickSeason(SEASONS, null, null, [], { cursorSeason: 2 }, null),
+    2,
+  );
+});
+
 // --- pack coverage → episode rows -------------------------------------------
 //
 // The season-pack defect: a completed S02 pack seeds episode files on disk, but
@@ -225,7 +295,17 @@ const RM_S02_FILES = JSON.stringify([
 ]);
 
 function engineMap(hash: string, verifiedFilesJson: string | null) {
-  return new Map([[hash.toLowerCase(), { verifiedFilesJson }]]);
+  return new Map([
+    [
+      hash.toLowerCase(),
+      {
+        progress: 1,
+        status: "downloaded",
+        verifiedBitfield: verifiedFilesJson ? "AQ==" : null,
+        verifiedFilesJson,
+      },
+    ],
+  ]);
 }
 
 function episodeInput(over: Partial<EpisodeBuildInput>): EpisodeBuildInput {
@@ -238,7 +318,6 @@ function episodeInput(over: Partial<EpisodeBuildInput>): EpisodeBuildInput {
     cursorEpisode: null,
     transfers: new Map(),
     packCoverage: new Map(),
-    coveredByPackTransfer: null,
     ...over,
   };
 }
@@ -291,6 +370,29 @@ check("buildPackCoverage: null verifiedFilesJson yields no coverage", () => {
   assert.equal(coverage.size, 0);
 });
 
+check("buildPackCoverage: full-length files without verified completion cover nothing", () => {
+  const coverage = buildPackCoverage(
+    [packRelease({ progress: 0.4, status: "downloading" })],
+    new Map([
+      [
+        "packhash",
+        {
+          progress: 0.4,
+          status: "downloading",
+          verifiedBitfield: null,
+          verifiedFilesJson: RM_S02_FILES,
+        },
+      ],
+    ]),
+    2,
+  );
+  assert.equal(
+    coverage.size,
+    0,
+    "allocated or sparse full-length files are not proof that their pieces verified",
+  );
+});
+
 check("buildPackCoverage: a file-missing pack makes no local claim", () => {
   const coverage = buildPackCoverage(
     [packRelease({ fileMissing: true })],
@@ -307,13 +409,28 @@ check("buildPackCoverage: season pack wins over a multi-season pack", () => {
     isMultiSeason: true,
     name: "Rick and Morty S01-S05 Complete",
   });
-  const engines = new Map<string, { verifiedFilesJson: string | null }>([
-    ["seasonhash", { verifiedFilesJson: JSON.stringify([
-      { path: "D:\\season\\Rick and Morty S02E03 SEASON.mkv", size: 100 },
-    ]) }],
-    ["multihash", { verifiedFilesJson: JSON.stringify([
-      { path: "D:\\multi\\Rick and Morty S02E03 MULTI.mkv", size: 999 },
-    ]) }],
+  const engines = new Map<string, {
+    progress: number;
+    status: string;
+    verifiedBitfield: string | null;
+    verifiedFilesJson: string | null;
+  }>([
+    ["seasonhash", {
+      progress: 1,
+      status: "downloaded",
+      verifiedBitfield: "AQ==",
+      verifiedFilesJson: JSON.stringify([
+        { path: "D:\\season\\Rick and Morty S02E03 SEASON.mkv", size: 100 },
+      ]),
+    }],
+    ["multihash", {
+      progress: 1,
+      status: "downloaded",
+      verifiedBitfield: "AQ==",
+      verifiedFilesJson: JSON.stringify([
+        { path: "D:\\multi\\Rick and Morty S02E03 MULTI.mkv", size: 999 },
+      ]),
+    }],
   ]);
   const coverage = buildPackCoverage([multi, seasonPack], engines, 2);
   assert.equal(coverage.get(3)?.infoHash, "seasonhash");
@@ -338,7 +455,6 @@ check("buildEpisodes: a pack-covered episode becomes ready+Play, not Download", 
     "D:\\RM S02\\Season 02\\Rick and Morty S02E03 Crewcoo (1080p BluRay).mkv",
   );
   assert.equal(e3?.fromPack, true);
-  assert.equal(e3?.coveredByPack ?? null, null);
 });
 
 check("buildEpisodes: a ready pack supersedes an episode's stuck own grab", () => {
@@ -549,32 +665,6 @@ check("buildEpisodes: a stream-cache partial is not shown as downloading", () =>
   );
   const e1 = rows.find((r) => r.episode === 1);
   assert.equal(e1?.transfer ?? null, null, "a stream cache is not a download");
-});
-
-check("buildEpisodes: a mid-download pack marks coveredByPack, not ready", () => {
-  const inFlight: AcquisitionTransfer = {
-    status: "downloading",
-    progress: 0.4,
-    infoHash: "packhash",
-    filePath: null,
-    error: null,
-  };
-  const rows = buildEpisodes(
-    episodeInput({
-      // No files landed yet → empty coverage, but the season is in flight.
-      packCoverage: new Map(),
-      coveredByPackTransfer: inFlight,
-      // Give the list a reason to render rows: a cached episode marker for E3.
-      cachedReleases: [
-        { season: 2, episode: 3, isPack: false, viable: true },
-      ],
-    }),
-  );
-  const e3 = rows.find((r) => r.episode === 3);
-  assert.equal(e3?.coveredByPack?.status, "downloading");
-  // Never marked ready by a pack that holds no file for it yet.
-  assert.notEqual(e3?.availability, "ready");
-  assert.equal(e3?.fromPack, false);
 });
 
 console.log(

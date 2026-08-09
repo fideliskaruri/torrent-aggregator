@@ -162,6 +162,99 @@ async function main() {
     assert.deepEqual(body.files[1]?.downloadedRanges, []);
   });
 
+  await checkAsync(
+    "a completed persisted manifest never looks up the torrent engine",
+    async () => {
+      let engineLookups = 0;
+      const res = await handleStreamIndexRequest(
+        { infoHash: "a".repeat(40) },
+        {
+          getConfig: async () =>
+            ({
+              clientType: "qbittorrent",
+              host: "http://127.0.0.1:8080",
+            }) as ClientConnectionConfig,
+          getCompletedManifest: async (infoHash) => ({
+            infoHash,
+            files: [
+              {
+                path: "D:\\Media\\Moon Knight S01E01.mkv",
+                rootPath: "D:\\Media",
+                relativePath: "Moon Knight S01E01.mkv",
+                length: 100,
+                mtimeMs: 1,
+              },
+            ],
+          }),
+          findFile: (async () => {
+            engineLookups += 1;
+            throw new Error("engine must stay cold");
+          }) as never,
+          quiet: true,
+        },
+      );
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as {
+        files: Array<{ path: string; downloadedRanges: unknown }>;
+        swarm: {
+          progress: number;
+          peers: number;
+          downloadSpeedBps: number;
+          observedAt: number;
+        };
+      };
+      assert.equal(engineLookups, 0);
+      assert.equal(body.files[0]?.path, "Moon Knight S01E01.mkv");
+      assert.deepEqual(body.files[0]?.downloadedRanges, [{ start: 0, end: 100 }]);
+      assert.deepEqual(body.swarm, {
+        peers: 0,
+        downloadSpeedBps: 0,
+        progress: 1,
+        observedAt: body.swarm.observedAt,
+      });
+    },
+  );
+
+  await checkAsync(
+    "completed episode targeting skips a matching subtitle before the video",
+    async () => {
+      const res = await handleStreamIndexRequest(
+        { infoHash: "b".repeat(40) },
+        {
+          getConfig: async () => CONFIG,
+          targetEpisode: { season: 1, episode: 2 },
+          getCompletedManifest: async (infoHash) => ({
+            infoHash,
+            files: [
+              {
+                path: "D:\\Media\\Show.S01E02.en.srt",
+                rootPath: "D:\\Media",
+                relativePath: "Show.S01E02.en.srt",
+                length: 10,
+                mtimeMs: 1,
+              },
+              {
+                path: "D:\\Media\\Show.S01E02.mkv",
+                rootPath: "D:\\Media",
+                relativePath: "Show.S01E02.mkv",
+                length: 100,
+                mtimeMs: 1,
+              },
+            ],
+          }),
+          quiet: true,
+        },
+      );
+      assert.equal(res.status, 200);
+      const body = (await res.json()) as {
+        primaryVideoIndex: number | null;
+        targetVideoIndex: number | null;
+      };
+      assert.equal(body.targetVideoIndex, 1);
+      assert.equal(body.primaryVideoIndex, 1);
+    },
+  );
+
   await checkAsync("an incomplete multi-file pack still exposes every playable file", async () => {
     const res = await handleStreamIndexRequest(
       { infoHash: "a".repeat(40) },
@@ -231,7 +324,7 @@ async function main() {
     },
     {
       name: "a complete torrent paints the whole file without consulting peers",
-      verifiedPieces: [],
+      verifiedPieces: [0, 1, 2, 3],
       file: { length: 20, offset: 0, _startPiece: 0, _endPiece: 3 },
       expect: [{ start: 0, end: 20 }],
     },

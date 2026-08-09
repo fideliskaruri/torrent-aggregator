@@ -31,7 +31,7 @@ export interface RailPreview {
 }
 
 /**
- * The five rails, in the order `buildBrowsePayload` emits them.
+ * The four rails, in the order `buildBrowsePayload` emits them.
  *
  * Kept as data rather than JSX so the ids can be asserted against the data
  * layer: a rail renamed there and not here would otherwise show a first-run
@@ -65,13 +65,6 @@ export const RAIL_PREVIEWS: readonly RailPreview[] = [
     blurb: "Everything you are tracking, so a series stays one thing instead of forty files.",
     href: "/watchlist",
     cta: "Open Library",
-  },
-  {
-    id: "recently-added",
-    title: "Recently Added",
-    blurb: "Newest arrivals first, so a finished download is never more than one glance away.",
-    href: "/notifications",
-    cta: "See activity",
   },
 ] as const;
 

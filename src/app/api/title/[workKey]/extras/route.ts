@@ -16,6 +16,7 @@ import {
   resolveTmdbRef,
 } from "../../tmdb-extras";
 import { resolveTitleProviderIdentity } from "../provider-identity";
+import { providerEpisodePlaceholders } from "./episode-placeholders";
 import { providerExtrasResponse } from "./provider-response";
 
 export const dynamic = "force-dynamic";
@@ -85,7 +86,25 @@ export async function GET(request: Request, context: RouteContext) {
     const providerResponse = providerExtrasResponse(providerResult, empty);
     if (providerResponse) return NextResponse.json(providerResponse);
 
-    const ref = await resolveTmdbRef({ title, year, mediaType });
+    // A verified TMDB identity already names the exact work. Use its id
+    // directly rather than re-searching TMDB by title — that guess is what let
+    // Dune (1984) resolve to Dune (2021). Fall back to the title search only
+    // when no verified id is on hand.
+    const verifiedTmdbId =
+      providerResult.kind === "verified" &&
+      providerResult.identity.provider === "tmdb"
+        ? Number.parseInt(providerResult.identity.externalId, 10)
+        : null;
+    const ref =
+      verifiedTmdbId != null && Number.isFinite(verifiedTmdbId)
+        ? {
+            id: verifiedTmdbId,
+            mediaType: providerResult.kind === "verified" &&
+              providerResult.identity.mediaType === "tv"
+              ? ("tv" as const)
+              : ("movie" as const),
+          }
+        : await resolveTmdbRef({ title, year, mediaType });
     if (!ref) return NextResponse.json(empty);
 
     const series = ref.mediaType === "tv";
@@ -113,8 +132,12 @@ export async function GET(request: Request, context: RouteContext) {
         ? season
         : (shape?.seasons[0] ?? (series ? 1 : null));
 
-    const episodes =
+    const fetchedEpisodes =
       series && wanted != null ? await fetchSeasonEpisodes(ref.id, wanted) : [];
+    const episodes =
+      fetchedEpisodes.length > 0
+        ? fetchedEpisodes
+        : providerEpisodePlaceholders(wanted, shape?.episodesBySeason);
 
     // A film is in its theatrical window when:
     //   1. It is a movie (series are never gated by this rule).

@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { permanentRedirect } from "next/navigation";
 
 import { DOWNLOADS_HREF } from "@/lib/navigation";
 
@@ -11,8 +11,10 @@ import { DOWNLOADS_HREF } from "@/lib/navigation";
  *
  * A permanent redirect rather than a deletion: this route has been linked from
  * the header since the app existed, so it is in bookmarks and in muscle
- * memory. Breaking it to save one file would be a poor trade.
+ * memory. Breaking it to save one file would be a poor trade. `permanentRedirect`
+ * (308) is what makes that sentence true — the previous `redirect` was a 307,
+ * which asks every client to keep coming back to the old path forever.
  */
 export default function ClientRedirect() {
-  redirect(DOWNLOADS_HREF);
+  permanentRedirect(DOWNLOADS_HREF);
 }

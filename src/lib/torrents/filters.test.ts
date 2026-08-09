@@ -7,7 +7,9 @@ import {
   applyFilters,
   parseFiltersFromParams,
   isExtrasRelease,
+  isUnsafeExecutableFileName,
   selectMainFeatureFile,
+  validateTorrentMediaPayload,
 } from "./filters";
 import { extractTags, rankResults } from "./ranking";
 import type { TorrentResult } from "./types";
@@ -310,12 +312,12 @@ function item(
   // No files → null.
   assert.equal(selectMainFeatureFile([]), null);
 
-  // Non-video files only: pick the largest.
+  // Non-video files only: there is no playable main feature.
   const noVideo = [
     { path: "readme.txt", length: 100 },
     { path: "cover.png", length: 5000 },
   ];
-  assert.equal(selectMainFeatureFile(noVideo)?.index, 1);
+  assert.equal(selectMainFeatureFile(noVideo), null);
 
   // A larger EXTRA must still lose to a smaller feature when both are video.
   const biggerExtra = [
@@ -324,5 +326,30 @@ function item(
   ];
   assert.equal(selectMainFeatureFile(biggerExtra)?.index, 1);
 }
+
+assert.equal(isUnsafeExecutableFileName("Episode.S01E01.scr"), true);
+assert.equal(isUnsafeExecutableFileName("Episode.S01E01.mkv"), false);
+assert.equal(
+  validateTorrentMediaPayload([{ path: "Episode.S01E01.scr", length: 500 }]).ok,
+  false,
+);
+assert.equal(
+  validateTorrentMediaPayload([
+    { path: "Episode.S01E01.mkv", length: 500 },
+    { path: "Subs/Episode.S01E01.en.srt", length: 20 },
+  ]).ok,
+  true,
+);
+assert.equal(
+  validateTorrentMediaPayload([
+    { path: "Episode.S01E01.mkv", length: 500 },
+    { path: "bonus/setup.exe", length: 20 },
+  ]).ok,
+  false,
+);
+assert.deepEqual(
+  applyFilters([item({ title: "Episode.S01E01.scr" }), item({ title: "Episode.S01E01.mkv" })], {}),
+  [item({ title: "Episode.S01E01.mkv" })],
+);
 
 console.log("filters.test.ts: all assertions passed");
