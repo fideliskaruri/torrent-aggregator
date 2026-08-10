@@ -128,6 +128,16 @@ check("selection falls back to the default once the selected season is gone", ()
   assert.equal(resolved, season1Key, "the vanished season falls back to the remaining default");
 });
 
+check("a stale selection key falls back to the default season", () => {
+  const group = firstSeries([
+    row({ name: "Show S01E01", state: "downloading", progress: 0.2 }),
+    row({ name: "Show S02E01", state: "queuedDL", progress: 0 }),
+  ]);
+  const resolved = resolveSelectedSeasonKey(group.seasons, "stale-season-key");
+  const season1Key = group.seasons.find((s) => s.season === 1)?.key ?? null;
+  assert.equal(resolved, season1Key, "a stale key should fall back to the default season");
+});
+
 check("the series dialog's data contract is independent of the page's search/status filters", () => {
   const rows = [
     row({ name: "Show S01E01", state: "seeding", progress: 1 }),

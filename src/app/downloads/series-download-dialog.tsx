@@ -18,7 +18,7 @@
  * component would be lost the moment it unmounted; state the parent holds
  * survives the round trip.
  */
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Check, Copy, FolderOpen, MoreHorizontal, Pause, Play, Trash2 } from "lucide-react";
 import { cn, formatBytes, formatDuration } from "@/lib/utils";
@@ -114,6 +114,28 @@ function SeasonRail({
   onSelectSeason: (key: string) => void;
 }) {
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    if (!selectedSeasonKey) return;
+
+    const targetIndex = group.seasons.findIndex((season) => season.key === selectedSeasonKey);
+    if (targetIndex < 0) return;
+
+    const tab = tabRefs.current[targetIndex];
+    if (!tab) return;
+
+    const rafId = window.requestAnimationFrame(() => {
+      const latestTab = tabRefs.current[targetIndex];
+      if (!latestTab || latestTab !== tab) return;
+      latestTab.scrollIntoView({
+        inline: "nearest",
+        block: "nearest",
+        behavior: "auto",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [group.key, selectedSeasonKey]);
 
   function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
     const seasons = group.seasons;
@@ -609,7 +631,7 @@ export function SeriesDownloadDialog({
 
         {selectedTransferIdsInGroup.length > 0 ? (
           <div
-            className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--border)] px-4 py-2 sm:px-5"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--border)] px-4 pb-[calc(0.5rem+var(--safe-bottom))] pt-2 sm:px-5 sm:pb-2"
             data-dialog-bulk-bar
           >
             <span className="mr-1 text-[12px] text-[var(--text-secondary)]">

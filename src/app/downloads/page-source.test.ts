@@ -134,6 +134,20 @@ check("the season rail is a real tablist, horizontally scrollable, arrow-key fri
   assert.match(dialogSource, /ArrowLeft/);
 });
 
+check("season tabs auto-scroll into view while keeping keyboard focus behavior", () => {
+  assert.match(dialogSource, /scrollIntoView\(\{/);
+  assert.match(dialogSource, /inline: "nearest"/);
+  assert.match(dialogSource, /behavior: "auto"/);
+  assert.match(dialogSource, /requestAnimationFrame/);
+  assert.match(dialogSource, /tabRefs\.current\[nextIndex\]\?\.focus\(\)/);
+});
+
+check("the bulk action bar adds safe-area padding on mobile without losing the normal desktop spacing", () => {
+  assert.match(dialogSource, /data-dialog-bulk-bar/);
+  assert.match(dialogSource, /pb-\[calc\(0\.5rem\+var\(--safe-bottom\)\)\]/);
+  assert.match(dialogSource, /sm:pb-2/);
+});
+
 check("only the dialog body scrolls vertically — no ancestor hides overflow-x", () => {
   assert.match(dialogSource, /data-season-panel/);
   assert.match(dialogSource, /overflow-y-auto/);
