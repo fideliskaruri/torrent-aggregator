@@ -4204,7 +4204,9 @@ function InlineStreamPlayerInner({
           setSubtitleNote("No English subtitles available for this video.");
         }
         if (tracks.length > 0 && data.embeddedInspected === false) {
-          setSubtitleNote("Embedded tracks could not be inspected — only files are listed.");
+          setSubtitleNote(
+            "Some subtitles could not be checked — only subtitle files are listed.",
+          );
         }
       } catch {
         if (!controller.signal.aborted) {

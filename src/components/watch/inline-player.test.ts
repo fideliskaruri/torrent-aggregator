@@ -619,6 +619,15 @@ assert(
     !/codec|container|transcod|remux/i.test(candidatePlayabilityLabel("unknown")),
 );
 assert(
+  "subtitle inspection failures avoid internal track terminology",
+  fs
+    .readFileSync("src/components/watch/inline-player.tsx", "utf8")
+    .includes("Some subtitles could not be checked — only subtitle files are listed.") &&
+    !fs
+      .readFileSync("src/components/watch/inline-player.tsx", "utf8")
+      .includes("Embedded tracks could not be inspected"),
+);
+assert(
   "quality selector shows only the preferred resolution",
   candidateQualityShape({
     infoHash: "b".repeat(40),
