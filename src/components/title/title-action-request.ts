@@ -27,6 +27,10 @@ export interface PostTitleActionInput {
   title?: string | null;
   mediaType?: string | null;
   year?: number | null;
+  provider?: string | null;
+  providerId?: string | null;
+  sourceType?: string | null;
+  format?: string | null;
   action: TitleAction;
   retention: TitleRetention;
   /** Preferred download resolution in pixels (480/720/1080/2160). Only set for
@@ -53,6 +57,10 @@ export async function postTitleAction({
   title,
   mediaType,
   year,
+  provider,
+  providerId,
+  sourceType,
+  format,
   action,
   retention,
   resolution,
@@ -72,6 +80,10 @@ export async function postTitleAction({
       title: title ?? null,
       mediaType: mediaType ?? null,
       year: year ?? null,
+      provider: provider ?? null,
+      providerId: providerId ?? null,
+      sourceType: sourceType ?? null,
+      format: format ?? null,
       retention,
       ...(resolution != null ? { preferredResolution: resolution } : {}),
       ...(overrideStorageCap ? { overrideStorageCap: true } : {}),

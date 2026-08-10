@@ -38,6 +38,7 @@ import { isSeriesDownload } from "./media-filter";
 /** The fields grouping needs. The page's own row type is a superset. */
 export interface TransferRow {
   hash: string;
+  transferId?: string;
   name: string;
   category?: string | null;
   /** 0–1. */
@@ -334,7 +335,9 @@ function applySeasonPackSubsumption<T extends TransferRow>(
     const authoritative = [...packs].sort(
       (a, b) =>
         usableSize(b.torrent.sizeBytes) - usableSize(a.torrent.sizeBytes) ||
-        a.torrent.hash.localeCompare(b.torrent.hash),
+        (a.torrent.transferId ?? a.torrent.hash).localeCompare(
+          b.torrent.transferId ?? b.torrent.hash,
+        ),
     )[0];
 
     const covered = bucket.filter((entry) => entry !== authoritative);
@@ -358,7 +361,9 @@ function compareEntries<T extends TransferRow>(
   if (ae !== be) return ae - be;
   return (
     a.torrent.name.localeCompare(b.torrent.name, undefined, { numeric: true }) ||
-    a.torrent.hash.localeCompare(b.torrent.hash)
+    (a.torrent.transferId ?? a.torrent.hash).localeCompare(
+      b.torrent.transferId ?? b.torrent.hash,
+    )
   );
 }
 
@@ -385,7 +390,12 @@ export function groupDownloads<T extends TransferRow>(
       // of the same film are present: they are separate torrents taking
       // separate disk, and merging them would hide one behind the other's
       // pause and delete controls.
-      singles.push({ kind: "single", key: `single:${row.hash}`, title, torrent: row });
+      singles.push({
+        kind: "single",
+        key: `single:${row.transferId ?? row.hash}`,
+        title,
+        torrent: row,
+      });
       continue;
     }
     const existing = seriesRows.get(identity.key);

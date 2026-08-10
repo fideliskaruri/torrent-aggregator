@@ -26,12 +26,15 @@ export function SearchResults({ query, category }: SearchResultsProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [retryNonce, setRetryNonce] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(async () => {
-    if (!query) {
+  const load = useCallback(async (signal: AbortSignal) => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
       setTitles([]);
       setNotice(null);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -42,11 +45,11 @@ export function SearchResults({ query, category }: SearchResultsProps) {
       const normalizedCategory: WorkSearchScope =
         parseWorkSearchScope(category);
       const qs = new URLSearchParams({
-        q: query,
+        q: trimmedQuery,
         category: normalizedCategory,
         limit: "20",
       });
-      const res = await fetch(`/api/search/titles?${qs}`);
+      const res = await fetch(`/api/search/titles?${qs}`, { signal });
       const json = (await res.json()) as {
         results?: Parameters<typeof titlesFromSearchHits>[0];
         message?: string;
@@ -54,6 +57,7 @@ export function SearchResults({ query, category }: SearchResultsProps) {
         partial?: boolean;
         failedProviders?: string[];
       };
+      if (signal.aborted) return;
       if (!res.ok) {
         throw new Error(json.message || json.error || "Search failed");
       }
@@ -67,19 +71,23 @@ export function SearchResults({ query, category }: SearchResultsProps) {
         }),
       );
     } catch (err) {
+      if ((err as Error)?.name === "AbortError" || signal.aborted) return;
       setError(err instanceof Error ? err.message : String(err));
       setTitles([]);
       setNotice(null);
     } finally {
+      if (signal.aborted) return;
       setLoading(false);
     }
   }, [category, query]);
 
   useEffect(() => {
+    const controller = new AbortController();
     // Results are external API state keyed on the query; fetch them in an effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load, retryNonce]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -129,7 +137,7 @@ export function SearchResults({ query, category }: SearchResultsProps) {
             variant="secondary"
             size="sm"
             className="mt-3"
-            onClick={() => void load()}
+            onClick={() => setRetryNonce((n) => n + 1)}
           >
             Retry
           </Button>
@@ -159,7 +167,7 @@ export function SearchResults({ query, category }: SearchResultsProps) {
             variant="secondary"
             size="sm"
             className="ml-auto shrink-0"
-            onClick={() => void load()}
+            onClick={() => setRetryNonce((n) => n + 1)}
           >
             Try again
           </Button>

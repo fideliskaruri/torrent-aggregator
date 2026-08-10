@@ -38,12 +38,15 @@ import {
   parseSubtitleTrackId,
   shiftVttCues,
   subtitleTrackSrc,
+  subtitleWindowStart,
   type SubtitleTrack,
 } from "@/lib/media/subtitles";
 import { selectDefaultSubtitle, selectPreferredAudioStream } from "@/lib/media/decide";
 import {
   MAX_SUBTITLE_BYTES,
+  PREFETCH_EXTRACT_TIMEOUT_MS,
   cacheSidecarVtt,
+  cancelEmbeddedSubtitle,
   convertSidecarSubtitle,
   extractEmbeddedSubtitle,
   readCachedSubtitle,
@@ -150,6 +153,31 @@ export async function handleSubtitlesRequest(
 
   const session = await auth();
   if (!session?.user?.id) return json(401, { error: "Not authenticated" });
+
+  if (request.method === "DELETE") {
+    const parsed = trackId ? parseSubtitleTrackId(trackId) : null;
+    const consumerId = url.searchParams.get("consumer")?.trim();
+    const rawStart = Number(url.searchParams.get("start") ?? "0");
+    const windowStartSec = subtitleWindowStart(rawStart);
+    if (
+      parsed?.kind !== "embedded" ||
+      !consumerId ||
+      !Number.isFinite(rawStart) ||
+      rawStart < 0 ||
+      Math.abs(rawStart - windowStartSec) > 0.001
+    ) {
+      return json(400, { error: "Invalid subtitle cancellation request" });
+    }
+    cancelEmbeddedSubtitle({
+      infoHash,
+      filePath,
+      streamIndex: parsed.streamIndex,
+      windowStartSec,
+      consumerId,
+    });
+    return new Response(null, { status: 204 });
+  }
+
   const config = await getUserClientConfig(session.user.id);
   if (!config) return json(503, { error: "No torrent client configured" });
   const completedManifest = await getCompletedMediaManifest(
@@ -189,6 +217,14 @@ export async function handleSubtitlesRequest(
     const rawOffset = Number(url.searchParams.get("offset") ?? "0");
     const offsetSec =
       Number.isFinite(rawOffset) && rawOffset > 0 ? Math.min(rawOffset, 24 * 3600) : 0;
+    const rawStart = Number(url.searchParams.get("start") ?? "0");
+    if (!Number.isFinite(rawStart) || rawStart < 0 || rawStart > 24 * 3600) {
+      return json(400, { error: "Invalid subtitle window" });
+    }
+    const windowStartSec = subtitleWindowStart(rawStart);
+    if (Math.abs(rawStart - windowStartSec) > 0.001) {
+      return json(400, { error: "Subtitle window must use the canonical stride" });
+    }
     return serveTrack({
       request,
       config,
@@ -200,6 +236,7 @@ export async function handleSubtitlesRequest(
       soleVideo,
       origin: requestOrigin(request),
       offsetSec,
+      windowStartSec,
     });
   }
 
@@ -279,6 +316,8 @@ async function serveTrack(input: {
    * source time and rebased here, so one extraction serves every seek offset.
    */
   offsetSec: number;
+  /** Source-time start of the bounded extraction window. */
+  windowStartSec: number;
 }): Promise<Response> {
   const {
     request,
@@ -289,17 +328,25 @@ async function serveTrack(input: {
     trackId,
     origin,
     offsetSec,
+    windowStartSec,
   } = input;
   const parsed = parseSubtitleTrackId(trackId);
   if (!parsed) return json(400, { error: "Unknown subtitle track" });
-  const rebase = (vtt: string) => shiftVttCues(vtt, -offsetSec);
+  const embeddedWindowStart = parsed.kind === "embedded" ? windowStartSec : 0;
+  const rebase = (vtt: string) =>
+    shiftVttCues(vtt, embeddedWindowStart - offsetSec);
 
   // Subtitle bytes deliberately count as foreground. They are not video bytes,
   // but they are served only because a human is watching this torrent, and the
   // work behind them can touch the same torrent, disk and ffmpeg budget as the
   // picture. The track-list endpoint above does not mark foreground; this body
   // endpoint does.
-  const cached = readCachedSubtitle(infoHash, filePath, trackId);
+  const cached = readCachedSubtitle(
+    infoHash,
+    filePath,
+    trackId,
+    embeddedWindowStart,
+  );
   if (cached) {
     if (request.method !== "HEAD") markForegroundActive(infoHash);
     return vttResponse(rebase(cached), request.method);
@@ -378,17 +425,33 @@ async function serveTrack(input: {
     }
   }
 
+  const requestUrl = new URL(request.url);
+  const prefetch = requestUrl.searchParams.get("prefetch") === "1";
   const outcome = await extractEmbeddedSubtitle({
     infoHash,
     filePath,
     streamIndex: parsed.streamIndex,
     sourceUrl: streamUrl(infoHash, filePath, origin),
+    windowStartSec: embeddedWindowStart,
+    signal: request.signal,
+    consumerId: requestUrl.searchParams.get("consumer") ?? undefined,
+    priority: prefetch ? "prefetch" : "foreground",
+    timeoutMs: prefetch ? PREFETCH_EXTRACT_TIMEOUT_MS : undefined,
   });
   if (!outcome.ok) {
-    const status = outcome.error === "timeout" ? 504 : outcome.error === "empty" ? 422 : 503;
+    const status =
+      outcome.error === "aborted"
+        ? 499
+        : outcome.error === "timeout"
+          ? 504
+          : outcome.error === "empty"
+            ? 422
+            : 503;
     return json(status, {
       error:
-        outcome.error === "timeout"
+        outcome.error === "aborted"
+          ? "Subtitle extraction canceled"
+          : outcome.error === "timeout"
           ? "Subtitle extraction timed out"
           : outcome.error === "empty"
             ? "That track contains no cues"
@@ -407,5 +470,9 @@ export async function GET(request: Request, context: RouteContext) {
 }
 
 export async function HEAD(request: Request, context: RouteContext) {
+  return handleSubtitlesRequest(request, await context.params);
+}
+
+export async function DELETE(request: Request, context: RouteContext) {
   return handleSubtitlesRequest(request, await context.params);
 }

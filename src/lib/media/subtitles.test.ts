@@ -29,6 +29,7 @@ import {
   srtToVtt,
   subtitleListUrl,
   subtitleTrackSrc,
+  subtitleWindowStart,
 } from "./subtitles";
 import type { ProbeStream } from "./probe";
 import fs from "node:fs";
@@ -429,6 +430,14 @@ assert(
   subtitleTrackSrc("abc", "f.mkv", "embedded:2", 90).includes("offset=90") &&
     !subtitleTrackSrc("abc", "f.mkv", "embedded:2", 0).includes("offset"),
   subtitleTrackSrc("abc", "f.mkv", "embedded:2", 90),
+);
+
+assert(
+  "subtitle track URLs carry an independent extraction window",
+  subtitleTrackSrc("abc", "f.mkv", "embedded:2", 90, 480).includes("start=480") &&
+    subtitleWindowStart(479) === 0 &&
+    subtitleWindowStart(480) === 480 &&
+    subtitleWindowStart(961) === 960,
 );
 
 console.log(failures === 0 ? "\nAll subtitle tests passed." : `\n${failures} failure(s).`);

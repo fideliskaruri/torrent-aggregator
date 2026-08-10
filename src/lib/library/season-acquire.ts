@@ -37,6 +37,11 @@ import { planSeason, type SeasonPlan, type SingleChoice } from "@/lib/torrents/s
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { isEpisodeRangeRelease } from "@/lib/torrents/pack-preference";
 import { episodeSearchQuery } from "@/lib/library/cursor";
+import {
+  aliasTitleForms,
+  episodeReleaseMatchesWork,
+  rankAliases,
+} from "@/lib/library/ondemand";
 import type { ClientConnectionConfig } from "@/lib/clients/types";
 import type { SearchResponse, TorrentResult } from "@/lib/torrents/types";
 import { applySendRetention, sendRetentionToPurpose, type SendRetention } from "@/lib/streaming/send-retention";
@@ -112,6 +117,14 @@ function releaseEpisodeNumber(r: TorrentResult, season: number): number | null {
  * missing a single is topped up with an exact `Show SxxEyy` search — the same
  * shape the per-episode Download button uses, so "Download season" cannot be
  * emptier than clicking each episode by hand.
+ *
+ * `aliases` are verified provider names (AniList romaji/native). Anime is
+ * seeded under the romaji name no normalization of the English catalog title
+ * can reach, so a season download of an anime finds nothing without them. They
+ * are searched LAST, only for episodes still uncovered, bounded to two names,
+ * and every row they return must pass the work-identity check against the show
+ * and its aliases — a broad romaji query must not be able to smuggle in a
+ * different series that happens to number its episodes the same way.
  */
 async function searchSeasonReleases(
   title: string,
@@ -119,6 +132,7 @@ async function searchSeasonReleases(
   category: NonNullable<Parameters<typeof searchTorrents>[0]["category"]>,
   wanted: readonly number[],
   searchFn: typeof searchTorrents = searchTorrents,
+  aliases: readonly string[] = [],
 ): Promise<TorrentResult[]> {
   const merged = new Map<string, TorrentResult>();
   const addAll = (rows: readonly TorrentResult[]) => {
@@ -134,6 +148,7 @@ async function searchSeasonReleases(
       query,
       category,
       limit: 40,
+      pageSize: 40,
       enrich: false,
       skipCache: false,
       // A season download is an explicit user action, not background work,
@@ -144,19 +159,25 @@ async function searchSeasonReleases(
     addAll(res.results);
   }
 
-  // Gap-fill exact episode queries for anything the season shapes missed.
-  if (wanted.length > 0) {
+  const coveredEpisodes = (): Set<number> => {
     const covered = new Set<number>();
     for (const r of merged.values()) {
       const ep = releaseEpisodeNumber(r, season);
       if (ep != null) covered.add(ep);
     }
+    return covered;
+  };
+
+  // Gap-fill exact episode queries for anything the season shapes missed.
+  if (wanted.length > 0) {
+    const covered = coveredEpisodes();
     for (const episode of wanted) {
       if (covered.has(episode)) continue;
       const res = await searchFn({
         query: episodeSearchQuery(title, season, episode),
         category,
         limit: 10,
+        pageSize: 10,
         enrich: false,
         skipCache: false,
         background: false,
@@ -170,7 +191,81 @@ async function searchSeasonReleases(
     }
   }
 
+  const rescueNames = seasonAliasQueryNames(title, aliases);
+  if (rescueNames.length === 0 || wanted.length === 0) return [...merged.values()];
+
+  const acceptedTitles = [title, ...aliases].flatMap((t) => aliasTitleForms(t));
+  const covered = coveredEpisodes();
+  for (const alias of rescueNames) {
+    const stillMissing = wanted.filter((e) => !covered.has(e));
+    if (stillMissing.length === 0) break;
+    const aliasRows: TorrentResult[] = [];
+    const seasonRes = await searchFn({
+      query: seasonSearchQuery(alias, season),
+      category,
+      limit: 40,
+      pageSize: 40,
+      enrich: false,
+      skipCache: false,
+      background: false,
+      filters: { hasMagnet: true, minSeeders: 1, season },
+    });
+    aliasRows.push(...seasonRes.results);
+    for (const episode of stillMissing) {
+      const epRes = await searchFn({
+        query: episodeSearchQuery(alias, season, episode),
+        category,
+        limit: 10,
+        pageSize: 10,
+        enrich: false,
+        skipCache: false,
+        background: false,
+        filters: { hasMagnet: true, minSeeders: 1, season, episode },
+      });
+      aliasRows.push(...epRes.results);
+    }
+    const eligible = aliasRows.filter((r) =>
+      episodeReleaseMatchesWork(r, acceptedTitles),
+    );
+    addAll(eligible);
+    for (const r of eligible) {
+      const ep = releaseEpisodeNumber(r, season);
+      if (ep != null) covered.add(ep);
+    }
+  }
+
   return [...merged.values()];
+}
+
+/**
+ * The alias names worth a season search: genuinely different names only (an
+ * alias that is the canonical title minus its punctuation buys nothing here),
+ * strongest first, capped at two so a season press stays bounded.
+ */
+export function seasonAliasQueryNames(
+  title: string,
+  aliases: readonly string[],
+): string[] {
+  const squash = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const known = new Set<string>(
+    aliasTitleForms(title).map((t) => squash(t)),
+  );
+  const out: string[] = [];
+  for (const alias of aliases) {
+    // Every form of the alias competes; `rankAliases` prefers the short,
+    // space-separated, punctuation-free name indexers actually rank, which for
+    // AniList romaji is the comma head rather than the full sentence.
+    const forms = aliasTitleForms(alias).filter((variant) => {
+      const key = squash(variant);
+      return Boolean(key) && !known.has(key);
+    });
+    const best = rankAliases(forms)[0];
+    if (!best) continue;
+    known.add(squash(best));
+    out.push(best);
+    if (out.length >= 2) break;
+  }
+  return out;
 }
 
 export interface SeasonAcquireTarget {
@@ -178,6 +273,13 @@ export interface SeasonAcquireTarget {
   title: string;
   mediaType: string;
   season: number;
+  /**
+   * Verified provider names for this work (AniList romaji/native and other
+   * confirmed aliases). Anime is seeded under names the English catalog title
+   * cannot reach, so a season download without them finds nothing. Optional;
+   * ordinary TV passes none and behaves exactly as before.
+   */
+  aliases?: readonly string[];
   /** Minimum output height. Lower and unknown resolutions are ineligible. */
   preferredResolution?: number | null;
   /**
@@ -231,6 +333,7 @@ export async function resolveSeasonPlan(
       category,
       target.episodes,
       opts._searchFn,
+      target.aliases ?? [],
     ));
 
   const preferredResolution =

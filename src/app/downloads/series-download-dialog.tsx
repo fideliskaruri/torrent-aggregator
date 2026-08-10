@@ -66,7 +66,6 @@ export interface SeriesDownloadDialogProps {
   group: SeriesGroup<ClientTorrent> | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  isBuiltin: boolean;
   titleHref: string | null;
   artwork: Record<string, Artwork>;
   selectedSeasonKey: string | null;
@@ -81,8 +80,8 @@ export interface SeriesDownloadDialogProps {
     season: number | null;
     episode: number | null;
   }) => void;
-  onAction: (act: "pause" | "resume", hash: string) => void;
-  onActionMany: (act: "pause" | "resume", hashes: string[]) => void;
+  onAction: (act: "pause" | "resume", torrent: ClientTorrent) => void;
+  onActionMany: (act: "pause" | "resume", torrents: ClientTorrent[]) => void;
   onOpenFolder: (torrent: ClientTorrent) => void;
   onCopyStreamUrl: (torrent: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
@@ -188,7 +187,6 @@ function SeasonRail({
 function EpisodeCard({
   entry,
   season,
-  isBuiltin,
   isSelected,
   openingHash,
   onToggleSelect,
@@ -200,7 +198,6 @@ function EpisodeCard({
 }: {
   entry: GroupEntry<ClientTorrent>;
   season: SeasonBucket<ClientTorrent>;
-  isBuiltin: boolean;
   isSelected: boolean;
   openingHash: string | null;
   onToggleSelect: (hash: string, additive: boolean) => void;
@@ -222,6 +219,7 @@ function EpisodeCard({
       : entry.isSeasonPack
         ? `${seasonLabelFor(season)} pack`
         : (entry.episodeLabel ?? display.title);
+  const isBuiltin = t.ownerClientType === "builtin";
   const canPlay = isBuiltin && canStreamTransfer(t);
   const speed = speedLabel(t.dlspeed);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
@@ -234,12 +232,13 @@ function EpisodeCard({
       )}
       data-episode-card
       data-hash={t.hash}
+      data-owner-client={t.ownerClientType}
       title={t.name}
     >
       <div className="flex items-start gap-2">
         <Checkbox
           checked={isSelected}
-          onCheckedChange={() => onToggleSelect(t.hash, true)}
+          onCheckedChange={() => onToggleSelect(t.transferId, true)}
           aria-label={`Select ${epLabel}`}
           className="mt-0.5 shrink-0"
         />
@@ -342,6 +341,7 @@ function EpisodeCard({
               {(() => {
                 const facts = [
                   source,
+                  t.ownerClientLabel,
                   t.category,
                   t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
                 ].filter(Boolean);
@@ -365,22 +365,22 @@ function EpisodeCard({
             ) : null}
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
-              disabled={openingHash === t.hash}
+              disabled={openingHash === t.transferId}
               className="min-h-[44px] lg:min-h-0"
             >
-              {openingHash === t.hash ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
+              {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
               Open folder
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => onAction("pause", t.hash)}
+              onClick={() => onAction("pause", t)}
               className="min-h-[44px] lg:min-h-0"
             >
               <Pause />
               Pause
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => onAction("resume", t.hash)}
+              onClick={() => onAction("resume", t)}
               className="min-h-[44px] lg:min-h-0"
             >
               <Play />
@@ -406,7 +406,6 @@ export function SeriesDownloadDialog({
   group,
   open,
   onOpenChange,
-  isBuiltin,
   titleHref,
   artwork,
   selectedSeasonKey,
@@ -429,10 +428,10 @@ export function SeriesDownloadDialog({
   // Scoped to this series so Pause/Resume/Delete act only on what is checked
   // under this show, even though the checkboxes write into the page's one
   // shared `selected` set.
-  const selectedHashesInGroup = useMemo(() => {
+  const selectedTransferIdsInGroup = useMemo(() => {
     if (!group) return [];
-    const members = new Set(group.torrents.map((t) => t.hash));
-    return [...selected].filter((hash) => members.has(hash));
+    const members = new Set(group.torrents.map((t) => t.transferId));
+    return [...selected].filter((transferId) => members.has(transferId));
   }, [group, selected]);
 
   if (!group) return null;
@@ -441,7 +440,6 @@ export function SeriesDownloadDialog({
   const query = artworkQueryForRelease(group.torrents[0].name, group.torrents[0].category);
   const art = artwork[query.key];
   const speed = speedLabel(group.dlspeed);
-  const hashes = group.torrents.map((t) => t.hash);
 
   const poster = (
     <TfWorkThumb title={group.title} posterUrl={art?.posterUrl} sizePx={52} />
@@ -544,14 +542,14 @@ export function SeriesDownloadDialog({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
-                  onClick={() => onActionMany("pause", hashes)}
+                  onClick={() => onActionMany("pause", group.torrents)}
                   className="min-h-[44px] lg:min-h-0"
                 >
                   <Pause />
                   Pause all
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  onClick={() => onActionMany("resume", hashes)}
+                  onClick={() => onActionMany("resume", group.torrents)}
                   className="min-h-[44px] lg:min-h-0"
                 >
                   <Play />
@@ -588,11 +586,10 @@ export function SeriesDownloadDialog({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {selectedSeason.entries.map((entry) => (
                 <EpisodeCard
-                  key={entry.torrent.hash}
+                  key={entry.torrent.transferId}
                   entry={entry}
                   season={selectedSeason}
-                  isBuiltin={isBuiltin}
-                  isSelected={selected.has(entry.torrent.hash)}
+                  isSelected={selected.has(entry.torrent.transferId)}
                   openingHash={openingHash}
                   onToggleSelect={onToggleSelect}
                   onPlay={onPlay}
@@ -610,18 +607,25 @@ export function SeriesDownloadDialog({
           )}
         </div>
 
-        {selectedHashesInGroup.length > 0 ? (
+        {selectedTransferIdsInGroup.length > 0 ? (
           <div
             className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--border)] px-4 py-2 sm:px-5"
             data-dialog-bulk-bar
           >
             <span className="mr-1 text-[12px] text-[var(--text-secondary)]">
-              {selectedHashesInGroup.length} selected
+              {selectedTransferIdsInGroup.length} selected
             </span>
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => onActionMany("pause", selectedHashesInGroup)}
+              onClick={() =>
+                onActionMany(
+                  "pause",
+                  group.torrents.filter((torrent) =>
+                    selectedTransferIdsInGroup.includes(torrent.transferId),
+                  ),
+                )
+              }
             >
               <Pause className="h-3.5 w-3.5" />
               Pause
@@ -629,7 +633,14 @@ export function SeriesDownloadDialog({
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => onActionMany("resume", selectedHashesInGroup)}
+              onClick={() =>
+                onActionMany(
+                  "resume",
+                  group.torrents.filter((torrent) =>
+                    selectedTransferIdsInGroup.includes(torrent.transferId),
+                  ),
+                )
+              }
             >
               <Play className="h-3.5 w-3.5" />
               Resume
@@ -639,7 +650,9 @@ export function SeriesDownloadDialog({
               variant="destructive"
               onClick={(event) =>
                 onDeleteRequest(
-                  group.torrents.filter((t) => selectedHashesInGroup.includes(t.hash)),
+                  group.torrents.filter((torrent) =>
+                    selectedTransferIdsInGroup.includes(torrent.transferId),
+                  ),
                   event.currentTarget,
                 )
               }

@@ -56,9 +56,12 @@ check("/search hosts the single overlay without erasing the durable URL", () => 
   // …while preserving the shareable /search?q=… URL…
   assert.match(searchPage, /preserveUrl:\s*true/);
   assert.doesNotMatch(searchPage, /router\.replace|redirect\(/);
-  // …so it must not mount its own search input or the old results firehose.
+  // …so it must not mount its own search input, visible launcher copy, or the
+  // old results firehose.
   assert.doesNotMatch(searchPage, /<SearchBar\b/);
   assert.doesNotMatch(searchPage, /<SearchResults\b/);
+  assert.doesNotMatch(searchPage, /Search is open|Start typing to find anything|Reopen search/);
+  assert.match(searchPage, /return null;/);
 });
 
 check("search category picker exposes exactly title-first product categories", () => {

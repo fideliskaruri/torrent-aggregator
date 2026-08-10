@@ -12,6 +12,7 @@ import {
   rankTitleHitsByRelevance,
 } from "@/components/search/title-search";
 import type { MediaMetadata } from "@/lib/torrents/types";
+import { searchWorksByScope, type WorkSearchProviders } from "./work-search-fanout";
 import {
   legacyEverythingRedirectUrl,
   parseWorkSearchCategory,
@@ -40,6 +41,23 @@ function metadata(
     releaseDate: `${year}-01-02`,
     genres: [],
   };
+}
+
+function hit(
+  title: string,
+  category: WorkSearchCategory = "series",
+  source: "tmdb" | "anilist" = category === "anime" ? "anilist" : "tmdb",
+  format?: string,
+) {
+  const mediaType =
+    category === "movies" ? "movie" : category === "series" ? "tv" : "anime";
+  const value = workSearchHitFromMetadata(
+    metadata(source, mediaType, title, 2022),
+    category,
+    format,
+  );
+  assert.ok(value);
+  return value;
 }
 
 const cases: Array<{
@@ -203,6 +221,33 @@ console.log("PASS compact-aware title relevance");
 async function providerTests() {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.TMDB_API_KEY;
+  const providers: WorkSearchProviders = {
+    movies: async () => [
+      hit("Moon Knight Special", "movies"),
+      hit("Moonrise", "movies"),
+    ],
+    series: async () => [
+      hit("Moon Knight", "series"),
+      hit("Moonbase", "series"),
+    ],
+    anime: async () => [hit("Moon Knight OVA", "anime")],
+  };
+  const outcome = await searchWorksByScope(
+    "all",
+    "  moon  knigt  ",
+    12,
+    providers,
+  );
+  assert.equal(outcome.partial, false);
+  assert.equal(outcome.results[0]?.title, "Moon Knight");
+  assert.equal(outcome.results[0]?.category, "series");
+  assert.deepEqual(
+    new Set(outcome.results.map((result) => result.category)),
+    new Set(["movies", "series", "anime"]),
+  );
+  console.log(
+    "PASS all-scope search unifies movies, series and anime and ranks the best match first",
+  );
   try {
   process.env.TMDB_API_KEY = "1234567890abcdef1234567890abcdef";
   const requested: string[] = [];

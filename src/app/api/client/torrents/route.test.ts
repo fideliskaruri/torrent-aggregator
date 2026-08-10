@@ -56,14 +56,44 @@ check("the row cleanup is scoped to this user and this infoHash", () => {
   );
 });
 
-check("cleanup only runs on a successful file delete, never a bare removal", () => {
-  // The block that clears the rows must sit behind `deleteFiles && result.ok`.
+check("cleanup only runs after a verified exclusive file delete", () => {
+  // The block that clears the rows must sit behind a successful file delete
+  // and proof that no other configured client still owns the same hash.
   // Removing a torrent but keeping its files leaves the content on disk, so its
   // intent and resume rows are still true and must not be dropped.
   assert.match(
     source,
-    /if \(deleteFiles && result\.ok\) \{[\s\S]*?prisma\.\$transaction\(\[/,
+    /removedFromOwner === "absent"[\s\S]*?remainingOwner === "absent"[\s\S]*?prisma\.\$transaction\(\[/,
   );
+});
+
+check("every action requires and verifies the recorded owner", () => {
+  assert.match(source, /action, hash and ownerClientType required/);
+  assert.match(source, /await verifyOwnedTransfer\(/);
+  assert.match(source, /const ownerConfig = owned\.config/);
+  assert.match(source, /getClient\(ownerConfig\.clientType\)/);
+});
+
+check("an unknown hash returns before the remote delete call", () => {
+  const notFound = source.indexOf('status: 404');
+  const deleteCall = source.indexOf("await client.deleteTorrent");
+  assert.ok(notFound >= 0, "missing unknown-hash response");
+  assert.ok(deleteCall > notFound, "delete can run before ownership is verified");
+});
+
+check("remote success is verified before local records are deleted", () => {
+  assert.match(source, /await ownedTransferState\(/);
+  assert.match(source, /result\.ok && removedFromOwner !== "absent"/);
+});
+
+check("shared or unverifiable cross-client files are protected before delete", () => {
+  const inspect = source.indexOf("await inspectOtherOwners");
+  const overlap = source.indexOf("transferStoragePathsOverlap");
+  const deleteCall = source.indexOf("await client.deleteTorrent");
+  assert.ok(inspect >= 0 && inspect < deleteCall);
+  assert.ok(overlap >= 0 && overlap < deleteCall);
+  assert.match(source, /otherOwners\.unknown[\s\S]*?status:\s*503/);
+  assert.match(source, /otherOwners\.torrents\.some[\s\S]*?status:\s*409/);
 });
 
 check("delete drops the memos that still believe the files exist", () => {

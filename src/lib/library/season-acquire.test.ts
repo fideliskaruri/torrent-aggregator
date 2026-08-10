@@ -6,6 +6,7 @@ import { DEFAULT_MAX_STORAGE_BYTES } from "./disk-space";
 import {
   acquireSeason,
   resolveSeasonPlan,
+  seasonAliasQueryNames,
   seasonSearchQueries,
   seasonSearchQuery,
 } from "./season-acquire";
@@ -198,6 +199,113 @@ async function main(): Promise<void> {
     assert.deepEqual(lowerOnly.plan.singles, []);
     assert.deepEqual(lowerOnly.plan.missing, [1]);
     assert.equal(lowerOnly.plan.coverageLabel, "0 of 1 episodes");
+  });
+
+  await checkAsync("season search is alias-aware and stays single-episode", async () => {
+    const romaji = (episode: number) =>
+      result(
+        `[SubsPlease] Tensei Shitara Slime Datta Ken S01E0${episode} 1080p`,
+        {
+          isSeasonPack: false,
+          season: 1,
+          episode,
+        } as TorrentResult["episode"],
+      );
+    const wrongShow = result("Lucky 2026 S01E01 1080p WEB h264-ETHEL", {
+      isSeasonPack: false,
+      season: 1,
+      episode: 1,
+    } as TorrentResult["episode"]);
+    const aliasPack = result(
+      "[SubsPlease] Tensei Shitara Slime Datta Ken S01 COMPLETE 1080p",
+      { isSeasonPack: true, season: 1 } as TorrentResult["episode"],
+    );
+    const queries: string[] = [];
+    const resolved = await resolveSeasonPlan(
+      {
+        userId: `u_${randomUUID()}`,
+        title: "That Time I Got Reincarnated as a Slime",
+        aliases: [
+          "Tensei Shitara Slime Datta Ken, Dai Kenja no Deshi ni Natta",
+        ],
+        mediaType: "anime",
+        season: 1,
+        episodes: [1, 2],
+      },
+      {
+        _searchFn: (async (opts: { query: string }) => {
+          queries.push(opts.query);
+          // The English catalog title indexers do not carry.
+          if (/Reincarnated as a Slime/i.test(opts.query)) {
+            return searchResponse(opts.query, []);
+          }
+          if (/Tensei Shitara Slime/i.test(opts.query)) {
+            return searchResponse(opts.query, [
+              wrongShow,
+              aliasPack,
+              romaji(1),
+              romaji(2),
+            ]);
+          }
+          return searchResponse(opts.query, []);
+        }) as never,
+      },
+    );
+    assert.ok(
+      queries.some((q) => /Tensei Shitara Slime/i.test(q)),
+      `romaji alias never searched; tried: ${queries.join(" | ")}`,
+    );
+    assert.deepEqual(
+      resolved.plan.singles.map((single) => single.episode),
+      [1, 2],
+      "both episodes resolve to exact singles under the alias",
+    );
+    assert.equal(resolved.plan.pack, null, "a retained season pack is never planned");
+    assert.equal(
+      resolved.releases.some((r) => /Lucky 2026/i.test(r.title)),
+      false,
+      "a wrong show found under a broad alias query is rejected",
+    );
+  });
+
+  await checkAsync("ordinary TV season search issues no alias queries", async () => {
+    const queries: string[] = [];
+    await resolveSeasonPlan(
+      {
+        userId: `u_${randomUUID()}`,
+        title: "The Show",
+        mediaType: "tv",
+        season: 1,
+        episodes: [1],
+      },
+      {
+        _searchFn: (async (opts: { query: string }) => {
+          queries.push(opts.query);
+          return searchResponse(opts.query, []);
+        }) as never,
+      },
+    );
+    assert.equal(
+      queries.every((q) => /^The Show/i.test(q)),
+      true,
+      `no non-canonical queries expected; tried: ${queries.join(" | ")}`,
+    );
+  });
+
+  await checkAsync("alias query names are bounded and drop punctuation-only forms", async () => {
+    assert.deepEqual(
+      seasonAliasQueryNames("Re:ZERO -Starting Life in Another World-", [
+        "Re:Zero kara Hajimeru Isekai Seikatsu",
+        "リゼロ",
+        "Third Alias Name",
+      ]).length <= 2,
+      true,
+    );
+    assert.deepEqual(
+      seasonAliasQueryNames("The Show", ["The Show", "The  Show"]),
+      [],
+      "an alias that is the canonical title respelled buys no extra search",
+    );
   });
 
   await checkAsync("acquire sends exact singles and leaves pack-only gaps missing", async () => {

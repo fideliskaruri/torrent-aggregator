@@ -431,14 +431,12 @@ function categoryMatchRank(
 function languagePreferenceRank(title: string): number {
   const t = (title || "").replace(/[._()[\]\-]+/g, " ");
 
-  if (/\b(?:eng|english|dual\s+audio|multi)\b/i.test(t)) {
-    return 2;
+  if (/\b(?:vostfr|subfrench|truefrench|french|vf{1,2})\b/i.test(t)) {
+    return 0;
   }
 
-  if (
-    /\b(?:vostfr|subfrench|truefrench|french|ita|jap|jpn|vosta)\b/i.test(t)
-  ) {
-    return 0;
+  if (/\b(?:eng|english|dual\s+audio|dual[-\s]?audio|dub(?:bed)?)\b/i.test(t)) {
+    return 2;
   }
 
   return 1;
@@ -675,8 +673,8 @@ export function describeRelease(
  *     H.264/AAC MP4 beats a known MKV/HEVC/DTS obstacle, but unknown sits between
  *     them instead of being treated as bad.
  *  7. **language hint** — best-effort title tokens only. English-inclusive
- *     releases beat known foreign-sub-only tags, while titles with no language
- *     signal stay neutral.
+ *     releases beat known foreign-sub-only tags, while ambiguous `MULTi` and
+ *     Japanese-anime tags stay neutral.
  *  8. **seeders**, bucketed by order of magnitude.
  *  9. **recency**, then **size** as final tiebreaks.
  *

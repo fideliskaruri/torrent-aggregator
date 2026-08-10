@@ -223,8 +223,8 @@ async function resolutionAffinityAndFallback(): Promise<void> {
   );
   assert.equal(
     fallback.currentHash,
-    hash(2),
-    "when the preferred resolution is absent, the deterministic lower-resolution fallback wins",
+    hash(1),
+    "when the preferred resolution is absent, higher eligible fallback wins and lower resolutions stay ineligible",
   );
 }
 

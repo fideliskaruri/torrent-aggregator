@@ -310,10 +310,12 @@ export function liveEnginePressure(): EnginePressureSnapshot {
  * Purely observational — the engine's own `isComplete` already refuses to call
  * such a torrent complete, and nothing here changes that decision. The point is
  * that the disagreement was previously invisible: the torrent silently sat in
- * `stalledDL`/`downloading` at "100%" with no record of why. Warning once per
- * hash keeps a torrent that is polled every 5s from flooding the log.
+ * `stalledDL`/`downloading` at "100%" with no record of why. A bounded
+ * once-per-recent-hash memo keeps a torrent polled every 5s from flooding the
+ * log without retaining every historical hash forever.
  */
 const MISMATCH_KEY = Symbol.for("torrentflow.engine.completionMismatch");
+export const COMPLETION_MISMATCH_NOTICE_LIMIT = 512;
 
 function mismatchSeen(): Set<string> {
   const g = globalThis as unknown as Record<symbol, Set<string> | undefined>;
@@ -337,6 +339,11 @@ export function noteCompletionVerificationGap(
   if (!hash) return false;
   const seen = mismatchSeen();
   if (seen.has(hash)) return false;
+  while (seen.size >= COMPLETION_MISMATCH_NOTICE_LIMIT) {
+    const oldest = seen.values().next().value;
+    if (typeof oldest !== "string") break;
+    seen.delete(oldest);
+  }
   seen.add(hash);
   try {
     log(
@@ -353,7 +360,7 @@ export function resetCompletionVerificationNotices(): void {
   mismatchSeen().clear();
 }
 
-/** Hashes that have reported a completion/verification gap this process. */
+/** Recent hashes that have reported a completion/verification gap. */
 export function completionVerificationGapHashes(): string[] {
   return [...mismatchSeen()].sort();
 }

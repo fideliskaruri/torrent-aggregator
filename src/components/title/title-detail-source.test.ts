@@ -15,6 +15,11 @@ assert.match(
 );
 assert.match(source, /requestedSeason: extrasSeason,/);
 assert.match(source, /extrasSeason=\{activeSeason\}/);
+assert.match(
+  source,
+  /resolvedPrimary\.kind === "discover"\s*\?\s*resolvedPrimary\s*:/,
+);
+assert.match(source, /titleActionButtonLabel\(primary, primaryStatus\)/);
 // The settled signal must actually be threaded from the query to the panel;
 // without it, an unauthorized (settled, empty, error-free) answer reads as a
 // request that never started.
@@ -38,6 +43,11 @@ assert.match(source, /writeRememberedSeasonCookie\(props\.workKey, nextSeason\)/
 assert.match(source, /removeLegacySeasonFromLocation\(\)/);
 assert.match(source, /url\.searchParams\.delete\("s"\)/);
 assert.match(source, /onSeasonChange=\{handleSeasonChange\}/);
+assert.match(
+  source,
+  /if \(primary\.kind === "discover"\) \{\s*void refetchExtras\(\);[\s\S]*requestAction\(/,
+);
+assert.match(source, /data-action-kind=\{primary\.kind\}/);
 
 // Durable manual-season persistence (BUG: Season 2 pick reset to Season 9
 // after leaving through an ordinary link). The cookie is written ONLY from

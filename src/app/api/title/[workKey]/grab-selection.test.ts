@@ -168,6 +168,28 @@ async function verifyAnimeAliasRecovery() {
   assert.equal(recovered.mediaType, "anime");
   assert.ok(recovered.aliases.includes("Tensei Shitara Slime Datta Ken"));
 
+  // TMDB verifies this work as TV and supplies the Japanese title, but not the
+  // Romaji title used by seeded releases. A native alias must not suppress the
+  // guarded AniList recovery.
+  const recoveredFromNativeAlias = await resolveEpisodeSearchIdentity(
+    {
+      resolvedTitle: "That Time I Got Reincarnated as a Slime",
+      resolvedYear: 2018,
+      resolvedMediaType: "tv",
+      resolvedAliases: ["転生したらスライムだった件"],
+    },
+    async () => [slimeMetadata],
+  );
+  assert.equal(recoveredFromNativeAlias.mediaType, "anime");
+  assert.ok(
+    recoveredFromNativeAlias.aliases.includes("Tensei Shitara Slime Datta Ken"),
+    "a native-only TMDB alias still recovers the Romaji search identity",
+  );
+  assert.ok(
+    recoveredFromNativeAlias.aliases.includes("転生したらスライムだった件"),
+    "provider aliases survive recovery",
+  );
+
   const collision = await resolveEpisodeSearchIdentity(
     {
       resolvedTitle: "The Bear",
@@ -189,6 +211,66 @@ async function verifyAnimeAliasRecovery() {
     { mediaType: "tv", aliases: [] },
     "a same-name anime from another year cannot redirect a TV download",
   );
+
+  // An anime page that arrived with no aliases used to short-circuit here and
+  // search only its English label — the name no indexer carries. It now takes
+  // the same guarded recovery path, without ever ceasing to be anime.
+  const animeWithoutAliases = await resolveEpisodeSearchIdentity(
+    {
+      resolvedTitle: "That Time I Got Reincarnated as a Slime",
+      resolvedYear: 2018,
+      resolvedMediaType: "anime",
+      resolvedAliases: [],
+    },
+    async () => [slimeMetadata],
+  );
+  assert.equal(animeWithoutAliases.mediaType, "anime");
+  assert.ok(
+    animeWithoutAliases.aliases.includes("Tensei Shitara Slime Datta Ken"),
+    "an alias-less anime recovers its Romaji name",
+  );
+
+  // Recovery may never change what the work is: a failed or contradicted
+  // lookup leaves an anime page as anime with nothing added.
+  for (const lookup of [
+    async () => {
+      throw new Error("AniList timeout");
+    },
+    async () => [],
+    async () => [{ ...slimeMetadata, title: "Some Other Show", aliases: [] }],
+  ] satisfies (() => Promise<MediaMetadata[]>)[]) {
+    const unchanged = await resolveEpisodeSearchIdentity(
+      {
+        resolvedTitle: "That Time I Got Reincarnated as a Slime",
+        resolvedYear: 2018,
+        resolvedMediaType: "anime",
+        resolvedAliases: [],
+      },
+      lookup,
+    );
+    assert.deepEqual(unchanged, { mediaType: "anime", aliases: [] });
+  }
+
+  // Solo Leveling control: aliases already known are used as-is, with no
+  // provider round trip at all.
+  let queried = false;
+  const solo = await resolveEpisodeSearchIdentity(
+    {
+      resolvedTitle: "Solo Leveling",
+      resolvedYear: 2024,
+      resolvedMediaType: "anime",
+      resolvedAliases: ["Ore dake Level Up na Ken", "Solo Leveling"],
+    },
+    async () => {
+      queried = true;
+      return [];
+    },
+  );
+  assert.equal(queried, false, "known aliases never trigger a lookup");
+  assert.deepEqual(solo, {
+    mediaType: "anime",
+    aliases: ["Ore dake Level Up na Ken"],
+  });
 }
 
 void verifyAnimeAliasRecovery()

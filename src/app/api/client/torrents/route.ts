@@ -5,7 +5,17 @@ import {
   getClient,
   listClientTorrents,
 } from "@/lib/clients";
+import type { TorrentClientType } from "@/lib/clients";
 import { formatClientError } from "@/lib/clients/errors";
+import {
+  aggregateOwnedTorrents,
+  clientTypeLabel,
+  inspectOtherOwners,
+  otherOwnerState,
+  ownedTransferState,
+  transferStoragePathsOverlap,
+  verifyOwnedTransfer,
+} from "@/lib/clients/transfer-ownership";
 import { pruneEmptyParents } from "@/lib/clients/prune-empty-parents";
 import { resetDirectorySizeCache } from "@/lib/library/disk-space";
 import { resetDiskInventoryCache } from "@/lib/library/disk-inventory";
@@ -56,15 +66,20 @@ export async function GET(request: Request) {
       config.externalClientType === "transmission";
 
     try {
-      const torrents = await listClientTorrents(config);
+      const snapshot = await aggregateOwnedTorrents(
+        config,
+        listClientTorrents,
+      );
+      const torrents = snapshot.torrents;
       const hashes = [
         ...new Set(
           torrents
+            .filter((t) => t.ownerClientType === "builtin")
             .map((t) => t.hash?.toLowerCase())
             .filter((h): h is string => Boolean(h)),
         ),
       ];
-      const origins = config.clientType === "builtin" && hashes.length
+      const origins = hashes.length
         ? new Map(
             (
               await prisma.engineTorrent.findMany({
@@ -74,10 +89,8 @@ export async function GET(request: Request) {
             ).map((row) => [row.hash.toLowerCase(), row.origin] as const),
           )
         : new Map<string, string>();
-      const annotated =
-        config.clientType !== "builtin"
-          ? torrents
-          : torrents.map((torrent) => {
+      const annotated = torrents.map((torrent) => {
+        if (torrent.ownerClientType !== "builtin") return torrent;
         const retentionState = retentionStateForOrigin(
           torrent.hash ? origins.get(torrent.hash.toLowerCase()) : null,
         );
@@ -99,7 +112,18 @@ export async function GET(request: Request) {
           };
         }
         return { ...torrent, retentionState };
-            });
+      });
+      const clientIssues = snapshot.issues.map((issue) => {
+        const formatted = formatClientError(issue.error, issue.clientType);
+        return {
+          clientType: issue.clientType,
+          label: clientTypeLabel(issue.clientType),
+          message: formatted.offline
+            ? `${clientTypeLabel(issue.clientType)} is unavailable.`
+            : formatted.message,
+          offline: formatted.offline,
+        };
+      });
       observer.success("TORRENT_LIST_SUCCEEDED", {
         clientType: config.clientType,
         count: annotated.length,
@@ -111,6 +135,8 @@ export async function GET(request: Request) {
         offline: false,
         externalClientType: hasExternal ? config.externalClientType : null,
         hasExternal,
+        partial: clientIssues.length > 0,
+        clientIssues,
       });
     } catch (err) {
       const formatted = formatClientError(err, config.clientType);
@@ -180,6 +206,7 @@ export async function POST(request: NextRequest) {
       action?: "pause" | "resume" | "delete";
       hash?: string;
       deleteFiles?: boolean;
+      ownerClientType?: TorrentClientType;
     };
     try {
       body = (await request.json()) as typeof body;
@@ -187,51 +214,129 @@ export async function POST(request: NextRequest) {
       return reply({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    if (!body.action || !body.hash) {
+    if (!body.action || !body.hash || !body.ownerClientType) {
       return reply(
-        { error: "action and hash required" },
+        { error: "action, hash and ownerClientType required" },
         { status: 400 },
       );
     }
+    if (
+      body.ownerClientType !== "builtin" &&
+      body.ownerClientType !== "qbittorrent" &&
+      body.ownerClientType !== "transmission"
+    ) {
+      return reply({ error: "Invalid ownerClientType" }, { status: 400 });
+    }
 
-    const client = getClient(config.clientType);
+    let owned;
+    try {
+      owned = await verifyOwnedTransfer(
+        config,
+        body.ownerClientType,
+        body.hash,
+        listClientTorrents,
+      );
+    } catch (err) {
+      const formatted = formatClientError(err, body.ownerClientType);
+      return reply(
+        {
+          ok: false,
+          message: formatted.offline
+            ? `${clientTypeLabel(body.ownerClientType)} is unavailable.`
+            : formatted.message,
+          offline: formatted.offline,
+        },
+        { status: formatted.offline ? 503 : 502 },
+      );
+    }
+    if (!owned) {
+      return reply(
+        {
+          ok: false,
+          message:
+            "That transfer was not found in its recorded owner. Refresh and try again.",
+        },
+        { status: 404 },
+      );
+    }
+
+    const ownerConfig = owned.config;
+    const client = getClient(ownerConfig.clientType);
     let result;
 
     try {
       if (body.action === "pause" && client.pauseTorrent) {
-        result = await client.pauseTorrent(config, body.hash);
+        result = await client.pauseTorrent(ownerConfig, body.hash);
       } else if (body.action === "resume" && client.resumeTorrent) {
-        result = await client.resumeTorrent(config, body.hash);
+        result = await client.resumeTorrent(ownerConfig, body.hash);
       } else if (body.action === "delete" && client.deleteTorrent) {
         const deleteFiles = body.deleteFiles !== false;
+        const otherOwners = deleteFiles
+          ? await inspectOtherOwners(
+              config,
+              body.ownerClientType,
+              body.hash,
+              listClientTorrents,
+            )
+          : { torrents: [], unknown: false };
+        if (deleteFiles && otherOwners.unknown) {
+          return reply(
+            {
+              ok: false,
+              message:
+                "Could not verify whether another configured client still uses these files. Reconnect it or remove only the transfer.",
+            },
+            { status: 503 },
+          );
+        }
+        if (
+          deleteFiles &&
+          otherOwners.torrents.some((torrent) =>
+            transferStoragePathsOverlap(
+              owned.torrent.savePath,
+              torrent.savePath,
+            ),
+          )
+        ) {
+          return reply(
+            {
+              ok: false,
+              message:
+                "Another torrent client still uses the same files. Remove only this transfer or delete the other copy first.",
+            },
+            { status: 409 },
+          );
+        }
 
         // Capture save path before delete so we can prune empty Season/Show folders
         // (qBit/Transmission leave empty parents; built-in also does after destroyStore).
-        let leafPath: string | null = null;
-        if (deleteFiles) {
-          try {
-            const listed = await listClientTorrents(config);
-            const match = listed.find(
-              (t) => t.hash?.toLowerCase() === body.hash!.toLowerCase(),
-            );
-            leafPath = match?.savePath?.trim() || null;
-          } catch {
-            leafPath = null;
-          }
-        }
+        const leafPath = deleteFiles
+          ? owned.torrent.savePath?.trim() || null
+          : null;
 
-        result = await client.deleteTorrent(config, body.hash, deleteFiles);
+        result = await client.deleteTorrent(
+          ownerConfig,
+          body.hash,
+          deleteFiles,
+        );
 
-        // The storage budget memoises the download tree's size; deleting files
-        // is the one event that makes it shrink, so drop it now rather than
-        // refusing the next send against a stale total. The inventory and
-        // file-presence memos are dropped for the same reason `library/delete`
-        // drops them: left stale they keep the title page claiming the content
-        // is present and offer a Play against files that are gone.
-        if (deleteFiles && result.ok) {
-          resetDirectorySizeCache();
-          resetDiskInventoryCache();
-          resetLocalFilePresenceCache();
+        const removedFromOwner =
+          result.ok
+            ? await ownedTransferState(
+                config,
+                body.ownerClientType,
+                body.hash,
+                listClientTorrents,
+              )
+            : "unknown";
+        if (result.ok && removedFromOwner !== "absent") {
+          result = {
+            ok: false,
+            message:
+              removedFromOwner === "present"
+                ? `${clientTypeLabel(body.ownerClientType)} did not remove that transfer.`
+                : `Could not verify that ${clientTypeLabel(body.ownerClientType)} removed that transfer.`,
+          };
         }
 
         // Built-in already prunes inside deleteTorrent; still safe to run for
@@ -258,6 +363,15 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // Only confirmed removal can invalidate local file facts. A qBittorrent
+        // delete endpoint may return success for an unknown hash, so the remote
+        // acknowledgement alone is not proof that anything was removed.
+        if (deleteFiles && result.ok && removedFromOwner === "absent") {
+          resetDirectorySizeCache();
+          resetDiskInventoryCache();
+          resetLocalFilePresenceCache();
+        }
+
         // Delete means gone — the client and the files are already removed, so
         // the rows that remember this infoHash must go too. Left behind, they
         // keep the title page claiming the content is present (stale
@@ -265,7 +379,21 @@ export async function POST(request: NextRequest) {
         // inside the dedup window), and offer a broken resume (PlaybackProgress
         // pointing at a deleted file). A hash is hex, so the three case
         // spellings below cover every way a client or indexer stored it.
-        if (deleteFiles && result.ok) {
+        const remainingOwner =
+          deleteFiles && result.ok && removedFromOwner === "absent"
+            ? await otherOwnerState(
+                config,
+                body.ownerClientType,
+                body.hash,
+                listClientTorrents,
+              )
+            : "unknown";
+        if (
+          deleteFiles &&
+          result.ok &&
+          removedFromOwner === "absent" &&
+          remainingOwner === "absent"
+        ) {
           const hash = body.hash;
           const infoHashes = [hash, hash.toLowerCase(), hash.toUpperCase()];
           try {
@@ -291,10 +419,10 @@ export async function POST(request: NextRequest) {
         );
       }
     } catch (err) {
-      const formatted = formatClientError(err, config.clientType);
+      const formatted = formatClientError(err, body.ownerClientType);
       const safeError = observer.failure("TORRENT_CONTROL_FAILED", err, {
         action: body.action,
-        clientType: config.clientType,
+        clientType: body.ownerClientType,
         offline: formatted.offline,
       });
       return reply(
@@ -313,17 +441,18 @@ export async function POST(request: NextRequest) {
     if (result.ok) {
       observer.success("TORRENT_CONTROL_SUCCEEDED", {
         action: body.action,
-        clientType: config.clientType,
+        clientType: body.ownerClientType,
       });
     } else {
       observer.degraded("TORRENT_CONTROL_FAILED", {
         action: body.action,
-        clientType: config.clientType,
+        clientType: body.ownerClientType,
       });
     }
     return reply(
       {
         ...result,
+        ownerClientType: body.ownerClientType,
         message: result.ok ? result.message : "Torrent action failed.",
         offline: false,
       },

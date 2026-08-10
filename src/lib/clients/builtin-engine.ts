@@ -25,6 +25,8 @@ import {
 import { findTorrentByHash } from "./find-torrent-by-hash";
 import { noteCompletionVerificationGap } from "./engine-pressure";
 import {
+  decideCompletionParkingAdmission,
+  MAX_CONCURRENT_COMPLETION_PARKS,
   runCompletionSweep,
   clearCompletionSweepOwnerState,
   type CompletionSweepStats,
@@ -1225,6 +1227,10 @@ export function sweepCompletedBuiltinTorrents(): CompletionSweepStats {
     // sweep can park it normally. The promise is returned so a transient
     // failure is retried later instead of being written off permanently.
     onMissingOwner: (hash) => backfillSweepOwnerFromDatabase(hash),
+    parkBudget: Math.max(
+      0,
+      MAX_CONCURRENT_COMPLETION_PARKS - s.parking.size,
+    ),
     // Deselect only: no pause, no destroy, no file or DB mutation. A completed
     // torrent needs no pieces, so dropping the selection stops the redundant
     // request/discard traffic while every byte, row and resume path survives.
@@ -2851,8 +2857,14 @@ async function persistAndParkCompletedTorrent(
   if (!hash) return false;
 
   const key = hash;
-  const existing = state().parking.get(key);
+  const s = state();
+  const existing = s.parking.get(key);
   if (existing) return existing;
+  const admission = decideCompletionParkingAdmission({
+    leases: s.streamLeases.get(hash) ?? 0,
+    activeParking: s.parking.size,
+  });
+  if (admission !== "start") return false;
 
   const work = (async () => {
     if (!isComplete(t)) return false;

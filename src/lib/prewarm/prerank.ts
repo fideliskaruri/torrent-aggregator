@@ -44,6 +44,7 @@ import {
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { rankResults } from "@/lib/torrents/ranking";
 import { verdictTier } from "@/lib/torrents/quality";
+import { meetsResolutionFloor } from "@/lib/torrents/quality";
 import { filterReleasesForWork } from "@/lib/torrents/work-match";
 import { infoHashFromMagnet, normalizeInfoHash } from "@/lib/torrents/infohash";
 import { advanceCursor, episodeSearchQuery, resolveHuntCursor } from "@/lib/library/cursor";
@@ -82,6 +83,16 @@ function unit(n: number | null | undefined): number | null {
   if (n == null) return null;
   const v = Math.trunc(n);
   return Number.isFinite(v) && v >= 1 ? v : null;
+}
+
+function selectableResultsForTarget(
+  results: readonly TorrentResult[],
+  target: PreRankTarget,
+): TorrentResult[] {
+  const floor = unit(target.preferredResolution);
+  return floor == null
+    ? [...results]
+    : results.filter((result) => meetsResolutionFloor(result.title, floor));
 }
 
 /**
@@ -193,17 +204,20 @@ export function searchPayloadFor(options: PipelineSearchOptions) {
  *
  * Search results arrive ranked for the account default. When a single action
  * carries its own preference, this is the one canonical re-ranking pass; an
- * absent preference preserves the producer's order exactly.
+ * absent preference preserves the producer's order exactly. When the target has
+ * a preferred resolution, lower/unknown releases are removed before ranking so
+ * every selector built from this pool sees the same hard floor.
  */
 export function rankResultsForTarget(
   results: readonly TorrentResult[],
   target: PreRankTarget,
 ): TorrentResult[] {
   const resolution = unit(target.preferredResolution);
-  if (resolution == null) return [...results];
+  const eligible = selectableResultsForTarget(results, target);
+  if (resolution == null) return eligible;
   const options = prewarmSearchOptions(target);
   return rankResults(
-    [...results],
+    eligible,
     options.query,
     resolution,
     options.category,

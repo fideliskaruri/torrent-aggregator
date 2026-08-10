@@ -34,6 +34,7 @@ import {
   nextViewerWaitingState,
   nextSeekIntentAction,
   nextSeekRestartAction,
+  seekPositionInPlannedTimeline,
   playerControlsForMode,
   qualitySelectorEmptyCopy,
   releaseDetailChips,
@@ -46,6 +47,9 @@ import {
   shouldShowSeekSpinner,
   shouldShowUnifiedLoader,
   shouldShowViewerBuffering,
+  shouldPreserveOutgoingEpisode,
+  subtitleStatusCopy,
+  unsupportedSubtitleNote,
   terminalPlaybackCopy,
   streamPath,
   streamStatusMessage,
@@ -174,6 +178,34 @@ assert(
 assert(
   "does not attach unrelated subtitle files",
   findSidecarSubtitle(files, "Show/Season 01/Show S01E02.mp4") === undefined,
+);
+assert(
+  "unsupported bitmap-only subtitles surface an honest theatre status",
+  unsupportedSubtitleNote([
+    {
+      id: "embedded:2",
+      kind: "embedded",
+      label: "English · PGS — unsupported",
+      language: "eng",
+      codec: "hdmv_pgs_subtitle",
+      supported: false,
+      unsupportedReason:
+        "image-based subtitles cannot be converted to WebVTT — play this release in VLC/MPV for it",
+      streamIndex: 2,
+      filePath: null,
+      needsExtraction: true,
+      forced: false,
+      hearingImpaired: false,
+      src: null,
+    },
+  ])?.includes("image-based subtitles") === true,
+);
+assert(
+  "subtitle preparation failures remain visible after loading stops",
+  subtitleStatusCopy(
+    "error",
+    "That subtitle track could not be prepared. Extraction or subtitle caching failed.",
+  )?.includes("caching failed") === true,
 );
 assert(
   "auto-selects the requested episode from a realistic season pack",
@@ -399,6 +431,27 @@ assert(
 assert(
   "an in-flight restart with an unknown target still replans toward the new seek",
   nextSeekRestartAction({ inFlight: true, inFlightTargetSec: null, requestedTargetSec: 900 }) === "replan",
+);
+assert(
+  "a rebased VOD playlist preserves the exact out-of-window seek target",
+  seekPositionInPlannedTimeline(605, 600) === 5,
+);
+assert(
+  "an exact session start needs no second relative seek",
+  seekPositionInPlannedTimeline(605, 605) === 0,
+);
+assert(
+  "same-pack next keeps the outgoing media only when the exact next file is known",
+  shouldPreserveOutgoingEpisode({
+    transitioning: true,
+    hasPlayableSource: true,
+    exactNextFileKnown: true,
+  }) === true &&
+    shouldPreserveOutgoingEpisode({
+      transitioning: true,
+      hasPlayableSource: true,
+      exactNextFileKnown: false,
+    }) === false,
 );
 assert(
   "no in-flight seek is ever silently dropped: a busy restart to a new target replans",
@@ -2201,6 +2254,51 @@ assert(
     /if \(!known\) setManifest\(null\);/.test(identityResetBlock) &&
     /setSelectedPath\(known\);/.test(identityResetBlock),
 );
+assert(
+  "a same-pack next keeps the outgoing element until the replacement plan is ready",
+  /const keepOutgoingEpisode = shouldPreserveOutgoingEpisode\(/.test(identityResetBlock) &&
+    /if \(!keepOutgoingEpisode\) \{\s*setPlayableSrc\(null\);/.test(identityResetBlock) &&
+    /if \(!keepOutgoingEpisode && hlsRef\.current\)/.test(playerSource),
+);
+assert(
+  "late events from a preserved outgoing episode cannot write progress onto the new episode",
+  /if \(preserveOutgoingEpisode\) return;[\s\S]{0,200}?const filePath = selectedPathRef\.current;/.test(
+    playerSource,
+  ),
+);
+assert(
+  "a failed plan keeps outgoing progress blocked until direct fallback commits its source",
+  !/if \(!planRes\.ok\) \{\s*setPreserveOutgoingEpisode\(false\);/.test(playerSource) &&
+    /if \(res\.ok \|\| res\.status === 206\) \{[\s\S]{0,240}?setPreserveOutgoingEpisode\(false\);[\s\S]{0,120}?setPlayableSrc\(/.test(
+      playerSource,
+    ),
+);
+assert(
+  "embedded subtitles rotate through bounded source-time extraction windows",
+  /activeSubtitle\.kind === "embedded"/.test(playerSource) &&
+    /subtitleWindowStart\(currentSourceTime\)/.test(playerSource) &&
+    /nextWindow - 60/.test(playerSource) &&
+    /next window prefetch failed/.test(playerSource),
+);
+assert(
+  "HLS resume seeds source time before subtitle window selection",
+  /currentSourceTimeRef\.current = startSec;[\s\S]{0,120}?setCurrentSourceTime\(startSec\);[\s\S]{0,160}?setPlaybackMode\("hls"\)/.test(
+    playerSource,
+  ),
+);
+assert(
+  "speculative subtitle requests are marked as prefetch work",
+  /prefetchSrc[\s\S]{0,260}?prefetch=1/.test(playerSource),
+);
+assert(
+  "obsolete subtitle consumers explicitly cancel server extraction",
+  /fetch\(activeSubtitleSrc,\s*\{[\s\S]{0,100}?method:\s*"DELETE"/.test(
+    playerSource,
+  ) &&
+    /fetch\(prefetchSrc,\s*\{[\s\S]{0,100}?method:\s*"DELETE"/.test(
+      playerSource,
+    ),
+);
 
 assert(
   "an advance carries the server's exact filePath into the new target",
@@ -2255,6 +2353,35 @@ assert(
   /fetch\("\/api\/library\/ondemand"/.test(playerSource) &&
     /retention: "stream",/.test(playerSource) &&
     /protectHashes: activeInfoHash \? \[activeInfoHash\] : \[\],/.test(playerSource),
+);
+assert(
+  "an out-of-window HLS/VOD replan carries the exact remaining seek delta into hls.js",
+  /pendingHlsStartRef\.current = seekPositionInPlannedTimeline\(\s*startSec,\s*planData\.startSec,\s*\);/.test(
+    playerSource,
+  ) && /startPosition: pendingHlsStartRef\.current,/.test(playerSource),
+);
+assert(
+  "subtitle track mode is re-applied whenever the track URL or seek offset changes",
+  /\}, \[activeSubtitle, activeSubtitleSrc, playableSrc, playbackMode\]\);/.test(playerSource),
+);
+assert(
+  "theatre and inline chrome both render the same honest subtitle status",
+  (playerSource.match(/data-stream-subtitle-status=\{subtitleStatus\}/g) ?? []).length >= 2 &&
+    /const subtitleStatusMessage = subtitleStatusCopy\(subtitleStatus, subtitleNote\);/.test(playerSource),
+);
+assert(
+  "390px controls are shrinkable and the timeline owns a mobile row instead of forcing overflow",
+  /data-stream-transport-row[\s\S]{0,180}flex min-w-0 max-w-full items-center/.test(playerSource) &&
+    /relative flex min-w-0 flex-1 basis-full items-center sm:basis-auto/.test(playerSource) &&
+    /h-8 min-w-0 max-w-full appearance-none/.test(playerSource),
+);
+
+const sessionSource = fs.readFileSync("src/lib/media/session.ts", "utf8");
+assert(
+  "creating an out-of-window seek session force-releases stale offsets for the same exact file",
+  /for \(const \[otherKey, other\] of sessions\)[\s\S]*?other\.infoHash === infoHash && other\.filePath === filePath && otherKey !== key[\s\S]*?cleanupSession\(other\);[\s\S]*?sessions\.delete\(otherKey\);/.test(
+    sessionSource,
+  ),
 );
 
 console.log(

@@ -73,6 +73,36 @@ import { parseEpisode } from "./episodes";
   const abs = parseEpisode("One Piece Ep 1233 S23 1080p");
   assert.equal(abs.episode, 1233);
   assert.equal(abs.isSeasonPack, false, "an absolute episode number is not a pack");
+
+  const bareAbs = parseEpisode("[SubsPlease] One Piece 1170 S23 1080p");
+  assert.equal(bareAbs.season, 23);
+  assert.equal(bareAbs.episode, 1170);
+  assert.equal(bareAbs.isSeasonPack, false);
+}
+
+// --- Numbers embedded in an anime title are not absolute episodes ---
+{
+  const titleNumber = parseEpisode(
+    "[Yameii] I've Been Killing Slimes for 300 Years and Maxed Out My Level - S02 [1080p]",
+  );
+  assert.equal(titleNumber.season, 2);
+  assert.equal(
+    titleNumber.episode,
+    undefined,
+    "the 300 in the work title must not become episode 300",
+  );
+  assert.equal(titleNumber.isSeasonPack, true);
+
+  const abbreviatedTitle = parseEpisode(
+    "[matheousse] Slime 300 S1 MULTi VF/VOSTFR (BD 1080p)",
+  );
+  assert.equal(abbreviatedTitle.season, 1);
+  assert.equal(
+    abbreviatedTitle.episode,
+    undefined,
+    "an abbreviated numbered title before S1 must not become episode 300",
+  );
+  assert.equal(abbreviatedTitle.isSeasonPack, true);
 }
 
 // --- A release with no season/episode signal at all stays unlabelled ---

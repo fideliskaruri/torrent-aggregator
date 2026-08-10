@@ -22,7 +22,11 @@ import path from "node:path";
 import { formatBytesShort } from "@/lib/library/disk-space";
 import { resolveFfmpegPath } from "./ff-binaries";
 import { sessionsDir } from "./session";
-import { isWebVtt, srtToVtt } from "./subtitles";
+import {
+  isWebVtt,
+  srtToVtt,
+  SUBTITLE_WINDOW_DURATION_SECONDS,
+} from "./subtitles";
 
 /** A cue file bigger than this is not a subtitle track; it is a mistake. */
 export const MAX_SUBTITLE_BYTES = 8 * 1024 * 1024;
@@ -31,14 +35,19 @@ export const MAX_SUBTITLE_BYTES = 8 * 1024 * 1024;
  * A whole-file demux over a torrent is slow. Bounded anyway: a request that
  * never ends is worse than an honest "this took too long, try again".
  */
-export const EXTRACT_TIMEOUT_MS = 5 * 60_000;
+export const EXTRACT_TIMEOUT_MS = 45_000;
+export const PREFETCH_EXTRACT_TIMEOUT_MS = 15_000;
 
 /** Subtitle conversions are derived cache entries, not user downloads. */
 export const SUBTITLE_CACHE_BUDGET_BYTES = 512 * 1024 * 1024;
 
 export type ExtractOutcome =
   | { ok: true; vtt: string; cached: boolean }
-  | { ok: false; error: "timeout" | "failed" | "empty"; message: string };
+  | {
+      ok: false;
+      error: "timeout" | "failed" | "empty" | "aborted";
+      message: string;
+    };
 
 /**
  * Cache root. Deliberately inside `.sessions/` — it is already gitignored and
@@ -49,10 +58,15 @@ export function subtitleCacheDir(): string {
   return path.join(sessionsDir(), "subtitles");
 }
 
-function cacheFile(infoHash: string, filePath: string, trackId: string): string {
+function cacheFile(
+  infoHash: string,
+  filePath: string,
+  trackId: string,
+  windowStartSec = 0,
+): string {
   const key = crypto
     .createHash("sha1")
-    .update(`${infoHash}\u0000${filePath}\u0000${trackId}`)
+    .update(`${infoHash}\u0000${filePath}\u0000${trackId}\u0000${windowStartSec}`)
     .digest("hex");
   return path.join(subtitleCacheDir(), `${key}.vtt`);
 }
@@ -143,7 +157,22 @@ export function evictSubtitleCacheOverBudget(
 }
 
 /** In-flight extractions, keyed by cache file, so duplicates share one ffmpeg. */
-const inFlight = new Map<string, Promise<ExtractOutcome>>();
+type InFlightExtraction = {
+  controller: AbortController;
+  promise: Promise<ExtractOutcome>;
+  consumers: Map<string, Map<symbol, () => void>>;
+  settled: boolean;
+};
+
+const inFlight = new Map<string, InFlightExtraction>();
+const MAX_CONCURRENT_SUBTITLE_JOBS = 2;
+const MAX_QUEUED_SUBTITLE_JOBS = 16;
+let activeSubtitleJobs = 0;
+const queuedSubtitleJobs: Array<{
+  start: () => void;
+  signal?: AbortSignal;
+  priority: "foreground" | "prefetch";
+}> = [];
 
 /**
  * ffmpeg input flags for a torrent-backed HTTP source.
@@ -167,13 +196,19 @@ export function subtitleInputArgs(): string[] {
 }
 
 /** The full argv for pulling one embedded subtitle stream out as WebVTT. */
-export function buildSubtitleExtractArgs(sourceUrl: string, streamIndex: number): string[] {
+export function buildSubtitleExtractArgs(
+  sourceUrl: string,
+  streamIndex: number,
+  windowStartSec = 0,
+): string[] {
   return [
     "-hide_banner",
     "-loglevel", "error",
     "-nostdin",
     ...subtitleInputArgs(),
+    ...(windowStartSec > 0 ? ["-ss", String(windowStartSec)] : []),
     "-i", sourceUrl,
+    "-t", String(SUBTITLE_WINDOW_DURATION_SECONDS),
     // Explicit map, for the same reason session.ts maps explicitly: default
     // stream selection would pick one subtitle track of its own choosing and
     // silently ignore which one was asked for.
@@ -184,7 +219,19 @@ export function buildSubtitleExtractArgs(sourceUrl: string, streamIndex: number)
   ];
 }
 
-function runFfmpeg(args: string[], timeoutMs: number): Promise<ExtractOutcome> {
+function runFfmpegNow(
+  args: string[],
+  timeoutMs: number,
+  allowEmpty: boolean,
+  signal?: AbortSignal,
+): Promise<ExtractOutcome> {
+  if (signal?.aborted) {
+    return Promise.resolve({
+      ok: false,
+      error: "aborted",
+      message: "subtitle extraction was canceled",
+    });
+  }
   let ffmpeg: string;
   try {
     ffmpeg = resolveFfmpegPath();
@@ -207,8 +254,23 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<ExtractOutcome> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
       resolve(outcome);
     };
+
+    const abort = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+      finish({
+        ok: false,
+        error: "aborted",
+        message: "subtitle extraction was canceled",
+      });
+    };
+    signal?.addEventListener("abort", abort, { once: true });
 
     const timer = setTimeout(() => {
       try {
@@ -253,6 +315,10 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<ExtractOutcome> {
         finish({ ok: true, vtt, cached: false });
         return;
       }
+      if (code === 0 && allowEmpty) {
+        finish({ ok: true, vtt: vtt.trim() ? vtt : "WEBVTT\n\n", cached: false });
+        return;
+      }
       if (code === 0) {
         finish({
           ok: false,
@@ -270,6 +336,122 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<ExtractOutcome> {
   });
 }
 
+function releaseSubtitleJob(): void {
+  activeSubtitleJobs = Math.max(0, activeSubtitleJobs - 1);
+  for (;;) {
+    const next = queuedSubtitleJobs.shift();
+    if (!next) return;
+    if (next.signal?.aborted) continue;
+    next.start();
+    return;
+  }
+}
+
+function runFfmpeg(
+  args: string[],
+  timeoutMs: number,
+  allowEmpty = false,
+  signal?: AbortSignal,
+  priority: "foreground" | "prefetch" = "foreground",
+): Promise<ExtractOutcome> {
+  if (signal?.aborted) {
+    return Promise.resolve({
+      ok: false,
+      error: "aborted",
+      message: "subtitle extraction was canceled",
+    });
+  }
+  if (
+    activeSubtitleJobs >= MAX_CONCURRENT_SUBTITLE_JOBS &&
+    queuedSubtitleJobs.length >= MAX_QUEUED_SUBTITLE_JOBS
+  ) {
+    return Promise.resolve({
+      ok: false,
+      error: "failed",
+      message: "subtitle extraction queue is full",
+    });
+  }
+
+  return new Promise<ExtractOutcome>((resolve) => {
+    let queued = false;
+    const abortQueued = () => {
+      if (!queued) return;
+      const index = queuedSubtitleJobs.findIndex((job) => job.start === start);
+      if (index >= 0) queuedSubtitleJobs.splice(index, 1);
+      queued = false;
+      resolve({
+        ok: false,
+        error: "aborted",
+        message: "subtitle extraction was canceled",
+      });
+    };
+    const start = () => {
+      queued = false;
+      signal?.removeEventListener("abort", abortQueued);
+      activeSubtitleJobs += 1;
+      void runFfmpegNow(args, timeoutMs, allowEmpty, signal)
+        .then(resolve)
+        .finally(releaseSubtitleJob);
+    };
+    if (activeSubtitleJobs < MAX_CONCURRENT_SUBTITLE_JOBS) start();
+    else {
+      queued = true;
+      const job = { start, signal, priority };
+      const firstPrefetch = queuedSubtitleJobs.findIndex(
+        (queuedJob) => queuedJob.priority === "prefetch",
+      );
+      if (priority === "foreground" && firstPrefetch >= 0) {
+        queuedSubtitleJobs.splice(firstPrefetch, 0, job);
+      } else {
+        queuedSubtitleJobs.push(job);
+      }
+      signal?.addEventListener("abort", abortQueued, { once: true });
+    }
+  });
+}
+
+function consumeExtraction(
+  entry: InFlightExtraction,
+  signal?: AbortSignal,
+  consumerId = "anonymous",
+): Promise<ExtractOutcome> {
+  const consumer = Symbol(consumerId);
+  const bucket = entry.consumers.get(consumerId) ?? new Map();
+  entry.consumers.set(consumerId, bucket);
+
+  return new Promise<ExtractOutcome>((resolve) => {
+    let finished = false;
+    const release = () => {
+      bucket.delete(consumer);
+      if (bucket.size === 0) entry.consumers.delete(consumerId);
+      if (!entry.settled && entry.consumers.size === 0) {
+        entry.controller.abort();
+      }
+    };
+    const settle = (outcome: ExtractOutcome) => {
+      if (finished) return;
+      finished = true;
+      signal?.removeEventListener("abort", abort);
+      release();
+      resolve(outcome);
+    };
+    const abort = () =>
+      settle({
+        ok: false,
+        error: "aborted",
+        message: "subtitle extraction was canceled",
+      });
+    bucket.set(consumer, abort);
+
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+    void entry.promise.then(settle);
+  });
+}
+
 /**
  * Extract one embedded subtitle stream as WebVTT, cached on disk.
  *
@@ -281,26 +463,72 @@ export async function extractEmbeddedSubtitle(input: {
   filePath: string;
   streamIndex: number;
   sourceUrl: string;
+  windowStartSec?: number;
+  signal?: AbortSignal;
+  consumerId?: string;
+  priority?: "foreground" | "prefetch";
   timeoutMs?: number;
 }): Promise<ExtractOutcome> {
+  if (input.signal?.aborted) {
+    return {
+      ok: false,
+      error: "aborted",
+      message: "subtitle extraction was canceled",
+    };
+  }
   const trackId = `embedded:${input.streamIndex}`;
-  const file = cacheFile(input.infoHash, input.filePath, trackId);
+  const windowStartSec = Math.max(0, input.windowStartSec ?? 0);
+  const file = cacheFile(input.infoHash, input.filePath, trackId, windowStartSec);
   const cached = readCache(file);
   if (cached) return { ok: true, vtt: cached, cached: true };
 
   const existing = inFlight.get(file);
-  if (existing) return existing;
+  if (existing) {
+    return consumeExtraction(existing, input.signal, input.consumerId);
+  }
 
+  const controller = new AbortController();
   const work = runFfmpeg(
-    buildSubtitleExtractArgs(input.sourceUrl, input.streamIndex),
+    buildSubtitleExtractArgs(input.sourceUrl, input.streamIndex, windowStartSec),
     input.timeoutMs ?? EXTRACT_TIMEOUT_MS,
+    true,
+    controller.signal,
+    input.priority,
   ).then((outcome) => {
     if (outcome.ok) writeCache(file, outcome.vtt);
+    const entry = inFlight.get(file);
+    if (entry) entry.settled = true;
     inFlight.delete(file);
     return outcome;
   });
-  inFlight.set(file, work);
-  return work;
+  const entry: InFlightExtraction = {
+    controller,
+    promise: work,
+    consumers: new Map(),
+    settled: false,
+  };
+  inFlight.set(file, entry);
+  return consumeExtraction(entry, input.signal, input.consumerId);
+}
+
+export function cancelEmbeddedSubtitle(input: {
+  infoHash: string;
+  filePath: string;
+  streamIndex: number;
+  windowStartSec?: number;
+  consumerId: string;
+}): boolean {
+  const file = cacheFile(
+    input.infoHash,
+    input.filePath,
+    `embedded:${input.streamIndex}`,
+    Math.max(0, input.windowStartSec ?? 0),
+  );
+  const entry = inFlight.get(file);
+  const consumers = entry?.consumers.get(input.consumerId);
+  if (!consumers?.size) return false;
+  for (const cancel of [...consumers.values()]) cancel();
+  return true;
 }
 
 /**
@@ -368,11 +596,15 @@ export function readCachedSubtitle(
   infoHash: string,
   filePath: string,
   trackId: string,
+  windowStartSec = 0,
 ): string | null {
-  return readCache(cacheFile(infoHash, filePath, trackId));
+  return readCache(cacheFile(infoHash, filePath, trackId, windowStartSec));
 }
 
 /** Test seam — the in-flight map would otherwise leak between cases. */
 export function resetSubtitleExtractionForTests(): void {
+  for (const entry of inFlight.values()) entry.controller.abort();
   inFlight.clear();
+  queuedSubtitleJobs.length = 0;
+  activeSubtitleJobs = 0;
 }

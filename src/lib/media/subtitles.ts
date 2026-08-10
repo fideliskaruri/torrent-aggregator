@@ -453,10 +453,27 @@ export function subtitleTrackSrc(
   videoPath: string,
   trackId: string,
   offsetSec = 0,
+  windowStartSec = 0,
+  consumerId?: string,
 ): string {
   const params = new URLSearchParams({ filePath: videoPath, track: trackId });
   if (offsetSec > 0) params.set("offset", String(Math.round(offsetSec * 1000) / 1000));
+  if (windowStartSec > 0) {
+    params.set("start", String(Math.round(windowStartSec * 1000) / 1000));
+  }
+  if (consumerId) params.set("consumer", consumerId);
   return `/api/subtitles/${encodeURIComponent(infoHash)}?${params.toString()}`;
+}
+
+export const SUBTITLE_WINDOW_STRIDE_SECONDS = 8 * 60;
+export const SUBTITLE_WINDOW_DURATION_SECONDS = 10 * 60;
+
+export function subtitleWindowStart(sourceTimeSec: number): number {
+  if (!Number.isFinite(sourceTimeSec) || sourceTimeSec <= 0) return 0;
+  return (
+    Math.floor(sourceTimeSec / SUBTITLE_WINDOW_STRIDE_SECONDS) *
+    SUBTITLE_WINDOW_STRIDE_SECONDS
+  );
 }
 
 /** URL for the track list of a file. */

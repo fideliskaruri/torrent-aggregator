@@ -21,6 +21,9 @@ export interface ClientTorrent {
   category?: string;
   savePath?: string | null;
   retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+  ownerClientType: "qbittorrent" | "transmission" | "builtin";
+  ownerClientLabel: string;
+  transferId: string;
 }
 
 /**

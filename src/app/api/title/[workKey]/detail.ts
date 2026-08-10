@@ -76,7 +76,6 @@ import {
 import type {
   TitleDetailPayload,
   TitleEpisode,
-  TitleEpisodeTransfer,
   TitleSeason,
 } from "@/components/title/types";
 import { resolveTitleIntent } from "@/components/title/title-intent";
@@ -1036,21 +1035,10 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
       transfer?.infoHash && local && (local.isPack || local.isMultiSeason),
     );
 
-    // Pack coverage. A completed covering pack holds this episode's file, so it
-    // makes the row playable (ready + the pack hash + the mapped file) and its
-    // Download becomes a tick. It wins over the episode's *own incomplete* grab:
-    // downloading one episode and then the whole season leaves that single
-    // redundant, and the finished pack is the file that actually exists — so a
-    // stuck "looking for peers" single must not keep the row spinning when the
-    // pack already delivered it. Only the episode's own *completed* file (a
-    // downloaded transfer or a local file) ties the pack and is kept as-is. A
-    // pack still downloading holds no file yet, so it only marks the row
-    // covered-in-flight, and never over an episode's own acquisition.
-    // Only the episode's own *complete* file ties the pack. `state` already is
-    // the episode's own availability (downloaded transfer or a real local
-    // file); a stuck single grab that has fetched nothing yet is a `local`
-    // release but not a file, so testing `local != null` here wrongly kept the
-    // row spinning. A ready pack supersedes any own-incomplete state.
+    // Pack coverage only makes the row playable. It does not invent an
+    // episode transfer, because the card must report the episode's own torrent
+    // or file transfer only — a season pack's file is real, but the transfer
+    // belongs to the season scope, not to each child episode.
     const ownComplete = state === "ready";
     const cover = input.packCoverage.get(episode);
     if (!ownComplete && cover) {
@@ -1058,15 +1046,6 @@ export function buildEpisodes(input: EpisodeBuildInput): TitleEpisode[] {
       infoHash = cover.infoHash;
       filePath = cover.filePath;
       fromPack = true;
-      // Present the row as downloaded via the pack; the redundant single grab
-      // falls away from the display (Downloaded, not "downloading 0%").
-      transfer = {
-        status: "downloaded",
-        progress: 1,
-        infoHash: cover.infoHash,
-        filePath: cover.filePath,
-        error: null,
-      };
     }
 
     // A season download grabs each episode as its own release but writes no
@@ -1334,7 +1313,7 @@ function releasesForWork(
   for (const result of response.results ?? []) {
     const identity = workIdentityFor(result.title, result.metadata ?? null);
     if (!workKeyMatches(workKey, identity.name, identity.year)) continue;
-    const ep = result.episode ?? parseEpisode(result.title);
+    const ep = currentEpisodeEvidence(result);
     out.push({
       season: ep.season ?? null,
       episode: ep.episode ?? null,
@@ -1343,6 +1322,16 @@ function releasesForWork(
     });
   }
   return out;
+}
+
+export function currentEpisodeEvidence(
+  result: Pick<SearchResponse["results"][number], "title" | "episode">,
+) {
+  // SearchCache persists parser output. Reusing that object after parser fixes
+  // lets old false positives (for example, "300 Years" as episode 300) poison
+  // the title page until the cache expires. Reparse the immutable release name
+  // with the current rules instead.
+  return parseEpisode(result.title);
 }
 
 // ---------------------------------------------------------------------------

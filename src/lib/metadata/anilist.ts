@@ -38,6 +38,10 @@ query ($search: String, $perPage: Int) {
       }
       genres
       format
+      episodes
+      nextAiringEpisode {
+        episode
+      }
     }
   }
 }
@@ -67,12 +71,58 @@ interface AniListMedia {
   startDate?: { year?: number | null; month?: number | null; day?: number | null };
   genres?: string[] | null;
   format?: AniListFormat | null;
+  /** Total episode count when AniList knows it; null while a show is airing. */
+  episodes?: number | null;
+  /** The next episode due to air — `episode` is the *upcoming* number. */
+  nextAiringEpisode?: { episode?: number | null } | null;
 }
 
 export interface AniListWork {
   metadata: MediaMetadata;
   format: AniListFormat | null;
   isSeries: boolean;
+  /**
+   * How many episodes this AniList work honestly has, or null when AniList
+   * does not say. Never guessed: a finished series reports `episodes`, an
+   * airing one reports only what has already aired (`nextAiringEpisode` minus
+   * the episode still to come). Anything else stays null so the title page
+   * shows no episode list rather than an invented one.
+   */
+  episodeCount: number | null;
+}
+
+/** Largest episode count AniList could plausibly report for one work. */
+const MAX_ANILIST_EPISODES = 5000;
+
+/**
+ * The honest episode count for an AniList work.
+ *
+ * `episodes` is authoritative when present. While a series is still airing it
+ * is null, and the only truthful number available is how many episodes have
+ * already aired — `nextAiringEpisode.episode - 1`. Neither value is ever
+ * extrapolated, and an implausible number is treated as no answer at all.
+ */
+export function anilistEpisodeCount(
+  media: Pick<AniListMedia, "episodes" | "nextAiringEpisode">,
+): number | null {
+  const total = media.episodes;
+  if (isPlausibleEpisodeCount(total)) return total;
+
+  const next = media.nextAiringEpisode?.episode;
+  if (typeof next === "number" && Number.isInteger(next) && next > 1) {
+    const aired = next - 1;
+    if (isPlausibleEpisodeCount(aired)) return aired;
+  }
+  return null;
+}
+
+function isPlausibleEpisodeCount(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_ANILIST_EPISODES
+  );
 }
 
 /**
@@ -96,6 +146,7 @@ export async function searchAniListWorks(
     metadata: mapAniList(item),
     format: item.format ?? null,
     isSeries: isAniListSeriesFormat(item.format),
+    episodeCount: anilistEpisodeCount(item),
   }));
 }
 
@@ -174,6 +225,8 @@ export async function getAniListWorkById(id: string): Promise<AniListWork | null
         startDate { year month day }
         genres
         format
+        episodes
+        nextAiringEpisode { episode }
       }
     }
   `;
@@ -194,6 +247,7 @@ export async function getAniListWorkById(id: string): Promise<AniListWork | null
         metadata: mapAniList(media),
         format: media.format ?? null,
         isSeries: isAniListSeriesFormat(media.format),
+        episodeCount: anilistEpisodeCount(media),
       }
     : null;
 }

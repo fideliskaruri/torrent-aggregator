@@ -83,6 +83,10 @@ import {
   SkeletonBlock,
 } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
+import {
+  mergeOwnedTransferSnapshots,
+} from "@/lib/clients/transfer-ownership";
+import type { TorrentClientType } from "@/lib/clients";
 
 type StatusFilter = "all" | "active" | "downloading" | "ready" | "paused";
 
@@ -163,6 +167,13 @@ export default function ClientPage() {
         host?: string;
         hasExternal?: boolean;
         externalClientType?: string | null;
+        partial?: boolean;
+        clientIssues?: Array<{
+          clientType: TorrentClientType;
+          label: string;
+          message: string;
+          offline: boolean;
+        }>;
       } = {};
       try {
         data = text ? (JSON.parse(text) as typeof data) : {};
@@ -188,6 +199,28 @@ export default function ClientPage() {
       }
 
       const isBuiltin = type === "builtin";
+
+      if (data.partial && data.clientIssues?.length) {
+        const unavailable = data.clientIssues.map((issue) => issue.clientType);
+        const warning = data.clientIssues
+          .map((issue) => issue.message)
+          .join(" ");
+        commit(() =>
+          setSnapshot((prev) =>
+            applySnapshot(prev, {
+              ok: false,
+              offline: false,
+              torrents: mergeOwnedTransferSnapshots(
+                prev.torrents,
+                data.torrents ?? [],
+                unavailable,
+              ),
+              error: warning,
+            }),
+          ),
+        );
+        return;
+      }
 
       if (!res.ok || data.offline) {
         // Offline framing is only for external clients (qBit/Transmission down).
@@ -320,7 +353,7 @@ export default function ClientPage() {
   // `selected` set and can check episodes the page's filters hide, so counting
   // is not membership — see `snapshot-sync.ts`.
   const allVisibleSelected = useMemo(
-    () => areAllVisibleSelected(filtered.map((t) => t.hash), selected),
+    () => areAllVisibleSelected(filtered.map((t) => t.transferId), selected),
     [filtered, selected],
   );
 
@@ -392,7 +425,7 @@ export default function ClientPage() {
         !(e.target instanceof HTMLTextAreaElement)
       ) {
         e.preventDefault();
-        const targets = torrents.filter((t) => selected.has(t.hash));
+        const targets = torrents.filter((t) => selected.has(t.transferId));
         if (targets.length) setPendingDelete(targets);
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
@@ -400,7 +433,7 @@ export default function ClientPage() {
         e.preventDefault();
         setSelected((prev) => {
           const next = new Set(prev);
-          for (const t of filtered) next.add(t.hash);
+          for (const t of filtered) next.add(t.transferId);
           return next;
         });
       }
@@ -427,44 +460,58 @@ export default function ClientPage() {
     return { downloading, ready, paused, dlspeed, upspeed, total };
   }, [downloadable]);
 
-  async function action(act: "pause" | "resume", hash: string) {
+  async function action(act: "pause" | "resume", torrent: ClientTorrent) {
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
     invalidateInFlight();
     await fetch("/api/client/torrents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: act, hash }),
+      body: JSON.stringify({
+        action: act,
+        hash: torrent.hash,
+        ownerClientType: torrent.ownerClientType,
+      }),
     });
     void load();
     setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
   }
 
-  async function actionMany(act: "pause" | "resume", hashes: string[]) {
-    if (!hashes.length) return;
+  async function actionMany(
+    act: "pause" | "resume",
+    transfers: ClientTorrent[],
+  ) {
+    if (!transfers.length) return;
     invalidateInFlight();
     await Promise.all(
-      hashes.map((hash) =>
+      transfers.map((torrent) =>
         fetch("/api/client/torrents", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: act, hash }),
+          body: JSON.stringify({
+            action: act,
+            hash: torrent.hash,
+            ownerClientType: torrent.ownerClientType,
+          }),
         }),
       ),
     );
     toast.success(
       act === "pause"
-        ? `Paused ${hashes.length} torrent(s)`
-        : `Resumed ${hashes.length} torrent(s)`,
+        ? `Paused ${transfers.length} torrent(s)`
+        : `Resumed ${transfers.length} torrent(s)`,
     );
     setAnnouncement(
-      `${act === "pause" ? "Paused" : "Resumed"} ${hashes.length} downloads.`,
+      `${act === "pause" ? "Paused" : "Resumed"} ${transfers.length} downloads.`,
     );
     void load();
   }
 
   async function bulkAction(act: "pause" | "resume") {
-    await actionMany(act, [...selected]);
+    await actionMany(
+      act,
+      torrents.filter((torrent) => selected.has(torrent.transferId)),
+    );
   }
 
   async function confirmDelete(deleteFiles: boolean) {
@@ -482,6 +529,7 @@ export default function ClientPage() {
             body: JSON.stringify({
               action: "delete",
               hash: t.hash,
+              ownerClientType: t.ownerClientType,
               deleteFiles,
             }),
           });
@@ -529,7 +577,7 @@ export default function ClientPage() {
   }
 
   async function openDownloadFolder(t: ClientTorrent) {
-    setOpeningHash(t.hash);
+    setOpeningHash(t.transferId);
     try {
       const res = await fetch("/api/settings/open-folder", {
         method: "POST",
@@ -605,11 +653,11 @@ export default function ClientPage() {
     }
   }
 
-  function toggleSelect(hash: string, additive: boolean) {
+  function toggleSelect(transferId: string, additive: boolean) {
     setSelected((prev) => {
       const next = new Set(additive ? prev : []);
-      if (prev.has(hash) && additive) next.delete(hash);
-      else next.add(hash);
+      if (prev.has(transferId) && additive) next.delete(transferId);
+      else next.add(transferId);
       return next;
     });
   }
@@ -621,13 +669,13 @@ export default function ClientPage() {
    * bar's Pause, Resume and Delete can act on a whole show at once, and a
    * half-selected show would make "Delete" ambiguous about what it is deleting.
    */
-  function toggleGroupSelect(hashes: string[]) {
+  function toggleGroupSelect(transferIds: string[]) {
     setSelected((prev) => {
       const next = new Set(prev);
-      const all = hashes.every((hash) => next.has(hash));
-      for (const hash of hashes) {
-        if (all) next.delete(hash);
-        else next.add(hash);
+      const all = transferIds.every((transferId) => next.has(transferId));
+      for (const transferId of transferIds) {
+        if (all) next.delete(transferId);
+        else next.add(transferId);
       }
       return next;
     });
@@ -645,7 +693,12 @@ export default function ClientPage() {
     // Visible-row membership, not a count comparison against `filtered`: the
     // series dialog writes into this same set from rows the page's filters
     // hide, so equal counts prove nothing about what is checked on screen.
-    setSelected((prev) => toggleVisibleSelection(filtered.map((t) => t.hash), prev));
+    setSelected((prev) =>
+      toggleVisibleSelection(
+        filtered.map((t) => t.transferId),
+        prev,
+      ),
+    );
   }
 
   function openSeriesDialog(key: string, opener?: EventTarget | null) {
@@ -963,7 +1016,7 @@ export default function ClientPage() {
                 variant="destructive"
                 onClick={(event) =>
                   openDeleteDialog(
-                    torrents.filter((t) => selected.has(t.hash)),
+                    torrents.filter((t) => selected.has(t.transferId)),
                     event.currentTarget,
                   )
                 }
@@ -1048,7 +1101,9 @@ export default function ClientPage() {
                         selected={selected}
                         onToggleGroupSelect={toggleGroupSelect}
                         onOpenDetails={openSeriesDialog}
-                        onActionMany={(act, hashes) => void actionMany(act, hashes)}
+                        onActionMany={(act, transfers) =>
+                          void actionMany(act, transfers)
+                        }
                         onDeleteRequest={openDeleteDialog}
                       />
                     );
@@ -1056,10 +1111,9 @@ export default function ClientPage() {
                   const t = group.torrent;
                   return (
                     <FilmRow
-                      key={t.hash}
+                      key={t.transferId}
                       torrent={t}
-                      isBuiltin={isBuiltin}
-                      isSelected={selected.has(t.hash)}
+                      isSelected={selected.has(t.transferId)}
                       openingHash={openingHash}
                       artwork={artwork}
                       onToggleSelect={toggleSelect}
@@ -1071,7 +1125,7 @@ export default function ClientPage() {
                           episode: payload.episode,
                         })
                       }
-                      onAction={(act, hash) => void action(act, hash)}
+                      onAction={(act, torrent) => void action(act, torrent)}
                       onOpenFolder={(torrent) => void openDownloadFolder(torrent)}
                       onCopyStreamUrl={(torrent) => void copyStreamUrl(torrent)}
                       onDeleteRequest={openDeleteDialog}
@@ -1098,7 +1152,6 @@ export default function ClientPage() {
           onOpenChange={(next) => {
             if (!next) closeSeriesDialog();
           }}
-          isBuiltin={isBuiltin}
           titleHref={titleHrefForName(openGroup.torrents[0].name, {
             mediaType: openGroup.torrents[0].category,
           })}
@@ -1109,8 +1162,8 @@ export default function ClientPage() {
           onToggleSelect={toggleSelect}
           openingHash={openingHash}
           onPlay={playFromDialog}
-          onAction={(act, hash) => void action(act, hash)}
-          onActionMany={(act, hashes) => void actionMany(act, hashes)}
+          onAction={(act, torrent) => void action(act, torrent)}
+          onActionMany={(act, transfers) => void actionMany(act, transfers)}
           onOpenFolder={(t) => void openDownloadFolder(t)}
           onCopyStreamUrl={(t) => void copyStreamUrl(t)}
           onDeleteRequest={openDeleteDialog}
@@ -1153,7 +1206,12 @@ export default function ClientPage() {
                   {pendingDelete && pendingDelete.length > 1
                     ? "them"
                     : "it"}{" "}
-                  from {clientType || "your client"}.
+                  from{" "}
+                  {pendingDelete
+                    ? [...new Set(pendingDelete.map((t) => t.ownerClientLabel))].join(
+                        " and ",
+                      )
+                    : "its client"}.
                 </p>
                 {pendingDelete?.[0] ? (
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 space-y-1">
@@ -1234,17 +1292,19 @@ function SeriesOverviewRow({
   group: SeriesGroup<ClientTorrent>;
   artwork: ReturnType<typeof useReleaseArtwork>;
   selected: Set<string>;
-  onToggleGroupSelect: (hashes: string[]) => void;
+  onToggleGroupSelect: (transferIds: string[]) => void;
   onOpenDetails: (key: string, opener?: EventTarget | null) => void;
-  onActionMany: (act: "pause" | "resume", hashes: string[]) => void;
+  onActionMany: (act: "pause" | "resume", transfers: ClientTorrent[]) => void;
   onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
 }) {
   const pct = progressPercent(group.progress);
   const head = group.torrents[0];
   const query = artworkQueryForRelease(head.name, head.category);
   const art = artwork[query.key];
-  const hashes = group.torrents.map((t) => t.hash);
-  const allSelected = hashes.length > 0 && hashes.every((h) => selected.has(h));
+  const transferIds = group.torrents.map((t) => t.transferId);
+  const allSelected =
+    transferIds.length > 0 &&
+    transferIds.every((transferId) => selected.has(transferId));
   const barTone = isDownloaded(group.state)
     ? "bg-[var(--success)]"
     : isPaused(group.state)
@@ -1263,7 +1323,7 @@ function SeriesOverviewRow({
     >
       <Checkbox
         checked={allSelected}
-        onCheckedChange={() => onToggleGroupSelect(hashes)}
+        onCheckedChange={() => onToggleGroupSelect(transferIds)}
         aria-label={`Select all of ${group.title}`}
         className="shrink-0"
       />
@@ -1358,14 +1418,14 @@ function SeriesOverviewRow({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem
-              onClick={() => onActionMany("pause", hashes)}
+              onClick={() => onActionMany("pause", group.torrents)}
               className="min-h-[44px] lg:min-h-0"
             >
               <Pause />
               Pause all
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => onActionMany("resume", hashes)}
+              onClick={() => onActionMany("resume", group.torrents)}
               className="min-h-[44px] lg:min-h-0"
             >
               <Play />
@@ -1395,7 +1455,6 @@ function SeriesOverviewRow({
  */
 function FilmRow({
   torrent: t,
-  isBuiltin,
   isSelected,
   openingHash,
   artwork,
@@ -1407,7 +1466,6 @@ function FilmRow({
   onDeleteRequest,
 }: {
   torrent: ClientTorrent;
-  isBuiltin: boolean;
   isSelected: boolean;
   openingHash: string | null;
   artwork: ReturnType<typeof useReleaseArtwork>;
@@ -1418,7 +1476,7 @@ function FilmRow({
     season: number | null;
     episode: number | null;
   }) => void;
-  onAction: (act: "pause" | "resume", hash: string) => void;
+  onAction: (act: "pause" | "resume", torrent: ClientTorrent) => void;
   onOpenFolder: (t: ClientTorrent) => void;
   onCopyStreamUrl: (t: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
@@ -1434,6 +1492,7 @@ function FilmRow({
       ? "bg-[var(--text-tertiary)]"
       : "bg-[var(--primary)]";
   const titleHref = titleHrefForName(t.name, { mediaType: t.category });
+  const isBuiltin = t.ownerClientType === "builtin";
 
   return (
     <div
@@ -1447,6 +1506,7 @@ function FilmRow({
       aria-pressed={isSelected}
       aria-label={`${isSelected ? "Deselect" : "Select"} ${display.title}`}
       data-hash={t.hash}
+      data-owner-client={t.ownerClientType}
       data-retention={t.retentionState}
       onClick={(e) => {
         if (
@@ -1458,20 +1518,20 @@ function FilmRow({
         ) {
           return;
         }
-        onToggleSelect(t.hash, e.ctrlKey || e.metaKey || e.shiftKey);
+        onToggleSelect(t.transferId, e.ctrlKey || e.metaKey || e.shiftKey);
       }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onToggleSelect(t.hash, e.ctrlKey || e.metaKey || e.shiftKey);
+          onToggleSelect(t.transferId, e.ctrlKey || e.metaKey || e.shiftKey);
         }
       }}
     >
       <div className="flex items-center gap-2 sm:contents">
         <Checkbox
           checked={isSelected}
-          onCheckedChange={() => onToggleSelect(t.hash, true)}
+          onCheckedChange={() => onToggleSelect(t.transferId, true)}
           aria-label={`Select ${display.title}`}
           className="shrink-0"
         />
@@ -1610,6 +1670,7 @@ function FilmRow({
               {(() => {
                 const facts = [
                   sourceTierChip(t.name),
+                  t.ownerClientLabel,
                   t.category,
                   t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
                 ].filter(Boolean);
@@ -1633,23 +1694,23 @@ function FilmRow({
             ) : null}
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
-              disabled={openingHash === t.hash}
+              disabled={openingHash === t.transferId}
               data-open-folder
               className="min-h-[44px] lg:min-h-0"
             >
-              {openingHash === t.hash ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
+              {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
               Open folder
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onClick={() => onAction("pause", t.hash)}
+              onClick={() => onAction("pause", t)}
               className="min-h-[44px] lg:min-h-0"
             >
               <Pause />
               Pause
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => onAction("resume", t.hash)}
+              onClick={() => onAction("resume", t)}
               className="min-h-[44px] lg:min-h-0"
             >
               <Play />

@@ -322,6 +322,11 @@ export interface TitleGrabRequest {
   title?: string | null;
   mediaType?: string | null;
   year?: number | null;
+  /** Provider identity hints re-verified by the server before acquisition. */
+  provider?: string | null;
+  providerId?: string | null;
+  sourceType?: string | null;
+  format?: string | null;
   /**
    * The owner saw the real figures and chose to exceed their own storage cap.
    * Only the cap can be overridden this way — the free-space floor cannot.

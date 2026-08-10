@@ -6,6 +6,9 @@ import {
   completionSweepCounters,
   completionSweepNoticedHashes,
   COMPLETION_SWEEP_OWNER_RETRY_MS,
+  COMPLETION_SWEEP_PARK_BUDGET,
+  COMPLETION_SWEEP_TRACKED_HASH_LIMIT,
+  decideCompletionParkingAdmission,
   decideCompletionSweep,
   resetCompletionSweepCountersForTests,
   runCompletionSweep,
@@ -90,6 +93,31 @@ function deps(w: World, torrents: FakeTorrent[]): CompletionSweepDeps<FakeTorren
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 async function main(): Promise<void> {
+  assert.equal(
+    decideCompletionParkingAdmission({
+      leases: 1,
+      activeParking: 0,
+    }),
+    "leased",
+    "an active stream lease blocks even the first completion finalizer",
+  );
+  assert.equal(
+    decideCompletionParkingAdmission({
+      leases: 0,
+      activeParking: COMPLETION_SWEEP_PARK_BUDGET,
+    }),
+    "capacity",
+    "slow finalizers cannot accumulate beyond the global parking cap",
+  );
+  assert.equal(
+    decideCompletionParkingAdmission({
+      leases: 0,
+      activeParking: COMPLETION_SWEEP_PARK_BUDGET - 1,
+    }),
+    "start",
+    "a free slot admits the next completed torrent",
+  );
+
   // --- decision precedence ---------------------------------------------------
 
   assert.equal(
@@ -218,6 +246,15 @@ async function main(): Promise<void> {
     assert.equal(stats.parkAttempted, 0, "no park is attempted while a reader holds it");
     assert.equal(t.quiesced, 0, "a leased torrent's selection is left untouched");
     assert.equal(w.parkCalls.length, 0, "park is never called for a leased torrent");
+
+    w.leases.delete("bb");
+    const afterRelease = runCompletionSweep(deps(w, [t]));
+    assert.equal(
+      afterRelease.parkAttempted,
+      1,
+      "the next periodic beat parks it after the final lease releases",
+    );
+    assert.equal(t.quiesced, 1, "quiescing happens only after playback is protected");
   }
 
   // --- playback / reselection safety: an incomplete stream is untouched ------
@@ -445,9 +482,23 @@ async function main(): Promise<void> {
       "deferred torrents are left completely untouched",
     );
 
-    const second = runCompletionSweep(d);
-    assert.equal(second.parkAttempted, 2, "the next beat drains the next two");
-    assert.equal(w.parkCalls.length, 4, "four parks in flight after two beats, not fifteen");
+    const second = runCompletionSweep({
+      ...d,
+      parkBudget: Math.max(
+        0,
+        COMPLETION_SWEEP_PARK_BUDGET - w.parking.size,
+      ),
+    });
+    assert.equal(
+      second.parkAttempted,
+      0,
+      "the next beat waits while both global parking slots are occupied",
+    );
+    assert.equal(
+      w.parkCalls.length,
+      2,
+      "hung finalizers stay capped across beats instead of growing forever",
+    );
   }
 
   // --- re-entrancy: a sweep started inside a sweep is refused --------------
@@ -612,6 +663,68 @@ async function main(): Promise<void> {
     );
   }
 
+  // --- process-lifetime diagnostics/retries stay bounded --------------------
+
+  {
+    await flush();
+    resetCompletionSweepCountersForTests();
+    const w = world();
+    for (let i = 0; i < COMPLETION_SWEEP_TRACKED_HASH_LIMIT + 3; i += 1) {
+      const hash = `bounded-notice-${i}`;
+      w.owners.set(hash, "user1");
+      runCompletionSweep(deps(w, [fake(hash)]));
+      await flush();
+    }
+    const hashes = completionSweepNoticedHashes();
+    assert.equal(
+      hashes.length,
+      COMPLETION_SWEEP_TRACKED_HASH_LIMIT,
+      "completion notices retain a fixed number of hashes",
+    );
+    assert.equal(
+      hashes.includes("bounded-notice-0"),
+      false,
+      "the oldest notice is evicted at capacity",
+    );
+    assert.equal(
+      hashes.includes(
+        `bounded-notice-${COMPLETION_SWEEP_TRACKED_HASH_LIMIT + 2}`,
+      ),
+      true,
+      "the newest notice remains observable",
+    );
+  }
+
+  {
+    resetCompletionSweepCountersForTests();
+    const w = world();
+    for (let i = 0; i < COMPLETION_SWEEP_TRACKED_HASH_LIMIT + 1; i += 1) {
+      runCompletionSweep(deps(w, [fake(`bounded-owner-${i}`)]));
+    }
+    const before = w.missingOwnerLookups.length;
+    runCompletionSweep(deps(w, [fake("bounded-owner-0")]));
+    assert.equal(
+      w.missingOwnerLookups.length,
+      before + 1,
+      "owner retry state evicts its oldest hash instead of growing forever",
+    );
+  }
+
+  {
+    resetCompletionSweepCountersForTests();
+    const w = world({
+      ownerLookupResult: () => new Promise<boolean>(() => {}),
+    });
+    for (let i = 0; i < COMPLETION_SWEEP_TRACKED_HASH_LIMIT + 1; i += 1) {
+      runCompletionSweep(deps(w, [fake(`in-flight-owner-${i}`)]));
+    }
+    assert.equal(
+      w.missingOwnerLookups.length,
+      COMPLETION_SWEEP_TRACKED_HASH_LIMIT,
+      "the retry-state bound also caps concurrent durable owner lookups",
+    );
+  }
+
   // --- wiring: the engine reuses the existing 5s beat, adds no timer ---------
 
   {
@@ -656,6 +769,11 @@ async function main(): Promise<void> {
       "the sweep honours both the in-flight park and the 30s retry backoff",
     );
     assert.equal(
+      sweepFn.includes("MAX_CONCURRENT_COMPLETION_PARKS - s.parking.size"),
+      true,
+      "the periodic beat budgets against all finalizers already in flight",
+    );
+    assert.equal(
       /releasePaths|destroyStore:\s*true|deleteMany|\.delete\(\{/.test(sweepFn),
       false,
       "the sweep deletes no files and no rows",
@@ -693,6 +811,17 @@ async function main(): Promise<void> {
       /status:\s*"downloaded"/.test(source),
       true,
       "the durable downloaded state the park writes is still there to regress from",
+    );
+    const parkFn = source.slice(
+      source.indexOf("async function persistAndParkCompletedTorrent"),
+      source.indexOf("function observeCompletion"),
+    );
+    assert.equal(
+      parkFn.includes("decideCompletionParkingAdmission") &&
+        parkFn.includes("s.streamLeases.get(hash)") &&
+        parkFn.includes("s.parking.size"),
+      true,
+      "event-driven parking shares the lease and global-capacity admission guard",
     );
   }
 

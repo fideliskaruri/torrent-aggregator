@@ -214,7 +214,8 @@ check("episode completion styling requires the downloaded state", () => {
 
 check("episode cards preserve selection, overflow actions and stable data hooks", () => {
   assert.match(dialogSource, /data-episode-card/);
-  assert.match(dialogSource, /onToggleSelect\(t\.hash, true\)/);
+  assert.match(dialogSource, /onToggleSelect\(t\.transferId, true\)/);
+  assert.match(dialogSource, /data-owner-client=\{t\.ownerClientType\}/);
   assert.match(dialogSource, /onCopyStreamUrl/);
   assert.match(dialogSource, /onOpenFolder/);
   assert.match(dialogSource, /data-episode-delete/);
@@ -223,7 +224,13 @@ check("episode cards preserve selection, overflow actions and stable data hooks"
 
 check("the dialog exposes a modal-scoped bulk action bar for multi-selected episodes", () => {
   assert.match(dialogSource, /data-dialog-bulk-bar/);
-  assert.match(dialogSource, /selectedHashesInGroup/);
+  assert.match(dialogSource, /selectedTransferIdsInGroup/);
+});
+
+check("row actions carry the verified owner identity back to the API", () => {
+  assert.match(source, /ownerClientType:\s*torrent\.ownerClientType/);
+  assert.match(source, /selected\.has\(t\.transferId\)/);
+  assert.match(source, /const isBuiltin = t\.ownerClientType === "builtin"/);
 });
 
 check("a failed poll cannot blank the list or fake a deletion", () => {

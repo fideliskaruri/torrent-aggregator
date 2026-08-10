@@ -278,17 +278,26 @@ for (const c of DIRECT_PLAY_CASES) {
   });
 }
 
-console.log("\n--- language hint: English-inclusive releases win comparable ties ---");
+console.log("\n--- language hint: English beats foreign-only; MULTi stays neutral ---");
 
-check("English-inclusive language hints beat foreign-sub-only hints inside a tie", () => {
+check("ambiguous MULTi and Japanese tags stay above foreign-only hints, while English still wins", () => {
   const ranked = rankResults(
     [
-      rel({ id: "foreign-subs", title: "Show S01E06 1080p WEBRip VOSTFR", seeders: 50 }),
-      rel({ id: "english", title: "Show S01E06 1080p WEB-DL DUAL AUDIO", seeders: 50 }),
+      rel({ id: "english", title: "Show S01E06 1080p WEB-DL DUAL AUDIO", seeders: 20 }),
+      rel({ id: "neutral-multi", title: "Show S01E06 1080p WEB-DL MULTi", seeders: 15 }),
+      rel({ id: "jpn", title: "Show S01E06 1080p WEB-DL JPN", seeders: 10 }),
+      rel({
+        id: "foreign-multi",
+        title: "Show S01E06 1080p WEB-DL MULTi VF/VOSTFR",
+        seeders: 100,
+      }),
     ],
     "Show",
   );
-  assert.deepEqual(ranked.map((r) => r.id), ["english", "foreign-subs"]);
+  assert.deepEqual(
+    ranked.map((r) => r.id),
+    ["english", "neutral-multi", "jpn", "foreign-multi"],
+  );
 });
 
 check("language hint does not override relevance", () => {
@@ -536,8 +545,11 @@ check("the score encoding never disagrees with the comparator", () => {
     rel({ title: "Show S01E01 480p WEB-DL", id: "c", seeders: 20000 }),
     rel({ title: "Show S01E01 2160p WEB-DL", id: "d", seeders: 400 }),
     rel({ title: "Show S01E01 1080p HDCAM", id: "e", seeders: 800 }),
+    rel({ title: "Show S01E01 1080p WEB-DL DUAL AUDIO", id: "g", seeders: 8 }),
+    rel({ title: "Show S01E01 1080p WEB-DL MULTi VF/VOSTFR", id: "h", seeders: 8 }),
     rel({ title: "[Erai-raws] Show - 01", id: "f", seeders: 60 }),
-    rel({ title: "Show S01E01 1080p WEB-DL", id: "g", seeders: 1 }),
+    rel({ title: "Show S01E01 1080p WEB-DL MULTi", id: "i", seeders: 8 }),
+    rel({ title: "Show S01E01 1080p WEB-DL", id: "j", seeders: 1 }),
   ];
   const ranked = rankResults(pool, "Show");
   for (let i = 1; i < ranked.length; i++) {

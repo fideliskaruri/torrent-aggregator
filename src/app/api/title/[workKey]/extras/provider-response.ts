@@ -1,14 +1,21 @@
 import type { TitleExtrasPayload } from "@/components/title/types";
 import type { TitleProviderIdentityResult } from "../provider-identity";
+import { providerEpisodePlaceholders } from "./episode-placeholders";
 
 /**
  * Resolve provider-carried requests without changing identity providers.
  *
  * AniList identifies anime safely and supplies work-level metadata, but this
- * app has no AniList episode-level catalog. Searching TMDB by title after an
- * AniList identity was selected could attach a similarly named work's seasons.
- * A verified series therefore returns its verified blurb with `resolved:false`:
- * the identity resolved, but the requested catalog shape did not.
+ * app has no AniList *episode* catalog — no episode titles, air dates or
+ * stills. Searching TMDB by title after an AniList identity was selected could
+ * attach a similarly named work's seasons, so that fallback stays forbidden.
+ *
+ * What AniList does supply is a verified episode *count* for the work. One
+ * AniList media id is one season by construction (a sequel season carries its
+ * own id), so a verified count is an honest Season 1 list of numbered
+ * episodes — the user can acquire episode 7 of 12 instead of facing a blank
+ * list. Nothing is invented: with no count the list stays empty and
+ * `resolved:false` still says "the identity resolved, the catalog did not".
  *
  * `null` means no provider identity was carried, so ordinary TMDB resolution
  * may proceed. Every other result is terminal.
@@ -34,9 +41,23 @@ export function providerExtrasResponse(
 
   if (result.kind !== "verified") return empty;
 
-  const metadata = result.identity.metadata;
+  const identity = result.identity;
+  const metadata = identity.metadata;
+  const season = anilistSeason(identity.isSeries, empty.season);
+  const hasCount = identity.isSeries && identity.episodeCount != null;
+  const episodes =
+    hasCount && season === 1
+      ? providerEpisodePlaceholders(1, { 1: identity.episodeCount as number })
+      : [];
+
   return {
     ...empty,
+    season,
+    // One AniList media id is one season; a sequel season is a separate work
+    // with its own id, so claiming more than one season here would be a guess.
+    seasonCount: hasCount ? 1 : null,
+    seasons: hasCount ? [1] : [],
+    episodes,
     overview: metadata.synopsis ?? null,
     rating: metadata.rating ?? null,
     releaseDate: metadata.releaseDate ?? null,
@@ -49,6 +70,21 @@ export function providerExtrasResponse(
     voteCount: null,
     certification: null,
     originalLanguage: null,
-    resolved: !result.identity.isSeries,
+    resolved: !identity.isSeries || episodes.length > 0,
   };
+}
+
+/**
+ * Which season this answer describes.
+ *
+ * A film has none. A verified AniList series has exactly one — season 1 — so a
+ * request for any other season is answered as itself with no episodes, never
+ * silently re-pointed at season 1's list.
+ */
+function anilistSeason(
+  isSeries: boolean,
+  requested: number | null,
+): number | null {
+  if (!isSeries) return null;
+  return requested == null || requested < 1 ? 1 : requested;
 }

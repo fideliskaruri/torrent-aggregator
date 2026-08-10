@@ -517,6 +517,53 @@ check("completed target renders a play card and a Downloaded control, not a thir
   assert.match(html, /lucide-check/, "a completed download shows a tick");
 });
 
+check("pack-covered episode stays playable but does not claim Downloaded", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      EpisodeList,
+      baseProps(
+        [
+          episode({
+            season: 2,
+            episode: 3,
+            label: "S02E03",
+            availability: "ready",
+            infoHash: "packhash",
+            filePath: "D:\\pack\\S02E03.mkv",
+            fromPack: true,
+          }),
+        ],
+        2,
+      ),
+    ),
+  );
+
+  assert.match(html, /data-action-kind="play"/);
+  assert.match(html, /aria-label="Play — S02E03"/);
+  assert.match(html, /aria-label="Download — S02E03"/);
+  assert.doesNotMatch(html, /aria-label="Downloaded — S02E03"/);
+});
+
+check("completed exact local episode cannot be downloaded twice", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(
+      EpisodeList,
+      baseProps([
+        episode({
+          availability: "ready",
+          infoHash: "exacthash",
+          filePath: "D:\\shows\\Show S01E01.mkv",
+          fromPack: false,
+          transfer: null,
+        }),
+      ]),
+    ),
+  );
+
+  assert.match(html, /aria-label="Downloaded — S01E01"[^>]*disabled=""/);
+  assert.doesNotMatch(html, /aria-label="Download — S01E01"/);
+});
+
 check("downloaded transfer without a hash still owns a disabled Downloaded control", () => {
   const html = renderToStaticMarkup(
     React.createElement(

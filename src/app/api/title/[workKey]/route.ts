@@ -18,6 +18,11 @@ import {
   validateAcquisitionScope,
 } from "./acquisition-target";
 import { resolveTitleProviderIdentity } from "./provider-identity";
+import {
+  resolveAcquisitionIdentity,
+  type AcquisitionIdentityRequest,
+} from "./acquisition-identity";
+import { SERIES_TITLE_SCOPE_MESSAGE } from "./grab";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +32,14 @@ type RouteParams = {
 
 type RouteContext = {
   params: RouteParams | Promise<RouteParams>;
+};
+
+type TitleMutationDeps = {
+  auth?: typeof auth;
+  buildTitleDetail?: typeof buildTitleDetail;
+  grabForTitle?: typeof grabForTitle;
+  grabSeasonForTitle?: typeof grabSeasonForTitle;
+  resolveAcquisitionIdentity?: typeof resolveAcquisitionIdentity;
 };
 
 export async function readTitleMutationBody(
@@ -120,7 +133,16 @@ export async function GET(request: Request, context: RouteContext) {
  * its own search query is a client that can grab the wrong film.
  */
 export async function POST(request: Request, context: RouteContext) {
-  const session = await auth();
+  return postTitleMutation(request, context);
+}
+
+export async function postTitleMutation(
+  request: Request,
+  context: RouteContext,
+  deps: TitleMutationDeps = {},
+) {
+  const authenticate = deps.auth ?? auth;
+  const session = await authenticate();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -143,6 +165,11 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
   const body = parsedBody.value;
+  const buildDetail = deps.buildTitleDetail ?? buildTitleDetail;
+  const resolveIdentity =
+    deps.resolveAcquisitionIdentity ?? resolveAcquisitionIdentity;
+  const grabTitle = deps.grabForTitle ?? grabForTitle;
+  const grabSeason = deps.grabSeasonForTitle ?? grabSeasonForTitle;
 
   const scope = validateAcquisitionScope(body);
   if (!scope.ok) {
@@ -184,13 +211,41 @@ export async function POST(request: Request, context: RouteContext) {
   const trackScopedTransfer = trackTransfer && scope.scope !== "season";
 
   try {
-    const detail = await buildTitleDetail({
+    // A claimed provider identity is re-verified against the provider before
+    // it may steer this download; the client's own metadata is never trusted.
+    // A forged or mismatched claim stops the acquisition outright rather than
+    // downloading whatever the mismatched id happens to name.
+    const claimed = await resolveIdentity(
+      body as AcquisitionIdentityRequest,
+      key,
+    );
+    if (claimed.kind === "invalid") {
+      return NextResponse.json(
+        { ok: false, message: claimed.reason },
+        { status: 400 },
+      );
+    }
+    const verifiedIdentity =
+      claimed.kind === "verified" ? claimed.identity : null;
+
+    const detail = await buildDetail({
       userId: session.user.id,
       workKey: key,
       title: body.title ?? null,
       year: body.year ?? null,
       mediaType: body.mediaType ?? null,
+      // Verified provider metadata supplies the title, year, media type and —
+      // the point of all this — the verified English/Romaji/native aliases the
+      // episode search needs (BUG-010).
+      providerIdentity: verifiedIdentity,
     });
+
+    if (scope.scope === "title" && detail.isSeries) {
+      return NextResponse.json(
+        { ok: false, message: SERIES_TITLE_SCOPE_MESSAGE },
+        { status: 409 },
+      );
+    }
 
     if (trackTransfer && scope.scope === "season") {
       await seedSeasonEpisodeTargets({
@@ -251,7 +306,7 @@ export async function POST(request: Request, context: RouteContext) {
       | TitleGrabResponse
       | Omit<TitleSeasonGrabResponse, "episodeTransfers">;
     if (scope.scope === "season") {
-      const seasonResult: TitleSeasonGrabResponse = await grabSeasonForTitle({
+      const seasonResult: TitleSeasonGrabResponse = await grabSeason({
         ...input,
         season: scope.season,
         episodes: body.episodes ?? [],
@@ -269,7 +324,7 @@ export async function POST(request: Request, context: RouteContext) {
         seasonResult;
       result = publicResult;
     } else {
-      result = await grabForTitle(input);
+      result = await grabTitle(input);
     }
 
     if (trackScopedTransfer) {

@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import {
   buildEpisodes,
   buildPackCoverage,
+  currentEpisodeEvidence,
   pickSeason,
   progressMatchesWork,
   resolveResume,
@@ -34,6 +35,23 @@ function check(name: string, fn: () => void) {
     console.error(`        ${err instanceof Error ? err.message : String(err)}`);
   }
 }
+
+check("cached episode evidence is reparsed after parser fixes", () => {
+  const episode = currentEpisodeEvidence({
+    title: "[matheousse] Slime 300 S1 MULTi VF/VOSTFR (BD 1080p AAC Opus)",
+    episode: {
+      season: 1,
+      episode: 300,
+      label: "S01 Ep 300",
+      isBatch: false,
+      isSeasonPack: false,
+      isMultiSeason: false,
+    },
+  });
+  assert.equal(episode.season, 1);
+  assert.equal(episode.episode, undefined);
+  assert.equal(episode.isSeasonPack, true);
+});
 
 // --- Factories --------------------------------------------------------------
 
@@ -437,7 +455,7 @@ check("buildPackCoverage: season pack wins over a multi-season pack", () => {
   assert.equal(coverage.get(3)?.filePath, "D:\\season\\Rick and Morty S02E03 SEASON.mkv");
 });
 
-check("buildEpisodes: a pack-covered episode becomes ready+Play, not Download", () => {
+check("buildEpisodes: a pack-covered episode stays playable but does not invent a transfer", () => {
   const rows = buildEpisodes(
     episodeInput({
       packCoverage: buildPackCoverage(
@@ -455,13 +473,14 @@ check("buildEpisodes: a pack-covered episode becomes ready+Play, not Download", 
     "D:\\RM S02\\Season 02\\Rick and Morty S02E03 Crewcoo (1080p BluRay).mkv",
   );
   assert.equal(e3?.fromPack, true);
+  assert.equal(e3?.transfer, null, "the pack must not masquerade as an episode transfer");
 });
 
-check("buildEpisodes: a ready pack supersedes an episode's stuck own grab", () => {
+check("buildEpisodes: a ready pack does not overwrite an episode's own stuck grab", () => {
   // Download one episode, then the whole season: the single is redundant and
   // may be stuck at 0% ("looking for peers") while the finished pack already
-  // holds its file. The pack must win so the row shows Downloaded, not a
-  // forever-spinning single.
+  // holds its file. The pack can make the row playable, but it must not
+  // pretend the episode's own transfer is finished.
   const rows = buildEpisodes(
     episodeInput({
       // E3 has its own in-flight grab that has fetched nothing (progress 0).
@@ -503,7 +522,7 @@ check("buildEpisodes: a ready pack supersedes an episode's stuck own grab", () =
   const e3 = rows.find((r) => r.episode === 3);
   assert.equal(e3?.availability, "ready", "the ready pack wins over the stuck single");
   assert.equal(e3?.infoHash, "packhash");
-  assert.equal(e3?.transfer?.status, "downloaded", "and the row reads as downloaded");
+  assert.equal(e3?.transfer?.status, "downloading", "the row keeps the exact episode transfer");
   assert.equal(e3?.fromPack, true);
 });
 

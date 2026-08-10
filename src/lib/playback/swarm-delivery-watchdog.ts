@@ -55,6 +55,7 @@ import type { ClientConnectionConfig } from "@/lib/clients/types";
 import { foregroundActive, foregroundHash } from "@/lib/prewarm/foreground";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { preRankKey, releaseInfoHash } from "@/lib/prewarm/prerank";
+import { meetsResolutionFloor } from "@/lib/torrents/quality";
 import type { TorrentResult } from "@/lib/torrents/types";
 import type { PreRankTarget } from "@/lib/prewarm/types";
 import { evaluateStall, type StallOptions, type StallVerdict, type TransferSample } from "./stall";
@@ -650,6 +651,9 @@ async function runManualSwitch(
     if (resolved && releaseInfoHash(resolved) === chosen) match = resolved;
   }
   if (!match) return { ok: false, reason: "not-a-candidate" };
+  if (!meetsResolutionFloor(match.title, preferredResolutionOf(target))) {
+    return { ok: false, reason: "not-a-candidate" };
+  }
 
   if (chosen === current) {
     // Re-pinning the source already playing: nothing to start or abandon, just

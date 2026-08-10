@@ -264,6 +264,13 @@ check("the overlay is a single focused input that closes on Esc", () => {
   assert.equal(inputs.length, 1, "overlay must have a single input");
 });
 
+check("legacy search results abort in-flight fetches before unmount", () => {
+  assert.match(searchResults, /AbortController/);
+  assert.match(searchResults, /controller\.abort\(\)/);
+  assert.match(searchResults, /signal\.aborted/);
+  assert.match(searchResults, /AbortError/);
+});
+
 check("the header Search affordance opens the overlay, keeps a deep-link", () => {
   assert.match(header, /openSearchOverlay/);
   assert.match(header, /data-search-trigger/);

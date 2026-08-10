@@ -550,7 +550,9 @@ function EpisodeCardImpl({
       ? "Play"
       : streamLabel;
 
-  const held = transfer?.status === "downloaded" || episode.availability === "ready";
+  const held =
+    transfer?.status === "downloaded" ||
+    (episode.availability === "ready" && !episode.fromPack);
   const downloadDisplayLabel = transfer?.status === "failed"
     ? "Retry download"
     : transfer?.status === "queued"

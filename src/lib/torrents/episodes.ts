@@ -275,8 +275,21 @@ function parseEpisodeBase(title: string): EpisodeInfo {
     const bare = afterTag.match(/\s(\d{3,4})(?=\s|$|[[(.])/);
     if (bare) {
       const episode = parseInt(bare[1], 10);
-      if (episode > 0 && !(episode >= 1900 && episode <= 2100)) {
-        const looseSeason = t.match(/\bS(?:eason)?\s*(\d{1,3})\b/i);
+      const followingTitleUnit = afterTag
+        .slice((bare.index ?? 0) + bare[0].length)
+        .match(/^\s*(?:years?|yrs?|nen|ans?|days?)\b/i);
+      // The commonly abbreviated title "Slime 300" has no unit after 300.
+      // Keep this narrow so genuine absolute forms such as
+      // "[SubsPlease] One Piece 1170 S23" remain episodes.
+      const knownNumberedTitle =
+        episode === 300 && /\bslime[\s._-]*300\b/i.test(afterTag);
+      const looseSeason = afterTag.match(/\bS(?:eason)?\s*(\d{1,3})\b/i);
+      if (
+        episode > 0 &&
+        !(episode >= 1900 && episode <= 2100) &&
+        !followingTitleUnit &&
+        !knownNumberedTitle
+      ) {
         if (looseSeason) {
           const season = parseInt(looseSeason[1], 10);
           return {

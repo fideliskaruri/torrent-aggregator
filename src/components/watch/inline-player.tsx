@@ -35,7 +35,13 @@ import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { cn, formatBytes } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
 import { SwarmChip, deadEvidenceFromSamples, type SwarmSample } from "@/components/watch/swarm-chip";
-import { subtitleListUrl, subtitleTrackSrc, type SubtitleTrack } from "@/lib/media/subtitles";
+import {
+  subtitleListUrl,
+  subtitleTrackSrc,
+  subtitleWindowStart,
+  SUBTITLE_WINDOW_STRIDE_SECONDS,
+  type SubtitleTrack,
+} from "@/lib/media/subtitles";
 import type { ProgressUpdateBody } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
@@ -1072,6 +1078,15 @@ export function nextSeekRestartAction(
   return "replan";
 }
 
+/** Exact element-time landing point after a plan rebases its media timeline. */
+export function seekPositionInPlannedTimeline(
+  requestedSourceSec: number,
+  plannedTimelineStartSec: number,
+): number {
+  if (!Number.isFinite(requestedSourceSec) || !Number.isFinite(plannedTimelineStartSec)) return 0;
+  return Math.max(0, requestedSourceSec - plannedTimelineStartSec);
+}
+
 export function canAutoAdvanceToUpNext(
   next: UpNextEpisodeCard | null,
   cancelled: boolean,
@@ -1976,7 +1991,8 @@ export function shouldPostProgress(args: {
   return nowMs - lastPostedAtMs >= PROGRESS_INTERVAL_MS;
 }
 
-/** A track as the subtitles endpoint returns it: `src` is null when unusable. */export type SubtitleTrackWithSrc = SubtitleTrack & { src: string | null };
+/** A track as the subtitles endpoint returns it: `src` is null when unusable. */
+export type SubtitleTrackWithSrc = SubtitleTrack & { src: string | null };
 
 type SubtitleListResponse = {
   tracks?: SubtitleTrackWithSrc[];
@@ -1989,6 +2005,33 @@ type SubtitleListResponse = {
 };
 
 type SubtitleStatus = "idle" | "loading" | "extracting" | "ready" | "error";
+
+export function subtitleStatusCopy(
+  status: SubtitleStatus,
+  note: string | null,
+): string | null {
+  if (status === "extracting") return "Extracting subtitles from the file…";
+  if (status === "loading") return "Loading subtitles…";
+  return note;
+}
+
+export function unsupportedSubtitleNote(
+  tracks: SubtitleTrackWithSrc[],
+): string | null {
+  if (tracks.length === 0 || tracks.some((track) => track.src)) return null;
+  const reason = tracks.find((track) => track.unsupportedReason)?.unsupportedReason;
+  return reason
+    ? `Subtitles are present, but ${reason}.`
+    : "Subtitles are present, but this player cannot render any track in this release.";
+}
+
+export function shouldPreserveOutgoingEpisode(args: {
+  transitioning: boolean;
+  hasPlayableSource: boolean;
+  exactNextFileKnown: boolean;
+}): boolean {
+  return args.transitioning && args.hasPlayableSource && args.exactNextFileKnown;
+}
 
 class InlinePlayerErrorBoundary extends Component<
   { children: ReactNode; title: string },
@@ -2165,6 +2208,8 @@ function InlineStreamPlayerInner({
   const [upNextError, setUpNextError] = useState<string | null>(null);
   const [ended, setEnded] = useState(false);
   const [transitioningTitle, setTransitioningTitle] = useState<string | null>(null);
+  /** Keep a same-pack outgoing frame alive while the exact next file is planned. */
+  const [preserveOutgoingEpisode, setPreserveOutgoingEpisode] = useState(false);
   const [autoAdvanceCancelled, setAutoAdvanceCancelled] = useState(false);
   const [advanceCountdown, setAdvanceCountdown] = useState(AUTO_ADVANCE_SECONDS);
   const [audioTracks, setAudioTracks] = useState<PlanAudioTrack[]>([]);
@@ -2265,6 +2310,7 @@ function InlineStreamPlayerInner({
    const [resetPlayableSrc, setResetPlayableSrc] = useState(playableSrc);
    if (activeInfoHash !== resetInfoHash) {
      setResetInfoHash(activeInfoHash);
+     setPreserveOutgoingEpisode(false);
      setManifest(null);
      setManifestKey(null);
      setManifestLoading(false);
@@ -2322,17 +2368,25 @@ function InlineStreamPlayerInner({
          manifest.files.some((file) => file.path === activeFilePath)
            ? activeFilePath
            : null;
+       const keepOutgoingEpisode = shouldPreserveOutgoingEpisode({
+         transitioning: preserveOutgoingEpisode,
+         hasPlayableSource: Boolean(playableSrc),
+         exactNextFileKnown: Boolean(known),
+       });
+       setPreserveOutgoingEpisode(keepOutgoingEpisode);
        setManifestKey(known ? targetIdentity : null);
        if (!known) setManifest(null);
        setSelectedPath(known);
        setMessage(null);
        setProblem(null);
-       setPlayableSrc(null);
-       setPlaybackMode("direct");
+       if (!keepOutgoingEpisode) {
+         setPlayableSrc(null);
+         setPlaybackMode("direct");
+       }
        setCheckingStream(false);
        setWaiting(false);
        setActiveVideoAdvancing(false);
-       setPlaybackStarted(false);
+       if (!keepOutgoingEpisode) setPlaybackStarted(false);
        setPreparingLabel(null);
        setStreamFailure(null);
        setSwarmSample(null);
@@ -2414,6 +2468,8 @@ function InlineStreamPlayerInner({
    * ffmpeg session.
    */
   const pendingNativeSeekRef = useRef(0);
+  /** Element-relative landing point when a VOD playlist starts before the exact seek target. */
+  const pendingHlsStartRef = useRef(0);
   /** The resume position is honoured once, for the first file opened. */
   const resumeConsumedRef = useRef(false);
   /** Detaches the seek-abort listener from the previous media element. */
@@ -2652,6 +2708,7 @@ function InlineStreamPlayerInner({
     resumeConsumedRef.current = false;
     pendingSeekRef.current = 0;
     pendingNativeSeekRef.current = 0;
+    pendingHlsStartRef.current = 0;
     lastActiveMediaTimeRef.current = null;
     requestedSeekRef.current = null;
     clearMotionLease();
@@ -2773,6 +2830,10 @@ function InlineStreamPlayerInner({
    */
   const postProgress = useCallback(
     (opts: { force?: boolean; beacon?: boolean } = {}) => {
+      // A same-pack next transition may deliberately keep the outgoing element
+      // mounted while the new plan resolves. Its late timeupdate/pause events
+      // belong to the episode we already flushed, never to the new target.
+      if (preserveOutgoingEpisode) return;
       const filePath = selectedPathRef.current;
       const durationSec = sourceDurationRef.current ?? videoRef.current?.duration ?? null;
       const positionSec = Math.floor(currentSourceTimeRef.current);
@@ -2835,6 +2896,7 @@ function InlineStreamPlayerInner({
       currentEpisode,
       activePosterUrl,
       activeWatchListItemId,
+      preserveOutgoingEpisode,
     ],
   );
 
@@ -3239,6 +3301,12 @@ function InlineStreamPlayerInner({
       // in-flight quality switch or silent failover so their late responses
       // cannot overwrite this episode (duck issue 4).
       transitionGenRef.current += 1;
+      postProgress({ force: true });
+      setPreserveOutgoingEpisode(
+        next.infoHash === activeInfoHash &&
+          Boolean(next.filePath) &&
+          Boolean(playableSrc),
+      );
       autoTriedHashesRef.current = new Set();
       autoFailoverInFlightRef.current = false;
       setTransitioningTitle(next.title);
@@ -3260,7 +3328,14 @@ function InlineStreamPlayerInner({
         resumeSec: 0,
       });
     },
-    [upNext, currentSeason, currentEpisode, activeWatchListItemId, activePosterUrl],
+    [
+      upNext,
+      activeInfoHash,
+      playableSrc,
+      postProgress,
+      activeWatchListItemId,
+      activePosterUrl,
+    ],
   );
 
   /**
@@ -3639,6 +3714,7 @@ function InlineStreamPlayerInner({
         if (res.ok || res.status === 206) {
           await res.body?.cancel().catch(() => {});
           setPlaybackMode("direct");
+          setPreserveOutgoingEpisode(false);
           setPlayableSrc(streamPath(hash, filePath));
           return;
         }
@@ -3737,11 +3813,14 @@ function InlineStreamPlayerInner({
     const filePath = effectiveSelectedPath;
     const startSec = pendingSeekRef.current;
     const requestedAudio = audioStreamIndex;
+    const keepOutgoingEpisode = preserveOutgoingEpisode;
 
     void (async () => {
       // Reset state
-      setPlayableSrc(null);
-      setPlaybackMode("direct");
+      if (!keepOutgoingEpisode) {
+        setPlayableSrc(null);
+        setPlaybackMode("direct");
+      }
       setWaiting(false);
       setActiveVideoAdvancing(false);
       setCheckingStream(true);
@@ -3757,7 +3836,7 @@ function InlineStreamPlayerInner({
       setBufferedRanges([]);
       // Buffer sizing belongs to the file being negotiated, never the last one.
       sourceProfileRef.current = { width: null, height: null, bitrateBps: null };
-      if (hlsRef.current) {
+      if (!keepOutgoingEpisode && hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
@@ -3858,15 +3937,26 @@ function InlineStreamPlayerInner({
           setPlaybackMode("direct");
           setTimelineOffset(0);
           pendingNativeSeekRef.current = startSec > 0 ? startSec : 0;
+          pendingHlsStartRef.current = 0;
           if (startSec > 0) setCurrentSourceTime(startSec);
+          setPreserveOutgoingEpisode(false);
           setPlayableSrc(nativeUrl);
           setTransitioningTitle(null);
         } else {
           // HLS — a genuinely incomplete file, or one that needs ffmpeg.
           setTimelineOffset(planData.startSec);
           pendingNativeSeekRef.current = 0;
+          pendingHlsStartRef.current = seekPositionInPlannedTimeline(
+            startSec,
+            planData.startSec,
+          );
+          if (startSec > 0) {
+            currentSourceTimeRef.current = startSec;
+            setCurrentSourceTime(startSec);
+          }
           setPlaybackMode("hls");
           setPreparingLabel("preparing");
+          setPreserveOutgoingEpisode(false);
           setPlayableSrc(planData.playUrl);
           setTransitioningTitle(null);
         }
@@ -4072,11 +4162,23 @@ function InlineStreamPlayerInner({
         const res = await fetch(subtitleListUrl(activeInfoHash, filePath), {
           signal: controller.signal,
         });
-        if (!res.ok || controller.signal.aborted) return;
+        if (!res.ok || controller.signal.aborted) {
+          if (!controller.signal.aborted) {
+            const failure = await readJson<{ message?: string; error?: string }>(res);
+            setSubtitleStatus("error");
+            setSubtitleNote(
+              failure?.message?.trim() ||
+                failure?.error?.trim() ||
+                "Subtitles could not be checked for this release.",
+            );
+          }
+          return;
+        }
         const data = await readJson<SubtitleListResponse>(res);
         if (!data || controller.signal.aborted) return;
         const tracks = Array.isArray(data.tracks) ? data.tracks : [];
         setSubtitleTracks(tracks);
+        setSubtitleNote(unsupportedSubtitleNote(tracks));
         // Preserve the old direct-mode behaviour: an exact-basename sidecar was
         // mounted as the default track, so it stays selected by default here.
         const preselect = tracks.find(
@@ -4093,6 +4195,9 @@ function InlineStreamPlayerInner({
         if (chosen) {
           setSubtitleTrackId(chosen.id);
           setSubtitleStatus(chosen.needsExtraction ? "extracting" : "loading");
+          if (data.subtitleDefault?.noEnglishAvailable) {
+            setSubtitleNote(`English subtitles are unavailable — using ${chosen.label}.`);
+          }
         } else if (data.subtitleDefault?.noEnglishAvailable) {
           // Foreign audio and no English subtitle exists: say so out loud rather
           // than sit on a silent "Off".
@@ -4102,8 +4207,10 @@ function InlineStreamPlayerInner({
           setSubtitleNote("Embedded tracks could not be inspected — only files are listed.");
         }
       } catch {
-        // No subtitles is a normal outcome; a failed listing must not surface as
-        // a playback problem. The picker simply does not appear.
+        if (!controller.signal.aborted) {
+          setSubtitleStatus("error");
+          setSubtitleNote("Subtitles could not be checked for this release.");
+        }
       }
     })();
     return () => controller.abort();
@@ -4347,8 +4454,97 @@ function InlineStreamPlayerInner({
   const activeSubtitleSrc = useMemo(() => {
     if (!activeSubtitle || !effectiveSelectedPath || !activeInfoHash) return null;
     const offset = playbackMode === "hls" ? timelineOffset : 0;
-    return subtitleTrackSrc(activeInfoHash, effectiveSelectedPath, activeSubtitle.id, offset);
-  }, [activeSubtitle, activeInfoHash, effectiveSelectedPath, playbackMode, timelineOffset]);
+    const windowStart =
+      activeSubtitle.kind === "embedded" && activeSubtitle.needsExtraction
+        ? subtitleWindowStart(currentSourceTime)
+        : 0;
+    const consumerId = `${panelId}:track:${windowStart}`;
+    return subtitleTrackSrc(
+      activeInfoHash,
+      effectiveSelectedPath,
+      activeSubtitle.id,
+      offset,
+      windowStart,
+      consumerId,
+    );
+  }, [
+    activeSubtitle,
+    activeInfoHash,
+    currentSourceTime,
+    effectiveSelectedPath,
+    playbackMode,
+    panelId,
+    timelineOffset,
+  ]);
+
+  useEffect(() => {
+    if (!activeSubtitleSrc) return;
+    return () => {
+      void fetch(activeSubtitleSrc, {
+        method: "DELETE",
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+  }, [activeSubtitleSrc]);
+
+  const subtitlePrefetchWindow = useMemo(() => {
+    if (
+      !activeSubtitle ||
+      activeSubtitle.kind !== "embedded" ||
+      !activeSubtitle.needsExtraction
+    ) {
+      return null;
+    }
+    const currentWindow = subtitleWindowStart(currentSourceTime);
+    const nextWindow = currentWindow + SUBTITLE_WINDOW_STRIDE_SECONDS;
+    return currentSourceTime >= nextWindow - 60 ? nextWindow : null;
+  }, [activeSubtitle, currentSourceTime]);
+
+  useEffect(() => {
+    if (
+      subtitlePrefetchWindow == null ||
+      !activeSubtitle ||
+      !effectiveSelectedPath ||
+      !activeInfoHash
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    const offset = playbackMode === "hls" ? timelineOffset : 0;
+    const prefetchSrc = subtitleTrackSrc(
+      activeInfoHash,
+      effectiveSelectedPath,
+      activeSubtitle.id,
+      offset,
+      subtitlePrefetchWindow,
+      `${panelId}:prefetch:${subtitlePrefetchWindow}`,
+    );
+    void fetch(
+      `${prefetchSrc}${prefetchSrc.includes("?") ? "&" : "?"}prefetch=1`,
+      { signal: controller.signal },
+    )
+      .then((response) => response.body?.cancel())
+      .catch((error: unknown) => {
+        if ((error as Error)?.name !== "AbortError") {
+          console.warn("[subtitles] next window prefetch failed");
+        }
+      });
+    return () => {
+      controller.abort();
+      void fetch(prefetchSrc, {
+        method: "DELETE",
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+  }, [
+    activeInfoHash,
+    activeSubtitle,
+    effectiveSelectedPath,
+    panelId,
+    playbackMode,
+    subtitlePrefetchWindow,
+    timelineOffset,
+  ]);
 
   /**
    * Turn the rendered `<track>` on.
@@ -4372,7 +4568,7 @@ function InlineStreamPlayerInner({
     // is inserted, so one pass on mount can legitimately find nothing.
     const timer = window.setTimeout(apply, 150);
     return () => window.clearTimeout(timer);
-  }, [activeSubtitle, playableSrc, playbackMode]);
+  }, [activeSubtitle, activeSubtitleSrc, playableSrc, playbackMode]);
 
   /**
    * "Ready" has to mean the browser actually has cues, not that an event
@@ -4493,7 +4689,11 @@ function InlineStreamPlayerInner({
       // On a file that remuxes faster than real time that means pressing play
       // drops the viewer 80s into the film. The session always begins at the
       // position we asked ffmpeg for, so the start of its timeline is always 0.
-      startPosition: 0,
+      // The plan may trim a VOD playlist to the nearest segment boundary before
+      // the requested source time. Start within that rebased playlist at the
+      // remaining delta so an out-of-window seek lands on the exact target
+      // instead of a few seconds early.
+      startPosition: pendingHlsStartRef.current,
       /** A stall should be nudged through, not surfaced as a fatal error. */
       nudgeMaxRetry: 10,
       // Don't give up too quickly — torrent data can be slow
@@ -4932,7 +5132,9 @@ function InlineStreamPlayerInner({
               onLoad={() => setSubtitleStatus("ready")}
               onError={() => {
                 setSubtitleStatus("error");
-                setSubtitleNote("That subtitle track could not be loaded.");
+                setSubtitleNote(
+                  "That subtitle track could not be prepared. Extraction or subtitle caching failed.",
+                );
               }}
             />
           ) : null}
@@ -4968,7 +5170,9 @@ function InlineStreamPlayerInner({
               onLoad={() => setSubtitleStatus("ready")}
               onError={() => {
                 setSubtitleStatus("error");
-                setSubtitleNote("That subtitle track could not be loaded.");
+                setSubtitleNote(
+                  "That subtitle track could not be prepared. Extraction or subtitle caching failed.",
+                );
               }}
             />
           ) : null}
@@ -4991,10 +5195,10 @@ function InlineStreamPlayerInner({
   );
 
   const compactSelectClass = cn(
-    "h-8 min-w-0 appearance-none truncate py-1 pl-3 pr-8 text-[11px] outline-none transition focus-visible:ring-2",
+    "h-8 min-w-0 max-w-full appearance-none truncate py-1 pl-3 pr-8 text-[11px] outline-none transition focus-visible:ring-2",
     theatre
-      ? "w-24 rounded-full border border-white/15 bg-white/10 text-white focus-visible:ring-white/25 sm:w-40"
-      : "input-field flex-1 px-1.5 focus-visible:ring-[var(--accent-dim)]",
+      ? "w-20 rounded-full border border-white/15 bg-white/10 text-white focus-visible:ring-white/25 sm:w-40"
+      : "input-field w-24 px-1.5 focus-visible:ring-[var(--accent-dim)] sm:w-40",
   );
   const selectChevron = (
     <ChevronDown
@@ -5006,12 +5210,12 @@ function InlineStreamPlayerInner({
     audioTracks.length > 1 ? (
       <label
         className={cn(
-          "flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
+          "flex min-w-0 max-w-full items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
           theatre && "text-white/70",
         )}
       >
         <span className={theatre ? "hidden sm:inline" : undefined}>Audio</span>
-        <span className="relative min-w-0">
+        <span className="relative min-w-0 max-w-full">
           <select
             className={compactSelectClass}
             value={audioStreamIndex ?? ""}
@@ -5054,12 +5258,12 @@ function InlineStreamPlayerInner({
     subtitleTracks.length > 0 ? (
       <label
         className={cn(
-          "flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
+          "flex min-w-0 max-w-full items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
           theatre && "text-white/70",
         )}
       >
         <span className={theatre ? "hidden sm:inline" : undefined}>Subtitles</span>
-        <span className="relative min-w-0">
+        <span className="relative min-w-0 max-w-full">
           <select
             className={compactSelectClass}
             value={subtitleTrackId}
@@ -5119,7 +5323,7 @@ function InlineStreamPlayerInner({
       <div
         data-stream-transport-row
         className={cn(
-          "flex items-center",
+          "flex min-w-0 max-w-full items-center",
           large
             ? "flex-wrap gap-1 text-white sm:gap-2"
             : "mx-auto w-full max-w-6xl flex-wrap gap-2 rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-[var(--shadow-md)] backdrop-blur",
@@ -5157,11 +5361,11 @@ function InlineStreamPlayerInner({
         <button type="button" onClick={() => seekRelative(10)} disabled={!playableSrc} aria-label="Forward 10 seconds" className={buttonClass}>
           <RotateCw className={iconClass} />
         </button>
-        <span className={cn("tabular-nums", large ? "min-w-[84px] text-[12px] text-white/80" : "min-w-[76px] text-[11px] text-white/70")}>
+        <span className={cn("shrink-0 tabular-nums", large ? "min-w-[84px] text-[12px] text-white/80" : "min-w-[76px] text-[11px] text-white/70")}>
           {formatClock(currentSourceTime)} / {sourceDuration && sourceDuration > 0 ? formatClock(sourceDuration) : "0:00"}
         </span>
         {sourceDuration && sourceDuration > 0 ? (
-          <span className={cn("relative flex flex-1 items-center", large ? "basis-full min-w-0 sm:basis-auto sm:min-w-[200px]" : "min-w-[180px]")}>
+          <span className={cn("relative flex min-w-0 flex-1 basis-full items-center sm:basis-auto", large ? "sm:min-w-[200px]" : "sm:min-w-[180px]")}>
             <span aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
             <TimelineBands sourceDuration={sourceDuration} bufferedRanges={bufferedRanges} downloadedRanges={downloadedRanges} currentSourceTime={currentSourceTime} />
             <span aria-hidden="true" className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%` }} />
@@ -5208,7 +5412,7 @@ function InlineStreamPlayerInner({
           // scrubber footprint with an inert rail so the control bar doesn't shift
           // (CLS) and no second loading indicator appears here. The single
           // StreamLoader over the stage is the only busy signal.
-          <span aria-hidden="true" className={cn("relative flex flex-1 items-center", large ? "basis-full min-w-0 sm:basis-auto sm:min-w-[200px]" : "min-w-[180px]")}>
+          <span aria-hidden="true" className={cn("relative flex min-w-0 flex-1 basis-full items-center sm:basis-auto", large ? "sm:min-w-[200px]" : "sm:min-w-[180px]")}>
             <span className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
           </span>
         )}
@@ -5216,7 +5420,7 @@ function InlineStreamPlayerInner({
           {muted ? <VolumeX className={iconClass} /> : <Volume2 className={iconClass} />}
         </button>
         <input data-stream-volume type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" className="hidden w-20 sm:block" onChange={(e) => changeVolume(Number(e.target.value))} />
-        <label className={cn("flex shrink-0 items-center gap-1.5 text-[11px]", large ? "text-white/70" : "text-white/65")}>
+        <label className={cn("flex min-w-0 max-w-full shrink-0 items-center gap-1.5 text-[11px]", large ? "text-white/70" : "text-white/65")}>
           <span className={large ? "hidden sm:inline" : undefined}>Speed</span>
           <select
             data-stream-speed-select
@@ -5337,6 +5541,7 @@ function InlineStreamPlayerInner({
         playbackEstablished: playbackStarted,
       })
     : undefined;
+  const subtitleStatusMessage = subtitleStatusCopy(subtitleStatus, subtitleNote);
 
   if (theatre) {
     const chromeVisible = theatreControlsVisible || controlsPinned;
@@ -5611,7 +5816,7 @@ function InlineStreamPlayerInner({
 
                 {unifiedControlBar("theatre")}
 
-                <div className="mt-3 flex min-h-6 items-center justify-between gap-3 text-[11px] text-white/55">
+                <div className="mt-3 flex min-h-6 flex-col items-start gap-1 text-[11px] text-white/55">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="truncate">
                       {[selectedAudioLabel !== "Audio" ? selectedAudioLabel : null, selectedSubtitleLabel !== "Off" ? selectedSubtitleLabel : "Subtitles off"]
@@ -5619,6 +5824,11 @@ function InlineStreamPlayerInner({
                         .join(" · ")}
                     </span>
                   </div>
+                  {subtitleStatusMessage ? (
+                    <p data-stream-subtitle-status={subtitleStatus} className="max-w-full text-white/70">
+                      {subtitleStatusMessage}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
@@ -5909,23 +6119,15 @@ function InlineStreamPlayerInner({
                 </div>
               ) : null}
               {unifiedControlBar("inline")}
-              {subtitleStatus === "extracting" || subtitleStatus === "loading" ? (
+              {subtitleStatusMessage ? (
                 <p
                   data-stream-subtitle-status={subtitleStatus}
                   className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]"
                 >
-                  <span className="h-2 w-2 rounded-full bg-current opacity-70" aria-hidden="true" />
-                  {subtitleStatus === "extracting"
-                    ? "Extracting subtitles from the file…"
-                    : "Loading subtitles…"}
-                </p>
-              ) : null}
-              {subtitleNote ? (
-                <p
-                  data-stream-subtitle-status={subtitleStatus}
-                  className="text-[11px] text-[var(--text-tertiary)]"
-                >
-                  {subtitleNote}
+                  {subtitleStatus === "extracting" || subtitleStatus === "loading" ? (
+                    <span className="h-2 w-2 rounded-full bg-current opacity-70" aria-hidden="true" />
+                  ) : null}
+                  {subtitleStatusMessage}
                 </p>
               ) : null}
               <div

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   classifyPieceVerification,
+  COMPLETION_MISMATCH_NOTICE_LIMIT,
   completionVerificationGapHashes,
   enginePressureSnapshot,
   liveEnginePressure,
@@ -295,7 +296,27 @@ assert.doesNotThrow(
   "a failing log sink cannot break the engine read path",
 );
 resetCompletionVerificationNotices();
+for (let i = 0; i < COMPLETION_MISMATCH_NOTICE_LIMIT + 3; i += 1) {
+  noteCompletionVerificationGap(`bounded-gap-${i}`, true, false, () => {});
+}
+const boundedGaps = completionVerificationGapHashes();
+assert.equal(
+  boundedGaps.length,
+  COMPLETION_MISMATCH_NOTICE_LIMIT,
+  "completion mismatch notices have a fixed process-lifetime bound",
+);
+assert.equal(
+  boundedGaps.includes("bounded-gap-0"),
+  false,
+  "the oldest mismatch notice is evicted at capacity",
+);
+assert.equal(
+  boundedGaps.includes(`bounded-gap-${COMPLETION_MISMATCH_NOTICE_LIMIT + 2}`),
+  true,
+  "the newest mismatch notice remains observable",
+);
+resetCompletionVerificationNotices();
 
 console.log(
-  "PASS engine pressure: classification, tolerance, no mutation, totals, once-per-hash notice",
+  "PASS engine pressure: classification, tolerance, no mutation, totals, bounded once-per-hash notice",
 );

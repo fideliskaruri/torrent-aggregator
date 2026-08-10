@@ -60,7 +60,7 @@ export interface PreRankTarget {
   year?: number | null;
   season?: number | null;
   episode?: number | null;
-  /** Preferred output height. A preference changes ordering, never eligibility. */
+  /** Preferred output height. Selection helpers treat it as a floor. */
   preferredResolution?: number | null;
 }
 

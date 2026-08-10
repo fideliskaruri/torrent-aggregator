@@ -389,6 +389,10 @@ export function TitleDetail(props: TitleDetailProps) {
             title: props.title ?? null,
             mediaType: props.mediaType ?? null,
             year: props.year ?? null,
+            provider: props.provider ?? null,
+            providerId: props.providerId ?? null,
+            sourceType: props.sourceType ?? null,
+            format: props.format ?? null,
             action,
             retention,
             resolution,
@@ -480,7 +484,6 @@ export function TitleDetail(props: TitleDetailProps) {
     // Empty by design: every reactive value runAction needs is read from
     // `actionDeps.current` (a ref refreshed each render), so its identity is
     // stable across transfer polls and the memoised episode cards never rebuild.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -528,6 +531,10 @@ export function TitleDetail(props: TitleDetailProps) {
               title: props.title ?? null,
               mediaType: props.mediaType ?? null,
               year: props.year ?? null,
+              provider: props.provider ?? null,
+              providerId: props.providerId ?? null,
+              sourceType: props.sourceType ?? null,
+              format: props.format ?? null,
               seasonComplete,
               ...(resolution != null
                 ? { preferredResolution: resolution }
@@ -586,7 +593,20 @@ export function TitleDetail(props: TitleDetailProps) {
         );
       }
     },
-    [props.workKey, props.title, props.mediaType, props.year, refetch, seasonStatusFor, cap],
+    [
+      props.workKey,
+      props.title,
+      props.mediaType,
+      props.year,
+      props.provider,
+      props.providerId,
+      props.sourceType,
+      props.format,
+      extras,
+      refetch,
+      seasonStatusFor,
+      cap,
+    ],
   );
 
   // One exclusive chain. A failed request must never be narrowed into "there
@@ -631,6 +651,7 @@ export function TitleDetail(props: TitleDetailProps) {
           extrasError={extrasError}
           extrasSettled={extrasSettled}
           extrasSeason={activeSeason}
+          refetchExtras={refetchExtras}
           season={season}
           refreshing={refreshing}
           statusFor={statusFor}
@@ -675,6 +696,7 @@ function TitleContent({
   extrasError,
   extrasSettled,
   extrasSeason,
+  refetchExtras,
   season,
   refreshing,
   statusFor,
@@ -693,6 +715,7 @@ function TitleContent({
   extrasSettled: boolean;
   /** The season the extras request was built for — not always the one shown. */
   extrasSeason: number | null;
+  refetchExtras: () => void | Promise<unknown>;
   season: number | null;
   refreshing: boolean;
   statusFor: (key: string) => TitleActionStatus;
@@ -816,10 +839,10 @@ function TitleContent({
     truncated: onKnownSeason && payload.episodesTruncated,
   });
 
-  // The hero always means watch. Feeding the provider-complete rows into the
-  // resolver lets a series with no local files name a real first/next episode;
-  // converting the non-local result to stream keeps Play from turning into an
-  // ambiguous series-level Download.
+  // The hero means watch only when the payload can name what to watch.
+  // Provider-complete rows let a series name a real first/next episode; when
+  // they cannot, discovery stays discovery instead of becoming an ambiguous
+  // title-scope stream.
   const resolvedPrimary = resolvePrimaryAction({
     ...payload,
     seasons,
@@ -827,21 +850,18 @@ function TitleContent({
     episodes: rows,
   });
   const primary: TitleAction =
-    resolvedPrimary.kind === "play"
+    resolvedPrimary.kind === "discover"
       ? resolvedPrimary
-      : {
-          kind: "stream",
-          label: "Play",
-          season: resolvedPrimary.season,
-          episode: resolvedPrimary.episode,
-        };
+      : resolvedPrimary.kind === "play"
+        ? resolvedPrimary
+        : {
+            kind: "stream",
+            label: "Play",
+            season: resolvedPrimary.season,
+            episode: resolvedPrimary.episode,
+          };
   const primaryStatus = statusFor(PRIMARY_KEY);
-  const primaryDisplayLabel =
-    primaryStatus === "pending"
-      ? primary.label
-      : primary.kind === "play" && primary.resumePositionSec
-        ? "Resume"
-        : "Play";
+  const primaryDisplayLabel = titleActionButtonLabel(primary, primaryStatus);
 
   const seasonCount = extras?.seasonCount ?? null;
   const similar = extras?.moreLikeThis ?? [];
@@ -910,7 +930,9 @@ function TitleContent({
   // being watchable, and taking Play away mid-download is the behaviour the
   // sequential piece strategy exists to avoid.
   const primaryCanRun =
-    shouldRunTitleAction(primary, primaryStatus) && !gated;
+    (primary.kind === "discover"
+      ? !extrasLoading && !extrasRefreshing
+      : shouldRunTitleAction(primary, primaryStatus)) && !gated;
 
   // Play and Download are the two acquire intents. The primary button above is
   // the Play/Resume path (it opens the player); Download keeps the file. We only
@@ -1080,22 +1102,38 @@ function TitleContent({
                   aria-label={
                     `${primaryDisplayLabel} — ${title}`
                   }
-                  aria-busy={primaryStatus === "pending" || undefined}
+                  aria-busy={
+                    (primary.kind === "discover"
+                      ? extrasLoading || extrasRefreshing
+                      : primaryStatus === "pending") || undefined
+                  }
                   disabled={!primaryCanRun}
-                  onClick={() =>
+                  onClick={() => {
+                    if (primary.kind === "discover") {
+                      void refetchExtras();
+                      return;
+                    }
                     requestAction(
                       primary,
                       PRIMARY_KEY,
                       title,
                       "stream",
-                    )
-                  }
+                    );
+                  }}
                   className="relative min-w-[9rem]"
                 >
                   <ButtonBody
-                    pending={primaryStatus === "pending"}
+                    pending={
+                      primary.kind === "discover"
+                        ? extrasLoading || extrasRefreshing
+                        : primaryStatus === "pending"
+                    }
                     icon={
-                      <Play className="fill-current" aria-hidden />
+                      primary.kind === "discover" ? (
+                        <Search aria-hidden />
+                      ) : (
+                        <Play className="fill-current" aria-hidden />
+                      )
                     }
                   >
                     {primaryDisplayLabel}

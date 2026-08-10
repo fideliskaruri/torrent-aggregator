@@ -668,7 +668,7 @@ async function main() {
     return { container: "matroska,webm", duration: 5400, streams };
   }
 
-  await check("screenshot case: jpn audio + fre-only subs → no English available, nothing auto-selected", () => {
+  await check("jpn audio + fre-only subs → supported subtitle fallback is selected honestly", () => {
     const probe = subtitleProbe(
       [{ codec: "aac", channels: 2, language: "jpn", title: "Japanese" }],
       [{ codec: "ass", language: "fre", title: "French" }],
@@ -678,12 +678,19 @@ async function main() {
     assert.equal(plan.selectedAudioIndex, 1);
     assert.equal(plan.subtitle!.audioIsEnglish, false);
     assert.equal(plan.subtitle!.englishSubtitleAvailable, false);
-    // Decision: never auto-force a non-English subtitle on an English viewer.
-    // Instead flag it so the UI states "no English subtitles available" rather
-    // than sitting on a silent Off.
-    assert.equal(plan.subtitle!.defaultTrackId, null);
+    assert.equal(plan.subtitle!.defaultTrackId, "embedded:2");
     assert.equal(plan.subtitle!.noEnglishAvailable, true);
     assert.equal(plan.subtitle!.forcedFallback, false);
+  });
+
+  await check("preferred-language fallback skips unsupported bitmap tracks", () => {
+    const decision = selectDefaultSubtitle("jpn", [
+      { id: "embedded:2", language: "eng", forced: false, supported: false },
+      { id: "embedded:3", language: "fre", forced: false, supported: true },
+    ]);
+    assert.equal(decision.defaultTrackId, "embedded:3");
+    assert.equal(decision.noEnglishAvailable, true);
+    assert.equal(decision.englishSubtitleAvailable, false);
   });
 
   await check("jpn+eng audio, fre+eng subs → English audio selected, subtitles stay Off", () => {

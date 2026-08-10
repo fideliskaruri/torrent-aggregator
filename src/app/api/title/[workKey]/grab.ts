@@ -55,6 +55,9 @@ import prisma from "@/lib/prisma";
 import { normalizeTitle } from "@/lib/utils";
 import type { MediaMetadata } from "@/lib/torrents/types";
 
+export const SERIES_TITLE_SCOPE_MESSAGE =
+  "Series title acquisition needs an episode — choose or find one first.";
+
 export interface TitleGrabInput extends TitleGrabRequest {
   userId: string;
   workKey: string;
@@ -73,14 +76,25 @@ export interface TitleGrabInput extends TitleGrabRequest {
   watchListItemId: string | null;
 }
 
+export interface TitleGrabDeps {
+  reuseStreamingEpisode?: (
+    input: TitleGrabInput,
+    target: { season: number; episode: number },
+  ) => Promise<TitleGrabResponse | null>;
+  grabWholeWork?: (input: TitleGrabInput) => Promise<TitleGrabResponse>;
+}
+
 export async function grabForTitle(
   input: TitleGrabInput,
+  deps: TitleGrabDeps = {},
 ): Promise<TitleGrabResponse> {
   const season = toPositiveInt(input.season);
   const episode = toPositiveInt(input.episode);
+  const reuseEpisode = deps.reuseStreamingEpisode ?? reuseStreamingEpisode;
+  const grabWholeWorkImpl = deps.grabWholeWork ?? grabWholeWork;
 
   if (season != null && episode != null) {
-    const reused = await reuseStreamingEpisode(input, { season, episode });
+    const reused = await reuseEpisode(input, { season, episode });
     if (reused) return reused;
 
     const searchIdentity = await resolveEpisodeSearchIdentity(input);
@@ -110,7 +124,11 @@ export async function grabForTitle(
     };
   }
 
-  return grabWholeWork(input);
+  if (input.isSeries) {
+    return { ok: false, message: SERIES_TITLE_SCOPE_MESSAGE };
+  }
+
+  return grabWholeWorkImpl(input);
 }
 
 type AnimeLookup = (
@@ -119,12 +137,20 @@ type AnimeLookup = (
 ) => Promise<MediaMetadata[]>;
 
 /**
- * Recover AniList aliases when a TMDB-backed title page describes anime as TV.
+ * Recover AniList aliases for an episode search.
  *
- * The English title and year must agree exactly before an AniList result may
- * influence acquisition. This prevents same-name catalog collisions while
- * allowing indexer names such as "Tensei Shitara Slime Datta Ken" to enter the
- * exact-episode ladder.
+ * Two shapes need this. A TMDB-backed page describes anime as plain TV, and an
+ * anime page can arrive with no aliases at all (an unverified provider link, a
+ * catalog row with only its English label). Returning empty aliases in either
+ * case leaves the exact-episode ladder searching a name no indexer carries.
+ *
+ * Recovery is guarded, never generous: an AniList result may influence
+ * acquisition only when one of its names matches the resolved title exactly
+ * and its year does not contradict the resolved year. This keeps same-name
+ * catalog collisions out while letting indexer names such as "Tensei Shitara
+ * Slime Datta Ken" enter the ladder. A recovered anime never changes the media
+ * type of a work already resolved as anime, and a failed lookup degrades to
+ * exactly what was known before.
  */
 export async function resolveEpisodeSearchIdentity(
   input: Pick<
@@ -137,21 +163,24 @@ export async function resolveEpisodeSearchIdentity(
   lookup: AnimeLookup = searchAniList,
 ): Promise<{ mediaType: string; aliases: string[] }> {
   const existing = uniqueNames(input.resolvedAliases, input.resolvedTitle);
-  if (existing.length > 0 || input.resolvedMediaType === "anime") {
-    return {
-      mediaType: input.resolvedMediaType ?? "tv",
-      aliases: existing,
-    };
-  }
+  const known = {
+    mediaType: input.resolvedMediaType ?? "tv",
+    aliases: existing,
+  };
+  // AniList-backed pages already carry the names its indexers use. TMDB-backed
+  // anime is different: TMDB may provide only a native-script alias, which is
+  // a real alias but does not replace the Romaji name used by fansub releases.
+  // Keep the cheap fast path for known anime, but let TV-shaped provider
+  // identities perform the guarded AniList recovery even when TMDB supplied
+  // one or more aliases.
+  if (known.mediaType === "anime" && existing.length > 0) return known;
+  if (!input.resolvedTitle.trim()) return known;
 
   let matches: MediaMetadata[];
   try {
     matches = await lookup(input.resolvedTitle, 5);
   } catch {
-    return {
-      mediaType: input.resolvedMediaType ?? "tv",
-      aliases: existing,
-    };
+    return known;
   }
 
   const wantedTitle = normalizeTitle(input.resolvedTitle);
@@ -168,12 +197,7 @@ export async function resolveEpisodeSearchIdentity(
       (name) => normalizeTitle(name) === wantedTitle,
     );
   });
-  if (!anime) {
-    return {
-      mediaType: input.resolvedMediaType ?? "tv",
-      aliases: existing,
-    };
-  }
+  if (!anime) return known;
 
   return {
     mediaType: "anime",
@@ -241,6 +265,7 @@ export async function grabSeasonForTitle(
     const target: Parameters<typeof acquireSeason>[0] = {
       userId: input.userId,
       title: input.resolvedTitle,
+      aliases: input.resolvedAliases,
       mediaType: input.resolvedMediaType ?? "tv",
       season,
       episodes,

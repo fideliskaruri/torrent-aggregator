@@ -60,10 +60,41 @@ export type CompletionSweepDecision =
  * Parking runs media probes and a Prisma transaction per torrent. On a cold
  * start with a backlog of finished torrents (the live diagnosis had 15) an
  * uncapped sweep would launch that fleet at once and trade a seeding leak for a
- * probe storm. Two per 5 s beat drains fifteen in under a minute while leaving
- * the event loop alone; the rest are simply re-seen on the next beat.
+ * probe storm. The engine subtracts finalizers already in flight from this
+ * budget, so the same value is also the process-wide concurrency ceiling.
  */
-export const COMPLETION_SWEEP_PARK_BUDGET = 2;
+export const MAX_CONCURRENT_COMPLETION_PARKS = 2;
+export const COMPLETION_SWEEP_PARK_BUDGET =
+  MAX_CONCURRENT_COMPLETION_PARKS;
+
+/** Process-lifetime diagnostic/retry entries retained across sweeps. */
+export const COMPLETION_SWEEP_TRACKED_HASH_LIMIT = 512;
+
+export type CompletionParkingAdmission =
+  | "start"
+  | "leased"
+  | "capacity";
+
+/**
+ * Admission shared by event-driven and periodic completion parking.
+ *
+ * The per-hash `parking` map prevents duplicate work for one torrent. This
+ * second bound prevents different completed torrents from accumulating
+ * unbounded finalizers when media probes, persistence, or detach are slow.
+ */
+export function decideCompletionParkingAdmission(facts: {
+  leases: number;
+  activeParking: number;
+  maxConcurrent?: number;
+}): CompletionParkingAdmission {
+  if (facts.leases > 0) return "leased";
+  const maxConcurrent = Math.max(
+    0,
+    facts.maxConcurrent ?? MAX_CONCURRENT_COMPLETION_PARKS,
+  );
+  if (facts.activeParking >= maxConcurrent) return "capacity";
+  return "start";
+}
 
 export interface CompletionSweepStats {
   /** Torrents examined this sweep. */
@@ -212,6 +243,26 @@ function missingOwners(): Map<string, OwnerLookupState> {
   return g[MISSING_OWNER_KEY]!;
 }
 
+function setBoundedOwnerState(
+  states: Map<string, OwnerLookupState>,
+  hash: string,
+  value: OwnerLookupState,
+): boolean {
+  states.delete(hash);
+  while (states.size >= COMPLETION_SWEEP_TRACKED_HASH_LIMIT) {
+    let oldestSettled: string | undefined;
+    for (const [candidate, state] of states) {
+      if (state.inFlight) continue;
+      oldestSettled = candidate;
+      break;
+    }
+    if (!oldestSettled) return false;
+    states.delete(oldestSettled);
+  }
+  states.set(hash, value);
+  return true;
+}
+
 function counters(): CompletionSweepCounters {
   const g = globalThis as unknown as Record<
     symbol,
@@ -236,6 +287,17 @@ function noticed(): Set<string> {
   const g = globalThis as unknown as Record<symbol, Set<string> | undefined>;
   if (!g[NOTICED_KEY]) g[NOTICED_KEY] = new Set<string>();
   return g[NOTICED_KEY]!;
+}
+
+function rememberNoticedHash(hash: string): void {
+  const seen = noticed();
+  if (seen.has(hash)) return;
+  while (seen.size >= COMPLETION_SWEEP_TRACKED_HASH_LIMIT) {
+    const oldest = seen.values().next().value;
+    if (typeof oldest !== "string") break;
+    seen.delete(oldest);
+  }
+  seen.add(hash);
 }
 
 /** Cumulative sweep counters for diagnostics. Never mutated by the reader. */
@@ -467,7 +529,7 @@ function noteMissingOwner(
     nextAttemptAt: now + COMPLETION_SWEEP_OWNER_RETRY_MS,
     inFlight: true,
   };
-  states.set(hash, next);
+  if (!setBoundedOwnerState(states, hash, next)) return;
   totals.ownerLookupAttempted += 1;
 
   const settle = (recovered: boolean) => {
@@ -498,17 +560,17 @@ function noteMissingOwner(
 }
 
 /**
- * Say once per hash that a torrent finished without any event-driven park.
+ * Say once per recently seen hash that a torrent finished without any
+ * event-driven park.
  *
- * Once-per-hash because this runs every 5 s: the interesting fact is that the
- * sweep — not an event — was what caught this torrent, and repeating it would
- * only bury the next one.
+ * The bounded memo avoids flooding on every 5 s beat without retaining every
+ * torrent identity for the lifetime of a long-running server.
  */
 function noteSweptHash(hash: string, log: (message: string) => void): void {
   if (!hash) return;
   const seen = noticed();
   if (seen.has(hash)) return;
-  seen.add(hash);
+  rememberNoticedHash(hash);
   try {
     log(
       `[completion-sweep] ${hash} was verified complete but had not been parked by any completion event; quiescing and parking now`,
@@ -518,7 +580,7 @@ function noteSweptHash(hash: string, log: (message: string) => void): void {
   }
 }
 
-/** Hashes the sweep (rather than an event) caught this process. */
+/** Recent hashes the sweep (rather than an event) caught this process. */
 export function completionSweepNoticedHashes(): string[] {
   return [...noticed()].sort();
 }

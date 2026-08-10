@@ -172,3 +172,15 @@ export interface ClientTorrent {
   /** Whether this torrent is permanent or a stream cache entry. */
   retentionState?: "kept" | "stream" | "prewarm" | "unknown";
 }
+
+/**
+ * A transfer after the server has attached the client that actually owns it.
+ * The owner is derived from the adapter being queried, never trusted from a
+ * remote client's payload.
+ */
+export interface OwnedClientTorrent extends ClientTorrent {
+  ownerClientType: "qbittorrent" | "transmission" | "builtin";
+  ownerClientLabel: string;
+  /** Stable row/action identity; hashes are only unique inside one client. */
+  transferId: string;
+}

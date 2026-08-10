@@ -95,7 +95,31 @@ export type OnDemandResult = {
     triedSeasonPacks: boolean;
     /** Canonical query to prefill a manual search box, e.g. "Family Guy S01E02". */
     manualSearchQuery: string;
+    /**
+     * Per-rung yield. Without it a failed press is indistinguishable from a
+     * press that fetched hundreds of rows and threw every one away on the
+     * work-identity or quality filter — the two need completely different
+     * fixes. Ordered as the ladder ran.
+     */
+    rungs?: RungDiagnostic[];
   };
+};
+
+/** What one rung actually fetched and how much of it survived each filter. */
+export type RungDiagnostic = {
+  kind: RungKind;
+  query: string;
+  category: LadderCategory;
+  /** Seeder floor for the rung — 0 marks the relaxed last resort. */
+  minSeeders?: number;
+  /** Rows the indexer returned for this rung. */
+  fetched: number;
+  /** Rows whose work identity matched the show (or one of its aliases). */
+  workEligible: number;
+  /** Rows that also cleared the resolution floor. */
+  qualityEligible: number;
+  /** Candidates this rung handed to the pipeline. */
+  attempted: number;
 };
 
 /**
@@ -228,8 +252,8 @@ export async function advanceLibraryItemIfHuntMatch(
 /** Per-rung indexer page size — anime titles need more than 15 to surface packs. */
 const LADDER_SEARCH_LIMIT = 40;
 
-type RungKind = "exact" | "alt" | "pack" | "absolute" | "relaxed";
-type LadderCategory = CatalogSearchCategory | "all";
+export type RungKind = "exact" | "alt" | "pack" | "absolute" | "relaxed";
+export type LadderCategory = CatalogSearchCategory | "all";
 
 type EpisodeRung = {
   kind: RungKind;
@@ -259,6 +283,38 @@ function candidateKey(r: TorrentResult): string {
  * callers and existing imports.
  */
 export { searchTitleVariants };
+
+/**
+ * Query/identity forms for ONE provider alias.
+ *
+ * AniList romaji is frequently a full sentence with the short seeded name in
+ * front of a comma: "Slime Taoshite 300 Nen, Shiranai Uchi ni Level Max ni
+ * Nattemashita". Fansubs seed the head alone, so without the comma-head form
+ * the alias is both an unsearchable query and — worse — an identity the alias's
+ * own release fails, which silently rejects the release the alias just found.
+ *
+ * Comma only: splitting on a colon would turn "Re:ZERO -Starting Life-" into
+ * the two-letter "Re", a token loose enough to match other shows. The head must
+ * still be a real name (two words, six characters) to be kept.
+ *
+ * Pure — safe for tests.
+ */
+export function aliasTitleForms(title: string): string[] {
+  const out: string[] = [];
+  const add = (value: string) => {
+    if (!value) return;
+    if (out.some((x) => x.toLowerCase() === value.toLowerCase())) return;
+    out.push(value);
+  };
+  for (const variant of searchTitleVariants(title)) add(variant);
+  for (const variant of [...out]) {
+    const head = (variant.split(",")[0] ?? "").trim();
+    if (head.length < 6 || !/\s/.test(head)) continue;
+    if (head.toLowerCase() === variant.toLowerCase()) continue;
+    for (const headVariant of searchTitleVariants(head)) add(headVariant);
+  }
+  return out;
+}
 
 /** "Show 1x02" — the other common single-episode naming indexers use. */
 function altEpisodeQuery(title: string, season: number, episode: number): string {
@@ -341,6 +397,7 @@ function buildEpisodeRungs(
   episode: number,
   mediaType: string,
   extraTitles: readonly string[] = [],
+  minimumResolution: number | null = null,
 ): EpisodeRung[] {
   const target = { season, episode };
   const packPreferred = (results: TorrentResult[], attempted: Set<string>) =>
@@ -365,7 +422,7 @@ function buildEpisodeRungs(
   // canonical title. Empty by default → ordinary TV ladders are unchanged.
   const seenAlias = new Set<string>([primaryTitle.toLowerCase()]);
   const injectedAliases = extraTitles
-    .flatMap((t) => searchTitleVariants(t))
+    .flatMap((t) => aliasTitleForms(t))
     .filter((t) => {
       const k = t.toLowerCase();
       return seenAlias.has(k) ? false : (seenAlias.add(k), true);
@@ -397,6 +454,10 @@ function buildEpisodeRungs(
   const rungs: EpisodeRung[] = [];
   // The budget is spent per (query, category); asking the same thing twice is a
   // rung the user paid for and learned nothing from.
+  // The budget is spent per distinct SEARCH — same query, same category AND
+  // the same filters. Keying on (query, category) alone silently deleted the
+  // relaxed minSeeders:0 rung whenever it re-asked an earlier rung's query,
+  // which is exactly the thin-swarm anime case the rung exists for.
   const seen = new Set<string>();
   const push = (
     kind: RungKind,
@@ -406,7 +467,7 @@ function buildEpisodeRungs(
     select: EpisodeRung["select"] = packPreferred,
   ) => {
     if (!category) return;
-    const key = `${category}::${query.toLowerCase()}`;
+    const key = `${category}::${query.toLowerCase()}::${JSON.stringify(filters ?? null)}`;
     if (seen.has(key)) return;
     seen.add(key);
     rungs.push({ kind, query, category, filters, select });
@@ -424,6 +485,30 @@ function buildEpisodeRungs(
     if (!t || season !== 1) return;
     push("absolute", absoluteEpisodeQuery(t, episode), cat, absFilters);
   };
+  const qualityAbsolute = (
+    t: string | null,
+    cat: LadderCategory | null,
+  ) => {
+    if (!t || season !== 1 || minimumResolution == null) return;
+    push(
+      "absolute",
+      `${absoluteEpisodeQuery(t, episode)} ${minimumResolution}p`,
+      cat,
+      absFilters,
+    );
+  };
+  const commonQualityAbsolute = (
+    t: string | null,
+    cat: LadderCategory | null,
+  ) => {
+    if (!t || season !== 1 || minimumResolution != null) return;
+    push(
+      "absolute",
+      `${absoluteEpisodeQuery(t, episode)} 1080p`,
+      cat,
+      absFilters,
+    );
+  };
 
   // The canonical query always leads: ordinary TV resolves on it.
   exact(primaryTitle, primaryCat);
@@ -436,6 +521,17 @@ function buildEpisodeRungs(
     exact(bestAlias, animeCat);
     exact(bestAlias, primaryCat);
     absolute(bestAlias, animeCat);
+    // Old anime singles are routinely pushed out of the first result page by
+    // current seasons and batches. When Download has a hard quality floor,
+    // naming that quality in one query narrows the indexer before pagination
+    // instead of fetching 40 broad hits and filtering the wanted release out
+    // afterward. The normal absolute rung still runs first, so this costs
+    // nothing when the broad query already succeeds.
+    qualityAbsolute(bestAlias, animeCat);
+    // Stream keeps no hard floor, but the same season-one alias needs a common
+    // 1080p narrowing hint so the old exact single can surface without making
+    // lower-quality results ineligible.
+    commonQualityAbsolute(bestAlias, animeCat);
     alt(primaryTitle, primaryCat);
     absolute(bestAlias, primaryCat);
   } else {
@@ -476,6 +572,11 @@ function buildEpisodeRungs(
  */
 export function rankAliases(aliases: string[]): string[] {
   const cost = (t: string) =>
+    // When both provider-native and Romaji names exist, fansub/indexer release
+    // names overwhelmingly use the Latin spelling. Keep native-script aliases
+    // as fallbacks, but do not let their shorter character count push the
+    // searchable Romaji name behind them.
+    (/[a-z]/i.test(t) ? 0 : 4) +
     (/[:;,]/.test(t) ? 2 : 0) +
     (/\s/.test(t) ? 0 : 1) +
     (/\p{Ll}\p{Lu}/u.test(t) ? 0.5 : 0) +
@@ -558,11 +659,12 @@ export async function grabSingleEpisode(opts: {
     episode,
     opts.mediaType,
     opts.aliases ?? [],
+    minimumResolution,
   );
   const acceptedWorkTitles = [
     opts.showTitle,
     ...(opts.aliases ?? []),
-  ].flatMap((title) => searchTitleVariants(title));
+  ].flatMap((title) => aliasTitleForms(title));
 
   let cursorAdvance: Awaited<
     ReturnType<typeof advanceLibraryItemIfHuntMatch>
@@ -578,6 +680,7 @@ export async function grabSingleEpisode(opts: {
   let triedPacks = false;
   let lastFailure: GrabPipelineResult | null = null;
   let winner: { result: GrabPipelineResult; rung: EpisodeRung } | null = null;
+  const diagnostics: RungDiagnostic[] = [];
 
   const runRungSearch = (rung: EpisodeRung): Promise<SearchResponse> | null => {
     const key = `${rung.query}|${rung.category}|${JSON.stringify(rung.filters)}`;
@@ -587,6 +690,11 @@ export async function grabSingleEpisode(opts: {
       query: rung.query,
       category: rung.category,
       limit: LADDER_SEARCH_LIMIT,
+      // `limit` caps what the aggregator fetches; `pageSize` caps what it
+      // RETURNS. Left at its 15-row default, 25 of the 40 rows this rung paid
+      // for were discarded before the selector ever saw them — and on anime the
+      // one matching fansub release is routinely outside the first 15.
+      pageSize: LADDER_SEARCH_LIMIT,
       enrich: false,
       skipCache: true,
       background: false,
@@ -623,11 +731,24 @@ export async function grabSingleEpisode(opts: {
             ),
           };
 
+    const diag: RungDiagnostic = {
+      kind: rung.kind,
+      query: rung.query,
+      category: rung.category,
+      minSeeders: rung.filters?.minSeeders,
+      fetched: rawSearchResp.results.length,
+      workEligible: workEligibleResults.length,
+      qualityEligible: floorEligibleResults.length,
+      attempted: 0,
+    };
+    diagnostics.push(diag);
+
     while (true) {
       const candidate = rung.select(searchResp.results, attempted);
       if (!candidate?.magnet) break; // nothing (more) to try this rung
       attempted.add(candidateKey(candidate));
       sendAttempts += 1;
+      diag.attempted += 1;
 
       // Pin the chosen candidate into the pipeline: with `_searchFn` returning
       // exactly this release, the pipeline never re-searches (so it can't hit
@@ -792,6 +913,7 @@ export async function grabSingleEpisode(opts: {
         searches,
         triedSeasonPacks: triedPacks,
         manualSearchQuery: query,
+        rungs: diagnostics,
       },
     };
   }
@@ -802,8 +924,11 @@ export async function grabSingleEpisode(opts: {
   // manually": the title page already *is* the search, and a dead CTA that
   // opens the same indexer path is noise (user report on Re:ZERO S01E01).
   const quality = minimumResolution == null ? "" : ` at ${minimumResolution}p or higher`;
-  const message = `Couldn't find a working release for ${label}${quality} after ${searches} search${
-    searches === 1 ? "" : "es"
+  // "N searches" reads as "N indexers/pages" and made an exhausted press sound
+  // like a coverage problem. What the ladder actually varies is the SHAPE of
+  // the question (name, numbering form, category, seeder floor), so say that.
+  const message = `Couldn't find a working release for ${label}${quality} after ${searches} distinct query shape${
+    searches === 1 ? "" : "s"
   }${triedPacks ? " (including season packs)" : ""}. Try again in a bit — another eligible release may show up.`;
   await db.grabJob.create({
     data: {
@@ -825,6 +950,7 @@ export async function grabSingleEpisode(opts: {
       searches,
       triedSeasonPacks: triedPacks,
       manualSearchQuery: query,
+      rungs: diagnostics,
     },
   };
 }

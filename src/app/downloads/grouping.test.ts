@@ -55,6 +55,7 @@ check("downloaded video remains playable even when progress metadata is stale", 
 function row(partial: Partial<TransferRow> & { name: string }): TransferRow {
   return {
     hash: partial.hash ?? partial.name.toLowerCase().replace(/[^a-z0-9]/g, ""),
+    transferId: partial.transferId,
     name: partial.name,
     // `??` would be wrong here: an explicit `category: null` is the case of a
     // torrent nobody categorised, and defaulting it to "TV" would quietly turn
@@ -308,6 +309,28 @@ check("films stay individual rows, one per torrent", () => {
   assert.equal(groups.length, 2);
   assert.deepEqual(groups.map((g) => g.kind), ["single", "single"]);
   assert.notEqual(groups[0].key, groups[1].key);
+});
+
+check("same hash owned by two clients remains two actionable rows", () => {
+  const groups = groupDownloads([
+    row({
+      name: "Dune 2021 1080p",
+      hash: "same",
+      category: "Movies",
+      transferId: "builtin:same",
+    }),
+    row({
+      name: "Dune 2021 1080p",
+      hash: "same",
+      category: "Movies",
+      transferId: "qbittorrent:same",
+    }),
+  ]);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(
+    groups.map((group) => group.key).sort(),
+    ["single:builtin:same", "single:qbittorrent:same"],
+  );
 });
 
 check("seasons run in order and episodes run in order inside them", () => {

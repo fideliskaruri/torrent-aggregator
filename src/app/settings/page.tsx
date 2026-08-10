@@ -456,7 +456,7 @@ export default function SettingsPage() {
           externalClientType:
             form.clientType === "builtin"
               ? form.externalClientType || null
-              : null,
+              : form.clientType,
           host: form.host || "http://127.0.0.1:8080",
           username: form.username,
           password: form.password,

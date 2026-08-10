@@ -125,19 +125,31 @@ function isEpisodeQuery(q: string): boolean {
 
 // ── Instrumented search seam ──────────────────────────────────────────────────
 
-type SearchCall = { query: string; minSeeders: number | undefined };
+type SearchCall = {
+  query: string;
+  minSeeders: number | undefined;
+  limit: number | undefined;
+  pageSize: number | undefined;
+};
 
-function makeSearchFn(route: (query: string) => TorrentResult[]): {
+function makeSearchFn(route: (query: string, minSeeders?: number) => TorrentResult[]): {
   fn: SearchFn;
   calls: SearchCall[];
 } {
   const calls: SearchCall[] = [];
   const fn = (async (options: {
     query: string;
+    limit?: number;
+    pageSize?: number;
     filters?: { minSeeders?: number };
   }) => {
-    calls.push({ query: options.query, minSeeders: options.filters?.minSeeders });
-    return resp(route(options.query));
+    calls.push({
+      query: options.query,
+      minSeeders: options.filters?.minSeeders,
+      limit: options.limit,
+      pageSize: options.pageSize,
+    });
+    return resp(route(options.query, options.filters?.minSeeders));
   }) as unknown as SearchFn;
   return { fn, calls };
 }
@@ -428,6 +440,135 @@ async function main() {
       assert.equal(countCreate(calls, "grabJob", "sent"), 1);
     });
 
+    await checkAsync("quality-qualified anime query surfaces an old exact single", async () => {
+      const oldSingle: TorrentResult = {
+        id: "slime-old-01",
+        title: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 01 [1080p].mkv",
+        magnet: `magnet:?xt=urn:btih:${hex40("slime-old-01")}&dn=slime-old`,
+        infoHash: hex40("slime-old-01"),
+        sizeBytes: 1_200_000_000,
+        seeders: 6,
+        leechers: 0,
+        source: "torrentscsv",
+        sourceUrl: "https://example.com",
+        tags: ["1080p"],
+      };
+      const search = makeSearchFn((q) =>
+        /Tensei Shitara Slime Datta Ken - 01 1080p$/i.test(q)
+          ? [oldSingle]
+          : [],
+      );
+      const { proxy } = mockPrisma();
+      const res = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle: "That Time I Got Reincarnated as a Slime",
+        aliases: ["転生したらスライムだった件", "Tensei Shitara Slime Datta Ken"],
+        mediaType: "anime",
+        season: 1,
+        episode: 1,
+        preferredResolution: 1080,
+        _config: fakeConfig(),
+        _searchFn: search.fn,
+        _sendFn: okSend(),
+        _prisma: proxy,
+      });
+      assert.equal(res.ok, true, res.message);
+      assert.equal(res.title, oldSingle.title);
+      assert.ok(
+        search.calls.some((call) =>
+          /Tensei Shitara Slime Datta Ken - 01 1080p$/i.test(call.query),
+        ),
+        `quality-qualified absolute query was never tried: ${search.calls
+          .map((call) => call.query)
+          .join(" | ")}`,
+      );
+    });
+
+    await checkAsync(
+      "stream retention still asks for the Slime 1080p retrieval query",
+      async () => {
+        const exact1080: TorrentResult = {
+          id: "slime-stream-1080",
+          title: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 01 [1080p].mkv",
+          magnet: `magnet:?xt=urn:btih:${hex40("slime-stream-1080")}&dn=slime-stream-1080`,
+          infoHash: hex40("slime-stream-1080"),
+          sizeBytes: 1_200_000_000,
+          seeders: 6,
+          leechers: 0,
+          source: "torrentscsv",
+          sourceUrl: "https://example.com",
+          tags: ["1080p"],
+        };
+        const qualifiedQuery = /Tensei Shitara Slime Datta Ken - 01 1080p$/i;
+        const search = makeSearchFn((q) => (qualifiedQuery.test(q) ? [exact1080] : []));
+        const { proxy } = mockPrisma();
+        const res = await grabSingleEpisode({
+          userId: "user-1",
+          showTitle: "That Time I Got Reincarnated as a Slime",
+          aliases: ["転生したらスライムだった件", "Tensei Shitara Slime Datta Ken"],
+          mediaType: "anime",
+          season: 1,
+          episode: 1,
+          retention: "stream",
+          _config: fakeConfig(),
+          _searchFn: search.fn,
+          _sendFn: okSend(),
+          _prisma: proxy,
+        });
+        assert.ok(
+          search.calls.some((call) => qualifiedQuery.test(call.query)),
+          `qualified 1080p query never tried; tried: ${search.calls
+            .map((call) => call.query)
+            .join(" | ")}`,
+        );
+        assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+        assert.equal(res.title, exact1080.title);
+      },
+    );
+
+    await checkAsync(
+      "stream retention sends a lower-res exact hit from the Slime 1080p query",
+      async () => {
+        const lowerExact: TorrentResult = {
+          id: "slime-stream-720",
+          title: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 01 [720p].mkv",
+          magnet: `magnet:?xt=urn:btih:${hex40("slime-stream-720")}&dn=slime-stream-720`,
+          infoHash: hex40("slime-stream-720"),
+          sizeBytes: 800_000_000,
+          seeders: 10,
+          leechers: 1,
+          source: "torrentscsv",
+          sourceUrl: "https://example.com",
+          tags: ["720p"],
+        };
+        const qualifiedQuery = /Tensei Shitara Slime Datta Ken - 01 1080p$/i;
+        const search = makeSearchFn((q) => (qualifiedQuery.test(q) ? [lowerExact] : []));
+        const { proxy, calls } = mockPrisma();
+        const res = await grabSingleEpisode({
+          userId: "user-1",
+          showTitle: "That Time I Got Reincarnated as a Slime",
+          aliases: ["転生したらスライムだった件", "Tensei Shitara Slime Datta Ken"],
+          mediaType: "anime",
+          season: 1,
+          episode: 1,
+          retention: "stream",
+          _config: fakeConfig(),
+          _searchFn: search.fn,
+          _sendFn: okSend(),
+          _prisma: proxy,
+        });
+        assert.ok(
+          search.calls.some((call) => qualifiedQuery.test(call.query)),
+          `qualified 1080p query never tried; tried: ${search.calls
+            .map((call) => call.query)
+            .join(" | ")}`,
+        );
+        assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+        assert.equal(res.title, lowerExact.title);
+        assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+      },
+    );
+
     await checkAsync("wrong show with the right episode number is never sent", async () => {
       const wrong: TorrentResult = {
         ...single(91, 200),
@@ -588,7 +729,145 @@ async function main() {
       assert.match(lowerOnly.message, /1080p or higher/);
     });
 
-    // 5. Offline is environmental — stop immediately, don't burn more rungs.
+    // 5e. Every fetched row is evaluated: the ladder asks for 40 and must ASK
+    // for a 40-row page too. Left at the aggregator's 15-row default, the match
+    // sitting at row 40 — routine on anime, where fansub groups flood the head
+    // of the list — is thrown away before the selector ever sees it.
+    await checkAsync("all fetched rows are visible to the selector", async () => {
+      const filler = (n: number): TorrentResult => ({
+        ...single(100 + n, 90),
+        id: `filler-${n}`,
+        // Right episode number, wrong show → never eligible, only crowding.
+        title: `Some Other Show S01E02 1080p WEB-DL v${n}`,
+      });
+      const rows = [
+        ...Array.from({ length: 39 }, (_, i) => filler(i)),
+        single(1, 5),
+      ];
+      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? rows : []));
+      const { proxy, calls } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+
+      assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+      assert.equal(res.title, single(1, 5).title, "the 40th row must be reachable");
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+      for (const call of search.calls) {
+        assert.equal(call.limit, 40, "ladder fetches 40 rows");
+        assert.equal(
+          call.pageSize,
+          40,
+          `pageSize must match the fetch limit or rows are dropped (${call.query})`,
+        );
+      }
+    });
+
+    // 5f. The relaxed minSeeders:0 rung must actually RUN. Its query shape
+    // repeats an earlier rung's, so a (query, category) dedupe key silently
+    // deleted it — and with it the only route to a thin-swarm anime release.
+    await checkAsync("the relaxed zero-seeder rung survives rung dedupe", async () => {
+      const zeroSeed = (): TorrentResult => ({
+        ...single(77, 0),
+        id: "thin-swarm",
+        title: "Family Guy S01E02 I Never Met the Dead Man 1080p WEB-DL",
+        seeders: 0,
+      });
+      // The indexer only yields the release when the seeder floor is dropped.
+      const search = makeSearchFn((q, minSeeders) =>
+        isEpisodeQuery(q) && minSeeders === 0 ? [zeroSeed()] : [],
+      );
+      const { proxy, calls } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+
+      assert.equal(res.ok, true, `relaxed rung never ran: ${res.message}`);
+      assert.match(res.message, /low-seed release/, "provenance must stay honest");
+      assert.ok(
+        search.calls.some((c) => c.minSeeders === 0),
+        "a minSeeders:0 search must be issued",
+      );
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+    });
+
+    // 5g. A supplied alias is part of the work's IDENTITY, not just its query:
+    // the release is named after the alias, so an identity check that knows
+    // only the English catalog title rejects the very release its own alias
+    // query found.
+    await checkAsync("a release named after a supplied alias is accepted", async () => {
+      const aliasRelease = (): TorrentResult => ({
+        id: "slime300-01",
+        title:
+          "[SubsPlease] Slime Taoshite 300 Nen S01E01 (1080p) [11223344]",
+        magnet: `magnet:?xt=urn:btih:${hex40("slime300-01")}&dn=s300`,
+        infoHash: hex40("slime300-01"),
+        sizeBytes: 400_000_000,
+        seeders: 60,
+        leechers: 2,
+        source: "nyaa",
+        sourceUrl: "https://example.com",
+        tags: ["1080p"],
+      });
+      const search = makeSearchFn((q) =>
+        /Slime Taoshite 300 Nen/i.test(q) ? [aliasRelease()] : [],
+      );
+      const { proxy, calls } = mockPrisma();
+      const res = await grabSingleEpisode({
+        userId: "user-1",
+        showTitle:
+          "I've Been Killing Slimes for 300 Years and Maxed Out My Level",
+        aliases: ["Slime Taoshite 300 Nen, Shiranai Uchi ni Level Max ni Nattemashita"],
+        mediaType: "anime",
+        season: 1,
+        episode: 1,
+        preferredResolution: 1080,
+        _config: fakeConfig(),
+        _searchFn: search.fn,
+        _sendFn: okSend(),
+        _prisma: proxy,
+      });
+      assert.equal(res.ok, true, `expected success, got: ${res.message}`);
+      assert.match(res.title ?? "", /Slime Taoshite 300 Nen/i);
+      assert.equal(countCreate(calls, "grabJob", "sent"), 1);
+    });
+
+    // 5h. An exhausted press explains itself in terms of what the ladder varies
+    // (query shapes), not indexers or pages, and reports per-rung yield.
+    await checkAsync("exhausted message names query shapes and reports rung yield", async () => {
+      const search = makeSearchFn(() => []);
+      const { proxy } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+
+      assert.match(res.message, /distinct query shapes/);
+      assert.doesNotMatch(res.message, /\bsearches\b/);
+      const rungs = res.noReleaseFound?.rungs ?? [];
+      assert.ok(rungs.length >= 4, "per-rung diagnostics recorded");
+      assert.ok(
+        rungs.some((r) => r.kind === "relaxed" && r.minSeeders === 0),
+        "the relaxed rung is represented in diagnostics",
+      );
+      assert.ok(rungs.every((r) => r.fetched === 0 && r.attempted === 0));
+    });
+
+    // 5i. Diagnostics must be able to say "rows came back and the identity
+    // filter ate them" — the failure that is otherwise indistinguishable from
+    // an empty indexer.
+    await checkAsync("diagnostics separate empty indexers from filtered-out rows", async () => {
+      const wrongShow = (): TorrentResult => ({
+        ...single(55, 200),
+        id: "wrong-show",
+        title: "Lucky 2026 S01E02 1080p WEB h264-ETHEL",
+      });
+      const search = makeSearchFn((q) => (isEpisodeQuery(q) ? [wrongShow()] : []));
+      const { proxy } = mockPrisma();
+      const res = await grab(search.fn, okSend(), proxy);
+
+      assert.equal(res.ok, false, "a wrong show is never a rescue");
+      const first = (res.noReleaseFound?.rungs ?? [])[0];
+      assert.ok(first, "first rung recorded");
+      assert.equal(first?.fetched, 1);
+      assert.equal(first?.workEligible, 0, "wrong-show rows are counted as rejected");
+      assert.equal(first?.attempted, 0);
+    });
+
+
     await checkAsync("stops immediately when the client is offline", async () => {
       const search = makeSearchFn((q) => (isEpisodeQuery(q) ? [single(1, 90)] : []));
       const { proxy, calls } = mockPrisma();

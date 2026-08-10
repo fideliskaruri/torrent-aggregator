@@ -13,6 +13,7 @@ import {
   defaultDownloadDir,
   ensureDefaultClientSettings,
 } from "@/lib/clients/defaults";
+import { retainedExternalClientType } from "@/lib/clients/transfer-ownership";
 import {
   detectUnsafeDownloadPath,
   unsafeDownloadPathMessage,
@@ -560,37 +561,24 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Invalid clientType" }, { status: 400 });
     }
 
-    let externalClientType: string | null;
-    if (body.externalClientType !== undefined) {
-      if (
-        body.externalClientType === null ||
-        body.externalClientType === "" ||
-        body.externalClientType === "none"
-      ) {
-        externalClientType = null;
-      } else if (
-        body.externalClientType === "qbittorrent" ||
-        body.externalClientType === "transmission"
-      ) {
-        externalClientType = body.externalClientType;
-      } else {
-        return NextResponse.json(
-          { error: "Invalid externalClientType" },
-          { status: 400 },
-        );
-      }
-    } else {
-      externalClientType = existing?.externalClientType ?? null;
+    if (
+      body.externalClientType !== undefined &&
+      body.externalClientType !== null &&
+      body.externalClientType !== "" &&
+      body.externalClientType !== "none" &&
+      body.externalClientType !== "qbittorrent" &&
+      body.externalClientType !== "transmission"
+    ) {
+      return NextResponse.json(
+        { error: "Invalid externalClientType" },
+        { status: 400 },
+      );
     }
-
-    // If user picks external as primary, clear redundant external dual (or keep same)
-    if (clientType === "qbittorrent" || clientType === "transmission") {
-      // Primary is external — dual external only makes sense for a *different* type;
-      // keep simple: when primary is external, externalClientType unused
-      if (body.externalClientType === undefined) {
-        externalClientType = null;
-      }
-    }
+    const externalClientType = retainedExternalClientType(
+      clientType as ClientConnectionConfig["clientType"],
+      body.externalClientType,
+      existing?.externalClientType,
+    );
 
     const hostRaw =
       body.host?.trim() ||
@@ -768,27 +756,6 @@ export async function PUT(request: NextRequest) {
       if (!invalidation.persistedCleared) {
         console.warn(
           "[settings/client PUT] target changed but persisted search cache cleanup failed",
-        );
-      }
-    }
-
-    // The in-process engine keeps running until it is told to stop. Leaving it
-    // alive after the user moves to an external client means torrents that no
-    // longer appear anywhere in the UI still hold peers, bandwidth and disk.
-    if (
-      (existing?.clientType ?? "builtin") === "builtin" &&
-      clientType !== "builtin"
-    ) {
-      try {
-        const { shutdownBuiltinEngine } = await import(
-          "@/lib/clients/builtin-engine"
-        );
-        await shutdownBuiltinEngine();
-      } catch (err) {
-        // The setting is already saved; a failed teardown must not undo it.
-        console.warn(
-          "[settings/client PUT] builtin engine shutdown failed",
-          err instanceof Error ? err.message : err,
         );
       }
     }

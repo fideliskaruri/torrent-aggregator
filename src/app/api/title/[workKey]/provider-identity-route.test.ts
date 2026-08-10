@@ -44,6 +44,7 @@ for (const row of cases) {
         },
         format: row.format as AniListFormat,
         isSeries: row.isSeries,
+        episodeCount: row.isSeries ? 12 : null,
       };
     },
   );
@@ -85,6 +86,7 @@ const rejected = await resolveTitleProviderIdentity(
     },
     format: "MOVIE",
     isSeries: false,
+    episodeCount: 1,
   }),
 );
 assert.equal(rejected.kind, "invalid");

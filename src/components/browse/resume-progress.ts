@@ -5,6 +5,18 @@ type ResumeCoordinates = {
   episode?: number | null;
 };
 
+/** Identity of the exact progress lookup a mounted overlay is waiting for. */
+export function resumeLookupKey(
+  infoHash: string,
+  target: ResumeCoordinates,
+): string {
+  return [
+    infoHash.trim().toLowerCase(),
+    target.season ?? "",
+    target.episode ?? "",
+  ].join("|");
+}
+
 /**
  * Pick the newest active progress row that belongs to the requested episode.
  *

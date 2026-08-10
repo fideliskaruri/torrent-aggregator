@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import type { ProgressEntry } from "@/lib/browse/types";
-import { resumePositionForTarget } from "./resume-progress";
+import { resumeLookupKey, resumePositionForTarget } from "./resume-progress";
 
 function entry(overrides: Partial<ProgressEntry> = {}): ProgressEntry {
   return {
@@ -82,6 +83,32 @@ assert.equal(
   resumePositionForTarget([entry({ positionSec: 5 })], {}),
   null,
   "tiny bookkeeping positions still start from the beginning",
+);
+
+assert.notEqual(
+  resumeLookupKey("ABC", { season: 1, episode: 1 }),
+  resumeLookupKey("abc", { season: 1, episode: 2 }),
+  "same-hash season-pack episodes have distinct reload lookup identities",
+);
+assert.equal(
+  resumeLookupKey(" ABC ", { season: 1, episode: 2 }),
+  resumeLookupKey("abc", { season: 1, episode: 2 }),
+  "hash formatting does not split one exact episode lookup",
+);
+
+const overlaySource = fs.readFileSync(
+  "src/components/browse/play-overlay.tsx",
+  "utf8",
+);
+assert.match(
+  overlaySource,
+  /const lookupKey =[\s\S]*?resumeLookupKey\(infoHash,[\s\S]*?season: resolvedSeason,[\s\S]*?episode: resolvedEpisode,/,
+  "the reload lookup is keyed by the exact requested episode",
+);
+assert.match(
+  overlaySource,
+  /lookedUpResume\?\.key === lookupKey/,
+  "a stale same-hash sibling lookup cannot release the player",
 );
 
 console.log("PASS resume progress selection");

@@ -369,10 +369,11 @@ export function subtitleCandidatesFromProbe(streams: ProbeStream[]): SubtitleCan
  *  - Foreign audio → the first usable *English* subtitle. Full (non-forced)
  *    English is preferred; a forced English track is used only when it is the
  *    only English option (`forcedFallback`).
- *  - Foreign audio with no English subtitle at all → nothing is auto-selected,
- *    but `noEnglishAvailable` is set so the UI states it plainly rather than
- *    sitting on a silent "Off". A non-English subtitle is never auto-forced on
- *    an English viewer.
+ *  - Foreign audio with no English subtitle at all → fall back to the first
+ *    supported full subtitle (then a forced one), while `noEnglishAvailable`
+ *    stays set so the UI can state that the preferred language was unavailable.
+ *    Leaving subtitles Off when a usable translation exists is worse than an
+ *    explicit, honestly-labelled fallback.
  *
  * `candidates` are considered in order, so the caller controls tie-breaking
  * (e.g. sidecars before embedded) simply by ordering the list.
@@ -397,13 +398,17 @@ export function selectDefaultSubtitle(
   }
 
   if (!englishSubtitleAvailable) {
+    const supported = candidates.filter((candidate) => candidate.supported);
+    const fallback = supported.find((candidate) => !candidate.forced) ?? supported[0];
     return {
-      defaultTrackId: null,
+      defaultTrackId: fallback?.id ?? null,
       audioIsEnglish: false,
       englishSubtitleAvailable: false,
       noEnglishAvailable: true,
-      forcedFallback: false,
-      reason: "No English audio and no English subtitles available",
+      forcedFallback: Boolean(fallback?.forced),
+      reason: fallback
+        ? "No English subtitles available — defaulting to another supported subtitle"
+        : "No English audio and no supported subtitles available",
     };
   }
 

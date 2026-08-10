@@ -29,6 +29,13 @@ export interface TitleProviderIdentity {
   /** AniList-only shape hint; always null for TMDB. */
   format: AniListFormat | null;
   isSeries: boolean;
+  /**
+   * Episodes the provider itself reports for this work, or null when it
+   * reports none. Only ever set from a *verified* provider lookup — a carried
+   * (client-supplied) identity never asserts a count, because a count the
+   * client can name is a count the client can invent.
+   */
+  episodeCount: number | null;
   metadata: MediaMetadata;
   verified: boolean;
 }
@@ -175,6 +182,7 @@ async function resolveAniListIdentity(
       mediaType: "anime",
       format: work.format,
       isSeries: work.isSeries,
+      episodeCount: work.episodeCount,
       metadata: work.metadata,
       verified: true,
     },
@@ -222,6 +230,7 @@ function carriedAniListIdentity(
     mediaType: "anime",
     format,
     isSeries,
+    episodeCount: null,
     metadata: {
       source: "anilist",
       mediaType: "anime",
@@ -312,6 +321,7 @@ async function resolveTmdbIdentity(
       mediaType,
       format: null,
       isSeries,
+      episodeCount: null,
       metadata: work,
       verified: true,
     },
@@ -354,6 +364,7 @@ function carriedTmdbIdentity(
     mediaType,
     format: null,
     isSeries,
+    episodeCount: null,
     metadata: {
       source: "tmdb",
       mediaType,

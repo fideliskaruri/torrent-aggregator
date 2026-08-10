@@ -193,6 +193,21 @@ async function main(): Promise<void> {
       assert.equal(selectBestRelease([top], film)?.id, top.id);
     });
 
+    check("a preferred resolution is a hard floor for selector picks", () => {
+      const floored: PreRankTarget = {
+        title: SHOW,
+        mediaType: "tv",
+        season: 1,
+        episode: 4,
+        preferredResolution: 1080,
+      };
+      const lower = result({ title: `${SHOW} S01E04 720p WEB-DL` });
+      const unknown = result({ title: `${SHOW} S01E04 WEB-DL` });
+      const higher = result({ title: `${SHOW} S01E04 2160p WEB-DL` });
+      assert.equal(selectBestRelease([lower, unknown, higher], floored)?.id, higher.id);
+      assert.equal(selectBestRelease([lower, unknown], floored), null);
+    });
+
     // ── THE SEAM: write through the real producer, read through us ──────
     // The option set below is deliberately one `getPreRanked` cannot guess —
     // different limit, different sources, an extra `target`. If lookup ever

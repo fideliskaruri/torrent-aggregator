@@ -5,7 +5,7 @@ import { X } from "lucide-react";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
 import type { ProgressEntry } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
-import { resumePositionForTarget } from "./resume-progress";
+import { resumeLookupKey, resumePositionForTarget } from "./resume-progress";
 
 const RESUME_LOOKUP_TIMEOUT_MS = 3_000;
 
@@ -68,23 +68,30 @@ export function PlayOverlay({
   );
   const resolvedSeason = season ?? parsedEpisode?.season;
   const resolvedEpisode = episode ?? parsedEpisode?.episode;
+  const lookupKey =
+    infoHash === null
+      ? null
+      : resumeLookupKey(infoHash, {
+          season: resolvedSeason,
+          episode: resolvedEpisode,
+        });
   const [lookedUpResume, setLookedUpResume] = useState<{
-    infoHash: string;
+    key: string;
     positionSec: number | null;
   } | null>(null);
   const needsResumeLookup = resumePositionSec === undefined && infoHash !== null;
   const resumeLookupReady =
-    !needsResumeLookup || lookedUpResume?.infoHash === infoHash;
+    !needsResumeLookup || lookedUpResume?.key === lookupKey;
   const playerInfoHash = resumeLookupReady ? infoHash : null;
   const playerResumeSec =
     resumePositionSec !== undefined
       ? resumePositionSec
-      : lookedUpResume?.infoHash === infoHash
+      : lookedUpResume?.key === lookupKey
         ? lookedUpResume.positionSec
         : null;
 
   useEffect(() => {
-    if (!needsResumeLookup || !infoHash) return;
+    if (!needsResumeLookup || !infoHash || !lookupKey) return;
 
     const controller = new AbortController();
     let disposed = false;
@@ -104,7 +111,7 @@ export function PlayOverlay({
       .then((entries) => {
         if (disposed) return;
         setLookedUpResume({
-          infoHash,
+          key: lookupKey,
           positionSec: resumePositionForTarget(entries, {
             season: resolvedSeason,
             episode: resolvedEpisode,
@@ -113,7 +120,7 @@ export function PlayOverlay({
       })
       .catch(() => {
         if (disposed) return;
-        setLookedUpResume({ infoHash, positionSec: null });
+        setLookedUpResume({ key: lookupKey, positionSec: null });
       })
       .finally(() => window.clearTimeout(timeoutId));
 
@@ -124,6 +131,7 @@ export function PlayOverlay({
     };
   }, [
     infoHash,
+    lookupKey,
     needsResumeLookup,
     resolvedEpisode,
     resolvedSeason,
