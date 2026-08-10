@@ -124,10 +124,13 @@ check(
   },
 );
 
-check("the season rail is a real tablist, horizontally scrollable, arrow-key friendly", () => {
+check("the season rail is a named button group, horizontally scrollable, arrow-key friendly", () => {
   assert.match(dialogSource, /data-season-rail/);
-  assert.match(dialogSource, /role="tablist"/);
-  assert.match(dialogSource, /role="tab"/);
+  assert.match(dialogSource, /role="group"/);
+  assert.match(dialogSource, /aria-pressed=\{active\}/);
+  assert.match(dialogSource, /aria-controls=\{panelId\}/);
+  assert.doesNotMatch(dialogSource, /role="tab"/);
+  assert.doesNotMatch(dialogSource, /aria-selected/);
   assert.match(dialogSource, /overflow-x-auto/);
   assert.match(dialogSource, /shrink-0/);
   assert.match(dialogSource, /ArrowRight/);
@@ -135,17 +138,34 @@ check("the season rail is a real tablist, horizontally scrollable, arrow-key fri
 });
 
 check("season tabs auto-scroll into view while keeping keyboard focus behavior", () => {
-  assert.match(dialogSource, /scrollIntoView\(\{/);
-  assert.match(dialogSource, /inline: "nearest"/);
-  assert.match(dialogSource, /behavior: "auto"/);
-  assert.match(dialogSource, /requestAnimationFrame/);
+  assert.match(dialogSource, /new ResizeObserver\(ensureSelectedSeasonVisible\)/);
+  assert.match(dialogSource, /observer\.observe\(rail\)/);
+  assert.match(dialogSource, /forEach\(\(tab\) => observer\.observe\(tab\)\)/);
+  assert.match(dialogSource, /new MutationObserver\(observeRailAndTabs\)/);
+  assert.match(dialogSource, /observer\.disconnect\(\)/);
+  assert.match(dialogSource, /rail\.scrollLeft [+-]=/);
+  assert.doesNotMatch(dialogSource, /window\.addEventListener\("resize"/);
+  assert.doesNotMatch(dialogSource, /activeTab\.focus\(\)/);
   assert.match(dialogSource, /tabRefs\.current\[nextIndex\]\?\.focus\(\)/);
+});
+
+check("very small screens use a purpose-built season workspace instead of a compressed rail", () => {
+  assert.match(dialogSource, /data-mobile-series-header/);
+  assert.match(dialogSource, /data-mobile-season-picker/);
+  assert.match(dialogSource, /data-mobile-season-select/);
+  assert.match(dialogSource, /aria-controls=/);
+  assert.match(dialogSource, /sm:hidden/);
+  assert.match(dialogSource, /hidden shrink-0 sm:block/);
+  assert.match(dialogSource, /role="region"/);
+  assert.doesNotMatch(dialogSource, /role="tabpanel"/);
 });
 
 check("the bulk action bar adds safe-area padding on mobile without losing the normal desktop spacing", () => {
   assert.match(dialogSource, /data-dialog-bulk-bar/);
   assert.match(dialogSource, /pb-\[calc\(0\.5rem\+var\(--safe-bottom\)\)\]/);
   assert.match(dialogSource, /sm:pb-2/);
+  assert.match(dialogSource, /shadow-\[var\(--shadow-md\)\]/);
+  assert.match(dialogSource, /sm:shadow-none/);
 });
 
 check("only the dialog body scrolls vertically — no ancestor hides overflow-x", () => {
@@ -282,16 +302,13 @@ check("select all reflects visible-row membership, not selection size", () => {
 
 check("the dialog title links to the title page and the poster stays decorative", () => {
   assert.match(dialogSource, /data-dialog-title-link/);
-  assert.match(
-    dialogSource,
-    /<DialogTitle[\s\S]{0,400}<Link\s+href=\{titleHref\}/,
-    "the accessible name must carry the link, not only the poster",
-  );
+  assert.equal(dialogSource.match(/<DialogTitle/g)?.length, 1);
+  assert.match(dialogSource, /<DialogTitle className="sr-only">\{group\.title\}<\/DialogTitle>/);
   assert.match(dialogSource, /<Link href=\{titleHref\} tabIndex=\{-1\} aria-hidden/);
 });
 
 check("the dialog describes itself in plain language for assistive tech", () => {
-  assert.match(dialogSource, /DialogDescription/);
+  assert.equal(dialogSource.match(/<DialogDescription/g)?.length, 1);
   assert.match(dialogSource, /Every season and episode of this show/);
   assert.doesNotMatch(dialogSource, /aria-describedby=\{undefined\}/);
 });
@@ -311,7 +328,8 @@ check("the desktop dialog frame is fixed, not content-driven", () => {
   assert.match(dialogSource, /max-h-\[100dvh\]/);
   // Only the season panel scrolls; header and rail stay fixed.
   assert.match(dialogSource, /min-h-0 flex-1 overflow-y-auto/);
-  assert.match(dialogSource, /<DialogHeader className="shrink-0/);
+  assert.match(dialogSource, /data-mobile-series-header/);
+  assert.match(dialogSource, /<DialogHeader className="hidden shrink-0/);
 });
 
 check("the redesign's structural guarantees survive these fixes", () => {

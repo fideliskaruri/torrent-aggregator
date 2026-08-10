@@ -18,9 +18,18 @@
  * component would be lost the moment it unmounted; state the parent holds
  * survives the round trip.
  */
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { Check, Copy, FolderOpen, MoreHorizontal, Pause, Play, Trash2 } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Copy,
+  FolderOpen,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Trash2,
+} from "lucide-react";
 import { cn, formatBytes, formatDuration } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -100,42 +109,75 @@ function seasonLabelFor(season: Pick<SeasonBucket<ClientTorrent>, "season" | "la
 }
 
 /**
- * The season chapter rail — the signature of this redesign. Role `tablist`
- * with arrow-key roving focus, per the ARIA tabs pattern: the rail can hold
- * twenty seasons and a mouse should never be required to move through it.
+ * The season chapter rail — the signature of this redesign. It is an
+ * arrow-key button group with roving focus: the rail can hold twenty seasons
+ * and a mouse should never be required to move through it.
  */
 function SeasonRail({
   group,
   selectedSeasonKey,
   onSelectSeason,
+  panelId,
 }: {
   group: SeriesGroup<ClientTorrent>;
   selectedSeasonKey: string | null;
   onSelectSeason: (key: string) => void;
+  panelId: string;
 }) {
+  const railRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const selectedSeasonKeyRef = useRef(selectedSeasonKey);
+
+  const ensureSelectedSeasonVisible = useCallback(() => {
+    const rail = railRef.current;
+    const selectedKey = selectedSeasonKeyRef.current;
+    if (!rail || !selectedKey || rail.clientWidth === 0) return;
+
+    const activeTab = [...rail.querySelectorAll<HTMLElement>("[data-season-tab-key]")].find(
+      (tab) => tab.dataset.seasonTabKey === selectedKey,
+    );
+    if (!activeTab) return;
+
+    const railRect = rail.getBoundingClientRect();
+    const tabRect = activeTab.getBoundingClientRect();
+    if (tabRect.left < railRect.left) {
+      rail.scrollLeft -= railRect.left - tabRect.left;
+    } else if (tabRect.right > railRect.right) {
+      rail.scrollLeft += tabRect.right - railRect.right;
+    }
+  }, []);
 
   useEffect(() => {
-    if (!selectedSeasonKey) return;
+    selectedSeasonKeyRef.current = selectedSeasonKey;
+    ensureSelectedSeasonVisible();
+  }, [ensureSelectedSeasonVisible, group.key, selectedSeasonKey]);
 
-    const targetIndex = group.seasons.findIndex((season) => season.key === selectedSeasonKey);
-    if (targetIndex < 0) return;
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail || typeof ResizeObserver === "undefined") return;
 
-    const tab = tabRefs.current[targetIndex];
-    if (!tab) return;
+    const observer = new ResizeObserver(ensureSelectedSeasonVisible);
+    const observeRailAndTabs = () => {
+      observer.disconnect();
+      observer.observe(rail);
+      rail
+        .querySelectorAll<HTMLElement>("[data-season-tab-key]")
+        .forEach((tab) => observer.observe(tab));
+      ensureSelectedSeasonVisible();
+    };
+    observeRailAndTabs();
 
-    const rafId = window.requestAnimationFrame(() => {
-      const latestTab = tabRefs.current[targetIndex];
-      if (!latestTab || latestTab !== tab) return;
-      latestTab.scrollIntoView({
-        inline: "nearest",
-        block: "nearest",
-        behavior: "auto",
-      });
-    });
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(observeRailAndTabs);
+    mutationObserver?.observe(rail, { childList: true });
 
-    return () => window.cancelAnimationFrame(rafId);
-  }, [group.key, selectedSeasonKey]);
+    return () => {
+      mutationObserver?.disconnect();
+      observer.disconnect();
+    };
+  }, [ensureSelectedSeasonVisible]);
 
   function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
     const seasons = group.seasons;
@@ -154,7 +196,8 @@ function SeasonRail({
 
   return (
     <div
-      role="tablist"
+      ref={railRef}
+      role="group"
       aria-label={`Seasons of ${group.title}`}
       data-season-rail
       className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[var(--border)] px-4 py-2 sm:px-5"
@@ -170,10 +213,8 @@ function SeasonRail({
               tabRefs.current[index] = el;
             }}
             type="button"
-            role="tab"
-            id={`season-tab-${season.key}`}
-            aria-selected={active}
-            aria-controls={`season-panel-${season.key}`}
+            aria-pressed={active}
+            aria-controls={panelId}
             tabIndex={active ? 0 : -1}
             onClick={() => onSelectSeason(season.key)}
             onKeyDown={(event) => onKeyDown(event, index)}
@@ -203,6 +244,60 @@ function SeasonRail({
         );
       })}
     </div>
+  );
+}
+
+function SeriesActionsMenu({
+  group,
+  onActionMany,
+  onDeleteRequest,
+  mobile = false,
+}: {
+  group: SeriesGroup<ClientTorrent>;
+  onActionMany: SeriesDownloadDialogProps["onActionMany"];
+  onDeleteRequest: SeriesDownloadDialogProps["onDeleteRequest"];
+  mobile?: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`More actions for ${group.title}`}
+          data-group-more={mobile ? undefined : ""}
+          data-mobile-group-more={mobile ? "" : undefined}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onClick={() => onActionMany("pause", group.torrents)}
+          className="min-h-[44px] lg:min-h-0"
+        >
+          <Pause />
+          Pause all
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => onActionMany("resume", group.torrents)}
+          className="min-h-[44px] lg:min-h-0"
+        >
+          <Play />
+          Resume all
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
+          onClick={(event) => onDeleteRequest([...group.torrents], event.currentTarget)}
+          data-group-delete
+        >
+          <Trash2 />
+          Delete all…
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -459,6 +554,7 @@ export function SeriesDownloadDialog({
   if (!group) return null;
 
   const pct = progressPercent(group.progress);
+  const seasonPanelId = `series-season-panel-${group.key}`;
   const query = artworkQueryForRelease(group.torrents[0].name, group.torrents[0].category);
   const art = artwork[query.key];
   const speed = speedLabel(group.dlspeed);
@@ -482,7 +578,68 @@ export function SeriesDownloadDialog({
         className="max-h-[100dvh] p-0 sm:h-[min(88dvh,54rem)] sm:max-h-[88dvh] sm:w-[min(100%-2rem,68rem)] sm:max-w-[68rem]"
         data-series-dialog
       >
-        <DialogHeader className="shrink-0 gap-3 border-b border-[var(--border)] px-4 pb-3 pr-14 pt-4 sm:px-5">
+        <DialogTitle className="sr-only">{group.title}</DialogTitle>
+        <DialogDescription className="sr-only">
+          Every season and episode of this show that is downloading or
+          downloaded. Choose a season, then play, pause or remove individual
+          episodes.
+        </DialogDescription>
+
+        <DialogHeader
+          className="shrink-0 gap-2 border-b border-[var(--border)] px-4 pb-3 pr-14 pt-3 sm:hidden"
+          data-mobile-series-header
+        >
+          <h2 className="truncate pr-1 text-[15px] font-semibold text-[var(--text)]">
+            {titleHref ? (
+              <Link
+                href={titleHref}
+                className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                data-mobile-dialog-title-link
+              >
+                {group.title}
+              </Link>
+            ) : (
+              group.title
+            )}
+          </h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <Badge
+              variant={
+                isDownloading(group.state)
+                  ? "accent"
+                  : isDownloaded(group.state)
+                    ? "success"
+                    : "default"
+              }
+              data-mobile-group-state
+            >
+              {stateLabel(group.state)}
+            </Badge>
+            <span className="min-w-0 flex-1 truncate text-[11px] tabular-nums text-[var(--text-tertiary)]">
+              {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
+              {formatBytes(group.sizeBytes)} · {pct}%
+            </span>
+            {isDownloading(group.state) && speed ? (
+              <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+                ↓ {speed}
+              </span>
+            ) : null}
+            <SeriesActionsMenu
+              group={group}
+              onActionMany={onActionMany}
+              onDeleteRequest={onDeleteRequest}
+              mobile
+            />
+          </div>
+          <Progress
+            value={pct}
+            aria-label={`${group.title} combined download progress`}
+            className="h-1"
+            indicatorClassName={barTone(group.state)}
+          />
+        </DialogHeader>
+
+        <DialogHeader className="hidden shrink-0 gap-3 border-b border-[var(--border)] px-5 pb-3 pr-14 pt-4 sm:flex">
           <div className="flex items-start gap-3">
             {titleHref ? (
               <Link href={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
@@ -492,7 +649,7 @@ export function SeriesDownloadDialog({
               poster
             )}
             <div className="min-w-0 flex-1 space-y-1.5">
-              <DialogTitle className="line-clamp-2 pr-1">
+              <h2 className="line-clamp-2 pr-1 text-base font-semibold text-[var(--text)]">
                 {titleHref ? (
                   // The poster above is decorative (aria-hidden, not
                   // focusable) so the same destination is not announced twice;
@@ -507,13 +664,7 @@ export function SeriesDownloadDialog({
                 ) : (
                   group.title
                 )}
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                Every season and episode of this show that is downloading or
-                downloaded. Choose a season, then play, pause or remove
-                individual episodes. The header above shows the combined
-                progress, size and speed.
-              </DialogDescription>
+              </h2>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge
                   variant={
@@ -550,59 +701,57 @@ export function SeriesDownloadDialog({
                 ) : null}
               </div>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`More actions for ${group.title}`}
-                  data-group-more
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => onActionMany("pause", group.torrents)}
-                  className="min-h-[44px] lg:min-h-0"
-                >
-                  <Pause />
-                  Pause all
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onActionMany("resume", group.torrents)}
-                  className="min-h-[44px] lg:min-h-0"
-                >
-                  <Play />
-                  Resume all
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
-                  onClick={(event) => onDeleteRequest([...group.torrents], event.currentTarget)}
-                  data-group-delete
-                >
-                  <Trash2 />
-                  Delete all…
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <SeriesActionsMenu
+              group={group}
+              onActionMany={onActionMany}
+              onDeleteRequest={onDeleteRequest}
+            />
           </div>
         </DialogHeader>
 
-        <SeasonRail
-          group={group}
-          selectedSeasonKey={selectedSeasonKey}
-          onSelectSeason={onSelectSeason}
-        />
+        <div
+          className="shrink-0 border-b border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2 sm:hidden"
+          data-mobile-season-picker
+        >
+          <label className="relative flex min-w-0 items-center">
+            <span className="sr-only">Season</span>
+            <select
+              data-mobile-season-select
+              value={selectedSeasonKey ?? ""}
+              onChange={(event) => onSelectSeason(event.target.value)}
+              aria-controls={seasonPanelId}
+              className="h-11 min-h-[44px] w-full cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              {group.seasons.map((season) => (
+                <option key={season.key} value={season.key}>
+                  {seasonLabelFor(season)} · {progressPercent(season.progress)}%
+                </option>
+              ))}
+            </select>
+            <ChevronDown
+              className="pointer-events-none absolute right-3 h-4 w-4 text-[var(--text-tertiary)]"
+              aria-hidden
+            />
+          </label>
+        </div>
+
+        <div className="hidden shrink-0 sm:block">
+          <SeasonRail
+            group={group}
+            selectedSeasonKey={selectedSeasonKey}
+            onSelectSeason={onSelectSeason}
+            panelId={seasonPanelId}
+          />
+        </div>
 
         <div
           className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5"
           data-season-panel
-          role="tabpanel"
-          id={selectedSeason ? `season-panel-${selectedSeason.key}` : undefined}
-          aria-labelledby={selectedSeason ? `season-tab-${selectedSeason.key}` : undefined}
+          role="region"
+          id={seasonPanelId}
+          aria-label={
+            selectedSeason ? `${seasonLabelFor(selectedSeason)} downloads` : "Season downloads"
+          }
         >
           {selectedSeason ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -631,7 +780,7 @@ export function SeriesDownloadDialog({
 
         {selectedTransferIdsInGroup.length > 0 ? (
           <div
-            className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--border)] px-4 pb-[calc(0.5rem+var(--safe-bottom))] pt-2 sm:px-5 sm:pb-2"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-elevated)] px-4 pb-[calc(0.5rem+var(--safe-bottom))] pt-2 shadow-[var(--shadow-md)] sm:px-5 sm:pb-2 sm:shadow-none"
             data-dialog-bulk-bar
           >
             <span className="mr-1 text-[12px] text-[var(--text-secondary)]">
