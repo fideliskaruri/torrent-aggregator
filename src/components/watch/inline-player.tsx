@@ -429,7 +429,7 @@ export function candidatePlayabilityLabel(playability: CandidatePlayability): st
   // distinction a person cares about is whether it plays.
   if (playability === "direct") return "Plays instantly";
   if (playability === "transcode") return "Plays";
-  return "Compatibility unknown";
+  return "Playback compatibility not confirmed";
 }
 
 export function candidateQualityShape(candidate: PlaybackCandidate): string {
@@ -1415,7 +1415,7 @@ export function bufferingLabel(progress?: StreamProgress) {
   if (progress?.progress != null) {
     return `buffering — ${Math.round(progress.progress * 1000) / 10}% downloaded${peerText}`;
   }
-  return `buffering — waiting for torrent pieces${peerText}`;
+  return `buffering — starting playback…${peerText}`;
 }
 
 export type UpNextAvailability = "ready" | "downloading" | "not-fetched";
@@ -2022,7 +2022,7 @@ export function unsupportedSubtitleNote(
   const reason = tracks.find((track) => track.unsupportedReason)?.unsupportedReason;
   return reason
     ? `Subtitles are present, but ${reason}.`
-    : "Subtitles are present, but this player cannot render any track in this release.";
+    : "Subtitles are present, but this player cannot render any track in this video.";
 }
 
 export function shouldPreserveOutgoingEpisode(args: {
@@ -4201,7 +4201,7 @@ function InlineStreamPlayerInner({
         } else if (data.subtitleDefault?.noEnglishAvailable) {
           // Foreign audio and no English subtitle exists: say so out loud rather
           // than sit on a silent "Off".
-          setSubtitleNote("No English subtitles available for this release.");
+          setSubtitleNote("No English subtitles available for this video.");
         }
         if (tracks.length > 0 && data.embeddedInspected === false) {
           setSubtitleNote("Embedded tracks could not be inspected — only files are listed.");
@@ -4209,7 +4209,7 @@ function InlineStreamPlayerInner({
       } catch {
         if (!controller.signal.aborted) {
           setSubtitleStatus("error");
-          setSubtitleNote("Subtitles could not be checked for this release.");
+          setSubtitleNote("Subtitles could not be checked for this video.");
         }
       }
     })();
@@ -4939,9 +4939,7 @@ function InlineStreamPlayerInner({
 
   const reportNoAudio = useCallback(() => {
     setProblem("no-audio");
-    setMessage(
-      "This file's audio can't be decoded in a browser (usually Dolby AC-3/E-AC-3 or DTS). Another release will likely play with sound here.",
-    );
+    setMessage("This video's audio can't be played in the browser. Try another version for sound.");
     setPlayableSrc(null);
   }, []);
 

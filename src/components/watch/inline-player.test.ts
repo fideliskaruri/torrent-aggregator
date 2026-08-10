@@ -190,7 +190,7 @@ assert(
       codec: "hdmv_pgs_subtitle",
       supported: false,
       unsupportedReason:
-        "image-based subtitles cannot be converted to WebVTT — play this release in VLC/MPV for it",
+        "image-based subtitles cannot be converted for browser playback — try VLC/MPV instead",
       streamIndex: 2,
       filePath: null,
       needsExtraction: true,
@@ -308,7 +308,8 @@ assert(
 );
 assert(
   "buffering label degrades when only peer data exists",
-  bufferingLabel({ peers: 1 }) === "buffering — waiting for torrent pieces · 1 peer",
+  bufferingLabel({ peers: 1 }) === "buffering — starting playback… · 1 peer" &&
+    !/torrent pieces/i.test(bufferingLabel({ peers: 1 })),
 );
 assert(
   "release details render parsed chips instead of the wrapper path",
@@ -611,6 +612,11 @@ assert(
   "quality selector never narrates the transcode mechanism",
   candidatePlayabilityLabel("transcode") === "Plays" &&
     !/convert|remux|transcod/i.test(candidatePlayabilityLabel("transcode")),
+);
+assert(
+  "quality selector keeps unknown compatibility viewer-facing",
+  /playback compatibility not confirmed/i.test(candidatePlayabilityLabel("unknown")) &&
+    !/codec|container|transcod|remux/i.test(candidatePlayabilityLabel("unknown")),
 );
 assert(
   "quality selector shows only the preferred resolution",

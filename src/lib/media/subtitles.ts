@@ -336,7 +336,7 @@ function decorate(base: string, forced: boolean, sdh: boolean): string {
 }
 
 const IMAGE_REASON =
-  "image-based subtitles cannot be converted to WebVTT — play this release in VLC/MPV for it";
+  "image-based subtitles cannot be converted for browser playback — try VLC/MPV instead";
 const UNKNOWN_REASON = "this subtitle codec cannot be converted to WebVTT";
 
 /** Build the pickable track list for the embedded subtitle streams of a probe. */
