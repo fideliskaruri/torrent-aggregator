@@ -17,3 +17,12 @@ assert.doesNotMatch(
   /engineTorrent\.(?:update|updateMany|create|delete)/,
   "torrent-list GET cannot mutate durable torrent state",
 );
+assert.match(
+  getSource,
+  /acquisitionWorksForUser\(session\.user\.id,\s*hashes\)/,
+  "torrent-list GET carries canonical acquisition identity into Downloads",
+);
+assert.match(getSource, /workId:\s*target\.workId/);
+assert.match(getSource, /workKey:\s*target\.workKey/);
+assert.match(getSource, /season:\s*target\.season/);
+assert.match(getSource, /episode:\s*target\.episode/);

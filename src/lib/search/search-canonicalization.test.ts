@@ -84,6 +84,69 @@ async function run() {
     });
   }
 
+  await check(
+    "suggest drops nonempty irrelevant provider noise",
+    async () => {
+      const providers: SuggestProviders = {
+        anilist: async () => [
+          {
+            title: "Tsuki",
+            mediaType: "anime",
+            source: "anilist",
+            externalId: "a1",
+          },
+          {
+            title: "Moon",
+            mediaType: "anime",
+            source: "anilist",
+            externalId: "a2",
+          },
+        ],
+        tmdb: async () => [
+          {
+            title: "Moon Knight",
+            mediaType: "tv",
+            source: "tmdb",
+            externalId: "t1",
+          },
+        ],
+      };
+      const outcome = await collectSuggestions("moonknigt", 4, 8, providers);
+      assert.deepEqual(
+        outcome.suggestions.map((suggestion) => suggestion.title),
+        ["Moon Knight"],
+      );
+    },
+  );
+
+  await check(
+    "suggest keeps an alias-only title match",
+    async () => {
+      const providers: SuggestProviders = {
+        anilist: async () => [
+          {
+            title: "Pretty Guardian Sailor Moon",
+            aliases: ["Bishoujo Senshi Sailor Moon"],
+            mediaType: "anime",
+            source: "anilist",
+            externalId: "a1",
+          },
+        ],
+        tmdb: async () => [],
+      };
+      const outcome = await collectSuggestions(
+        "bishoujo senshi sailor moon",
+        4,
+        8,
+        providers,
+      );
+      assert.deepEqual(
+        outcome.suggestions.map((suggestion) => suggestion.title),
+        ["Pretty Guardian Sailor Moon"],
+      );
+    },
+  );
+
   await check("display query keeps the typed casing but not the stray spacing", () => {
     assert.equal(displaySearchQuery("  MoonKnight  "), "MoonKnight");
     assert.equal(displaySearchQuery("moon  knight"), "moon knight");

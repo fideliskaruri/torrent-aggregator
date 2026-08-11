@@ -270,6 +270,7 @@ export function seasonAliasQueryNames(
 
 export interface SeasonAcquireTarget {
   userId: string;
+  workId?: string | null;
   title: string;
   mediaType: string;
   season: number;
@@ -463,6 +464,7 @@ export async function acquireSeason(
   ): Promise<boolean> => {
     const res = await runGrabPipeline({
       userId: target.userId,
+      workId: target.workId ?? null,
       // The pipeline searches; we hand it exactly the chosen release so it
       // sends that and nothing else. selectCandidate is pinned to the release.
       search: {

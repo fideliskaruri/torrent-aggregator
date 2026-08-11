@@ -66,6 +66,14 @@ function row(partial: Partial<TransferRow> & { name: string }): TransferRow {
     dlspeed: partial.dlspeed ?? 0,
     upspeed: partial.upspeed ?? 0,
     state: partial.state ?? "downloading",
+    playable: partial.playable,
+    workId: partial.workId,
+    workKey: partial.workKey,
+    workTitle: partial.workTitle,
+    workYear: partial.workYear,
+    workMediaType: partial.workMediaType,
+    season: partial.season,
+    episode: partial.episode,
   };
 }
 
@@ -297,6 +305,110 @@ check("a series of one episode is still a series", () => {
   assert.equal(group.releaseCount, 1);
   assert.equal(group.seasonCount, 1);
   assert.equal(group.seasons[0].label, "Season 01");
+});
+
+check("acquisition identity overrides a romanized absolute-number release", () => {
+  const canonical = {
+    workKey: "that-time-i-got-reincarnated-as-a-slime",
+    workTitle: "That Time I Got Reincarnated as a Slime",
+    season: 1,
+  };
+  const groups = groupDownloads([
+    row({
+      ...canonical,
+      name: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 01 [1080p].mkv",
+      hash: "slime-01",
+      episode: 1,
+      category: "Anime",
+    }),
+    row({
+      ...canonical,
+      name: "That Time I Got Reincarnated as a Slime - 02 [1080p].mkv",
+      hash: "slime-02",
+      episode: 2,
+      category: "Anime",
+    }),
+  ]);
+  const group = seriesGroups(groups)[0];
+  assert.equal(group.key, canonical.workKey);
+  assert.equal(group.title, canonical.workTitle);
+  assert.equal(group.seasonCount, 1);
+  assert.equal(group.seasons[0].label, "Season 01");
+  assert.deepEqual(
+    group.seasons[0].entries.map((entry) => [
+      entry.episode,
+      entry.episodeLabel,
+    ]),
+    [[1, "S01E01"], [2, "S01E02"]],
+  );
+});
+
+check("canonical work id groups stale release keys without parsing", () => {
+  const groups = groupDownloads([
+    row({
+      workId: "work-slime",
+      workKey: "that-time-i-got-reincarnated-as-a-slime",
+      workTitle: "That Time I Got Reincarnated as a Slime",
+      name: "[Group] Tensei Shitara Slime Datta Ken - 01.mkv",
+      hash: "slime-work-01",
+      season: 1,
+      episode: 1,
+      category: "Anime",
+    }),
+    row({
+      workId: "work-slime",
+      workKey: "stale-legacy-slime-key",
+      workTitle: "That Time I Got Reincarnated as a Slime",
+      name: "Completely Different Release Label 02.mkv",
+      hash: "slime-work-02",
+      season: 1,
+      episode: 2,
+      category: "Anime",
+    }),
+  ]);
+
+  assert.equal(groups.length, 1);
+  const group = seriesGroups(groups)[0];
+  assert.equal(group.title, "That Time I Got Reincarnated as a Slime");
+  assert.equal(group.torrents.length, 2);
+});
+
+check("linked and legacy releases of one work collapse without merging distinct works", () => {
+  const groups = groupDownloads([
+    row({
+      workId: "work-slime",
+      workKey: "that-time-i-got-reincarnated-as-a-slime",
+      workTitle: "That Time I Got Reincarnated as a Slime",
+      name: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 01.mkv",
+      hash: "slime-linked",
+      season: 1,
+      episode: 1,
+      category: "Anime",
+    }),
+    row({
+      name: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 02.mkv",
+      hash: "slime-legacy",
+      category: "Anime",
+    }),
+    row({
+      workId: "work-other-slime",
+      workKey: "ive-been-killing-slimes-for-300-years",
+      workTitle: "I've Been Killing Slimes for 300 Years",
+      name: "Slime Taoshite 300-nen S01E01.mkv",
+      hash: "other-slime",
+      season: 1,
+      episode: 1,
+      category: "Anime",
+    }),
+  ]);
+
+  const series = seriesGroups(groups);
+  assert.equal(series.length, 2);
+  assert.equal(
+    series.find((group) => group.key === "that-time-i-got-reincarnated-as-a-slime")
+      ?.torrents.length,
+    2,
+  );
 });
 
 check("films stay individual rows, one per torrent", () => {

@@ -12,6 +12,7 @@ import {
   candidateQualityShape,
   candidateVerdictLabel,
   encodeStreamFilePath,
+  episodeTitleForTarget,
   fileOptionLabel,
   findSidecarSubtitle,
   hlsBufferSettingsForSource,
@@ -65,6 +66,22 @@ import {
   type StreamFile,
   videoPlaybackQualitySnapshot,
 } from "./inline-player";
+
+nodeAssert.equal(
+  episodeTitleForTarget(
+    {
+      S01E01: "The Storm Dragon, Veldora",
+      S01E02: "Meeting the Goblins",
+    },
+    1,
+    2,
+  ),
+  "Meeting the Goblins",
+);
+nodeAssert.equal(
+  episodeTitleForTarget({ S01E02: "Meeting the Goblins" }, 1, 3),
+  null,
+);
 import { peerText, rateText, swarmHealth, swarmSummary, deadEvidenceFromSamples } from "./swarm-chip";
 
 const identityDom = renderToStaticMarkup(
@@ -142,12 +159,12 @@ assert(
   fullscreenControls.join(","),
 );
 assert(
-  "quality selector loading copy says it is checking cached releases",
-  qualitySelectorEmptyCopy(true, 0) === "Checking cached releases…",
+  "quality selector loading copy says it is checking other versions",
+  qualitySelectorEmptyCopy(true, 0) === "Checking other versions…",
 );
 assert(
   "quality selector empty state is terminal and honest",
-  qualitySelectorEmptyCopy(false, 0) === "No other cached releases yet.",
+  qualitySelectorEmptyCopy(false, 0) === "No other versions available yet.",
 );
 assert(
   "quality rows expose only consumer resolution labels",
@@ -198,14 +215,15 @@ assert(
       hearingImpaired: false,
       src: null,
     },
-  ])?.includes("image-based subtitles") === true,
+  ]) ===
+    "These subtitles use a format this player can’t display. Try another track or open the video in another player.",
 );
 assert(
   "subtitle preparation failures remain visible after loading stops",
   subtitleStatusCopy(
     "error",
-    "That subtitle track could not be prepared. Extraction or subtitle caching failed.",
-  )?.includes("caching failed") === true,
+    "This subtitle track could not be loaded. Try another track.",
+  ) === "This subtitle track could not be loaded. Try another track.",
 );
 assert(
   "auto-selects the requested episode from a realistic season pack",
@@ -466,7 +484,7 @@ assert(
       verdict.kind === "network" &&
       verdict.recoverable &&
       verdict.problem === null &&
-      verdict.title !== "This release won't play in the browser."
+      verdict.title !== "This version won’t play here."
     );
   })(),
 );
@@ -478,7 +496,7 @@ assert(
       verdict.kind === "decode" &&
       !verdict.recoverable &&
       verdict.problem === "browser-error" &&
-      verdict.title === "This release won't play in the browser."
+      verdict.title === "This version won’t play here."
     );
   })(),
 );
@@ -490,7 +508,7 @@ assert(
       verdict.kind === "unsupported" &&
       !verdict.recoverable &&
       verdict.problem === "browser-error" &&
-      verdict.title === "This release won't play in the browser."
+      verdict.title === "This version won’t play here."
     );
 
     const exhausted = playbackFailureCopy({
@@ -512,7 +530,7 @@ assert(
   (() => {
     const copy = terminalPlaybackCopy({
       problem: "browser-error",
-      message: "This release won't play in the browser.",
+      message: "This version won’t play here.",
       deliveryDetail: "no peers, almost no data",
     });
     return Boolean(copy.title && copy.detail && copy.title !== copy.detail);
@@ -1619,6 +1637,14 @@ assert(
 );
 
 const playerSource = fs.readFileSync("src/components/watch/inline-player.tsx", "utf8");
+
+assert(
+  "theatre controls accept pointer input only while their chrome is visible",
+  /const controlsPointerEvents = chromeVisible\s+\? "pointer-events-auto"\s+: "pointer-events-none";/.test(
+    playerSource,
+  ) &&
+    playerSource.includes("controlsPointerEvents,"),
+);
 
 const releaseResetBlock =
   /if \(activeInfoHash !== resetInfoHash\) \{[\s\S]*?setPlanNonce\(/.exec(playerSource)?.[0] ?? "";

@@ -288,6 +288,10 @@ check("displayTitleFromWorkKey: spells the slug back out, invents nothing", () =
   // title, and printing a year the user never gave us is an unearned claim.
   assert.equal(displayTitleFromWorkKey("blade-runner-2049"), "Blade Runner 2049");
   assert.equal(displayTitleFromWorkKey("dune-2021"), "Dune 2021");
+  assert.equal(
+    displayTitleFromWorkKey("that-time-i-got-reincarnated-as-a-slime"),
+    "That Time I Got Reincarnated as a Slime",
+  );
 });
 
 check("titlePath: carries what the card knew", () => {

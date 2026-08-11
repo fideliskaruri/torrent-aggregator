@@ -40,6 +40,55 @@ export function displaySearchQuery(raw: string): string {
     .trim();
 }
 
+const YEAR_TOKEN = /^(?:18|19|20|21)\d{2}$/;
+const NUMBERED_SEASON_OR_EPISODE = /^(?:s|e|ep|season|episode)\d{1,3}$/;
+const SEARCH_QUALIFIERS = new Set([
+  "anime",
+  "episode",
+  "episodes",
+  "film",
+  "movie",
+  "season",
+  "series",
+  "show",
+  "tv",
+]);
+const SEARCH_ARTICLES = new Set(["a", "an", "the"]);
+
+/** Remove common discovery qualifiers while preserving the actual title words. */
+export function searchIntentQuery(raw: string): string {
+  const normalized = canonicalizeSearchQuery(raw)
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+  const tokens = normalized
+    .split(" ")
+    .filter(Boolean);
+  const kept: string[] = [];
+  const years: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (YEAR_TOKEN.test(token)) {
+      years.push(token);
+      continue;
+    }
+    if (NUMBERED_SEASON_OR_EPISODE.test(token) || SEARCH_QUALIFIERS.has(token)) {
+      if (
+        (token === "season" || token === "episode") &&
+        /^\d{1,3}$/.test(tokens[index + 1] ?? "")
+      ) {
+        index += 1;
+      }
+      continue;
+    }
+    kept.push(token);
+  }
+  if (kept.some((token) => !SEARCH_ARTICLES.has(token))) {
+    return kept.join(" ");
+  }
+  return years[0] ?? (kept.join(" ") || normalized);
+}
+
 export function searchTitleVariants(title: string): string[] {
   const raw = title.trim();
   if (!raw) return [];
@@ -94,8 +143,15 @@ export function searchTitleVariants(title: string): string[] {
 export function searchDiscoveryVariants(title: string): string[] {
   const variants = searchTitleVariants(title);
   const raw = title.trim();
-  if (/^[\p{L}\p{N}]+$/u.test(raw) && raw.length >= 6) {
-    const prefix = Array.from(raw).slice(0, 4).join("");
+  const intent = searchIntentQuery(raw);
+  if (
+    intent &&
+    !variants.some((value) => value.toLowerCase() === intent.toLowerCase())
+  ) {
+    variants.push(intent);
+  }
+  if (/^[\p{L}\p{N}]+$/u.test(intent) && intent.length >= 6) {
+    const prefix = Array.from(intent).slice(0, 4).join("");
     if (
       !variants.some((value) => value.toLowerCase() === prefix.toLowerCase())
     ) {

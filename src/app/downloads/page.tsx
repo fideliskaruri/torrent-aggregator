@@ -42,7 +42,15 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfStatStrip } from "@/components/tf/stat-strip";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
-import { titleHrefForName } from "@/components/title/work-key";
+import {
+  encodeKeySegment,
+  titleHrefForName,
+  titlePath,
+} from "@/components/title/work-key";
+import {
+  episodeTitleMap,
+  type TitleExtrasPayload,
+} from "@/components/title/types";
 import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { parseEpisode } from "@/lib/torrents/episodes";
@@ -89,6 +97,68 @@ import {
 import type { TorrentClientType } from "@/lib/clients";
 
 type StatusFilter = "all" | "active" | "downloading" | "ready" | "paused";
+
+function downloadTitleHref(torrent: ClientTorrent): string | null {
+  const workKey = torrent.workKey?.trim();
+  const workTitle = torrent.workTitle?.trim();
+  if (workKey && workTitle) {
+    return titlePath(workKey, {
+      title: workTitle,
+      year: torrent.workYear ?? null,
+      mediaType: torrent.workMediaType ?? torrent.category ?? null,
+      season: torrent.season ?? null,
+    });
+  }
+  return titleHrefForName(torrent.name, {
+    mediaType: torrent.category,
+    season: torrent.season ?? null,
+  });
+}
+
+async function loadDownloadEpisodeTitle(payload: {
+  workKey: string;
+  title: string;
+  mediaType: string | null;
+  year: number | null;
+  season: number;
+  episode: number;
+}): Promise<{
+  episodeTitle: string | null;
+  episodeTitles: Readonly<Record<string, string>>;
+} | null> {
+  const search = new URLSearchParams({
+    t: payload.title,
+    s: String(payload.season),
+  });
+  if (payload.mediaType) search.set("type", payload.mediaType);
+  if (payload.year) search.set("y", String(payload.year));
+
+  try {
+    const response = await fetch(
+      `/api/title/${encodeKeySegment(payload.workKey)}/extras?${search.toString()}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) {
+      console.warn(
+        `[downloads] Episode metadata failed with HTTP ${response.status}`,
+      );
+      return null;
+    }
+    const extras = (await response.json()) as TitleExtrasPayload;
+    if (extras.season !== payload.season) return null;
+    const episodeTitles = episodeTitleMap(payload.season, extras.episodes);
+    return {
+      episodeTitle:
+        extras.episodes.find(
+          (episode) => episode.episode === payload.episode,
+        )?.name ?? null,
+      episodeTitles,
+    };
+  } catch (error) {
+    console.warn("[downloads] Episode metadata request failed", error);
+    return null;
+  }
+}
 
 export default function ClientPage() {
   // Rows, error, offline and "was that read authoritative" move together: a
@@ -279,12 +349,12 @@ export default function ClientPage() {
       }
       toast.success(
         data.message ||
-          "Switched to built-in. Your qBit/Transmission login is kept for optional Send to my client.",
+          "Switched to the built-in downloader. Your external client connection is still saved.",
       );
       setSnapshot((prev) => ({ ...prev, error: null, offline: false }));
       await load();
     } catch {
-      toast.error("Network error switching to built-in");
+      toast.error("Could not switch to the built-in downloader. Try again.");
     } finally {
       setSwitchingBuiltin(false);
     }
@@ -716,6 +786,9 @@ export default function ClientPage() {
   function playFromDialog(payload: {
     hash: string;
     title: string;
+    workKey: string | null;
+    mediaType: string | null;
+    year: number | null;
     season: number | null;
     episode: number | null;
   }) {
@@ -726,9 +799,34 @@ export default function ClientPage() {
     setPlaying({
       infoHash: payload.hash,
       title: payload.title,
+      episodeTitle: null,
       season: payload.season,
       episode: payload.episode,
     });
+    if (
+      payload.workKey
+      && payload.season != null
+      && payload.episode != null
+    ) {
+      const metadataRequest = {
+        workKey: payload.workKey,
+        title: payload.title,
+        mediaType: payload.mediaType,
+        year: payload.year,
+        season: payload.season,
+        episode: payload.episode,
+      };
+      void loadDownloadEpisodeTitle(metadataRequest).then((metadata) => {
+        if (!metadata) return;
+        setPlaying((current) =>
+          current?.infoHash === payload.hash
+            && current.season === payload.season
+            && current.episode === payload.episode
+            ? { ...current, ...metadata }
+            : current
+        );
+      });
+    }
   }
 
   if (loading && !torrents.length && !error) {
@@ -758,31 +856,36 @@ export default function ClientPage() {
               variant={offline && !isBuiltin ? "danger" : "accent"}
               className="capitalize"
             >
-              {offline && !isBuiltin
-                ? "offline"
-                : isBuiltin
-                  ? "built-in"
-                  : clientType || "torrent client"}
+              {offline && !isBuiltin ? "Unavailable" : "Connected"}
             </Badge>
-            {isBuiltin && hasExternal ? (
-              <span className="text-[11px] text-[var(--text-tertiary)]">
-                +{" "}
-                {externalClientType === "transmission"
-                  ? "Transmission"
-                  : "qBittorrent"}{" "}
-                optional
-              </span>
-            ) : null}
-            {!isBuiltin && clientHost ? (
-              <span className="font-mono text-[11px] text-[var(--text-tertiary)]">
-                {clientHost}
-              </span>
-            ) : null}
             <span className="text-[var(--text-tertiary)]">
-              {offline && !isBuiltin
-                ? "retry every 20s"
-                : "live · auto-refresh 5s"}
+              {offline && !isBuiltin ? "Retrying automatically" : "Updates automatically"}
             </span>
+            <details
+              className="text-[11px] text-[var(--text-tertiary)]"
+              data-client-connection-details
+            >
+              <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
+                Details
+              </summary>
+              <div className="mt-1 space-y-0.5">
+                <p>
+                  {isBuiltin
+                    ? "Built-in downloader"
+                    : clientType || "External downloader"}
+                  {isBuiltin && hasExternal
+                    ? ` · ${
+                        externalClientType === "transmission"
+                          ? "Transmission"
+                          : "qBittorrent"
+                      } available`
+                    : ""}
+                </p>
+                {!isBuiltin && clientHost ? (
+                  <p className="break-all font-mono">{clientHost}</p>
+                ) : null}
+              </div>
+            </details>
           </span>
         }
         actions={
@@ -817,11 +920,19 @@ export default function ClientPage() {
           data-client-stale
         >
           <span className="font-medium text-[var(--text)]">
-            {offline && !isBuiltin ? "Torrent client unreachable" : "Could not refresh"}
+            {offline && !isBuiltin
+              ? "Torrent client unavailable"
+              : "Could not refresh downloads"}
           </span>
           <span className="min-w-0 flex-1 text-[var(--text-secondary)]">
-            Showing the last known state — nothing has been removed. {error}
+            Showing the last known state. Your downloads are unchanged.
           </span>
+          <details className="min-w-0 text-[var(--text-tertiary)]" data-client-error-details>
+            <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
+              Details
+            </summary>
+            <p className="mt-1 break-words font-mono text-[11px]">{error}</p>
+          </details>
           <Button
             type="button"
             variant="secondary"
@@ -844,14 +955,24 @@ export default function ClientPage() {
           <div className="space-y-1">
             <p className="font-medium text-[var(--text)]">
               {isBuiltin
-                ? "Built-in engine error"
+                ? "Downloads are temporarily unavailable"
                 : offline
-                  ? "Torrent client unreachable"
-                  : "Client error"}
+                  ? "Torrent client unavailable"
+                  : "Downloads could not load"}
             </p>
             <p className="text-[var(--text-secondary)] leading-relaxed">
-              {error}
+              {isBuiltin
+                ? "Retry now. If this keeps happening, check the download connection settings."
+                : offline
+                  ? "Reconnect the client, or switch to the built-in downloader."
+                  : "Retry now, or check the download connection settings."}
             </p>
+            <details className="text-[var(--text-tertiary)]" data-client-error-details>
+              <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
+                Details
+              </summary>
+              <p className="mt-1 break-words font-mono text-[11px]">{error}</p>
+            </details>
           </div>
           <div className="flex flex-wrap gap-2">
             {!isBuiltin ? (
@@ -865,7 +986,7 @@ export default function ClientPage() {
                 {switchingBuiltin ? (
                   <LoadingGlyph className="h-3.5 w-3.5" />
                 ) : null}
-                Use built-in engine
+                Use built-in downloader
               </Button>
             ) : null}
             <Button asChild size="sm" variant={!isBuiltin ? "secondary" : "default"}>
@@ -882,8 +1003,8 @@ export default function ClientPage() {
           </div>
           <p className="text-[12px] text-[var(--text-tertiary)]">
             {isBuiltin
-              ? "Tips: free disk space on the download drive, check DOWNLOAD_DIR / Folders base path, and server logs. Built-in needs no qBittorrent host."
-              : "Built-in is the default one-app mode and works with qBit stopped. Use built-in now (keeps your external login for optional “Send to my client”), or start the Web UI and retry."}
+              ? "Check that the saved download folder is available, then retry."
+              : "Switch to the built-in downloader, or reconnect your external client and retry."}
           </p>
         </div>
       ) : (
@@ -1041,17 +1162,17 @@ export default function ClientPage() {
             page never reaches the empty state (an errored page that still has
             last-good rows fails `!torrents.length` anyway). Verified by
             `npm run test:errors`, which forces /api/client/torrents to 500 and
-            asserts "No torrents yet" stays hidden — keep that structure if
+            asserts "No downloads yet" stays hidden — keep that structure if
             this section is ever flattened.
           */}
           {!torrents.length && !loading ? (
             <TfEmptyState
               icon={HardDriveDownload}
-              title="No torrents yet"
+              title="No downloads yet"
               description={
                 isBuiltin
-                  ? "Search for a release and send it — downloads use the built-in engine (no qBittorrent required)."
-                  : "Search for a release and send it to your connected torrent client."
+                 ? "Find a title and choose Download to start watching here."
+                 : "Find a title and choose Download to send it to your connected client."
               }
               actionLabel="Open search"
               actionHref="/"
@@ -1064,10 +1185,9 @@ export default function ClientPage() {
               (t) => t.progress < 0.01 && /meta|stall/i.test(t.state),
             ) ? (
               <p className="text-[12px] text-[var(--text-tertiary)] px-1 mb-2">
-                Torrents are in the built-in engine but show 0% / no peers yet —
-                WebTorrent is looking for the swarm (trackers/DHT). Leave this
-                page open a minute; if they never move, try another release with
-                more seeders.
+                These downloads have not started yet. Give them a minute to find
+                available copies; if they stay at 0%, try another version with
+                more sources.
               </p>
             ) : null}
             <div className="surface overflow-hidden" data-client-table>
@@ -1152,9 +1272,7 @@ export default function ClientPage() {
           onOpenChange={(next) => {
             if (!next) closeSeriesDialog();
           }}
-          titleHref={titleHrefForName(openGroup.torrents[0].name, {
-            mediaType: openGroup.torrents[0].category,
-          })}
+          titleHref={downloadTitleHref(openGroup.torrents[0])}
           artwork={artwork}
           selectedSeasonKey={selectedSeasonKey}
           onSelectSeason={setSelectedSeasonKey}
@@ -1174,6 +1292,8 @@ export default function ClientPage() {
         <PlayOverlay
           infoHash={playing.infoHash}
           title={playing.title}
+          episodeTitle={playing.episodeTitle}
+          episodeTitles={playing.episodeTitles}
           season={playing.season}
           episode={playing.episode}
           onClose={() => setPlaying(null)}
@@ -1310,7 +1430,7 @@ function SeriesOverviewRow({
     : isPaused(group.state)
       ? "bg-[var(--text-tertiary)]"
       : "bg-[var(--primary)]";
-  const titleHref = titleHrefForName(head.name, { mediaType: head.category });
+  const titleHref = downloadTitleHref(head);
 
   return (
     <div
@@ -1491,7 +1611,7 @@ function FilmRow({
     : isPaused(t.state)
       ? "bg-[var(--text-tertiary)]"
       : "bg-[var(--primary)]";
-  const titleHref = titleHrefForName(t.name, { mediaType: t.category });
+  const titleHref = downloadTitleHref(t);
   const isBuiltin = t.ownerClientType === "builtin";
 
   return (

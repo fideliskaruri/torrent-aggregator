@@ -52,6 +52,8 @@ export interface CollapsibleRelease<T> {
   workTitle?: string;
   /** A caller-known work key when a catalog/library row is the identity source. */
   workKey?: string;
+  /** Stable parent identity used only for collapsing linked rows. */
+  identityKey?: string;
   /**
    * Whether this member already carries artwork. Rails whose rows have no
    * artwork column pass `false` for every member, which reduces the rule to
@@ -96,25 +98,60 @@ export interface CollapsedWork<T> {
 export function collapseReleasesByWork<T>(
   releases: readonly CollapsibleRelease<T>[],
 ): CollapsedWork<T>[] {
-  const byWork = new Map<
-    string,
-    CollapsedWork<T> & { sortAt: Date; hasArtwork: boolean; prefer: boolean }
-  >();
+  const works: Array<
+    CollapsedWork<T> & {
+      identityKey: string | null;
+      aliases: Set<string>;
+      sortAt: Date;
+      hasArtwork: boolean;
+      prefer: boolean;
+    }
+  > = [];
 
   for (const release of releases) {
     const name = release.name?.trim();
     if (!name) continue;
 
     const display = browseWorkDisplay(name);
-    const key = release.workKey?.trim() || display.key;
+    const workKey = release.workKey?.trim() || display.key;
+    const identityKey = release.identityKey?.trim() || null;
+    const aliases = new Set([
+      `key:${workKey}`,
+      `release:${display.key}`,
+      ...(release.workTitle?.trim()
+        ? [`title:${browseWorkDisplay(release.workTitle).key}`]
+        : []),
+    ]);
     const title = release.workTitle?.trim() || display.title;
     const hasArtwork = release.hasArtwork === true;
     const prefer = release.prefer === true;
-    const existing = byWork.get(key);
+    const overlaps = (work: (typeof works)[number]) =>
+      [...aliases].some((alias) => work.aliases.has(alias));
+    let matches = works.filter((work) => {
+      if (identityKey && work.identityKey) {
+        return identityKey === work.identityKey;
+      }
+      return overlaps(work);
+    });
+    if (!identityKey) {
+      const linkedIdentities = new Set(
+        matches
+          .map((work) => work.identityKey)
+          .filter((id): id is string => id != null),
+      );
+      if (linkedIdentities.size > 1) {
+        matches = matches.filter((work) => work.identityKey == null);
+      }
+    }
+    const existing = matches.find((work) => work.identityKey === identityKey)
+      ?? matches.find((work) => work.identityKey != null)
+      ?? matches[0];
 
     if (!existing) {
-      byWork.set(key, {
-        workKey: key,
+      works.push({
+        identityKey,
+        aliases,
+        workKey,
         title,
         value: release.value,
         name,
@@ -126,19 +163,34 @@ export function collapseReleasesByWork<T>(
       continue;
     }
 
+    for (const match of matches) {
+      if (match === existing) continue;
+      match.aliases.forEach((alias) => existing.aliases.add(alias));
+      existing.releaseCount += match.releaseCount;
+      if (preferredRepresentative(match, existing)) {
+        existing.value = match.value;
+        existing.name = match.name;
+        existing.title = match.title;
+        existing.sortAt = match.sortAt;
+        existing.hasArtwork = match.hasArtwork;
+        existing.prefer = match.prefer;
+      }
+      works.splice(works.indexOf(match), 1);
+    }
+    aliases.forEach((alias) => existing.aliases.add(alias));
+    if (identityKey && !existing.identityKey) existing.identityKey = identityKey;
+    if (identityKey && release.workKey?.trim()) {
+      existing.workKey = release.workKey.trim();
+    }
     existing.releaseCount += 1;
 
     // Representative preference outranks artwork, which outranks recency. A
     // caller that knows which member can best play the work should not have to
     // forge a timestamp to beat a newer single file.
-    const winsOnPreference = prefer && !existing.prefer;
-    const tiedOnPreference = prefer === existing.prefer;
-    const winsOnArtwork = tiedOnPreference && hasArtwork && !existing.hasArtwork;
-    const tiedOnArtwork = tiedOnPreference && hasArtwork === existing.hasArtwork;
-    const winsOnRecency =
-      tiedOnArtwork && release.sortAt.getTime() > existing.sortAt.getTime();
-
-    if (winsOnPreference || winsOnArtwork || winsOnRecency) {
+    if (preferredRepresentative(
+      { prefer, hasArtwork, sortAt: release.sortAt },
+      existing,
+    )) {
       existing.value = release.value;
       existing.name = name;
       existing.title = title;
@@ -148,7 +200,7 @@ export function collapseReleasesByWork<T>(
     }
   }
 
-  return [...byWork.values()].map(
+  return works.map(
     ({ workKey, title, value, name, releaseCount }) => ({
       workKey,
       title,
@@ -157,6 +209,21 @@ export function collapseReleasesByWork<T>(
       releaseCount,
     }),
   );
+}
+
+function preferredRepresentative(
+  candidate: Pick<CollapsibleRelease<unknown>, "sortAt" | "hasArtwork" | "prefer">,
+  current: Pick<CollapsibleRelease<unknown>, "sortAt" | "hasArtwork" | "prefer">,
+): boolean {
+  const candidatePreferred = candidate.prefer === true;
+  const currentPreferred = current.prefer === true;
+  if (candidatePreferred !== currentPreferred) return candidatePreferred;
+
+  const candidateHasArtwork = candidate.hasArtwork === true;
+  const currentHasArtwork = current.hasArtwork === true;
+  if (candidateHasArtwork !== currentHasArtwork) return candidateHasArtwork;
+
+  return candidate.sortAt.getTime() > current.sortAt.getTime();
 }
 
 /**

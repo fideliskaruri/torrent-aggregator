@@ -32,6 +32,7 @@
  * Pure and DOM-free: `grouping.test.ts` drives it as a table.
  */
 import { workIdentityFor } from "@/components/title/work-key";
+import { formatEpisodeLabel } from "@/lib/library/cursor";
 import { parseEpisode, seasonFolderSegment } from "@/lib/torrents/episodes";
 import { isSeriesDownload } from "./media-filter";
 
@@ -49,6 +50,13 @@ export interface TransferRow {
   /** Raw client state string, in qBittorrent's vocabulary. */
   state: string;
   playable?: boolean;
+  workId?: string | null;
+  workKey?: string | null;
+  workTitle?: string | null;
+  workYear?: number | null;
+  workMediaType?: string | null;
+  season?: number | null;
+  episode?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -380,11 +388,26 @@ export function groupDownloads<T extends TransferRow>(
   rows: readonly T[],
 ): DownloadGroup<T>[] {
   const singles: SingleGroup<T>[] = [];
-  const seriesRows = new Map<string, { title: string; rows: T[] }>();
+  const seriesRows: Array<{
+    workId: string | null;
+    key: string;
+    title: string;
+    aliases: Set<string>;
+    rows: T[];
+  }> = [];
 
   for (const row of rows) {
     const identity = workIdentityFor(row.name ?? "");
-    const title = identity.name || row.name || "";
+    const title = row.workTitle?.trim() || identity.name || row.name || "";
+    const key = row.workKey?.trim() || identity.key;
+    const workId = row.workId?.trim() || null;
+    const aliases = new Set([
+      `key:${key}`,
+      `release:${identity.key}`,
+      ...(row.workTitle?.trim()
+        ? [`title:${workIdentityFor(row.workTitle).key}`]
+        : []),
+    ]);
     if (!isSeriesDownload(row)) {
       // Films stay individual, and each keeps its own row even when two prints
       // of the same film are present: they are separate torrents taking
@@ -398,27 +421,69 @@ export function groupDownloads<T extends TransferRow>(
       });
       continue;
     }
-    const existing = seriesRows.get(identity.key);
-    if (existing) existing.rows.push(row);
-    else seriesRows.set(identity.key, { title, rows: [row] });
+    const overlaps = (bucket: (typeof seriesRows)[number]) =>
+      [...aliases].some((alias) => bucket.aliases.has(alias));
+    let matches = seriesRows.filter((bucket) => {
+      if (workId && bucket.workId) return workId === bucket.workId;
+      return overlaps(bucket);
+    });
+    if (!workId) {
+      const linkedIds = new Set(
+        matches
+          .map((bucket) => bucket.workId)
+          .filter((id): id is string => id != null),
+      );
+      if (linkedIds.size > 1) {
+        matches = matches.filter((bucket) => bucket.workId == null);
+      }
+    }
+
+    let bucket = matches.find((candidate) => candidate.workId === workId)
+      ?? matches.find((candidate) => candidate.workId != null)
+      ?? matches[0];
+    if (!bucket) {
+      bucket = { workId, key, title, aliases, rows: [] };
+      seriesRows.push(bucket);
+    } else {
+      for (const match of matches) {
+        if (match === bucket) continue;
+        match.rows.forEach((member) => bucket.rows.push(member));
+        match.aliases.forEach((alias) => bucket.aliases.add(alias));
+        seriesRows.splice(seriesRows.indexOf(match), 1);
+      }
+      aliases.forEach((alias) => bucket.aliases.add(alias));
+      if (workId && !bucket.workId) bucket.workId = workId;
+      if (workId && row.workKey?.trim()) bucket.key = row.workKey.trim();
+      if (workId && row.workTitle?.trim()) bucket.title = row.workTitle.trim();
+    }
+    bucket.rows.push(row);
   }
 
   const groups: DownloadGroup<T>[] = [...singles];
 
-  for (const [key, bucket] of seriesRows) {
+  for (const bucket of seriesRows) {
+    const key = bucket.key;
     const labelled = bucket.rows.map((torrent) => {
       const parsed = parseEpisode(torrent.name ?? "");
+      const explicitSeason = torrent.season ?? null;
+      const episode = torrent.episode ?? parsed.episode ?? null;
       // `seasonFolderSegment` answers "does this name state one single
       // season?" — null for a multi-season pack and for a name with no season
       // at all — which is exactly the bucket question, and reusing it means the
       // heading on screen reads the same as the folder on disk.
-      const folder = seasonFolderSegment(parsed);
+      const folder = explicitSeason != null
+        ? `Season ${String(explicitSeason).padStart(2, "0")}`
+        : seasonFolderSegment(parsed);
+      const season = explicitSeason ?? (folder ? parsed.season ?? null : null);
       const entry: GroupEntry<T> = {
         torrent,
-        season: folder ? (parsed.season ?? null) : null,
-        episode: parsed.episode ?? null,
+        season: folder ? season : null,
+        episode,
         isSeasonPack: parsed.isSeasonPack === true,
-        episodeLabel: parsed.label,
+        episodeLabel:
+          season != null && episode != null
+            ? formatEpisodeLabel(season, episode)
+            : parsed.label,
         subsumed: false,
       };
       return { entry, label: folder ?? OTHER_SEASON_LABEL };

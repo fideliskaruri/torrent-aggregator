@@ -29,6 +29,21 @@ check("downloads rows render parsed display titles, not raw release names", () =
   assert.match(source, /title=\{t\.name\}/, "raw release name should remain available on hover");
 });
 
+check("downloads preserve acquisition identity through links and playback", () => {
+  assert.match(source, /function downloadTitleHref\(/);
+  assert.match(source, /titlePath\(workKey/);
+  assert.match(dialogSource, /workKey:\s*t\.workKey \?\? null/);
+  assert.match(dialogSource, /season:\s*entry\.season \?\? season\.season/);
+  assert.match(source, /loadDownloadEpisodeTitle\(metadataRequest\)/);
+  assert.match(source, /episodeTitle=\{playing\.episodeTitle\}/);
+  assert.match(source, /episodeTitles=\{playing\.episodeTitles\}/);
+  assert.match(
+    source,
+    /current\?\.infoHash === payload\.hash[\s\S]{0,120}current\.season === payload\.season[\s\S]{0,120}current\.episode === payload\.episode/,
+  );
+  assert.match(dialogSource, /title:\s*t\.workTitle\?\.trim\(\) \|\| display\.title/);
+});
+
 check("overflow contains secondary actions and remains keyboard reachable", () => {
   assert.match(source, /<DropdownMenuTrigger asChild>\s*<Button[\s\S]*?aria-label="More actions"/);
   assert.match(source, /<DropdownMenuItem[\s\S]*?data-open-folder/);
@@ -219,7 +234,19 @@ check("films keep their existing direct row and play behavior, ETA included", ()
 check("the page presents as Downloads, not the client's plumbing name", () => {
   assert.match(source, /title="Downloads"/);
   assert.doesNotMatch(source, /title="Client"/);
-  assert.match(source, /live · auto-refresh 5s/);
+  assert.match(source, /Updates automatically/);
+  assert.match(source, /data-client-connection-details/);
+});
+
+check("download failures lead with recovery copy and keep raw errors in Details", () => {
+  assert.match(source, /Downloads are temporarily unavailable/);
+  assert.match(source, /Torrent client unavailable/);
+  assert.match(source, /data-client-error-details/);
+  assert.match(source, /Showing the last known state\. Your downloads are unchanged\./);
+  assert.doesNotMatch(source, /Showing the last known state[^<]*\{error\}/);
+  assert.match(source, /title="No downloads yet"/);
+  assert.doesNotMatch(source, /title="No torrents yet"/);
+  assert.doesNotMatch(source, /WebTorrent is looking for the swarm/);
 });
 
 check("torrent mechanics leave the default row for the overflow's Details", () => {

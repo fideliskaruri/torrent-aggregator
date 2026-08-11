@@ -41,6 +41,22 @@ assert.deepEqual(merged.rows.map((row) => row.episode), [1, 2, 3, 4, 5, 6, 7]);
 assert.equal(merged.rows[0].infoHash, "local-1");
 assert.equal(merged.rows[2].availability, null);
 
+const activeTransfer = {
+  status: "downloading" as const,
+  progress: 0.83,
+  infoHash: "active-hash",
+  filePath: null,
+  error: null,
+};
+const withProgress = mergeEpisodes({
+  season: 1,
+  episodes: [],
+  meta: [provider(1)],
+  metaSeason: 1,
+  transfers: { S01E01: activeTransfer },
+});
+assert.deepEqual(withProgress.rows[0].transfer, activeTransfer);
+
 const stale = mergeEpisodes({
   season: 2,
   episodes: [],

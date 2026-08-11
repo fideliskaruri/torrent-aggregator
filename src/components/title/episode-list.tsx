@@ -214,12 +214,12 @@ export function EpisodeList({
       {seasons.length > 1 || showSeasonGrab || season != null ? (
         <div
           data-season-toolbar
-          className="flex flex-wrap items-center gap-x-3 gap-y-2"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:flex sm:flex-wrap"
         >
-          <h2 id="title-episodes-heading" className="text-title w-full sm:w-auto">
+          <h2 id="title-episodes-heading" className="text-title min-w-0 sm:w-auto">
             Episodes
           </h2>
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:col-auto sm:row-auto">
             {seasons.length > 1 ? (
               <label className="relative inline-flex min-w-0 shrink-0 items-center">
                 <span className="sr-only">Season</span>
@@ -277,7 +277,7 @@ export function EpisodeList({
           </div>
 
           {showSeasonGrab && season != null ? (
-            <div className="ml-auto flex w-full items-center justify-end sm:w-auto">
+            <div className="col-start-2 row-start-1 ml-auto flex items-center justify-end sm:col-auto sm:row-auto sm:w-auto">
               <Button
                 type="button"
                 size="sm"
@@ -295,7 +295,7 @@ export function EpisodeList({
                     onSeasonGrab(season, episodeNums, "keep", preferredResolution);
                   }
                 }}
-                className="relative min-h-[44px] w-full sm:w-[9.5rem] lg:min-h-0"
+                className="relative min-h-[44px] w-auto lg:min-h-0"
               >
                 <ButtonBody
                   pending={seasonGrabStatus.status === "pending"}
@@ -377,8 +377,8 @@ export function EpisodeList({
               ref={stripRef}
               data-episode-strip
               className={cn(
-                "flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden pb-3",
-                "[scrollbar-width:thin] [-webkit-overflow-scrolling:touch]",
+                "grid grid-cols-1 gap-2 sm:flex sm:snap-x sm:snap-mandatory sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden sm:pb-3",
+                "sm:[scrollbar-width:thin] sm:[-webkit-overflow-scrolling:touch]",
               )}
             >
               {episodes.map((episode) => (
@@ -455,7 +455,7 @@ function ButtonBody({
 }
 
 /** Shared card width so skeletons and real cards reserve identical geometry. */
-const CARD_WIDTH = "w-[78vw] shrink-0 snap-start sm:w-[300px]";
+const CARD_WIDTH = "w-full sm:w-[300px] sm:shrink-0 sm:snap-start";
 
 function EpisodeSkeletonStrip({
   count,
@@ -474,17 +474,20 @@ function EpisodeSkeletonStrip({
       {/* The visible loading line was removed as noise; the busy region stays
           labelled for assistive tech via aria-busy + aria-label above. */}
       <ul
-        className="flex gap-3 overflow-x-hidden pb-3"
+        className="grid grid-cols-1 gap-2 sm:flex sm:gap-3 sm:overflow-x-hidden sm:pb-3"
         aria-label={label}
       >
         {Array.from({ length: count }, (_, i) => (
           <li
             key={i}
-            className={cn("surface overflow-hidden p-0", CARD_WIDTH)}
+            className={cn(
+              "surface flex min-h-[96px] overflow-hidden p-0 sm:block sm:min-h-0",
+              CARD_WIDTH,
+            )}
             data-episode-skeleton
           >
-            <span className="skeleton block aspect-video w-full" />
-            <span className="block p-3">
+            <span className="skeleton block h-24 w-[128px] shrink-0 sm:aspect-video sm:h-auto sm:w-full" />
+            <span className="min-w-0 flex-1 p-3">
               <span className="skeleton block h-3.5 w-3/4 rounded" />
               <span className="skeleton mt-2 block h-2.5 w-full rounded" />
               <span className="skeleton mt-1.5 block h-2.5 w-2/3 rounded" />
@@ -559,8 +562,10 @@ function EpisodeCardImpl({
       ? "Queued"
       : transfer?.status === "downloading"
         ? `Downloading ${formatTransferProgress(transfer.progress)}`
-        : held || effectiveDownloadStatus === "done"
+        : held
           ? "Downloaded"
+          : effectiveDownloadStatus === "done"
+            ? "Queued"
           : effectiveDownloadStatus === "error"
             ? "Retry download"
             : titleActionButtonLabel(downloadAction, effectiveDownloadStatus);
@@ -596,7 +601,7 @@ function EpisodeCardImpl({
   const still = (
     <span
       data-episode-still
-      className="relative block aspect-video w-full overflow-hidden bg-[var(--bg-muted)]"
+      className="relative block h-24 w-[128px] shrink-0 overflow-hidden bg-[var(--bg-muted)] sm:aspect-video sm:h-auto sm:w-full"
     >
       {meta?.stillUrl ? (
         <EpisodeStillImage src={meta.stillUrl} title={meta.name ?? episode.label} />
@@ -621,16 +626,28 @@ function EpisodeCardImpl({
     </span>
   );
 
+  const mobileMeta = [
+    airDate,
+    downloadDisplayLabel,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const caption = (
-    <span className="block p-3">
+    <span className="min-w-0 flex-1 p-3 pr-14 sm:block sm:p-3">
       <span
         data-episode-name
         className="block truncate text-[13px] font-medium text-[var(--text)]"
       >
         {codeAndTitle}
       </span>
+      {mobileMeta ? (
+        <span className="mt-1 block truncate text-[11px] text-[var(--text-tertiary)] sm:hidden">
+          {mobileMeta}
+        </span>
+      ) : null}
       {meta?.overview ? (
-        <span className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+        <span className="mt-1 hidden line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)] sm:block">
           {meta.overview}
         </span>
       ) : null}
@@ -649,14 +666,14 @@ function EpisodeCardImpl({
       )}
     >
       {unaired ? (
-        <div className="block">
+        <div className="flex min-h-[96px] sm:block">
           {still}
           {caption}
           {/* Plain text, not a disabled button: there is nothing to press, so
               there should be nothing to tab to. */}
           <span
             data-episode-unaired
-            className="block px-3 pb-3 text-[12px] text-[var(--text-tertiary)]"
+            className="hidden px-3 pb-3 text-[12px] text-[var(--text-tertiary)] sm:block"
           >
             {airDate ? `Airs ${airDate}` : "Not aired yet"}
           </span>
@@ -676,15 +693,15 @@ function EpisodeCardImpl({
             aria-busy={effectiveStreamStatus === "pending" || undefined}
             disabled={!streamCanRun}
             onClick={() => onAction(streamAction, episode.label, "stream")}
-            className="block w-full cursor-pointer text-left disabled:cursor-default"
+            className="flex min-h-[96px] w-full cursor-pointer items-stretch text-left disabled:cursor-default sm:block sm:min-h-0"
           >
-            <span className="relative block">
+            <span className="relative block shrink-0">
               {still}
               {/* Play glyph washed over the still on hover / focus — the card's
                   primary meaning made visible without a permanent chrome. */}
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--bg)_60%,transparent)] text-[var(--text)] backdrop-blur-sm">
                   {effectiveStreamStatus === "pending" ? (
@@ -701,7 +718,7 @@ function EpisodeCardImpl({
           {/* Compact keep-it affordance. Icon-only to stay out of the card's
               way, but a 44px touch target and a full aria-label so it is neither
               too small to hit nor mute to assistive tech. */}
-          <span className="absolute right-2 top-2 z-10">
+          <span className="absolute bottom-2 right-2 z-10 sm:bottom-auto sm:top-2">
             <button
               type="button"
               data-episode-action
@@ -810,7 +827,7 @@ const EpisodeStillImage = memo(function EpisodeStillImage({
     <PosterImage
       src={src}
       title={title}
-      sizes="(min-width: 640px) 300px, 78vw"
+      sizes="(min-width: 640px) 300px, 128px"
       variant="plain"
       className="object-cover"
     />

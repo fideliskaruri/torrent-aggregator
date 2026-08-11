@@ -18,6 +18,7 @@ import {
 import { resolveTitleProviderIdentity } from "../provider-identity";
 import { providerEpisodePlaceholders } from "./episode-placeholders";
 import { providerExtrasResponse } from "./provider-response";
+import { tvmazeExtrasResponse } from "./tvmaze-response";
 
 export const dynamic = "force-dynamic";
 
@@ -104,8 +105,25 @@ export async function GET(request: Request, context: RouteContext) {
               ? ("tv" as const)
               : ("movie" as const),
           }
-        : await resolveTmdbRef({ title, year, mediaType });
-    if (!ref) return NextResponse.json(empty);
+        : providerResult.kind === "absent"
+          ? await resolveTmdbRef({ title, year, mediaType })
+          : null;
+    if (!ref) {
+      const keylessTvResponse = await tvmazeExtrasResponse(
+        providerResult,
+        empty,
+        {
+          workKey: key,
+          title,
+          year,
+          posterUrl: url.searchParams.get("poster"),
+          isSeries:
+            isSeriesMediaType(mediaType)
+            || url.searchParams.get("series") === "1",
+        },
+      );
+      return NextResponse.json(keylessTvResponse ?? empty);
+    }
 
     const series = ref.mediaType === "tv";
 

@@ -1858,6 +1858,21 @@ async function upsertEngineTorrent(opts: {
   const hash = opts.hash.toLowerCase();
   try {
     const verified = opts.torrent ? await persistedVerifiedState(opts.torrent) : null;
+    const completedWithoutLiveVerification =
+      !verified &&
+      (opts.status === "downloaded" || (opts.progress ?? 0) >= 0.9999);
+    const existingVerified = completedWithoutLiveVerification
+      ? await prisma.engineTorrent.findUnique({
+          where: { userId_hash: { userId: opts.userId, hash } },
+          select: {
+            progress: true,
+            verifiedFilesJson: true,
+          },
+        })
+      : null;
+    const preserveCompletedVerifiedPath =
+      (existingVerified?.progress ?? 0) >= 0.9999 &&
+      Boolean(existingVerified?.verifiedFilesJson?.trim());
     await prisma.engineTorrent.upsert({
       where: {
         userId_hash: { userId: opts.userId, hash },
@@ -1882,7 +1897,7 @@ async function upsertEngineTorrent(opts: {
         name: opts.name,
         magnet: opts.magnet ?? undefined,
         torrentUrl: opts.torrentUrl ?? null,
-        savePath: opts.savePath,
+        savePath: preserveCompletedVerifiedPath ? undefined : opts.savePath,
         category: opts.category ?? null,
         status: opts.status ?? "downloading",
         progress: opts.progress ?? 0,

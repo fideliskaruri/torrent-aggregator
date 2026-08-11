@@ -10,7 +10,7 @@ export type WorkSearchCategory = (typeof WORK_SEARCH_CATEGORIES)[number];
  * "all".
  */
 export type WorkSearchScope = WorkSearchCategory | "all";
-export type WorkSearchProvider = "tmdb" | "anilist";
+export type WorkSearchProvider = "tmdb" | "anilist" | "itunes" | "tvmaze";
 export type WorkSearchMediaType = "movie" | "tv" | "anime";
 
 export interface WorkSearchHit {
@@ -31,6 +31,13 @@ export interface WorkSearchHit {
   overview: string | null;
   releaseDate: string | null;
   href: string;
+}
+
+export interface KeylessWorkSearchCandidate {
+  id: number;
+  title: string;
+  year: number | null;
+  posterUrl: string | null;
 }
 
 export function parseWorkSearchCategory(
@@ -122,6 +129,42 @@ export function workSearchHitFromMetadata(
       titleMediaType,
       format: normalizedFormat,
       isSeries,
+    }),
+  };
+}
+
+export function workSearchHitFromKeylessCandidate(
+  candidate: KeylessWorkSearchCandidate,
+  category: "movies" | "series",
+  provider: "itunes" | "tvmaze",
+): WorkSearchHit | null {
+  const title = candidate.title.trim();
+  if (!title) return null;
+  const isSeries = category === "series";
+  const year = candidate.year;
+  const workKey = workKeyFor(title, isSeries ? null : year);
+  if (!workKey) return null;
+  const mediaType = isSeries ? "tv" : "movie";
+
+  return {
+    workKey,
+    title,
+    year,
+    category,
+    provider,
+    providerId: candidate.id > 0 ? String(candidate.id) : null,
+    aliases: [],
+    mediaType,
+    titleMediaType: mediaType,
+    isSeries,
+    format: null,
+    posterUrl: candidate.posterUrl,
+    overview: null,
+    releaseDate: null,
+    href: titlePath(workKey, {
+      title,
+      year,
+      mediaType,
     }),
   };
 }

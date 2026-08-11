@@ -18,6 +18,7 @@
 import type {
   TitleEpisode,
   TitleEpisodeMeta,
+  TitleEpisodeTransfer,
   TitleSeason,
 } from "./types";
 
@@ -53,10 +54,11 @@ export function mergeEpisodes(input: {
   episodes: TitleEpisode[];
   meta: TitleEpisodeMeta[];
   metaSeason: number | null;
+  transfers?: Record<string, TitleEpisodeTransfer | null>;
   /** True when the detail payload already reported a cut-off list. */
   truncated?: boolean;
 }): MergedEpisodes {
-  const { season, episodes, meta, metaSeason } = input;
+  const { season, episodes, meta, metaSeason, transfers = {} } = input;
   const usable = season != null && metaSeason === season ? meta : [];
 
   const metaByEpisode = new Map<number, TitleEpisodeMeta>();
@@ -67,8 +69,10 @@ export function mergeEpisodes(input: {
 
   const byNumber = new Map<number, EpisodeRowModel>();
   for (const episode of episodes) {
+    const activeTransfer = transfers[episodeKey(episode.season, episode.episode)];
     byNumber.set(episode.episode, {
       ...episode,
+      transfer: activeTransfer ?? episode.transfer,
       meta: metaByEpisode.get(episode.episode) ?? null,
     });
   }
@@ -76,7 +80,12 @@ export function mergeEpisodes(input: {
   if (season != null) {
     for (const [number, item] of metaByEpisode) {
       if (byNumber.has(number)) continue;
-      byNumber.set(number, { ...blankEpisode(season, number), meta: item });
+      const episode = blankEpisode(season, number);
+      byNumber.set(number, {
+        ...episode,
+        transfer: transfers[episodeKey(season, number)] ?? null,
+        meta: item,
+      });
     }
   }
 
@@ -122,9 +131,15 @@ function blankEpisode(season: number, episode: number): TitleEpisode {
 export function mergeSeasons(
   local: TitleSeason[],
   providerSeasons: number[],
+  transfers: Record<string, TitleEpisodeTransfer | null> = {},
 ): TitleSeason[] {
   const byNumber = new Map<number, TitleSeason>();
-  for (const season of local) byNumber.set(season.season, season);
+  for (const season of local) {
+    byNumber.set(season.season, {
+      ...season,
+      transfer: transfers[String(season.season)] ?? season.transfer,
+    });
+  }
 
   for (const number of providerSeasons) {
     if (!Number.isInteger(number) || number < 1) continue;
@@ -135,7 +150,7 @@ export function mergeSeasons(
       season: number,
       knownEpisodes: 0,
       pack: null,
-      transfer: null,
+      transfer: transfers[String(number)] ?? null,
     });
   }
 
@@ -204,4 +219,8 @@ export function formatRuntime(minutes: number | null): string | null {
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
+}
+
+function episodeKey(season: number, episode: number): string {
+  return `S${pad(season)}E${pad(episode)}`;
 }

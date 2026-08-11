@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 
 import { searchItunes, upscaleItunesArtwork } from "./itunes";
-import { searchTvmazeShows } from "./tvmaze";
+import { getTvmazeEpisodes, searchTvmazeShows } from "./tvmaze";
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -216,6 +216,56 @@ async function main() {
     const garbage = await searchTvmazeShows("severance");
     check("an unexpected body shape is an empty list", () => {
       assert.deepEqual(garbage, []);
+    });
+
+    console.log("metadata/tvmaze episodes");
+
+    stub([
+      {
+        season: 2,
+        number: 1,
+        name: "A Rickle in Time",
+        airdate: "2015-07-26",
+        runtime: 30,
+        image: {
+          medium: "https://static.tvmaze.com/medium.jpg",
+          original: "https://static.tvmaze.com/original.jpg",
+        },
+      },
+      {
+        season: 0,
+        number: 1,
+        name: "Special",
+        airdate: "2015-01-01",
+        runtime: 10,
+        image: null,
+      },
+      {
+        season: 2,
+        number: null,
+        name: "Unnumbered",
+      },
+    ]);
+    const episodes = await getTvmazeEpisodes(216);
+    check("canonical numbered episodes are parsed without specials", () => {
+      assert.deepEqual(episodes, [{
+        season: 2,
+        episode: 1,
+        name: "A Rickle in Time",
+        airDate: "2015-07-26",
+        runtimeMin: 30,
+        stillUrl: "https://static.tvmaze.com/original.jpg",
+      }]);
+    });
+    check("the episode endpoint is scoped to the resolved show", () => {
+      assert.equal(seen.length, 1);
+      assert.ok(seen[0].endsWith("/shows/216/episodes"), seen[0]);
+    });
+
+    stub([], 503);
+    const missingEpisodes = await getTvmazeEpisodes(216);
+    check("episode provider failure yields no fabricated rows", () => {
+      assert.deepEqual(missingEpisodes, []);
     });
   } finally {
     globalThis.fetch = originalFetch;

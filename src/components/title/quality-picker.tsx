@@ -71,7 +71,7 @@ function QualityPickerDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent className="bottom-0 left-0 top-auto max-h-[calc(100dvh-0.5rem)] w-full max-w-none translate-x-0 translate-y-0 rounded-b-none rounded-t-[var(--radius-lg)] border-x-0 border-b-0 pb-[calc(1.25rem+var(--safe-bottom))] sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-2rem)] sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:p-5">
         <AlertDialogHeader>
           <AlertDialogTitle>Choose quality</AlertDialogTitle>
           <AlertDialogDescription>
@@ -159,9 +159,14 @@ function QualityPickerDialog({
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel className="min-h-[48px] sm:min-h-0">
+            Cancel
+          </AlertDialogCancel>
           {/* AlertDialogAction closes the dialog automatically after onClick. */}
-          <AlertDialogAction onClick={handleConfirm}>
+          <AlertDialogAction
+            onClick={handleConfirm}
+            className="min-h-[48px] sm:min-h-0"
+          >
             Download
           </AlertDialogAction>
         </AlertDialogFooter>

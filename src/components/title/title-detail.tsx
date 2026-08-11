@@ -88,9 +88,11 @@ import {
 import type {
   TitleDetailPayload,
   TitleExtrasPayload,
+  TitleProgressPayload,
   TitleSeasonGrabResponse,
   TitleRetention,
 } from "./types";
+import { episodeTitleMap } from "./types";
 
 export interface TitleDetailProps {
   workKey: string;
@@ -265,17 +267,73 @@ export function TitleDetail(props: TitleDetailProps) {
   // re-rendered the whole document, and made chips/status lines appear and
   // disappear — layout shift with no product reason.
   const [transferPoll, setTransferPoll] = useState(false);
+  const [transferPollSession, setTransferPollSession] = useState(0);
+  const [currentProgress, setCurrentProgress] = useState<{
+    workKey: string;
+    session: number;
+    payload: TitleProgressPayload;
+  } | null>(null);
+  const transferPollActive = useRef(false);
+  const startTransferPoll = useCallback(() => {
+    if (transferPollActive.current) return;
+    transferPollActive.current = true;
+    setCurrentProgress(null);
+    setTransferPollSession((current) => current + 1);
+    setTransferPoll(true);
+  }, []);
+  const stopTransferPoll = useCallback(() => {
+    transferPollActive.current = false;
+    setTransferPoll(false);
+  }, []);
   const { data, loading, refreshing, error, refetch } =
     useApiQuery<TitleDetailPayload>(url, {
-      // Theatre playback owns the screen and the player already polls its own
-      // stream state. Rebuilding the hidden title page every 2.5s competes with
-      // video presentation and caused otherwise-buffered frames to be dropped.
-      // Closing the overlay performs one explicit refetch below.
+      refreshMs: 0,
+    });
+  useEffect(() => {
+    if (titleNeedsTransferPoll(data)) startTransferPoll();
+  }, [data, startTransferPoll]);
+
+  const progressUrl = transferPoll && !playing
+    ? `/api/title/${encodeURIComponent(props.workKey)}/progress?session=${transferPollSession}`
+    : null;
+  const {
+    data: progress,
+    error: progressError,
+    settled: progressSettled,
+  } = useApiQuery<TitleProgressPayload>(progressUrl, {
       refreshMs: transferPoll && !playing ? 2_500 : 0,
     });
   useEffect(() => {
-    setTransferPoll(titleNeedsTransferPoll(data));
-  }, [data]);
+    if (!progressSettled || progressError || !progress) return;
+    setCurrentProgress({
+      workKey: props.workKey,
+      session: transferPollSession,
+      payload: progress,
+    });
+  }, [
+    progress,
+    progressError,
+    progressSettled,
+    props.workKey,
+    transferPollSession,
+  ]);
+  const visibleProgress =
+    currentProgress?.workKey === props.workKey &&
+    currentProgress.session === transferPollSession
+      ? currentProgress.payload
+      : null;
+  useEffect(() => {
+    if (!transferPoll || !visibleProgress) return;
+    if (titleProgressHasActiveTransfer(visibleProgress)) return;
+
+    stopTransferPoll();
+    void refetch();
+  }, [
+    refetch,
+    stopTransferPoll,
+    transferPoll,
+    visibleProgress,
+  ]);
 
   // The second round trip: episode names, the real season count, neighbours.
   //
@@ -288,7 +346,14 @@ export function TitleDetail(props: TitleDetailProps) {
   const extrasUrl = useMemo(
     () => (data ? buildExtrasUrl(props, data, activeSeason) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [props.workKey, data?.title, data?.year, data?.mediaType, activeSeason],
+    [
+      props.workKey,
+      data?.title,
+      data?.year,
+      data?.mediaType,
+      data?.posterUrl,
+      activeSeason,
+    ],
   );
   const {
     data: extras,
@@ -298,6 +363,13 @@ export function TitleDetail(props: TitleDetailProps) {
     settled: extrasSettled,
     refetch: refetchExtras,
   } = useApiQuery<TitleExtrasPayload>(extrasUrl);
+  const episodeTitles = useMemo(
+    () =>
+      extras?.season == null
+        ? undefined
+        : episodeTitleMap(extras.season, extras.episodes),
+    [extras],
+  );
 
   const statusFor = useCallback(
     (key: string) => statuses[key] ?? "idle",
@@ -411,6 +483,7 @@ export function TitleDetail(props: TitleDetailProps) {
         }
 
         const body = outcome.value;
+        if (!streaming) startTransferPoll();
         setStatuses((prev) => ({ ...prev, [key]: "done" }));
 
         // The press said Play, so the press has to end in the player. The
@@ -481,10 +554,10 @@ export function TitleDetail(props: TitleDetailProps) {
         );
       }
     },
-    // Empty by design: every reactive value runAction needs is read from
-    // `actionDeps.current` (a ref refreshed each render), so its identity is
-    // stable across transfer polls and the memoised episode cards never rebuild.
-    [],
+    // Every changing value runAction needs is read from `actionDeps.current`.
+    // startTransferPoll is stable, so this callback also stays stable across
+    // progress ticks and the memoised episode cards never rebuild.
+    [startTransferPoll],
   );
 
   const seasonStatusFor = useCallback(
@@ -646,6 +719,7 @@ export function TitleDetail(props: TitleDetailProps) {
         <TitleContent
           payload={data}
           extras={extras}
+          progress={visibleProgress}
           extrasLoading={extrasLoading}
           extrasRefreshing={extrasRefreshing}
           extrasError={extrasError}
@@ -668,6 +742,7 @@ export function TitleDetail(props: TitleDetailProps) {
           infoHash={playing.infoHash}
           title={playing.title}
           episodeTitle={playing.episodeTitle}
+          episodeTitles={episodeTitles}
           season={playing.season}
           episode={playing.episode}
           year={data?.year ?? null}
@@ -691,6 +766,7 @@ export function TitleDetail(props: TitleDetailProps) {
 function TitleContent({
   payload,
   extras,
+  progress,
   extrasLoading,
   extrasRefreshing,
   extrasError,
@@ -708,6 +784,7 @@ function TitleContent({
 }: {
   payload: TitleDetailPayload;
   extras: TitleExtrasPayload | null;
+  progress: TitleProgressPayload | null;
   extrasLoading: boolean;
   extrasRefreshing: boolean;
   extrasError: string | null;
@@ -820,7 +897,11 @@ function TitleContent({
   // The season the user is looking at, which is not always the season the
   // detail route answered with: it only knows the seasons we hold files for,
   // and the tabs also list the ones the provider says exist.
-  const seasons = mergeSeasons(payload.seasons, extras?.seasons ?? []);
+  const seasons = mergeSeasons(
+    payload.seasons,
+    extras?.seasons ?? [],
+    progress?.seasonTransfers,
+  );
   // Default to the first known season when neither the user nor the detail
   // route has chosen one, so a series never renders with every season tab
   // inactive and an empty episode list ("no default season selected").
@@ -836,6 +917,7 @@ function TitleContent({
     episodes: onKnownSeason ? payload.episodes : [],
     meta: episodeExtras?.episodes ?? [],
     metaSeason: episodeExtras?.season ?? null,
+    transfers: progress?.episodeTransfers,
     truncated: onKnownSeason && payload.episodesTruncated,
   });
 
@@ -957,18 +1039,19 @@ function TitleContent({
     infoHash: primary.kind === "play" ? primary.infoHash : payload.infoHash,
   };
   const downloadStatus = statusFor(DOWNLOAD_KEY);
+  const titleTransfer = progress?.transfer ?? payload.transfer;
   const downloadLabel =
-    payload.transfer?.status === "queued"
+    titleTransfer?.status === "queued"
       ? "Queued"
-      : payload.transfer?.status === "downloading"
-        ? `Downloading ${Math.floor(Math.max(0, Math.min(1, payload.transfer.progress)) * 100)}%`
-        : payload.transfer?.status === "downloaded"
+      : titleTransfer?.status === "downloading"
+        ? `Downloading ${Math.floor(Math.max(0, Math.min(1, titleTransfer.progress)) * 100)}%`
+        : titleTransfer?.status === "downloaded"
           ? "Downloaded"
-          : payload.transfer?.status === "failed"
+          : titleTransfer?.status === "failed"
             ? "Retry download"
             : titleActionButtonLabel(downloadAction, downloadStatus);
   const downloadCanRun =
-    offersDownload(payload.transfer) &&
+    offersDownload(titleTransfer) &&
     shouldRunTitleAction(downloadAction, downloadStatus) &&
     !gated;
   const downloadLabelTarget = title;
@@ -1031,15 +1114,15 @@ function TitleContent({
               collapsing into a strip. */}
           <div
             className={cn(
-              "flex flex-col justify-end gap-6 py-8 sm:py-10 md:flex-row md:items-end md:justify-start lg:py-10",
+              "grid grid-cols-[104px_minmax(0,1fr)] items-end gap-x-4 gap-y-5 py-5 sm:grid-cols-[120px_minmax(0,1fr)] sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-x-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-10",
               payload.isSeries
-                ? "min-h-[17rem] sm:min-h-[18rem] lg:min-h-[20rem]"
-                : "min-h-[19rem] sm:min-h-[21rem] lg:min-h-[24rem]",
+                ? "min-h-0 md:min-h-[18rem] lg:min-h-[20rem]"
+                : "min-h-0 md:min-h-[21rem] lg:min-h-[24rem]",
             )}
           >
             {/* The poster is a mark, not a caption: the title is printed
                 beside it, so the no-artwork tile carries no words of its own. */}
-            <div className="hidden w-[168px] shrink-0 md:block lg:w-[196px]">
+            <div className="w-[104px] shrink-0 self-end sm:w-[120px] md:row-span-2 md:w-[168px] lg:w-[196px]">
               <div
                 className={cn(
                   "relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] shadow-[var(--shadow-md)]",
@@ -1049,14 +1132,18 @@ function TitleContent({
                 <PosterImage
                   src={payload.posterUrl}
                   title={title}
-                  sizes="(min-width: 1024px) 196px, 168px"
+                  sizes="(min-width: 1024px) 196px, (min-width: 768px) 168px, (min-width: 640px) 120px, 104px"
                   priority
                 />
               </div>
             </div>
 
             <div className="min-w-0 flex-1">
-              <h1 id="title-heading" title={payload.title} className="text-display">
+              <h1
+                id="title-heading"
+                title={payload.title}
+                className="text-[clamp(1.75rem,7vw,2.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-[var(--text)] md:text-display"
+              >
                 {title}
               </h1>
 
@@ -1086,7 +1173,7 @@ function TitleContent({
                   behaviour of each is untouched — only their position moved above
                   the synopsis. */}
               <div
-                className="mt-5 flex flex-wrap items-center gap-2"
+                className="mt-4 grid grid-cols-1 gap-2 sm:mt-5 sm:flex sm:flex-wrap sm:items-center"
                 data-title-acquire
               >
                 {/* A gated (unreleased) title offers no Play/Download at all —
@@ -1120,7 +1207,7 @@ function TitleContent({
                       "stream",
                     );
                   }}
-                  className="relative min-w-[9rem]"
+                  className="relative w-full min-w-0 sm:w-auto sm:min-w-[9rem]"
                 >
                   <ButtonBody
                     pending={
@@ -1166,7 +1253,7 @@ function TitleContent({
                         );
                       }
                     }}
-                    className="relative min-w-[8rem]"
+                    className="relative w-full min-w-0 sm:w-auto sm:min-w-[8rem]"
                   >
                     <ButtonBody
                       pending={downloadStatus === "pending"}
@@ -1186,11 +1273,12 @@ function TitleContent({
                 />
               </div>
 
-              {/* The two-column band under the actions. Left: synopsis + genre
-                  chips. Right (desktop ~260px, stacks below on mobile): the
-                  compact metadata list. Each piece omits itself when empty, so a
-                  bare title collapses to just the synopsis without leaving holes. */}
-              <div className="mt-6 flex flex-col gap-6 md:flex-row md:gap-8">
+            </div>
+
+            {/* The two-column band under the actions. It spans the full phone
+                width so synopsis/meta never get squeezed beside the compact
+                poster, then returns to the desktop content column at md+. */}
+            <div className="col-span-2 flex flex-col gap-4 md:col-span-1 md:col-start-2 md:flex-row md:gap-8">
                 <div className="min-w-0 flex-1 md:max-w-2xl">
                   {payload.overview ?? extras?.overview ? (
                     <p
@@ -1207,7 +1295,7 @@ function TitleContent({
                     <p
                       aria-hidden
                       data-title-overview-placeholder
-                      className="min-h-[5.25rem]"
+                      className="min-h-0 md:min-h-[5.25rem]"
                     />
                   ) : null}
 
@@ -1224,8 +1312,6 @@ function TitleContent({
                   </div>
                 ) : null}
               </div>
-
-            </div>
           </div>
         </div>
       </header>
@@ -1253,7 +1339,7 @@ function TitleContent({
         }}
       />
 
-      <div className="container-app space-y-10 py-8 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] md:pb-8">
+      <div className="container-app space-y-7 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] md:space-y-10 md:py-8 md:pb-8">
         {payload.isSeries ? (
           <EpisodeList
             seasons={seasons}
@@ -1414,6 +1500,7 @@ function buildExtrasUrl(
   params.set("t", title);
   if (payload.year) params.set("y", String(payload.year));
   if (payload.mediaType) params.set("type", payload.mediaType);
+  if (payload.posterUrl) params.set("poster", payload.posterUrl);
   if (season != null) params.set("s", String(season));
   if (props.provider) params.set("provider", props.provider);
   if (props.providerId) params.set("providerId", props.providerId);
@@ -1442,6 +1529,24 @@ function titleNeedsTransferPoll(
   return false;
 }
 
+function titleProgressHasActiveTransfer(
+  payload: TitleProgressPayload,
+): boolean {
+  const active = (status: string | undefined) =>
+    status === "queued" || status === "downloading";
+  if (active(payload.transfer?.status)) return true;
+  if (
+    Object.values(payload.seasonTransfers).some((transfer) =>
+      active(transfer?.status)
+    )
+  ) {
+    return true;
+  }
+  return Object.values(payload.episodeTransfers).some((transfer) =>
+    active(transfer?.status)
+  );
+}
+
 /**
  * The finished layout's geometry, before the payload lands.
  *
@@ -1453,25 +1558,30 @@ export function TitleDetailSkeleton() {
     <div aria-hidden>
       <div className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">
         <div className="container-app">
-          <div className="flex flex-col gap-6 py-8 sm:py-10 md:flex-row md:items-end lg:py-12">
-            <div className="hidden w-[168px] shrink-0 md:block lg:w-[196px]">
+          <div className="grid grid-cols-[104px_minmax(0,1fr)] items-end gap-4 py-5 sm:grid-cols-[120px_minmax(0,1fr)] sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-12">
+            <div className="w-[104px] shrink-0 sm:w-[120px] md:w-[168px] lg:w-[196px]">
               <div className="skeleton aspect-[2/3] w-full rounded-[var(--radius)]" />
             </div>
             <div className="min-w-0 max-w-2xl flex-1">
               <div className="skeleton h-9 w-3/4 rounded" />
               <div className="skeleton mt-3 h-3 w-40 rounded" />
-              <div className="skeleton mt-3 h-3 w-full max-w-md rounded" />
-              <div className="skeleton mt-2 h-3 w-4/5 max-w-md rounded" />
-              <div className="skeleton mt-5 h-11 w-44 rounded-[var(--radius)]" />
+              <div className="skeleton mt-5 h-11 w-full rounded-[var(--radius)] sm:w-44" />
+            </div>
+            <div className="col-span-2 space-y-2 md:col-start-2 md:col-span-1">
+              <div className="skeleton h-3 w-full max-w-md rounded" />
+              <div className="skeleton h-3 w-4/5 max-w-md rounded" />
             </div>
           </div>
         </div>
       </div>
-      <div className="container-app py-8">
+      <div className="container-app py-6 md:py-8">
         <div className="skeleton h-5 w-32 rounded" />
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-3 space-y-2 sm:flex sm:gap-3 sm:space-y-0 sm:overflow-hidden">
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="skeleton h-14 w-full rounded-[var(--radius)]" />
+            <div
+              key={i}
+              className="skeleton h-24 w-full rounded-[var(--radius)] sm:h-[215px] sm:w-[300px] sm:shrink-0"
+            />
           ))}
         </div>
       </div>

@@ -209,6 +209,7 @@ function historyRow(
   return {
     id,
     userId: "user-1",
+    workId: null,
     title: id.replace("history", "grab"),
     magnet: `magnet:?xt=urn:btih:${HASHES[0]}`,
     torrentUrl: null,

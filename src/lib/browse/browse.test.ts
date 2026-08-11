@@ -794,6 +794,92 @@ check("continue watching resolves episode-only progress through the linked libra
   assert.notEqual(rail!.items[0].title, "Unknown title");
 });
 
+check("continue watching collapses different torrent names under canonical work", () => {
+  const canonicalWork = {
+    id: "work-slime",
+    workKey: "that-time-i-got-reincarnated-as-a-slime",
+    canonicalTitle: "That Time I Got Reincarnated as a Slime",
+    mediaType: "anime",
+    posterUrl: "https://images.example.test/slime.jpg",
+  };
+  const works = continueWatchingWorksFromRows(
+    [
+      {
+        id: "progress-slime-e2",
+        workId: canonicalWork.id,
+        work: canonicalWork,
+        infoHash: "slimehash2",
+        filePath: "Slime/S01E02.mkv",
+        positionSec: 300,
+        durationSec: 1_500,
+        title: "Tensei Shitara Slime Datta Ken",
+        season: 1,
+        episode: 2,
+        posterUrl: null,
+        watchListItemId: null,
+        updatedAt: new Date(Date.UTC(2024, 0, 3, 0, 0, 0)),
+      },
+      {
+        id: "progress-slime-e1",
+        workId: canonicalWork.id,
+        work: canonicalWork,
+        infoHash: "slimehash1",
+        filePath: "Slime/S01E01.mkv",
+        positionSec: 200,
+        durationSec: 1_500,
+        title: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 01",
+        season: 1,
+        episode: 1,
+        posterUrl: null,
+        watchListItemId: null,
+        updatedAt: new Date(Date.UTC(2024, 0, 2, 0, 0, 0)),
+      },
+      {
+        id: "progress-slime-legacy",
+        workId: null,
+        work: null,
+        infoHash: "slimehashlegacy",
+        filePath: "Slime/S01E03.mkv",
+        positionSec: 100,
+        durationSec: 1_500,
+        title: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 03",
+        season: 1,
+        episode: 3,
+        posterUrl: null,
+        watchListItemId: null,
+        updatedAt: new Date(Date.UTC(2024, 0, 1, 0, 0, 0)),
+      },
+    ],
+    [
+      {
+        hash: "slimehash2",
+        name: "That Time I Got Reincarnated as a Slime S01E02",
+        progress: 1,
+        status: "uploading",
+      },
+      {
+        hash: "slimehash1",
+        name: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 01",
+        progress: 1,
+        status: "uploading",
+      },
+      {
+        hash: "slimehashlegacy",
+        name: "[HorribleSubs] Tensei Shitara Slime Datta Ken - 03",
+        progress: 1,
+        status: "uploading",
+      },
+    ],
+    [],
+  );
+
+  assert.equal(works.length, 1);
+  assert.equal(works[0].workId, canonicalWork.id);
+  assert.equal(works[0].workKey, canonicalWork.workKey);
+  assert.equal(works[0].title, canonicalWork.canonicalTitle);
+  assert.equal(works[0].releaseCount, 3);
+});
+
 check("continue watching resolves episode-only progress through the torrent release and artwork", () => {
   const works = continueWatchingWorksFromRows(
     [

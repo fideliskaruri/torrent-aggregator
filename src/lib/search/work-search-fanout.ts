@@ -1,5 +1,7 @@
 import { searchAniListWorks } from "@/lib/metadata/anilist";
 import { searchTmdbByType } from "@/lib/metadata/tmdb";
+import { searchItunes } from "@/lib/metadata/itunes";
+import { searchTvmazeShows } from "@/lib/metadata/tvmaze";
 import {
   interleaveByProviderRank,
   rankTitleHitsByRelevance,
@@ -7,8 +9,14 @@ import {
 import {
   canonicalizeSearchQuery,
   displaySearchQuery,
+  searchDiscoveryVariants,
 } from "@/lib/search/query-variants";
 import {
+  bestQueryRelevanceTier,
+  hasRelevantTitle,
+} from "@/lib/search/relevance";
+import {
+  workSearchHitFromKeylessCandidate,
   workSearchHitFromMetadata,
   type WorkSearchCategory,
   type WorkSearchHit,
@@ -55,14 +63,22 @@ export type WorkSearchProviders = {
 };
 
 export const defaultWorkSearchProviders: WorkSearchProviders = {
-  movies: async (query, limit) => hitsFrom(
-    await searchTmdbByType("movie", query, limit),
-    "movies",
-  ),
-  series: async (query, limit) => hitsFrom(
-    await searchTmdbByType("tv", query, limit),
-    "series",
-  ),
+  movies: async (query, limit) =>
+    withKeylessFallback(
+      query,
+      () => searchTmdbByType("movie", query, limit).then((items) =>
+        hitsFrom(items, "movies")
+      ),
+      () => searchKeylessMovies(query, limit, Date.now() + 10_000),
+    ),
+  series: async (query, limit) =>
+    withKeylessFallback(
+      query,
+      () => searchTmdbByType("tv", query, limit).then((items) =>
+        hitsFrom(items, "series")
+      ),
+      () => searchKeylessSeries(query, limit, Date.now() + 10_000),
+    ),
   anime: async (query, limit) => {
     const works = await searchAniListWorks(query, limit);
     const out: WorkSearchHit[] = [];
@@ -73,6 +89,104 @@ export const defaultWorkSearchProviders: WorkSearchProviders = {
     return out;
   },
 };
+
+async function withKeylessFallback(
+  query: string,
+  primary: () => Promise<WorkSearchHit[]>,
+  fallback: () => Promise<WorkSearchHit[]>,
+): Promise<WorkSearchHit[]> {
+  let primaryHits: WorkSearchHit[] = [];
+  let primaryError: unknown = null;
+  try {
+    primaryHits = await primary();
+  } catch (error) {
+    primaryError = error;
+  }
+  if (hasRelevantWorkHit(query, primaryHits)) return primaryHits;
+
+  const fallbackHits = await fallback();
+  const merged = [...primaryHits, ...fallbackHits];
+  if (primaryError && !hasRelevantWorkHit(query, merged)) throw primaryError;
+  return merged;
+}
+
+async function searchKeylessMovies(
+  query: string,
+  limit: number,
+  deadlineMs: number,
+): Promise<WorkSearchHit[]> {
+  const out: WorkSearchHit[] = [];
+  for (const variant of searchDiscoveryVariants(query)) {
+    const timeoutMs = keylessSearchTimeoutMs(deadlineMs);
+    if (timeoutMs === 0) break;
+    const candidates = await searchItunes(variant, {
+      limit,
+      timeoutMs,
+    });
+    for (const candidate of candidates) {
+      const hit = workSearchHitFromKeylessCandidate(
+        candidate,
+        "movies",
+        "itunes",
+      );
+      if (hit) out.push(hit);
+    }
+    if (hasRelevantWorkHit(query, out)) break;
+  }
+  return dedupeProviderHits(out);
+}
+
+async function searchKeylessSeries(
+  query: string,
+  limit: number,
+  deadlineMs: number,
+): Promise<WorkSearchHit[]> {
+  const out: WorkSearchHit[] = [];
+  for (const variant of searchDiscoveryVariants(query)) {
+    const timeoutMs = keylessSearchTimeoutMs(deadlineMs);
+    if (timeoutMs === 0) break;
+    const candidates = await searchTvmazeShows(variant, {
+      limit,
+      timeoutMs,
+    });
+    for (const candidate of candidates) {
+      const hit = workSearchHitFromKeylessCandidate(
+        candidate,
+        "series",
+        "tvmaze",
+      );
+      if (hit) out.push(hit);
+    }
+    if (hasRelevantWorkHit(query, out)) break;
+  }
+  return dedupeProviderHits(out);
+}
+
+export function keylessSearchTimeoutMs(
+  deadlineMs: number,
+  nowMs = Date.now(),
+): number {
+  return Math.max(0, Math.min(4_000, deadlineMs - nowMs));
+}
+
+function hasRelevantWorkHit(
+  query: string,
+  hits: readonly WorkSearchHit[],
+): boolean {
+  return hits.some((hit) =>
+    hasRelevantTitle(query, [hit.title, ...hit.aliases])
+  );
+}
+
+function dedupeProviderHits(hits: readonly WorkSearchHit[]): WorkSearchHit[] {
+  const seen = new Set<string>();
+  return hits.filter((hit) => {
+    const key = `${hit.provider}:${hit.providerId ?? hit.workKey}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function hitsFrom(
   metadata: Awaited<ReturnType<typeof searchTmdbByType>>,
@@ -137,6 +251,10 @@ export async function searchWorksByScope(
   const ranked = rankTitleHitsByRelevance(merged, query);
   const seen = new Set<string>();
   const results = ranked
+    .filter(
+      (hit) =>
+        bestQueryRelevanceTier(query, [hit.title, ...hit.aliases]) < 6,
+    )
     .filter((hit) => (seen.has(hit.workKey) ? false : (seen.add(hit.workKey), true)))
     .slice(0, limit);
 

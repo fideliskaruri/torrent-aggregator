@@ -23,6 +23,7 @@ import {
   resolveSendRetentionChoice,
 } from "@/lib/library/retention-settings";
 import { sendRetentionToPurpose } from "@/lib/streaming/send-retention";
+import { canonicalWorkForHash } from "@/lib/work/store";
 import {
   booleanField,
   enumField,
@@ -398,10 +399,11 @@ export async function POST(request: NextRequest) {
     // to the title heuristics: guessing a show's identity from a bare release
     // name is what misfiles same-named titles, so we don't do it.
     let metadata = body.metadata ?? null;
-    if (!metadata && body.watchListItemId) {
-      const item = await prisma.watchListItem.findFirst({
+    const watchItem = body.watchListItemId
+      ? await prisma.watchListItem.findFirst({
         where: { id: body.watchListItemId, userId: session.user.id },
         select: {
+          workId: true,
           mediaType: true,
           externalId: true,
           title: true,
@@ -409,9 +411,9 @@ export async function POST(request: NextRequest) {
           synopsis: true,
           rating: true,
         },
-      });
-      metadata = catalogMetadata(item);
-    }
+      })
+      : null;
+    if (!metadata && watchItem) metadata = catalogMetadata(watchItem);
 
     const pathTarget = resolveSmartSendTarget(config, {
       name: body.name || "",
@@ -430,6 +432,11 @@ export async function POST(request: NextRequest) {
       infoHash: body.infoHash,
       magnet: body.magnet,
     });
+    const workId =
+      watchItem?.workId
+      ?? (infoHash
+        ? (await canonicalWorkForHash(session.user.id, infoHash))?.id ?? null
+        : null);
     const existingLookup = await existingRetentionOrigin(session.user.id, infoHash);
     const existingOrigin =
       existingLookup.status === "found" ? existingLookup.origin : null;
@@ -494,6 +501,7 @@ export async function POST(request: NextRequest) {
         await prisma.downloadHistory.create({
           data: {
             userId: session.user.id,
+            workId,
             title: body.name || "Unknown",
             magnet: body.magnet,
             torrentUrl: body.torrentUrl,
@@ -545,6 +553,7 @@ export async function POST(request: NextRequest) {
       await prisma.downloadHistory.create({
         data: {
           userId: session.user.id,
+          workId,
           title: body.name || "Unknown",
           magnet: body.magnet,
           torrentUrl: body.torrentUrl,
@@ -584,6 +593,7 @@ export async function POST(request: NextRequest) {
     await prisma.downloadHistory.create({
       data: {
         userId: session.user.id,
+        workId,
         title: body.name || "Unknown",
         magnet: body.magnet,
         torrentUrl: body.torrentUrl,
@@ -598,6 +608,15 @@ export async function POST(request: NextRequest) {
         retention: historyRetention,
       },
     });
+    if (result.ok && workId && infoHash) {
+      await prisma.engineTorrent.updateMany({
+        where: {
+          userId: session.user.id,
+          hash: { in: [infoHash.toLowerCase(), infoHash.toUpperCase()] },
+        },
+        data: { workId },
+      });
+    }
 
     // Invalidate directory size cache on successful send so next capacity check
     // reads fresh disk state instead of stale 30s cache. Only invalidate the

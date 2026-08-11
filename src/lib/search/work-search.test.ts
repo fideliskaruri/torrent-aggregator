@@ -4,6 +4,7 @@ import { isSeriesMediaType } from "@/lib/metadata/media-type";
 import { searchTmdb, searchTmdbByType } from "@/lib/metadata/tmdb";
 import {
   searchDiscoveryVariants,
+  searchIntentQuery,
   searchTitleVariants,
 } from "@/lib/search/query-variants";
 import { queryRelevanceTier } from "@/components/search/group-titles";
@@ -12,7 +13,11 @@ import {
   rankTitleHitsByRelevance,
 } from "@/components/search/title-search";
 import type { MediaMetadata } from "@/lib/torrents/types";
-import { searchWorksByScope, type WorkSearchProviders } from "./work-search-fanout";
+import {
+  keylessSearchTimeoutMs,
+  searchWorksByScope,
+  type WorkSearchProviders,
+} from "./work-search-fanout";
 import {
   legacyEverythingRedirectUrl,
   parseWorkSearchCategory,
@@ -164,6 +169,27 @@ assert.deepEqual(searchDiscoveryVariants("moon knight"), [
   "moon knight",
   "moonknight",
 ]);
+assert.deepEqual(searchDiscoveryVariants("moon knight 2022"), [
+  "moon knight 2022",
+  "moonknight2022",
+  "moon knight",
+]);
+assert.deepEqual(searchDiscoveryVariants("moonknigt season 1"), [
+  "moonknigt season 1",
+  "moonknigt",
+  "moon",
+]);
+assert.equal(searchIntentQuery("1917 movie"), "1917");
+assert.equal(searchIntentQuery("2012 film"), "2012");
+assert.equal(searchIntentQuery("1917 the movie"), "1917");
+assert.deepEqual(searchDiscoveryVariants("1917 movie"), [
+  "1917 movie",
+  "1917movie",
+  "1917",
+]);
+assert.equal(keylessSearchTimeoutMs(10_000, 5_000), 4_000);
+assert.equal(keylessSearchTimeoutMs(10_000, 9_250), 750);
+assert.equal(keylessSearchTimeoutMs(10_000, 10_001), 0);
 console.log("PASS conservative grab variants and compact discovery variants");
 
 assert.equal(queryRelevanceTier("moonknigt", "Moon Knight"), 5);
@@ -182,6 +208,18 @@ assert.equal(queryRelevanceTier("Cafe", "Café"), 0);
 assert.equal(queryRelevanceTier("moonknigt", "Moon"), 6);
 assert.equal(queryRelevanceTier("moonknigt", ""), 6);
 assert.equal(queryRelevanceTier("abcdx", "abcdy"), 5);
+assert.equal(queryRelevanceTier("moon knight 2022", "Moon Knight"), 0);
+assert.equal(queryRelevanceTier("moonknigt season 1", "Moon Knight"), 5);
+assert.equal(queryRelevanceTier("moon knight s01", "Moon Knight"), 0);
+assert.equal(queryRelevanceTier("dune part two 2024", "Dune: Part Two"), 0);
+assert.equal(queryRelevanceTier("1917", "1917"), 0);
+assert.equal(queryRelevanceTier("2012", "2012"), 0);
+assert.equal(queryRelevanceTier("1917 movie", "1917"), 0);
+assert.equal(queryRelevanceTier("2012 film", "2012"), 0);
+assert.equal(queryRelevanceTier("1917 the movie", "1917"), 0);
+assert.equal(queryRelevanceTier("lotr", "The Lord of the Rings"), 1);
+assert.equal(queryRelevanceTier("got", "Game of Thrones"), 1);
+assert.equal(queryRelevanceTier("hp", "Harry Potter"), 1);
 console.log("PASS bounded fuzzy title relevance, diacritics, and no-match guards");
 
 const providerLists = [
@@ -234,7 +272,7 @@ async function providerTests() {
   };
   const outcome = await searchWorksByScope(
     "all",
-    "  moon  knigt  ",
+    "  moon  knight  ",
     12,
     providers,
   );
@@ -308,6 +346,36 @@ async function providerTests() {
   assert.equal(directHit[0]?.title, "Moon Knight");
   console.log("PASS TMDB multi/type raw-first compact fallback");
 
+  requested.length = 0;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    requested.push(String(input));
+    const query = new URL(String(input)).searchParams.get("query");
+    const results = query === "moon"
+      ? [{
+          id: 2,
+          media_type: "movie",
+          title: "Moon Knight",
+          release_date: "2022-01-01",
+        }]
+      : [{
+          id: 1,
+          media_type: "movie",
+          title: "Tsuki",
+          release_date: "2020-01-01",
+        }];
+    return new Response(JSON.stringify({ results }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  const rescuedAfterNoise = await searchTmdbByType("movie", "moonknigt", 5);
+  assert.deepEqual(
+    requested.map((url) => new URL(url).searchParams.get("query")),
+    ["moonknigt", "moon"],
+  );
+  assert.equal(rescuedAfterNoise[0]?.title, "Moon Knight");
+  console.log("PASS TMDB rescues after a nonempty irrelevant primary response");
+
   let tmdbAttempt = 0;
   globalThis.fetch = (async () => {
     tmdbAttempt += 1;
@@ -378,6 +446,37 @@ async function providerTests() {
   assert.deepEqual(anilistRequested, ["moonknight", "moon"]);
   assert.equal(animeWorkFallback[0]?.metadata.title, "Moon Knight");
 
+  anilistRequested.length = 0;
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as {
+      variables: { search: string };
+    };
+    anilistRequested.push(body.variables.search);
+    const media = body.variables.search === "moon"
+      ? [{
+          id: 2,
+          title: { english: "Moon Knight" },
+          seasonYear: 2022,
+          format: "TV",
+        }]
+      : [{
+          id: 1,
+          title: { english: "Tsuki" },
+          seasonYear: 2020,
+          format: "TV",
+        }];
+    return new Response(JSON.stringify({
+      data: { Page: { media } },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  const animeRescuedAfterNoise = await searchAniListWorks("moonknigt", 4);
+  assert.deepEqual(anilistRequested, ["moonknigt", "moon"]);
+  assert.equal(animeRescuedAfterNoise[0]?.metadata.title, "Moon Knight");
+  console.log("PASS AniList rescues after a nonempty irrelevant primary response");
+
   let anilistAttempt = 0;
   globalThis.fetch = (async () => {
     anilistAttempt += 1;
@@ -427,6 +526,66 @@ async function providerTests() {
     ],
   );
   console.log("PASS AniList preserves MOVIE/TV/ONA/OVA and isSeries");
+
+  delete process.env.TMDB_API_KEY;
+  globalThis.fetch = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    const url = String(input);
+    if (url.includes("api.tvmaze.com")) {
+      const query = new URL(url).searchParams.get("q");
+      const rows = query === "moon"
+        ? [{
+            score: 1,
+            show: {
+              id: 41007,
+              name: "Moon Knight",
+              premiered: "2022-03-30",
+              image: { medium: "https://img.test/moon-knight.jpg" },
+            },
+          }]
+        : [];
+      return new Response(JSON.stringify(rows), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("itunes.apple.com")) {
+      return new Response(JSON.stringify({ results: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const body = JSON.parse(String(init?.body)) as {
+      variables: { search: string };
+    };
+    const media = [{
+      id: body.variables.search === "moon" ? 2 : 1,
+      title: {
+        english: body.variables.search === "moon" ? "Moon" : "Tsuki",
+      },
+      seasonYear: 2020,
+      format: "TV",
+    }];
+    return new Response(JSON.stringify({
+      data: { Page: { media } },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  const keyless = await searchWorksByScope("all", "moonknigt", 12);
+  assert.deepEqual(keyless.results.map((result) => result.title), [
+    "Moon Knight",
+  ]);
+  assert.equal(keyless.results[0]?.provider, "tvmaze");
+  assert.equal(
+    new URL(keyless.results[0]?.href ?? "", "https://torrentflow.test")
+      .searchParams.has("provider"),
+    false,
+  );
+  console.log("PASS keyless TV discovery survives missing TMDB without noise");
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.TMDB_API_KEY;

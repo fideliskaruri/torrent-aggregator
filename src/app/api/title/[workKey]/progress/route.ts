@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import type { TitleEpisodeTransfer } from "@/components/title/types";
+import type {
+  TitleEpisodeTransfer,
+  TitleProgressPayload,
+} from "@/components/title/types";
+import {
+  acquisitionTransferFromRow,
+  resolveAcquisitionTransfer,
+} from "../acquisition-target";
+import { localFilePresence } from "@/lib/library/local-file-presence";
+import { persistedTorrentHasInvalidMedia } from "@/lib/clients/builtin-engine-lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -18,26 +27,6 @@ type RouteContext = {
  * Returns only active transfers (queued/downloading) to avoid full re-renders.
  * Polled every 2.5s while a transfer is in flight; does not include metadata.
  */
-export interface TitleProgressPayload {
-  workKey: string;
-  /**
-   * Title-level transfer, or null.
-   * This is what a film-level grab produces.
-   */
-  transfer: TitleEpisodeTransfer | null;
-  /**
-   * Season-level transfers. Keyed by season number (as string).
-   * Example: { "1": { status: "downloading", progress: 0.45, ... } }
-   */
-  seasonTransfers: Record<string, TitleEpisodeTransfer | null>;
-  /**
-   * Episode-level transfers. Keyed by `S01E02` format.
-   * Example: { "S01E02": { status: "downloading", progress: 0.75, ... } }
-   */
-  episodeTransfers: Record<string, TitleEpisodeTransfer | null>;
-  generatedAt: string;
-}
-
 export async function GET(request: Request, context: RouteContext) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -53,7 +42,6 @@ export async function GET(request: Request, context: RouteContext) {
     const decoded = decodeURIComponent(workKey);
     const userId = session.user.id;
 
-    // Fetch all active acquisition targets (transfer states)
     const targets = await prisma.acquisitionTarget.findMany({
       where: {
         userId,
@@ -61,6 +49,7 @@ export async function GET(request: Request, context: RouteContext) {
         status: { in: ["queued", "downloading"] }, // Only active transfers
       },
       select: {
+        id: true,
         scope: true,
         season: true,
         episode: true,
@@ -71,20 +60,72 @@ export async function GET(request: Request, context: RouteContext) {
         error: true,
       },
     });
+    const hashes = targets
+      .map((target) => target.infoHash?.trim().toLowerCase() ?? "")
+      .filter(Boolean);
+    const engines = hashes.length > 0
+      ? await prisma.engineTorrent.findMany({
+          where: {
+            userId,
+            hash: { in: hashes },
+            status: { not: "removed" },
+          },
+        })
+      : [];
+    const engineByHash = new Map(
+      engines.map((engine) => [engine.hash.trim().toLowerCase(), engine]),
+    );
 
     const episodeTransfers: Record<string, TitleEpisodeTransfer | null> = {};
     const seasonTransfers: Record<string, TitleEpisodeTransfer | null> = {};
     let titleTransfer: TitleEpisodeTransfer | null = null;
+    const updates: Promise<unknown>[] = [];
 
-    // Organize by scope
     for (const target of targets) {
-      const transfer: TitleEpisodeTransfer = {
-        status: target.status === "downloading" ? "downloading" : "queued",
-        progress: target.progress ?? 0,
-        infoHash: target.infoHash,
-        filePath: target.filePath,
-        error: target.error,
-      };
+      const persisted = acquisitionTransferFromRow(target);
+      const engine = target.infoHash
+        ? engineByHash.get(target.infoHash.trim().toLowerCase()) ?? null
+        : null;
+      const invalidMedia = engine
+        ? persistedTorrentHasInvalidMedia(engine)
+        : false;
+      const transfer = resolveAcquisitionTransfer(
+        persisted,
+        engine
+          ? {
+              hash: engine.hash,
+              status: invalidMedia ? "error" : engine.status,
+              progress: engine.progress,
+            }
+          : null,
+        engine
+          ? invalidMedia
+            ? "absent"
+            : localFilePresence(engine)
+          : "unknown",
+      );
+
+      if (
+        transfer.status !== persisted.status
+        || transfer.progress !== persisted.progress
+        || transfer.infoHash !== persisted.infoHash
+        || transfer.filePath !== persisted.filePath
+        || transfer.error !== persisted.error
+      ) {
+        updates.push(
+          prisma.acquisitionTarget.update({
+            where: { id: target.id },
+            data: transfer,
+          }),
+        );
+      }
+
+      if (
+        transfer.status !== "queued"
+        && transfer.status !== "downloading"
+      ) {
+        continue;
+      }
 
       if (target.scope === "title") {
         titleTransfer = transfer;
@@ -94,6 +135,7 @@ export async function GET(request: Request, context: RouteContext) {
         episodeTransfers[`S${String(target.season).padStart(2, "0")}E${String(target.episode).padStart(2, "0")}`] = transfer;
       }
     }
+    if (updates.length > 0) await Promise.all(updates);
 
     const payload: TitleProgressPayload = {
       workKey: decoded,

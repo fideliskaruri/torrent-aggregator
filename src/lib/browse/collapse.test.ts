@@ -258,6 +258,39 @@ check("a preferred representative wins despite being older", () => {
   );
 });
 
+check("a bridge release preserves the best absorbed representative", () => {
+  const collapsed = collapseReleasesByWork([
+    {
+      name: "Bridge.Show.S01E01.1080p.WEB.h264-GROUP",
+      workKey: "legacy-bridge-show",
+      sortAt: at(9),
+      value: "plain",
+    },
+    {
+      name: "Canonical Bridge",
+      identityKey: "provider:bridge-show",
+      workKey: "canonical-bridge",
+      sortAt: at(1),
+      hasArtwork: true,
+      value: "artwork",
+    },
+    {
+      name: "Bridge.Show.S01.COMPLETE.1080p.WEB.h264-GROUP",
+      identityKey: "provider:bridge-show",
+      workKey: "legacy-bridge-show",
+      workTitle: "Canonical Bridge",
+      sortAt: at(5),
+      value: "bridge",
+    },
+  ]);
+  assert.equal(collapsed.length, 1);
+  assert.equal(
+    collapsed[0].value,
+    "artwork",
+    "merging two existing buckets must retain the only representative with artwork",
+  );
+});
+
 check("among members with artwork, the newest still wins", () => {
   const collapsed = collapseReleasesByWork([
     release("Heat.1995.1080p.BluRay.x264-GROUP", 2, true),

@@ -79,11 +79,11 @@ const CASES = [
     // error panel offering a switch-to-built-in action a generic one could
     // not. This case is a regression guard rather than a fix: it pins the
     // behaviour so a later refactor that flattens that ternary cannot
-    // reintroduce "No torrents yet" underneath a failure.
+    // reintroduce "No downloads yet" underneath a failure.
     name: "client",
     route: "/client",
     api: "**/api/client/torrents*",
-    emptyText: "No torrents yet",
+    emptyText: "No downloads yet",
     errorSelector: "[data-client-engine-error], [data-client-offline]",
     expectApiMessage: false,
     hasRetry: false,

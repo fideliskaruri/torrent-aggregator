@@ -21,6 +21,7 @@ export interface PlayOverlayProps {
   /** Legacy callers may provide an episode code here. */
   subtitle?: string | null;
   episodeTitle?: string | null;
+  episodeTitles?: Readonly<Record<string, string>>;
   season?: number | null;
   episode?: number | null;
   /**
@@ -55,6 +56,7 @@ export function PlayOverlay({
   title,
   subtitle,
   episodeTitle,
+  episodeTitles,
   season,
   episode,
   year,
@@ -237,6 +239,7 @@ export function PlayOverlay({
           infoHash={playerInfoHash}
           title={title}
           episodeTitle={episodeTitle}
+          episodeTitles={episodeTitles}
           year={year}
           season={resolvedSeason}
           episode={resolvedEpisode}

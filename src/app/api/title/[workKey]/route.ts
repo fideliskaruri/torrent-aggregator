@@ -23,6 +23,10 @@ import {
   type AcquisitionIdentityRequest,
 } from "./acquisition-identity";
 import { SERIES_TITLE_SCOPE_MESSAGE } from "./grab";
+import {
+  claimCatalogEntriesForWork,
+  ensureCanonicalWork,
+} from "@/lib/work/store";
 
 export const dynamic = "force-dynamic";
 
@@ -239,6 +243,28 @@ export async function postTitleMutation(
       // episode search needs (BUG-010).
       providerIdentity: verifiedIdentity,
     });
+    const work = await ensureCanonicalWork({
+      workKey: key,
+      title: detail.title,
+      year: detail.year,
+      mediaType: detail.mediaType,
+      aliases: detail.aliases,
+      provider: verifiedIdentity?.provider ?? null,
+      providerId: verifiedIdentity?.externalId ?? null,
+      posterUrl: detail.posterUrl,
+    });
+    await Promise.all([
+      claimCatalogEntriesForWork(work.workKey, work.id),
+      detail.library.watchListItemId
+        ? prisma.watchListItem.updateMany({
+            where: {
+              userId: session.user.id,
+              id: detail.library.watchListItemId,
+            },
+            data: { workId: work.id },
+          })
+        : Promise.resolve(),
+    ]);
 
     if (scope.scope === "title" && detail.isSeries) {
       return NextResponse.json(
@@ -250,6 +276,7 @@ export async function postTitleMutation(
     if (trackTransfer && scope.scope === "season") {
       await seedSeasonEpisodeTargets({
         userId: session.user.id,
+        workId: work.id,
         workKey: key,
         season: scope.season,
         episodes: requestedSeasonEpisodes,
@@ -267,6 +294,7 @@ export async function postTitleMutation(
           userId: session.user.id,
           targetKey,
           workKey: key,
+          workId: work.id,
           scope: scope.scope,
           season: scope.season,
           episode: scope.episode,
@@ -286,6 +314,7 @@ export async function postTitleMutation(
 
     const input = {
       userId: session.user.id,
+      workId: work.id,
       workKey: key,
       season: scope.season,
       episode: scope.episode,
@@ -315,6 +344,7 @@ export async function postTitleMutation(
       if (trackTransfer) {
         await settleSeasonEpisodeTargets({
           userId: session.user.id,
+          workId: work.id,
           workKey: key,
           season: scope.season,
           transfers: seasonResult.episodeTransfers ?? [],
@@ -339,12 +369,24 @@ export async function postTitleMutation(
           ? {
               status: "downloading",
               infoHash: "infoHash" in result ? result.infoHash ?? null : null,
+              workId: work.id,
               error: null,
             }
           : {
               status: "failed",
               error: result.message,
             },
+      });
+    }
+    if (result.ok && "infoHash" in result && result.infoHash) {
+      await prisma.engineTorrent.updateMany({
+        where: {
+          userId: session.user.id,
+          hash: {
+            in: [result.infoHash.toLowerCase(), result.infoHash.toUpperCase()],
+          },
+        },
+        data: { workId: work.id },
       });
     }
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
@@ -416,6 +458,7 @@ function uniquePositiveInts(values: readonly unknown[]): number[] {
 
 async function seedSeasonEpisodeTargets(input: {
   userId: string;
+  workId: string;
   workKey: string;
   season: number;
   episodes: readonly number[];
@@ -461,6 +504,7 @@ async function seedSeasonEpisodeTargets(input: {
         },
         create: {
           userId: input.userId,
+          workId: input.workId,
           targetKey,
           workKey: input.workKey,
           scope: "episode",
@@ -470,6 +514,7 @@ async function seedSeasonEpisodeTargets(input: {
           status: "queued",
         },
         update: {
+          workId: input.workId,
           preferredResolution: input.preferredResolution,
         },
       }),
@@ -479,6 +524,7 @@ async function seedSeasonEpisodeTargets(input: {
 
 async function settleSeasonEpisodeTargets(input: {
   userId: string;
+  workId: string;
   workKey: string;
   season: number;
   transfers: readonly TitleSeasonEpisodeTransfer[];
@@ -501,12 +547,29 @@ async function settleSeasonEpisodeTargets(input: {
               : "queued",
         },
         data: {
+          workId: input.workId,
           status: transfer.status,
           progress: 0,
           infoHash: transfer.infoHash,
           filePath: null,
           error: transfer.error,
         },
+      }).then(async (updated) => {
+        if (updated.count > 0 && transfer.infoHash) {
+          await prisma.engineTorrent.updateMany({
+            where: {
+              userId: input.userId,
+              hash: {
+                in: [
+                  transfer.infoHash.toLowerCase(),
+                  transfer.infoHash.toUpperCase(),
+                ],
+              },
+            },
+            data: { workId: input.workId },
+          });
+        }
+        return updated;
       });
     }),
   );

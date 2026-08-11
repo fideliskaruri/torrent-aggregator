@@ -619,6 +619,7 @@ async function main() {
     const { proxy, calls } = mockPrisma();
     await runGrabPipeline(
       baseOpts({
+        workId: "work-1",
         _prisma: proxy as unknown as GrabPipelineOptions["_prisma"],
       }),
     );
@@ -626,6 +627,7 @@ async function main() {
     const histories = calls.filter((c) => c.model === "downloadHistory" && c.op === "create");
     assert.ok(grabJobs.length >= 1, "must write at least one GrabJob");
     assert.ok(histories.length >= 1, "must write at least one DownloadHistory");
+    assert.equal(histories[0].data?.workId, "work-1");
     assert.ok(grabJobs[0].data?.createdAt instanceof Date);
     assert.equal(
       grabJobs[0].data?.createdAt,

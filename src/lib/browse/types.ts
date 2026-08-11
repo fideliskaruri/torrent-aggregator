@@ -58,6 +58,8 @@ export interface ProgressUpdateBody {
 /** A single row returned by `GET /api/progress`. */
 export interface ProgressEntry {
   id: string;
+  workId?: string | null;
+  workKey?: string | null;
   infoHash: string;
   filePath: string;
   positionSec: number;
@@ -81,6 +83,10 @@ export interface ProgressEntry {
 export interface RailItem {
   /** Stable identifier (PlaybackProgress id, EngineTorrent id, WatchListItem id, etc.). */
   id: string;
+  /** Canonical logical parent. Null only for legacy/unresolved rows. */
+  workId?: string | null;
+  /** Canonical title route key; never re-derived from a torrent when present. */
+  workKey?: string | null;
   title: string;
   /** E.g. "S02E07" or "Season 3 Pack". */
   subtitle: string | null;

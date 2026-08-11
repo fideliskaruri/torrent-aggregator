@@ -13,6 +13,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
     "db:push": "prisma db push",
+    "db:backfill-works": "tsx scripts/backfill-canonical-works.mts",
     "db:studio": "prisma studio",
     "setup": "prisma db push && prisma generate",
     "test:unit": "node scripts/run-unit-tests.mjs",
@@ -27,6 +28,7 @@
     "test:browse": "node scripts/shoot-browse.mjs",
     "test:watchlist": "node scripts/shoot-watchlist.mjs",
     "test:visual": "node scripts/visual-suite.mjs",
+    "test:visual:snapshots": "playwright test",
     "test": "node scripts/test-all.mjs",
     "postinstall": "prisma generate",
     "test:torrent": "tsx scripts/e2e-content-layout.mts",
@@ -74,6 +76,7 @@
     "webtorrent": "^3.0.16"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

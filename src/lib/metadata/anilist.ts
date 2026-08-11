@@ -3,6 +3,10 @@ import {
   canonicalizeSearchQuery,
   searchDiscoveryVariants,
 } from "@/lib/search/query-variants";
+import {
+  bestQueryRelevanceTier,
+  hasRelevantTitle,
+} from "@/lib/search/relevance";
 
 const ANILIST_URL = "https://graphql.anilist.co";
 
@@ -196,19 +200,50 @@ async function fetchAniListMedia(
   };
 
   const primary = await runQuery(term);
-  if (primary.length > 0) return primary;
+  if (hasRelevantAniListMedia(term, primary)) return primary;
+  const collected = [...primary];
   for (const variant of searchDiscoveryVariants(term)) {
     if (variant.toLowerCase() === term.toLowerCase()) continue;
     if (Date.now() >= deadline) break;
     try {
       const media = await runQuery(variant);
-      if (media.length > 0) return media;
+      collected.push(...media);
+      if (hasRelevantAniListMedia(term, media)) break;
     } catch (error) {
       if (isSearchDeadlineError(error)) break;
       throw error;
     }
   }
-  return primary;
+  return rankAniListMedia(term, collected).slice(0, perPage);
+}
+
+function aniListTitles(media: AniListMedia): string[] {
+  return [
+    media.title.english,
+    media.title.romaji,
+    media.title.native,
+  ].filter((title): title is string => Boolean(title?.trim()));
+}
+
+function hasRelevantAniListMedia(
+  query: string,
+  media: readonly AniListMedia[],
+): boolean {
+  return media.some((item) => hasRelevantTitle(query, aniListTitles(item)));
+}
+
+function rankAniListMedia(
+  query: string,
+  media: readonly AniListMedia[],
+): AniListMedia[] {
+  return media
+    .map((item, index) => ({
+      item,
+      index,
+      tier: bestQueryRelevanceTier(query, aniListTitles(item)),
+    }))
+    .sort((left, right) => left.tier - right.tier || left.index - right.index)
+    .map(({ item }) => item);
 }
 
 export async function getAniListWorkById(id: string): Promise<AniListWork | null> {

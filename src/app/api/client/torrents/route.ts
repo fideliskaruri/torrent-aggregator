@@ -29,6 +29,9 @@ import {
   jsonResponse,
   observeRequest,
 } from "@/lib/observability/logging";
+import { displayTitleFromWorkKey } from "@/components/title/work-key";
+import { acquisitionWorksForUser } from "@/lib/work/store";
+import { acquisitionIntentByHash } from "./acquisition-intent";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -74,25 +77,82 @@ export async function GET(request: Request) {
       const hashes = [
         ...new Set(
           torrents
-            .filter((t) => t.ownerClientType === "builtin")
             .map((t) => t.hash?.toLowerCase())
             .filter((h): h is string => Boolean(h)),
         ),
       ];
-      const origins = hashes.length
-        ? new Map(
-            (
-              await prisma.engineTorrent.findMany({
-                where: { userId: session.user.id, hash: { in: hashes } },
-                select: { hash: true, origin: true },
-              })
-            ).map((row) => [row.hash.toLowerCase(), row.origin] as const),
-          )
-        : new Map<string, string>();
+      const hashVariants = [
+        ...new Set(hashes.flatMap((hash) => [hash, hash.toUpperCase()])),
+      ];
+      const [engineRows, allTargetRows] = hashes.length
+        ? await Promise.all([
+            prisma.engineTorrent.findMany({
+              where: { userId: session.user.id, hash: { in: hashVariants } },
+              select: { hash: true, origin: true },
+            }),
+            acquisitionWorksForUser(session.user.id, hashes),
+          ])
+        : [[], []];
+      const targetRows = allTargetRows;
+      const origins = new Map(
+        engineRows.map((row) => [row.hash.toLowerCase(), row.origin] as const),
+      );
+      const targetByHash = acquisitionIntentByHash(targetRows);
+      const workKeys = [
+        ...new Set(targetRows.map((target) => target.workKey).filter(Boolean)),
+      ];
+      const catalogRows = workKeys.length > 0
+        ? await prisma.catalogEntry.findMany({
+            where: { workKey: { in: workKeys } },
+            orderBy: { refreshedAt: "desc" },
+            select: {
+              workKey: true,
+              title: true,
+              year: true,
+              mediaType: true,
+            },
+          })
+        : [];
+      const catalogByWorkKey = new Map<
+        string,
+        (typeof catalogRows)[number]
+      >();
+      for (const row of catalogRows) {
+        if (!catalogByWorkKey.has(row.workKey)) {
+          catalogByWorkKey.set(row.workKey, row);
+        }
+      }
       const annotated = torrents.map((torrent) => {
-        if (torrent.ownerClientType !== "builtin") return torrent;
+        const hash = torrent.hash?.trim().toLowerCase() ?? "";
+        const target = hash ? targetByHash.get(hash) ?? null : null;
+        const catalog = target
+          ? catalogByWorkKey.get(target.workKey) ?? null
+          : null;
+        const intent = target
+          ? {
+              workId: target.workId,
+              workKey: target.workKey,
+              workTitle:
+                target.canonicalTitle
+                ?? catalog?.title
+                ?? displayTitleFromWorkKey(target.workKey),
+              workYear: target.year ?? catalog?.year ?? null,
+              workMediaType:
+                (target.mediaType !== "unknown" ? target.mediaType : null)
+                ?? catalog?.mediaType
+                ?? torrent.category
+                ?? null,
+              targetScope: target.scope,
+              season: target.season,
+              episode: target.episode,
+            }
+          : {};
+
+        if (torrent.ownerClientType !== "builtin") {
+          return { ...torrent, ...intent };
+        }
         const retentionState = retentionStateForOrigin(
-          torrent.hash ? origins.get(torrent.hash.toLowerCase()) : null,
+          hash ? origins.get(hash) : null,
         );
         // Fix once at the shared source: a stream/prewarm torrent is not a
         // download, so it must expose no download progress or transfer rate to
@@ -109,9 +169,10 @@ export async function GET(request: Request) {
             eta: 0,
             peers: 0,
             retentionState,
+            ...intent,
           };
         }
-        return { ...torrent, retentionState };
+        return { ...torrent, retentionState, ...intent };
       });
       const clientIssues = snapshot.issues.map((issue) => {
         const formatted = formatClientError(issue.error, issue.clientType);

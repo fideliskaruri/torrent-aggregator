@@ -28,6 +28,7 @@ import {
   localFilePresenceLookup,
   type LocalFilePresence,
 } from "@/lib/library/local-file-presence";
+import { acquisitionWorksForUser } from "@/lib/work/store";
 
 // ---------------------------------------------------------------------------
 // Continue Watching
@@ -35,6 +36,14 @@ import {
 
 interface ContinueWatchingProgressRow {
   id: string;
+  workId?: string | null;
+  work?: {
+    id: string;
+    workKey: string;
+    canonicalTitle: string;
+    mediaType: string;
+    posterUrl: string | null;
+  } | null;
   infoHash: string;
   filePath: string;
   positionSec: number;
@@ -64,6 +73,7 @@ interface ContinueWatchingWatchItemRow {
 }
 
 interface ContinueWatchingWork {
+  workId: string | null;
   workKey: string;
   title: string;
   releaseName: string;
@@ -79,14 +89,53 @@ interface ContinueWatchingWork {
  * most recent first. Each item carries percent-complete and resume position.
  */
 async function buildContinueWatching(userId: string): Promise<Rail | null> {
-  const rows = await prisma.playbackProgress.findMany({
-    where: { userId, completedAt: null },
-    orderBy: { updatedAt: "desc" },
-    // Read wider than the rendered rail: multiple files from one work collapse
-    // to one card, and a rail should not become sparse just because the viewer
-    // sampled several episodes from the same show.
-    take: 60,
-  });
+  const rawRows = await prisma.$queryRawUnsafe<
+    Array<Omit<ContinueWatchingProgressRow, "work" | "updatedAt"> & {
+      updatedAt: Date | string;
+      workKey: string | null;
+      canonicalTitle: string | null;
+      workMediaType: string | null;
+      workPosterUrl: string | null;
+    }>
+  >(
+    `SELECT p."id", p."workId", p."infoHash", p."filePath",
+            p."positionSec", p."durationSec", p."title", p."season",
+            p."episode", p."posterUrl", p."watchListItemId", p."updatedAt",
+            w."workKey", w."canonicalTitle",
+            w."mediaType" AS "workMediaType",
+            w."posterUrl" AS "workPosterUrl"
+     FROM "PlaybackProgress" p
+     LEFT JOIN "Work" w ON w."id" = p."workId"
+     WHERE p."userId" = ? AND p."completedAt" IS NULL
+     ORDER BY p."updatedAt" DESC
+     LIMIT 60`,
+    userId,
+  );
+  const rows: ContinueWatchingProgressRow[] = rawRows.map((row) => ({
+    id: row.id,
+    workId: row.workId,
+    work:
+      row.workId && row.workKey && row.canonicalTitle && row.workMediaType
+        ? {
+            id: row.workId,
+            workKey: row.workKey,
+            canonicalTitle: row.canonicalTitle,
+            mediaType: row.workMediaType,
+            posterUrl: row.workPosterUrl,
+          }
+        : null,
+    infoHash: row.infoHash,
+    filePath: row.filePath,
+    positionSec: row.positionSec,
+    durationSec: row.durationSec,
+    title: row.title,
+    season: row.season,
+    episode: row.episode,
+    posterUrl: row.posterUrl,
+    watchListItemId: row.watchListItemId,
+    updatedAt:
+      row.updatedAt instanceof Date ? row.updatedAt : new Date(row.updatedAt),
+  }));
 
   if (rows.length === 0) return null;
 
@@ -164,12 +213,18 @@ function continueWatchingWorksFromRows(
         ? byWatchItem.get(r.watchListItemId)
         : undefined;
       const releaseName = torrent?.name ?? progressIdentityName(r, watchItem);
-      const workTitle = watchItem?.title?.trim() || undefined;
+      const workTitle =
+        r.work?.canonicalTitle.trim() || watchItem?.title?.trim() || undefined;
       return {
         name: releaseName,
         workTitle,
+        workKey: r.work?.workKey,
+        identityKey: r.workId?.trim() ? `work:${r.workId.trim()}` : undefined,
         sortAt: r.updatedAt,
-        hasArtwork: r.posterUrl != null || watchItem?.posterUrl != null,
+        hasArtwork:
+          r.posterUrl != null
+          || r.work?.posterUrl != null
+          || watchItem?.posterUrl != null,
         prefer: workTitle != null,
         value: { progress: r, torrent, watchItem, releaseName },
       };
@@ -179,6 +234,7 @@ function continueWatchingWorksFromRows(
   return collapsed
     .filter((work) => work.title !== UNKNOWN_WORK_TITLE)
     .map((work) => ({
+      workId: work.value.progress.workId ?? null,
       workKey: work.workKey,
       title: work.title,
       releaseName: work.name,
@@ -203,10 +259,16 @@ function continueWatchingRailFromWorks(
     const art = artwork[i];
     return {
       id: r.id,
+      workId: work.workId,
+      workKey: work.workKey,
       title: work.title,
       subtitle: formatEpisodeSubtitle(r.season, r.episode),
       posterUrl:
-        r.posterUrl ?? work.watchItem?.posterUrl ?? art?.posterUrl ?? null,
+        r.posterUrl
+        ?? r.work?.posterUrl
+        ?? work.watchItem?.posterUrl
+        ?? art?.posterUrl
+        ?? null,
       backdropUrl: art?.backdropUrl ?? null,
       availability: engineAvailability(work.torrent, presence, filePresence),
       progressFraction:
@@ -217,7 +279,7 @@ function continueWatchingRailFromWorks(
       infoHash: r.infoHash,
       filePath: r.filePath,
       watchListItemId: r.watchListItemId,
-      mediaType: work.watchItem?.mediaType ?? null,
+      mediaType: r.work?.mediaType ?? work.watchItem?.mediaType ?? null,
       season: r.season,
       episode: r.episode,
     };
@@ -312,6 +374,24 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
   const filePresence = localFilePresenceLookup(rows);
 
   if (torrents.length === 0) return null;
+  const acquisitionWorks = await acquisitionWorksForUser(
+    userId,
+    torrents.map((torrent) => torrent.hash),
+  );
+  const workByHash = new Map<string, (typeof acquisitionWorks)[number]>();
+  const canonicalByWorkKey = new Map<
+    string,
+    (typeof acquisitionWorks)[number]
+  >();
+  for (const work of acquisitionWorks) {
+    if (work.infoHash) {
+      const hash = work.infoHash.toLowerCase();
+      if (!workByHash.has(hash)) workByHash.set(hash, work);
+    }
+    if (work.workId && !canonicalByWorkKey.has(work.workKey)) {
+      canonicalByWorkKey.set(work.workKey, work);
+    }
+  }
 
   // Collapse through the shared work rule, not a local "coarse" key. The local
   // key kept dots, tracker prefixes and release suffixes in the bucket, so the
@@ -323,6 +403,10 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       name: t.name,
       sortAt: t.updatedAt,
       prefer: readyRepresentativePreference(t.name),
+      identityKey: workByHash.get(t.hash.toLowerCase())?.workId ?? undefined,
+      workKey: workByHash.get(t.hash.toLowerCase())?.workKey,
+      workTitle:
+        workByHash.get(t.hash.toLowerCase())?.canonicalTitle ?? undefined,
       value: t,
     })),
   ).slice(0, 20);
@@ -333,9 +417,14 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
   const items: RailItem[] = [];
   for (const [i, work] of cards.entries()) {
     const torrent = work.value;
+    const canonical =
+      canonicalByWorkKey.get(work.workKey) ??
+      workByHash.get(torrent.hash.toLowerCase());
     const art = artwork[i];
     items.push({
       id: torrent.id,
+      workId: canonical?.workId ?? null,
+      workKey: canonical?.workKey ?? null,
       // Show the *work*, not the release. A card reading
       // "Children.of.Dune.S01.COMPLETE.720p.BluRay.x264-GalaxyTV" is a filename;
       // "Children of Dune" is a thing you can decide to watch. The scene name is
@@ -355,7 +444,11 @@ async function buildReadyToPlay(userId: string): Promise<Rail | null> {
       infoHash: torrent.hash,
       filePath: null,
       watchListItemId: null,
-      mediaType: mediaTypeFromReleaseName(torrent.name),
+      mediaType:
+        canonical?.mediaType &&
+        canonical.mediaType.toLowerCase() !== "unknown"
+          ? canonical.mediaType
+          : mediaTypeFromReleaseName(torrent.name),
       season: null,
       episode: null,
     });

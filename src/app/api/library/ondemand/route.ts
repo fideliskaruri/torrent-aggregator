@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
     let mediaType = body.mediaType?.trim() || "tv";
     const watchListItemId = body.watchListItemId?.trim() || null;
     let preferredResolution: number | null = null;
+    let workId: string | null = null;
 
     if (watchListItemId) {
       const item = await prisma.watchListItem.findFirst({
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
       title = item.title;
       mediaType = item.mediaType;
       preferredResolution = item.preferredResolution;
+      workId = item.workId;
     }
 
     if (body.retention !== "stream" && preferredResolution == null) {
@@ -99,6 +101,7 @@ export async function POST(request: NextRequest) {
 
     const result = await grabSingleEpisode({
       userId: session.user.id,
+      workId,
       showTitle: title,
       mediaType,
       season,

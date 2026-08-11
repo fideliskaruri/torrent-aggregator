@@ -3,6 +3,10 @@ import {
   canonicalizeSearchQuery,
   searchDiscoveryVariants,
 } from "@/lib/search/query-variants";
+import {
+  bestQueryRelevanceTier,
+  hasRelevantTitle,
+} from "@/lib/search/relevance";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p";
@@ -133,19 +137,21 @@ export async function searchTmdb(
   };
 
   const primary = await runQuery(term);
-  if (primary.length > 0) return primary;
+  if (hasRelevantMetadata(term, primary)) return primary;
+  const collected = [...primary];
   for (const variant of searchDiscoveryVariants(term)) {
     if (variant.toLowerCase() === term.toLowerCase()) continue;
     if (Date.now() >= deadline) break;
     try {
       const hits = await runQuery(variant);
-      if (hits.length > 0) return hits;
+      collected.push(...hits);
+      if (hasRelevantMetadata(term, hits)) break;
     } catch (error) {
       if (isSearchDeadlineError(error)) break;
       throw error;
     }
   }
-  return primary;
+  return rankMetadata(term, collected).slice(0, limit);
 }
 
 /** Search one canonical TMDB work type for title-first discovery. */
@@ -180,25 +186,53 @@ export async function searchTmdbByType(
   };
 
   // The raw term first — it is what the owner typed and TMDB is genuinely good
-  // at popular exact titles. Only when it comes back empty do we spend extra
-  // calls on the normalized short forms (`Re:ZERO -Starting…` → `Re Zero`),
+  // at popular exact titles. Only when it has no relevant hit do we spend extra
+  // calls on normalized short forms (`Re:ZERO -Starting…` → `Re Zero`),
   // the exact rescue the grab ladder already relies on. The first variant that
   // finds anything wins; we never merge weaker forms into a good exact match.
   const primary = await runQuery(term);
-  if (primary.length > 0) return primary;
+  if (hasRelevantMetadata(term, primary)) return primary;
+  const collected = [...primary];
 
   for (const variant of searchDiscoveryVariants(term)) {
     if (variant.toLowerCase() === term.toLowerCase()) continue;
     if (Date.now() >= deadline) break;
     try {
       const hits = await runQuery(variant);
-      if (hits.length > 0) return hits;
+      collected.push(...hits);
+      if (hasRelevantMetadata(term, hits)) break;
     } catch (error) {
       if (isSearchDeadlineError(error)) break;
       throw error;
     }
   }
-  return primary;
+  return rankMetadata(term, collected).slice(0, limit);
+}
+
+function hasRelevantMetadata(
+  query: string,
+  items: readonly MediaMetadata[],
+): boolean {
+  return items.some((item) =>
+    hasRelevantTitle(query, [item.title, ...(item.aliases ?? [])])
+  );
+}
+
+function rankMetadata(
+  query: string,
+  items: readonly MediaMetadata[],
+): MediaMetadata[] {
+  return items
+    .map((item, index) => ({
+      item,
+      index,
+      tier: bestQueryRelevanceTier(query, [
+        item.title,
+        ...(item.aliases ?? []),
+      ]),
+    }))
+    .sort((left, right) => left.tier - right.tier || left.index - right.index)
+    .map(({ item }) => item);
 }
 
 export async function getTmdbById(

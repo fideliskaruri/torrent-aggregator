@@ -168,9 +168,16 @@ export function displayTitleFromWorkKey(key: string): string {
   }
   const words = raw.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
   if (!words) return "";
+  const minorWords = new Set(["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to"]);
   return words
     .split(" ")
-    .map((w) => (/^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w))
+    .map((w, index) =>
+      index > 0 && minorWords.has(w.toLowerCase())
+        ? w.toLowerCase()
+        : /^[a-z]/.test(w)
+          ? w[0].toUpperCase() + w.slice(1)
+          : w,
+    )
     .join(" ");
 }
 
@@ -269,6 +276,13 @@ export function titleHrefForName(
  * page that would render a heading of nothing.
  */
 export function titleHrefForItem(item: RailItem): string | null {
+  if (item.workKey?.trim()) {
+    return titlePath(item.workKey, {
+      title: item.title,
+      mediaType: item.mediaType,
+      season: item.season,
+    });
+  }
   return titleHrefForName(item.title, {
     mediaType: item.mediaType,
     season: item.season,

@@ -58,6 +58,15 @@ export interface TitleEpisodeTransfer {
   error: string | null;
 }
 
+/** Lightweight transfer state used while the title page polls active grabs. */
+export interface TitleProgressPayload {
+  workKey: string;
+  transfer: TitleEpisodeTransfer | null;
+  seasonTransfers: Record<string, TitleEpisodeTransfer | null>;
+  episodeTransfers: Record<string, TitleEpisodeTransfer | null>;
+  generatedAt: string;
+}
+
 /** A season, and the whole-season pack we hold for it if there is one. */
 export interface TitleSeason {
   season: number;
@@ -208,6 +217,19 @@ export interface TitleEpisodeMeta {
   airDate: string | null;
   runtimeMin: number | null;
   stillUrl: string | null;
+}
+
+export function episodeTitleMap(
+  season: number,
+  episodes: readonly TitleEpisodeMeta[],
+): Readonly<Record<string, string>> {
+  const titles: Record<string, string> = {};
+  for (const episode of episodes) {
+    if (!episode.name) continue;
+    const key = `S${String(season).padStart(2, "0")}E${String(episode.episode).padStart(2, "0")}`;
+    titles[key] = episode.name;
+  }
+  return titles;
 }
 
 /** One neighbour of this work, for the rail under the hero. */

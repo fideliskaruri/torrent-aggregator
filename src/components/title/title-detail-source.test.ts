@@ -76,6 +76,20 @@ assert.match(source, /previousWorkKey: previousWorkKey\.current/);
 // The hidden title page must not keep polling and re-rendering beneath theatre
 // playback. The overlay close handler performs one explicit refetch instead.
 assert.match(source, /refreshMs: transferPoll && !playing \? 2_500 : 0/);
+assert.match(
+  source,
+  /progress\?session=\$\{transferPollSession\}/,
+  "each transfer poll session must have a fresh query identity",
+);
+assert.match(
+  source,
+  /if \(!progressSettled \|\| progressError \|\| !progress\) return;/,
+  "failed progress requests must not publish retained data",
+);
+assert.match(source, /setCurrentProgress\(null\);/);
+assert.match(source, /const titleTransfer = progress\?\.transfer \?\? payload\.transfer;/);
+assert.match(source, /offersDownload\(titleTransfer\)/);
+assert.match(source, /if \(!streaming\) startTransferPoll\(\);/);
 assert.match(source, /setPlaying\(null\);\s*refetch\(\);/);
 
 console.log("PASS title detail treats stale season extras as loading and persists season in cookies");

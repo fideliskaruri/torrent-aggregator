@@ -21,6 +21,14 @@ export interface ClientTorrent {
   category?: string;
   savePath?: string | null;
   retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+  workId?: string | null;
+  workKey?: string | null;
+  workTitle?: string | null;
+  workYear?: number | null;
+  workMediaType?: string | null;
+  targetScope?: string | null;
+  season?: number | null;
+  episode?: number | null;
   ownerClientType: "qbittorrent" | "transmission" | "builtin";
   ownerClientLabel: string;
   transferId: string;
@@ -41,6 +49,8 @@ export function isDownloadRow(t: ClientTorrent): boolean {
 export interface NowPlaying {
   infoHash: string;
   title: string;
+  episodeTitle?: string | null;
+  episodeTitles?: Readonly<Record<string, string>>;
   season?: number | null;
   episode?: number | null;
 }

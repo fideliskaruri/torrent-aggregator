@@ -7,6 +7,10 @@ import { normalizeInfoHash } from "@/lib/torrents/infohash";
 import { workIdentity } from "@/lib/torrents/work-identity";
 import type { ProgressEntry } from "@/lib/browse/types";
 import {
+  canonicalProgressTitle,
+  canonicalWorkForHash,
+} from "@/lib/work/store";
+import {
   numberField,
   queryString,
   readMutationObject,
@@ -121,11 +125,15 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = session.user.id;
+  const work = await canonicalWorkForHash(userId, infoHashKey);
   const fraction = body.durationSec > 0 ? body.positionSec / body.durationSec : 0;
   const isComplete = fraction >= COMPLETION_THRESHOLD;
   // Player often posts the episode label ("S01E08") as title. Prefer a real
   // work name from the file path so rails never say "watching S01E08".
-  const title = resolveProgressTitle(body.title, body.filePath);
+  const resolvedTitle = resolveProgressTitle(body.title, body.filePath);
+  const title = work
+    ? canonicalProgressTitle(work, resolvedTitle)
+    : resolvedTitle;
 
   // Check if there's an existing record that is already completed — don't
   // un-complete it if the player scrubs backwards.
@@ -177,6 +185,14 @@ export async function POST(request: NextRequest) {
       watchListItemId: body.watchListItemId ?? null,
     },
   });
+  if (work) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE "PlaybackProgress" SET "workId" = ?
+       WHERE "id" = ?`,
+      work.id,
+      row.id,
+    );
+  }
 
   // ── Pre-warm trigger ────────────────────────────────────────────────
   // Fire-and-forget, deliberately *after* the row is written and deliberately
@@ -245,10 +261,9 @@ export async function GET(request: NextRequest) {
   const activeOnly = active.value === "1";
   const infoHash = infoHashParam.value;
 
-  const where: Record<string, unknown> = { userId: session.user.id };
-  if (activeOnly) where.completedAt = null;
   // Normalise so a caller filtering with the hash the UI shows still matches
   // the lowercase form POST stores.
+  let normalizedInfoHash: string | null = null;
   if (infoHash) {
     const normalized = normalizeInfoHash(infoHash);
     if (!normalized) {
@@ -257,14 +272,44 @@ export async function GET(request: NextRequest) {
         { status: 400 },
       );
     }
-    where.infoHash = normalized;
+    normalizedInfoHash = normalized;
   }
 
-  const rows = await prisma.playbackProgress.findMany({
-    where,
-    orderBy: { updatedAt: "desc" },
-    take: 50,
-  });
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{
+      id: string;
+      workId: string | null;
+      workKey: string | null;
+      canonicalTitle: string | null;
+      infoHash: string;
+      filePath: string;
+      positionSec: number;
+      durationSec: number | null;
+      completedAt: Date | string | null;
+      title: string;
+      season: number | null;
+      episode: number | null;
+      posterUrl: string | null;
+      watchListItemId: string | null;
+      updatedAt: Date | string;
+    }>
+  >(
+    `SELECT p."id", p."workId", p."infoHash", p."filePath",
+            p."positionSec", p."durationSec", p."completedAt", p."title",
+            p."season", p."episode", p."posterUrl", p."watchListItemId",
+            p."updatedAt", w."workKey", w."canonicalTitle"
+     FROM "PlaybackProgress" p
+     LEFT JOIN "Work" w ON w."id" = p."workId"
+     WHERE p."userId" = ?
+       AND (? = 0 OR p."completedAt" IS NULL)
+       AND (? IS NULL OR p."infoHash" = ?)
+     ORDER BY p."updatedAt" DESC
+     LIMIT 50`,
+    session.user.id,
+    activeOnly ? 1 : 0,
+    normalizedInfoHash,
+    normalizedInfoHash,
+  );
 
   const entries: ProgressEntry[] = rows.map((r) => ({
     id: r.id,
@@ -276,13 +321,22 @@ export async function GET(request: NextRequest) {
       r.durationSec && r.durationSec > 0
         ? Math.min(r.positionSec / r.durationSec, 1)
         : 0,
-    completedAt: r.completedAt?.toISOString() ?? null,
-    title: r.title,
+    completedAt:
+      r.completedAt == null
+        ? null
+        : (r.completedAt instanceof Date
+          ? r.completedAt
+          : new Date(r.completedAt)).toISOString(),
+    workId: r.workId,
+    workKey: r.workKey,
+    title: r.canonicalTitle ?? r.title,
     season: r.season,
     episode: r.episode,
     posterUrl: r.posterUrl,
     watchListItemId: r.watchListItemId,
-    updatedAt: r.updatedAt.toISOString(),
+    updatedAt: (r.updatedAt instanceof Date
+      ? r.updatedAt
+      : new Date(r.updatedAt)).toISOString(),
   }));
 
   return NextResponse.json({ entries });

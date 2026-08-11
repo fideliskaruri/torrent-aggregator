@@ -5,7 +5,7 @@
  * `/api/search/titles` payload onto the shared `TitleResult` card shape.
  */
 import type { TitleResult } from "./group-titles";
-import { queryRelevanceTier } from "./group-titles";
+import { bestQueryRelevanceTier } from "@/lib/search/relevance";
 import { releaseStatus } from "@/lib/browse/release-status";
 import { titlePath, workKeyFor } from "@/components/title/work-key";
 import type { WorkSearchHit } from "@/lib/search/work-search";
@@ -22,13 +22,19 @@ import type { WorkSearchHit } from "@/lib/search/work-search";
  * The tier function is shared with the release-grouping path so both surfaces
  * agree on what "relevant" means. Pure — safe for tests.
  */
-export function rankTitleHitsByRelevance<T extends { title: string }>(
+export function rankTitleHitsByRelevance<
+  T extends { title: string; aliases?: readonly string[] },
+>(
   hits: readonly T[],
   query: string,
 ): T[] {
   if (!query.trim()) return [...hits];
   return hits
-    .map((hit, index) => ({ hit, index, tier: queryRelevanceTier(query, hit.title) }))
+    .map((hit, index) => ({
+      hit,
+      index,
+      tier: bestQueryRelevanceTier(query, [hit.title, ...(hit.aliases ?? [])]),
+    }))
     .sort((a, b) => a.tier - b.tier || a.index - b.index)
     .map((x) => x.hit);
 }

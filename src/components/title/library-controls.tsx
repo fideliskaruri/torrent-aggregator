@@ -108,7 +108,7 @@ export function LibraryControls({
   return (
     <div
       data-title-library
-      className="flex flex-wrap items-center gap-2"
+      className="flex w-full flex-wrap items-center gap-2 sm:w-auto"
     >
       {library.inLibrary ? (
         <span
@@ -129,7 +129,7 @@ export function LibraryControls({
           data-add-to-library
           disabled={busy}
           onClick={onAddPressed}
-          className="min-h-[44px] text-[var(--text-secondary)] lg:min-h-0"
+          className="min-h-[44px] w-full justify-center text-[var(--text-secondary)] sm:w-auto lg:min-h-0"
         >
           {busy ? (
             <Loader2 className="animate-spin" aria-hidden />

@@ -57,6 +57,14 @@ check("given an already-known separate torrent, an exact file is returned when i
   assert.match(nextAction, /filePath: matchedPath/);
 });
 
+check("given an explicit next-episode acquisition, it wins over a speculative pre-rank", () => {
+  const acquisitionLookup = nextAction.indexOf("prisma.acquisitionTarget.findFirst");
+  const preRankLookup = nextAction.indexOf("getPreRanked(next)");
+  assert.ok(acquisitionLookup >= 0, "the current acquisition identifies the canonical work");
+  assert.ok(preRankLookup > acquisitionLookup, "user intent is resolved before pre-rank fallback");
+  assert.match(nextAction, /const byEpisode =\s*acquired \?\?\s*exact \?\?/);
+});
+
 check("episode parsing is reused, never duplicated in the route", () => {
   assert.ok(
     !/S\(\\d/.test(source) && !/\[Ee\]\(\\d/.test(source),

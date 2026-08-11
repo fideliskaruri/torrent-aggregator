@@ -6,11 +6,13 @@ import {
   displaySearchQuery,
 } from "@/lib/search/query-variants";
 import { AllProvidersFailedError } from "@/lib/search/work-search-fanout";
+import { bestQueryRelevanceTier } from "@/lib/search/relevance";
 
 export type SuggestProviderName = "anilist" | "tmdb";
 
 export interface Suggestion {
   title: string;
+  aliases?: string[];
   mediaType: string;
   posterUrl?: string | null;
   year?: number | null;
@@ -37,9 +39,11 @@ function toSuggestion(m: {
   year?: number | null;
   source: string;
   externalId: string;
+  aliases?: string[];
 }): Suggestion {
   return {
     title: m.title,
+    aliases: m.aliases,
     mediaType: m.mediaType,
     posterUrl: m.posterUrl,
     year: m.year,
@@ -130,7 +134,15 @@ export async function collectSuggestions(
   });
 
   return {
-    suggestions: rankTitleHitsByRelevance(unique, query).slice(0, total),
+    suggestions: rankTitleHitsByRelevance(unique, query)
+      .filter(
+        (suggestion) =>
+          bestQueryRelevanceTier(query, [
+            suggestion.title,
+            ...(suggestion.aliases ?? []),
+          ]) < 6,
+      )
+      .slice(0, total),
     query,
     displayQuery,
     failed,

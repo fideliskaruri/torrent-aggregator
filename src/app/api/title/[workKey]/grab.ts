@@ -60,6 +60,7 @@ export const SERIES_TITLE_SCOPE_MESSAGE =
 
 export interface TitleGrabInput extends TitleGrabRequest {
   userId: string;
+  workId: string;
   workKey: string;
   /** Resolved server-side; the client is never trusted for identity. */
   resolvedTitle: string;
@@ -100,6 +101,7 @@ export async function grabForTitle(
     const searchIdentity = await resolveEpisodeSearchIdentity(input);
     const request: Parameters<typeof grabSingleEpisode>[0] = {
       userId: input.userId,
+      workId: input.workId,
       showTitle: input.resolvedTitle,
       // A row we are hunting episode-by-episode is a series by construction;
       // this states that default in the open rather than hiding it in the
@@ -264,6 +266,7 @@ export async function grabSeasonForTitle(
   try {
     const target: Parameters<typeof acquireSeason>[0] = {
       userId: input.userId,
+      workId: input.workId,
       title: input.resolvedTitle,
       aliases: input.resolvedAliases,
       mediaType: input.resolvedMediaType ?? "tv",
@@ -470,6 +473,7 @@ async function grabWholeWork(
 
   const result = await runGrabPipeline({
     userId: input.userId,
+    workId: input.workId,
     search: {
       query: title,
       category: searchCategory,

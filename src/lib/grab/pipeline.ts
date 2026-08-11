@@ -106,6 +106,7 @@ export async function runGrabPipeline(
 ): Promise<GrabPipelineResult> {
   const {
     userId,
+    workId,
     search,
     config,
     selectCandidate,
@@ -437,6 +438,7 @@ export async function runGrabPipeline(
       await tx.downloadHistory.create({
         data: {
           userId,
+          workId: workId ?? null,
           title: candidate.title,
           magnet: candidate.magnet,
           torrentUrl: candidate.torrentUrl,

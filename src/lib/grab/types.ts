@@ -195,6 +195,8 @@ export type OnNoCandidate = (
 
 export type GrabPipelineOptions = {
   userId: string;
+  /** Canonical parent for durable history written by this acquisition. */
+  workId?: string | null;
   search: PipelineSearchOptions;
   config: ClientConnectionConfig;
   selectCandidate: SelectCandidate;

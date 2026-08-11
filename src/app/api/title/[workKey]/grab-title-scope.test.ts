@@ -7,6 +7,7 @@ async function main() {
   const filmResult = await grabForTitle(
     {
       userId: "user-1",
+      workId: "work-dune",
       workKey: "dune-2021",
       resolvedTitle: "Dune",
       resolvedYear: 2021,
@@ -51,6 +52,7 @@ async function main() {
   const seriesResult = await grabForTitle(
     {
       userId: "user-1",
+      workId: "work-bear",
       workKey: "bear-2022",
       resolvedTitle: "The Bear",
       resolvedYear: 2022,

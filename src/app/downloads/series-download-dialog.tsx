@@ -86,6 +86,9 @@ export interface SeriesDownloadDialogProps {
   onPlay: (payload: {
     hash: string;
     title: string;
+    workKey: string | null;
+    mediaType: string | null;
+    year: number | null;
     season: number | null;
     episode: number | null;
   }) => void;
@@ -417,8 +420,11 @@ function EpisodeCard({
             onClick={() =>
               onPlay({
                 hash: t.hash,
-                title: display.title,
-                season: season.season,
+                title: t.workTitle?.trim() || display.title,
+                workKey: t.workKey ?? null,
+                mediaType: t.workMediaType ?? t.category ?? null,
+                year: t.workYear ?? null,
+                season: entry.season ?? season.season,
                 episode: entry.episode,
               })
             }

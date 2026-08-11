@@ -39,6 +39,7 @@ import {
   subtitleListUrl,
   subtitleTrackSrc,
   subtitleWindowStart,
+  languageLabel,
   SUBTITLE_WINDOW_STRIDE_SECONDS,
   type SubtitleTrack,
 } from "@/lib/media/subtitles";
@@ -91,6 +92,8 @@ type InlinePlayerProps = {
   title: string;
   /** Provider episode title, never a release or file name. */
   episodeTitle?: string | null;
+  /** Provider episode names keyed by canonical SxxExx codes for transitions. */
+  episodeTitles?: Readonly<Record<string, string>>;
   progress?: StreamProgress;
   /**
    * Where to pick playback up, in *source* seconds. Optional and backward
@@ -192,7 +195,7 @@ const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
 
 export function qualitySelectorEmptyCopy(loading: boolean, count: number): string | null {
   if (count > 0) return null;
-  return loading ? "Checking cached releases…" : "No other cached releases yet.";
+  return loading ? "Checking other versions…" : "No other versions available yet.";
 }
 
 /**
@@ -785,6 +788,7 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
   problem: StreamProblem | null;
   title: string;
   detail: string;
+  diagnostic: string | null;
 } {
   const kind = mediaErrorKindFromCode(error?.code);
   const browserMessage = error?.message?.trim();
@@ -794,7 +798,8 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
       recoverable: true,
       problem: null,
       title: "Playback was interrupted.",
-      detail: browserMessage || "The browser interrupted the stream. Reconnecting from your current position.",
+      detail: "Reconnecting from your current position.",
+      diagnostic: browserMessage || null,
     };
   }
   if (kind === "network") {
@@ -802,8 +807,9 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
       kind: "network",
       recoverable: true,
       problem: null,
-      title: "This release isn't delivering.",
-      detail: browserMessage || "The stream connection dropped. Reconnecting from your current position.",
+      title: "The connection dropped.",
+      detail: "Reconnecting from your current position.",
+      diagnostic: browserMessage || null,
     };
   }
   if (kind === "decode") {
@@ -811,8 +817,9 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
       kind: "decode",
       recoverable: false,
       problem: "browser-error",
-      title: "This release won't play in the browser.",
-      detail: browserMessage || "The browser reported a decode error after receiving the file.",
+      title: "This version won’t play here.",
+      detail: "Try another version, or open this one in an installed player.",
+      diagnostic: browserMessage || null,
     };
   }
   if (kind === "unsupported") {
@@ -820,16 +827,18 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
       kind: "unsupported",
       recoverable: false,
       problem: "browser-error",
-      title: "This release won't play in the browser.",
-      detail: browserMessage || "The browser does not support this stream's container or codecs.",
+      title: "This version won’t play here.",
+      detail: "Try another version, or open this one in an installed player.",
+      diagnostic: browserMessage || null,
     };
   }
   return {
     kind: "unknown",
     recoverable: false,
     problem: "browser-error",
-    title: "This release won't play in the browser.",
-    detail: browserMessage || "The browser stopped playback without a specific media error code.",
+    title: "This version won’t play here.",
+    detail: "Try another version, or open this one in an installed player.",
+    diagnostic: browserMessage || null,
   };
 }
 
@@ -841,19 +850,19 @@ export function terminalPlaybackCopy(args: {
   const { problem, message, deliveryDetail } = args;
   const title =
     problem === "stalled" || problem === "preparing"
-      ? "This release isn't delivering."
+      ? "This version isn’t available yet."
       : problem === "browser-error" || problem === "no-audio"
-        ? "This release won't play in the browser."
+        ? "This version won’t play here."
         : message
           ? "Playback cannot start yet."
           : null;
   const fallback =
     problem === "stalled" || problem === "preparing"
-      ? `This release isn't delivering — ${deliveryDetail}.`
+      ? `Try again in a moment. ${deliveryDetail}.`
       : problem === "browser-error"
-        ? "The browser reported a playback error for this release."
+        ? "Try another version, or open this one in an installed player."
         : problem === "no-audio"
-          ? "The browser cannot decode the selected audio track."
+          ? "Choose another audio track or try another version."
           : message;
   const repeatsTitle = (value: string | null | undefined) =>
     Boolean(title && value && value.trim() === title.trim());
@@ -1500,6 +1509,16 @@ type CurrentTarget = {
   watchListItemId?: string | null;
 };
 
+export function episodeTitleForTarget(
+  episodeTitles: Readonly<Record<string, string>> | undefined,
+  season: number | null | undefined,
+  episode: number | null | undefined,
+): string | null {
+  if (!episodeTitles || season == null || episode == null) return null;
+  const key = `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
+  return episodeTitles[key] ?? null;
+}
+
 const AUTO_ADVANCE_SECONDS = 8;
 /** How long background warming may wait for an idle moment before running. */
 const WARM_IDLE_TIMEOUT_MS = 2000;
@@ -2010,7 +2029,7 @@ export function subtitleStatusCopy(
   status: SubtitleStatus,
   note: string | null,
 ): string | null {
-  if (status === "extracting") return "Extracting subtitles from the file…";
+  if (status === "extracting") return "Preparing subtitles…";
   if (status === "loading") return "Loading subtitles…";
   return note;
 }
@@ -2019,10 +2038,7 @@ export function unsupportedSubtitleNote(
   tracks: SubtitleTrackWithSrc[],
 ): string | null {
   if (tracks.length === 0 || tracks.some((track) => track.src)) return null;
-  const reason = tracks.find((track) => track.unsupportedReason)?.unsupportedReason;
-  return reason
-    ? `Subtitles are present, but ${reason}.`
-    : "Subtitles are present, but this player cannot render any track in this video.";
+  return "These subtitles use a format this player can’t display. Try another track or open the video in another player.";
 }
 
 export function shouldPreserveOutgoingEpisode(args: {
@@ -2050,7 +2066,7 @@ class InlinePlayerErrorBoundary extends Component<
         data-inline-player-error
         className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px] text-[var(--text-secondary)]"
       >
-        <p className="font-medium text-[var(--text-primary)]">The player hit an error.</p>
+        <p className="font-medium text-[var(--text-primary)]">The player is unavailable.</p>
         <p className="mt-1">
           {this.props.title} is still in your library. Retry the player, or use the other title
           actions while this recovers.
@@ -2095,6 +2111,7 @@ function InlineStreamPlayerInner({
   infoHash,
   title,
   episodeTitle,
+  episodeTitles,
   progress,
   resumeSec,
   season,
@@ -2173,6 +2190,7 @@ function InlineStreamPlayerInner({
   const [manifestLoading, setManifestLoading] = useState(false);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [mediaErrorDiagnostic, setMediaErrorDiagnostic] = useState<string | null>(null);
   const [problem, setProblem] = useState<StreamProblem | null>(null);
   const [playableSrc, setPlayableSrc] = useState<string | null>(null);
   const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("direct");
@@ -3209,7 +3227,8 @@ function InlineStreamPlayerInner({
         });
         const data = await readJson<UpNextResponse>(res);
         if (!res.ok || signal?.aborted) return null;
-        const next = normalizeUpNextCard(data?.next);
+        const rawNext = normalizeUpNextCard(data?.next);
+        const next = rawNext ? { ...rawNext, title: activeTitle } : null;
         setUpNext(next);
         return next;
       } catch {
@@ -3309,13 +3328,18 @@ function InlineStreamPlayerInner({
       );
       autoTriedHashesRef.current = new Set();
       autoFailoverInFlightRef.current = false;
-      setTransitioningTitle(next.title);
+      setTransitioningTitle(activeTitle);
       setEnded(false);
       setAutoAdvanceCancelled(false);
       setAdvanceCountdown(AUTO_ADVANCE_SECONDS);
       setTarget({
         infoHash: next.infoHash,
-        title: next.title,
+        title: activeTitle,
+        episodeTitle: episodeTitleForTarget(
+          episodeTitles,
+          next.season,
+          next.episode,
+        ),
         season: next.season,
         episode: next.episode,
         // When the server named the file, the transition can select it without
@@ -3331,8 +3355,10 @@ function InlineStreamPlayerInner({
     [
       upNext,
       activeInfoHash,
+      activeTitle,
       playableSrc,
       postProgress,
+      episodeTitles,
       activeWatchListItemId,
       activePosterUrl,
     ],
@@ -3492,6 +3518,7 @@ function InlineStreamPlayerInner({
    * whole pipeline from a blank slate.
    */
   const resetPlaybackFailure = useCallback(() => {
+    setMediaErrorDiagnostic(null);
     setProblem(null);
     setMessage(null);
     setStreamFailure(null);
@@ -3872,7 +3899,7 @@ function InlineStreamPlayerInner({
             if (!controller.signal.aborted && (await attemptAutoFailover())) return;
             if (controller.signal.aborted) return;
             setProblem("stalled");
-            setMessage("Waiting for torrent data to probe the file. Try again in a moment.");
+            setMessage("This version is not ready to play yet. Try again in a moment.");
             return;
           }
           // Any other plan failure is not necessarily terminal: the byte route
@@ -4166,11 +4193,10 @@ function InlineStreamPlayerInner({
           if (!controller.signal.aborted) {
             const failure = await readJson<{ message?: string; error?: string }>(res);
             setSubtitleStatus("error");
-            setSubtitleNote(
-              failure?.message?.trim() ||
-                failure?.error?.trim() ||
-                "Subtitles could not be checked for this release.",
-            );
+            const diagnostic =
+              failure?.message?.trim() || failure?.error?.trim() || null;
+            if (diagnostic) console.warn("[subtitles] lookup failed", diagnostic);
+            setSubtitleNote("Subtitles could not be checked for this video.");
           }
           return;
         }
@@ -4982,6 +5008,7 @@ function InlineStreamPlayerInner({
       if (video !== videoRef.current) return;
       if (playbackMode === "hls" && hlsRef.current) return;
       const verdict = interpretMediaElementError(video.error);
+      setMediaErrorDiagnostic(verdict.diagnostic);
       if (verdict.recoverable) {
         const resumeAt =
           playbackMode === "hls"
@@ -5133,7 +5160,7 @@ function InlineStreamPlayerInner({
               onError={() => {
                 setSubtitleStatus("error");
                 setSubtitleNote(
-                  "That subtitle track could not be prepared. Extraction or subtitle caching failed.",
+                  "This subtitle track could not be loaded. Try another track.",
                 );
               }}
             />
@@ -5171,7 +5198,7 @@ function InlineStreamPlayerInner({
               onError={() => {
                 setSubtitleStatus("error");
                 setSubtitleNote(
-                  "That subtitle track could not be prepared. Extraction or subtitle caching failed.",
+                  "This subtitle track could not be loaded. Try another track.",
                 );
               }}
             />
@@ -5546,16 +5573,14 @@ function InlineStreamPlayerInner({
   if (theatre) {
     const chromeVisible = theatreControlsVisible || controlsPinned;
     const controlsOpacity = chromeVisible ? "opacity-100" : "opacity-0";
-    const pointerWhenHidden = chromeVisible ? "pointer-events-auto" : "pointer-events-none focus-within:opacity-100";
-    const selectedAudioLabel =
-      audioTracks.find((track) => track.streamIndex === audioStreamIndex)
-        ? audioTrackLabel(
-            audioTracks.find((track) => track.streamIndex === audioStreamIndex)!,
-            audioTracks.findIndex((track) => track.streamIndex === audioStreamIndex),
-          )
-        : "Audio";
-    const selectedSubtitleLabel =
-      subtitleTracks.find((track) => track.id === subtitleTrackId)?.label ?? "Off";
+    const controlsPointerEvents = chromeVisible
+      ? "pointer-events-auto"
+      : "pointer-events-none";
+    const selectedAudioTrack =
+      audioTracks.find((track) => track.streamIndex === audioStreamIndex) ?? null;
+    const selectedAudioSummary = selectedAudioTrack
+      ? `${languageLabel(selectedAudioTrack.language) || selectedAudioTrack.title || "Selected"} audio`
+      : null;
     const closeMenus = () => {
       setSubtitleMenuOpen(false);
       setAudioMenuOpen(false);
@@ -5704,6 +5729,19 @@ function InlineStreamPlayerInner({
                     <X className="h-7 w-7 text-white/70" />
                     <p className="text-sm font-medium text-white">{panelTitle}</p>
                     {panelDetail ? <p className="text-[12px] text-white/60">{panelDetail}</p> : null}
+                    {mediaErrorDiagnostic ? (
+                      <details
+                        className="max-w-full text-left text-[11px] text-white/55"
+                        data-stream-error-details
+                      >
+                        <summary className="cursor-pointer text-center font-medium text-white/70">
+                          Details
+                        </summary>
+                        <p className="mt-1 break-words font-mono">
+                          {mediaErrorDiagnostic}
+                        </p>
+                      </details>
+                    ) : null}
                     <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                       {failureCopy?.affordance === "retry" ? (
                         <button
@@ -5752,7 +5790,8 @@ function InlineStreamPlayerInner({
                 className={cn(
                   "absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/65 to-transparent px-3 pb-3 pt-14 transition-opacity duration-200 sm:px-5 sm:pb-4 sm:pt-24",
                   controlsOpacity,
-                  pointerWhenHidden,
+                  controlsPointerEvents,
+                  "focus-within:opacity-100",
                 )}
               >
                 {ended && upNext ? (
@@ -5819,7 +5858,7 @@ function InlineStreamPlayerInner({
                 <div className="mt-3 flex min-h-6 flex-col items-start gap-1 text-[11px] text-white/55">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="truncate">
-                      {[selectedAudioLabel !== "Audio" ? selectedAudioLabel : null, selectedSubtitleLabel !== "Off" ? selectedSubtitleLabel : "Subtitles off"]
+                      {[selectedAudioSummary, subtitleTrackId ? "Subtitles on" : "Subtitles off"]
                         .filter(Boolean)
                         .join(" · ")}
                     </span>

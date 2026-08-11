@@ -356,12 +356,40 @@ export async function POST(request: NextRequest) {
         orderBy: { updatedAt: "desc" },
         take: 100,
       });
+      // A durable acquisition target is the user's exact intent. Prefer the
+      // next target from the same canonical work over a speculative pre-rank
+      // torrent; otherwise a stalled pre-warm can steal Next from an episode
+      // that is already downloading and streamable.
+      const sourceTarget = await prisma.acquisitionTarget.findFirst({
+        where: { userId, infoHash },
+        select: { workKey: true },
+        orderBy: { updatedAt: "desc" },
+      });
+      const intendedTarget = sourceTarget
+        ? await prisma.acquisitionTarget.findFirst({
+            where: {
+              userId,
+              workKey: sourceTarget.workKey,
+              scope: "episode",
+              season: next.season,
+              episode: next.episode,
+              infoHash: { not: null },
+              status: { not: "failed" },
+            },
+            select: { infoHash: true, filePath: true },
+            orderBy: { updatedAt: "desc" },
+          })
+        : null;
+      const acquired = intendedTarget?.infoHash
+        ? heldRows.find((row) => row.hash === intendedTarget.infoHash)
+        : null;
       const ranked = await getPreRanked(next);
       const rankedHash = ranked?.candidate ? releaseInfoHash(ranked.candidate) : null;
       const exact = rankedHash
         ? heldRows.find((row) => row.hash === rankedHash)
         : null;
       const byEpisode =
+        acquired ??
         exact ??
         heldRows.find((row) => {
           const ep = parseEpisode(row.name);
@@ -381,7 +409,11 @@ export async function POST(request: NextRequest) {
       // verified files answer deterministically — a pack that happens to hold
       // this episode saves the player a manifest round trip too.
       const matchedPath = byEpisode
-        ? episodeFileInTorrent(byEpisode, next.season, next.episode)
+        ? (
+            acquired && intendedTarget?.filePath
+              ? intendedTarget.filePath
+              : episodeFileInTorrent(byEpisode, next.season, next.episode)
+          )
         : null;
 
       return reply({

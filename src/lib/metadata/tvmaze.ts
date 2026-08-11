@@ -33,6 +33,15 @@ export interface TvmazeCandidate {
   score: number;
 }
 
+export interface TvmazeEpisode {
+  season: number;
+  episode: number;
+  name: string | null;
+  airDate: string | null;
+  runtimeMin: number | null;
+  stillUrl: string | null;
+}
+
 interface TvmazeSearchRow {
   score?: number;
   show?: {
@@ -43,7 +52,20 @@ interface TvmazeSearchRow {
   };
 }
 
+interface TvmazeEpisodeRow {
+  season?: unknown;
+  number?: unknown;
+  name?: unknown;
+  airdate?: unknown;
+  runtime?: unknown;
+  image?: {
+    medium?: unknown;
+    original?: unknown;
+  } | null;
+}
+
 const TVMAZE_SEARCH = "https://api.tvmaze.com/search/shows";
+const TVMAZE_EPISODES = "https://api.tvmaze.com/shows";
 
 /**
  * Search TVmaze for shows matching `query`. Never throws — an artwork provider
@@ -79,6 +101,59 @@ export async function searchTvmazeShows(
   }
 }
 
+/**
+ * Fetch canonical episodes for one already-resolved TVMaze show. Invalid rows,
+ * specials without positive season/episode numbers, and network failures are
+ * omitted rather than converted into synthetic metadata.
+ */
+export async function getTvmazeEpisodes(
+  showId: number,
+  opts: { timeoutMs?: number } = {},
+): Promise<TvmazeEpisode[]> {
+  if (!Number.isInteger(showId) || showId <= 0) return [];
+
+  const { timeoutMs = 5000 } = opts;
+
+  try {
+    const res = await fetch(`${TVMAZE_EPISODES}/${showId}/episodes`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+
+    const rows = (await res.json()) as unknown;
+    if (!Array.isArray(rows)) return [];
+
+    return rows
+      .slice(0, 5000)
+      .flatMap((value): TvmazeEpisode[] => {
+        const row = value as TvmazeEpisodeRow;
+        const season = toPositiveInteger(row.season);
+        const episode = toPositiveInteger(row.number);
+        if (season === null || episode === null) return [];
+
+        const original =
+          typeof row.image?.original === "string" ? row.image.original : null;
+        const medium =
+          typeof row.image?.medium === "string" ? row.image.medium : null;
+
+        return [{
+          season,
+          episode,
+          name: toOptionalString(row.name),
+          airDate: toDateString(row.airdate),
+          runtimeMin: toPositiveInteger(row.runtime),
+          stillUrl: original ?? medium,
+        }];
+      })
+      .sort((left, right) =>
+        left.season - right.season || left.episode - right.episode
+      );
+  } catch {
+    return [];
+  }
+}
+
 function toCandidate(row: TvmazeSearchRow): TvmazeCandidate | null {
   const show = row.show;
   if (!show?.name) return null;
@@ -93,4 +168,22 @@ function toCandidate(row: TvmazeSearchRow): TvmazeCandidate | null {
     backdropUrl: null,
     score: typeof row.score === "number" ? row.score : 0,
   };
+}
+
+function toPositiveInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function toOptionalString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function toDateString(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : null;
 }

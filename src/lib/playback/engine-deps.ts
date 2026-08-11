@@ -243,6 +243,7 @@ export async function carryPlaybackPosition(
     where: { userId_infoHash_filePath: { userId, infoHash: to, filePath: src.filePath } },
     create: {
       userId,
+      workId: src.workId,
       infoHash: to,
       filePath: src.filePath,
       positionSec: src.positionSec,
@@ -253,7 +254,11 @@ export async function carryPlaybackPosition(
       posterUrl: src.posterUrl,
       watchListItemId: src.watchListItemId,
     },
-    update: { positionSec: src.positionSec, durationSec: src.durationSec },
+    update: {
+      workId: src.workId,
+      positionSec: src.positionSec,
+      durationSec: src.durationSec,
+    },
   });
   return src.positionSec;
 }

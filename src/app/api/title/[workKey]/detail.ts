@@ -428,7 +428,14 @@ export async function buildTitleDetail(
 
   // ── Seasons ─────────────────────────────────────────────────────────────
   const seasons = isSeries
-    ? buildSeasons(localReleases, cachedReleases, progress, watch, seasonTransfers)
+    ? buildSeasons(
+        localReleases,
+        cachedReleases,
+        progress,
+        watch,
+        seasonTransfers,
+        episodeTransfers,
+      )
     : [];
 
   // ── Resume ──────────────────────────────────────────────────────────────
@@ -723,6 +730,7 @@ function buildSeasons(
   progress: { season: number | null; episode: number | null }[],
   watch: { cursorSeason: number | null } | null,
   seasonTransfers: Map<number, AcquisitionTransfer>,
+  episodeTransfers: Map<string, AcquisitionTransfer>,
 ): TitleSeason[] {
   const numbers = new Set<number>();
   for (const r of localReleases) {
@@ -735,6 +743,10 @@ function buildSeasons(
     else if (r.episode != null) numbers.add(1);
   }
   for (const p of progress) if (p.season != null) numbers.add(p.season);
+  for (const key of episodeTransfers.keys()) {
+    const [season] = key.split(":").map(Number);
+    if (Number.isInteger(season) && season >= 0) numbers.add(season);
+  }
   if (watch?.cursorSeason != null) numbers.add(watch.cursorSeason);
 
   return [...numbers]

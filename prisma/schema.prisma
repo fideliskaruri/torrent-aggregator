@@ -17,28 +17,55 @@ datasource db {
 /// "local", created by ensureLocalUser). The relations are kept so real user
 /// management can be reintroduced without migrating every table.
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  name      String?
+  email     String?  @unique
+  image     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  watchList      WatchListItem[]
-  clientSettings ClientSettings?
-  downloadHistory DownloadHistory[]
-  autoRules      AutoRule[]
-  grabJobs       GrabJob[]
-  engineTorrents EngineTorrent[]
-  playbackProgress PlaybackProgress[]
+  watchList          WatchListItem[]
+  clientSettings     ClientSettings?
+  downloadHistory    DownloadHistory[]
+  autoRules          AutoRule[]
+  grabJobs           GrabJob[]
+  engineTorrents     EngineTorrent[]
+  playbackProgress   PlaybackProgress[]
   acquisitionTargets AcquisitionTarget[]
 }
 
 // ─── App domain models ───────────────────────────────────────────────────────
 
+/// Canonical logical media identity. User state points here; torrents and file
+/// names are physical inventory and may only bootstrap a missing legacy link.
+model Work {
+  id             String   @id @default(cuid())
+  workKey        String   @unique
+  canonicalTitle String
+  year           Int?
+  mediaType      String
+  aliasesJson    String?
+  provider       String?
+  providerId     String?
+  posterUrl      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  watchListItems     WatchListItem[]
+  engineTorrents     EngineTorrent[]
+  acquisitionTargets AcquisitionTarget[]
+  catalogEntries     CatalogEntry[]
+  downloadHistory    DownloadHistory[]
+  playbackProgress   PlaybackProgress[]
+
+  @@unique([provider, providerId, mediaType])
+  @@index([mediaType])
+}
+
 model WatchListItem {
   id                  String    @id @default(cuid())
   userId              String
+  workId              String?
   mediaType           String // anime | movie | tv
   externalId          String // AniList id or TMDB id
   title               String
@@ -83,10 +110,12 @@ model WatchListItem {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  work Work? @relation(fields: [workId], references: [id], onDelete: SetNull)
 
   @@unique([userId, mediaType, externalId])
   @@index([userId])
+  @@index([workId])
 }
 
 /// Automation grab attempt (rules / library hunt / manual)
@@ -119,8 +148,8 @@ model GrabJob {
 }
 
 model CachedMetadata {
-  id          String   @id @default(cuid())
-  cacheKey    String   @unique
+  id          String    @id @default(cuid())
+  cacheKey    String    @unique
   source      String // anilist | tmdb
   mediaType   String // anime | movie | tv
   externalId  String
@@ -137,8 +166,8 @@ model CachedMetadata {
   genres      String?
   rawJson     String?
   expiresAt   DateTime
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([source, externalId])
   @@index([expiresAt])
@@ -146,33 +175,33 @@ model CachedMetadata {
 }
 
 model ClientSettings {
-  id         String   @id @default(cuid())
-  userId     String   @unique
+  id                        String   @id @default(cuid())
+  userId                    String   @unique
   /// Active download client for Send + Client page. Default: builtin (one-app).
   /// qbittorrent | transmission only if user deliberately makes external primary.
-  clientType String   @default("builtin")
+  clientType                String   @default("builtin")
   /// Optional secondary client for "Send / move to my client" while primary stays builtin.
   /// qbittorrent | transmission | null. host/username/password apply to this when set.
-  externalClientType String?
-  host       String   @default("http://127.0.0.1:8080")
-  username   String?
-  password   String? // AES-GCM encrypted when ENCRYPTION_KEY / AUTH_SECRET present
-  category   String? // default category / label applied on send
-  savePath   String? // default download directory
+  externalClientType        String?
+  host                      String   @default("http://127.0.0.1:8080")
+  username                  String?
+  password                  String? // AES-GCM encrypted when ENCRYPTION_KEY / AUTH_SECRET present
+  category                  String? // default category / label applied on send
+  savePath                  String? // default download directory
   /// Base folder; when set, missing pathRules resolve to base/Category
-  baseDownloadPath String?
+  baseDownloadPath          String?
   /// Cap on total size under baseDownloadPath (bytes). Null = unset.
   /// Downloads are refused until the user explicitly configures this value.
-  maxStorageBytes BigInt?
+  maxStorageBytes           BigInt?
   /// True only after the user explicitly saves a positive storage cap.
   /// Null marks legacy guessed defaults as unconfigured.
-  storageCapConfigured Boolean?
+  storageCapConfigured      Boolean?
   /// Enables additional playback diagnostics. Null is treated as false.
-  verboseDiagnostics Boolean?
+  verboseDiagnostics        Boolean?
   /// Minimum vertical resolution for kept downloads (e.g. 1080).
   /// Null = 1080p default. Lower and unknown resolutions are never dispatched;
   /// higher resolutions remain eligible when the minimum is unavailable.
-  preferredResolution Int?
+  preferredResolution       Int?
   /// Minutes between automatic automation runs. Null or 0 = never run on a
   /// timer (automation only fires when the user asks for it). Opt-in on
   /// purpose: a background timer that grabs releases is not something to
@@ -180,64 +209,67 @@ model ClientSettings {
   automationIntervalMinutes Int?
   /// Default retention for new built-in primary sends: "EPHEMERAL" (stream-only) | "KEPT".
   /// Tracked/watchlisted/explicit keep sends are promoted to KEPT regardless of this default.
-  defaultRetentionPolicy String @default("EPHEMERAL")
+  defaultRetentionPolicy    String   @default("EPHEMERAL")
   /// Speculative swarm-probe scope: "off" | "watching" | "monitored".
   /// Null = the "watching" default (only the next episode of shows in
   /// progress). Unlike automation this only *measures* swarm health, it never
   /// grabs, so a non-off default is safe — but "everything" is deliberately not
   /// an option: probing the whole catalogue is bandwidth spent competing with
   /// playback for content nobody will open.
-  preProbeScope String?
+  preProbeScope             String?
   /// JSON string[] — quick-pick category chips in UI
-  categories String?
+  categories                String?
   /// JSON Record<string,string> — category name → download folder
-  pathRules  String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  pathRules                 String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// Durable state for the built-in BitTorrent engine (survives process restart).
 model EngineTorrent {
-  id        String   @id @default(cuid())
-  userId    String
-  hash      String
-  name      String
-  magnet    String?
-  torrentUrl String?
-  savePath  String?
-  category  String?
-  status    String   @default("downloading") // downloading | downloaded | paused | error | removed
-  progress  Float    @default(0)
-  sizeBytes BigInt   @default(0)
-  verifiedBitfield String?
+  id                String    @id @default(cuid())
+  userId            String
+  workId            String?
+  hash              String
+  name              String
+  magnet            String?
+  torrentUrl        String?
+  savePath          String?
+  category          String?
+  status            String    @default("downloading") // downloading | downloaded | paused | error | removed
+  progress          Float     @default(0)
+  sizeBytes         BigInt    @default(0)
+  verifiedBitfield  String?
   verifiedFilesJson String?
-  verifiedAt DateTime?
-  error     String?
+  verifiedAt        DateTime?
+  error             String?
   /// Who asked for this: "user" (explicit grab/kept) | "stream" (ephemeral
   /// playback cache) | "prewarm" (speculative). Only cache origins may be
   /// evicted, and stream eviction has its own playback/grace/watchlist guards.
-  origin    String   @default("user")
+  origin            String    @default("user")
   /// Eviction lease token, set atomically when a sweep claims this row
   /// (origin → "evicting"). Format "<claimedAtMs>:<uuid>". NULL when unleased.
   /// An explicit user add clears it when it STEALS the lease; a stale lease
   /// (crash between claim and delete) is recovered by age. Additive/nullable —
   /// existing rows are NULL and are never touched.
-  evictLease String?
+  evictLease        String?
   /// The origin to restore if a lease is recovered (never inferred — it is the
   /// exact value recorded at claim time). NULL when unleased.
-  evictFrom String?
+  evictFrom         String?
   /// Last time playback touched this torrent. Drives LRU eviction of caches.
-  lastUsedAt DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  lastUsedAt        DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  work Work? @relation(fields: [workId], references: [id], onDelete: SetNull)
 
   @@unique([userId, hash])
   @@index([userId, status])
   @@index([userId, origin, lastUsedAt])
+  @@index([workId])
 }
 
 /// Durable user acquisition intent. Unlike EngineTorrent, this row identifies
@@ -247,6 +279,7 @@ model EngineTorrent {
 model AcquisitionTarget {
   id                  String   @id @default(cuid())
   userId              String
+  workId              String?
   targetKey           String
   workKey             String
   scope               String
@@ -255,25 +288,28 @@ model AcquisitionTarget {
   preferredResolution Int?
   status              String   @default("queued") // queued | downloading | downloaded | failed
   progress            Float    @default(0)
-  infoHash             String?
-  filePath             String?
-  error                String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  infoHash            String?
+  filePath            String?
+  error               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  work Work? @relation(fields: [workId], references: [id], onDelete: SetNull)
 
   @@unique([userId, targetKey])
   @@index([userId, workKey, scope])
   @@index([userId, infoHash])
   @@index([userId, status])
+  @@index([workId])
 }
 
 /// A discovered title, independent of any release. This is the catalog layer
 /// the browse page reads: rails must never resolve a torrent on render, so
 /// trending/popular titles are cached here and refreshed on a timer.
 model CatalogEntry {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
+  workId      String?
   /// Stable key derived from the work identity (normalised title + year).
   workKey     String
   title       String
@@ -288,15 +324,17 @@ model CatalogEntry {
   /// Which rail sourced this: "trending" | "popular" | "related".
   source      String
   /// Ordering within its source, lowest first.
-  rank        Int      @default(0)
+  rank        Int       @default(0)
   /// Free-form seed for "Because you're watching X".
   seedTitle   String?
   /// Highest seeder count seen for this title, for a health hint pre-click.
-  seeders     Int      @default(0)
+  seeders     Int       @default(0)
   /// The best release name found, so the detail page can pre-rank instantly.
   bestRelease String?
-  refreshedAt DateTime @default(now())
-  createdAt   DateTime @default(now())
+  refreshedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+
+  work Work? @relation(fields: [workId], references: [id], onDelete: SetNull)
 
   @@unique([workKey, source, seedTitle])
   @@index([source, rank])
@@ -304,11 +342,13 @@ model CatalogEntry {
   // SQLite building a temp B-tree for the right side of that ORDER BY.
   @@index([source, seedTitle, rank, title])
   @@index([refreshedAt])
+  @@index([workId])
 }
 
 model DownloadHistory {
   id         String   @id @default(cuid())
   userId     String
+  workId     String?
   title      String
   magnet     String?
   torrentUrl String?
@@ -328,10 +368,12 @@ model DownloadHistory {
   retention  String?
   createdAt  DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  work Work? @relation(fields: [workId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([userId, status])
+  @@index([workId])
 }
 
 model AutoRule {
@@ -380,6 +422,7 @@ model RunLock {
 model PlaybackProgress {
   id              String    @id @default(cuid())
   userId          String
+  workId          String?
   infoHash        String
   filePath        String
   positionSec     Float     @default(0)
@@ -397,11 +440,13 @@ model PlaybackProgress {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  work Work? @relation(fields: [workId], references: [id], onDelete: SetNull)
 
   @@unique([userId, infoHash, filePath])
   @@index([userId, updatedAt])
   @@index([userId, completedAt])
+  @@index([workId])
 }
 
 /// Cached ffprobe result for one file inside one torrent.
@@ -494,8 +539,8 @@ model SwarmMeasurement {
 }
 
 model SearchCache {
-  id        String   @id @default(cuid())
-  cacheKey  String   @unique
+  id              String   @id @default(cuid())
+  cacheKey        String   @unique
   /// normalizeTitle() of the query this row answered.
   ///
   /// The browse availability resolver needs "the most recent search for this
@@ -508,9 +553,9 @@ model SearchCache {
   ///
   /// Nullable so pre-existing rows need no backfill; they simply age out.
   normalizedQuery String?
-  payload   String // JSON SearchResponse
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  payload         String // JSON SearchResponse
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
 
   @@index([expiresAt])
   @@index([normalizedQuery, expiresAt])

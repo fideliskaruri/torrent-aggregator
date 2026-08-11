@@ -597,6 +597,7 @@ export function episodeReleaseMatchesWork(
 
 export async function grabSingleEpisode(opts: {
   userId: string;
+  workId?: string | null;
   showTitle: string;
   mediaType: string;
   season: number;
@@ -757,6 +758,7 @@ export async function grabSingleEpisode(opts: {
       // Activity shows what the user asked for, not the relaxed rung shape.
       const res = await runGrabPipeline({
         userId: opts.userId,
+        workId: opts.workId ?? null,
         search: {
           query,
           category: rung.category,
