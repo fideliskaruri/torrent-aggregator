@@ -19,6 +19,7 @@ import { resolveTitleProviderIdentity } from "../provider-identity";
 import { providerEpisodePlaceholders } from "./episode-placeholders";
 import { providerExtrasResponse } from "./provider-response";
 import { tvmazeExtrasResponse } from "./tvmaze-response";
+import { fetchAniListRecommendationsForPoster } from "@/lib/metadata/anilist";
 
 export const dynamic = "force-dynamic";
 
@@ -109,20 +110,40 @@ export async function GET(request: Request, context: RouteContext) {
           ? await resolveTmdbRef({ title, year, mediaType })
           : null;
     if (!ref) {
-      const keylessTvResponse = await tvmazeExtrasResponse(
-        providerResult,
-        empty,
+      const posterUrl = url.searchParams.get("poster");
+      const [keylessTvResponse, animeRecommendations] = await Promise.all([
+        tvmazeExtrasResponse(
+          providerResult,
+          empty,
+          {
+            workKey: key,
+            title,
+            year,
+            posterUrl,
+            isSeries:
+              isSeriesMediaType(mediaType)
+              || url.searchParams.get("series") === "1",
+          },
+        ),
+        normalizeMediaType(mediaType) === "anime"
+          ? fetchAniListRecommendationsForPoster(title, posterUrl).catch(() => [])
+          : Promise.resolve([]),
+      ]);
+      const moreLikeThis = animeRecommendations.map((work) =>
+        toSimilarLink({
+          title: work.metadata.title,
+          year: work.metadata.year ?? null,
+          mediaType: work.metadata.mediaType,
+          posterUrl: work.metadata.posterUrl ?? null,
+          rating: work.metadata.rating ?? null,
+        }),
+      );
+      return NextResponse.json(
         {
-          workKey: key,
-          title,
-          year,
-          posterUrl: url.searchParams.get("poster"),
-          isSeries:
-            isSeriesMediaType(mediaType)
-            || url.searchParams.get("series") === "1",
+          ...(keylessTvResponse ?? empty),
+          moreLikeThis,
         },
       );
-      return NextResponse.json(keylessTvResponse ?? empty);
     }
 
     const series = ref.mediaType === "tv";

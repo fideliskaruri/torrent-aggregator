@@ -287,6 +287,104 @@ export async function getAniListWorkById(id: string): Promise<AniListWork | null
     : null;
 }
 
+export async function fetchAniListRecommendationsForPoster(
+  title: string,
+  posterUrl: string | null | undefined,
+  limit = 12,
+): Promise<AniListWork[]> {
+  const poster = posterUrl?.trim();
+  if (!title.trim() || !poster || limit < 1) return [];
+
+  const query = `
+    query ($search: String, $perPage: Int) {
+      Page(page: 1, perPage: 8) {
+        media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+          id
+          coverImage { large extraLarge }
+          recommendations(sort: RATING_DESC, perPage: $perPage) {
+            nodes {
+              mediaRecommendation {
+                id
+                title { romaji english native }
+                coverImage { large extraLarge }
+                bannerImage
+                description(asHtml: false)
+                averageScore
+                seasonYear
+                startDate { year month day }
+                genres
+                format
+                episodes
+                nextAiringEpisode { episode }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const res = await fetch(ANILIST_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        query,
+        variables: {
+          search: canonicalizeSearchQuery(title),
+          perPage: Math.min(limit, 24),
+        },
+      }),
+      signal: AbortSignal.timeout(8_000),
+      next: { revalidate: 3600 },
+    });
+    if (!res.ok) return [];
+
+    const json = (await res.json()) as {
+      data?: {
+        Page?: {
+          media?: Array<
+            Pick<AniListMedia, "id" | "coverImage"> & {
+              recommendations?: {
+                nodes?: Array<{
+                  mediaRecommendation?: AniListMedia | null;
+                } | null>;
+              } | null;
+            }
+          >;
+        };
+      };
+      errors?: { message: string }[];
+    };
+    if (json.errors?.length) return [];
+
+    const matches = (json.data?.Page?.media ?? []).filter(
+      (media) =>
+        (media.coverImage?.extraLarge || media.coverImage?.large)?.trim()
+        === poster,
+    );
+    if (matches.length !== 1) return [];
+
+    const seen = new Set<number>();
+    return (matches[0].recommendations?.nodes ?? [])
+      .flatMap((node): AniListMedia[] => {
+        const media = node?.mediaRecommendation;
+        if (!media || seen.has(media.id)) return [];
+        seen.add(media.id);
+        return [media];
+      })
+      .filter((media) => Boolean(media.coverImage?.extraLarge || media.coverImage?.large))
+      .map((media) => ({
+        metadata: mapAniList(media),
+        format: media.format ?? null,
+        isSeries: isAniListSeriesFormat(media.format),
+        episodeCount: anilistEpisodeCount(media),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 export async function getAniListById(id: string): Promise<MediaMetadata | null> {
   return (await getAniListWorkById(id))?.metadata ?? null;
 }

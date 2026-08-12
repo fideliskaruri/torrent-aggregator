@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 import {
   anilistEpisodeCount,
+  fetchAniListRecommendationsForPoster,
   getAniListWorkById,
   searchAniListWorks,
 } from "./anilist";
@@ -115,6 +116,67 @@ async function main() {
   const film = await getAniListWorkById("999");
   assert.equal(film?.isSeries, false);
   assert.equal(film?.episodeCount, 1);
+
+  const recommendation = {
+    ...KILLING_SLIMES,
+    id: 101280,
+    title: {
+      english: "That Time I Got Reincarnated as a Slime",
+      romaji: "Tensei Shitara Slime Datta Ken",
+      native: "転生したらスライムだった件",
+    },
+    coverImage: {
+      large: "https://img.test/recommendation.jpg",
+      extraLarge: null,
+    },
+  };
+  stubFetch({
+    data: {
+      Page: {
+        media: [{
+          id: KILLING_SLIMES.id,
+          coverImage: KILLING_SLIMES.coverImage,
+          recommendations: {
+            nodes: [
+              { mediaRecommendation: recommendation },
+              { mediaRecommendation: recommendation },
+              { mediaRecommendation: null },
+            ],
+          },
+        }],
+      },
+    },
+  });
+  const recommendations = await fetchAniListRecommendationsForPoster(
+    KILLING_SLIMES.title.english,
+    KILLING_SLIMES.coverImage.large,
+  );
+  assert.equal(recommendations.length, 1);
+  assert.equal(recommendations[0].metadata.externalId, "101280");
+  assert.equal(
+    recommendations[0].metadata.title,
+    "That Time I Got Reincarnated as a Slime",
+  );
+
+  stubFetch({
+    data: {
+      Page: {
+        media: [{
+          id: KILLING_SLIMES.id,
+          coverImage: KILLING_SLIMES.coverImage,
+          recommendations: { nodes: [] },
+        }],
+      },
+    },
+  });
+  assert.deepEqual(
+    await fetchAniListRecommendationsForPoster(
+      KILLING_SLIMES.title.english,
+      "https://img.test/not-the-same-work.jpg",
+    ),
+    [],
+    "recommendations require exact poster identity evidence",
+  );
 }
 
 main()

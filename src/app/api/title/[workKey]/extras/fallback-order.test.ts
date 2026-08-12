@@ -7,7 +7,7 @@ const source = fs.readFileSync(
 );
 const tmdbResolution = source.indexOf("const ref =");
 const missingTmdbFallback = source.indexOf("if (!ref) {");
-const tvmazeFallback = source.indexOf("await tvmazeExtrasResponse(");
+const tvmazeFallback = source.indexOf("tvmazeExtrasResponse(");
 
 assert.ok(tmdbResolution >= 0);
 assert.ok(missingTmdbFallback > tmdbResolution);

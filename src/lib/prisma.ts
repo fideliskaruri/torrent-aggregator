@@ -1,10 +1,15 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
 import path from "node:path";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
+  prismaSchemaSignature: string | undefined;
 };
+
+export function generatedPrismaSchemaSignature(): string {
+  return JSON.stringify(Prisma.dmmf.datamodel);
+}
 
 function resolveSqliteUrl(): string {
   const raw = process.env.DATABASE_URL ?? "file:./dev.db";
@@ -31,10 +36,17 @@ function createPrismaClient() {
   return new PrismaClient({ adapter });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+const schemaSignature = generatedPrismaSchemaSignature();
+const cachedPrisma =
+  globalForPrisma.prismaSchemaSignature === schemaSignature
+    ? globalForPrisma.prisma
+    : undefined;
+
+export const prisma = cachedPrisma ?? createPrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
+  globalForPrisma.prismaSchemaSignature = schemaSignature;
 }
 
 export default prisma;
