@@ -2,6 +2,7 @@ import type { MediaMetadata, TorrentResult } from "@/lib/torrents/types";
 import { normalizeTitle } from "@/lib/utils";
 import { searchAniList } from "./anilist";
 import { resolveArtwork } from "./artwork";
+import { cleanTorrentTitle } from "./clean-torrent-title";
 import { searchTmdb } from "./tmdb";
 import {
   getMemoryQueryCache,
@@ -9,28 +10,7 @@ import {
   setMemoryQueryCache,
 } from "./cache";
 
-/**
- * Strip common torrent noise from titles to improve metadata matching.
- */
-export function cleanTorrentTitle(title: string): string {
-  return title
-    .replace(/[\[\(].*?[\]\)]/g, " ")
-    .replace(
-      // A bare season token (`S03`, `S01-S03`) is by far the most common thing
-      // a person types after a show name, and catalogs match it literally:
-      // TMDB returns nothing at all for "The Bear S03", so every result in a
-      // season search rendered without artwork.
-      /\b(S\d{1,2}\s*-\s*S?\d{1,2}|S\d{1,2}E\d{1,3}(?:\s*-\s*E?\d{1,3})?|S\d{1,2}|E\d{1,3}|EP?\s*\d{1,3}|Season\s*\d+|Complete|Batch)\b/gi,
-      " ",
-    )
-    .replace(
-      /\b(1080p|720p|480p|2160p|4K|UHD|HDR10?\+?|DV|HEVC|x265|x264|H\.?26[45]|AV1|WEB-?DL|WEBRip|BluRay|BDRip|BRRip|DVDRip|HDTV|REMUX|PROPER|REPACK|FINAL|INTERNAL|LIMITED|AAC\d?|FLAC|DTS(?:-HD)?|DDP?\d?(?:\.\d)?|EAC3|AC3|Atmos|TrueHD|\d+bit|Dual|Multi|Sub|Dub|NF|AMZN|DSNP|HULU|HMAX|ATVP|iP|CR)\b/gi,
-      " ",
-    )
-    .replace(/[._\-–—|]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+export { cleanTorrentTitle } from "./clean-torrent-title";
 
 /**
  * Progressively shorter things to ask a catalog, best first.

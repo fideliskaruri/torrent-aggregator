@@ -1,6 +1,6 @@
 /**
- * The slow half of a title page — episode names, the real season count, and
- * "more like this".
+ * The slow TMDB half of a title page — episode names, the real season count,
+ * hero facts, and release dates.
  *
  * Kept out of `GET /api/title/[workKey]` on purpose. That route answers from
  * the local database only, so the page paints immediately; everything here
@@ -26,8 +26,8 @@ import {
   normalizeMediaType,
 } from "@/lib/metadata/media-type";
 import {
-  posterUrl,
   searchTmdbCandidates,
+  applyTmdbCredential,
   tmdbApiKey,
   type TmdbCandidate,
   type TmdbSearchScope,
@@ -74,20 +74,6 @@ type RawShow = {
   number_of_seasons?: number;
   seasons?: { season_number?: number; episode_count?: number }[];
 };
-
-/**
- * A neighbouring work, before it is given a link.
- *
- * Deliberately not `TitleSimilar`: turning one of these into a page link needs
- * `workKeyFor`, which is the route's job, not the provider client's.
- */
-export interface TmdbSimilar {
-  title: string;
-  year: number | null;
-  mediaType: "movie" | "tv";
-  posterUrl: string | null;
-  rating: number | null;
-}
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -141,12 +127,14 @@ async function tmdbGet<T>(
   if (!key) return null;
 
   const url = new URL(`${TMDB_BASE}${path}`);
-  url.searchParams.set("api_key", key);
+  const headers = applyTmdbCredential(url, key);
   url.searchParams.set("language", "en-US");
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
   try {
     const res = await fetch(url, {
+      cache: "force-cache",
+      headers,
       signal: AbortSignal.timeout(TIMEOUT_MS),
       next: { revalidate: 21600 },
     });
@@ -623,76 +611,6 @@ export async function fetchHomeRelease(id: number): Promise<TmdbHomeRelease> {
     }
     const today = new Date().toISOString().slice(0, 10);
     return { checked: true, ...classifyHomeReleaseDates(raw.results, today) };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// More like this
-// ---------------------------------------------------------------------------
-
-type RawWork = {
-  id?: number;
-  title?: string | null;
-  name?: string | null;
-  release_date?: string | null;
-  first_air_date?: string | null;
-  poster_path?: string | null;
-  vote_average?: number | null;
-  vote_count?: number | null;
-};
-
-/**
- * Neighbours of this work, for the space under the hero.
- *
- * A film has no episode list, so without this the page is a hero and then
- * several hundred pixels of nothing — which reads as broken. `/recommendations`
- * is TMDB's better list but is sparse for obscure works, so `/similar` tops it
- * up. Items with no poster are dropped: a rail of blank tiles is not content.
- */
-export async function fetchMoreLikeThis(
-  ref: TmdbRef,
-  limit = 12,
-): Promise<TmdbSimilar[]> {
-  return memo(`similar:${ref.mediaType}:${ref.id}:${limit}`, async () => {
-    const primary = await tmdbGet<{ results?: RawWork[] }>(
-      `/${ref.mediaType}/${ref.id}/recommendations`,
-    );
-
-    const raw: RawWork[] = [...(primary?.results ?? [])];
-    if (raw.length < limit) {
-      const secondary = await tmdbGet<{ results?: RawWork[] }>(
-        `/${ref.mediaType}/${ref.id}/similar`,
-      );
-      raw.push(...(secondary?.results ?? []));
-    }
-
-    const seen = new Set<number>();
-    const out: TmdbSimilar[] = [];
-    for (const item of raw) {
-      if (out.length >= limit) break;
-      if (typeof item.id !== "number" || seen.has(item.id)) continue;
-      seen.add(item.id);
-
-      const title = text(item.title) ?? text(item.name);
-      const poster = posterUrl(item.poster_path);
-      if (!title || !poster) continue;
-
-      const date = item.release_date || item.first_air_date || "";
-      const year = date ? Number.parseInt(date.slice(0, 4), 10) : NaN;
-      const votes = typeof item.vote_count === "number" ? item.vote_count : 0;
-      const average =
-        typeof item.vote_average === "number" ? item.vote_average : 0;
-
-      out.push({
-        title,
-        year: Number.isFinite(year) ? year : null,
-        mediaType: ref.mediaType,
-        posterUrl: poster,
-        // A 10.0 from four voters is not a rating. Below the floor, say nothing.
-        rating: average > 0 && votes >= 20 ? Math.round(average * 10) / 10 : null,
-      });
-    }
-    return out;
   });
 }
 

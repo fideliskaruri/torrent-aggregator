@@ -7,8 +7,35 @@ const globalForPrisma = globalThis as unknown as {
   prismaSchemaSignature: string | undefined;
 };
 
+type PrismaSchemaRuntime = {
+  dmmf?: { datamodel?: unknown };
+  ModelName?: Record<string, string>;
+  [key: string]: unknown;
+};
+
+export function prismaSchemaSignatureFrom(runtime: PrismaSchemaRuntime): string {
+  if (runtime.dmmf?.datamodel) {
+    return JSON.stringify(runtime.dmmf.datamodel);
+  }
+
+  const models = Object.values(runtime.ModelName ?? {})
+    .sort()
+    .map((name) => {
+      const fieldEnum = runtime[`${name}ScalarFieldEnum`];
+      const fields =
+        fieldEnum && typeof fieldEnum === "object"
+          ? Object.values(fieldEnum as Record<string, string>)
+              .sort()
+              .map((fieldName) => ({ name: fieldName }))
+          : [];
+      return { name, fields };
+    });
+
+  return JSON.stringify({ models });
+}
+
 export function generatedPrismaSchemaSignature(): string {
-  return JSON.stringify(Prisma.dmmf.datamodel);
+  return prismaSchemaSignatureFrom(Prisma as unknown as PrismaSchemaRuntime);
 }
 
 function resolveSqliteUrl(): string {
@@ -36,8 +63,12 @@ function createPrismaClient() {
   return new PrismaClient({ adapter });
 }
 
-const schemaSignature = generatedPrismaSchemaSignature();
+const schemaSignature =
+  process.env.NODE_ENV === "production"
+    ? undefined
+    : generatedPrismaSchemaSignature();
 const cachedPrisma =
+  schemaSignature != null &&
   globalForPrisma.prismaSchemaSignature === schemaSignature
     ? globalForPrisma.prisma
     : undefined;

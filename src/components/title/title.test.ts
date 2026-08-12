@@ -307,6 +307,42 @@ check("titlePath: carries what the card knew", () => {
   assert.equal(qs.get("type"), "movie");
 });
 
+check("titlePath: carries exact provider identity for recommendation cards", () => {
+  const href = titlePath("overlord", {
+    title: "Overlord",
+    year: 2015,
+    mediaType: "anime",
+    provider: "anilist",
+    providerId: "20832",
+    sourceType: "anime",
+    format: "TV",
+    series: true,
+    aliases: ["Overlord"],
+  });
+  const qs = new URLSearchParams(href.split("?")[1]);
+  assert.equal(qs.get("provider"), "anilist");
+  assert.equal(qs.get("providerId"), "20832");
+  assert.equal(qs.get("sourceType"), "anime");
+  assert.equal(qs.get("format"), "TV");
+  assert.equal(qs.get("series"), "1");
+  assert.deepEqual(qs.getAll("alias"), ["Overlord"]);
+});
+
+check("titlePath: omits incomplete AniList identity instead of creating a 400 link", () => {
+  const href = titlePath("unknown-anime", {
+    title: "Unknown Anime",
+    mediaType: "anime",
+    provider: "anilist",
+    providerId: "123",
+    sourceType: "anime",
+    format: null,
+    series: true,
+  });
+  const qs = new URLSearchParams(href.split("?")[1]);
+  assert.equal(qs.get("provider"), null);
+  assert.equal(qs.get("providerId"), null);
+});
+
 check("titlePath: never points at the release table", () => {
   const href = titlePath("severance", { title: "Severance", season: 2 });
   assert.ok(!href.includes("/search"), href);

@@ -77,6 +77,14 @@ export type UseApiQueryOptions<T> = {
   select?: (json: unknown) => T;
   /** Treat 401 as an empty result rather than an error. Defaults to true. */
   emptyOnUnauthorized?: boolean;
+  /**
+   * Identity of the data represented by this URL.
+   *
+   * Defaults to the full URL. Callers may provide a stable identity when a URL
+   * changes only a scoped subresource (for example, a season number) while the
+   * existing work-level data should remain visible during the refresh.
+   */
+  dataIdentity?: string | null;
 };
 
 function messageFor(err: unknown): string {
@@ -100,12 +108,19 @@ export function useApiQuery<T = unknown>(
     refreshMs = 0,
     select,
     emptyOnUnauthorized = true,
+    dataIdentity = url,
   } = options;
 
   const [data, setData] = useState<T | null>(null);
+  const [storedDataIdentity, setStoredDataIdentity] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState<boolean>(Boolean(url) && enabled);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{
+    url: string;
+    message: string;
+  } | null>(null);
   /**
    * The URL whose request has actually finished. Compared against the URL now
    * being asked for, so a season switch (which changes the URL) reads as
@@ -135,9 +150,9 @@ export function useApiQuery<T = unknown>(
     selectRef.current = select;
   });
 
-  // Whether anything has ever loaded, so a failing *refresh* is reported as a
-  // refresh failure and does not blank the screen.
-  const hasDataRef = useRef(false);
+  // The successful response currently stored in `data`. A response for one
+  // URL must never flash while a new URL is loading.
+  const dataIdentityRef = useRef<string | null>(null);
 
   // Poll-gating state. Refs, not state: reading them must never re-render, and
   // the interval closure has to see the *current* value, not the one captured
@@ -178,8 +193,12 @@ export function useApiQuery<T = unknown>(
     const lifecycle = lifecycleRef.current;
     const generation = lifecycle.begin(Date.now());
 
-    if (hasDataRef.current) setRefreshing(true);
-    else setLoading(true);
+    if (dataIdentityRef.current === dataIdentity) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+      setRefreshing(false);
+    }
 
     void (async () => {
       try {
@@ -188,8 +207,9 @@ export function useApiQuery<T = unknown>(
         if (res.status === 401 && emptyOnUnauthorized) {
           if (!cancelled) {
             setData(null);
-            setError(null);
-            hasDataRef.current = true;
+            setStoredDataIdentity(dataIdentity);
+            dataIdentityRef.current = dataIdentity;
+            setErrorState(null);
           }
           return;
         }
@@ -215,13 +235,14 @@ export function useApiQuery<T = unknown>(
           : (json as T);
 
         setData(next);
-        setError(null);
-        hasDataRef.current = true;
+        setStoredDataIdentity(dataIdentity);
+        dataIdentityRef.current = dataIdentity;
+        setErrorState(null);
       } catch (err) {
         // An abort is this component unmounting or re-querying. It is not a
         // failure and must never be shown as one.
         if (cancelled || (err as Error)?.name === "AbortError") return;
-        setError(messageFor(err));
+        setErrorState({ url, message: messageFor(err) });
       } finally {
         // Only the generation that still owns the lifecycle may settle it. A
         // superseded request settling late must not report the current one as
@@ -244,7 +265,7 @@ export function useApiQuery<T = unknown>(
       lifecycle.abandon(generation);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, active, attempt, emptyOnUnauthorized, ...deps]);
+  }, [url, active, attempt, emptyOnUnauthorized, dataIdentity, ...deps]);
 
   // Polling is a separate effect so changing the interval does not cancel an
   // in-flight request.
@@ -298,13 +319,21 @@ export function useApiQuery<T = unknown>(
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [url, enabled, refreshMs]);
 
+  const dataBelongsToIdentity = storedDataIdentity === dataIdentity;
+  const visibleError =
+    errorState?.url === url ? errorState.message : null;
+
   return {
-    data,
+    data: dataBelongsToIdentity ? data : null,
     // Derived, not stored: a disabled query is not "loading", and deriving it
     // means flipping `enabled` cannot leave a stale spinner on screen.
-    loading: active && loading,
-    refreshing: active && refreshing,
-    error,
+    loading:
+      active &&
+      !dataBelongsToIdentity &&
+      visibleError == null &&
+      (loading || settledUrl !== url),
+    refreshing: active && dataBelongsToIdentity && refreshing,
+    error: visibleError,
     settled: active ? settledUrl === url : false,
     refetch,
   };

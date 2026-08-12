@@ -208,6 +208,12 @@ test("useApiQuery wires the request lifecycle rather than a bare flag", () => {
   ]) {
     assert.ok(source.includes(call), `hook does not call ${call}`);
   }
+  assert.match(
+    source,
+    /data: dataBelongsToIdentity \? data : null/,
+    "data from a previous identity must never flash during navigation",
+  );
+  assert.match(source, /dataIdentityRef\.current === dataIdentity/);
 });
 
 function visibilityReturn(

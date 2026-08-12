@@ -15,7 +15,7 @@
  * Pure and network-free: `release-art.test.ts` drives it as a table.
  */
 import { cleanQueryTitle, type ArtworkQuery } from "./artwork";
-import { cleanTorrentTitle } from "./enrich";
+import { cleanTorrentTitle } from "./clean-torrent-title";
 import { normalizeMediaType } from "./media-type";
 
 export interface ReleaseArtworkQuery extends ArtworkQuery {

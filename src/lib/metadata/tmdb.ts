@@ -71,13 +71,26 @@ const REPEATED_CHAR = /^(.)\1*$/;
 /** `your-key-here`, `put your key here`, `<your api key>`. */
 const OBVIOUS_TEMPLATE = /\byour\b|\bhere\b|^<.*>$|\bkey\s*goes\b/i;
 
+function normalizeTmdbCredential(
+  value: string | undefined | null,
+): string {
+  let credential = value?.trim() ?? "";
+  if (
+    credential.length >= 2 &&
+    ((credential.startsWith('"') && credential.endsWith('"')) ||
+      (credential.startsWith("'") && credential.endsWith("'")))
+  ) {
+    credential = credential.slice(1, -1).trim();
+  }
+  return credential;
+}
+
 /**
  * True when `value` is a usable API key rather than a placeholder.
  * Exported so tests can pin the gate down directly.
  */
 export function isUsableTmdbKey(value: string | undefined | null): boolean {
-  if (!value) return false;
-  const key = value.trim();
+  const key = normalizeTmdbCredential(value);
   if (key.length < MIN_KEY_LENGTH) return false;
   if (REPEATED_CHAR.test(key)) return false;
   const lower = key.toLowerCase();
@@ -89,7 +102,32 @@ export function isUsableTmdbKey(value: string | undefined | null): boolean {
 /** The configured key, or null when absent/placeholder. Always trimmed. */
 export function tmdbApiKey(): string | null {
   const raw = process.env.TMDB_API_KEY;
-  return isUsableTmdbKey(raw) ? (raw as string).trim() : null;
+  return isUsableTmdbKey(raw) ? normalizeTmdbCredential(raw) : null;
+}
+
+function isV4ReadAccessToken(value: string): boolean {
+  return value.length > 80 && value.split(".").length === 3;
+}
+
+/**
+ * Apply either supported TMDB credential shape to a request.
+ *
+ * V3 keys are query parameters. V4 read-access tokens are JWTs and must be
+ * sent as bearer tokens; accepting a v4 token and then putting it in
+ * `api_key=` makes every request 401 while still reporting TMDB as configured.
+ */
+export function applyTmdbCredential(
+  url: URL,
+  credential: string,
+): Record<string, string> | undefined {
+  if (isV4ReadAccessToken(credential)) {
+    return {
+      Accept: "application/json",
+      Authorization: `Bearer ${credential}`,
+    };
+  }
+  url.searchParams.set("api_key", credential);
+  return undefined;
 }
 
 /** Whether TMDB can be called at all. Callers use this to skip straight to fallbacks. */
@@ -115,13 +153,15 @@ export async function searchTmdb(
 
   const runQuery = async (q: string): Promise<MediaMetadata[]> => {
     const url = new URL(`${TMDB_BASE}/search/multi`);
-    url.searchParams.set("api_key", key);
+    const headers = applyTmdbCredential(url, key);
     url.searchParams.set("query", q);
     url.searchParams.set("include_adult", "false");
     url.searchParams.set("language", "en-US");
     url.searchParams.set("page", "1");
 
     const res = await fetch(url, {
+      cache: "force-cache",
+      headers,
       signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
       next: { revalidate: 3600 },
     });
@@ -167,13 +207,15 @@ export async function searchTmdbByType(
 
   const runQuery = async (q: string): Promise<MediaMetadata[]> => {
     const url = new URL(`${TMDB_BASE}/search/${mediaType}`);
-    url.searchParams.set("api_key", key);
+    const headers = applyTmdbCredential(url, key);
     url.searchParams.set("query", q);
     url.searchParams.set("include_adult", "false");
     url.searchParams.set("language", "en-US");
     url.searchParams.set("page", "1");
 
     const res = await fetch(url, {
+      cache: "force-cache",
+      headers,
       signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
       next: { revalidate: 3600 },
     });
@@ -243,10 +285,12 @@ export async function getTmdbById(
   if (!key) return null;
 
   const url = new URL(`${TMDB_BASE}/${mediaType}/${id}`);
-  url.searchParams.set("api_key", key);
+  const headers = applyTmdbCredential(url, key);
   url.searchParams.set("language", "en-US");
 
   const res = await fetch(url, {
+    cache: "force-cache",
+    headers,
     signal: AbortSignal.timeout(10_000),
     next: { revalidate: 3600 },
   });
@@ -303,7 +347,7 @@ export async function searchTmdbCandidates(
   const { year, limit = 8, timeoutMs = 5000 } = opts;
 
   const url = new URL(`${TMDB_BASE}/search/${scope}`);
-  url.searchParams.set("api_key", key);
+  const headers = applyTmdbCredential(url, key);
   url.searchParams.set("query", term);
   url.searchParams.set("include_adult", "false");
   url.searchParams.set("language", "en-US");
@@ -316,6 +360,8 @@ export async function searchTmdbCandidates(
 
   try {
     const res = await fetch(url, {
+      cache: "force-cache",
+      headers,
       signal: AbortSignal.timeout(timeoutMs),
       next: { revalidate: 3600 },
     });
@@ -402,7 +448,7 @@ export async function fetchTmdbDetail(
   if (!key || !Number.isFinite(id)) return null;
 
   const url = new URL(`${TMDB_BASE}/${mediaType}/${id}`);
-  url.searchParams.set("api_key", key);
+  const headers = applyTmdbCredential(url, key);
   url.searchParams.set("language", "en-US");
   url.searchParams.set(
     "append_to_response",
@@ -411,6 +457,8 @@ export async function fetchTmdbDetail(
 
   try {
     const res = await fetch(url, {
+      cache: "force-cache",
+      headers,
       signal: AbortSignal.timeout(opts.timeoutMs ?? 5000),
       next: { revalidate: 3600 },
     });
@@ -433,11 +481,13 @@ export async function fetchTmdbSeason(
   }
 
   const url = new URL(`${TMDB_BASE}/tv/${id}/season/${seasonNumber}`);
-  url.searchParams.set("api_key", key);
+  const headers = applyTmdbCredential(url, key);
   url.searchParams.set("language", "en-US");
 
   try {
     const res = await fetch(url, {
+      cache: "force-cache",
+      headers,
       signal: AbortSignal.timeout(opts.timeoutMs ?? 5000),
       next: { revalidate: 3600 },
     });

@@ -191,6 +191,12 @@ export interface TitleLinkParams {
   mediaType?: string | null;
   /** Accepted for caller compatibility; season persistence lives in a cookie. */
   season?: number | null;
+  provider?: "anilist" | "tmdb" | null;
+  providerId?: string | null;
+  sourceType?: "anime" | "movie" | "tv" | null;
+  format?: string | null;
+  series?: boolean | null;
+  aliases?: readonly string[];
 }
 
 /**
@@ -209,6 +215,26 @@ export function titlePath(key: string, params: TitleLinkParams): string {
   if (params.year) search.set("y", String(params.year));
   const mediaType = params.mediaType?.trim();
   if (mediaType) search.set("type", mediaType);
+  const provider = params.provider;
+  const providerId = params.providerId?.trim();
+  const sourceType = params.sourceType?.trim();
+  if (
+    provider &&
+    providerId &&
+    sourceType &&
+    params.series != null &&
+    (provider !== "anilist" || Boolean(params.format))
+  ) {
+    search.set("provider", provider);
+    search.set("providerId", providerId);
+    search.set("sourceType", sourceType);
+    if (params.format) search.set("format", params.format);
+    search.set("series", params.series ? "1" : "0");
+    for (const alias of params.aliases ?? []) {
+      const value = alias.trim();
+      if (value) search.append("alias", value);
+    }
+  }
   const qs = search.toString();
   const segment = encodeKeySegment(key);
   return qs ? `${TITLE_HREF}/${segment}?${qs}` : `${TITLE_HREF}/${segment}`;

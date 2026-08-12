@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import type { RecommendationRail } from "@/lib/recommend";
 import { PosterImage } from "@/components/browse/poster-image";
-import { titleHrefForName } from "@/components/title/work-key";
+import { titlePath, workKeyFor } from "@/components/title/work-key";
 
 /**
  * One rail of suggestions, headed with the library title that explains it.
@@ -93,9 +93,20 @@ export function RecommendationRailSection({
       <ul className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         {visible.map((item) => {
           const key = `${item.mediaType}:${item.externalId}`;
-          const titleHref = titleHrefForName(item.title, {
-            mediaType: item.mediaType,
-          });
+          const workKey = workKeyFor(
+            item.title,
+            item.isSeries ? null : item.year,
+          );
+          const titleHref = workKey ? titlePath(workKey, {
+            title: item.title,
+            year: item.year,
+            mediaType: item.titleMediaType,
+            provider: item.provider,
+            providerId: item.externalId,
+            sourceType: item.sourceMediaType,
+            format: item.format,
+            series: item.isSeries,
+          }) : null;
           return (
             <li key={key} className="min-w-0">
               <div className="surface flex h-full flex-col overflow-hidden">

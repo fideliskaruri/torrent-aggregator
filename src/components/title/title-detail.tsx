@@ -348,12 +348,25 @@ export function TitleDetail(props: TitleDetailProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       props.workKey,
+      props.title,
+      props.year,
+      props.mediaType,
+      props.provider,
+      props.providerId,
+      props.sourceType,
+      props.format,
+      props.seriesHint,
+      props.aliases,
       data?.title,
       data?.year,
       data?.mediaType,
       data?.posterUrl,
       activeSeason,
     ],
+  );
+  const extrasIdentity = useMemo(
+    () => extrasDataIdentity(extrasUrl),
+    [extrasUrl],
   );
   const {
     data: extras,
@@ -362,7 +375,9 @@ export function TitleDetail(props: TitleDetailProps) {
     error: extrasError,
     settled: extrasSettled,
     refetch: refetchExtras,
-  } = useApiQuery<TitleExtrasPayload>(extrasUrl);
+  } = useApiQuery<TitleExtrasPayload>(extrasUrl, {
+    dataIdentity: extrasIdentity,
+  });
   const episodeTitles = useMemo(
     () =>
       extras?.season == null
@@ -1497,10 +1512,12 @@ function buildExtrasUrl(
   if (!title) return null;
 
   const params = new URLSearchParams();
-  params.set("v", "2");
+  params.set("v", "3");
   params.set("t", title);
   if (payload.year) params.set("y", String(payload.year));
-  if (payload.mediaType) params.set("type", payload.mediaType);
+  const routeMediaType =
+    props.provider ? (props.mediaType ?? payload.mediaType) : payload.mediaType;
+  if (routeMediaType) params.set("type", routeMediaType);
   if (payload.posterUrl) params.set("poster", payload.posterUrl);
   if (season != null) params.set("s", String(season));
   if (props.provider) params.set("provider", props.provider);
@@ -1511,6 +1528,13 @@ function buildExtrasUrl(
   for (const alias of props.aliases ?? []) params.append("alias", alias);
 
   return `/api/title/${encodeURIComponent(props.workKey)}/extras?${params.toString()}`;
+}
+
+function extrasDataIdentity(url: string | null): string | null {
+  if (!url) return null;
+  const parsed = new URL(url, "http://torrentflow.local");
+  parsed.searchParams.delete("s");
+  return `${parsed.pathname}?${parsed.searchParams.toString()}`;
 }
 
 /** True when the payload still has something the engine is moving. */

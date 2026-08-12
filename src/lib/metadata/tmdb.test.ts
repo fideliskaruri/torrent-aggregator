@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 
 import {
+  applyTmdbCredential,
   backdropUrl,
   hasTmdbKey,
   isUsableTmdbKey,
@@ -45,6 +46,8 @@ async function main() {
     const ACCEPT = [
       REAL_SHAPED_KEY,
       `  ${REAL_SHAPED_KEY}  `,
+      `  "${REAL_SHAPED_KEY}"  `,
+      `  '${REAL_SHAPED_KEY}'  `,
       "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI2ZjFhMmIzYyJ9.abcdef",
       "abc1234567",
     ];
@@ -78,11 +81,23 @@ async function main() {
       });
     }
 
-    process.env.TMDB_API_KEY = `  ${REAL_SHAPED_KEY}  `;
+    process.env.TMDB_API_KEY = `  "${REAL_SHAPED_KEY}"  `;
     check("the key is trimmed before use", () => {
       assert.equal(tmdbApiKey(), REAL_SHAPED_KEY);
       assert.equal(hasTmdbKey(), true);
     });
+
+    const v3Url = new URL("https://api.themoviedb.org/3/search/tv");
+    assert.equal(applyTmdbCredential(v3Url, REAL_SHAPED_KEY), undefined);
+    assert.equal(v3Url.searchParams.get("api_key"), REAL_SHAPED_KEY);
+
+    const v4Token = `${"a".repeat(40)}.${"b".repeat(40)}.${"c".repeat(40)}`;
+    const v4Url = new URL("https://api.themoviedb.org/3/search/tv");
+    assert.deepEqual(applyTmdbCredential(v4Url, v4Token), {
+      Accept: "application/json",
+      Authorization: `Bearer ${v4Token}`,
+    });
+    assert.equal(v4Url.searchParams.has("api_key"), false);
 
     process.env.TMDB_API_KEY = "xx";
     check("a placeholder reads as no key at all", () => {
@@ -106,9 +121,14 @@ async function main() {
 
     process.env.TMDB_API_KEY = REAL_SHAPED_KEY;
     const seen: string[] = [];
-    (globalThis as { fetch: unknown }).fetch = async (input: unknown) => {
+    let lastInit: RequestInit | undefined;
+    (globalThis as { fetch: unknown }).fetch = async (
+      input: unknown,
+      init?: RequestInit,
+    ) => {
       const url = String(input);
       seen.push(url);
+      lastInit = init;
       return new Response(
         JSON.stringify({
           results: [
@@ -132,6 +152,7 @@ async function main() {
     check("a movie search sends year=", () => {
       assert.ok(seen[0].includes("/search/movie"), seen[0]);
       assert.ok(seen[0].includes("year=2021"), seen[0]);
+      assert.equal(lastInit?.cache, "force-cache");
     });
     check("posters and backdrops are built at usable sizes", () => {
       assert.equal(

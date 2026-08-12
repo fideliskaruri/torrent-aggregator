@@ -7,8 +7,11 @@ import type {
   TitleSimilar,
 } from "@/components/title/types";
 import {
+  recommendationsForProvider,
+  type Recommendation,
+} from "@/lib/recommend";
+import {
   fetchHomeRelease,
-  fetchMoreLikeThis,
   fetchSeasonEpisodes,
   fetchShowShape,
   fetchTitleFacts,
@@ -86,25 +89,45 @@ export async function GET(request: Request, context: RouteContext) {
   try {
     const providerResult = await resolveTitleProviderIdentity(url.searchParams, key);
     const providerResponse = providerExtrasResponse(providerResult, empty);
-    if (providerResponse) return NextResponse.json(providerResponse);
+    if (providerResponse) {
+      if (providerResult.kind !== "verified") {
+        return NextResponse.json(providerResponse);
+      }
+      const rail = await recommendationsForProvider(
+        {
+          provider: providerResult.identity.provider,
+          title,
+          mediaType: providerResult.identity.mediaType,
+          externalId: providerResult.identity.externalId,
+        },
+        new Set(),
+        12,
+      );
+      return NextResponse.json({
+        ...providerResponse,
+        moreLikeThis: (rail?.items ?? []).map(toSimilarLink),
+      });
+    }
 
-    // A verified TMDB identity already names the exact work. Use its id
-    // directly rather than re-searching TMDB by title — that guess is what let
-    // Dune (1984) resolve to Dune (2021). Fall back to the title search only
-    // when no verified id is on hand.
-    const verifiedTmdbId =
+    // A verified TMDB identity already names the exact work. A carried id is
+    // still client-supplied and has not been matched to the selected title, so
+    // never use it directly or replace it with a different title-search guess.
+    const tmdbIdentity =
       providerResult.kind === "verified" &&
       providerResult.identity.provider === "tmdb"
-        ? Number.parseInt(providerResult.identity.externalId, 10)
+        ? providerResult.identity
         : null;
+    const exactTmdbId = tmdbIdentity
+      ? Number.parseInt(tmdbIdentity.externalId, 10)
+      : null;
     const ref =
-      verifiedTmdbId != null && Number.isFinite(verifiedTmdbId)
+      exactTmdbId != null && Number.isFinite(exactTmdbId)
         ? {
-            id: verifiedTmdbId,
-            mediaType: providerResult.kind === "verified" &&
-              providerResult.identity.mediaType === "tv"
-              ? ("tv" as const)
-              : ("movie" as const),
+            id: exactTmdbId,
+            mediaType:
+              tmdbIdentity?.mediaType === "tv"
+                ? ("tv" as const)
+                : ("movie" as const),
           }
         : providerResult.kind === "absent"
           ? await resolveTmdbRef({ title, year, mediaType })
@@ -129,15 +152,22 @@ export async function GET(request: Request, context: RouteContext) {
           ? fetchAniListRecommendationsForPoster(title, posterUrl).catch(() => [])
           : Promise.resolve([]),
       ]);
-      const moreLikeThis = animeRecommendations.map((work) =>
-        toSimilarLink({
+      const moreLikeThis = animeRecommendations.map((work) => {
+        const recommendation: Recommendation = {
+          provider: "anilist",
+          sourceMediaType: "anime",
+          mediaType: "anime",
+          titleMediaType: work.isSeries ? "anime" : "movie",
+          externalId: work.metadata.externalId,
           title: work.metadata.title,
           year: work.metadata.year ?? null,
-          mediaType: work.metadata.mediaType,
           posterUrl: work.metadata.posterUrl ?? null,
           rating: work.metadata.rating ?? null,
-        }),
-      );
+          format: work.format,
+          isSeries: work.isSeries,
+        };
+        return toSimilarLink(recommendation);
+      });
       return NextResponse.json(
         {
           ...(keylessTvResponse ?? empty),
@@ -151,9 +181,18 @@ export async function GET(request: Request, context: RouteContext) {
     // The season shape, the neighbours, the blurb, and (for movies only) the
     // home-release dates have no dependency on each other, so serialising them
     // would multiply the wait for no reason.
-    const [shape, similar, blurb, homeRelease, facts] = await Promise.all([
+    const [shape, rail, blurb, homeRelease, facts] = await Promise.all([
       series ? fetchShowShape(ref.id) : Promise.resolve(null),
-      fetchMoreLikeThis(ref),
+      recommendationsForProvider(
+        {
+          provider: "tmdb",
+          title,
+          mediaType: ref.mediaType,
+          externalId: String(ref.id),
+        },
+        new Set(),
+        12,
+      ),
       fetchWorkBlurb(ref),
       // Home-release gating applies to movies only. Series episodes are already
       // gated individually via air dates (isUnaired in merge-extras.ts).
@@ -200,7 +239,7 @@ export async function GET(request: Request, context: RouteContext) {
       seasonCount: shape?.seasonCount ?? null,
       seasons: shape?.seasons ?? [],
       episodes,
-      moreLikeThis: similar.map(toSimilarLink),
+      moreLikeThis: (rail?.items ?? []).map(toSimilarLink),
       overview: blurb.overview,
       rating: blurb.rating,
       releaseDate: blurb.releaseDate,
@@ -229,14 +268,8 @@ export async function GET(request: Request, context: RouteContext) {
  * ambiguous ("dune") still renders correctly when the title, year and media
  * type ride along — the same hints a browse card carries.
  */
-function toSimilarLink(item: {
-  title: string;
-  year: number | null;
-  mediaType: string;
-  posterUrl: string | null;
-  rating: number | null;
-}): TitleSimilar {
-  const normalized = normalizeMediaType(item.mediaType);
+function toSimilarLink(item: Recommendation): TitleSimilar {
+  const normalized = normalizeMediaType(item.titleMediaType);
   // A film's identity includes its year; a series' does not, because a show
   // spans years and its releases never agree on which one to print.
   const series = normalized ? isSeriesMediaType(normalized) : false;
@@ -249,6 +282,11 @@ function toSimilarLink(item: {
       title: item.title,
       year: item.year,
       mediaType: normalized ?? item.mediaType,
+      provider: item.provider,
+      providerId: item.externalId,
+      sourceType: item.sourceMediaType,
+      format: item.format,
+      series: item.isSeries,
     }),
     title: item.title,
     year: item.year,

@@ -17,8 +17,9 @@ import { providerEpisodePlaceholders } from "./episode-placeholders";
  * list. Nothing is invented: with no count the list stays empty and
  * `resolved:false` still says "the identity resolved, the catalog did not".
  *
- * `null` means no provider identity was carried, so ordinary TMDB resolution
- * may proceed. Every other result is terminal.
+ * `null` means the ordinary TMDB extras pipeline may proceed. AniList responses
+ * remain authoritative for episode shape; the route may attach recommendations
+ * from that same verified AniList id without changing any of these fields.
  */
 export function providerExtrasResponse(
   result: TitleProviderIdentityResult,

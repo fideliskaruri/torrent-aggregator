@@ -50,9 +50,25 @@ assert.match(
 assert.match(source, /data-action-kind=\{primary\.kind\}/);
 assert.match(
   source,
-  /params\.set\("v", "2"\)/,
+  /params\.set\("v", "3"\)/,
   "title enrichment contract changes must invalidate retained extras data",
 );
+assert.match(
+  source,
+  /props\.provider,\s*props\.providerId,\s*props\.sourceType,\s*props\.format,\s*props\.seriesHint,\s*props\.aliases,/,
+  "provider identity changes must rebuild the extras query URL",
+);
+assert.match(
+  source,
+  /props\.provider \? \(props\.mediaType \?\? payload\.mediaType\) : payload\.mediaType/,
+  "provider links must preserve their route media type, including AniList films",
+);
+assert.match(
+  source,
+  /useApiQuery<TitleExtrasPayload>\(extrasUrl, \{\s*dataIdentity: extrasIdentity,/,
+  "season changes must retain work-level extras without retaining another title's data",
+);
+assert.match(source, /parsed\.searchParams\.delete\("s"\)/);
 
 // Durable manual-season persistence (BUG: Season 2 pick reset to Season 9
 // after leaving through an ordinary link). The cookie is written ONLY from
