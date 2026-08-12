@@ -48,6 +48,11 @@ assert.match(
   /if \(primary\.kind === "discover"\) \{\s*void refetchExtras\(\);[\s\S]*requestAction\(/,
 );
 assert.match(source, /data-action-kind=\{primary\.kind\}/);
+assert.match(
+  source,
+  /params\.set\("v", "2"\)/,
+  "title enrichment contract changes must invalidate retained extras data",
+);
 
 // Durable manual-season persistence (BUG: Season 2 pick reset to Season 9
 // after leaving through an ordinary link). The cookie is written ONLY from

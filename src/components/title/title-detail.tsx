@@ -1497,6 +1497,7 @@ function buildExtrasUrl(
   if (!title) return null;
 
   const params = new URLSearchParams();
+  params.set("v", "2");
   params.set("t", title);
   if (payload.year) params.set("y", String(payload.year));
   if (payload.mediaType) params.set("type", payload.mediaType);
