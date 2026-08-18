@@ -66,6 +66,11 @@ function show(
     posterUrl,
     backdropUrl: null,
     score,
+    summary: null,
+    genres: [],
+    rating: null,
+    premiered: null,
+    runtimeMin: null,
   };
 }
 

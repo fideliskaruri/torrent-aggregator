@@ -433,7 +433,15 @@ export function matchTier(queryTitle: string, candidateTitle: string): number {
   return dice(qTokens, cTokens) * 70;
 }
 
-interface Candidate {
+/**
+ * One provider row, reduced to what matching needs.
+ *
+ * Exported because textual detail has to be matched by exactly the same rules
+ * as artwork — see `keyless-detail.ts`. A second, looser matcher living
+ * somewhere else is how a page ends up wearing one film's poster over another
+ * film's synopsis.
+ */
+export interface Candidate {
   title: string;
   year: number | null;
   posterUrl: string | null;
@@ -766,7 +774,7 @@ export function resetArtworkCache(): void {
 // Entry points
 // ---------------------------------------------------------------------------
 
-function normalizeQuery(q: ArtworkQuery): NormalizedQuery | null {
+export function normalizeQuery(q: ArtworkQuery): NormalizedQuery | null {
   if (!q || typeof q.title !== "string") return null;
   const cleaned = cleanQueryTitle(q.title);
   if (!normalizeTitleForMatch(cleaned.title)) return null;

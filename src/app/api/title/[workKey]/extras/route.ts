@@ -23,6 +23,10 @@ import { providerEpisodePlaceholders } from "./episode-placeholders";
 import { providerExtrasResponse } from "./provider-response";
 import { tvmazeExtrasResponse } from "./tvmaze-response";
 import { fetchAniListRecommendationsForPoster } from "@/lib/metadata/anilist";
+import {
+  resolveWorkDetail,
+  type WorkDetail,
+} from "@/lib/metadata/work-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -134,24 +138,34 @@ export async function GET(request: Request, context: RouteContext) {
           : null;
     if (!ref) {
       const posterUrl = url.searchParams.get("poster");
-      const [keylessTvResponse, animeRecommendations] = await Promise.all([
-        tvmazeExtrasResponse(
-          providerResult,
-          empty,
-          {
-            workKey: key,
+      const [keylessTvResponse, animeRecommendations, keylessDetail] =
+        await Promise.all([
+          tvmazeExtrasResponse(
+            providerResult,
+            empty,
+            {
+              workKey: key,
+              title,
+              year,
+              posterUrl,
+              isSeries:
+                isSeriesMediaType(mediaType)
+                || url.searchParams.get("series") === "1",
+            },
+          ),
+          normalizeMediaType(mediaType) === "anime"
+            ? fetchAniListRecommendationsForPoster(title, posterUrl).catch(() => [])
+            : Promise.resolve([]),
+          // The blurb, score, genres and date a keyless provider can vouch for.
+          // Without this the whole hero — synopsis, rating, year, chips — is
+          // empty on any install with no TMDB key. Never throws, never blocks:
+          // `resolveWorkDetail` owns its own timeout and returns null.
+          resolveWorkDetail({
             title,
             year,
-            posterUrl,
-            isSeries:
-              isSeriesMediaType(mediaType)
-              || url.searchParams.get("series") === "1",
-          },
-        ),
-        normalizeMediaType(mediaType) === "anime"
-          ? fetchAniListRecommendationsForPoster(title, posterUrl).catch(() => [])
-          : Promise.resolve([]),
-      ]);
+            mediaType: normalizeMediaType(mediaType),
+          }).catch(() => null),
+        ]);
       const moreLikeThis = animeRecommendations.map((work) => {
         const recommendation: Recommendation = {
           provider: "anilist",
@@ -169,10 +183,7 @@ export async function GET(request: Request, context: RouteContext) {
         return toSimilarLink(recommendation);
       });
       return NextResponse.json(
-        {
-          ...(keylessTvResponse ?? empty),
-          moreLikeThis,
-        },
+        mergeKeylessDetail(keylessTvResponse ?? empty, keylessDetail, moreLikeThis),
       );
     }
 
@@ -259,6 +270,43 @@ export async function GET(request: Request, context: RouteContext) {
     console.error("[title:extras]", err);
     return NextResponse.json(empty);
   }
+}
+
+/**
+ * Fold a keyless detail answer into the payload the title page reads.
+ *
+ * Additive only: a field an earlier source already filled is never replaced,
+ * so the TVmaze episode listing keeps its own season shape and only the empty
+ * hero fields — synopsis, score, date, genres — are filled in. `resolved`
+ * becomes true when *something* was learned, because the page uses it to stop
+ * showing enrichment as pending.
+ */
+export function mergeKeylessDetail(
+  base: TitleExtrasPayload,
+  detail: WorkDetail | null,
+  moreLikeThis: TitleSimilar[],
+): TitleExtrasPayload {
+  if (!detail) return { ...base, moreLikeThis };
+  const takesKeylessRating = base.rating == null && detail.rating != null;
+  return {
+    ...base,
+    moreLikeThis,
+    overview: base.overview ?? detail.overview ?? null,
+    rating: base.rating ?? detail.rating ?? null,
+    // Attribution follows the score. Only claim the keyless provider when its
+    // rating is the one actually being shown.
+    ratingSource: takesKeylessRating ? detail.source : base.ratingSource,
+    releaseDate: base.releaseDate ?? detail.releaseDate ?? null,
+    genres: base.genres.length > 0 ? base.genres : detail.genres,
+    resolved:
+      base.resolved ||
+      Boolean(
+        detail.overview ||
+          detail.rating != null ||
+          detail.releaseDate ||
+          detail.genres.length > 0,
+      ),
+  };
 }
 
 /**

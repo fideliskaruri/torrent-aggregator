@@ -1177,6 +1177,7 @@ function TitleContent({
                 <RatingMetaLine
                   rating={metaRating}
                   voteCount={extras?.voteCount ?? null}
+                  ratingSource={extras?.ratingSource ?? null}
                   year={metaYear}
                   isSeries={payload.isSeries}
                   seasonCount={seasonCount}

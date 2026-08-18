@@ -108,6 +108,30 @@ export interface HeroMetaInput {
   isSeries: boolean;
   seasonCount: number | null | undefined;
   runtimeLabel?: string | null;
+  /** Who supplied {@link rating}. See `ratingSource` on `TitleExtrasPayload`. */
+  ratingSource?: "tmdb" | "anilist" | "tvmaze" | "itunes" | null;
+}
+
+/**
+ * The badge that labels the score, named for whoever actually supplied it.
+ *
+ * Absent means TMDB: that was the only provider when this line was written, so
+ * every existing caller keeps its badge. A keyless install is served by AniList,
+ * TVmaze or iTunes, and each is credited by name rather than borrowing TMDB's.
+ */
+export function ratingBadgeLabel(
+  source: HeroMetaInput["ratingSource"],
+): string {
+  switch (source) {
+    case "anilist":
+      return "ANILIST";
+    case "tvmaze":
+      return "TVMAZE";
+    case "itunes":
+      return "ITUNES";
+    default:
+      return "TMDB";
+  }
 }
 
 /**
@@ -144,7 +168,7 @@ export function RatingMetaLine(input: HeroMetaInput) {
           data-title-tmdb-badge
           className="rounded-[calc(var(--radius)-3px)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
         >
-          TMDB
+          {ratingBadgeLabel(input.ratingSource)}
         </span>
       ) : null}
       <span className="tabular-nums">{line}</span>

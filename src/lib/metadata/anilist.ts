@@ -389,6 +389,26 @@ export async function getAniListById(id: string): Promise<MediaMetadata | null> 
   return (await getAniListWorkById(id))?.metadata ?? null;
 }
 
+/**
+ * AniList's `averageScore` on the 0–10 scale the rest of the app speaks.
+ *
+ * AniList scores out of 100 (`83`), TMDB and TVmaze out of 10 (`8.3`), and the
+ * hero prints one number — so the conversion has to happen exactly once, here.
+ * Anything outside AniList's own contract is *no score* rather than a guessed
+ * one: `null`/absent for an unrated work, a 0 that means "nobody has voted"
+ * rather than "rated zero", and an out-of-range value from a payload we do not
+ * recognise. One decimal, so 71 reads as 7.1 and never as 7.100000000000001.
+ */
+export function anilistScoreTo10(
+  averageScore: number | null | undefined,
+): number | null {
+  if (typeof averageScore !== "number" || !Number.isFinite(averageScore)) {
+    return null;
+  }
+  if (averageScore <= 0 || averageScore > 100) return null;
+  return Math.round(averageScore) / 10;
+}
+
 function mapAniList(m: AniListMedia): MediaMetadata {
   const title =
     m.title.english || m.title.romaji || m.title.native || `AniList #${m.id}`;
@@ -407,7 +427,7 @@ function mapAniList(m: AniListMedia): MediaMetadata {
     posterUrl: m.coverImage?.extraLarge || m.coverImage?.large || null,
     backdropUrl: m.bannerImage || null,
     synopsis: stripHtml(m.description ?? null),
-    rating: m.averageScore != null ? m.averageScore / 10 : null, // normalize ~0-10
+    rating: anilistScoreTo10(m.averageScore), // AniList scores out of 100
     year: m.seasonYear ?? m.startDate?.year ?? null,
     releaseDate: anilistStartDate(m.startDate),
     genres: m.genres ?? [],

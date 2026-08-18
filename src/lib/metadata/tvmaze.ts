@@ -31,6 +31,15 @@ export interface TvmazeCandidate {
   backdropUrl: null;
   /** TVmaze's own fuzzy search score, 0..1. */
   score: number;
+  /** Show synopsis as TVmaze stores it: **HTML**, `<p>…</p>`. Never plain text. */
+  summary: string | null;
+  genres: string[];
+  /** TVmaze's user rating, already on the 0–10 scale. Null when unrated. */
+  rating: number | null;
+  /** Series premiere, `YYYY-MM-DD`. */
+  premiered: string | null;
+  /** Typical episode runtime in minutes. Null on shows with no fixed slot. */
+  runtimeMin: number | null;
 }
 
 export interface TvmazeEpisode {
@@ -49,6 +58,11 @@ interface TvmazeSearchRow {
     name?: string;
     premiered?: string | null;
     image?: { medium?: string | null; original?: string | null } | null;
+    summary?: string | null;
+    genres?: unknown;
+    rating?: { average?: number | null } | null;
+    runtime?: number | null;
+    averageRuntime?: number | null;
   };
 }
 
@@ -167,6 +181,18 @@ function toCandidate(row: TvmazeSearchRow): TvmazeCandidate | null {
     posterUrl: show.image?.original || show.image?.medium || null,
     backdropUrl: null,
     score: typeof row.score === "number" ? row.score : 0,
+    summary: toOptionalString(show.summary),
+    genres: Array.isArray(show.genres)
+      ? show.genres.filter((g): g is string => typeof g === "string" && g.trim().length > 0)
+      : [],
+    // A show with no votes reports `average: null`; 0 would print as "0.0".
+    rating:
+      typeof show.rating?.average === "number" && show.rating.average > 0
+        ? show.rating.average
+        : null,
+    premiered: toDateString(show.premiered),
+    runtimeMin:
+      toPositiveInteger(show.runtime) ?? toPositiveInteger(show.averageRuntime),
   };
 }
 

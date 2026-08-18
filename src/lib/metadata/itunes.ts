@@ -40,6 +40,18 @@ export interface ItunesCandidate {
   backdropUrl: null;
   /** `feature-movie`, `tv-episode`, `song`, … */
   kind: string;
+  /** Store synopsis. Plain text, occasionally absent on back-catalogue films. */
+  description: string | null;
+  /**
+   * The single genre iTunes assigns, e.g. `Sci-Fi & Fantasy`. iTunes has no
+   * genre *list* and no rating at all — see `keyless-detail.ts` for why the
+   * rating stays null rather than being synthesised from the store.
+   */
+  genre: string | null;
+  /** `YYYY-MM-DD`, sliced off the store's ISO timestamp. */
+  releaseDate: string | null;
+  /** Feature runtime in whole minutes, from `trackTimeMillis`. */
+  runtimeMin: number | null;
 }
 
 interface ItunesRow {
@@ -50,6 +62,10 @@ interface ItunesRow {
   releaseDate?: string;
   artworkUrl100?: string;
   kind?: string;
+  longDescription?: string;
+  shortDescription?: string;
+  primaryGenreName?: string;
+  trackTimeMillis?: number;
 }
 
 const ITUNES_SEARCH = "https://itunes.apple.com/search";
@@ -124,5 +140,20 @@ function toCandidate(row: ItunesRow): ItunesCandidate | null {
     posterUrl: upscaleItunesArtwork(row.artworkUrl100),
     backdropUrl: null,
     kind: row.kind,
+    description:
+      trimmed(row.longDescription) ?? trimmed(row.shortDescription) ?? null,
+    genre: trimmed(row.primaryGenreName) ?? null,
+    releaseDate: /^\d{4}-\d{2}-\d{2}/.test(row.releaseDate ?? "")
+      ? (row.releaseDate as string).slice(0, 10)
+      : null,
+    runtimeMin:
+      typeof row.trackTimeMillis === "number" && row.trackTimeMillis > 0
+        ? Math.round(row.trackTimeMillis / 60000)
+        : null,
   };
+}
+
+function trimmed(value: string | undefined): string | null {
+  const text = value?.trim();
+  return text ? text : null;
 }

@@ -2,7 +2,7 @@
  * IMDb-grade detail for one work: synopsis, rating, runtime, genres,
  * certification, tagline, cast, director/creator, and season/episode listings.
  *
- * ## One provider path
+ * ## Two tiers, one identity
  *
  * This is not a second TMDB client. Identifying *which* work a title refers to
  * is the hardest part of this problem and it is already solved in `artwork.ts`
@@ -12,6 +12,15 @@
  * card and the title page it links to therefore cannot disagree about which
  * film they are describing, and for movies and series the detail lookup costs
  * no extra search because the artwork pass already recorded the id.
+ *
+ * When TMDB cannot answer — no key, a placeholder key, a revoked key, a work it
+ * has never heard of — the second tier takes over: `keyless-detail.ts`, which
+ * asks AniList, TVmaze and iTunes through *the same matcher*. That tier exists
+ * because gating text on `TMDB_API_KEY` left this install with a synopsis on 0
+ * of 120 catalog rows and title pages that showed a letter tile and a title.
+ * Artwork already had keyless fallbacks; text did not. Precedence is strictly
+ * one-directional — a fallback is consulted only when TMDB produced nothing at
+ * all, so it can never overwrite or dilute a TMDB answer.
  *
  * ## Never block a page
  *
@@ -33,7 +42,8 @@
  *   selector that opens onto nothing is the same defect as an empty rail.
  */
 import type { ArtworkQuery } from "./artwork";
-import { resolveTmdbRef } from "./artwork";
+import { normalizeQuery, resolveTmdbRef } from "./artwork";
+import { resolveKeylessDetail, type KeylessDetail } from "./keyless-detail";
 import {
   detailRowKey,
   detailStore,
@@ -86,8 +96,13 @@ export interface EpisodeDetail {
 }
 
 export interface WorkDetail {
-  source: "tmdb";
-  tmdbId: number;
+  /**
+   * Who answered. TMDB when a usable key resolved the work, otherwise the
+   * keyless provider that could vouch for it — see `keyless-detail.ts`.
+   */
+  source: "tmdb" | "anilist" | "tvmaze" | "itunes";
+  /** Null on a keyless answer: there is no TMDB handle to record. */
+  tmdbId: number | null;
   mediaType: "movie" | "tv";
   title: string;
   year: number | null;
@@ -516,8 +531,13 @@ function detailKey(ref: { id: number; mediaType: string }): string {
 }
 
 /**
- * Full detail for one title, or null when TMDB cannot be asked (no usable key)
- * or has no match this module is willing to vouch for.
+ * Full detail for one title, or null when nothing can vouch for a match.
+ *
+ * Precedence is fixed and one-directional: **TMDB when a usable key resolved
+ * the work**, otherwise a keyless provider. A fallback is only ever consulted
+ * when TMDB produced nothing at all, so it can never overwrite, dilute or
+ * race a TMDB answer — the failure this module is least allowed to have is a
+ * page that mixes two works' facts.
  *
  * Never throws and never hangs.
  */
@@ -526,11 +546,82 @@ export async function resolveWorkDetail(
 ): Promise<WorkDetail | null> {
   try {
     const ref = await resolveTmdbRef(q);
-    if (!ref) return null;
-    return await detailForRef(ref);
+    if (ref) {
+      const detail = await detailForRef(ref);
+      if (detail) return detail;
+    }
+    return await keylessDetail(q);
   } catch {
     return null;
   }
+}
+
+/**
+ * The keyless tier: same caching, timeout and de-duplication as the TMDB one.
+ *
+ * Not persisted to `detailStore`. That table's rows are keyed by TMDB id and
+ * its misses are written only when TMDB could actually be asked; a keyless
+ * answer belongs to neither, and writing one would make a keyless install's
+ * database look like a TMDB-enriched one.
+ */
+async function keylessDetail(q: ArtworkQuery): Promise<WorkDetail | null> {
+  const query = normalizeQuery(q);
+  if (!query) return null;
+
+  const key = `keyless:${query.mediaType ?? "any"}:${query.title.toLowerCase()}:${query.year ?? "-"}`;
+
+  const cached = read(detailCache, key);
+  if (cached !== undefined) return cached;
+
+  const pending = detailInFlight.get(key);
+  if (pending) return await pending;
+
+  const run = (async () => {
+    const resolved = await guarded(() => resolveKeylessDetail(query), null);
+    const value = resolved ? fromKeyless(resolved) : null;
+    write(detailCache, key, value, value != null, MAX_DETAIL_ENTRIES);
+    return value;
+  })();
+
+  detailInFlight.set(key, run);
+  try {
+    return await run;
+  } finally {
+    detailInFlight.delete(key);
+  }
+}
+
+/**
+ * A keyless answer in the shape the title page already reads.
+ *
+ * Everything these providers do not publish stays empty rather than being
+ * approximated: no cast, no crew, no certification, no tagline, and a
+ * `voteCount` of 0 that the hero already treats as "no votes to show".
+ */
+function fromKeyless(detail: KeylessDetail): WorkDetail {
+  return {
+    source: detail.source,
+    tmdbId: null,
+    mediaType: detail.mediaType,
+    title: detail.title,
+    year: detail.year ?? yearOf(detail.releaseDate),
+    posterUrl: detail.posterUrl,
+    backdropUrl: detail.backdropUrl,
+    overview: detail.overview,
+    tagline: null,
+    rating: detail.rating,
+    voteCount: 0,
+    runtimeMinutes: detail.runtimeMinutes,
+    genres: detail.genres,
+    releaseDate: detail.releaseDate,
+    certification: null,
+    status: null,
+    cast: [],
+    directors: [],
+    creators: [],
+    seasons: [],
+    episodeCount: detail.episodeCount,
+  };
 }
 
 /** Detail for an already-known TMDB id. Cached and de-duplicated. */

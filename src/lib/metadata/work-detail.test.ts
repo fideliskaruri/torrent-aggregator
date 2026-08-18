@@ -440,13 +440,26 @@ async function main() {
   installFetch(tmdbRouter);
   const keyless = await resolveWorkDetail(DUNE_Q);
 
-  check("with no key, detail is null and TMDB is never called", () => {
-    assert.equal(keyless, null);
+  check("with no key, TMDB is never called", () => {
     assert.equal(
-      calls.length,
+      urlsMatching("api.themoviedb.org").length,
       0,
-      `expected no requests without a key, got ${calls.length}`,
+      `expected no TMDB requests without a key, got ${calls.join(", ")}`,
     );
+  });
+
+  // The keyless tier is allowed — required — to try the providers that need no
+  // key. This router answers every URL with TMDB-shaped JSON, so none of them
+  // can vouch for a match and the honest answer is still nothing. What must
+  // *not* happen is the old behaviour of not asking at all: that was the bug
+  // (0% synopsis coverage on a keyless install). See `keyless-detail.test.ts`
+  // for the same path answering with real provider payloads.
+  check("the keyless providers are asked instead", () => {
+    assert.ok(
+      calls.length > 0,
+      "a keyless install must still try AniList/TVmaze/iTunes",
+    );
+    assert.equal(keyless, null, "junk from a provider is still no detail");
   });
 
   scenario("xx");
@@ -455,7 +468,11 @@ async function main() {
 
   check("a placeholder key is still treated as absent", () => {
     assert.equal(placeholder, null);
-    assert.equal(calls.length, 0, "a 2-character key must not reach TMDB");
+    assert.equal(
+      urlsMatching("api.themoviedb.org").length,
+      0,
+      "a 2-character key must not reach TMDB",
+    );
   });
 
   scenario(REAL_SHAPED_KEY);
