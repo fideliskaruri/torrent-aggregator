@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { grabSingleEpisode } from "@/lib/library/ondemand";
 import { getTargetResolution } from "@/lib/torrents/target-resolution";
+import { ApiError, defineRoute } from "@/lib/http/define-route";
+import { f } from "@/lib/http/schema";
 
 export const dynamic = "force-dynamic";
 
@@ -11,58 +12,28 @@ export const dynamic = "force-dynamic";
  * If season/episode match the item's hunt cursor, advances cursor (like automation).
  * Off-cursor rewatch leaves the hunt cursor alone.
  */
-export async function POST(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { ok: false, error: "Unauthorized", message: "Sign in required" },
-        { status: 401 },
-      );
-    }
-
-    let body: {
-      watchListItemId?: string;
-      title?: string;
-      mediaType?: string;
-      season?: number;
-      episode?: number;
-      /**
-       * "stream" = reclaimable buffer, "keep" = permanent file. Defaults to
-       * "keep" so existing callers (the library's explicit Get) are unchanged;
-       * the player's Next button asks for "stream" because advancing an episode
-       * while watching should behave like the Play that got you here, not
-       * silently start a permanent download.
-       */
-      retention?: "stream" | "keep";
-      /** The stream on screen right now, which reclamation must not evict. */
-      protectHashes?: string[];
-      /** Owner saw the real figures and chose to proceed past their own cap. */
-      overrideStorageCap?: boolean;
-    };
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return NextResponse.json(
-        { ok: false, error: "Invalid JSON", message: "Invalid JSON" },
-        { status: 400 },
-      );
-    }
-
-    const season = Number(body.season);
-    const episode = Number(body.episode);
-    if (!Number.isFinite(season) || !Number.isFinite(episode) || season < 1 || episode < 1) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Invalid episode",
-          message: "season and episode must be positive integers",
-        },
-        { status: 400 },
-      );
-    }
-
-    let title = body.title?.trim();
+export const POST = defineRoute({
+  body: {
+    watchListItemId: f.string(),
+    title: f.string(),
+    mediaType: f.string(),
+    season: f.number({ required: true, integer: true, min: 1 }),
+    episode: f.number({ required: true, integer: true, min: 1 }),
+    /**
+     * "stream" = reclaimable buffer, "keep" = permanent file. Defaults to
+     * "keep" so existing callers (the library's explicit Get) are unchanged;
+     * the player's Next button asks for "stream" because advancing an episode
+     * while watching should behave like the Play that got you here, not
+     * silently start a permanent download.
+     */
+    retention: f.enum(["stream", "keep"] as const),
+    /** The stream on screen right now, which reclamation must not evict. */
+    protectHashes: f.stringArray(),
+    /** Owner saw the real figures and chose to proceed past their own cap. */
+    overrideStorageCap: f.boolean(),
+  },
+})(async ({ session, body }) => {
+    let title = body.title?.trim() || undefined;
     let mediaType = body.mediaType?.trim() || "tv";
     const watchListItemId = body.watchListItemId?.trim() || null;
     let preferredResolution: number | null = null;
@@ -73,10 +44,7 @@ export async function POST(request: NextRequest) {
         where: { id: watchListItemId, userId: session.user.id },
       });
       if (!item) {
-        return NextResponse.json(
-          { ok: false, error: "Not found", message: "Library item not found" },
-          { status: 404 },
-        );
+        throw new ApiError(404, "Not found", "Library item not found");
       }
       title = item.title;
       mediaType = item.mediaType;
@@ -89,13 +57,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!title) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing title",
-          message: "title or watchListItemId required",
-        },
-        { status: 400 },
+      throw new ApiError(
+        400,
+        "Missing title",
+        "title or watchListItemId required",
       );
     }
 
@@ -104,15 +69,13 @@ export async function POST(request: NextRequest) {
       workId,
       showTitle: title,
       mediaType,
-      season,
-      episode,
+      season: body.season,
+      episode: body.episode,
       watchListItemId,
       retention: body.retention === "stream" ? "stream" : "keep",
       preferredResolution:
         body.retention === "stream" ? null : preferredResolution,
-      protectHashes: Array.isArray(body.protectHashes)
-        ? body.protectHashes.filter((h): h is string => typeof h === "string" && h.length > 0)
-        : undefined,
+      protectHashes: body.protectHashes ?? undefined,
       overrideStorageCap: body.overrideStorageCap === true,
     });
 
@@ -123,14 +86,5 @@ export async function POST(request: NextRequest) {
       // override prompt instead of a generic failure toast.
       { status: result.ok ? 200 : result.storage ? 507 : 502 },
     );
-  } catch (err) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "On-demand failed",
-        message: err instanceof Error ? err.message : String(err),
-      },
-      { status: 500 },
-    );
-  }
-}
+});
+
