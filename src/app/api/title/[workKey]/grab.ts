@@ -490,6 +490,12 @@ async function grabWholeWork(
     purpose: sendRetentionToPurpose(input.retention, input.watchListItemId),
     minimumResolution,
     downloadHistoryPrefix: "Title page",
+    // `checkStorageBudget` below honours the override, but the engine runs its
+    // own storage check when the payload reaches it. Both have to know, or a
+    // confirmed over-cap film passes the gate here and is refused there — the
+    // movie-only half of the storage-override bug (episode/season paths already
+    // carry this; this whole-work path was the one that dropped it).
+    addPayload: { overrideStorageCap: input.overrideStorageCap === true },
     noMatchMessage: (count) =>
       count
         ? `No ${minimumResolution ? `${minimumResolution}p-or-higher ` : ""}release for ${title} in ${count} results`
