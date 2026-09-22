@@ -28,6 +28,7 @@ import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
 import { checkSendStorage } from "@/lib/library/storage-gate";
 import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
+import { logAcquisitionDecision } from "@/lib/observability/acquisition-diagnostics";
 import { releaseInfoHash } from "@/lib/prewarm/prerank";
 import {
   loadSwarmVerdicts,
@@ -95,6 +96,82 @@ function releaseDedupeKey(r: TorrentResult): string | null {
   return releaseInfoHash(r) ?? (r.magnet ? r.magnet.toLowerCase() : null);
 }
 
+/**
+ * Why a season search produced less than the whole season.
+ *
+ * A provider that answered `429` and a provider that answered "nothing here"
+ * are different facts, and collapsing them into "No release found for this
+ * episode" is the quiet dishonesty this subsystem refuses. `retryable` is the
+ * signal the UI needs to say "try again shortly" instead of "does not exist".
+ */
+export interface SeasonSearchError {
+  query: string;
+  /** The exact episode this query was for, when it was a per-episode query. */
+  episode?: number;
+  /** Provider id when a single source failed inside an otherwise-ok search. */
+  source?: string;
+  message: string;
+  retryable: boolean;
+}
+
+/**
+ * How many consecutive outright search failures stop the ladder.
+ *
+ * Without this a provider refusing everything would still be asked once per
+ * wanted episode — thirteen more requests to a service that just said no.
+ */
+const SEARCH_FAILURE_ABORT = 3;
+
+/** What a season search ladder returns: rows plus what went wrong getting them. */
+export interface SeasonSearchOutcome {
+  releases: TorrentResult[];
+  errors: SeasonSearchError[];
+  /** Episodes whose exact `Show SxxEyy` query completed (with or without hits). */
+  episodesQueried: number[];
+  /** Rows dropped because they were a different work (alias rescue guard). */
+  rejectedIdentity: number;
+  /** How many indexer queries this season press actually issued. */
+  queryCount: number;
+  /** True when the search ladder stopped early to avoid hammering a failing provider. */
+  aborted: boolean;
+}
+
+const RETRYABLE_RE =
+  /\b(429|rate[\s-]?limit(?:ed|ing)?|too many requests|timed? ?out|timeout|econnreset|etimedout|socket hang up|temporarily|503|502|504)\b/i;
+
+function isRetryableSearchFailure(message: string): boolean {
+  return RETRYABLE_RE.test(message);
+}
+
+/**
+ * The failure that best explains an empty result, if any.
+ *
+ * A retryable failure outranks a permanent one: if any contributing provider
+ * said "later", the honest advice is to try later.
+ */
+export function chooseSeasonSearchError(
+  errors: readonly SeasonSearchError[],
+): SeasonSearchError | null {
+  if (errors.length === 0) return null;
+  return errors.find((e) => e.retryable) ?? errors[0];
+}
+
+/**
+ * A season download that a provider rate-limited must not look like a season
+ * that does not exist. This turns collected search failures into the sentence
+ * an episode card shows when nothing could be found for it.
+ */
+export function seasonSearchFailureReason(
+  errors: readonly SeasonSearchError[],
+): string | null {
+  const chosen = chooseSeasonSearchError(errors);
+  if (!chosen) return null;
+  const where = chosen.source ? `${chosen.source}: ` : "";
+  return chosen.retryable
+    ? `Search was refused by a provider (${where}${chosen.message}) — retry shortly.`
+    : `Search failed (${where}${chosen.message}).`;
+}
+
 function releaseEpisodeNumber(r: TorrentResult, season: number): number | null {
   const ep = r.episode ?? parseEpisode(r.title ?? "");
   if (
@@ -133,18 +210,151 @@ async function searchSeasonReleases(
   wanted: readonly number[],
   searchFn: typeof searchTorrents = searchTorrents,
   aliases: readonly string[] = [],
-): Promise<TorrentResult[]> {
+  preferredResolution: number | null = null,
+): Promise<SeasonSearchOutcome> {
   const merged = new Map<string, TorrentResult>();
-  const addAll = (rows: readonly TorrentResult[]) => {
+  /**
+   * Which query shape first produced each merged row.
+   *
+   * Provenance, not re-identification, is what makes the alias guard correct.
+   * A row found by a canonical-title query is already constrained by that
+   * title; re-running the work-identity check on it and deleting it on a miss
+   * would silently throw away legitimate releases whose scene name the
+   * identity parser cannot reconstruct — the exact under-coverage this module
+   * was fixed for. A row found only by a broad romaji alias query has no such
+   * constraint, so it must prove it belongs to this work. Deleting by key
+   * without provenance conflated the two: a legitimate primary row that also
+   * happened to come back under an alias query was removed by the alias guard.
+   */
+  const provenance = new Map<string, "primary" | "alias">();
+  const errors: SeasonSearchError[] = [];
+  const episodesQueried = new Set<number>();
+  let rejectedIdentity = 0;
+  let queryCount = 0;
+  const acceptedTitles = [title, ...aliases].flatMap((t) => aliasTitleForms(t));
+  let consecutiveFailures = 0;
+  let aborted = false;
+  /** Retryability of the failures that made up the current failure window. */
+  const failureWindow: boolean[] = [];
+
+  const addAll = (
+    rows: readonly TorrentResult[],
+    origin: "primary" | "alias",
+  ) => {
     for (const r of rows) {
       const key = releaseDedupeKey(r);
       if (!key || merged.has(key)) continue;
       merged.set(key, r);
+      provenance.set(key, origin);
     }
   };
 
+  /**
+   * Record a failure and decide whether the ladder should stop.
+   *
+   * The abort sentinel inherits the retryability of the failures that caused
+   * it. Marking it retryable unconditionally turned three permanent failures
+   * (a bad request, a dead endpoint) into "retry shortly" — advice that is
+   * wrong every time it is followed.
+   */
+  const noteFailure = (query: string, retryable: boolean) => {
+    consecutiveFailures += 1;
+    failureWindow.push(retryable);
+    if (consecutiveFailures < SEARCH_FAILURE_ABORT) return;
+    aborted = true;
+    errors.push({
+      query,
+      message: `Stopped after ${consecutiveFailures} consecutive search failures`,
+      retryable: failureWindow.some(Boolean),
+    });
+  };
+
+  const clearFailures = () => {
+    consecutiveFailures = 0;
+    failureWindow.length = 0;
+  };
+
+  /**
+   * One search, with the failure recorded rather than thrown.
+   *
+   * A single `429` used to reject the whole season press: one provider losing
+   * its temper turned into "Could not plan this season" for thirteen episodes
+   * that were otherwise findable. Errors are collected and reported; the ladder
+   * keeps walking. It stops only when several searches in a row failed
+   * outright, so a provider that is refusing everything is not hammered once
+   * per episode.
+   */
+  const runSearch = async (
+    opts: Parameters<typeof searchTorrents>[0],
+    episode?: number,
+    origin: "primary" | "alias" = "primary",
+  ): Promise<TorrentResult[]> => {
+    if (aborted) return [];
+    queryCount += 1;
+    let res: SearchResponse;
+    try {
+      res = await searchFn(opts);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const retryable = isRetryableSearchFailure(message);
+      errors.push({ query: opts.query, episode, message, retryable });
+      noteFailure(opts.query, retryable);
+      return [];
+    }
+    const sources = res.sources ?? [];
+    let anyRetryable = false;
+    for (const s of sources) {
+      if (!s.error) continue;
+      const retryable = isRetryableSearchFailure(s.error);
+      anyRetryable = anyRetryable || retryable;
+      errors.push({
+        query: opts.query,
+        episode,
+        source: String(s.id),
+        message: s.error,
+        retryable,
+      });
+    }
+    const everySourceFailed =
+      sources.length > 0 && sources.every((s) => Boolean(s.error));
+    if (everySourceFailed) {
+      noteFailure(opts.query, anyRetryable);
+    } else {
+      clearFailures();
+      if (episode != null) episodesQueried.add(episode);
+    }
+    const rows = res.results ?? [];
+    addAll(rows, origin);
+    return rows;
+  };
+
+  /**
+   * The episode a row can actually be used for.
+   *
+   * Coverage bookkeeping decides whether an exact `Show SxxEyy` search is
+   * issued, so it must apply the same gates selection applies later: a magnet,
+   * a live seeder, and the user's hard resolution floor. Counting a 480p or
+   * dead row as "covered" is precisely how a thirteen-episode season came back
+   * with two — the broad title-only query returned something for E03, the gap
+   * fill skipped E03, and the planner then discarded that row for being below
+   * the floor, leaving the episode missing with no search ever made for it.
+   */
+  const coverageEpisodeOf = (r: TorrentResult): number | null => {
+    if (!r.magnet || (r.seeders ?? 0) <= 0 || releaseInfoHash(r) == null) {
+      return null;
+    }
+    if (!meetsResolutionFloor(r.title ?? "", preferredResolution)) return null;
+    if (
+      acceptedTitles.length > 0 &&
+      !episodeReleaseMatchesWork(r, acceptedTitles)
+    ) {
+      return null;
+    }
+    return releaseEpisodeNumber(r, season);
+  };
+
   for (const query of seasonSearchQueries(title, season)) {
-    const res = await searchFn({
+    await runSearch({
       query,
       category,
       limit: 40,
@@ -156,85 +366,119 @@ async function searchSeasonReleases(
       background: false,
       filters: { hasMagnet: true, minSeeders: 1, season },
     });
-    addAll(res.results);
   }
 
   const coveredEpisodes = (): Set<number> => {
     const covered = new Set<number>();
     for (const r of merged.values()) {
-      const ep = releaseEpisodeNumber(r, season);
+      const ep = coverageEpisodeOf(r);
       if (ep != null) covered.add(ep);
     }
     return covered;
   };
 
   // Gap-fill exact episode queries for anything the season shapes missed.
+  const covered = coveredEpisodes();
   if (wanted.length > 0) {
-    const covered = coveredEpisodes();
     for (const episode of wanted) {
       if (covered.has(episode)) continue;
-      const res = await searchFn({
-        query: episodeSearchQuery(title, season, episode),
-        category,
-        limit: 10,
-        pageSize: 10,
-        enrich: false,
-        skipCache: false,
-        background: false,
-        filters: { hasMagnet: true, minSeeders: 1, season, episode },
-      });
-      addAll(res.results);
-      for (const r of res.results) {
-        const ep = releaseEpisodeNumber(r, season);
+      const rows = await runSearch(
+        {
+          query: episodeSearchQuery(title, season, episode),
+          category,
+          limit: 10,
+          pageSize: 10,
+          enrich: false,
+          skipCache: false,
+          background: false,
+          filters: { hasMagnet: true, minSeeders: 1, season, episode },
+        },
+        episode,
+      );
+      for (const r of rows) {
+        const ep = coverageEpisodeOf(r);
         if (ep != null) covered.add(ep);
       }
     }
   }
 
   const rescueNames = seasonAliasQueryNames(title, aliases);
-  if (rescueNames.length === 0 || wanted.length === 0) return [...merged.values()];
+  if (rescueNames.length === 0 || wanted.length === 0) {
+    return {
+      releases: [...merged.values()],
+      errors,
+      episodesQueried: [...episodesQueried],
+      rejectedIdentity,
+      queryCount,
+      aborted,
+    };
+  }
 
-  const acceptedTitles = [title, ...aliases].flatMap((t) => aliasTitleForms(t));
-  const covered = coveredEpisodes();
   for (const alias of rescueNames) {
     const stillMissing = wanted.filter((e) => !covered.has(e));
     if (stillMissing.length === 0) break;
     const aliasRows: TorrentResult[] = [];
-    const seasonRes = await searchFn({
-      query: seasonSearchQuery(alias, season),
-      category,
-      limit: 40,
-      pageSize: 40,
-      enrich: false,
-      skipCache: false,
-      background: false,
-      filters: { hasMagnet: true, minSeeders: 1, season },
-    });
-    aliasRows.push(...seasonRes.results);
-    for (const episode of stillMissing) {
-      const epRes = await searchFn({
-        query: episodeSearchQuery(alias, season, episode),
-        category,
-        limit: 10,
-        pageSize: 10,
-        enrich: false,
-        skipCache: false,
-        background: false,
-        filters: { hasMagnet: true, minSeeders: 1, season, episode },
-      });
-      aliasRows.push(...epRes.results);
-    }
-    const eligible = aliasRows.filter((r) =>
-      episodeReleaseMatchesWork(r, acceptedTitles),
+    aliasRows.push(
+      ...(await runSearch(
+        {
+          query: seasonSearchQuery(alias, season),
+          category,
+          limit: 40,
+          pageSize: 40,
+          enrich: false,
+          skipCache: false,
+          background: false,
+          filters: { hasMagnet: true, minSeeders: 1, season },
+        },
+        undefined,
+        "alias",
+      )),
     );
-    addAll(eligible);
-    for (const r of eligible) {
-      const ep = releaseEpisodeNumber(r, season);
-      if (ep != null) covered.add(ep);
+    for (const episode of stillMissing) {
+      aliasRows.push(
+        ...(await runSearch(
+          {
+            query: episodeSearchQuery(alias, season, episode),
+            category,
+            limit: 10,
+            pageSize: 10,
+            enrich: false,
+            skipCache: false,
+            background: false,
+            filters: { hasMagnet: true, minSeeders: 1, season, episode },
+          },
+          episode,
+          "alias",
+        )),
+      );
+    }
+    // A broad romaji query must not smuggle in a different series. Only rows
+    // this alias pass *introduced* are subject to that guard: a row already
+    // vouched for by a canonical-title query keeps its place, because its
+    // provenance — not a second identity parse of its scene name — is what
+    // established that it belongs to this work.
+    for (const r of aliasRows) {
+      if (episodeReleaseMatchesWork(r, acceptedTitles)) {
+        const ep = coverageEpisodeOf(r);
+        if (ep != null) covered.add(ep);
+        continue;
+      }
+      const key = releaseDedupeKey(r);
+      if (!key || provenance.get(key) !== "alias") continue;
+      merged.delete(key);
+      provenance.delete(key);
+      rejectedIdentity += 1;
     }
   }
 
-  return [...merged.values()];
+  return {
+      releases: [...merged.values()],
+      errors,
+      episodesQueried: [...episodesQueried],
+      rejectedIdentity,
+      queryCount,
+      aborted,
+    };
 }
 
 /**
@@ -314,6 +558,23 @@ export interface ResolveSeasonResult {
    * The verdict lookup used to build the plan.
    */
   verdictOf: (r: TorrentResult) => SwarmVerdict;
+  /** Search failures collected while building the plan (never thrown away). */
+  searchErrors: SeasonSearchError[];
+  /** Episodes whose exact per-episode query actually ran. */
+  episodesQueried: number[];
+  /** True when the search ladder stopped early after repeated failures. */
+  searchAborted: boolean;
+  /**
+   * Counts behind the plan, for verbose acquisition diagnostics. Numbers and
+   * reason tallies only — never a title, hash, magnet or path.
+   */
+  stats: {
+    candidateCount: number;
+    rejectedQuality: number;
+    rejectedSeeders: number;
+    rejectedIdentity: number;
+    queryCount: number;
+  };
 }
 
 /**
@@ -325,27 +586,42 @@ export async function resolveSeasonPlan(
 ): Promise<ResolveSeasonResult> {
   const db = opts.db ?? prisma;
   const category = searchCategoryForMediaType(target.mediaType) ?? "tv";
-
-  const releases =
-    opts._releases ??
-    (await searchSeasonReleases(
-      target.title,
-      target.season,
-      category,
-      target.episodes,
-      opts._searchFn,
-      target.aliases ?? [],
-    ));
-
   const preferredResolution =
     normalizeResolutionFloor(target.preferredResolution);
-  const usableUnranked = releases.filter(
-    (r) =>
-      r.magnet &&
-      (r.seeders ?? 0) > 0 &&
-      releaseInfoHash(r) !== null &&
-      meetsResolutionFloor(r.title, preferredResolution),
-  );
+
+  const outcome: SeasonSearchOutcome = opts._releases
+    ? {
+        releases: opts._releases,
+        errors: [],
+        episodesQueried: [],
+        rejectedIdentity: 0,
+        queryCount: 0,
+        aborted: false,
+      }
+    : await searchSeasonReleases(
+        target.title,
+        target.season,
+        category,
+        target.episodes,
+        opts._searchFn,
+        target.aliases ?? [],
+        preferredResolution,
+      );
+  const releases = outcome.releases;
+
+  let rejectedSeeders = 0;
+  let rejectedQuality = 0;
+  const usableUnranked = releases.filter((r) => {
+    if (!r.magnet || (r.seeders ?? 0) <= 0 || releaseInfoHash(r) === null) {
+      rejectedSeeders += 1;
+      return false;
+    }
+    if (!meetsResolutionFloor(r.title, preferredResolution)) {
+      rejectedQuality += 1;
+      return false;
+    }
+    return true;
+  });
   const usable =
     preferredResolution == null
       ? usableUnranked
@@ -375,7 +651,22 @@ export async function resolveSeasonPlan(
     seasonComplete: target.seasonComplete,
   });
 
-  return { plan, releases: usable, probed, verdictOf };
+  return {
+    plan,
+    releases: usable,
+    probed,
+    verdictOf,
+    searchErrors: outcome.errors,
+    episodesQueried: outcome.episodesQueried,
+    searchAborted: outcome.aborted,
+    stats: {
+      candidateCount: usable.length,
+      rejectedQuality,
+      rejectedSeeders,
+      rejectedIdentity: outcome.rejectedIdentity,
+      queryCount: outcome.queryCount,
+    },
+  };
 }
 
 export interface SeasonItemResult {
@@ -405,6 +696,8 @@ export interface AcquireSeasonResult {
    * one release was sent, or when the failure was not a storage refusal.
    */
   storage?: StorageOverrideFacts | null;
+  /** Search failures behind any missing episode; empty when search was clean. */
+  searchErrors?: SeasonSearchError[];
 }
 
 export interface AcquireSeasonOptions extends ResolveSeasonOptions {
@@ -434,7 +727,8 @@ export async function acquireSeason(
   opts: AcquireSeasonOptions = {},
 ): Promise<AcquireSeasonResult> {
   const db = opts.db ?? prisma;
-  const { plan } = await resolveSeasonPlan(target, opts);
+  const { plan, searchErrors, searchAborted, episodesQueried, stats } =
+    await resolveSeasonPlan(target, opts);
 
   const config = await getUserClientConfig(target.userId);
   if (!config) {
@@ -445,6 +739,7 @@ export async function acquireSeason(
       coverageLabel: plan.coverageLabel,
       coverageConfirmed: plan.coverageConfirmed,
       storage: null,
+      searchErrors,
     };
   }
 
@@ -454,6 +749,41 @@ export async function acquireSeason(
   let storageRefusal: StorageOverrideFacts | null = null;
   const retention = opts.retention ?? "keep";
   const overrideCap = opts.overrideStorageCap === true;
+  const minResolution = normalizeResolutionFloor(target.preferredResolution);
+
+  // Verbose diagnostics: counts and reason codes only. This is the view that
+  // answers "why did a thirteen-episode season come back with two" without
+  // logging a single title, hash, magnet or path.
+  logAcquisitionDecision(config, "season_plan", {
+    stage: "plan",
+    scope: "season",
+    season: target.season,
+    wanted: plan.wanted.length,
+    covered: plan.covered.length,
+    missing: plan.missing.length,
+    candidateCount: stats.candidateCount,
+    rejectedQuality: stats.rejectedQuality,
+    rejectedSeeders: stats.rejectedSeeders,
+    rejectedIdentity: stats.rejectedIdentity,
+    count: stats.queryCount,
+    minResolution: minResolution ?? null,
+    overrideStorageCap: overrideCap,
+    strategy: plan.singles.length > 0 ? "singles" : "none",
+    clientType: config.clientType,
+    status: searchAborted ? "search_aborted" : "planned",
+  });
+  for (const e of searchErrors) {
+    logAcquisitionDecision(config, "season_search_error", {
+      stage: "search",
+      scope: e.episode != null ? "episode" : "season",
+      season: target.season,
+      episode: e.episode ?? null,
+      // `source` is the indexer id, which is already a safe low-cardinality
+      // token; the provider's message never is, so only its class is logged.
+      source: e.source ?? null,
+      status: e.retryable ? "retryable" : "failed",
+    });
+  }
 
   const send = async (
     release: TorrentResult,
@@ -462,6 +792,7 @@ export async function acquireSeason(
     episode: number | undefined,
     coversEpisodes: number[],
   ): Promise<boolean> => {
+    let pathMode: string = "client-default";
     const res = await runGrabPipeline({
       userId: target.userId,
       workId: target.workId ?? null,
@@ -501,6 +832,13 @@ export async function acquireSeason(
             title: target.title,
           }),
         });
+        // Which path strategy produced the destination — the mode, never the
+        // path itself.
+        pathMode = t.savePath
+          ? "smart-target"
+          : config.baseDownloadPath?.trim()
+            ? "client-base"
+            : "client-default";
         return { category: t.category, savePath: t.savePath };
       },
       async checkStorageBudget(candidate, t) {
@@ -552,6 +890,19 @@ export async function acquireSeason(
       infoHash: releaseInfoHash(release),
     });
 
+    logAcquisitionDecision(config, "season_send", {
+      stage: "send",
+      scope: "episode",
+      season: target.season,
+      episode: episode ?? null,
+      status: res.status,
+      strategy: kind === "pack" ? "pack" : "single",
+      pathMode,
+      minResolution: minResolution ?? null,
+      overrideStorageCap: overrideCap,
+      clientType: config.clientType,
+    });
+
     if (res.status === "sent" || res.status === "already_active") {
       await applySendRetention({
         userId: target.userId,
@@ -571,6 +922,96 @@ export async function acquireSeason(
     await send(s.release, s.verdict, "single", s.episode, [s.episode]);
   }
 
+  // Every wanted episode that never reached a send gets its own honest item.
+  //
+  // Without this, an episode the *search* failed for and an episode that
+  // genuinely has no release were indistinguishable one layer up: both fell
+  // through to "No release found for this episode". A provider that answered
+  // `429` is a retry, not a verdict on the episode's existence, and a release
+  // rejected for being below the user's floor is a quality decision, not an
+  // absence. Each is said out loud, per episode, through the existing item
+  // contract the title route already reads.
+  const sentEpisodes = new Set(
+    items
+      .filter((i) => i.status === "sent" || i.status === "already_active")
+      .map((i) => i.episode)
+      .filter((e): e is number => e != null),
+  );
+  const attemptedEpisodes = new Set(
+    items.map((i) => i.episode).filter((e): e is number => e != null),
+  );
+  const queried = new Set(episodesQueried);
+  const floor = minResolution;
+  const noRelease = {
+    message:
+      floor != null
+        ? `No release found at ${floor}p or better for this episode.`
+        : "No release found for this episode.",
+    code: floor != null ? "below_quality_floor" : "not_found",
+  };
+
+  /**
+   * One decision produces both the sentence the user reads and the code the
+   * log records, so the two can never disagree. They previously derived
+   * independently, which let a log say `search_aborted` (retry) while the card
+   * said "Search failed" (permanent) about the same episode.
+   *
+   * Precedence, strongest evidence first: this episode's own failed search,
+   * then the fact that its own search ran and found nothing (a real absence,
+   * even while some other query was rate-limited), then a season-wide search
+   * failure, then plain absence.
+   */
+  const describeMissing = (
+    episode: number,
+  ): { message: string; code: string } => {
+    const own = chooseSeasonSearchError(
+      searchErrors.filter((e) => e.episode === episode),
+    );
+    if (own) {
+      return {
+        message: seasonSearchFailureReason([own]) ?? noRelease.message,
+        code: own.retryable ? "search_retryable" : "search_failed",
+      };
+    }
+    if (queried.has(episode)) return noRelease;
+    const wide = chooseSeasonSearchError(searchErrors);
+    if (!wide) return noRelease;
+    const retryable = wide.retryable;
+    return {
+      message: seasonSearchFailureReason([wide]) ?? noRelease.message,
+      code: searchAborted
+        ? retryable
+          ? "search_aborted_retryable"
+          : "search_aborted"
+        : retryable
+          ? "search_retryable"
+          : "search_failed",
+    };
+  };
+
+  for (const episode of plan.wanted) {
+    if (sentEpisodes.has(episode) || attemptedEpisodes.has(episode)) continue;
+    const { message, code } = describeMissing(episode);
+    logAcquisitionDecision(config, "season_episode_missing", {
+      stage: "failure",
+      scope: "episode",
+      season: target.season,
+      episode,
+      status: code,
+      minResolution: floor ?? null,
+      clientType: config.clientType,
+    });
+    items.push({
+      kind: "single",
+      episode,
+      title: episodeSearchQuery(target.title, target.season, episode),
+      verdict: "unknown",
+      status: "failed",
+      message,
+      infoHash: null,
+    });
+  }
+
   const acquiredList = [...acquired].filter((e) => plan.wanted.includes(e)).sort((a, b) => a - b);
   return {
     plan,
@@ -582,5 +1023,6 @@ export async function acquireSeason(
     // season that hit the cap mid-way still delivered what it could, and the
     // per-item messages already say which releases failed.
     storage: acquiredList.length === 0 ? storageRefusal : null,
+    searchErrors,
   };
 }

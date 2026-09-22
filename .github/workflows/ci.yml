@@ -17,6 +17,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  portable-setup:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use the tested Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Use npm 12 install policies
+        run: npm install --global npm@12.0.2 --registry=https://registry.npmjs.org
+
+      - name: Install without a local env file
+        run: npm ci --registry=https://registry.npmjs.org
+
+      - name: Initialize and recheck setup
+        run: |
+          npm run setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run doctor
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 35

@@ -52,6 +52,33 @@ export interface PostTitleActionInput {
  */
 const FETCH_TIMEOUT_MS = 30_000;
 
+/**
+ * What a 30 s abort actually means, said out loud.
+ *
+ * The request is abandoned here; the *grab is not*. The server keeps resolving
+ * the release and its torrent metadata on its own, longer budget, so a row that
+ * reported "Could not send this episode" was making a claim this client cannot
+ * support — and the download frequently appeared moments later. Say what is
+ * true: we stopped waiting, the work may still be running, and here is where to
+ * look. Never phrased as "no release", which is a statement about availability
+ * that a timeout is no evidence for.
+ */
+export const GRAB_TIMEOUT_MESSAGE =
+  "Still working after 30s, so we stopped waiting — the grab may still be running on the server. Check Downloads before trying again.";
+
+/**
+ * Our own 30 s deadline, as opposed to a caller's cancellation.
+ *
+ * Only `TimeoutError`, which is what `AbortSignal.timeout` raises. A plain
+ * `AbortError` is the component cancelling its own request (an unmount, a
+ * switched season) and must keep propagating untouched — turning that into a
+ * message would make ordinary navigation look like a failed grab.
+ */
+function isTimeoutAbort(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  return (err as { name?: string }).name === "TimeoutError";
+}
+
 export async function postTitleAction({
   workKey,
   title,
@@ -88,6 +115,9 @@ export async function postTitleAction({
       ...(resolution != null ? { preferredResolution: resolution } : {}),
       ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
     }),
+  }).catch((err: unknown) => {
+    if (isTimeoutAbort(err)) throw new Error(GRAB_TIMEOUT_MESSAGE);
+    throw err;
   });
   const body = (await res.json().catch(() => null)) as TitleGrabResponse | null;
   if (!res.ok || !body?.ok) {

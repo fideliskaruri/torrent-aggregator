@@ -38,6 +38,21 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.mzstatic.com" },
     ],
   },
+  async headers() {
+    return [
+      {
+        // The worker file must never be served from the HTTP cache: a stale
+        // copy keeps an old routing policy alive long after it was replaced.
+        // `Service-Worker-Allowed: /` keeps the scope at the app root even if
+        // the file is ever moved out of the root.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+    ];
+  },
   // Allow server-side fetches to external torrent indexers & metadata APIs
   serverExternalPackages: [
     "@libsql/client",

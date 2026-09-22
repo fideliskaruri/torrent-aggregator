@@ -176,6 +176,37 @@ or persist the engine.
 - `src/app/api/title/tmdb-extras.ts` — TMDB facts, `memo` with `TTL_MS` (6h) /
   `NEG_TTL_MS` (2min negative cache).
 
+### Acquisition diagnostics
+- Settings exposes the flag at `settings.verboseDiagnostics`, not the response root.
+  `getUserClientConfig` forwards it to acquisition. Enabling it emits structured
+  selection, storage, destination-strategy, send and season-coverage decisions through
+  `logAcquisitionDecision`. Disabling it leaves normal error reporting intact.
+- Logs contain provider IDs, counts, quality floors and reason codes, not titles,
+  magnets, hashes, credentials or download paths. Inspect the configured destination
+  in Settings when a full local path is needed.
+- Season search coverage must pass the same identity, seed, link and quality gates as
+  selection. A low-quality or unusable row must not suppress an exact episode search.
+  Partial season results identify unsent episodes and distinguish provider failures
+  from genuinely missing eligible releases.
+- The built-in YTS mirror list already fails over when a host returns HTML or invalid
+  JSON. A custom `YTS_BASE_URL` is optional, not required setup. Provider reachability
+  and torrent peer availability remain external conditions, not guaranteed by a
+  successful unit test.
+
+### Installable web app
+- The manifest and icons live in `public/`. The install action is on About when the
+  browser offers installation; iOS receives home-screen instructions. Regenerate icons
+  with `node scripts/generate-pwa-icons.mjs` after changing the source artwork.
+- `public/sw.js` caches only the public offline shell and its explicit assets.
+  Private APIs, mutations, media, ranges and React Server Component requests bypass it.
+  It does not cache library pages or make downloads/playback work offline.
+- Remote installation needs HTTPS; loopback is suitable for local use. The app remains
+  single-user without sign-in: do not publish it to the open internet merely to enable
+  installation. Hosting requires a persistent Node/Docker process, disk and an access
+  boundary. A GitHub repository or static Pages site is not an app server.
+- Worker updates do not automatically reload a playing tab. The offline screen
+  explains that the TorrentFlow server is unavailable and offers a retry.
+
 ### Season acquisition (the planner)
 - `src/lib/torrents/season-plan.ts` — **pure** planner. `planSeason` (exact episodes only),
   `resolutionRank`, `demotedTier`, `classify`, `packEpisodeRange`,
@@ -441,13 +472,41 @@ Scratch DB: %TEMP%\opencode\tf-scratch.db
 Screens:    qa-screens\   (gitignored)
 ```
 
-Start the dev server yourself without the bash tool killing it:
+### Portable first-run setup
+
+Use the Node 22 version in `.nvmrc` (22.23.2), then open a new terminal so PATH reflects
+the active runtime. This also avoids stale WinGet command links. OpenCode is optional;
+it is not a TorrentFlow runtime dependency.
+
 ```powershell
-Start-Process -FilePath "C:\nvm4w\nodejs\node.exe" `
-  -ArgumentList @("node_modules\next\dist\bin\next","dev","-H","127.0.0.1","-p","3000") `
-  -WorkingDirectory "D:\code\torrent-aggregator" -WindowStyle Hidden
-# then poll: Invoke-WebRequest http://127.0.0.1:3000/ -UseBasicParsing -TimeoutSec 5
+npm ci --registry=https://registry.npmjs.org
+npm run setup
+npm run doctor
+# Owner only:
+npm run dev
 ```
+
+`npm ci` can generate Prisma without an `.env`: the CLI and runtime share the local
+SQLite default. `setup` creates `.env` from `.env.example` only if absent, preserves
+existing configuration, generates the client and applies committed migrations with
+`migrate deploy`. It never resets a database or uses `db push` as an install shortcut.
+Back up an existing database and its encryption key before upgrading.
+
+The lockfile uses public registry tarballs. npm 12 additionally blocks dependency
+install scripts by default, so `package.json` has explicit, version-pinned approvals
+for the native/build packages the app needs. The unrelated `ip-set` package-manager
+guard is explicitly denied. Do not replace this list with a wildcard approval or
+disable remote-source restrictions. Review approvals when changing dependency versions.
+
+`doctor` checks Node, the built-in client's native module, runnable FFmpeg/FFprobe,
+a real esbuild transform and
+the migration ledger. It also runs before `npm run dev`, failing with an actionable
+setup error rather than starting a server that later reports missing tables. For a
+missing native module, reinstall under the pinned Node runtime and inspect download
+or install-script errors; changing a version alone does not prove a binary is usable.
+
+Agents never start, stop, restart or rebuild the owner's server. If port 3000 is
+unavailable, finish isolated tests and explicitly leave live API/UI verification blocked.
 
 Gates:
 ```
@@ -461,7 +520,8 @@ node scripts/api-smoke.mjs http://127.0.0.1:3000   # all API routes (server must
 node scripts/visual-suite.mjs                  # visual + real-grab proof (server must be up)
 node scripts/test-all.mjs                      # FULL gate: 168 units + e2e + Playwright (~20-30 min)
 ```
-The full `test-all.mjs` auto-starts a dev server if `/` isn't reachable and writes
+The full `test-all.mjs` auto-starts a dev server if `/` isn't reachable; do not run it
+when the owner's server is absent. It writes
 `ALL-SUMMARY.txt` / `.json` to `%TEMP%\tf-test-all-out`. Read the summary; don't trust the exit
 code alone.
 

@@ -2,7 +2,11 @@
   "name": "torrent-aggregator",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
   "scripts": {
+    "predev": "npm run doctor",
     "dev": "next dev -H 127.0.0.1 -p 3000",
     "build": "prisma generate && next build",
     "start": "next start -H 127.0.0.1",
@@ -15,7 +19,8 @@
     "db:push": "prisma db push",
     "db:backfill-works": "tsx scripts/backfill-canonical-works.mts",
     "db:studio": "prisma studio",
-    "setup": "prisma db push && prisma generate",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/check-runtime.mjs",
     "test:unit": "node scripts/run-unit-tests.mjs",
     "test:live": "node scripts/run-unit-tests.mjs --live",
     "test:api": "node scripts/api-smoke.mjs",
@@ -87,5 +92,18 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.9.0": true,
+    "bufferutil@4.1.0": true,
+    "esbuild@0.28.1": true,
+    "ffmpeg-static@5.3.0": true,
+    "fsevents@2.3.2": true,
+    "node-datachannel@0.32.3": true,
+    "prisma@7.9.0": true,
+    "unrs-resolver@1.12.2": true,
+    "utf-8-validate@6.0.6": true,
+    "utp-native@2.5.3": true,
+    "ip-set": false
   }
 }

@@ -548,6 +548,30 @@ const TITLE_CASES: Array<{ raw: string; expect: string }> = [
   { raw: "Max", expect: "Max" },
   // A hyphenated title is not a trailing release group.
   { raw: "The.Amazing.Spider-Man", expect: "The Amazing Spider-Man" },
+  // YIFY-shaped names: the size and the group sit *inside* a spaced string,
+  // which every earlier rule walked past. Left in, they reached the work key
+  // ("ninja-assassin-1-4gb-yify-2009") and a film could not match its own page.
+  {
+    raw: "Ninja Assassin (2009) 1080p BrRip x264 - 1.4GB - YIFY",
+    expect: "Ninja Assassin (2009)",
+  },
+  {
+    raw: "The Matrix (1999) 2160p BluRay x265 10bit - 12.5GB - YTS",
+    expect: "The Matrix (1999)",
+  },
+  { raw: "Breaking Bad S05E14 1080p BluRay x264-DEMAND", expect: "Breaking Bad S05E14" },
+  // A size token is only a size token next to its unit: 10bit and DDP5.1 are
+  // handled elsewhere and a bare number in a title stays a number.
+  { raw: "Ocean's 11 (2001)", expect: "Ocean's 11 (2001)" },
+  { raw: "2001 A Space Odyssey", expect: "2001 A Space Odyssey" },
+  // The trailing-group cut needs two pieces of evidence — proven release noise
+  // *and* a shouted group — so real titles that end in a dashed word survive.
+  {
+    raw: "Mission Impossible - Fallout (2018) 1080p BluRay",
+    expect: "Mission Impossible - Fallout (2018)",
+  },
+  { raw: "Spider-Man - No Way Home (2021) 1080p", expect: "Spider-Man - No Way Home (2021)" },
+  { raw: "Terminator 2 - JUDGMENT DAY", expect: "Terminator 2 - JUDGMENT DAY" },
 ];
 
 for (const c of TITLE_CASES) {

@@ -396,6 +396,34 @@ const PAREN_NOISE = /\((?![^)]*\b(?:19|20)\d{2}\b)[^)]*\)/g;
 const TRAILING_GROUP = /\s-[A-Za-z0-9]+$/;
 
 /**
+ * The file size indexers glue into a name: `1.4GB`, `700 MB`, `12,5 GiB`.
+ *
+ * YIFY-style names carry it in the middle of the string (`Ninja Assassin
+ * (2009) 1080p BrRip x264 - 1.4GB - YIFY`), so it survived every rule above:
+ * it is not a quality token, not bracketed, and not trailing. It then reached
+ * `workIdentity` and became part of the *key* — `ninja-assassin-1-4gb-yify-2009`
+ * — so the film's own title page could never match its own releases.
+ *
+ * A digit immediately followed by a byte unit is never part of a title, which
+ * is what makes this safe; `10bit`/`5.1` are not byte units and are untouched.
+ */
+const SIZE_TOKEN = /\b\d+(?:[.,]\d+)?\s?[KMGT]i?B\b/gi;
+
+/**
+ * A trailing release group on a name that *already proved* it is a release.
+ *
+ * Only all-caps/digits (`- YIFY`, `- YTS`, `-DEMAND`), never a word that could
+ * be the tail of a real title: "Mission Impossible - Fallout" keeps its tail
+ * because `Fallout` is not shouted, and "- 2" keeps its number because a group
+ * must start with a letter. Applied only when a quality or size token was
+ * actually removed, so a plainly-typed title is never touched.
+ */
+const TRAILING_SHOUTED_GROUP = /\s+-\s*[A-Z][A-Z0-9]{1,19}$/;
+
+/** `Title - - YIFY` left behind once a size token between two dashes is gone. */
+const DOUBLED_SEPARATOR = /\s+-(?:\s*-)+\s*/g;
+
+/**
  * A human-readable title for a card.
  *
  * Applies to *any* release-shaped string, not one indexer's format: strip the
@@ -427,14 +455,29 @@ export function cleanDisplayTitle(raw: string): string {
   // several of them contain dots themselves ("DDP5.1", "H.264"). Unglueing
   // first would split those into fragments no pattern can match, and the
   // debris would end up in the card title.
+  const beforeTokens = out;
   out = out.replace(RELEASE_TOKENS, " ");
+  // Before the dots are unglued, for the same reason the tokens are: a dot
+  // separated "2.1GB" would otherwise split into "2 1GB" and leave a stray "2".
+  out = out.replace(SIZE_TOKEN, " ");
   if (dotSeparated) out = out.replace(/[._]+/g, " ");
   out = out.replace(BRACKET_GROUP, " ").replace(PAREN_NOISE, " ");
   out = out.replace(RELEASE_TOKENS, " ");
+  const afterTokens = out;
+  out = out.replace(SIZE_TOKEN, " ");
+  // A name that lost a quality or size token is demonstrably a release name,
+  // which is the evidence the trailing-group rules below need before they may
+  // cut anything off a title.
+  const strippedNoise = afterTokens !== beforeTokens || out !== afterTokens;
   out = out.replace(/\s+/g, " ").trim();
+  out = out.replace(DOUBLED_SEPARATOR, " - ").replace(/\s+-\s*$/, "");
   // Only for release names: a lone "-NTb" left behind by the stripped tokens is
   // the release group, never part of a title someone typed.
   if (dotSeparated) out = out.replace(TRAILING_GROUP, "");
+  if (strippedNoise) {
+    // Twice: "… - 1.4GB - YIFY" collapses to one separator and then one group.
+    out = out.replace(TRAILING_SHOUTED_GROUP, "").replace(TRAILING_SHOUTED_GROUP, "");
+  }
   out = out
     .replace(/\s+/g, " ")
     .replace(/^[\s._-]+/, "")

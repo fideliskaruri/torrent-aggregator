@@ -153,7 +153,7 @@ export async function runGrabPipeline(
 
   if (!candidate?.magnet) {
     const message = opts.noMatchMessage
-      ? opts.noMatchMessage(result.results.length)
+      ? opts.noMatchMessage(result.results.length, result.sources)
       : result.results.length
         ? `No matching release in ${result.results.length} results`
         : "No matching torrents";

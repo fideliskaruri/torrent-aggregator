@@ -121,7 +121,11 @@ export function workKeyMatches(
 ): boolean {
   const wanted = key.trim().toLowerCase();
   if (!wanted) return false;
-  if (workKeyVariants(name, year).includes(wanted)) return true;
+  const variants = workKeyVariants(name, year);
+  // The second spelling is the pre-cleanup one, so a link or a row saved when
+  // the release suffix was still part of the key still reaches its own work.
+  const candidates = workKeyAliases(wanted);
+  if (candidates.some((candidate) => variants.includes(candidate))) return true;
 
   // A row that states no year cannot contradict one.
   //
@@ -139,7 +143,10 @@ export function workKeyMatches(
   // rejected from `dune-2021` by the strict test above.
   if (year != null) return false;
   const bare = workKeyFor(name, null);
-  return Boolean(bare) && stripTrailingYear(wanted) === bare;
+  return (
+    Boolean(bare) &&
+    candidates.some((candidate) => stripTrailingYear(candidate) === bare)
+  );
 }
 
 /** Plausible release years, matching `work-identity.ts`'s own bounds. */
@@ -147,6 +154,42 @@ const TRAILING_YEAR = /-(?:19|20)\d{2}$/;
 
 function stripTrailingYear(key: string): string {
   return key.replace(TRAILING_YEAR, "");
+}
+
+/**
+ * A size-and-group run left inside a key written before the title cleanup.
+ *
+ * `cleanDisplayTitle` used to walk past the size an indexer glues into a
+ * spaced release name (`Ninja Assassin (2009) 1080p BrRip x264 - 1.4GB -
+ * YIFY`), so the identity — and therefore the *persisted* key — came out as
+ * `ninja-assassin-1-4gb-yify-2009`. Those rows exist in real databases and in
+ * real bookmarks.
+ *
+ * Nothing is rewritten to fix them: a migration would have to merge two `Work`
+ * rows on a guess, and a guess that merges the wrong two works is unrecoverable.
+ * Instead the *read* accepts the old spelling, so an old link resolves to the
+ * same work as the new one and the row quietly stops being reachable once
+ * nothing points at it.
+ *
+ * Deliberately narrow. It fires only on a digits→byte-unit run (`-1-4gb-`),
+ * which is not a shape any real title produces, and only immediately before
+ * the year or the end of the key. It cannot shorten a title to another title:
+ * `children-of-dune` has no byte unit in it to strip.
+ */
+const LEGACY_SIZE_GROUP =
+  /-\d+(?:-\d+)?-?[kmgt]i?b(?:-(?!(?:19|20)\d{2}$)[a-z0-9]{2,20})?(?=-(?:19|20)\d{2}$|$)/;
+
+/**
+ * Every spelling of `key` a stored row may legitimately answer to.
+ *
+ * The key itself first, then the pre-cleanup spelling with its size/group run
+ * removed. Never more than these two, and never a guess that drops a word.
+ */
+export function workKeyAliases(key: string): string[] {
+  const wanted = (key ?? "").trim().toLowerCase();
+  if (!wanted) return [];
+  const legacy = wanted.replace(LEGACY_SIZE_GROUP, "");
+  return legacy === wanted ? [wanted] : [wanted, legacy];
 }
 
 /**

@@ -235,8 +235,16 @@ export type GrabPipelineOptions = {
    * Defaults to a generic "No matching release in N results" / "No matching
    * torrents". Rules use this to say "No anime releases in 42 results";
    * on-demand uses "No matching S01E05 release".
+   *
+   * `sources` is the per-source outcome of the search that just ran. It is
+   * passed so a caller can tell "the indexers answered and had nothing" apart
+   * from "every indexer failed" — reporting the second as the first is how a
+   * blocked mirror looks like a film that does not exist.
    */
-  noMatchMessage?: (resultCount: number) => string;
+  noMatchMessage?: (
+    resultCount: number,
+    sources?: readonly { id: string; count: number; error?: string }[],
+  ) => string;
   /** Called inside the transaction after successful send + DB writes. */
   onSuccess?: OnGrabSuccess;
   /** Called inside the transaction after failed send. */

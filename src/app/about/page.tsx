@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { TfPageHeader } from "@/components/tf/page-header";
+import { InstallAppCard } from "@/components/pwa/install-app-card";
 import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = {
@@ -14,6 +15,8 @@ export default function AboutPage() {
         title="About"
         description="TorrentFlow is a self-hosted search UI over public torrent indexers. It does not host files or magnets."
       />
+
+      <InstallAppCard />
 
       <section className="surface p-4 sm:p-5 space-y-3 text-[13px] text-[var(--text-secondary)] leading-relaxed">
         <h2 className="text-[13px] font-medium text-[var(--text)]">Legal</h2>

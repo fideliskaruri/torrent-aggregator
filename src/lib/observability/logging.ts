@@ -26,6 +26,20 @@ const SAFE_FIELD_NAMES = [
   "status",
   "statusCode",
   "strategy",
+  "stage",
+  "scope",
+  "season",
+  "episode",
+  "wanted",
+  "covered",
+  "missing",
+  "candidateCount",
+  "rejectedIdentity",
+  "rejectedQuality",
+  "rejectedSeeders",
+  "minResolution",
+  "overrideStorageCap",
+  "pathMode",
 ] as const;
 
 type SafeFieldName = (typeof SAFE_FIELD_NAMES)[number];

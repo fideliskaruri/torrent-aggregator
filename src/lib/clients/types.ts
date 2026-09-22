@@ -21,6 +21,8 @@ export interface ClientConnectionConfig {
    * and new downloads must be refused.
    */
   maxStorageBytes?: number | null;
+  /** Opt-in, redacted acquisition decision logs. */
+  verboseDiagnostics?: boolean;
   /** Quick-pick categories */
   categories?: string[];
   /** Map category → download folder (overrides base/Category) */

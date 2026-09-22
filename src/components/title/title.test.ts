@@ -22,6 +22,7 @@ import {
   titlePath,
   workKeyFor,
   workKeyForRelease,
+  workKeyAliases,
   workKeyMatches,
   workKeyVariants,
 } from "./work-key";
@@ -178,6 +179,18 @@ const RELEASE_KEY_CASES: {
     release: "Severance.S02.COMPLETE.1080p.ATVP.WEB-DL",
     expect: "severance",
   },
+  {
+    // The reported defect: the size and the group survived cleaning and became
+    // part of the identity, so the film's own page could not match its release.
+    name: "a YIFY size/group suffix is not part of the identity",
+    release: "Ninja Assassin (2009) 1080p BrRip x264 - 1.4GB - YIFY",
+    expect: "ninja-assassin-2009",
+  },
+  {
+    name: "a YTS size/group suffix is not part of the identity",
+    release: "The Matrix (1999) 2160p BluRay x265 10bit - 12.5GB - YTS",
+    expect: "the-matrix-1999",
+  },
 ];
 
 for (const c of RELEASE_KEY_CASES) {
@@ -196,6 +209,40 @@ check("workKeyForRelease: Dune is not Children of Dune", () => {
   const a = workKeyForRelease("Dune.2021.2160p.WEB-DL");
   const b = workKeyForRelease("Children.of.Dune.S01E01.1080p");
   assert.notEqual(a, b);
+});
+
+check("workKeyForRelease: cleaning a size suffix does not merge two works", () => {
+  // The suffix strip must remove distribution debris only. Two different films
+  // packaged by the same group must stay two keys, and the same film from two
+  // groups must land on one.
+  const ninja = workKeyForRelease("Ninja Assassin (2009) 1080p BrRip x264 - 1.4GB - YIFY");
+  const matrix = workKeyForRelease("The Matrix (1999) 1080p BrRip x264 - 1.4GB - YIFY");
+  assert.notEqual(ninja, matrix);
+  assert.equal(
+    workKeyForRelease("Ninja.Assassin.2009.1080p.BluRay.x264-AMIABLE"),
+    ninja,
+  );
+  // Year still separates two films that share a name.
+  assert.notEqual(
+    workKeyForRelease("Dune (1984) 1080p BrRip x264 - 1.5GB - YIFY"),
+    workKeyForRelease("Dune (2021) 1080p BrRip x264 - 1.9GB - YIFY"),
+  );
+});
+
+check("workKeyMatches: the reported film now answers to its own page", () => {
+  const key = workKeyForRelease("Ninja Assassin (2009) 1080p BrRip x264 - 1.4GB - YIFY");
+  assert.equal(key, "ninja-assassin-2009");
+  assert.equal(workKeyMatches(key, "Ninja Assassin", 2009), true);
+  assert.equal(workKeyMatches(key, "Ninja Assassin", null), true);
+  // and not to a different work that merely shares the packaging suffix.
+  assert.equal(workKeyMatches(key, "The Matrix", 1999), false);
+});
+
+check("workKeyForRelease: episode identity survives the suffix strip", () => {
+  assert.equal(
+    workKeyForRelease("Breaking Bad S05E14 1080p BluRay x264-DEMAND"),
+    "breaking-bad",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -276,6 +323,70 @@ for (const c of MATCH_CASES) {
 
 check("workKeyMatches: case and padding in the URL are tolerated", () => {
   assert.equal(workKeyMatches("  Dune-2021 ", "Dune", 2021), true);
+});
+
+// ---------------------------------------------------------------------------
+// Legacy keys
+// ---------------------------------------------------------------------------
+//
+// Before the release-suffix cleanup, a YIFY-shaped name keyed as
+// `ninja-assassin-1-4gb-yify-2009`, and those strings were persisted — in
+// `Work.workKey`, in `AcquisitionTarget.targetKey`, and in whatever the user
+// bookmarked. Nothing rewrites them (merging two Work rows on a guess is
+// unrecoverable when the guess is wrong), so the read side accepts the old
+// spelling instead.
+
+check("workKeyAliases: the old spelling resolves to the current one", () => {
+  assert.deepEqual(workKeyAliases("ninja-assassin-1-4gb-yify-2009"), [
+    "ninja-assassin-1-4gb-yify-2009",
+    "ninja-assassin-2009",
+  ]);
+  assert.deepEqual(workKeyAliases("the-matrix-12-5gb-yts-1999"), [
+    "the-matrix-12-5gb-yts-1999",
+    "the-matrix-1999",
+  ]);
+  // A size run with no group after it, and one with no year after it.
+  assert.deepEqual(workKeyAliases("some-film-700-mb-2014")[1], "some-film-2014");
+  assert.deepEqual(workKeyAliases("breaking-bad-1-4gb-demand")[1], "breaking-bad");
+});
+
+check("workKeyAliases: a current key has exactly one spelling", () => {
+  assert.deepEqual(workKeyAliases("ninja-assassin-2009"), ["ninja-assassin-2009"]);
+  assert.deepEqual(workKeyAliases("blade-runner-2049"), ["blade-runner-2049"]);
+  assert.deepEqual(workKeyAliases("children-of-dune"), ["children-of-dune"]);
+  assert.deepEqual(workKeyAliases(""), []);
+});
+
+check("a bookmark saved under the old key still reaches its work", () => {
+  assert.equal(
+    workKeyMatches("ninja-assassin-1-4gb-yify-2009", "Ninja Assassin", 2009),
+    true,
+  );
+  // And via the yearless library row, the way a WatchListItem is stored.
+  assert.equal(
+    workKeyMatches("ninja-assassin-1-4gb-yify-2009", "Ninja Assassin", null),
+    true,
+  );
+});
+
+check("the legacy alias cannot merge two different works", () => {
+  // It may only remove a byte-size run — never a word that carries meaning.
+  assert.equal(
+    workKeyMatches("ninja-assassin-1-4gb-yify-2009", "The Matrix", 1999),
+    false,
+  );
+  assert.equal(workKeyMatches("children-of-dune", "Dune", 2021), false);
+  assert.equal(workKeyMatches("dune-prophecy", "Dune", 2021), false);
+  // The year still separates two films that share a name.
+  assert.equal(
+    workKeyMatches("dune-1-5gb-yify-1984", "Dune", 2021),
+    false,
+  );
+  assert.equal(workKeyMatches("dune-1-5gb-yify-1984", "Dune", 1984), true);
+  // A title that legitimately ends in a number is not a size run.
+  assert.equal(workKeyMatches("blade-runner-2049", "Blade Runner", 2049), true);
+  assert.equal(workKeyMatches("blade-runner-2049", "Blade Runner", null), true);
+  assert.equal(workKeyMatches("fahrenheit-451", "Fahrenheit 451", null), true);
 });
 
 // ---------------------------------------------------------------------------

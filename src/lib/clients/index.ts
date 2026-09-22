@@ -128,6 +128,7 @@ export async function getUserClientConfig(
         : null,
     categories: parseJsonArray(settings.categories),
     pathRules: parseJsonRecord(settings.pathRules),
+    verboseDiagnostics: settings.verboseDiagnostics === true,
     userId,
   };
 }

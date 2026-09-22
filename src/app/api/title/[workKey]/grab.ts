@@ -25,6 +25,7 @@ import { resolveSmartSendTarget } from "@/lib/download/smart-target";
 import { grabSingleEpisode } from "@/lib/library/ondemand";
 import { checkSendStorage } from "@/lib/library/storage-gate";
 import { runGrabPipeline } from "@/lib/grab/pipeline";
+import { logAcquisitionDecision } from "@/lib/observability/acquisition-diagnostics";
 import { catalogMetadata } from "@/lib/metadata/catalog-identity";
 import { searchAniList } from "@/lib/metadata/anilist";
 import { searchCategoryForMediaType } from "@/lib/metadata/media-type";
@@ -471,6 +472,10 @@ async function grabWholeWork(
       ? normalizeResolutionFloor(input.preferredResolution)
       : null;
 
+  // Held so the failure message can say *why* nothing was picked. Only counts
+  // and source ids are ever derived from it — never a magnet or a path.
+  let lastSearchResults: readonly TorrentResult[] = [];
+
   const result = await runGrabPipeline({
     userId: input.userId,
     workId: input.workId,
@@ -496,13 +501,22 @@ async function grabWholeWork(
     // movie-only half of the storage-override bug (episode/season paths already
     // carry this; this whole-work path was the one that dropped it).
     addPayload: { overrideStorageCap: input.overrideStorageCap === true },
-    noMatchMessage: (count) =>
-      count
-        ? `No ${minimumResolution ? `${minimumResolution}p-or-higher ` : ""}release for ${title} in ${count} results`
-        : `No seeded ${minimumResolution ? `${minimumResolution}p-or-higher ` : ""}torrent for ${title}`,
+    noMatchMessage: (count, sources) =>
+      filmNoMatchMessage({
+        title,
+        minimumResolution,
+        count,
+        sources,
+        rejection: summarizeFilmRejection(
+          lastSearchResults,
+          input.workKey,
+          minimumResolution,
+        ),
+      }),
 
     selectCandidate(results) {
-      return selectWorkCandidate(
+      lastSearchResults = results;
+      const picked = selectWorkCandidate(
         results,
         input.workKey,
         input.isSeries,
@@ -511,6 +525,29 @@ async function grabWholeWork(
         searchCategory,
         minimumResolution,
       );
+      // The one decision that has been wrong in the field: a corrupted work key
+      // made every correct release read as a different film, and the only
+      // symptom was "no release". Counts and reason codes make that visible
+      // without naming a release, a hash or a path.
+      const rejection = summarizeFilmRejection(
+        results,
+        input.workKey,
+        minimumResolution,
+      );
+      logAcquisitionDecision(config, picked ? "candidate_selected" : "candidate_none", {
+        stage: "select",
+        scope: "title",
+        category: searchCategory,
+        source: picked?.source ?? null,
+        resultCount: results.length,
+        candidateCount: picked ? 1 : 0,
+        rejectedIdentity: rejection.otherWork,
+        rejectedQuality: rejection.belowFloor,
+        rejectedSeeders: rejection.unseeded,
+        minResolution: minimumResolution,
+        overrideStorageCap: input.overrideStorageCap === true,
+      });
+      return picked;
     },
 
     async checkStorageBudget(candidate, target) {
@@ -532,6 +569,14 @@ async function grabWholeWork(
         protectHashes: candidate.infoHash ? [candidate.infoHash] : undefined,
         overrideCap: input.overrideStorageCap === true,
       });
+      // Which root was chosen, never the root itself: a save path is user data.
+      logAcquisitionDecision(config, "storage_gate", {
+        stage: "storage",
+        scope: "title",
+        status: space.ok ? "allowed" : "refused",
+        pathMode: storageRootMode(config, target.savePath),
+        overrideStorageCap: input.overrideStorageCap === true,
+      });
       return space.ok
         ? { ok: true as const }
         : { ok: false as const, message: space.message, storage: space.override };
@@ -547,8 +592,27 @@ async function grabWholeWork(
           title,
         }),
       });
+      logAcquisitionDecision(config, "target_resolved", {
+        stage: "target",
+        scope: "title",
+        category: target.category,
+        strategy: target.smart.confidence,
+        pathMode: target.kind,
+        source: candidate.source,
+      });
       return { category: target.category, savePath: target.savePath };
     },
+  });
+
+  logAcquisitionDecision(config, "grab_result", {
+    stage: "send",
+    scope: "title",
+    status: result.status,
+    source: result.candidate?.source ?? null,
+    category: searchCategory,
+    clientType: config.clientType ?? null,
+    minResolution: minimumResolution,
+    offline: result.offline === true,
   });
 
   if (result.status === "sent" || result.status === "already_active") {
@@ -572,6 +636,151 @@ async function grabWholeWork(
     infoHash: normalizeInfoHash(result.candidate?.infoHash),
     storage: result.storage ?? null,
   };
+}
+
+/**
+ * Which configured root the storage gate measured, as a code.
+ *
+ * A save path is user data — it names their disk layout — so the diagnostic
+ * reports *which rule won*, never the path. That is the fact needed to explain
+ * a refusal ("it measured the client's root, not your base path"), and it is
+ * low-cardinality enough to be safe in a log line.
+ */
+export function storageRootMode(
+  config: { baseDownloadPath?: string | null; savePath?: string | null },
+  targetSavePath: string | null | undefined,
+): "base" | "target" | "client" | "cwd" {
+  if (config.baseDownloadPath?.trim()) return "base";
+  if (targetSavePath) return "target";
+  if (config.savePath?.trim()) return "client";
+  return "cwd";
+}
+
+/** Per-source outcome of the search that just ran, as the pipeline reports it. */
+export interface GrabSourceOutcome {
+  id: string;
+  count: number;
+  error?: string;
+}
+
+/** Why the film selector rejected everything it was given. Counts only. */
+export interface FilmRejectionSummary {
+  total: number;
+  noMagnet: number;
+  unseeded: number;
+  belowFloor: number;
+  otherWork: number;
+  packOrEpisode: number;
+}
+
+/**
+ * Count the reasons a film search produced no candidate.
+ *
+ * "No release" is the one sentence this path can say, and it has been wrong
+ * twice over: once when the indexer was unreachable, and once when the work
+ * key itself was corrupted by a release suffix so every correct result was
+ * read as a different film. Counting the rejections makes both visible in the
+ * message the user actually sees, and does it without exposing a magnet, a
+ * path or any credential — ids and integers only.
+ *
+ * Mirrors {@link selectWorkCandidate}'s order so the numbers describe the run
+ * that really happened rather than a second, differently-shaped opinion.
+ */
+export function summarizeFilmRejection(
+  results: readonly TorrentResult[],
+  workKey: string,
+  minimumResolution?: number | null,
+): FilmRejectionSummary {
+  const summary: FilmRejectionSummary = {
+    total: results.length,
+    noMagnet: 0,
+    unseeded: 0,
+    belowFloor: 0,
+    otherWork: 0,
+    packOrEpisode: 0,
+  };
+  for (const r of results) {
+    if (!r.magnet) {
+      summary.noMagnet += 1;
+      continue;
+    }
+    if ((r.seeders ?? 0) <= 0) {
+      summary.unseeded += 1;
+      continue;
+    }
+    if (!meetsResolutionFloor(r.title, minimumResolution ?? null)) {
+      summary.belowFloor += 1;
+      continue;
+    }
+    const identity = workIdentityFor(r.title, r.metadata ?? null);
+    if (!workKeyMatches(workKey, identity.name, identity.year)) {
+      summary.otherWork += 1;
+      continue;
+    }
+    const ep = r.episode ?? parseEpisode(r.title);
+    if (ep.isSeasonPack || ep.isMultiSeason || ep.episode != null) {
+      summary.packOrEpisode += 1;
+    }
+  }
+  return summary;
+}
+
+/**
+ * "Every source failed" is not "there is no release".
+ *
+ * Returns a sentence only when *nothing* was actually searched — one working
+ * source that returned nothing is a real, honest empty answer and must keep
+ * saying so. Never quietly upgraded to a claim about peers or availability,
+ * which this layer has no evidence about.
+ */
+export function sourceOutageMessage(
+  sources?: readonly GrabSourceOutcome[],
+): string | null {
+  if (!sources?.length) return null;
+  const failed = sources.filter((s) => Boolean(s.error?.trim()));
+  if (failed.length !== sources.length) return null;
+  const names = failed.map((s) => s.id).join(", ");
+  return `Could not reach any torrent source (${names}) — nothing was searched, so this is an outage, not a missing release. Try again in a moment.`;
+}
+
+/**
+ * The failure sentence for a film grab, with the reason attached.
+ *
+ * The old message named a count and nothing else, so an unreachable indexer,
+ * a quality floor nothing cleared and a corrupted work key were all reported
+ * as "No seeded torrent for X" — three different problems, one dead end.
+ */
+export function filmNoMatchMessage(input: {
+  title: string;
+  minimumResolution?: number | null;
+  count: number;
+  sources?: readonly GrabSourceOutcome[];
+  rejection?: FilmRejectionSummary | null;
+}): string {
+  const outage = sourceOutageMessage(input.sources);
+  if (outage) return `${outage} (${input.title})`;
+
+  const floor = input.minimumResolution
+    ? `${input.minimumResolution}p-or-higher `
+    : "";
+  if (!input.count) {
+    return `No seeded ${floor}torrent for ${input.title}`;
+  }
+
+  const r = input.rejection;
+  const because: string[] = [];
+  if (r) {
+    if (r.otherWork) because.push(`${r.otherWork} were a different work`);
+    if (r.belowFloor && input.minimumResolution) {
+      because.push(
+        `${r.belowFloor} below ${input.minimumResolution}p or of unknown quality`,
+      );
+    }
+    if (r.packOrEpisode) because.push(`${r.packOrEpisode} were packs or episodes`);
+    if (r.unseeded) because.push(`${r.unseeded} had no seeders`);
+  }
+  const why = because.length ? ` — ${because.join(", ")}` : "";
+  return `No ${floor}release for ${input.title} in ${input.count} results${why}`;
 }
 
 /**

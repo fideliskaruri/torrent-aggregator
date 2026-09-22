@@ -4,6 +4,7 @@ import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { KeyboardRoot } from "@/components/layout/keyboard-root";
 import { AuthSessionProvider } from "@/components/providers/session-provider";
+import { ServiceWorkerRegistrar } from "@/components/pwa/service-worker-registrar";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -30,6 +31,15 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "TorrentFlow",
+  },
+  applicationName: "TorrentFlow",
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
 };
 
@@ -62,6 +72,7 @@ export default function RootLayout({
         reports.
       */}
       <body className="app-shell antialiased" suppressHydrationWarning>
+        <ServiceWorkerRegistrar />
         <AuthSessionProvider>
           <UiPreferencesProvider>
             <KeyboardRoot>
