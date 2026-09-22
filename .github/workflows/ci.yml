@@ -48,13 +48,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      DATABASE_URL: file:${{ runner.temp }}/torrentflow-ci.db
-      DOWNLOAD_DIR: ${{ runner.temp }}/torrentflow-downloads
       NEXT_TELEMETRY_DISABLED: "1"
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Configure isolated CI paths
+        shell: bash
+        run: |
+          echo "DATABASE_URL=file:$RUNNER_TEMP/torrentflow-ci.db" >> "$GITHUB_ENV"
+          echo "DOWNLOAD_DIR=$RUNNER_TEMP/torrentflow-downloads" >> "$GITHUB_ENV"
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
