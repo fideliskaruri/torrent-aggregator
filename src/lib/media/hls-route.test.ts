@@ -93,6 +93,9 @@ const pathCases: Array<{ name: string; input: string; allowed: boolean }> = [
   { name: "embedded traversal", input: "sub/../../escape.m4s", allowed: false },
   { name: "absolute posix path", input: "/etc/passwd", allowed: false },
   { name: "absolute windows path", input: "C:\\Windows\\System32\\config\\SAM", allowed: false },
+  { name: "drive-relative windows path", input: "C:playlist.m3u8", allowed: false },
+  { name: "UNC path", input: "\\\\server\\share\\playlist.m3u8", allowed: false },
+  { name: "absolute path inside the session", input: path.join(base, "playlist.m3u8"), allowed: false },
   { name: "null byte", input: "seg\0.m4s", allowed: false },
   { name: "empty", input: "", allowed: false },
   // A sibling directory whose name merely starts with the base name must not
@@ -115,6 +118,13 @@ for (const c of pathCases) {
 check("resolveWithinSessionDir keeps nested segment paths inside the session dir", () => {
   const result = resolveWithinSessionDir(base, "sub/seg00001.m4s");
   assert.equal(result, path.join(base, "sub", "seg00001.m4s"));
+});
+
+check("resolveWithinSessionDir normalizes nested Windows separators", () => {
+  assert.equal(
+    resolveWithinSessionDir(base, "sub\\seg00001.m4s"),
+    path.join(base, "sub", "seg00001.m4s"),
+  );
 });
 
 if (failures > 0) {

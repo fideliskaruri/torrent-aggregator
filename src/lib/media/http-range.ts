@@ -62,7 +62,10 @@ export function parseSegmentRange(header: string | null, size: number): ParsedRa
  */
 export function resolveWithinSessionDir(outputDir: string, filename: string): string | null {
   if (!filename || filename.includes("\0")) return null;
-  const resolved = path.resolve(outputDir, filename);
+  // Request paths must have the same containment rules on Windows and Linux.
+  const relative = filename.replace(/\\/g, "/");
+  if (path.posix.isAbsolute(relative) || path.win32.parse(relative).root) return null;
+  const resolved = path.resolve(outputDir, relative);
   const base = path.resolve(outputDir);
   if (resolved !== base && !resolved.startsWith(base + path.sep)) return null;
   return resolved;

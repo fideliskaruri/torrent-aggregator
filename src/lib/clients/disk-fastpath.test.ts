@@ -76,6 +76,14 @@ async function check(name: string, fn: () => void | Promise<void>) {
 
 let failures = 0;
 
+// Native absolute fixtures exercise containment on both Windows and Linux.
+const FS_ROOT = path.resolve(path.sep);
+const abs = (...segments: string[]) => path.join(FS_ROOT, ...segments);
+const CASE_INSENSITIVE_FS = process.platform === "win32";
+/** An absolute path shaped for the OS we are NOT running on. */
+const FOREIGN_ABSOLUTE =
+  path.sep === "\\" ? "/srv/media/TV/Movie.mkv" : "D:\\Media\\TV\\Movie.mkv";
+
 async function main() {
   await check("file ranges map to inclusive torrent piece ranges", () => {
     const cases: Array<{
@@ -247,20 +255,15 @@ async function main() {
   });
 
   await check("persisted verified files resolve by torrent-relative path", () => {
-    const savePath = "D:\\Media\\TV";
+    const savePath = abs("Media", "TV");
+    const filePath = path.join(savePath, "Show", "Season 01", "Show S01E01.mkv");
     const resolved = resolvePersistedDiskFile(
       savePath,
-      JSON.stringify([
-        {
-          path: "D:\\Media\\TV\\Show\\Season 01\\Show S01E01.mkv",
-          size: 1234,
-          mtimeMs: 1,
-        },
-      ]),
+      JSON.stringify([{ path: filePath, size: 1234, mtimeMs: 1 }]),
       "Show/Season 01/Show S01E01.mkv",
     );
     assert.deepEqual(resolved, {
-      path: "D:\\Media\\TV\\Show\\Season 01\\Show S01E01.mkv",
+      path: filePath,
       rootPath: path.resolve(savePath),
       length: 1234,
       mtimeMs: 1,
@@ -268,21 +271,22 @@ async function main() {
   });
 
   await check("persisted path resolution requires an exact save-root-relative path", () => {
+    const root = abs("Media", "TV");
     const resolved = resolvePersistedDiskFile(
       null,
       JSON.stringify([
-        { path: "D:\\Media\\A\\Movie.mkv", size: 100, mtimeMs: 1 },
-        { path: "D:\\Media\\B\\Movie.mkv", size: 200, mtimeMs: 2 },
+        { path: abs("Media", "A", "Movie.mkv"), size: 100, mtimeMs: 1 },
+        { path: abs("Media", "B", "Movie.mkv"), size: 200, mtimeMs: 2 },
       ]),
       "Movie.mkv",
     );
     assert.equal(resolved, null);
     assert.equal(
       resolvePersistedDiskFile(
-        "D:\\Media\\TV",
+        root,
         JSON.stringify([
           {
-            path: "D:\\Media\\TV\\Show\\Season 01\\Show S01E01.mkv",
+            path: path.join(root, "Show", "Season 01", "Show S01E01.mkv"),
             size: 1234,
             mtimeMs: 1,
           },
@@ -293,61 +297,62 @@ async function main() {
     );
     assert.equal(
       resolvePersistedDiskFile(
-        "D:\\Media\\TV",
+        root,
         JSON.stringify([
-          { path: "D:\\Media\\secret.mkv", size: 1234, mtimeMs: 1 },
+          { path: abs("Media", "secret.mkv"), size: 1234, mtimeMs: 1 },
         ]),
         "../secret.mkv",
       ),
       null,
+      "a traversal out of the save root never resolves",
+    );
+  });
+
+  await check("a foreign-OS absolute path never resolves against the save root", () => {
+    assert.equal(
+      resolvePersistedDiskFile(
+        abs("Media", "TV"),
+        JSON.stringify([{ path: FOREIGN_ABSOLUTE, size: 1234, mtimeMs: 1 }]),
+        "Movie.mkv",
+      ),
+      null,
+      "a path this platform cannot prove is inside the root is not served",
     );
   });
 
   await check("only completed rows can resolve persisted disk files", () => {
-    const files = JSON.stringify([
-      {
-        path: "D:\\Media\\TV\\Movie.mkv",
-        size: 1234,
-        mtimeMs: 1,
-      },
-    ]);
+    const root = abs("Media", "TV");
+    const filePath = path.join(root, "Movie.mkv");
+    const files = JSON.stringify([{ path: filePath, size: 1234, mtimeMs: 1 }]);
     assert.equal(
-      resolveCompletedPersistedDiskFile(
-        0.99,
-        "D:\\Media\\TV",
-        files,
-        "Movie.mkv",
-      ),
+      resolveCompletedPersistedDiskFile(0.99, root, files, "Movie.mkv"),
       null,
+      "an incomplete row never serves persisted bytes",
     );
     assert.ok(
-      resolveCompletedPersistedDiskFile(
-        1,
-        "D:\\Media\\TV",
-        files,
-        "movie.MKV",
-      ),
-      "Windows path matching should be case-insensitive",
+      resolveCompletedPersistedDiskFile(1, root, files, "Movie.mkv"),
+      "a completed row resolves its own recorded file",
+    );
+    // Preserve the existing platform-specific matching policy.
+    assert.equal(
+      resolveCompletedPersistedDiskFile(1, root, files, "movie.MKV") != null,
+      CASE_INSENSITIVE_FS,
+      CASE_INSENSITIVE_FS
+        ? "Windows path matching should be case-insensitive"
+        : "POSIX path matching must stay case-sensitive",
     );
   });
 
-  await check("top-level torrent folders resolve with Windows separators", () => {
-    const root = "D:\\Media\\TV";
+  await check("top-level torrent release folders resolve with native separators", () => {
+    const root = abs("Media", "TV");
+    const filePath = path.join(root, "Release Folder", "Season 09", "Episode.mkv");
     const resolved = resolvePersistedDiskFile(
       root,
-      JSON.stringify([
-        {
-          path: "D:\\Media\\TV\\Release Folder\\Season 09\\Episode.mkv",
-          size: 4321,
-          mtimeMs: 2,
-        },
-      ]),
+      JSON.stringify([{ path: filePath, size: 4321, mtimeMs: 2 }]),
       "Release Folder/Season 09/Episode.mkv",
     );
-    assert.equal(
-      resolved?.path,
-      "D:\\Media\\TV\\Release Folder\\Season 09\\Episode.mkv",
-    );
+    assert.equal(resolved?.path, filePath);
+    assert.equal(resolved?.length, 4321);
   });
 
   await check("a disk file opens by absolute path without a torrent handle", async () => {

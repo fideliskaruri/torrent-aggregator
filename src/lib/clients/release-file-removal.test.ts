@@ -67,7 +67,16 @@ function fakeFs(files: Record<string, number>): RemovalFs & {
   };
 }
 
-const BASE = path.join("D:", "leech");
+// Native absolute fixtures exercise containment on both Windows and Linux.
+const FS_ROOT = path.resolve(path.sep);
+const abs = (...segments: string[]) => path.join(FS_ROOT, ...segments);
+/** An absolute path shaped for the OS we are NOT running on. */
+const FOREIGN_ABSOLUTE =
+  path.sep === "\\"
+    ? "/srv/media/TV/Rick and Morty/Rick and Morty (2013) - S02E01.mkv"
+    : "D:\\leech\\TV\\Rick and Morty\\Rick and Morty (2013) - S02E01.mkv";
+
+const BASE = abs("leech");
 const SHOW = path.join(BASE, "TV", "Rick and Morty");
 const EP = path.join(SHOW, "Rick and Morty (2013) - S02E01.mkv");
 const FEAT = path.join(SHOW, "Featurettes", "behind.mkv");
@@ -79,7 +88,8 @@ function main() {
   check("isStrictlyInside rejects equal, accepts descendant", () => {
     assert.equal(isStrictlyInside(BASE, BASE), false);
     assert.equal(isStrictlyInside(SHOW, BASE), true);
-    assert.equal(isStrictlyInside(path.join("D:", "Other"), BASE), false);
+    assert.equal(isStrictlyInside(abs("Other"), BASE), false);
+    assert.equal(isStrictlyInside(path.dirname(BASE), BASE), false);
   });
 
   check("commonAncestorDir finds the release folder of a multi-file torrent", () => {
@@ -158,7 +168,7 @@ function main() {
   });
 
   check("a file recorded outside the download root is refused, never deleted", () => {
-    const escape = path.join("D:", "Windows", "System32", "kernel32.dll");
+    const escape = abs("Windows", "System32", "kernel32.dll");
     const plan = planReleaseRemoval({
       ownedFiles: [EP, escape],
       savePath: SHOW,
@@ -166,6 +176,23 @@ function main() {
     });
     assert.deepEqual(plan.files, [EP]);
     assert.deepEqual(plan.refusedOutside, [escape]);
+  });
+
+  check("a foreign-OS absolute path is never treated as inside the root", () => {
+    // Paths from another host must still pass the native containment check.
+    const plan = planReleaseRemoval({
+      ownedFiles: [EP, FOREIGN_ABSOLUTE],
+      savePath: SHOW,
+      baseRoot: BASE,
+    });
+    assert.deepEqual(plan.files, [EP], "only the natively-contained file is unlinkable");
+    assert.equal(plan.refusedOutside.length, 1);
+    assert.equal(
+      isStrictlyInside(plan.refusedOutside[0], BASE),
+      false,
+      "the refused path is genuinely outside the download root",
+    );
+    assert.equal(plan.folder, SHOW, "the foreign path must not widen the folder candidate");
   });
 
   check("no recorded files → nothing to unlink, no folder guessed", () => {
