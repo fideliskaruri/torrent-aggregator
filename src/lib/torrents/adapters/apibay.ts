@@ -49,7 +49,16 @@ export class ApiBayAdapter implements TorrentSourceAdapter {
       return [];
     }
 
-    return data.slice(0, limit).map((row, index) => toResult(row, index));
+    const allowedCategories =
+      options.category === "tv"
+        ? ["205", "208", "212"]
+        : options.category === "movies"
+          ? ["201", "202", "207", "209", "210", "211"]
+          : null;
+    return data
+      .filter((row) => !allowedCategories || allowedCategories.includes(row.category ?? ""))
+      .slice(0, limit)
+      .map((row, index) => toResult(row, index));
   }
 }
 
@@ -69,9 +78,10 @@ interface ApibayRow {
 function categoryToApibay(category?: string): string {
   switch (category) {
     case "movies":
-      return "201";
     case "tv":
-      return "205";
+      // Leaf categories omit HD/UHD siblings; the API does not expand parent
+      // categories. Search broadly, then enforce the video scope before slicing.
+      return "0";
     case "music":
       return "101";
     case "games":

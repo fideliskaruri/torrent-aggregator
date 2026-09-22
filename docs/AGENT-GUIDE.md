@@ -48,6 +48,10 @@ links, save paths) stay off-stage.
   physical "won't fit" floor). The owner set the cap; the app may warn but must not overrule.
 - **Exact episodes only for season downloads** (see §3/§4). A season action batches
   per-episode releases; it never acquires a season pack.
+- **API Bay video categories include HD and UHD siblings.** TV queries must include
+  205/208/212, not just 205; movies span 201/202/207/209/210/211. The adapter searches
+  broadly and filters these categories before truncation. Otherwise individual
+  episode fallback searches can find releases that a season search silently misses.
 
 ### Who it's for
 Local, single-user app. Auth was removed. Read routes answer directly (no 401).
@@ -497,6 +501,13 @@ install scripts by default, so `package.json` has explicit, version-pinned appro
 for the native/build packages the app needs. The unrelated `ip-set` package-manager
 guard is explicitly denied. Do not replace this list with a wildcard approval or
 disable remote-source restrictions. Review approvals when changing dependency versions.
+
+Keep `next` and `eslint-config-next` on the same patched version. The `deepmerge-ts`
+and `mysql2` overrides replace vulnerable versions pinned by Prisma 7; remove them
+only when Prisma's own dependency tree resolves patched versions. After changing
+these overrides, run the production audit, Prisma generation, fresh migrations and
+`doctor`, not just TypeScript checks. The audit allowlist is separate: dependency
+updates must not silently add or extend exceptions.
 
 `doctor` checks Node, the built-in client's native module, runnable FFmpeg/FFprobe,
 a real esbuild transform and

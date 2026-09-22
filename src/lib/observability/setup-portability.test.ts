@@ -32,8 +32,9 @@ withScratchDirSync("setup-portability", (directory) => {
   const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
     allowScripts: Record<string, boolean>;
   };
-  for (const name of ["node-datachannel@0.32.3", "ffmpeg-static@5.3.0", "@prisma/engines@7.9.0"]) {
-    assert.equal(manifest.allowScripts[name], true, `${name} must be installable under npm 12`);
+  for (const name of ["node-datachannel", "ffmpeg-static", "@prisma/engines"]) {
+    const pin = `${name}@${lock.packages[`node_modules/${name}`].version}`;
+    assert.equal(manifest.allowScripts[pin], true, `${pin} must be installable under npm 12`);
   }
   assert.equal(manifest.allowScripts["ip-set"], false);
   assert.equal(manifest.allowScripts["*"], undefined, "never approve arbitrary dependency scripts");
