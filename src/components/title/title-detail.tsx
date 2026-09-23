@@ -641,6 +641,11 @@ export function TitleDetail(props: TitleDetailProps) {
             const message =
               body?.message || `Could not plan season ${targetSeason}`;
             if (storage) throw new StorageLimitError(message, storage);
+            if (body?.retryAfterSeconds != null) {
+              throw new Error(
+                `${message} Try again in ${Math.max(1, Math.ceil(body.retryAfterSeconds))} seconds.`,
+              );
+            }
             throw new Error(message);
           }
           return body;
@@ -660,7 +665,7 @@ export function TitleDetail(props: TitleDetailProps) {
           ...prev,
           [key]: { status: "done", report },
         }));
-        toast.success(`Season ${targetSeason} added to downloads`);
+        toast.success(outcome.value.message);
         refetch();
       } catch (err) {
         spentSeasonGrabs.current.delete(key);

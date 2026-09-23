@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SearchThrottledError } from "@/lib/torrents/aggregator";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { buildTitleDetail } from "./detail";
@@ -417,6 +418,19 @@ export async function postTitleMutation(
           },
         })
         .catch(() => undefined);
+    }
+    if (err instanceof SearchThrottledError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message: err.message,
+          retryAfterSeconds: err.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: { "Retry-After": String(err.retryAfterSeconds) },
+        },
+      );
     }
     return NextResponse.json(
       {

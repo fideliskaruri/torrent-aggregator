@@ -377,6 +377,7 @@ export interface TitleGrabRequest {
 export interface TitleGrabResponse {
   ok: boolean;
   message: string;
+  retryAfterSeconds?: number;
   /** The release that was actually sent, when one was. */
   title?: string | null;
   savePath?: string | null;
@@ -407,6 +408,7 @@ export interface TitleSeasonEpisodeTransfer {
 export interface TitleSeasonGrabResponse {
   ok: boolean;
   message: string;
+  retryAfterSeconds?: number;
   report?: SeasonGrabReport | null;
   /**
    * Exact episode outcomes used by the route to persist card-level transfer

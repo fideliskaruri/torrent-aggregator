@@ -81,6 +81,21 @@ async function main() {
   assert.equal(found[0].episodeCount, 12);
   assert.equal(found[0].metadata.externalId, "112608");
 
+  let attempts = 0;
+  globalThis.fetch = (async () => {
+    attempts += 1;
+    if (attempts < 2) {
+      return new Response("temporarily unavailable", { status: 503 });
+    }
+    return new Response(
+      JSON.stringify({ data: { Page: { media: [KILLING_SLIMES] } } }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  const recovered = await searchAniListWorks("killing slimes", 5);
+  assert.equal(recovered[0]?.metadata.externalId, "112608");
+  assert.equal(attempts, 2, "transient 5xx responses are retried once");
+
   // --- nothing is ever invented ------------------------------------------
   assert.equal(
     anilistEpisodeCount({ episodes: null, nextAiringEpisode: null }),

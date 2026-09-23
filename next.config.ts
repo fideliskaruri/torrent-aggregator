@@ -25,6 +25,16 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: dirname(fileURLToPath(import.meta.url)),
   },
+  outputFileTracingExcludes: {
+    "*": [
+      "**/.sessions/**",
+      "**/.e2e-instant-play/**",
+      "**/downloads/**",
+      "**/qa-screens/**",
+      "**/qa-shots/**",
+      "**/snapshots/**",
+    ],
+  },
   images: {
     // Every artwork host the metadata layer can return. A host missing here
     // does not degrade — `next/image` rejects the URL outright and the poster

@@ -13,5 +13,7 @@ assert.match(source, /failQueuedSeasonEpisodeTargets\(\{/);
 assert.match(source, /scope: "episode"/);
 assert.match(source, /status:\s*transfer\.status === "downloading"\s*\?\s*\{ in: \["queued", "failed"\] \}\s*:\s*"queued"/);
 assert.match(source, /const \{ episodeTransfers: _episodeTransfers, \.\.\.publicResult \}/);
+assert.match(source, /instanceof SearchThrottledError/);
+assert.match(source, /retryAfterSeconds: err\.retryAfterSeconds/);
 
 console.log("PASS season route persists exact episode targets without season-state bleed");

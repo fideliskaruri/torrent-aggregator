@@ -53,6 +53,8 @@ export interface WorkSearchFanoutResult {
   failed: WorkSearchCategory[];
   /** True when at least one provider failed but others still answered. */
   partial: boolean;
+  /** True when a previous successful result was served during an outage. */
+  stale?: boolean;
 }
 
 export type WorkSearchProviders = {
@@ -204,6 +206,60 @@ function categoriesForScope(scope: WorkSearchScope): WorkSearchCategory[] {
   return scope === "all" ? ["movies", "series", "anime"] : [scope];
 }
 
+const WORK_SEARCH_FRESH_MS = 5 * 60_000;
+const WORK_SEARCH_STALE_MS = 24 * 60 * 60_000;
+const WORK_SEARCH_CACHE_LIMIT = 100;
+
+type CachedWorkSearch = {
+  result: WorkSearchFanoutResult;
+  freshUntil: number;
+  staleUntil: number;
+};
+
+const successfulWorkSearches = new Map<string, CachedWorkSearch>();
+
+function workSearchCacheKey(
+  scope: WorkSearchScope,
+  query: string,
+  limit: number,
+): string {
+  return `${scope}:${limit}:${query.toLowerCase()}`;
+}
+
+function readCachedWorkSearch(
+  key: string,
+  now = Date.now(),
+): { result: WorkSearchFanoutResult; stale: boolean } | null {
+  const cached = successfulWorkSearches.get(key);
+  if (!cached) return null;
+  if (cached.staleUntil <= now) {
+    successfulWorkSearches.delete(key);
+    return null;
+  }
+  return {
+    result: cached.result,
+    stale: cached.freshUntil <= now,
+  };
+}
+
+function rememberWorkSearch(
+  key: string,
+  result: WorkSearchFanoutResult,
+  now = Date.now(),
+): void {
+  successfulWorkSearches.delete(key);
+  successfulWorkSearches.set(key, {
+    result,
+    freshUntil: now + WORK_SEARCH_FRESH_MS,
+    staleUntil: now + WORK_SEARCH_STALE_MS,
+  });
+  while (successfulWorkSearches.size > WORK_SEARCH_CACHE_LIMIT) {
+    const oldest = successfulWorkSearches.keys().next().value;
+    if (oldest == null) break;
+    successfulWorkSearches.delete(oldest);
+  }
+}
+
 /**
  * Fan out to every provider in scope on ONE canonical query, then rank, dedupe
  * and bound.
@@ -224,6 +280,17 @@ export async function searchWorksByScope(
   const query = canonicalizeSearchQuery(rawQuery);
   const displayQuery = displaySearchQuery(rawQuery);
   const attempted = categoriesForScope(scope);
+  const cacheEnabled = providers === defaultWorkSearchProviders;
+  const cacheKey = cacheEnabled
+    ? workSearchCacheKey(scope, query, limit)
+    : null;
+
+  if (cacheKey) {
+    const cached = readCachedWorkSearch(cacheKey);
+    if (cached && !cached.stale) {
+      return { ...cached.result, stale: false };
+    }
+  }
 
   const settled = await Promise.allSettled(
     attempted.map((category) => providers[category](query, limit)),
@@ -233,6 +300,15 @@ export async function searchWorksByScope(
     (_, index) => settled[index].status === "rejected",
   );
   if (failed.length === attempted.length) {
+    const stale = cacheKey ? readCachedWorkSearch(cacheKey) : null;
+    if (stale) {
+      return {
+        ...stale.result,
+        failed,
+        partial: true,
+        stale: true,
+      };
+    }
     const firstReason = (settled[0] as PromiseRejectedResult | undefined)?.reason;
     throw new AllProvidersFailedError(failed, firstReason);
   }
@@ -258,7 +334,7 @@ export async function searchWorksByScope(
     .filter((hit) => (seen.has(hit.workKey) ? false : (seen.add(hit.workKey), true)))
     .slice(0, limit);
 
-  return {
+  const result = {
     results,
     query,
     displayQuery,
@@ -266,4 +342,6 @@ export async function searchWorksByScope(
     failed,
     partial: failed.length > 0,
   };
+  if (cacheKey) rememberWorkSearch(cacheKey, result);
+  return result;
 }

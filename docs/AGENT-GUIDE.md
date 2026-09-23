@@ -215,12 +215,12 @@ or persist the engine.
 - `src/lib/torrents/season-plan.ts` — **pure** planner. `planSeason` (exact episodes only),
   `resolutionRank`, `demotedTier`, `classify`, `packEpisodeRange`,
   `episodesFromFilenames`. **All acquisition strategy lives here, tested without a swarm.**
-- `src/lib/library/season-acquire.ts` — orchestration over the pure planner.
-  `resolveSeasonPlan`, `acquireSeason`, `seasonSearchQuery`, `seasonSearchQueries`
-  (multi-query ladder), `searchSeasonReleases` (with per-episode gap-fill), storage-gate
-  wiring + `overrideStorageCap`.
-- `src/lib/library/ondemand.ts` — `grabSingleEpisode` (the correct single-episode path;
-  season path reuses its shape).
+- `src/lib/library/season-acquire.ts` — retained planner orchestration for library/internal
+  callers. The title-page season button does not use this planner: it fans out through
+  `grabForTitle` so every requested episode gets the same behavior as its individual
+  Download button.
+- `src/lib/library/ondemand.ts` — `grabSingleEpisode`, the path used directly by both
+  individual episode downloads and the title-page season fan-out.
 - `src/lib/grab/pipeline.ts` — shared grab pipeline (search → select → dedupe → viability →
   storage → send → record). All grab callers funnel through here.
 

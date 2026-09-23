@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    ".sessions/**",
+    ".e2e-instant-play/**",
+    "downloads/**",
+    "qa-screens/**",
+    "qa-shots/**",
+    "snapshots/**",
     // Throwaway probes. `_`-prefixed scripts are one-off diagnostics kept for
     // reference, never imported by the app, and already excluded from
     // tsconfig.json for the same reason. Linting them only ever produces noise

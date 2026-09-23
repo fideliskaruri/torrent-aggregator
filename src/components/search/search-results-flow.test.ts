@@ -106,6 +106,17 @@ check("exact title beats a longer substring match", () => {
   assert.equal(ranked[0].title, "Atlantis", "the exact title must win");
 });
 
+check("exact primary title beats a competing alias", () => {
+  const ranked = rankTitleHitsByRelevance(
+    [
+      { title: "Batman: The Dark Knight Returns", aliases: ["The Dark Knight"] },
+      { title: "The Dark Knight", aliases: ["Batman Begins sequel"] },
+    ],
+    "the dark knight",
+  );
+  assert.equal(ranked[0].title, "The Dark Knight");
+});
+
 check("leading articles do not break an exact match", () => {
   const ranked = rankTitleHitsByRelevance(
     [{ title: "Maelstrom: The Odyssey of Waterworld" }, { title: "The Odyssey" }],

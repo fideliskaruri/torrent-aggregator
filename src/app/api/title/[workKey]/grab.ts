@@ -39,9 +39,7 @@ import {
 } from "@/lib/torrents/quality";
 import type { TorrentResult } from "@/lib/torrents/types";
 import { workIdentityFor, workKeyMatches } from "@/components/title/work-key";
-import { acquireSeason } from "@/lib/library/season-acquire";
 import { applySendRetention, sendRetentionToPurpose } from "@/lib/streaming/send-retention";
-import type { SeasonPlan } from "@/lib/torrents/season-plan";
 import type {
   TitleGrabRequest,
   TitleGrabResponse,
@@ -84,6 +82,10 @@ export interface TitleGrabDeps {
     target: { season: number; episode: number },
   ) => Promise<TitleGrabResponse | null>;
   grabWholeWork?: (input: TitleGrabInput) => Promise<TitleGrabResponse>;
+  episodeSearchIdentity?: {
+    mediaType: string;
+    aliases: string[];
+  };
 }
 
 export async function grabForTitle(
@@ -99,7 +101,9 @@ export async function grabForTitle(
     const reused = await reuseEpisode(input, { season, episode });
     if (reused) return reused;
 
-    const searchIdentity = await resolveEpisodeSearchIdentity(input);
+    const searchIdentity =
+      deps.episodeSearchIdentity ??
+      (await resolveEpisodeSearchIdentity(input));
     const request: Parameters<typeof grabSingleEpisode>[0] = {
       userId: input.userId,
       workId: input.workId,
@@ -229,27 +233,84 @@ function uniqueNames(
 export interface TitleSeasonGrabInput extends TitleGrabInput {
   season: number;
   episodes: number[];
-  /** Whether the season has finished airing — passed through to the planner. */
+  /** Retained for request compatibility; episode fan-out never selects packs. */
   seasonComplete?: boolean;
 }
 
 /**
- * Temporary season-planner seam.
+ * Run episode downloads independently, like pressing Download on each card.
  *
- * The swarm planner will replace this function's body with a measured
- * pack-vs-singles plan. The title page already consumes the typed report, so
- * wiring the real planner is a one-line swap at this boundary rather than a UI
- * rewrite.
+ * A season action is still one HTTP request for the UI, but it must not have a
+ * second candidate-selection implementation. Each episode gets the exact same
+ * `grabForTitle` path as an individual card, while one failure remains local
+ * to that episode. Episodes run one at a time so storage-cap checks and hunt
+ * cursor updates cannot race.
  */
-/**
- * Season acquisition, planned around measured swarm health.
- *
- * Delegates the decision to `acquireSeason`, which prefers a good pack, fills
- * gaps with singles, and never grabs an episode twice. The strategy is *read
- * off the plan* rather than inferred from how many info-hashes came back —
- * the plan knows whether it chose a pack, and guessing from counts would
- * mislabel a one-episode season as a pack.
- */
+export interface SeasonEpisodeFanoutResult {
+  transfers: TitleSeasonEpisodeTransfer[];
+  coveredEpisodes: number[];
+  storage: TitleGrabResponse["storage"];
+  retryAfterSeconds: number | null;
+}
+
+export async function fanOutSeasonEpisodes(
+  episodes: readonly number[],
+  grabEpisode: (episode: number) => Promise<TitleGrabResponse>,
+): Promise<SeasonEpisodeFanoutResult> {
+  const wanted = uniquePositiveInts(episodes);
+  const transfers: Array<TitleSeasonEpisodeTransfer | null> = Array.from(
+    { length: wanted.length },
+    () => null,
+  );
+  let storage: TitleGrabResponse["storage"] = null;
+  let retryAfterSeconds: number | null = null;
+
+  for (const [index, episode] of wanted.entries()) {
+    try {
+      const result = await grabEpisode(episode);
+      if (result.storage && !storage) storage = result.storage;
+      if (result.retryAfterSeconds != null) {
+        retryAfterSeconds = Math.max(
+          retryAfterSeconds ?? 0,
+          result.retryAfterSeconds,
+        );
+      }
+      transfers[index] = result.ok
+        ? {
+            episode,
+            status: "downloading",
+            infoHash: result.infoHash ?? null,
+            error: null,
+          }
+        : {
+            episode,
+            status: "failed",
+            infoHash: null,
+            error: result.message,
+          };
+    } catch (err) {
+      transfers[index] = {
+        episode,
+        status: "failed",
+        infoHash: null,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  const settled = transfers.filter(
+    (transfer): transfer is TitleSeasonEpisodeTransfer => transfer != null,
+  );
+  return {
+    transfers: settled,
+    coveredEpisodes: settled
+      .filter((transfer) => transfer.status === "downloading")
+      .map((transfer) => transfer.episode)
+      .sort((a, b) => a - b),
+    storage,
+    retryAfterSeconds,
+  };
+}
 export async function grabSeasonForTitle(
   input: TitleSeasonGrabInput,
 ): Promise<TitleSeasonGrabResponse> {
@@ -263,109 +324,78 @@ export async function grabSeasonForTitle(
     };
   }
 
-  let result: Awaited<ReturnType<typeof acquireSeason>>;
-  try {
-    const target: Parameters<typeof acquireSeason>[0] = {
-      userId: input.userId,
-      workId: input.workId,
-      title: input.resolvedTitle,
-      aliases: input.resolvedAliases,
-      mediaType: input.resolvedMediaType ?? "tv",
-      season,
-      episodes,
-      preferredResolution: input.preferredResolution ?? null,
-      seasonComplete: input.seasonComplete,
-    };
-    result = await acquireSeason(target, {
-      watchListItemId: input.watchListItemId,
-      retention: input.retention ?? "keep",
-      overrideStorageCap: input.overrideStorageCap === true,
-    });
-  } catch (err) {
-    // A failed plan is an error, not an empty season. Saying "no episodes
-    // found" here would be the same lie the episode list used to tell.
-    const message =
-      err instanceof Error ? err.message : "Could not plan this season";
-    return {
-      ok: false,
-      message,
-      episodeTransfers: failedEpisodeTransfers(episodes, message),
-    };
-  }
-
-  const acquired = new Set(result.acquired);
-  // Prefer the real send failure over "no release" when the planner found a
-  // candidate but storage (or the client) refused it — otherwise a full plan
-  // that hit the cap still reads as "nothing exists for this episode".
-  const failureByEpisode = new Map<number, string>();
-  let packFailure: string | null = null;
-  for (const item of result.items) {
-    if (item.status === "sent" || item.status === "already_active") continue;
-    if (item.kind === "pack") {
-      packFailure = item.message;
-      continue;
-    }
-    if (item.episode != null && !failureByEpisode.has(item.episode)) {
-      failureByEpisode.set(item.episode, item.message);
-    }
-  }
+  const episodeSearchIdentity = await resolveEpisodeSearchIdentity(input);
+  const fanout = await fanOutSeasonEpisodes(episodes, (episode) =>
+    grabForTitle(
+      {
+        ...input,
+        season,
+        episode,
+      },
+      { episodeSearchIdentity },
+    ),
+  );
+  const covered = new Set(fanout.coveredEpisodes);
   const episodeReports: SeasonGrabEpisodeReport[] = episodes.map((episode) => {
-    if (acquired.has(episode)) return { episode, status: "covered" as const };
-    const reason =
-      failureByEpisode.get(episode) ??
-      packFailure ??
-      (result.storage?.message ?? "No release found for this episode");
-    return { episode, status: "missing" as const, reason };
+    const transfer = fanout.transfers.find((item) => item.episode === episode);
+    return covered.has(episode)
+      ? { episode, status: "covered" as const }
+      : {
+          episode,
+          status: "missing" as const,
+          reason:
+            transfer?.error ??
+            fanout.storage?.message ??
+            "No release found for this episode",
+        };
   });
 
   const report: SeasonGrabReport = {
     season,
     totalEpisodes: episodes.length,
-    coveredEpisodes: acquired.size,
-    strategy: planStrategy(result.plan),
-    coverageConfirmed: result.coverageConfirmed,
+    coveredEpisodes: fanout.coveredEpisodes.length,
+    strategy: "singles",
+    coverageConfirmed: true,
     episodes: episodeReports,
-    planReason: result.plan.reason ?? null,
+    planReason:
+      "Each episode used the same acquisition path as its individual Download button.",
   };
-  const episodeTransfers = exactSeasonEpisodeTransfers(
-    episodes,
-    result.items,
-    failureByEpisode,
-    packFailure,
-    result.storage?.message ?? null,
-  );
+  const episodeTransfers = fanout.transfers;
 
   // Nothing was sent to the client — no release could be taken for any wanted
   // episode. Reporting ok:true here (with "0 of N episodes") is the false
   // success that made the user press Download season twice: a green toast, an
   // AcquisitionTarget written as "downloading" with no hash, and no download.
   // Say so, and keep the report so the UI can still show which episodes missed.
-  if (acquired.size === 0) {
-    // Prefer a storage refusal when that is why nothing was sent — the UI turns
-    // an overridable cap into "download anyway", which a generic "no release"
-    // message cannot. A real empty plan keeps the release-not-found copy.
-    if (result.storage) {
+  if (fanout.coveredEpisodes.length === 0) {
+    if (fanout.storage) {
       return {
         ok: false,
-        message: result.storage.message,
+        message: fanout.storage.message,
         report,
-        storage: result.storage,
+        storage: fanout.storage,
+        retryAfterSeconds: fanout.retryAfterSeconds ?? undefined,
         episodeTransfers,
       };
     }
     return {
       ok: false,
-      message: "No release found for this season yet — try again shortly.",
+      message:
+        fanout.retryAfterSeconds != null
+          ? `No episode downloads started. Retry in ${fanout.retryAfterSeconds} seconds.`
+          : "No episode downloads started — try again shortly.",
       report,
+      retryAfterSeconds: fanout.retryAfterSeconds ?? undefined,
       episodeTransfers,
     };
   }
 
   return {
     ok: true,
-    message: result.coverageLabel,
+    message: `${fanout.coveredEpisodes.length} of ${episodes.length} episodes started`,
     report,
     episodeTransfers,
+    retryAfterSeconds: fanout.retryAfterSeconds ?? undefined,
   };
 }
 
@@ -416,28 +446,6 @@ export function exactSeasonEpisodeTransfers(
       error,
     };
   });
-}
-
-function failedEpisodeTransfers(
-  episodes: readonly number[],
-  error: string,
-): TitleSeasonEpisodeTransfer[] {
-  return episodes.map((episode) => ({
-    episode,
-    status: "failed",
-    infoHash: null,
-    error,
-  }));
-}
-
-/** Read the strategy off the plan itself, rather than guessing from counts. */
-function planStrategy(plan: SeasonPlan): SeasonGrabReport["strategy"] {
-  const hasPack = plan.pack != null;
-  const hasSingles = plan.singles.length > 0;
-  if (hasPack && hasSingles) return "mixed";
-  if (hasPack) return "pack";
-  if (hasSingles) return "singles";
-  return "unknown";
 }
 
 /**

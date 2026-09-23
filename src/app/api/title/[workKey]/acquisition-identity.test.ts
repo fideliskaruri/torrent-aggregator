@@ -161,6 +161,32 @@ async function main() {
     { kind: "absent" },
     "a body with no provider claim resolves ordinarily",
   );
+  assert.deepEqual(
+    await resolveAcquisitionIdentity(
+      {
+        provider: "itunes",
+        providerId: "123",
+        sourceType: "movie",
+        title: "Inception",
+      },
+      workKeyFor("Inception", 2010),
+    ),
+    { kind: "absent" },
+    "discovery-only iTunes identities do not steer acquisition",
+  );
+  assert.deepEqual(
+    await resolveAcquisitionIdentity(
+      {
+        provider: "tvmaze",
+        providerId: "456",
+        sourceType: "tv",
+        title: "Breaking Bad",
+      },
+      workKeyFor("Breaking Bad"),
+    ),
+    { kind: "absent" },
+    "discovery-only TVmaze identities do not steer acquisition",
+  );
   const outage = await resolveAcquisitionIdentity(
     honestBody,
     SLIME_KEY,

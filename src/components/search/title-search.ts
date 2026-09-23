@@ -33,9 +33,18 @@ export function rankTitleHitsByRelevance<
     .map((hit, index) => ({
       hit,
       index,
+      // The provider's primary title is the user's strongest identity signal.
+      // Keep it ahead of a different work that merely exposes the query as an
+      // alias, even when both receive the shared relevance tier 0.
+      exactTitle: bestQueryRelevanceTier(query, [hit.title]) === 0,
       tier: bestQueryRelevanceTier(query, [hit.title, ...(hit.aliases ?? [])]),
     }))
-    .sort((a, b) => a.tier - b.tier || a.index - b.index)
+    .sort(
+      (a, b) =>
+        Number(b.exactTitle) - Number(a.exactTitle) ||
+        a.tier - b.tier ||
+        a.index - b.index,
+    )
     .map((x) => x.hit);
 }
 

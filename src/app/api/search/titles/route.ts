@@ -86,6 +86,7 @@ export async function GET(request: NextRequest) {
       category,
       partial: outcome.partial,
       failedProviders: outcome.failed,
+      stale: outcome.stale ?? false,
     });
   } catch (err) {
     const safeError = observer.failure("TITLE_SEARCH_FAILED", err, { category });

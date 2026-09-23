@@ -19,6 +19,11 @@ function throwGrabFailure(body: TitleGrabResponse | null, fallback: string): nev
   const storage = parseStorageOverrideFacts(body?.storage);
   const message = body?.message || fallback;
   if (storage) throw new StorageLimitError(message, storage);
+  if (body?.retryAfterSeconds != null) {
+    throw new Error(
+      `${message} Try again in ${Math.max(1, Math.ceil(body.retryAfterSeconds))} seconds.`,
+    );
+  }
   throw new Error(message);
 }
 

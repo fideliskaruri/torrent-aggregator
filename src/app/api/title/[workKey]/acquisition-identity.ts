@@ -62,6 +62,11 @@ export function acquisitionIdentityParams(
   const sourceType = stringField(body.sourceType)?.toLowerCase();
   const title = stringField(body.title);
   if (!provider || !providerId || !sourceType || !title) return null;
+  // iTunes and TVmaze are discovery-only providers. Their identities cannot
+  // be re-verified by the acquisition seam, so drop those optional hints and
+  // let the server resolve the work locally. The GET title-link verifier stays
+  // strict and continues to reject unsupported providers.
+  if (provider !== "anilist" && provider !== "tmdb") return null;
 
   const format = stringField(body.format)?.toUpperCase() ?? null;
   const isSeries =

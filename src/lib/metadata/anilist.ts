@@ -9,6 +9,31 @@ import {
 } from "@/lib/search/relevance";
 
 const ANILIST_URL = "https://graphql.anilist.co";
+const ANILIST_RETRY_DELAYS_MS = [50, 100] as const;
+
+class AniListHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`AniList HTTP ${status}`);
+    this.name = "AniListHttpError";
+    this.status = status;
+  }
+}
+
+function isTransientAniListStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+async function waitForAniListRetry(
+  attempt: number,
+  deadline: number,
+): Promise<boolean> {
+  const delay = ANILIST_RETRY_DELAYS_MS[attempt];
+  if (delay == null || Date.now() + delay >= deadline) return false;
+  await new Promise((resolve) => setTimeout(resolve, delay));
+  return true;
+}
 
 function isSearchDeadlineError(error: unknown): boolean {
   return (
@@ -169,34 +194,40 @@ async function fetchAniListMedia(
   const deadline = Date.now() + 10_000;
 
   const runQuery = async (query: string): Promise<AniListMedia[]> => {
-    const res = await fetch(ANILIST_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        query: SEARCH_QUERY,
-        variables: { search: query, perPage },
-      }),
-      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
-      next: { revalidate: 3600 },
-    });
+    for (let attempt = 0; ; attempt += 1) {
+      const res = await fetch(ANILIST_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          query: SEARCH_QUERY,
+          variables: { search: query, perPage },
+        }),
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        next: { revalidate: 3600 },
+      });
 
-    if (!res.ok) {
-      throw new Error(`AniList HTTP ${res.status}`);
+      if (!res.ok) {
+        const transient = isTransientAniListStatus(res.status);
+        if (transient && (await waitForAniListRetry(attempt, deadline))) {
+          continue;
+        }
+        throw new AniListHttpError(res.status);
+      }
+
+      const json = (await res.json()) as {
+        data?: { Page?: { media?: AniListMedia[] } };
+        errors?: { message: string }[];
+      };
+
+      if (json.errors?.length) {
+        throw new Error(json.errors[0].message);
+      }
+
+      return json.data?.Page?.media ?? [];
     }
-
-    const json = (await res.json()) as {
-      data?: { Page?: { media?: AniListMedia[] } };
-      errors?: { message: string }[];
-    };
-
-    if (json.errors?.length) {
-      throw new Error(json.errors[0].message);
-    }
-
-    return json.data?.Page?.media ?? [];
   };
 
   const primary = await runQuery(term);
