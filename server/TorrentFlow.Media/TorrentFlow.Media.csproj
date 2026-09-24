@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+
+    <ProjectReference Include="..\TorrentFlow.Core\TorrentFlow.Core.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Data\TorrentFlow.Data.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="TorrentFlow.Media.Tests" />
+  </ItemGroup>
+</Project>

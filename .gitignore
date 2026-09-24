@@ -141,3 +141,11 @@ docs/.autopilot.json
 # It is the record of what has actually been verified; losing it means the
 # next session starts guessing again, which is the failure it exists to stop.
 !docs/plan.db
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+server/**/torrentflow.db*
+

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>TorrentFlow.Api</RootNamespace>
+    <UserSecretsId>torrentflow-local</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+    <ProjectReference Include="..\TorrentFlow.Core\TorrentFlow.Core.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Data\TorrentFlow.Data.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Search\TorrentFlow.Search.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Metadata\TorrentFlow.Metadata.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Engine\TorrentFlow.Engine.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Library\TorrentFlow.Library.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Media\TorrentFlow.Media.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="TorrentFlow.Api.Tests" />
+  </ItemGroup>
+</Project>

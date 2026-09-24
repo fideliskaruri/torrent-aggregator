@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/server/">
+    <Project Path="server/TorrentFlow.Api/TorrentFlow.Api.csproj" />
+    <Project Path="server/TorrentFlow.Core/TorrentFlow.Core.csproj" />
+    <Project Path="server/TorrentFlow.Data/TorrentFlow.Data.csproj" />
+    <Project Path="server/TorrentFlow.Engine/TorrentFlow.Engine.csproj" />
+    <Project Path="server/TorrentFlow.Library/TorrentFlow.Library.csproj" />
+    <Project Path="server/TorrentFlow.Media/TorrentFlow.Media.csproj" />
+    <Project Path="server/TorrentFlow.Metadata/TorrentFlow.Metadata.csproj" />
+    <Project Path="server/TorrentFlow.Search/TorrentFlow.Search.csproj" />
+  </Folder>
+  <Folder Name="/server/tests/">
+    <Project Path="server/tests/TorrentFlow.Api.Tests/TorrentFlow.Api.Tests.csproj" />
+    <Project Path="server/tests/TorrentFlow.Core.Tests/TorrentFlow.Core.Tests.csproj" />
+    <Project Path="server/tests/TorrentFlow.Engine.Tests/TorrentFlow.Engine.Tests.csproj" />
+    <Project Path="server/tests/TorrentFlow.Library.Tests/TorrentFlow.Library.Tests.csproj" />
+    <Project Path="server/tests/TorrentFlow.Media.Tests/TorrentFlow.Media.Tests.csproj" />
+    <Project Path="server/tests/TorrentFlow.Metadata.Tests/TorrentFlow.Metadata.Tests.csproj" />
+    <Project Path="server/tests/TorrentFlow.Search.Tests/TorrentFlow.Search.Tests.csproj" />
+  </Folder>
+</Solution>

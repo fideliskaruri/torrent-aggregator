@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="AngleSharp" />
+    <ProjectReference Include="..\TorrentFlow.Core\TorrentFlow.Core.csproj" />
+    <ProjectReference Include="..\TorrentFlow.Data\TorrentFlow.Data.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="TorrentFlow.Search.Tests" />
+  </ItemGroup>
+</Project>
