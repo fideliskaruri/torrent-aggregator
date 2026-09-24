@@ -7,7 +7,7 @@
  *
  * Tests that reach live torrent indexers are excluded by default — they fail on
  * networks that block those hosts, which is not a code defect. Run them with
- * `npm run test:live`.
+ * `pnpm run test:live`.
  *
  * Usage:
  *   node scripts/run-unit-tests.mjs           # offline-safe units

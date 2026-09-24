@@ -8,7 +8,7 @@ export function assertNodeVersion(version = process.versions.node) {
   const [major, minor] = version.split(".").map(Number);
   if (major !== 22 || !Number.isInteger(minor) || minor < 12) {
     throw new Error(
-      `Node ${version} is not the supported runtime. Use Node 22.12+ (see .nvmrc), open a new terminal, then run npm ci and npm run setup.`,
+      `Node ${version} is not the supported runtime. Use Node 22.12+ (see .nvmrc), open a new terminal, then run pnpm install and pnpm run setup.`,
     );
   }
 }
@@ -23,7 +23,7 @@ export function runPrisma(args, cwd = root) {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(`prisma ${args.join(" ")} failed. Run npm run setup; do not reset an existing database.`);
+    throw new Error(`prisma ${args.join(" ")} failed. Run pnpm run setup; do not reset an existing database.`);
   }
 }
 
@@ -32,7 +32,7 @@ export async function checkNativeClient() {
     await import("node-datachannel");
   } catch (cause) {
     throw new Error(
-      "The built-in torrent client's native module could not load. Use the Node version in .nvmrc, reopen the terminal, then run npm rebuild node-datachannel and npm run doctor. Native downloads may be blocked by your network.",
+      "The built-in torrent client's native module could not load. Use the Node version in .nvmrc, reopen the terminal, then run pnpm rebuild node-datachannel and pnpm run doctor. Native downloads may be blocked by your network.",
       { cause },
     );
   }
@@ -49,7 +49,7 @@ export async function checkMediaTools() {
       : null;
     if (!result || result.error || result.status !== 0) {
       throw new Error(
-        `${name} could not run. Reinstall the locked dependencies with npm ci, check native-download errors and npm 12 install-script approvals, then run npm run doctor.`,
+        `${name} could not run. Reinstall the locked dependencies with pnpm install, check native-download errors and pnpm build approvals, then run pnpm run doctor.`,
       );
     }
   }
@@ -61,7 +61,7 @@ export async function checkBuildTools() {
     await transform("const ready: boolean = true;", { loader: "ts" });
   } catch (cause) {
     throw new Error(
-      "The TypeScript script runner's esbuild binary could not run. Reinstall locked dependencies and check npm 12 install-script approvals, then run npm run doctor.",
+      "The TypeScript script runner's esbuild binary could not run. Reinstall locked dependencies and check pnpm build approvals, then run pnpm run doctor.",
       { cause },
     );
   }

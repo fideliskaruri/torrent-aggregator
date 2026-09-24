@@ -326,7 +326,7 @@ Clean — all changes committed.
 - Paths with `[workKey]` brackets break glob `Resolve-Path` — use `-LiteralPath`.
 - CRLF breaks `.Replace()` with literal `\n` — prefer the `edit` tool over string surgery.
 - No heredocs in pwsh. Multi-line commit messages: write a temp file and `git commit -F <file>`.
-- The `bash` tool sometimes kills long foreground `npm run dev`; launch the server with
+- The `bash` tool sometimes kills long foreground `pnpm run dev`; launch the server with
   `Start-Process … -WindowStyle Hidden` (see §8) or let the owner run it.
 
 ---
@@ -479,24 +479,24 @@ the active runtime. This also avoids stale WinGet command links. OpenCode is opt
 it is not a TorrentFlow runtime dependency.
 
 ```powershell
-npm ci --registry=https://registry.npmjs.org
-npm run setup
-npm run doctor
+corepack enable
+pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
+pnpm run setup
+pnpm run doctor
 # Owner only:
-npm run dev
+pnpm run dev
 ```
 
-`npm ci` can generate Prisma without an `.env`: the CLI and runtime share the local
+`pnpm install` can generate Prisma without an `.env`: the CLI and runtime share the local
 SQLite default. `setup` creates `.env` from `.env.example` only if absent, preserves
 existing configuration, generates the client and applies committed migrations with
 `migrate deploy`. It never resets a database or uses `db push` as an install shortcut.
 Back up an existing database and its encryption key before upgrading.
 
-The lockfile uses public registry tarballs. npm 12 additionally blocks dependency
-install scripts by default, so `package.json` has explicit, version-pinned approvals
-for the native/build packages the app needs. The unrelated `ip-set` package-manager
-guard is explicitly denied. Do not replace this list with a wildcard approval or
-disable remote-source restrictions. Review approvals when changing dependency versions.
+The pnpm lockfile uses integrity-checked registry tarballs. pnpm 12 requires explicit
+build approvals in `pnpm-workspace.yaml` for the native/build packages the app needs.
+Do not replace this list with a wildcard approval or disable remote-source restrictions.
+Review approvals when changing dependency versions.
 
 Keep `next` and `eslint-config-next` on the same patched version. The `deepmerge-ts`
 and `mysql2` overrides replace vulnerable versions pinned by Prisma 7; remove them
@@ -507,7 +507,7 @@ updates must not silently add or extend exceptions.
 
 `doctor` checks Node, the built-in client's native module, runnable FFmpeg/FFprobe,
 a real esbuild transform and
-the migration ledger. It also runs before `npm run dev`, failing with an actionable
+the migration ledger. It also runs before `pnpm run dev`, failing with an actionable
 setup error rather than starting a server that later reports missing tables. For a
 missing native module, reinstall under the pinned Node runtime and inspect download
 or install-script errors; changing a version alone does not prove a binary is usable.
@@ -517,8 +517,8 @@ unavailable, finish isolated tests and explicitly leave live API/UI verification
 
 Gates:
 ```
-npm run typecheck                              # tsc --noEmit, must be 0 errors
-npm run lint                                   # 0 errors (45 warnings currently tolerated)
+pnpm run typecheck                             # tsc --noEmit, must be 0 errors
+pnpm run lint                                  # 0 errors (45 warnings currently tolerated)
 node scripts/check-no-sabotage.mjs             # must PASS
 npx tsx src/lib/torrents/season-plan.test.ts   # targeted unit
 npx tsx "src/app/api/title/[workKey]/detail.test.ts"
@@ -596,8 +596,8 @@ Key takeaways applied / to apply:
 
 ## 11. Definition of done (per change)
 A change is DONE only when ALL are true:
-- [ ] `npm run typecheck` = 0 errors
-- [ ] `npm run lint` = 0 errors
+- [ ] `pnpm run typecheck` = 0 errors
+- [ ] `pnpm run lint` = 0 errors
 - [ ] Relevant unit tests PASS **and were red-proven**
 - [ ] `check-no-sabotage.mjs` PASS
 - [ ] If UI: a screenshot exists and you looked at it

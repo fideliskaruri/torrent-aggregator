@@ -28,21 +28,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
+          cache: pnpm
 
-      - name: Use npm 12 install policies
-        run: npm install --global npm@12.0.2 --registry=https://registry.npmjs.org
+      - name: Enable pnpm
+        run: corepack enable
 
       - name: Install without a local env file
-        run: npm ci --registry=https://registry.npmjs.org
+        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
 
       - name: Initialize and recheck setup
         run: |
-          npm run setup
+          pnpm run setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run setup
+          pnpm run setup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run doctor
+          pnpm run doctor
 
   quality:
     runs-on: ubuntu-latest
@@ -64,30 +64,33 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: corepack enable
 
       - name: Install locked dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Audit production dependencies
-        run: npm run audit:prod
+        run: pnpm run audit:prod
 
       - name: Run ESLint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Run TypeScript checks
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Apply and verify Prisma migrations
         run: |
-          npm run db:migrate:deploy
-          npm run db:migrate:status
+          pnpm run db:migrate:deploy
+          pnpm run db:migrate:status
 
       - name: Run offline unit tests
-        run: npm run test:unit
+        run: pnpm run test:unit
 
       - name: Build production app
-        run: npm run build
+        run: pnpm run build
 
       - name: Install Playwright Chromium
         run: ./node_modules/.bin/playwright install --with-deps chromium
@@ -97,7 +100,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           server_log="$RUNNER_TEMP/torrentflow-server.log"
-          setsid npm run start >"$server_log" 2>&1 &
+          setsid pnpm run start >"$server_log" 2>&1 &
           server_pid=$!
 
           cleanup() {
@@ -133,7 +136,7 @@ jobs:
             exit 1
           fi
 
-          if ! npm run test:ui; then
+          if ! pnpm run test:ui; then
             cat "$server_log"
             exit 1
           fi

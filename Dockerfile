@@ -1,17 +1,17 @@
 # TorrentFlow — production image
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY prisma ./prisma
 COPY prisma.config.ts ./
-RUN npm ci
+RUN corepack enable && corepack prepare pnpm@12.4.2 --activate && pnpm install --frozen-lockfile
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN corepack enable && corepack prepare pnpm@12.4.2 --activate && pnpm run build
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
@@ -47,4 +47,4 @@ ENV PORT=3000
 #
 # `migrate deploy` rather than `db push`: the repo has a real migration
 # history, and `db push` diverges from it silently.
-CMD ["sh", "-c", "npx prisma migrate deploy && npx next start -H 0.0.0.0 -p ${PORT:-3000}"]
+CMD ["sh", "-c", "corepack enable && corepack prepare pnpm@12.4.2 --activate && pnpm exec prisma migrate deploy && pnpm exec next start -H 0.0.0.0 -p ${PORT:-3000}"]

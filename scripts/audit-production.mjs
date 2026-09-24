@@ -6,8 +6,18 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const allowlistPath = path.join(root, ".github", "npm-audit-allowlist.json");
 const allowlist = JSON.parse(fs.readFileSync(allowlistPath, "utf8")).advisories;
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const result = spawnSync(npm, ["audit", "--omit=dev", "--json"], {
+const usePnpm = fs.existsSync(path.join(root, "pnpm-lock.yaml"));
+const packageManager = usePnpm
+  ? process.platform === "win32"
+    ? "pnpm.cmd"
+    : "pnpm"
+  : process.platform === "win32"
+    ? "npm.cmd"
+    : "npm";
+const auditArgs = usePnpm
+  ? ["audit", "--prod", "--json"]
+  : ["audit", "--omit=dev", "--json"];
+const result = spawnSync(packageManager, auditArgs, {
   cwd: root,
   encoding: "utf8",
   maxBuffer: 16 * 1024 * 1024,
@@ -51,11 +61,25 @@ function collect(packageName, seen = new Set()) {
 }
 
 const unresolved = [];
-for (const [packageName, vulnerability] of Object.entries(audit.vulnerabilities ?? {})) {
-  if (!severe.has(vulnerability.severity)) continue;
-  const resolved = collect(packageName);
-  if (resolved.length === 0) unresolved.push(packageName);
-  for (const finding of resolved) findings.set(finding.id, finding);
+if (usePnpm) {
+  for (const advisory of Object.values(audit.advisories ?? {})) {
+    if (!severe.has(advisory.severity)) continue;
+    const id = advisory.github_advisory_id ?? String(advisory.id);
+    findings.set(id, {
+      id,
+      packageName: advisory.module_name,
+      severity: advisory.severity,
+      title: advisory.title,
+      url: advisory.url,
+    });
+  }
+} else {
+  for (const [packageName, vulnerability] of Object.entries(audit.vulnerabilities ?? {})) {
+    if (!severe.has(vulnerability.severity)) continue;
+    const resolved = collect(packageName);
+    if (resolved.length === 0) unresolved.push(packageName);
+    for (const finding of resolved) findings.set(finding.id, finding);
+  }
 }
 
 const today = Date.now();

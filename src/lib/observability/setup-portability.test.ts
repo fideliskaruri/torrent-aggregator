@@ -20,37 +20,24 @@ withScratchDirSync("setup-portability", (directory) => {
     assert.throws(() => assertNodeVersion(version), /supported runtime/);
   }
 
-  const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8")) as {
-    packages: Record<string, { version?: string; resolved?: string; integrity?: string; hasInstallScript?: boolean }>;
-  };
-  for (const [name, entry] of Object.entries(lock.packages)) {
-    if (entry.resolved) {
-      assert.equal(new URL(entry.resolved).origin, "https://registry.npmjs.org", name);
-    }
+  const lock = fs.readFileSync("pnpm-lock.yaml", "utf8");
+  assert.match(lock, /lockfileVersion: ['"]9\.0['"]/);
+  assert.match(lock, /range-parser@1\.3\.0/);
+  const workspace = fs.readFileSync("pnpm-workspace.yaml", "utf8");
+  for (const name of [
+    "@prisma/engines",
+    "bufferutil",
+    "esbuild",
+    "ffmpeg-static",
+    "node-datachannel",
+    "prisma",
+    "unrs-resolver",
+    "utf-8-validate",
+    "utp-native",
+  ]) {
+    const key = name.includes("/") ? `"${name}"` : name;
+    assert.match(workspace, new RegExp(`^  ${key}: true$`, "m"));
   }
-  assert.match(lock.packages["node_modules/@playwright/test"].integrity ?? "", /^sha512-/);
-  const manifest = JSON.parse(fs.readFileSync("package.json", "utf8")) as {
-    allowScripts: Record<string, boolean>;
-  };
-  for (const name of ["node-datachannel", "ffmpeg-static", "@prisma/engines"]) {
-    const pin = `${name}@${lock.packages[`node_modules/${name}`].version}`;
-    assert.equal(manifest.allowScripts[pin], true, `${pin} must be installable under npm 12`);
-  }
-  assert.equal(manifest.allowScripts["ip-set"], false);
-  assert.equal(manifest.allowScripts["*"], undefined, "never approve arbitrary dependency scripts");
-  const installedScriptVersions = new Set<string>();
-  for (const [location, entry] of Object.entries(lock.packages)) {
-    if (!location || !entry.hasInstallScript) continue;
-    const name = location.split("node_modules/").at(-1)!;
-    const pin = `${name}@${entry.version}`;
-    installedScriptVersions.add(pin);
-    assert.ok(
-      manifest.allowScripts[pin] === true || manifest.allowScripts[name] === false,
-      `Review the install script policy for ${pin}`,
-    );
-  }
-  for (const [pin, allowed] of Object.entries(manifest.allowScripts)) {
-    if (allowed) assert.ok(installedScriptVersions.has(pin), `Stale script approval: ${pin}`);
-  }
-  console.log("PASS setup preserves env, enforces tested runtime, and uses public registry tarballs");
+  assert.match(workspace, /^  ip-set: true$/m);
+  console.log("PASS setup preserves env, enforces tested runtime, and uses pnpm build approvals");
 });

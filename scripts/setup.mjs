@@ -24,7 +24,7 @@ export async function setup() {
   runPrisma(["generate"]);
   runPrisma(["migrate", "deploy"]);
   runPrisma(["migrate", "status"]);
-  console.log("Setup complete. Run npm run dev, then choose your download folder and storage cap in Settings.");
+  console.log("Setup complete. Run pnpm run dev, then choose your download folder and storage cap in Settings.");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
