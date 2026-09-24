@@ -149,3 +149,4 @@ obj/
 .vs/
 server/**/torrentflow.db*
 
+server/**/data/
