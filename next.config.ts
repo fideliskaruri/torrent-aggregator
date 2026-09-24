@@ -67,8 +67,6 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "@libsql/client",
     "@prisma/client",
-    "better-sqlite3",
-    "playwright",
     "webtorrent",
   ],
 };

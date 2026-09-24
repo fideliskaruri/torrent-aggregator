@@ -215,10 +215,6 @@ or persist the engine.
 - `src/lib/torrents/season-plan.ts` — **pure** planner. `planSeason` (exact episodes only),
   `resolutionRank`, `demotedTier`, `classify`, `packEpisodeRange`,
   `episodesFromFilenames`. **All acquisition strategy lives here, tested without a swarm.**
-- `src/lib/library/season-acquire.ts` — retained planner orchestration for library/internal
-  callers. The title-page season button does not use this planner: it fans out through
-  `grabForTitle` so every requested episode gets the same behavior as its individual
-  Download button.
 - `src/lib/library/ondemand.ts` — `grabSingleEpisode`, the path used directly by both
   individual episode downloads and the title-page season fan-out.
 - `src/lib/grab/pipeline.ts` — shared grab pipeline (search → select → dedupe → viability →
@@ -281,7 +277,7 @@ Clean — all changes committed.
 ### Do NOT trust
 - `.opencode/plugins/autopilot.ts` + `scripts/autopilot.mjs` — built but **never fired**.
   Treat autopilot as non-functional.
-- `test-all.mjs` full suite (168 units + e2e + Playwright, ~20–30 min) not yet run this cycle.
+- `test-all.mjs` full suite (236 offline units + e2e + Playwright, ~20–30 min) not yet run this cycle.
   Run it and read `ALL-SUMMARY.txt` before claiming the full gate green.
 
 ---
@@ -525,11 +521,10 @@ npm run typecheck                              # tsc --noEmit, must be 0 errors
 npm run lint                                   # 0 errors (45 warnings currently tolerated)
 node scripts/check-no-sabotage.mjs             # must PASS
 npx tsx src/lib/torrents/season-plan.test.ts   # targeted unit
-npx tsx src/lib/library/season-acquire.test.ts
 npx tsx "src/app/api/title/[workKey]/detail.test.ts"
 node scripts/api-smoke.mjs http://127.0.0.1:3000   # all API routes (server must be up)
 node scripts/visual-suite.mjs                  # visual + real-grab proof (server must be up)
-node scripts/test-all.mjs                      # FULL gate: 168 units + e2e + Playwright (~20-30 min)
+node scripts/test-all.mjs                      # FULL gate: 236 offline units + e2e + Playwright (~20-30 min)
 ```
 The full `test-all.mjs` auto-starts a dev server if `/` isn't reachable; do not run it
 when the owner's server is absent. It writes

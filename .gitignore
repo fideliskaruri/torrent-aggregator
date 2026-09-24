@@ -79,6 +79,9 @@ Desktop.ini
 # Auto-generated credential encryption key
 .torrentflow.key
 
+# Local runtime state
+/.torrentflow/
+
 # QA artifacts
 qa-screens/
 dev-server.log

@@ -21,6 +21,13 @@ npm-debug.log*
 *.log
 test-results
 playwright-report
+tests
+scripts
+snapshots
+qa-screens
+qa-shots
+.sessions
+.e2e-instant-play
 docs
 README.md
 CLAUDE.md

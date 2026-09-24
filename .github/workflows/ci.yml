@@ -60,10 +60,10 @@ jobs:
           echo "DATABASE_URL=file:$RUNNER_TEMP/torrentflow-ci.db" >> "$GITHUB_ENV"
           echo "DOWNLOAD_DIR=$RUNNER_TEMP/torrentflow-downloads" >> "$GITHUB_ENV"
 
-      - name: Use Node.js 22
+      - name: Use the tested Node runtime
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install locked dependencies

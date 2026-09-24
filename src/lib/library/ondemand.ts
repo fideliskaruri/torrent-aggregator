@@ -322,11 +322,6 @@ function altEpisodeQuery(title: string, season: number, episode: number): string
 }
 
 /**
- * "Show S01" — a season-shaped query. This is the ONLY shape that surfaces
- * season packs: an episode-shaped query makes EZTV drop packs and makes
- * free-text indexers miss them. Mirrors season-acquire's seasonSearchQuery.
- */
-/**
  * Anime absolute episode: "Show - 01" / "Show - 1". Fansubs almost never use
  * SxxEyy; the dash form is what Nyaa ranks.
  */
