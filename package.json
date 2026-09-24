@@ -7,7 +7,7 @@
     "node": ">=22.12.0 <23"
   },
   "scripts": {
-    "predev": "pnpm run doctor",
+    "predev": "node scripts/check-runtime.mjs",
     "dev": "next dev -H 127.0.0.1 -p 3000",
     "build": "prisma generate && next build",
     "start": "next start -H 127.0.0.1",
