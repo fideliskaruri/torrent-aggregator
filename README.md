@@ -35,11 +35,16 @@ Enable the repository-pinned pnpm version through Corepack:
 corepack enable
 ```
 
+This enables Node's package-manager shim so the `packageManager` field can select pnpm
+`12.4.2` automatically.
+
 Install the exact locked dependencies:
 
 ```powershell
 pnpm install --frozen-lockfile
 ```
+
+This installs the versions recorded in `pnpm-lock.yaml` and refuses to rewrite the lockfile.
 
 Run first-time setup:
 
@@ -57,6 +62,8 @@ Start the development server:
 pnpm run dev
 ```
 
+This runs the `predev` doctor check and starts the Next.js development server with hot reload.
+
 Open **http://127.0.0.1:3000**.
 
 ## Daily workflow
@@ -70,12 +77,19 @@ pnpm run setup
 pnpm run dev
 ```
 
+`git pull` fetches the latest committed code. The install, setup, and dev commands then
+reconcile dependencies, database state, and the local server with that code.
+
 Useful runtime checks:
 
 ```powershell
 pnpm run doctor
 pnpm run db:migrate:status
 ```
+
+`pnpm run doctor` checks Node, native torrent bindings, FFmpeg, FFprobe, esbuild, and the
+Prisma migration ledger. `pnpm run db:migrate:status` reports whether the local database has
+applied every committed migration.
 
 Do not use `npm ci` or Yarn. The authoritative lockfile is [`pnpm-lock.yaml`](pnpm-lock.yaml).
 
@@ -90,16 +104,27 @@ pnpm run test:unit
 pnpm run build
 ```
 
+Each command has a different job:
+
+| Command | What it does |
+| --- | --- |
+| `pnpm run typecheck` | Runs the TypeScript compiler without emitting files; catches type and import errors. |
+| `pnpm run lint` | Runs ESLint across the repository; catches code-quality and hook-rule violations. |
+| `pnpm run test:unit` | Runs the offline unit and contract test suite against an isolated private database. |
+| `pnpm run build` | Generates Prisma Client and creates the optimized production Next.js build. |
+
 The project does not use Jest. Its test surface is split into:
 
-- **Unit and contract tests:** `pnpm run test:unit`
-- **Live/network tests:** `pnpm run test:live`
-- **API smoke tests:** `pnpm run test:api`
-- **UI checks:** `pnpm run test:ui`
-- **Visual snapshots:** `pnpm run test:visual:snapshots`
-- **Media and torrent E2E:** `pnpm run test:media:*`
-- **Journey tests:** `pnpm run test:journeys`
-- **Full orchestration:** `pnpm run test:all`
+| Command | What it does |
+| --- | --- |
+| `pnpm run test:unit` | Runs offline unit and contract tests without contacting live torrent indexers. |
+| `pnpm run test:live` | Runs the network-dependent unit tests that are excluded from the offline run. |
+| `pnpm run test:api` | Exercises the running app's API surface with smoke requests. |
+| `pnpm run test:ui` | Runs layout and UI regression checks against the running app. |
+| `pnpm run test:visual:snapshots` | Runs Playwright screenshot comparisons against committed visual baselines. |
+| `pnpm run test:media:*` | Runs media, playback, torrent, bitrate, stall, and player E2E scripts; choose the specific suffix. |
+| `pnpm run test:journeys` | Runs scripted end-to-end user journeys through the app. |
+| `pnpm run test:all` | Runs the broader validation orchestration, including offline tests, E2E checks, and Playwright coverage. |
 
 Browser verification uses Playwright. Network-dependent torrent tests are intentionally excluded
 from the default offline unit run.
@@ -107,11 +132,18 @@ from the default offline unit run.
 ## Database commands
 
 ```powershell
-pnpm run db:migrate          # Create/apply a development migration
-pnpm run db:migrate:deploy   # Apply committed migrations
-pnpm run db:migrate:status   # Check migration state
-pnpm run db:studio           # Open Prisma Studio
+pnpm run db:migrate
+pnpm run db:migrate:deploy
+pnpm run db:migrate:status
+pnpm run db:studio
 ```
+
+| Command | What it does |
+| --- | --- |
+| `pnpm run db:migrate` | Creates and applies a new development migration from schema changes. |
+| `pnpm run db:migrate:deploy` | Applies already-committed migrations without creating new ones. |
+| `pnpm run db:migrate:status` | Shows which migrations are applied or pending. |
+| `pnpm run db:studio` | Opens Prisma Studio for inspecting and editing local database records. |
 
 ## Docker
 
