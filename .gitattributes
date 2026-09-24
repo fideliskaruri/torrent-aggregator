@@ -1,0 +1,15 @@
+# Keep checkouts byte-identical on every machine. Windows clones default to
+# core.autocrlf=true, which rewrites sources to CRLF and breaks the tests that
+# assert on source text.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.mp4 binary
+*.db binary
