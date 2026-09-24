@@ -1,73 +1,132 @@
-# TorrentFlow (torrent-aggregator)
+# TorrentFlow
 
-A Next.js app for finding, tracking and streaming torrents. Agent-facing rules live in
-[`AGENTS.md`](AGENTS.md); UI decisions live in [`docs/design-system.md`](docs/design-system.md).
+**A media-first torrent app for finding, tracking, downloading, and streaming titles.**
 
-## Requirements
+TorrentFlow turns torrent discovery into a title-first experience: search for a film, series,
+or anime, open its title page, then choose **Play** or **Download**. Torrent details stay behind
+the scenes while the app manages acquisition, playback, local files, and library state.
 
-- **Node.js `22.23.2`** — the version pinned in [`.nvmrc`](.nvmrc). `package.json` declares
-  `engines.node: ">=22.12.0 <23"`, so any Node 22.12+ (but not 23) satisfies the runtime check.
-- **pnpm `12.4.2`** — the package manager pinned by `packageManager` in `package.json`. Do not use
-  npm or yarn; the repo's lockfile is `pnpm-lock.yaml`.
+> **Local app:** TorrentFlow is designed for a single-user local installation.
+> The owner runs the development server on port `3000`; agents and automation must only read
+> from that server.
 
-Enable pnpm through Corepack so the pinned version is the one that runs:
+## At a glance
 
-```bash
+| Area | What it provides |
+| --- | --- |
+| Discovery | Search and browse films, series, and anime |
+| Title pages | Seasons, episodes, releases, playback, and downloads |
+| Acquisition | Per-episode and film downloads with quality-aware selection |
+| Playback | Local-file and WebTorrent-backed streaming |
+| Library | Progress, history, retention, storage limits, and watch state |
+| Operations | Prisma migrations, diagnostics, automation, and CI validation |
+
+## Quick start
+
+### Requirements
+
+- **Node.js 22.23.2**, pinned in [`.nvmrc`](.nvmrc)
+- **pnpm 12.4.2**, pinned by `packageManager` in [`package.json`](package.json)
+- A configured download directory and local database
+
+Enable the repository-pinned pnpm version through Corepack:
+
+```powershell
 corepack enable
 ```
 
-## Install
+Install the exact locked dependencies:
 
-```bash
+```powershell
 pnpm install --frozen-lockfile
 ```
 
-`--frozen-lockfile` is what CI runs; it fails instead of silently updating `pnpm-lock.yaml`.
+Run first-time setup:
 
-## First-time setup
-
-```bash
+```powershell
 pnpm run setup
 ```
 
-`setup` checks the Node version and the native/media/build tooling, creates `.env` from
-`.env.example` when it is missing, then runs `prisma generate`, `prisma migrate deploy` and
-`prisma migrate status`. Re-running it is safe — it keeps an existing `.env`.
+Setup checks the runtime and native tools, creates `.env` from `.env.example` when needed,
+generates Prisma, and applies the committed migrations. It is safe to run again; an existing
+`.env` is preserved.
 
-## Run the dev server
+Start the development server:
 
-```bash
+```powershell
 pnpm run dev
 ```
 
-This starts Next.js on **http://127.0.0.1:3000** (`next dev -H 127.0.0.1 -p 3000`) and runs
-`pnpm run doctor` first via `predev`.
+Open **http://127.0.0.1:3000**.
 
-> The **owner** runs the dev server on port 3000. Agents must only read from it — never start,
-> stop, restart or rebuild it. It hot-reloads edits on its own.
+## Daily workflow
+
+After pulling changes on an existing checkout:
+
+```powershell
+git pull
+pnpm install --frozen-lockfile
+pnpm run setup
+pnpm run dev
+```
+
+Useful runtime checks:
+
+```powershell
+pnpm run doctor
+pnpm run db:migrate:status
+```
+
+Do not use `npm ci` or Yarn. The authoritative lockfile is [`pnpm-lock.yaml`](pnpm-lock.yaml).
 
 ## Validation
 
-Run these before pushing; CI runs the same commands:
+Run the focused gates before pushing:
 
-```bash
-pnpm run typecheck   # tsc --noEmit
-pnpm run lint        # eslint
-pnpm run test:unit   # offline unit tests
-pnpm run build       # prisma generate && next build
+```powershell
+pnpm run typecheck
+pnpm run lint
+pnpm run test:unit
+pnpm run build
 ```
 
-## Database
+The project does not use Jest. Its test surface is split into:
 
-```bash
-pnpm run db:migrate          # create/apply a dev migration
-pnpm run db:migrate:deploy   # apply migrations (CI / production)
-pnpm run db:migrate:status   # verify migration state
-pnpm run db:studio           # Prisma Studio
+- **Unit and contract tests:** `pnpm run test:unit`
+- **Live/network tests:** `pnpm run test:live`
+- **API smoke tests:** `pnpm run test:api`
+- **UI checks:** `pnpm run test:ui`
+- **Visual snapshots:** `pnpm run test:visual:snapshots`
+- **Media and torrent E2E:** `pnpm run test:media:*`
+- **Journey tests:** `pnpm run test:journeys`
+- **Full orchestration:** `pnpm run test:all`
+
+Browser verification uses Playwright. Network-dependent torrent tests are intentionally excluded
+from the default offline unit run.
+
+## Database commands
+
+```powershell
+pnpm run db:migrate          # Create/apply a development migration
+pnpm run db:migrate:deploy   # Apply committed migrations
+pnpm run db:migrate:status   # Check migration state
+pnpm run db:studio           # Open Prisma Studio
 ```
 
 ## Docker
 
-The production image (see [`Dockerfile`](Dockerfile)) builds on `node:22-bookworm-slim`, activates
-pnpm `12.4.2` through Corepack, installs with `--frozen-lockfile`, runs `prisma migrate deploy` on
-start, and serves the app on port `3000` bound to the container's own interfaces.
+The production image is defined in [`Dockerfile`](Dockerfile). It:
+
+1. Uses `node:22-bookworm-slim`.
+2. Activates pnpm `12.4.2` through Corepack.
+3. Installs with `pnpm install --frozen-lockfile`.
+4. Builds the Next.js application.
+5. Runs `prisma migrate deploy` before starting Next.js on port `3000`.
+
+## Repository guide
+
+- [`AGENTS.md`](AGENTS.md): repository-specific rules for contributors and agents
+- [`docs/AGENT-GUIDE.md`](docs/AGENT-GUIDE.md): architecture, testing doctrine, and operational traps
+- [`docs/design-system.md`](docs/design-system.md): UI tokens, patterns, and responsive requirements
+- [`Dockerfile`](Dockerfile): production container definition
+- [`.github/workflows/ci.yml`](.github/workflows/ci.yml): CI install and validation pipeline
