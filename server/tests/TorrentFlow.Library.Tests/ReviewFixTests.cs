@@ -18,9 +18,14 @@ public sealed class ReviewFixTests
     private static async Task<TorrentFlowDbContext> Db(LibraryHost host) =>
         await host.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>().CreateDbContextAsync();
 
-    /// <summary>The .NET engine's manifest (TorrentEngineService.BuildManifest): torrent-relative path, absolute fullPath.</summary>
-    private static string DotNetManifest(params (string Relative, string Full, long Size)[] files) =>
+    /// <summary>
+    /// The .NET engine's manifest (TorrentEngineService.BuildManifest): torrent-relative path, absolute fullPath. After the
+    /// content layout (CompletedLayoutFinalizer) fullPath is the moved location and null for discarded duplicate junk,
+    /// while path keeps the original torrent-relative name.
+    /// </summary>
+    private static string DotNetManifest(params (string Relative, string? Full, long Size)[] files) =>
         JsonSerializer.Serialize(files.Select(f => new { path = f.Relative, size = f.Size, mtimeMs = 1758780000000L, fullPath = f.Full }));
+    private const string Spam = "Torrent Downloaded From ExtraTorrent.cc.txt";
 
     private static EngineTorrent Engine(string name, string? files = null, string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DateTime? updated = null) => new()
     {
@@ -30,19 +35,23 @@ public sealed class ReviewFixTests
     };
 
     [Fact]
-    public void DotNetEngineFileListIsCheckedAtItsAbsolutePath()
+    public void LaidOutFileListIsCheckedAtItsMovedPath()
     {
         var directory = Path.Combine(AppContext.BaseDirectory, "test-data", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            var present = Path.Combine(directory, "Example Show S01E02.mkv");
+            // The layout moved the episode out of its release folder and discarded a duplicate tracker-spam file.
+            var present = Path.Combine(directory, "Example.Show.S01E02.mkv");
             File.WriteAllText(present, "media");
-            var kept = Engine("Example Show S01E02 1080p", DotNetManifest(("Example Show S01E02.mkv", present, 5)));
+            var kept = Engine("Example.Show.S01E02.1080p.WEB", DotNetManifest(
+                ("Example.Show.S01E02.1080p.WEB/Example.Show.S01E02.mkv", present, 5), ($"Example.Show.S01E02.1080p.WEB/{Spam}", null, 9)));
             Assert.False(TitleService.FilesAbsent(kept));
-            var gone = Engine("Example Show S01E02 1080p", DotNetManifest(("Example Show S01E02.mkv", Path.Combine(directory, "gone.mkv"), 5)));
+            var gone = Engine("Example.Show.S01E02.1080p.WEB", DotNetManifest(
+                ("Example.Show.S01E02.1080p.WEB/Example.Show.S01E02.mkv", Path.Combine(directory, "gone.mkv"), 5), ($"Example.Show.S01E02.1080p.WEB/{Spam}", null, 9)));
             Assert.True(TitleService.FilesAbsent(gone));
 
+            // Only the located file counts; the discarded duplicate is neither present nor missing.
             var plan = DeletionController.Plan([kept], new("episode", 1, 2));
             var release = Assert.Single(plan.Releases);
             Assert.Equal(1, release.FileCount);
@@ -53,16 +62,19 @@ public sealed class ReviewFixTests
     }
 
     [Fact]
-    public async Task PackEpisodeFromDotNetEngineExposesAbsoluteFilePath()
+    public async Task LaidOutPackEpisodeExposesItsMovedFilePath()
     {
         using var host = new LibraryHost(); using var client = host.CreateClient();
-        var episodePath = Path.Combine(host.DataDirectory, "Example Show S01", "Example Show S01E02.mkv");
-        Directory.CreateDirectory(Path.GetDirectoryName(episodePath)!);
+        // A double-wrapped pack the layout flattened into the season folder (LayoutFinalizerTests.DoubleWrappedPack...).
+        const string outer = "Example Show S01 1080p BDRip x265-EMBER", inner = "Season 01";
+        var season = Path.Combine(host.DataDirectory, "TV", "Example Show", "Season 01");
+        var episodePath = Path.Combine(season, "Example Show S01E02.mkv");
+        Directory.CreateDirectory(season);
         await File.WriteAllTextAsync(episodePath, "test-media");
         await host.Seed(db =>
         {
             db.WatchListItems.Add(LibraryHost.Watch());
-            db.EngineTorrents.Add(Engine("Example Show S01 1080p", DotNetManifest((Path.Combine("Example Show S01", "Example Show S01E02.mkv"), episodePath, 100))));
+            db.EngineTorrents.Add(Engine(outer, DotNetManifest(($"{outer}/{inner}/Example Show S01E02.mkv", episodePath, 100), ($"{outer}/{Spam}", null, 9))));
         });
         var episodes = (await Json(await client.GetAsync("/api/title/example-show"))).GetProperty("episodes");
         Assert.Equal(2, episodes.GetArrayLength());

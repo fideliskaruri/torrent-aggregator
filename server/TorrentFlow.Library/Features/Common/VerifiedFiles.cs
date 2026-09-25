@@ -2,12 +2,17 @@ using System.Text.Json;
 
 namespace TorrentFlow.Library.Features.Common;
 
-/// <summary>One entry of an engine row's verified file list. <see cref="Path"/> is absolute when the row recorded one.</summary>
-internal readonly record struct VerifiedFile(string? Path, long Size);
+/// <summary>
+/// One entry of an engine row's verified file list. <see cref="Path"/> is the absolute on-disk location, or null when the
+/// row records none (a duplicate the content layout discarded). <see cref="Name"/> is the file name, known either way.
+/// </summary>
+internal readonly record struct VerifiedFile(string? Path, string? Name, long Size);
 
 /// <summary>
 /// Reads <c>EngineTorrent.VerifiedFilesJson</c> in both shapes: the TS engine stores an absolute <c>path</c>, while the .NET
-/// engine stores the torrent-relative <c>path</c> plus the absolute <c>fullPath</c>. Disk checks need the absolute one.
+/// engine stores the torrent-relative <c>path</c> plus the absolute <c>fullPath</c>. The content layout rewrites
+/// <c>fullPath</c> to the moved location and nulls it for discarded junk, keeping the original <c>path</c>. Like the engine,
+/// the location is <c>fullPath</c>, else <c>path</c> only when it is rooted.
 /// </summary>
 internal static class VerifiedFiles
 {
@@ -19,11 +24,20 @@ internal static class VerifiedFiles
         {
             using var doc = JsonDocument.Parse(json);
             if (doc.RootElement.ValueKind != JsonValueKind.Array) return null;
-            return doc.RootElement.EnumerateArray().Select(f => new VerifiedFile(
-                f.ValueKind == JsonValueKind.Object ? Text(f, "fullPath") ?? Text(f, "path") : null,
-                f.ValueKind == JsonValueKind.Object && f.TryGetProperty("size", out var size) && size.TryGetInt64(out var bytes) ? bytes : 0)).ToList();
+            return doc.RootElement.EnumerateArray().Select(Entry).ToList();
         }
         catch (JsonException) { return null; }
+    }
+
+    private static VerifiedFile Entry(JsonElement file)
+    {
+        if (file.ValueKind != JsonValueKind.Object) return default;
+        var full = Text(file, "fullPath");
+        var path = Text(file, "path");
+        var location = full ?? (path != null && System.IO.Path.IsPathRooted(path) ? path : null);
+        var name = (full ?? path)?.Split(['\\', '/']).LastOrDefault(part => part.Length > 0);
+        var size = file.TryGetProperty("size", out var value) && value.TryGetInt64(out var bytes) ? bytes : 0;
+        return new(location, name, size);
     }
 
     private static string? Text(JsonElement file, string name) =>

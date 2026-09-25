@@ -25,8 +25,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
 
     internal static bool FilesAbsent(EngineTorrent row)
     {
-        var files = VerifiedFiles.Read(row.VerifiedFilesJson);
-        return files is { Count: > 0 } && files.All(f => f.Path is { } path && VerifiedFiles.ConfirmedMissing(path));
+        var located = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(f => f.Path).OfType<string>().ToList();
+        return located.Count > 0 && located.All(VerifiedFiles.ConfirmedMissing);
     }
     internal static void Reconcile(AcquisitionTarget target, EngineTorrent? row)
     {
@@ -208,7 +208,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
     private static bool InvalidMedia(EngineTorrent row)
     {
         if (row.Progress < .9999 || string.IsNullOrWhiteSpace(row.VerifiedBitfield)) return false;
-        var paths = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(x => x.Path).OfType<string>().ToArray();
+        var paths = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(x => x.Name).OfType<string>().ToArray();
         return paths.Length > 0 && !paths.Any(x => Regex.IsMatch(x, @"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$"));
     }
     private static int? PackSeason(string name)

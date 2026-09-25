@@ -94,7 +94,6 @@ public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> f
         public int Rank => Kind == "seasons" ? 3 : Kind == "season" ? 2 : 1;
     }
 
-    private static string FileName(string path) => path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } parts ? parts[^1] : "";
 
     /// <summary>Port of TS planDeletion: the release name and every recorded file name both vote on coverage.</summary>
     internal static DeletionPlan Plan(IEnumerable<EngineTorrent> rows, DeletionScope scope)
@@ -104,12 +103,15 @@ public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> f
         var missing = 0;
         foreach (var row in rows)
         {
-            var files = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Where(f => !string.IsNullOrWhiteSpace(f.Path))
+            var entries = VerifiedFiles.Read(row.VerifiedFilesJson) ?? [];
+            // Only files with an on-disk location count toward bytes and presence; a duplicate the layout discarded has none.
+            var files = entries.Where(f => !string.IsNullOrWhiteSpace(f.Path))
                 .Select(f => (Path: f.Path!.Trim(), Size: Math.Max(0, f.Size))).ToList();
             var present = files.Where(f => !VerifiedFiles.ConfirmedMissing(f.Path)).ToList();
             var bytes = files.Count > 0 ? present.Sum(x => x.Size) : Math.Max(0, row.SizeBytes);
             // Unknown names (sample.mkv, poster.jpg) state nothing and must not block an episode delete.
-            var stated = files.Select(f => Coverage.FromName(FileName(f.Path))).Prepend(Coverage.FromName(row.Name)).Where(c => c.Kind != "unknown").ToList();
+            var stated = entries.Select(f => f.Name).OfType<string>().Select(Coverage.FromName).Prepend(Coverage.FromName(row.Name))
+                .Where(c => c.Kind != "unknown").ToList();
             if (stated.Count == 0 && scope.Kind != "show")
             {
                 blocked.Add(new(row.Name, "unrecognised", "not stated", present.Count, bytes));
@@ -128,7 +130,9 @@ public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> f
             }
         }
         return new(scope, releases, blocked, missing);
-    }    [HttpGet, HttpPost]
+    }
+
+    [HttpGet, HttpPost]
     public async Task<IActionResult> Handle(CancellationToken ct)
     {
         var mutate = Request.Method == "POST";
