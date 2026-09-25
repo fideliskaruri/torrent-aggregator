@@ -322,7 +322,7 @@ async function checkStreamLeaseTimeoutRecovers() {
   );
   assert.match(
     source,
-    /if \(already\) \{[\s\S]*?hasSupportedVideoPayload\(already\.files \?\? \[\]\)[\s\S]*?recordRehydrateFailure\([\s\S]*?new InvalidCompletedMediaError\(\)[\s\S]*?if \(already\.ready\)[\s\S]*?already\.on\("ready", onExistingReady\)/,
+    /if \(already\) \{[\s\S]*?hasSupportedVideoPayload\(already\.files \?\? \[\]\)[\s\S]*?recordRehydrateFailure(?:AndPromote)?\([\s\S]*?new InvalidCompletedMediaError\(\)[\s\S]*?if \(already\.ready\)[\s\S]*?already\.on\("ready", onExistingReady\)/,
     "existing ready and metadata-pending handles must contain playable video",
   );
   assert.match(

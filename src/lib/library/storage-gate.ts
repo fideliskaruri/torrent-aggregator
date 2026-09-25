@@ -104,6 +104,11 @@ export interface SendStorageGateOptions {
   _assert?: typeof assertStorageBudget;
   _reclaim?: typeof reclaimForBytes;
   _resetDirectorySizeCache?: () => void;
+  /**
+   * Bytes already promised to downloads that are queued but have written
+   * nothing yet. Test seam — defaults to reading the engine's queue.
+   */
+  _reservedBytes?: (userId: string) => Promise<number>;
 }
 
 /**
@@ -183,7 +188,21 @@ export async function checkSendStorage(
   const assertBudget = opts._assert ?? assertStorageBudget;
   const reclaim = opts._reclaim ?? reclaimForBytes;
   const dropSizeCache = opts._resetDirectorySizeCache ?? resetDirectorySizeCache;
-  const incomingBytes = opts.incomingBytes ?? null;
+  const readReserved =
+    opts._reservedBytes ??
+    (async (userId: string) => {
+      const { queuedDownloadBytes } = await import(
+        "@/lib/clients/builtin-engine"
+      );
+      return queuedDownloadBytes(userId);
+    });
+  const requestedBytes = opts.incomingBytes ?? null;
+  // Queued downloads have claimed space but written none of it, so the folder
+  // measurement cannot see them. Counting them here is what stops thirteen
+  // episodes fanned out in parallel from all passing the same free space.
+  const reserved = await readReserved(opts.userId).catch(() => 0);
+  const incomingBytes =
+    reserved > 0 ? (requestedBytes ?? 0) + reserved : requestedBytes;
 
   const first = await assertBudget({
     root: opts.root,
@@ -208,7 +227,7 @@ export async function checkSendStorage(
       ok: false,
       message: first.message,
       reclaim: null,
-      override: refusalFacts(first, incomingBytes),
+      override: refusalFacts(first, requestedBytes),
     };
   }
 
@@ -220,7 +239,7 @@ export async function checkSendStorage(
       ok: false,
       message: first.message,
       reclaim: null,
-      override: refusalFacts(first, incomingBytes),
+      override: refusalFacts(first, requestedBytes),
     };
   }
 
@@ -247,6 +266,6 @@ export async function checkSendStorage(
     ok: false,
     message: reclaimRefusalMessage(swept, second.message),
     reclaim: swept,
-    override: refusalFacts(second, incomingBytes),
+    override: refusalFacts(second, requestedBytes),
   };
 }

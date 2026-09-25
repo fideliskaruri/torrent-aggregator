@@ -82,6 +82,12 @@ declare module "webtorrent/lib/torrent.js" {
   export default Torrent;
 }
 
+/** Same deep-import reason; see `src/lib/clients/webtorrent-peer-handshake.ts`. */
+declare module "webtorrent/lib/peer.js" {
+  const Peer: new (...args: never[]) => unknown;
+  export default Peer;
+}
+
 /** Same deep-import reason; see `src/lib/clients/webtorrent-conn-errors.ts`. */
 declare module "webtorrent/lib/conn-pool.js" {
   const ConnPool: new (...args: never[]) => unknown;

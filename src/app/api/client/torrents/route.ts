@@ -6,6 +6,7 @@ import {
   listClientTorrents,
 } from "@/lib/clients";
 import type { TorrentClientType } from "@/lib/clients";
+import type { TorrentClientAdapter } from "@/lib/clients/types";
 import { formatClientError } from "@/lib/clients/errors";
 import {
   aggregateOwnedTorrents,
@@ -32,9 +33,44 @@ import {
 import { displayTitleFromWorkKey } from "@/components/title/work-key";
 import { acquisitionWorksForUser } from "@/lib/work/store";
 import { acquisitionIntentByHash } from "./acquisition-intent";
+import { persistedTorrentDisplayState } from "@/lib/clients/builtin-engine-lifecycle";
+import type { ClientTorrent } from "@/lib/torrents/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+/**
+ * The durable row for one transfer, after an action changed it.
+ *
+ * Read from the database rather than the live engine: a download that was just
+ * promoted out of the queue has a row immediately but no WebTorrent handle for
+ * another moment, and the caller needs the new state now.
+ */
+async function transferRowAfterAction(
+  userId: string,
+  hash: string,
+): Promise<ClientTorrent | null> {
+  try {
+    const row = await prisma.engineTorrent.findUnique({
+      where: { userId_hash: { userId, hash: hash.toLowerCase() } },
+    });
+    if (!row) return null;
+    return {
+      hash: row.hash,
+      name: row.name,
+      progress: row.progress ?? 0,
+      sizeBytes: Number(row.sizeBytes ?? 0),
+      dlspeed: 0,
+      upspeed: 0,
+      state: persistedTorrentDisplayState(row),
+      category: row.category ?? undefined,
+      savePath: row.savePath,
+      error: row.error ?? undefined,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function GET(request: Request) {
   const observer = observeRequest(request, "torrent-client", "list-torrents");
@@ -264,7 +300,7 @@ export async function POST(request: NextRequest) {
     }
 
     let body: {
-      action?: "pause" | "resume" | "delete";
+      action?: "pause" | "resume" | "delete" | "force";
       hash?: string;
       deleteFiles?: boolean;
       ownerClientType?: TorrentClientType;
@@ -322,7 +358,7 @@ export async function POST(request: NextRequest) {
     }
 
     const ownerConfig = owned.config;
-    const client = getClient(ownerConfig.clientType);
+    const client: TorrentClientAdapter = getClient(ownerConfig.clientType);
     let result;
 
     try {
@@ -330,6 +366,19 @@ export async function POST(request: NextRequest) {
         result = await client.pauseTorrent(ownerConfig, body.hash);
       } else if (body.action === "resume" && client.resumeTorrent) {
         result = await client.resumeTorrent(ownerConfig, body.hash);
+      } else if (body.action === "force") {
+        // Download now. Only the built-in engine queues transfers, so an
+        // external client has nothing to jump — say so rather than pretending.
+        if (!client.forceTorrent) {
+          return reply(
+            {
+              ok: false,
+              message: `${clientTypeLabel(ownerConfig.clientType)} does not queue downloads.`,
+            },
+            { status: 400 },
+          );
+        }
+        result = await client.forceTorrent(ownerConfig, body.hash);
       } else if (body.action === "delete" && client.deleteTorrent) {
         const deleteFiles = body.deleteFiles !== false;
         const otherOwners = deleteFiles
@@ -516,6 +565,11 @@ export async function POST(request: NextRequest) {
         ownerClientType: body.ownerClientType,
         message: result.ok ? result.message : "Torrent action failed.",
         offline: false,
+        // "Download now" changes the row the UI is rendering, so hand back the
+        // new state instead of making the caller wait for the next 5s poll.
+        ...(body.action === "force" && result.ok
+          ? { torrent: await transferRowAfterAction(session.user.id, body.hash) }
+          : {}),
       },
       { status: result.ok ? 200 : 502 },
     );

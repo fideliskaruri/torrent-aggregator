@@ -238,7 +238,7 @@ model EngineTorrent {
   torrentUrl        String?
   savePath          String?
   category          String?
-  status            String    @default("downloading") // downloading | downloaded | paused | error | removed
+  status            String    @default("downloading") // downloading | queued | downloaded | paused | error | removed
   progress          Float     @default(0)
   sizeBytes         BigInt    @default(0)
   verifiedBitfield  String?
@@ -260,6 +260,14 @@ model EngineTorrent {
   evictFrom         String?
   /// Last time playback touched this torrent. Drives LRU eviction of caches.
   lastUsedAt        DateTime  @default(now())
+  /// Sortable position inside this work's download queue ("s00001e00002").
+  /// NULL for anything without an episode position (films, one-offs), which
+  /// sorts after the numbered rows of its group. See lib/clients/download-queue.
+  queueKey          String?
+  /// Set when the owner pressed Download now on a queued item. A forced row
+  /// starts immediately and is never held back by the active-download cap,
+  /// including across a restart. Cleared when the transfer ends.
+  forcedAt          DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

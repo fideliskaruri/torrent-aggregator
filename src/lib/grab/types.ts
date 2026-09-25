@@ -260,6 +260,11 @@ export type GrabPipelineOptions = {
    */
   _sendFn?: typeof import("@/lib/clients").sendToClient;
   /**
+   * Awaited after a candidate is chosen and every pre-send check passed, just
+   * before the send. A season fan-out uses it to commit adds in episode order.
+   */
+  beforeSend?: () => Promise<void>;
+  /**
    * Override the Prisma client (for testing). Defaults to the real Prisma.
    */
   _prisma?: typeof import("@/lib/prisma").default;
@@ -279,4 +284,11 @@ export type GrabPipelineResult = {
   offline: boolean;
   /** Set only when a storage limit refused the grab. @see StorageBudgetCheck */
   storage?: StorageOverrideFacts | null;
+  /**
+   * The engine admitted this download but has not started it: it is waiting in
+   * the chronological queue behind the active transfers.
+   */
+  queued?: boolean;
+  /** 1-based place in that queue, when known. */
+  queuePosition?: number | null;
 };

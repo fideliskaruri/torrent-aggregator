@@ -107,14 +107,43 @@ export interface AddTorrentPayload {
    * `isOverridableLimit`, so this can never get past `wont-fit` or `setup`.
    */
   overrideStorageCap?: boolean;
+  /**
+   * Sortable queue position for a kept download ("s00001e00002"). Set by the
+   * season/episode fan-out so the queue runs chronologically no matter which
+   * episode's search finished first. @see lib/clients/download-queue
+   */
+  queueKey?: string | null;
+  /** Work this add belongs to, so a series queues as one group. */
+  workId?: string | null;
+  /**
+   * Candidate size, recorded on a queued row before any bytes exist so the
+   * storage gate can reserve it against later adds.
+   */
+  expectedSizeBytes?: number | null;
+  /**
+   * The owner pressed Download now. Starts immediately, past the
+   * active-download cap. Never set by automation.
+   */
+  forced?: boolean;
+  /**
+   * Internal: this add IS the queue promoting a row it already admitted, so it
+   * must not be re-queued. Never set by callers outside the engine.
+   */
+  bypassQueue?: boolean;
 }
 
 export type AddTorrentDetails =
   | {
       type: "builtin-transfer";
-      action: "started" | "already_downloading" | "already_complete";
+      action:
+        | "started"
+        | "already_downloading"
+        | "already_complete"
+        | "queued";
       pct: number;
       peers: number;
+      /** 1-based place in the download queue, when `action` is "queued". */
+      queuePosition?: number;
     };
 
 export interface AddTorrentResult {
@@ -143,6 +172,14 @@ export interface TorrentClientAdapter {
     config: ClientConnectionConfig,
     hash: string,
     deleteFiles?: boolean,
+  ): Promise<AddTorrentResult>;
+  /**
+   * Start a queued download now, past the active-download cap. Only the
+   * built-in engine has a queue, so external adapters leave this unset.
+   */
+  forceTorrent?(
+    config: ClientConnectionConfig,
+    hash: string,
   ): Promise<AddTorrentResult>;
 }
 

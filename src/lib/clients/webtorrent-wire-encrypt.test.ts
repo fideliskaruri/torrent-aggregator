@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import {
   encryptCopyCount,
   patchWireEncryptAliasing,
+  patchWireEncryptAliasingFromWire,
   resetEncryptCopyCount,
 } from "@/lib/clients/webtorrent-wire-encrypt";
 
@@ -113,6 +114,60 @@ check("patching twice does not double-copy", () => {
 
 check("a prototype without _message is tolerated", () => {
   assert.equal(patchWireEncryptAliasing({ foo: 1 }), false);
+});
+
+console.log("\npatching from a live wire (the path that survives pnpm)…");
+
+check("a wire instance patches the prototype every other wire shares", () => {
+  resetEncryptCopyCount();
+  // Exactly what WebTorrent hands us on a 'wire' event: an instance whose
+  // prototype carries `_message`. `bittorrent-protocol` is a transitive
+  // dependency and is not importable from here on a strict pnpm install, so
+  // this — not module resolution — is what has to work.
+  const proto = {
+    _message(this: unknown, _id: unknown, _numbers: unknown, data: unknown) {
+      if (data) {
+        const buf = data as Uint8Array;
+        for (let i = 0; i < buf.length; i++) buf[i] ^= 0xff;
+      }
+    },
+  };
+  const first = Object.create(proto) as {
+    _encryptor?: unknown;
+    _message(id: unknown, numbers: unknown, data: unknown): void;
+  };
+  first._encryptor = {};
+
+  assert.equal(patchWireEncryptAliasingFromWire(first), true);
+
+  const bitfield = new Uint8Array([0, 0, 0, 0]);
+  first._message(5, [], bitfield);
+  assert.deepEqual(Array.from(bitfield), [0, 0, 0, 0]);
+
+  // A wire created later shares the prototype, so it is covered too.
+  const later = Object.create(proto) as typeof first;
+  later._encryptor = {};
+  const piece = new Uint8Array([7, 7]);
+  later._message(7, [0, 0], piece);
+  assert.deepEqual(Array.from(piece), [7, 7], "later wires must be covered too");
+  assert.equal(encryptCopyCount(), 2);
+});
+
+check("patching from a wire is idempotent across repeated wire events", () => {
+  const proto = { _message(this: unknown) {} };
+  const wire = Object.create(proto) as object;
+  assert.equal(patchWireEncryptAliasingFromWire(wire), true);
+  const patchedFn = (proto as { _message: unknown })._message;
+  assert.equal(patchWireEncryptAliasingFromWire(wire), true);
+  assert.equal(
+    (proto as { _message: unknown })._message,
+    patchedFn,
+    "re-patching on every wire event must be a no-op",
+  );
+});
+
+check("an object with no prototype chain is reported, not thrown", () => {
+  assert.equal(patchWireEncryptAliasingFromWire(Object.create(null)), false);
 });
 
 if (failures > 0) {

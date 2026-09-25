@@ -204,6 +204,79 @@ async function main(): Promise<void> {
 
   console.log("checkSendStorage");
 
+  await checkAsync("queued downloads reserve their size so parallel episodes cannot double-spend", async () => {
+    // Thirteen episodes fanned out at once all measure the same free folder:
+    // nothing has been written yet. Without a reservation every one of them
+    // passes a cap that only one of them fits under.
+    const seen: (number | null | undefined)[] = [];
+    const decision = await checkSendStorage({
+      userId: "u1",
+      config,
+      root: "D:\\Downloads",
+      retention: "keep",
+      incomingBytes: 2 * GB,
+      _reservedBytes: async () => 30 * GB,
+      _assert: (async (args: {
+        maxStorageBytes?: number | null;
+        incomingBytes?: number | null;
+      }) => {
+        seen.push(args.incomingBytes);
+        const cap = args.maxStorageBytes ?? 0;
+        const used = 10 * GB;
+        return used + (args.incomingBytes ?? 0) <= cap
+          ? underCap(used)
+          : overCap(used);
+      }) as never,
+      _reclaim: async () => {
+        throw new Error("Download must never trigger reclamation");
+      },
+      _resetDirectorySizeCache: () => {},
+    });
+    assert.deepEqual(
+      seen,
+      [32 * GB],
+      "the already-queued 30 GB is counted alongside this 2 GB request",
+    );
+    assert.equal(decision.ok, false, "the reservation is what refuses this send");
+    assert.equal(
+      decision.override?.incomingBytes,
+      2 * GB,
+      "the override dialog still quotes what THIS download needs, not the backlog",
+    );
+  });
+
+  await checkAsync("an empty queue reserves nothing and leaves the request untouched", async () => {
+    const seen: (number | null | undefined)[] = [];
+    await checkSendStorage({
+      userId: "u1",
+      config,
+      root: "D:\\Downloads",
+      retention: "keep",
+      _reservedBytes: async () => 0,
+      _assert: (async (args: { incomingBytes?: number | null }) => {
+        seen.push(args.incomingBytes);
+        return underCap(1 * GB);
+      }) as never,
+      _resetDirectorySizeCache: () => {},
+    });
+    assert.deepEqual(seen, [null], "no queue means no invented incoming bytes");
+  });
+
+  await checkAsync("a broken queue read must not refuse a send", async () => {
+    const decision = await checkSendStorage({
+      userId: "u1",
+      config,
+      root: "D:\\Downloads",
+      retention: "keep",
+      _reservedBytes: async () => {
+        throw new Error("engine not started");
+      },
+      _assert: (async () => underCap(1 * GB)) as never,
+      _resetDirectorySizeCache: () => {},
+    });
+    assert.equal(decision.ok, true);
+  });
+
   await checkAsync("Play proceeds once reclamation makes room", async () => {
     const calls: string[] = [];
     const stub = assertStub({ usedBytes: 38.5 * GB, calls });

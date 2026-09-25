@@ -94,6 +94,12 @@ export function patchWireEncryptAliasing(wirePrototype: object): boolean {
  * Resolves the Wire prototype from the installed package and patches it.
  * Returns whether the patch landed so the caller can log a miss if the
  * internals move.
+ *
+ * `bittorrent-protocol` is a *transitive* dependency: pnpm's strict layout does
+ * not put it where this module can import it, so on a clean install this always
+ * returned false even though nothing was wrong. It stays as a best-effort first
+ * attempt — when it resolves, the patch is in place before the first wire
+ * exists — and {@link patchWireEncryptAliasingFromWire} covers the rest.
  */
 export async function patchWebTorrentWireEncrypt(): Promise<boolean> {
   try {
@@ -107,4 +113,22 @@ export async function patchWebTorrentWireEncrypt(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Patch the prototype of a wire the client just created.
+ *
+ * Every wire WebTorrent builds shares one prototype, so patching the one taken
+ * from the first `wire` event patches all of them — including wires that
+ * already exist, since the fix lives on the prototype rather than the instance.
+ * {@link patchWireEncryptAliasing} is idempotent, so re-running it on every
+ * wire event costs a property read.
+ *
+ * This is the path that does not depend on module resolution at all, which is
+ * what makes the fix survive a clean pnpm install.
+ */
+export function patchWireEncryptAliasingFromWire(wire: object): boolean {
+  const proto = Object.getPrototypeOf(wire) as object | null;
+  if (!proto) return false;
+  return patchWireEncryptAliasing(proto);
 }

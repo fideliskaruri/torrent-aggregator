@@ -42,6 +42,7 @@ import prisma from "@/lib/prisma";
 import { searchTorrents } from "@/lib/torrents/aggregator";
 import { sendToClient } from "@/lib/clients";
 import { formatClientError, isClientOfflineError } from "@/lib/clients/errors";
+import type { AddTorrentDetails } from "@/lib/clients/types";
 import type { GrabPipelineOptions, GrabPipelineResult } from "./types";
 import { historyMessageFromFacts } from "@/lib/activity/history";
 import {
@@ -292,8 +293,9 @@ export async function runGrabPipeline(
   // a skip. The reverse (transaction first, then send) would advance the
   // cursor on success and then crash before the torrent actually reached the
   // client — permanently losing an episode.
-  let send: { ok: boolean; message: string };
+  let send: { ok: boolean; message: string; details?: AddTorrentDetails };
   let offline = false;
+  await opts.beforeSend?.();
   try {
     send = await doSend(config, {
       magnet: candidate.magnet,
@@ -469,6 +471,10 @@ export async function runGrabPipeline(
     alreadyActiveMessage = send.message;
   }
 
+  const queued =
+    send.details?.type === "builtin-transfer" &&
+    send.details.action === "queued";
+
   if (alreadyActive) {
     return {
       status: "already_active",
@@ -476,6 +482,8 @@ export async function runGrabPipeline(
       candidate,
       target,
       offline: false,
+      queued,
+      queuePosition: send.details?.queuePosition ?? null,
     };
   }
 
@@ -485,5 +493,7 @@ export async function runGrabPipeline(
     candidate,
     target,
     offline,
+    queued,
+    queuePosition: send.details?.queuePosition ?? null,
   };
 }
