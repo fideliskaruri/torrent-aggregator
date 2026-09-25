@@ -96,6 +96,44 @@ dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5199 --To
 The host listens on `http://127.0.0.1:3000` by default. During development always pass another port.
 The root run scripts use http://127.0.0.1:3000 unless you pass `--urls`. `-p:SkipWebBuild=true` skips frontend work for backend-only builds.
 
+## Parity harness
+
+```powershell
+node scripts/parity/run.mjs
+# Reuse the isolated build; optionally filter by request/route regex:
+node scripts/parity/run.mjs --no-next-build --only "health|watchlist"
+# Override the source database (never prisma\dev.db, which may be empty):
+node scripts/parity/run.mjs --db D:\code\torrent-aggregator\dev.db
+node --test scripts/parity/parity.test.mjs
+```
+
+Install root dependencies first (`pnpm install --frozen-lockfile`). On the controller machine set
+`PNPM_CONFIG_REGISTRY=http://127.0.0.1:4873` and
+`PNPM_CONFIG_STORE_DIR=D:\code\memtest\pnpm-store` before installing.
+The harness discovers every source GET route and refuses newly discovered routes until their
+safe request is added to `scripts/parity/cases.mjs`. IDs come from the snapshot; empty tables use
+explicit missing-resource IDs. Media-byte endpoints exercise errors rather than starting playback.
+Safe invalid-body POSTs cover progress, torrent send, and playback planning.
+
+The source defaults to `D:\code\torrent-aggregator\dev.db`. A consistent SQLite snapshot, including
+committed WAL changes, produces two copies under `D:\code\memtest\parity\<run>`. Both are sanitized
+identically: unfinished transfers paused, restore magnets/URLs removed, paths isolated, external
+clients/automation/pre-probing disabled, and retention origins protected. No source media is copied.
+This tests API contracts over an inert library, not live download or media-byte parity.
+
+Next builds only into `.next-parity`; `tsconfig.json` is restored with `git checkout` after the build
+(the harness refuses a dirty tsconfig). Hosts use loopback ports **3110** and **5110**, never 3000/5100.
+Occupied ports fail closed. Both owned process trees stop and database copies are deleted even on
+failure. `--no-next-build` requires an existing `.next-parity` build; rebuild after source changes.
+
+Each run writes private, gitignored `scripts/parity/reports/<run>/report.md` and `report.json`,
+plus host/build logs. Reports include statuses, exact content-type/cache-control headers and
+structural JSON differences. Normalization masks volatile values while retaining keys/types;
+ranked and paginated arrays keep their ordering. Bare .NET 404s mean **not ported**; application JSON
+404s remain comparable. Exit codes: **0** parity (including not-ported), **1** differences/request
+errors, **2** setup/harness failure. Provider-backed reads can vary with live upstream data; inspect
+their diffs rather than masking meaningful results. Reports contain local library data: never commit.
+
 ## Folder distribution
 
 ```powershell
