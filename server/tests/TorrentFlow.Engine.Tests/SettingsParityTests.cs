@@ -2,8 +2,11 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using TorrentFlow.Engine.Clients.External;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using Xunit;
@@ -67,6 +70,79 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
         var settings = (await Read(response)).GetProperty("settings");
         Assert.Equal("builtin", settings.GetProperty("clientType").GetString());
         Assert.Equal("qbittorrent", settings.GetProperty("externalClientType").GetString());
+    }
+
+    [Fact]
+    public async Task DisabledExternalClientsStayBuiltInAndRejectExternalRequests()
+    {
+        var handler = new ExternalHandler(_ => throw new InvalidOperationException("external client should not be contacted"));
+        using var disabledFactory = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("TorrentFlow:ExternalClients:Enabled", "false");
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddHttpClient<QBittorrentClient>().ConfigurePrimaryHttpMessageHandler(() => handler);
+                services.AddHttpClient<TransmissionClient>().ConfigurePrimaryHttpMessageHandler(() => handler);
+            });
+        });
+        using var http = disabledFactory.CreateClient();
+
+        await using (var scope = disabledFactory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>();
+            await using var context = await db.CreateDbContextAsync();
+            var row = await context.ClientSettings.SingleAsync();
+            row.ClientType = "qbittorrent";
+            row.ExternalClientType = "qbittorrent";
+            row.Host = "http://client.invalid:9091";
+            row.Username = "alice";
+            row.Password = "enc:v1:ignored";
+            await context.SaveChangesAsync();
+        }
+
+        var get = await Read(await http.GetAsync("/api/settings/client"));
+        var settings = get.GetProperty("settings");
+        Assert.False(settings.GetProperty("externalClientsEnabled").GetBoolean());
+        Assert.Equal("builtin", settings.GetProperty("clientType").GetString());
+        Assert.Equal(JsonValueKind.Null, settings.GetProperty("externalClientType").ValueKind);
+
+        var switchBad = await http.PutAsync("/api/settings/client", new StringContent("""{"clientType":"qbittorrent"}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, switchBad.StatusCode);
+        Assert.Contains("built-in downloader only", (await Read(switchBad)).GetProperty("error").GetString() ?? "");
+
+        var testBad = await http.PutAsync("/api/settings/client", new StringContent("""{"test":true,"testTarget":"external"}""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, testBad.StatusCode);
+        Assert.Contains("built-in downloader only", (await Read(testBad)).GetProperty("error").GetString() ?? "");
+
+        var sendExternal = await http.PostAsJsonAsync("/api/torrent/send", new
+        {
+            magnet = EngineHarness.Magnet(990),
+            target = "external",
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, sendExternal.StatusCode);
+        Assert.Equal("No external client", (await Read(sendExternal)).GetProperty("error").GetString());
+
+        var torrents = await Read(await http.GetAsync("/api/client/torrents"));
+        Assert.Equal("builtin", torrents.GetProperty("clientType").GetString());
+        Assert.False(torrents.GetProperty("hasExternal").GetBoolean());
+        Assert.Empty(handler.Requests);
+
+        var configure = await http.PutAsJsonAsync("/api/settings/client", new
+        {
+            baseDownloadPath = Path.Combine(factory.Root, "downloads"),
+            maxStorageBytes = 1L << 40,
+        });
+        Assert.Equal(HttpStatusCode.OK, configure.StatusCode);
+        var send = await http.PostAsJsonAsync("/api/torrent/send", new { magnet = EngineHarness.Magnet(991) });
+        Assert.Equal(HttpStatusCode.OK, send.StatusCode);
+        var remove = await http.PostAsJsonAsync("/api/client/torrents", new
+        {
+            action = "delete",
+            hash = EngineHarness.Hash(991),
+            ownerClientType = "builtin",
+        });
+        Assert.Equal(HttpStatusCode.OK, remove.StatusCode);
+        Assert.DoesNotContain("Could not verify whether another configured client still uses these files", await remove.Content.ReadAsStringAsync());
     }
 
     [Fact]

@@ -161,6 +161,7 @@ export default function SettingsPage() {
   const [pickerTarget, setPickerTarget] = useState<
     "base" | "savePath" | string | null
   >(null);
+  const [externalClientsEnabled, setExternalClientsEnabled] = useState(true);
   const [setupComplete, setSetupComplete] = useState(false);
   const [persistedPathWarnings, setPersistedPathWarnings] = useState<
     DownloadPathWarning[]
@@ -178,7 +179,8 @@ export default function SettingsPage() {
     [form, savedForm],
   );
   const externalEnabled =
-    form.clientType !== "builtin" || Boolean(form.externalClientType);
+    externalClientsEnabled &&
+    (form.clientType !== "builtin" || Boolean(form.externalClientType));
   const externalMode = form.clientType === "builtin" ? "copy" : "instead";
   const externalKind: ExternalClientType =
     form.clientType === "builtin"
@@ -238,16 +240,20 @@ export default function SettingsPage() {
             setupComplete?: boolean;
             hasPassword?: boolean;
             pathWarnings?: DownloadPathWarning[];
+            externalClientsEnabled?: boolean;
           };
           defaults?: { categories?: string[] };
         };
         if (cancelled) return;
         const settings = data.settings;
+        const externalEnabled = settings?.externalClientsEnabled !== false;
         const loaded: ClientForm = settings
           ? {
               ...EMPTY_FORM,
-              clientType: settings.clientType ?? EMPTY_FORM.clientType,
-              externalClientType: settings.externalClientType ?? "",
+              clientType: externalEnabled
+                ? settings.clientType ?? EMPTY_FORM.clientType
+                : "builtin",
+              externalClientType: externalEnabled ? settings.externalClientType ?? "" : "",
               host: settings.host ?? EMPTY_FORM.host,
               username: settings.username ?? "",
               password: "",
@@ -280,6 +286,7 @@ export default function SettingsPage() {
         setForm(loaded);
         setSavedForm(loaded);
         setHasPassword(Boolean(settings?.hasPassword));
+        setExternalClientsEnabled(externalEnabled);
         setSetupComplete(settings?.setupComplete === true);
         setPersistedPathWarnings(settings?.pathWarnings ?? []);
       } catch (error) {
@@ -821,102 +828,112 @@ export default function SettingsPage() {
               <Badge variant="success">Recommended</Badge>
             </div>
 
-            <label
-              htmlFor="use-another-download-app"
-              className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3"
-            >
-              <Checkbox
-                id="use-another-download-app"
-                aria-label="Use another download app"
-                checked={externalEnabled}
-                onCheckedChange={(checked) => setExternalEnabled(checked === true)}
-              />
-              <span className="pt-0.5">
-                <span className="block text-sm font-medium text-[var(--text)]">
-                  Use another download app
-                </span>
-                <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
-                  Choose this only if you already use qBittorrent or Transmission.
-                </span>
-              </span>
-            </label>
+            {externalClientsEnabled ? (
+              <>
+                <label
+                  htmlFor="use-another-download-app"
+                  className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3"
+                >
+                  <Checkbox
+                    id="use-another-download-app"
+                    aria-label="Use another download app"
+                    checked={externalEnabled}
+                    onCheckedChange={(checked) =>
+                      setExternalEnabled(checked === true)
+                    }
+                  />
+                  <span className="pt-0.5">
+                    <span className="block text-sm font-medium text-[var(--text)]">
+                      Use another download app
+                    </span>
+                    <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
+                      Choose this only if you already use qBittorrent or Transmission.
+                    </span>
+                  </span>
+                </label>
 
-            {externalEnabled ? (
-              <div
-                className="space-y-4 border-l-2 border-[var(--accent-ring)] pl-4"
-                data-external-client-fields
-              >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-medium text-[var(--text-secondary)]">
-                      Download app
-                    </span>
-                    <select
-                      id="external-download-app"
-                      aria-label="External download app"
-                      value={externalKind}
-                      onChange={(event) =>
-                        setExternalKind(event.target.value as ExternalClientType)
+                {externalEnabled ? (
+                  <div
+                    className="space-y-4 border-l-2 border-[var(--accent-ring)] pl-4"
+                    data-external-client-fields
+                  >
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-medium text-[var(--text-secondary)]">
+                          Download app
+                        </span>
+                        <select
+                          id="external-download-app"
+                          aria-label="External download app"
+                          value={externalKind}
+                          onChange={(event) =>
+                            setExternalKind(event.target.value as ExternalClientType)
+                          }
+                          className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
+                        >
+                          <option value="qbittorrent">qBittorrent</option>
+                          <option value="transmission">Transmission</option>
+                        </select>
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-medium text-[var(--text-secondary)]">
+                          How to use it
+                        </span>
+                        <select
+                          id="external-download-mode"
+                          aria-label="How to use the external download app"
+                          value={externalMode}
+                          onChange={(event) =>
+                            setExternalMode(event.target.value as "instead" | "copy")
+                          }
+                          className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
+                        >
+                          <option value="instead">Use instead of TorrentFlow</option>
+                          <option value="copy">Also send a copy</option>
+                        </select>
+                      </label>
+                    </div>
+                    <SettingsField
+                      id="external-host"
+                      label="Address"
+                      value={form.host}
+                      onChange={(value) =>
+                        updateForm((current) => ({ ...current, host: value }))
                       }
-                      className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
-                    >
-                      <option value="qbittorrent">qBittorrent</option>
-                      <option value="transmission">Transmission</option>
-                    </select>
-                  </label>
-                  <label className="space-y-1.5">
-                    <span className="text-xs font-medium text-[var(--text-secondary)]">
-                      How to use it
-                    </span>
-                    <select
-                      id="external-download-mode"
-                      aria-label="How to use the external download app"
-                      value={externalMode}
-                      onChange={(event) =>
-                        setExternalMode(event.target.value as "instead" | "copy")
+                      placeholder={
+                        externalKind === "qbittorrent"
+                          ? "http://127.0.0.1:8080"
+                          : "http://127.0.0.1:9091"
                       }
-                      className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
-                    >
-                      <option value="instead">Use instead of TorrentFlow</option>
-                      <option value="copy">Also send a copy</option>
-                    </select>
-                  </label>
-                </div>
-                <SettingsField
-                  id="external-host"
-                  label="Address"
-                  value={form.host}
-                  onChange={(value) =>
-                    updateForm((current) => ({ ...current, host: value }))
-                  }
-                  placeholder={
-                    externalKind === "qbittorrent"
-                      ? "http://127.0.0.1:8080"
-                      : "http://127.0.0.1:9091"
-                  }
-                />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <SettingsField
-                    id="external-username"
-                    label="Username"
-                    value={form.username}
-                    onChange={(value) =>
-                      updateForm((current) => ({ ...current, username: value }))
-                    }
-                    placeholder="admin"
-                  />
-                  <SettingsField
-                    id="external-password"
-                    label={hasPassword ? "Password (blank keeps saved value)" : "Password"}
-                    value={form.password}
-                    onChange={(value) =>
-                      updateForm((current) => ({ ...current, password: value }))
-                    }
-                    type="password"
-                    placeholder="••••••••"
-                  />
-                </div>
-              </div>
+                    />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <SettingsField
+                        id="external-username"
+                        label="Username"
+                        value={form.username}
+                        onChange={(value) =>
+                          updateForm((current) => ({ ...current, username: value }))
+                        }
+                        placeholder="admin"
+                      />
+                      <SettingsField
+                        id="external-password"
+                        label={
+                          hasPassword
+                            ? "Password (blank keeps saved value)"
+                            : "Password"
+                        }
+                        value={form.password}
+                        onChange={(value) =>
+                          updateForm((current) => ({ ...current, password: value }))
+                        }
+                        type="password"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </>
             ) : null}
           </section>
         </div>
