@@ -15,7 +15,6 @@ public sealed class BrowseIntegrationTests : IDisposable
 
     public void Dispose()
     {
-        LocalFiles.ResetCache();
         try { Directory.Delete(_media, true); } catch (IOException) { }
     }
 

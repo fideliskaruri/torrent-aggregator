@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using TorrentFlow.Core.Contracts.Metadata;
 
@@ -11,12 +10,7 @@ public enum StatVerdict { Exists, Missing, Unknown }
 /// <summary>src/lib/library/local-file-presence.ts: does the filesystem still hold a torrent's recorded files?</summary>
 public static class LocalFiles
 {
-    public static readonly TimeSpan PresenceTtl = TimeSpan.FromSeconds(30);
-    private static readonly ConcurrentDictionary<string, (DateTimeOffset At, LocalFilePresence Value)> Cache = new(StringComparer.Ordinal);
-
     public sealed record Evidence(int FilesRecorded, int FilesFound, int FilesMissing, StatVerdict SavePath);
-
-    public static void ResetCache() => Cache.Clear();
 
     public static LocalFilePresence Classify(Evidence evidence)
     {
@@ -61,25 +55,13 @@ public static class LocalFiles
         return new(paths.Count, found, missing, string.IsNullOrEmpty(save) ? StatVerdict.Unknown : stat(save));
     }
 
-    public static LocalFilePresence Presence(string hash, string? savePath, string? verifiedFilesJson,
-        Func<string, StatVerdict>? stat = null, DateTimeOffset? now = null)
-    {
-        var at = now ?? DateTimeOffset.UtcNow;
-        var key = $"{hash}|{savePath ?? ""}|{verifiedFilesJson?.Length ?? 0}";
-        if (Cache.TryGetValue(key, out var hit) && at - hit.At < PresenceTtl) return hit.Value;
-        var value = Classify(Collect(savePath, verifiedFilesJson, stat));
-        Cache[key] = (at, value);
-        return value;
-    }
-
-    /// <summary>localFilePresenceLookup: one memoised probe per row, looked up by lower-cased hash.</summary>
+    /// <summary>A one-shot lookup (no memo) keyed by lower-cased hash; tests and pure rules use this.</summary>
     public static Func<string, LocalFilePresence> Lookup(IEnumerable<Data.Entities.EngineTorrent> rows, Func<string, StatVerdict>? stat = null)
     {
         var byHash = new Dictionary<string, LocalFilePresence>(StringComparer.Ordinal);
-        foreach (var row in rows) byHash[row.Hash.Trim().ToLowerInvariant()] = Presence(row.Hash, row.SavePath, row.VerifiedFilesJson, stat);
+        foreach (var row in rows) byHash[row.Hash.Trim().ToLowerInvariant()] = Classify(Collect(row.SavePath, row.VerifiedFilesJson, stat));
         return hash => byHash.GetValueOrDefault(hash.Trim().ToLowerInvariant(), LocalFilePresence.Unknown);
     }
-
     /// <summary>builtin-engine-lifecycle.ts persistedTorrentIsDownloaded.</summary>
     public static bool PersistedTorrentIsDownloaded(double progress, string? verifiedBitfield, string? verifiedFilesJson)
     {
@@ -93,4 +75,37 @@ public static class LocalFiles
 public sealed class UnknownTorrentPresenceProbe : ITorrentPresenceProbe
 {
     public TorrentPresence Presence(string userId, string infoHash) => TorrentPresence.Unknown;
+}
+
+
+/// <summary>
+/// localFilePresenceLookup with its 30 s memo: one disk probe per torrent row per window, so a browse render does not
+/// stat every recorded file on each request. Singleton; the memo is instance state rather than a module global.
+/// </summary>
+public sealed class LocalFilePresenceCache(TimeProvider time)
+{
+    public static readonly TimeSpan PresenceTtl = TimeSpan.FromSeconds(30);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTimeOffset At, LocalFilePresence Value)> _memo = new(StringComparer.Ordinal);
+
+    /// <summary>Replaceable for tests; defaults to the real filesystem.</summary>
+    public Func<string, StatVerdict> Stat { get; init; } = LocalFiles.DiskStat;
+
+    public LocalFilePresence Presence(string hash, string? savePath, string? verifiedFilesJson)
+    {
+        var now = time.GetUtcNow();
+        var key = $"{hash}|{savePath ?? ""}|{verifiedFilesJson?.Length ?? 0}";
+        if (_memo.TryGetValue(key, out var hit) && now - hit.At < PresenceTtl) return hit.Value;
+        var value = LocalFiles.Classify(LocalFiles.Collect(savePath, verifiedFilesJson, Stat));
+        _memo[key] = (now, value);
+        return value;
+    }
+
+    public Func<string, LocalFilePresence> Lookup(IEnumerable<Data.Entities.EngineTorrent> rows)
+    {
+        var byHash = new Dictionary<string, LocalFilePresence>(StringComparer.Ordinal);
+        foreach (var row in rows) byHash[row.Hash.Trim().ToLowerInvariant()] = Presence(row.Hash, row.SavePath, row.VerifiedFilesJson);
+        return hash => byHash.GetValueOrDefault(hash.Trim().ToLowerInvariant(), LocalFilePresence.Unknown);
+    }
+
+    public void Reset() => _memo.Clear();
 }

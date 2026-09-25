@@ -90,7 +90,8 @@ public static class BrowseFixture
         presence ??= new TorrentFlow.Metadata.Browse.UnknownTorrentPresenceProbe();
         var homeReleases = new TorrentFlow.Metadata.Browse.HomeReleaseCache(db, artwork, tmdb, time,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<TorrentFlow.Metadata.Browse.HomeReleaseCache>.Instance);
-        return new TorrentFlow.Metadata.Browse.BrowseService(db, catalog, new TorrentFlow.Metadata.Browse.AvailabilityResolver(db, presence, time),
-            homeReleases, presence, time, Microsoft.Extensions.Logging.Abstractions.NullLogger<TorrentFlow.Metadata.Browse.BrowseService>.Instance, artwork);
+        var files = new TorrentFlow.Metadata.Browse.LocalFilePresenceCache(time);
+        return new TorrentFlow.Metadata.Browse.BrowseService(db, catalog, new TorrentFlow.Metadata.Browse.AvailabilityResolver(db, presence, files, time),
+            homeReleases, artwork, presence, files, time, Microsoft.Extensions.Logging.Abstractions.NullLogger<TorrentFlow.Metadata.Browse.BrowseService>.Instance);
     }
 }

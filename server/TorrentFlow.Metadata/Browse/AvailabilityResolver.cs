@@ -29,6 +29,7 @@ public sealed record EpisodeFacts(int? Season, int? Episode, bool IsSeasonPack);
 public sealed class AvailabilityResolver(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
     ITorrentPresenceProbe presence,
+    LocalFilePresenceCache files,
     TimeProvider time)
 {
     public const int MinViableSeeders = 3;
@@ -43,7 +44,7 @@ public sealed class AvailabilityResolver(
     {
         if (queries.Count == 0) return [];
         var torrents = await ReadTorrentsAsync(userId, ct).ConfigureAwait(false);
-        var filePresence = LocalFiles.Lookup(torrents);
+        var filePresence = files.Lookup(torrents);
         var local = queries.Select(q => ResolveLocalOnly(q, torrents, h => presence.Presence(userId, h), filePresence) ?? GetCached(CacheKey(userId, q))).ToList();
         var titles = queries.Where((_, i) => local[i] is null).Select(q => q.Title).ToList();
         var searchMap = await BatchGetSearchByTitleAsync(titles, ct).ConfigureAwait(false);
@@ -63,7 +64,7 @@ public sealed class AvailabilityResolver(
     {
         if (queries.Count == 0) return [];
         var torrents = await ReadTorrentsAsync(userId, ct).ConfigureAwait(false);
-        var filePresence = LocalFiles.Lookup(torrents);
+        var filePresence = files.Lookup(torrents);
         return queries.Select(q => ResolveLocalOnly(q, torrents, h => presence.Presence(userId, h), filePresence) ?? Availability.Unknown).ToList();
     }
 

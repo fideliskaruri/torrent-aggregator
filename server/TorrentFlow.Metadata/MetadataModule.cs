@@ -43,6 +43,7 @@ public static class MetadataModule
         services.AddSingleton<RecommendationService>();
         // Default when no module supplies live engine state: presence is Unknown, so file evidence decides readiness.
         services.TryAddSingleton<ITorrentPresenceProbe, UnknownTorrentPresenceProbe>();
+        services.AddSingleton<LocalFilePresenceCache>();
         services.AddSingleton<AvailabilityResolver>();
         services.AddSingleton<HomeReleaseCache>();
         services.AddSingleton<BrowseService>();

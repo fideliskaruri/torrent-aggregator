@@ -178,6 +178,35 @@ public class AvailabilityLocalTests
     }
 }
 
+public class LocalFilePresenceCacheTests
+{
+    [Fact]
+    public void Probes_disk_once_per_window_and_classifies_evidence()
+    {
+        var time = new ManualTime();
+        var verdict = StatVerdict.Exists;
+        var calls = 0;
+        var cache = new LocalFilePresenceCache(time) { Stat = _ => { calls++; return verdict; } };
+        const string files = """[{"path":"D:\\Media\\a.mkv"}]""";
+        Assert.Equal(LocalFilePresence.Present, cache.Presence("h", "D:\\Media", files));
+        verdict = StatVerdict.Missing;
+        Assert.Equal(LocalFilePresence.Present, cache.Presence("h", "D:\\Media", files));
+        Assert.Equal(2, calls);
+        time.Advance(LocalFilePresenceCache.PresenceTtl);
+        Assert.Equal(LocalFilePresence.Absent, cache.Presence("h", "D:\\Media", files));
+        Assert.Equal(LocalFilePresence.Unknown, cache.Lookup([])("H"));
+    }
+
+    [Fact]
+    public void Evidence_classification()
+    {
+        Assert.Equal(LocalFilePresence.Present, LocalFiles.Classify(new(2, 1, 1, StatVerdict.Missing)));
+        Assert.Equal(LocalFilePresence.Absent, LocalFiles.Classify(new(2, 0, 2, StatVerdict.Exists)));
+        Assert.Equal(LocalFilePresence.Absent, LocalFiles.Classify(new(0, 0, 0, StatVerdict.Missing)));
+        Assert.Equal(LocalFilePresence.Unknown, LocalFiles.Classify(new(2, 0, 1, StatVerdict.Unknown)));
+    }
+}
+
 /// <summary>Port of src/lib/browse/release-status.test.ts.</summary>
 public class ReleaseStatusTests
 {

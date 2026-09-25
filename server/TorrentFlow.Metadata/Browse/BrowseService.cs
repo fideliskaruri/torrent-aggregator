@@ -65,10 +65,11 @@ public sealed partial class BrowseService(
     CatalogService catalog,
     AvailabilityResolver availability,
     HomeReleaseCache homeReleases,
+    ArtworkResolver artwork,
     ITorrentPresenceProbe presence,
+    LocalFilePresenceCache files,
     TimeProvider time,
-    ILogger<BrowseService> logger,
-    ArtworkResolver? artwork = null)
+    ILogger<BrowseService> logger)
 {
     public const int DiscoveryRailSize = 24;
     public const int RailArtworkBudgetMs = 8_000;
@@ -123,7 +124,7 @@ public sealed partial class BrowseService(
 
         var collapsed = ContinueWatchingWorksFromRows(rows.Select(p => (p, WorkOf(p))).ToList(), torrents, watchItems).Take(20).ToList();
         var art = await ResolveArtworkForReleasesAsync(collapsed.Select(c => c.ArtworkName).ToList()).ConfigureAwait(false);
-        return ContinueWatchingRailFromWorks(collapsed, art, h => presence.Presence(userId, h), LocalFiles.Lookup(torrents));
+        return ContinueWatchingRailFromWorks(collapsed, art, h => presence.Presence(userId, h), files.Lookup(torrents));
     }
 
     /// <summary>rails.ts continueWatchingRailFromWorks: cards in collapse order; artwork is index-aligned with works.</summary>
@@ -218,7 +219,7 @@ public sealed partial class BrowseService(
             .Where(t => t.UserId == userId && t.Progress == 1 && t.Status != "removed" && t.Status != "error")
             .OrderByDescending(t => t.UpdatedAt).Take(50).ToListAsync(ct).ConfigureAwait(false);
         var torrents = rows.Where(ReadyToPlayTorrentCanSurface).ToList();
-        var filePresence = LocalFiles.Lookup(rows);
+        var filePresence = files.Lookup(rows);
         if (torrents.Count == 0) return null;
 
         var hashes = torrents.Select(t => t.Hash.ToLowerInvariant()).ToList();
@@ -334,7 +335,7 @@ public sealed partial class BrowseService(
     public async Task<IReadOnlyList<ArtworkResult>> ResolveArtworkForReleasesAsync(IReadOnlyList<string> names, int budgetMs = RailArtworkBudgetMs)
     {
         var none = names.Select(_ => ArtworkResult.None).ToList();
-        if (names.Count == 0 || artwork is null) return none;
+        if (names.Count == 0) return none;
         var slotByKey = new Dictionary<string, int>(StringComparer.Ordinal);
         var queries = new List<ArtworkQuery>();
         var slots = new List<int>();
@@ -402,7 +403,7 @@ public sealed partial class BrowseService(
         }
         else if (baseRefreshedAt is { } b && newest is { } n && n < b)
         {
-            _ = catalog.RefreshRelatedForSeedAsync(seed.Title, seed.MediaType);
+            _ = RefreshRelatedInBackgroundAsync(seed);
         }
         if (rows.Count == 0) return null;
         var signals = await homeReleases.ReadSignalsAsync(rows, ct).ConfigureAwait(false);
@@ -410,6 +411,12 @@ public sealed partial class BrowseService(
         var now = time.GetUtcNow();
         return new Rail(BecauseRailId, $"Because you're watching {seed.Title}",
             rows.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(r.WorkKey), now)).ToList());
+    }
+
+    private async Task RefreshRelatedInBackgroundAsync(CatalogSeed seed)
+    {
+        try { await catalog.RefreshRelatedForSeedAsync(seed.Title, seed.MediaType).ConfigureAwait(false); }
+        catch (Exception e) { logger.LogWarning(e, "[discovery] background related refresh failed for {Seed}", seed.Title); }
     }
 
     // ------------------------------------------------------------------ seed.ts
