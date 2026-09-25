@@ -73,8 +73,11 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             : _options.MaxConnectionsPerTorrent,
         AllowDht = _options.Dht,
         AllowPeerExchange = true,
-        // qBittorrent "NoSubfolder": files land directly in the save path; the torrent's container folder is dropped.
-        CreateContainingDirectory = false,
+        // A multi-file torrent downloads into its own release folder, so two releases sharing a season folder never
+        // write over each other mid-download. Once complete and released, Layout/CompletedLayoutFinalizer applies the
+        // content-layout rules (NoSubfolder, double wraps, season folders) with collision checks. Single-file torrents
+        // always land directly in the save path.
+        CreateContainingDirectory = true,
     }.ToSettings();
 
     public async Task<BackendAddOutcome> AddAsync(BackendAddSpec spec, CancellationToken ct)

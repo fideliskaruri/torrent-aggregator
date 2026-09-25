@@ -71,3 +71,23 @@ dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5100 --To
 ```
 
 The host listens on `http://127.0.0.1:3000` by default. During development always pass another port.
+
+## Content layout (Engine)
+
+`server/TorrentFlow.Engine/Layout/` ports `content-layout*.ts`. MonoTorrent downloads a multi-file torrent into
+`<save>/<release name>/` (`CreateContainingDirectory`), so releases never overwrite each other mid-download.
+After completion, once the torrent is detached and no stream is open (a `TrackedStream` close runs a deferred
+layout), `CompletedLayoutFinalizer`:
+
+1. Optionally validates with ffprobe (`TorrentFlow:Media:FfprobePath`, then `FFPROBE_PATH`, then
+   `node_modules/ffprobe-static`, then `PATH`; if none is found, it logs once and skips). When no playable
+   video is found, the row becomes an error and the matching acquisition targets become `failed`.
+2. Applies the TypeScript planner decisions and log lines: wrapper removal and `Season NN` renames. A
+   collision (a file another torrent owns, a file of a different size, or a directory in the way) keeps the
+   release folder. Tracker spam (`Torrent Downloaded From….txt`, `RARBG.txt`) never blocks, and a duplicate
+   copy is discarded.
+3. Records the new paths in `verifiedFilesJson` (`fullPath`) before moving the files. The move is
+   all-or-nothing and rolls back on failure. Other rows' manifests are the ownership record.
+
+The smart `TV/<Show>/Season NN` / `Movies/<Title>` save path is chosen by the caller when the download is
+sent. The layout only works inside the row's save path.
