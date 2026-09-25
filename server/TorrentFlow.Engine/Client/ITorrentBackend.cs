@@ -28,6 +28,9 @@ internal sealed record BackendSnapshot(
 {
     /// <summary>Payload bytes received from peers since the transfer was loaded.</summary>
     public long? BytesReceived { get; init; }
+
+    /// <summary>Base64 of the verified-piece bitfield, MSB first, ceil(pieces / 8) bytes (TS bitfieldBase64).</summary>
+    public string? PieceBitfield { get; init; }
 }
 
 internal sealed record BackendAddOutcome(bool Ok, string Message, BackendSnapshot? Snapshot = null);

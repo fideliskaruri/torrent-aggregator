@@ -81,7 +81,7 @@ internal sealed class FakeBackend : ITorrentBackend
             Directory.CreateDirectory(Path.GetDirectoryName(file.FullPath)!);
             File.WriteAllBytes(file.FullPath, new byte[file.Length]);
         }
-        Live[hash] = s with { State = "complete", Progress = 1, Files = s.Files.Select(f => f with { Progress = 1, Selected = true }).ToList() };
+        Live[hash] = s with { State = "complete", Progress = 1, Files = s.Files.Select(f => f with { Progress = 1, Selected = true }).ToList(), PieceBitfield = "/w==" };
     }
 }
 

@@ -285,6 +285,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         row.Progress = 1;
         // No longer "downloaded": nothing may play it or treat it as complete. The manifest stays so a delete finds the files.
         row.VerifiedAt = null;
+        row.VerifiedBitfield = null;
         row.ForcedAt = null;
         row.UpdatedAt = now;
         var hash = row.Hash.ToLowerInvariant();

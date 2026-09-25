@@ -88,6 +88,12 @@ internal sealed class TorrentEngineService(
         var config = await settings.GetConfigAsync(ct);
         var target = ClientSettingsStore.ResolveDownloadTarget(config, request.Category, request.SavePath);
         var savePath = target.SavePath ?? Path.Combine(Options.DataDirectory, "downloads");
+        // builtin-engine addTorrent mkdirs the destination before any row exists: an unusable path fails cleanly.
+        try { Directory.CreateDirectory(savePath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            return new EngineAddResult(false, ex.Message);
+        }
 
         Admission admission;
         EngineAddResult result;
@@ -939,6 +945,7 @@ internal sealed class TorrentEngineService(
                     if (manifest is not null)
                     {
                         row.VerifiedFilesJson = JsonSerializer.Serialize(manifest, JsonOptions);
+                        row.VerifiedBitfield = live.PieceBitfield;
                         row.VerifiedAt = Now;
                         row.Progress = 1;
                         row.Status = EngineTorrentStatus.Parked;

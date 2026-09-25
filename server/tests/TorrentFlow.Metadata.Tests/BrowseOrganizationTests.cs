@@ -205,6 +205,23 @@ public class LocalFilePresenceCacheTests
         Assert.Equal(LocalFilePresence.Absent, LocalFiles.Classify(new(0, 0, 0, StatVerdict.Missing)));
         Assert.Equal(LocalFilePresence.Unknown, LocalFiles.Classify(new(2, 0, 1, StatVerdict.Unknown)));
     }
+
+    [Fact]
+    public void Engine_manifest_is_located_by_fullPath_and_skips_discarded_junk()
+    {
+        // .NET engine shape: torrent-relative path + absolute fullPath (nulled for junk the layout discarded).
+        const string files = """
+            [{"path":"Sintel.mp4","size":1,"fullPath":"D:\\Media\\Movies\\Sintel\\Sintel.mp4"},
+             {"path":"poster.jpg","size":1,"fullPath":null},
+             {"path":"D:\\Legacy\\Episode.mkv","size":1}]
+            """;
+        Assert.Equal(["D:\\Media\\Movies\\Sintel\\Sintel.mp4", "D:\\Legacy\\Episode.mkv"], LocalFiles.RecordedFilePaths(files));
+
+        var onDisk = new HashSet<string> { "D:\\Media\\Movies\\Sintel\\Sintel.mp4" };
+        var evidence = LocalFiles.Collect("D:\\Media\\Movies", files, p => onDisk.Contains(p) ? StatVerdict.Exists : StatVerdict.Missing);
+        Assert.Equal(LocalFilePresence.Present, LocalFiles.Classify(evidence));
+        Assert.True(LocalFiles.PersistedTorrentIsDownloaded(1, "/w==", files));
+    }
 }
 
 /// <summary>Port of src/lib/browse/release-status.test.ts.</summary>

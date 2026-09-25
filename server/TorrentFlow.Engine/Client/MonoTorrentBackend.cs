@@ -108,6 +108,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
             _errors.TryRemove(spec.Hash, out _);
             manager.TorrentStateChanged += OnStateChanged;
+            await OneTrackerPerTierAsync(manager);
             _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
             if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);
@@ -134,6 +135,25 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             }
         }
         return new BackendAddOutcome(true, "", Snapshot(manager));
+    }
+
+    /// <summary>
+    /// MonoTorrent announces to one tracker per tier and sticks with it while it answers. Magnets and most public
+    /// torrents put every tracker in one tier, so a tracker that answers with zero peers stalls the download for a
+    /// whole announce interval (seen after a restart: 120 seeders, 0 peers). Give each tracker its own tier so every
+    /// one is announced to, as WebTorrent does in the Next app.
+    /// </summary>
+    internal static async Task OneTrackerPerTierAsync(TorrentManager manager)
+    {
+        var trackers = manager.TrackerManager;
+        if (trackers.Private) return;
+        foreach (var tier in trackers.Tiers.ToList())
+        {
+            foreach (var tracker in tier.Trackers.Skip(1).ToList())
+            {
+                if (await trackers.RemoveTrackerAsync(tracker)) await trackers.AddTrackerAsync(tracker);
+            }
+        }
     }
 
     private static async Task DeselectAllAsync(TorrentManager manager)
@@ -276,7 +296,18 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             m.SavePath,
             files,
             err)
-        { BytesReceived = m.Monitor.DataBytesReceived };
+        { BytesReceived = m.Monitor.DataBytesReceived, PieceBitfield = complete ? PieceBitfieldOf(m) : null };
+    }
+
+    /// <summary>TS bitfieldBase64: one bit per piece, most significant bit first.</summary>
+    internal static string? PieceBitfieldOf(TorrentManager m)
+    {
+        var bits = m.Bitfield;
+        if (!m.HasMetadata || bits.Length == 0) return null;
+        var bytes = new byte[(bits.Length + 7) / 8];
+        for (var i = 0; i < bits.Length; i++)
+            if (bits[i]) bytes[i >> 3] |= (byte)(0x80 >> (i & 7));
+        return Convert.ToBase64String(bytes);
     }
 
     public IReadOnlyList<(long Start, long End)> DownloadedRanges(string hash, int fileIndex)

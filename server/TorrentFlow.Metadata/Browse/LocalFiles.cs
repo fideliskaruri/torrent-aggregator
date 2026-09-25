@@ -25,7 +25,12 @@ public static class LocalFiles
         catch { return StatVerdict.Unknown; }
     }
 
-    /// <summary>recordedFilePaths: trimmed non-empty <c>path</c> strings of a verifiedFilesJson array.</summary>
+    /// <summary>
+    /// recordedFilePaths: the trimmed non-empty on-disk locations in a verifiedFilesJson array. The TS engine records an
+    /// absolute <c>path</c>; the .NET engine records a torrent-relative <c>path</c> plus the absolute <c>fullPath</c>,
+    /// which the content layout rewrites on a move and nulls for discarded junk. An entry that carries
+    /// <c>fullPath</c> is located by it alone.
+    /// </summary>
     public static List<string> RecordedFilePaths(string? verifiedFilesJson, bool trim = true)
     {
         if (string.IsNullOrWhiteSpace(verifiedFilesJson)) return [];
@@ -34,8 +39,10 @@ public static class LocalFiles
             using var doc = JsonDocument.Parse(verifiedFilesJson);
             if (doc.RootElement.ValueKind != JsonValueKind.Array) return [];
             return doc.RootElement.EnumerateArray()
-                .Select(e => e.ValueKind == JsonValueKind.Object && e.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String
-                    ? trim ? p.GetString()!.Trim() : p.GetString()! : "")
+                .Select(e => e.ValueKind != JsonValueKind.Object ? ""
+                    : e.TryGetProperty("fullPath", out var full) ? full.ValueKind == JsonValueKind.String ? full.GetString()! : ""
+                    : e.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString()! : "")
+                .Select(p => trim ? p.Trim() : p)
                 .Where(p => p.Length > 0).ToList();
         }
         catch (JsonException) { return []; }

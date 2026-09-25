@@ -282,6 +282,8 @@ public class EngineLifecycleTests
         var row = await h.RowAsync(1);
         Assert.Equal("parked", row.Status);
         Assert.NotNull(row.VerifiedAt);
+        // Library/Metadata readiness (TitleService, persistedTorrentIsDownloaded) requires the verified bitfield.
+        Assert.Equal("/w==", row.VerifiedBitfield);
         Assert.True(h.Backend.Contains(H(1)));
 
         await first.DisposeAsync();

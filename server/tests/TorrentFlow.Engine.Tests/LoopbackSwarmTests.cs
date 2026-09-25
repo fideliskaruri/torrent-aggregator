@@ -98,6 +98,8 @@ public class LoopbackSwarmTests : IAsyncLifetime
         await WaitUntil(() => backend.Get(_hash)?.State == "complete", TimeSpan.FromSeconds(60), "download never completed");
         var snap = backend.Get(_hash)!;
         Assert.Equal(1, snap.Progress, 3);
+        // 49 pieces of 64 KiB: six full bytes and the top bit of the seventh.
+        Assert.Equal(Convert.ToBase64String([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80]), snap.PieceBitfield);
         var path = Assert.Single(snap.Files).FullPath;
         Assert.Equal(Path.Combine(save, "synthetic.bin"), path);   // a single-file torrent lands directly in the save path
         await backend.RemoveAsync(_hash);                           // release the file handles
