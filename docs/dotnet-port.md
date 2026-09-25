@@ -173,18 +173,32 @@ Sintel/Big Buck Bunny transfer, pause/resume, cap-one queuing, API force, and br
 The SPA queue action and preprobe panel depend on their separate UI/prewarm port work; diagnostics
 retain runtime-specific .NET memory metrics rather than inventing Node event-loop measurements.
 
+## Single-exe distribution
+
+```powershell
+.\scripts\publish-exe.ps1
+```
+
+The script builds `web/` with pnpm, then publishes `server/TorrentFlow.Api` as
+`artifacts\exe\TorrentFlow.exe`. No SDK, .NET runtime, Node, pnpm, or Docker is needed on the
+recipient's machine. The exe serves the SPA from embedded `web/dist` resources when no physical
+`wwwroot` folder is present, but still prefers on-disk web roots for development.
+
+By default it stores the database and settings in `%LOCALAPPDATA%\TorrentFlow`. If a `portable`
+marker file sits next to the exe, it instead keeps data in `data\` beside the exe so the whole
+folder stays self-contained. Pass `--urls http://127.0.0.1:3000` to override the port, or
+`--no-browser` to suppress the automatic browser launch.
+
 ## Folder distribution
 
 ```powershell
 dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
 ```
 
-Ship the entire folder and run `TorrentFlow.Api.exe --urls http://127.0.0.1:3000`.
-No SDK, .NET runtime, Node, pnpm, or Docker is needed on the recipient's machine.
-Use `linux-x64` or `osx-arm64` for other platforms (Linux still needs native dependencies such as ICU;
-see the README's "Linux and macOS" section, verified on Ubuntu 24.04/WSL with a Windows-built publish).
-Publish includes `web/dist` under `wwwroot`; the host resolves `TorrentFlow:WebRoot` first,
-then `wwwroot` beside its executable, then the development `web/dist` directory.
+Ship the entire folder and run `.\TorrentFlow.exe --urls http://127.0.0.1:3000` from that
+folder. Use `linux-x64`, `linux-arm64`, `osx-arm64`, or `osx-x64` with a matching output
+directory for those platforms.
+
 See the root README for data migration and environment configuration.
 
 ## Library module
