@@ -120,6 +120,9 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(expected, json.GetProperty("target").GetProperty("savePath").GetString());
         Assert.Equal(kind, json.GetProperty("smart").GetProperty("kind").GetString());
         Assert.True(Directory.Exists(expected));
+        var again = await Json(await _http.PostAsJsonAsync("/api/torrent/send", new { magnet = EngineHarness.Magnet(seed), name, searchCategory }));
+        Assert.Equal("already_downloading", again.GetProperty("details").GetProperty("action").GetString());
+        Assert.StartsWith("Download already in progress (", again.GetProperty("message").GetString());
         await factory.Services.GetRequiredService<TorrentFlow.Core.Contracts.Engine.ITorrentEngine>().RemoveAsync(EngineHarness.Hash(seed), false);
     }
 

@@ -179,6 +179,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 Metadata = CatalogMetadata(input.MediaType, input.Title),
                 QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap }, ct);
+            result = EngineAddMessages.WithFormattedMessage(result);
         }
         catch (Exception error) when (!ct.IsCancellationRequested) { result = new(false, error.Message); }
         var hash = LibraryJson.Hash(result.Hash) ?? LibraryJson.Hash(candidate.InfoHash) ?? LibraryJson.Hash(candidate.Magnet);

@@ -132,7 +132,7 @@ public sealed class TorrentSendController(
 
         return Ok(new
         {
-            ok = true, message = result.Message, offline = false, clientType = "builtin", sendTarget = target, target = targetJson, smart,
+            ok = true, message = EngineAddMessages.Format(result), offline = false, clientType = "builtin", sendTarget = target, target = targetJson, smart,
             retentionState = purpose == TorrentPurpose.Stream ? "stream" : "kept", streamDegraded = false,
             hash = result.Hash, details = result.Details,
         });
