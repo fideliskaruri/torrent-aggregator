@@ -9,6 +9,7 @@ public static class MediaModule
     public static IServiceCollection AddMediaModule(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddSubtitlesFeature();
+        services.AddPrewarmFeature(configuration);
         return services;
     }
 }
