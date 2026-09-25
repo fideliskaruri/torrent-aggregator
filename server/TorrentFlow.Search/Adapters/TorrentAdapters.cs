@@ -26,8 +26,12 @@ public abstract class TorrentAdapter(IndexerHttp http, IOptions<SearchModuleOpti
     protected static IEnumerable<JsonElement> Rows(JsonElement row, string key) => row.TryGetProperty(key, out var a) && a.ValueKind == JsonValueKind.Array ? a.EnumerateArray() : [];
     protected static string? Date(string? value) => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date) ? date.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") : null;
     protected static string? Unix(long value) => value > 0 && value < 253402300800 ? DateTimeOffset.FromUnixTimeSeconds(value).UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") : null;
+    /// <summary>JS encodeURIComponent: RFC 3986 escaping but, like the TypeScript adapters, leaves <c>!'()*</c> literal.</summary>
+    internal static string EncodeUriComponent(string value) => Uri.EscapeDataString(value)
+        .Replace("%21", "!", StringComparison.Ordinal).Replace("%27", "'", StringComparison.Ordinal).Replace("%28", "(", StringComparison.Ordinal)
+        .Replace("%29", ")", StringComparison.Ordinal).Replace("%2A", "*", StringComparison.Ordinal);
     protected static string? Magnet(string hash, string title, bool tracker = false) => string.IsNullOrEmpty(hash) ? null
-        : $"magnet:?xt=urn:btih:{hash}&dn={Uri.EscapeDataString(title)}{(tracker ? "&tr=udp://tracker.opentrackr.org:1337/announce" : "")}";
+        : $"magnet:?xt=urn:btih:{hash}&dn={EncodeUriComponent(title)}{(tracker ? "&tr=udp://tracker.opentrackr.org:1337/announce" : "")}";
     public static long? Size(string? value)
     {
         var m = Match(value ?? "", @"^([\d.,]+)\s*([kmgt]?i?b)$");
@@ -46,7 +50,7 @@ public sealed class ApiBayAdapter(IndexerHttp http, IOptions<SearchModuleOptions
     {
         if (string.IsNullOrWhiteSpace(o.Query)) return [];
         var cat = o.Category switch { "music" => "101", "games" => "401", "apps" => "301", _ => "0" };
-        var json = await Http.GetAsync($"{Setting("APIBAY_BASE_URL") ?? "https://apibay.org"}/q.php?q={Uri.EscapeDataString(o.Query.Trim())}&cat={cat}", IndexerHttp.BrowserAgent, accept: "application/json, text/plain, */*", cancellationToken: cancellationToken);
+        var json = await Http.GetAsync($"{Setting("APIBAY_BASE_URL") ?? "https://apibay.org"}/q.php?q={EncodeUriComponent(o.Query.Trim())}&cat={cat}", IndexerHttp.BrowserAgent, accept: "application/json, text/plain, */*", cancellationToken: cancellationToken);
         using var doc = JsonDocument.Parse(json);
         if (doc.RootElement.ValueKind != JsonValueKind.Array) return [];
         var rows = doc.RootElement.EnumerateArray().Where(r => !(S(r, "id") == "0" && S(r, "name") == "No results returned"))
@@ -68,14 +72,14 @@ public sealed class TorrentsCsvAdapter(IndexerHttp http, IOptions<SearchModuleOp
     {
         if (string.IsNullOrWhiteSpace(o.Query)) return [];
         var limit = Math.Min(o.Limit ?? 40, 50);
-        using var doc = JsonDocument.Parse(await Http.GetAsync($"{Setting("TORRENTS_CSV_BASE_URL") ?? "https://torrents-csv.com/service/search"}?q={Uri.EscapeDataString(o.Query.Trim())}&size={limit}", cancellationToken: cancellationToken));
+        using var doc = JsonDocument.Parse(await Http.GetAsync($"{Setting("TORRENTS_CSV_BASE_URL") ?? "https://torrents-csv.com/service/search"}?q={EncodeUriComponent(o.Query.Trim())}&size={limit}", cancellationToken: cancellationToken));
         return Rows(doc.RootElement, "torrents").Take(limit).Select((r, i) =>
         {
             var title = S(r, "name"); var hash = S(r, "infohash").ToLowerInvariant();
             return new TorrentResult { Id = $"torrentscsv-{(S(r, "id") is { Length: > 0 } id ? id : hash)}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title),
                 SizeBytes = r.TryGetProperty("size_bytes", out _) ? L(r, "size_bytes") : null, Seeders = I(r, "seeders"), Leechers = I(r, "leechers"),
                 Completed = r.TryGetProperty("completed", out _) ? I(r, "completed") : null, Source = Id,
-                SourceUrl = $"https://torrents-csv.com/#/search/torrent/{Uri.EscapeDataString(title)}/1", PublishedAt = Unix(L(r, "created_unix")), Tags = ReleaseQuality.ExtractTags(title) };
+                SourceUrl = $"https://torrents-csv.com/#/search/torrent/{EncodeUriComponent(title)}/1", PublishedAt = Unix(L(r, "created_unix")), Tags = ReleaseQuality.ExtractTags(title) };
         }).ToArray();
     }
 }
@@ -86,7 +90,7 @@ public sealed class NyaaAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
     {
         var cat = o.Category switch { "anime" => "1_0", "movies" or "tv" => "4_0", "music" => "2_0", "apps" => "3_0", "games" => "6_0", _ => "0_0" };
-        var xml = await Http.GetAsync($"{Setting("NYAA_BASE_URL") ?? "https://nyaa.si"}/?page=rss&q={Uri.EscapeDataString(o.Query.Trim())}&c={cat}&f=0",
+        var xml = await Http.GetAsync($"{Setting("NYAA_BASE_URL") ?? "https://nyaa.si"}/?page=rss&q={EncodeUriComponent(o.Query.Trim())}&c={cat}&f=0",
             "TorrentAggregator/1.0 (+https://github.com/local/torrent-aggregator)", accept: "application/rss+xml, application/xml, text/xml, */*", cancellationToken: cancellationToken);
         using var reader = System.Xml.XmlReader.Create(new StringReader(xml), new() { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 8 * 1024 * 1024 });
         var doc = XDocument.Load(reader);
@@ -111,7 +115,7 @@ public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> c
     {
         if (o.Category is not ("all" or "movies") || string.IsNullOrWhiteSpace(o.Query)) return [];
         var hosts = IndexerHttp.MirrorList(Setting("YTS_BASE_URL"), "https://yts.mx/api/v2", "https://yts.lt/api/v2", "https://movies-api.accel.li/api/v2");
-        var json = await Http.MirrorsAsync(Id, hosts, h => $"{h}/list_movies.json?query_term={Uri.EscapeDataString(o.Query.Trim())}&limit={Math.Min(o.Limit ?? 20, 50)}&sort_by=seeds", "TorrentFlow/1.0", cancellationToken);
+        var json = await Http.MirrorsAsync(Id, hosts, h => $"{h}/list_movies.json?query_term={EncodeUriComponent(o.Query.Trim())}&limit={Math.Min(o.Limit ?? 20, 50)}&sort_by=seeds", "TorrentFlow/1.0", cancellationToken);
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("data", out var data)) return [];
         List<TorrentResult> results = [];
@@ -123,7 +127,7 @@ public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> c
             var hash = S(t, "hash").ToLowerInvariant();
             results.Add(new() { Id = $"yts-{S(movie, "id")}-{(t.TryGetProperty("hash", out _) ? S(t, "hash") : S(t, "quality"))}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true), SizeBytes = Size(S(t, "size")),
                 SizeLabel = S(t, "size"), Seeders = I(t, "seeds"), Leechers = I(t, "peers"), Category = "movies", Source = Id,
-                SourceUrl = S(movie, "url") is { Length: > 0 } url ? url : $"https://yts.mx/movies/{S(movie, "slug")}", PublishedAt = Date(S(t, "date_uploaded")), Tags = ReleaseQuality.ExtractTags(title),
+                SourceUrl = S(movie, "url") is { Length: > 0 } url ? url : $"https://yts.mx/movies/{S(movie, "slug")}", PublishedAt = YtsUploaded(t), Tags = ReleaseQuality.ExtractTags(title),
                 Metadata = S(movie, "medium_cover_image").Length == 0 ? null : new() { Source = "tmdb", MediaType = "movie",
                     ExternalId = S(movie, "imdb_code") is { Length: > 0 } imdb ? imdb : S(movie, "id"), Title = S(movie, "title"), PosterUrl = S(movie, "medium_cover_image"),
                     Synopsis = S(movie, "summary") is { Length: > 0 } summary ? summary : S(movie, "description_full"), Year = I(movie, "year"),
@@ -131,6 +135,10 @@ public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> c
         }
         return results.OrderByDescending(r => r.Seeders).Take(o.Limit ?? 40).ToArray();
     }
+
+    // date_uploaded is a zone-less wall clock in YTS's server zone (TypeScript's new Date() reads it in the host's zone);
+    // the unix twin is the unambiguous instant.
+    internal static string? YtsUploaded(JsonElement torrent) => Unix(L(torrent, "date_uploaded_unix")) ?? Date(S(torrent, "date_uploaded"));
 }
 
 public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
@@ -162,13 +170,13 @@ public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
         string? imdb = null;
         try
         {
-            using var search = JsonDocument.Parse(await Http.GetAsync($"{root}/search/tv?api_key={Uri.EscapeDataString(key)}&query={Uri.EscapeDataString(title)}", timeoutMs: 8000, cancellationToken: token));
+            using var search = JsonDocument.Parse(await Http.GetAsync($"{root}/search/tv?api_key={EncodeUriComponent(key)}&query={EncodeUriComponent(title)}", timeoutMs: 8000, cancellationToken: token));
             string Normalize(string s) => Replace(s.ToLowerInvariant().Replace("&", "and"), @"[^a-z0-9]+", "");
             var wanted = Normalize(title);
             var show = Rows(search.RootElement, "results").FirstOrDefault(r => Normalize(S(r, "name")) == wanted || Normalize(S(r, "original_name")) == wanted);
             if (show.ValueKind != JsonValueKind.Undefined)
             {
-                using var result = JsonDocument.Parse(await Http.GetAsync($"{root}/tv/{S(show, "id")}/external_ids?api_key={Uri.EscapeDataString(key)}", timeoutMs: 8000, cancellationToken: token));
+                using var result = JsonDocument.Parse(await Http.GetAsync($"{root}/tv/{S(show, "id")}/external_ids?api_key={EncodeUriComponent(key)}", timeoutMs: 8000, cancellationToken: token));
                 imdb = Replace(S(result.RootElement, "imdb_id").Trim(), "^tt", "");
                 if (imdb.Length == 0) imdb = null;
             }
@@ -213,7 +221,7 @@ public sealed class X1337Adapter(IndexerHttp http, IOptions<SearchModuleOptions>
         if (string.IsNullOrWhiteSpace(o.Query)) return [];
         var root = (Setting("X1337_BASE_URL") ?? "https://1337x.to").TrimEnd('/');
         var cat = o.Category switch { "anime" => "Anime", "movies" => "Movies", "tv" => "TV", "music" => "Music", "apps" => "Apps", "games" => "Games", "books" => "Other", _ => null };
-        var q = Uri.EscapeDataString(o.Query.Trim());
+        var q = EncodeUriComponent(o.Query.Trim());
         var url = cat == null ? $"{root}/search/{q}/1/" : $"{root}/category-search/{q}/{cat}/1/";
         string html;
         try { html = await Http.GetAsync(url, Agent, 14000, Accept, cancellationToken); }

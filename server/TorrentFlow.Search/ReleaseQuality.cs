@@ -52,14 +52,61 @@ public static class ReleaseQuality
     }
     public static bool IsImplausible(TorrentResult r) => Match(r.Title, @"\bsample\b").Success
         || ParseResolution(r.Title) >= 720 && r.SizeBytes is > 0 and < 52428800;
+    /// <summary>
+    /// Port of quality.ts directPlayableFromTitle: infer container/codecs from the name and ask what the playback
+    /// decision would be under the conservative default browser profile (fMP4 with H.264 + AAC only).
+    /// </summary>
     public static bool? DirectPlayableFromTitle(string title)
     {
+        var container = InferReleaseContainer(title);
+        var video = InferVideoCodec(title);
+        var audio = InferAudioCodec(title);
+        if (container == null && video == null && audio == null) return null;
+        if (container != null && container != "mp4") return false;
+        var direct = DefaultProfileDirect(video, audio);
+        if (container == null || video == null || audio == null) return direct ? null : false;
+        return direct;
+    }
+
+    private static bool DefaultProfileDirect(string? video, string? audio) =>
+        (video == null || video == "h264") && (audio == null || audio is "aac" or "opus" or "flac");
+
+    private static string? InferReleaseContainer(string title)
+    {
+        var lower = title.ToLowerInvariant();
+        var spaced = Replace(lower, @"[._-]");
+        if (Match(lower, @"\.(?:mkv)(?:\b|$)").Success || Match(spaced, @"\bmkv\b").Success) return "matroska";
+        if (Match(lower, @"\.(?:mp4|m4v|mov)(?:\b|$)").Success || Match(spaced, @"\b(?:mp4|m4v|mov)\b").Success) return "mp4";
+        if (Match(lower, @"\.(?:webm)(?:\b|$)").Success || Match(spaced, @"\bwebm\b").Success) return "webm";
+        if (Match(lower, @"\.(?:avi)(?:\b|$)").Success || Match(spaced, @"\bavi\b").Success) return "avi";
+        return null;
+    }
+
+    private static string? InferVideoCodec(string title)
+    {
         var t = Replace(title, @"[._-]");
-        if (Match(t, @"\b(?:mkv|avi|hevc|x265|h\s*265|hvc1|hev1|vc\s*1|xvid|divx|true\s*hd|mlp|dts|e\s*ac\s*3|eac3|ec\s*3|ddp|ac\s*3|ac3|dd|dolby\s*digital)\b").Success) return false;
-        var container = Match(t, @"\b(?:mp4|m4v|mov|webm)\b");
-        var video = Match(t, @"\b(?:h\s*264|x264|avc1?|av1|vp9|vp8)\b");
-        var audio = Match(t, @"\baac\d?(?:\s*\d)?\b|\b(?:mp4a|opus|mp3|flac)\b");
-        return container.Success && video.Success && audio.Success ? true : null;
+        if (Match(t, @"\b(?:hevc|x265|h\s*265|hvc1|hev1)\b").Success) return "hevc";
+        if (Match(t, @"\b(?:h\s*264|x264|avc1?|avc)\b").Success) return "h264";
+        if (Match(t, @"\bav1\b").Success) return "av1";
+        if (Match(t, @"\bvp9\b").Success) return "vp9";
+        if (Match(t, @"\bvp8\b").Success) return "vp8";
+        if (Match(t, @"\b(?:vc\s*1|vc1)\b").Success) return "vc1";
+        if (Match(t, @"\b(?:xvid|divx)\b").Success) return "mpeg4";
+        return null;
+    }
+
+    private static string? InferAudioCodec(string title)
+    {
+        var t = Replace(title, @"[._-]");
+        if (Match(t, @"\b(?:true\s*hd|truehd|mlp)\b").Success) return "truehd";
+        if (Match(t, @"\bdts(?:\s*(?:hd|ma|x))?\b").Success) return "dts";
+        if (Match(t, @"\b(?:e\s*ac\s*3|eac3|ec\s*3|ddp|dd\+|dolby\s*digital\s*plus)\b").Success) return "eac3";
+        if (Match(t, @"\b(?:ac\s*3|ac3|dd|dolby\s*digital)\b").Success) return "ac3";
+        if (Match(t, @"\baac\d?(?:\s*\d)?\b|\bmp4a\b").Success) return "aac";
+        if (Match(t, @"\bflac\b").Success) return "flac";
+        if (Match(t, @"\bopus\b").Success) return "opus";
+        if (Match(t, @"\bmp3\b").Success) return "mp3";
+        return null;
     }
     public static int DirectPlayableRank(bool? value) => value == true ? 2 : value == null ? 1 : 0;
     public static string NormalizeTitle(string title)
