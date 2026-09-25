@@ -3,12 +3,30 @@ using static TorrentFlow.Search.EpisodeParser;
 
 namespace TorrentFlow.Search;
 
+public sealed record SelectableFile(string? Name = null, string? Path = null, long? Length = null);
+public sealed record MainFeatureSelection(SelectableFile File, int Index);
+public sealed record TorrentPayloadValidation(bool Ok, int? VideoCount = null, string? Reason = null, string? Message = null);
+
 public static class TorrentFilters
 {
     public static bool IsUnsafeExecutable(string name) => Match(name, @"\.(?:exe|scr|com|bat|cmd|ps1|psm1|msi|msp|cpl|hta|jar|js|jse|vbs|vbe|wsf|wsh|lnk|pif|reg|dll|sys)$").Success;
     public static bool IsVideo(string name) => Match(name, @"\.(?:mkv|mp4|avi|m4v|mov|wmv|flv|webm|ts|m2ts|mpg|mpeg|vob)$").Success;
     public static bool IsSubtitle(string name) => Match(name, @"\.(?:vtt|srt|ass|ssa)$").Success;
     public static bool IsExtras(string title) => Match(Replace(title, @"[._]"), @"\b(?:samples?|featurettes?|extras?|bonus(?:[ _-]?dis[ck])?|deleted[ _-]?scenes?|behind[ _-]?the[ _-]?scenes|making[ _-]?of|gag[ _-]?reels?|bloopers?|outtakes?|b[ _-]?roll)\b").Success;
+    public static TorrentPayloadValidation ValidatePayload(IEnumerable<SelectableFile> files)
+    {
+        var names = files.Select(f => f.Path ?? f.Name ?? "").ToArray();
+        if (names.Any(IsUnsafeExecutable)) return new(false, Reason: "unsafe-file", Message: "That release contains an unsafe non-media file. Trying another release.");
+        var count = names.Count(IsVideo);
+        return count > 0 ? new(true, count) : new(false, Reason: "no-video", Message: "That release does not contain a supported video file. Trying another release.");
+    }
+    public static MainFeatureSelection? SelectMainFeature(IEnumerable<SelectableFile> files)
+    {
+        var video = files.Select((file, index) => new MainFeatureSelection(file, index))
+            .Where(f => IsVideo(f.File.Name ?? f.File.Path ?? "")).ToArray();
+        return video.OrderBy(f => IsExtras(f.File.Name ?? f.File.Path ?? "") ? 1 : 0)
+            .ThenByDescending(f => Math.Max(0, f.File.Length ?? 0)).FirstOrDefault();
+    }
     public static IReadOnlyList<TorrentResult> Apply(IEnumerable<TorrentResult> results, SearchFilters f) => results.Where(r =>
     {
         if (IsUnsafeExecutable(r.Title)) return false;

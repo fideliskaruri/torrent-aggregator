@@ -74,7 +74,12 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
                 {
                     lock (gate)
                     {
-                        if (status != HttpStatusCode.NotFound || preferred.GetValueOrDefault(key) == host) throw;
+                        if (status != HttpStatusCode.NotFound || preferred.GetValueOrDefault(key) == host)
+                        {
+                            if (!preferred.ContainsKey(key) && preferred.Count >= 32) preferred.Remove(preferred.Keys.First());
+                            preferred[key] = host;
+                            throw;
+                        }
                     }
                 }
                 last = e;

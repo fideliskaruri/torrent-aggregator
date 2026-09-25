@@ -18,10 +18,10 @@ public static class ReleaseRanking
     }
     public static int? ReleaseYear(string title)
     {
-        var t = Replace(title, @"[._]");
-        var matches = Regex.Matches(t, @"(?<!\d)(?:19|20)\d{2}(?!\d|p)", RegexOptions.IgnoreCase);
-        return matches.Cast<Match>().FirstOrDefault(m => m.Index > 0 && t[..m.Index].Trim(' ', '[', '(', '{').Length > 0) is { } year
-            ? int.Parse(year.Value) : null;
+        var t = Replace(title, @"[._]+");
+        t = Replace(t, @"\b(?:\d{3,4}p|x?26[45]|h\.?26[45]|10bit|8bit|5\.1|7\.1|2\.0|ddp?5|dts|aac2|mp3|hdr10\+?|\d+(?:\.\d+)?\s*(?:gb|mb|gib|mib))\b");
+        var matches = Regex.Matches(t, @"(?<![\d.])(?:19|20)\d{2}(?![\d.])");
+        return matches.Select(m => int.Parse(m.Value)).Where(y => y >= 1900 && y <= DateTime.UtcNow.Year + 2).Select(y => (int?)y).LastOrDefault();
     }
     public static string GroupKey(string title, EpisodeInfo ep)
     {
@@ -33,7 +33,7 @@ public static class ReleaseRanking
         var year = ReleaseYear(title);
         if (year != null) name = Replace(name, $@"(?<![\d.]){year}(?![\d.])");
         name = Replace(name, @"\s+").Trim();
-        if (Match(title, @"[\])]\s+\d{1,3}\s*$").Success) name = Replace(name, @"\s+\d{1,3}$").Trim();
+        name = WorkIdentityParser.StripTrailingJunkNumber(title, name);
         if (name.Length == 0) name = normalized.Length == 0 ? title : normalized;
         return ep.IsSeasonPack ? $"{name}|S{ep.Season?.ToString() ?? "X"}-pack"
             : ep.Season != null && ep.Episode != null ? $"{name}|S{ep.Season}E{ep.Episode}"
@@ -57,20 +57,32 @@ public static class ReleaseRanking
         {
             var ep = r.Episode ?? Parse(r.Title);
             var kind = r.Route?.Kind;
-            var actual = kind == "software" ? "apps" : kind;
-            var categoryMatch = category == "all" || actual == null ? 0 : category == actual ? 1 : -1;
-            var relevance = RelevanceTier(r.Title, query);
-            var good = 2 - (IsJunkSource(r.Title) ? 1 : 0) - (IsImplausible(r) ? 1 : 0);
-            var language = Match(Replace(r.Title, @"[._()[\]\-]+"), @"\b(?:vostfr|subfrench|truefrench|french|vf{1,2})\b").Success ? 0
-                : Match(r.Title, @"\b(?:eng|english|dual\s+audio|dual[-\s]?audio|dub(?:bed)?)\b").Success ? 2 : 1;
+            var description = Describe(r, query, target, category);
+            var relevance = description.Relevance;
+            if (new[] { r.Metadata?.Title }.Concat(r.Metadata?.Aliases ?? []).Any(n => n != null && NormalizeTitle(n) == NormalizeTitle(query))
+                && WorkIdentityParser.MetadataAgrees(WorkIdentityParser.Parse(r.Title).Name, r.Metadata)) relevance = Math.Max(relevance, 3);
+            var good = 2 - (description.Junk ? 1 : 0) - (description.Implausible ? 1 : 0);
             var extras = TorrentFilters.IsExtras(r.Title) || (category == "anime" || kind == "anime" || r.Metadata?.MediaType == "anime") && ep.SpecialType != null;
-            double score = (extras ? 0 : 1_000_000_000) + (categoryMatch + 1) * 10_000_000 + relevance * 1_000_000 + good * 100_000
-                + (r.Seeders >= 3 ? 10_000 : 0) + Array.IndexOf(affinities, ResolutionAffinity(ParseResolution(r.Title), target)) * 1000
-                + DirectPlayableRank(DirectPlayableFromTitle(r.Title)) * 300 + language * 100 + Math.Min(SeedersBucket(r.Seeders), 9) * 10 + RecencyBucket(r.PublishedAt);
+            double score = (extras ? 0 : 1_000_000_000) + (description.CategoryMatch + 1) * 10_000_000 + relevance * 1_000_000 + good * 100_000
+                + (description.Viable ? 10_000 : 0) + Array.IndexOf(affinities, description.Affinity) * 1000
+                + DirectPlayableRank(description.DirectPlayable) * 300 + description.LanguagePreference * 100 + Math.Min(description.Seeders, 9) * 10 + description.Recency;
             var group = Match(r.Title, @"^\s*\[([^\]]{1,60})\]");
             return r with { Episode = ep, Score = score, GroupKey = GroupKey(r.Title, ep), Health = ComputeHealth(r), ReleaseGroup = group.Success ? group.Groups[1].Value.Trim() : null };
         }).OrderByDescending(r => r.Score)
-            .ThenByDescending(r => requested.Season == null && requested.Episode == null ? (r.Episode!.Season ?? 0) * 10_000 + (r.Episode.Episode ?? 0) : 0)
+            .ThenBy(r => r, Comparer<TorrentResult>.Create((a, b) =>
+            {
+                if (requested.Season != null || requested.Episode != null) return 0;
+                var ae = a.Episode!; var be = b.Episode!;
+                var aOrder = (ae.Season ?? 0) * 10000 + (ae.Episode ?? 0);
+                var bOrder = (be.Season ?? 0) * 10000 + (be.Episode ?? 0);
+                bool Anime(TorrentResult r) => category == "anime" || r.Route?.Kind == "anime" || r.Metadata?.MediaType == "anime";
+                if (Anime(a) && Anime(b) && !ae.IsBatch && !ae.IsSeasonPack && ae.SpecialType == null && !be.IsBatch && !be.IsSeasonPack && be.SpecialType == null)
+                {
+                    if (ae.AbsoluteEpisode != null && be.Season == null) { aOrder = ae.AbsoluteEpisode.Value; bOrder = be.Episode ?? 0; }
+                    if (be.AbsoluteEpisode != null && ae.Season == null) { aOrder = ae.Episode ?? 0; bOrder = be.AbsoluteEpisode.Value; }
+                }
+                return bOrder.CompareTo(aOrder);
+            }))
             .ThenByDescending(r => SeedersBucket(r.Seeders)).ThenByDescending(r => r.SizeBytes ?? 0);
         HashSet<string> seen = [];
         return sorted.Select(r => r with { BestPick = seen.Add(r.GroupKey!) }).ToArray();

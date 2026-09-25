@@ -22,7 +22,7 @@ public sealed class SearchController(ITorrentSearchService service, TorrentSearc
             string[]? sources = null;
             if (Request.Query.TryGetValue("sources", out var raw))
             {
-                var values = raw.ToString().Split(',').Select(x => x.Trim()).ToArray();
+                var values = (raw.FirstOrDefault() ?? "").Split(',').Select(x => x.Trim()).ToArray();
                 if (values.Length > 5 || values.Any(string.IsNullOrEmpty)) throw new InvalidQuery("sources", "sources may contain at most 5 non-empty values");
                 var valid = new[] { "nyaa", "1337x", "apibay", "torrentscsv", "yts" };
                 foreach (var value in values) if (!valid.Contains(value)) throw new InvalidQuery("sources", $"Unknown source `{value}`");
@@ -65,12 +65,14 @@ public sealed class SearchController(ITorrentSearchService service, TorrentSearc
     }
     private string? Text(string key, string[]? allowed = null, bool required = false, int maxLength = int.MaxValue)
     {
-        var value = Request.Query[key].FirstOrDefault()?.Trim();
-        if (string.IsNullOrEmpty(value))
+        var raw = Request.Query[key].FirstOrDefault();
+        if (raw == null)
         {
-            if (required) throw new InvalidQuery(key, $"{key} is required");
+            if (required) throw new InvalidQuery(key, $"Missing query parameter `{key}`");
             return null;
         }
+        var value = raw.Trim();
+        if (required && value.Length == 0) throw new InvalidQuery(key, $"Query parameter `{key}` is required");
         if (value.Length > maxLength) throw new InvalidQuery(key, $"{key} must be at most {maxLength} characters");
         if (allowed != null && !allowed.Contains(value)) throw new InvalidQuery(key, $"{key} must be one of: {string.Join(", ", allowed)}");
         return value;
@@ -78,11 +80,14 @@ public sealed class SearchController(ITorrentSearchService service, TorrentSearc
     private bool? Binary(string key) => Text(key, ["0", "1"]) is { } value ? value == "1" : null;
     private long? Number(string key, long min = 0, long max = 9007199254740991)
     {
-        var text = Text(key);
-        if (text == null) return null;
-        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value)
-            || value != Math.Truncate(value) || value < min || value > max)
-            throw new InvalidQuery(key, $"{key} must be an integer between {min} and {max}");
+        var text = Request.Query[key].FirstOrDefault();
+        if (text is null or "") return null;
+        if (!EpisodeParser.Match(text.Trim(), @"^-?(?:\d+|\d*\.\d+)$").Success) throw new InvalidQuery(key, $"{key} must be a number");
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
+            throw new InvalidQuery(key, $"{key} must be a finite number");
+        if (value != Math.Truncate(value)) throw new InvalidQuery(key, $"{key} must be an integer");
+        if (value < min) throw new InvalidQuery(key, $"{key} must be at least {min}");
+        if (value > max) throw new InvalidQuery(key, $"{key} must be at most {max}");
         return (long)value;
     }
     private sealed class InvalidQuery(string field, string message) : Exception(message) { public string Field { get; } = field; }

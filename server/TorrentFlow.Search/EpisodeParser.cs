@@ -15,7 +15,11 @@ public static class EpisodeParser
             if (Match(t, pattern).Success) return name;
         return null;
     }
-    public static EpisodeInfo Parse(string title) => ParseBase(title) with { SpecialType = SpecialType(title) };
+    public static EpisodeInfo Parse(string title)
+    {
+        var parsed = ParseBase(title);
+        return parsed with { SpecialType = SpecialType(title), IsMultiSeason = parsed.IsMultiSeason ?? false };
+    }
     private static EpisodeInfo Single(int? season, int episode, bool scene = false) => new()
     {
         Season = season, Episode = episode,
@@ -70,7 +74,7 @@ public static class EpisodeParser
         if (!m.Success) m = Match(t, @"\b(?:Seasons?|Series)[\s._]*(\d{1,3})\b");
         return m.Success ? Pack(N(m)) : new();
     }
-    public static string? SeasonFolder(EpisodeInfo episode) => episode.Season is null || episode.IsMultiSeason ? null : $"Season {episode.Season:00}";
+    public static string? SeasonFolder(EpisodeInfo episode) => episode.Season is null || episode.IsMultiSeason == true ? null : $"Season {episode.Season:00}";
     public static string NextQuery(string title, string? lastEpisode)
     {
         var parsed = Parse(lastEpisode ?? "");

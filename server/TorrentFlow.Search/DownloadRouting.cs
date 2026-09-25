@@ -10,33 +10,10 @@ public static class DownloadRouting
     public static TorrentResult Attach(TorrentResult r, string category, ClientSetting? settings = null)
     {
         var ep = r.Episode ?? Parse(r.Title);
-        var t = Replace(r.Title, @"[._]+");
-        var anime = r.Metadata?.MediaType == "anime" || Match(t, @"\b(subsplease|erai-?raws|horriblesubs|judas|asw|ember|anime|ova|oad)\b").Success
-            || r.Metadata?.OriginalLanguage == "ja" && (r.Metadata.Genres?.Contains("Animation") ?? false);
-        var kind = ep.Season != null || ep.IsSeasonPack ? anime ? "anime" : "tv"
-            : Match(t, @"\b(epub|mobi|azw3?|djvu|ebook|e-book|audiobook|audio\s?book|unabridged|abridged|m4b|comic|cbr|cbz)\b").Success ? "books"
-            : Match(t, @"\b(software|windows|macos|installer|portable|keygen|adobe|photoshop|office|ubuntu|linux|vmware|crack|activated)\b").Success ? "software"
-            : Match(t, @"\b(gog|steam|fitgirl|dodi|pc\s*repack|nsw|xci|nsp|ps[345]|xbox|switch|roms?|goty|denuvo)\b").Success ? "games"
-            : Match(t, @"\b(flac|alac|320kbps|vinyl|discography|ost|soundtrack|album|single|lossless|cd\s*rip)\b").Success ? "music"
-            : anime || r.Source == "nyaa" && ep.Episode != null ? "anime"
-            : r.Metadata?.MediaType == "movie" || r.Source == "yts" ? "movies"
-            : r.Metadata?.MediaType == "tv" ? "tv"
-            : category != "all" ? category == "apps" ? "software" : category
-            : ReleaseRanking.ReleaseYear(r.Title) != null || ReleaseQuality.ParseResolution(r.Title) != null ? "movies" : "other";
-        var label = kind switch { "anime" => "Anime", "movies" => "Movies", "tv" => "TV", "music" => "Music", "games" => "Games", "software" => "Software", "books" => "Books", _ => "Other" };
+        var kind = ContentClassifier.Detect(r, category);
         var configured = ParseJson<string[]>(settings?.Categories);
-        if (configured?.FirstOrDefault(c => c.Equals(label, StringComparison.OrdinalIgnoreCase)) is { } chosen) label = chosen;
-        var clean = r.Metadata?.Title;
-        if (string.IsNullOrWhiteSpace(clean))
-        {
-            clean = ReleaseRanking.StripReleaseGroup(r.Title);
-            clean = Replace(clean, @"[._]+");
-            clean = Replace(clean, @"\b(?:s\d{1,3}(?:e\d{1,4})?|seasons?\s*\d+|series\s*\d+|episode\s*\d+|ep\s*\d+)\b.*$", "");
-            clean = Replace(clean, @"\b(?:19|20)\d{2}\b.*$", "");
-            clean = Replace(clean, @"\b(?:\d{3,4}p|web-?dl|webrip|bluray|x26[45]|hevc)\b.*$", "");
-            if (ep.Episode != null) clean = Replace(clean, $@"[-–]?\s*\b0*{ep.Episode}\b.*$", "");
-            clean = Replace(clean, @"[<>:""/\\|?*]", "").Trim(' ', '-', '.', '(', ')');
-        }
+        var label = ContentClassifier.CategoryLabel(kind, configured);
+        var clean = ContentClassifier.ShowFolder(r.Title, r.Metadata);
         var parts = new List<string> { label };
         if (!string.IsNullOrWhiteSpace(clean) && kind is "tv" or "anime" or "movies")
         {
@@ -49,7 +26,7 @@ public static class DownloadRouting
             savePath = Join(root, parts.Skip(1));
         else if (!string.IsNullOrWhiteSpace(settings?.BaseDownloadPath)) savePath = Join(settings.BaseDownloadPath, parts);
         else if (!string.IsNullOrWhiteSpace(settings?.SavePath)) savePath = settings.SavePath;
-        return r with { Route = new(kind, label, kind == "other" ? "low" : "high", clean, savePath, savePath == null ? string.Join('/', parts) : null) };
+        return r with { Route = new(kind, label, ContentClassifier.Confidence(r, kind), string.IsNullOrEmpty(clean) ? null : clean, savePath, savePath == null ? string.Join('/', parts) : null) };
     }
     private static string Join(string root, IEnumerable<string> parts) => root.TrimEnd('/', '\\') + (root.Contains('\\') ? "\\" : "/") + string.Join(root.Contains('\\') ? "\\" : "/", parts);
     private static T? ParseJson<T>(string? json)

@@ -3,6 +3,11 @@ using static TorrentFlow.Search.EpisodeParser;
 
 namespace TorrentFlow.Search;
 
+public sealed record ReleaseRank(int CategoryMatch, int Relevance, int LanguagePreference, bool Junk, bool Implausible, bool Viable,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.Never)] int? Resolution,
+    int Affinity, int Seeders, int Recency, long SizeBytes,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.Never)] bool? DirectPlayable);
+
 public static class ReleaseQuality
 {
     public static int? ParseResolution(string title)
@@ -104,4 +109,32 @@ public static class ReleaseQuality
     }
     public static int VerdictTier(string verdict) => verdict switch { "good" => 0, "unknown" => 1, "weak" => 2, _ => 3 };
     public static int ResolutionPreferenceTier(string title, int? preferred) => preferred == null ? 0 : ParseResolution(title) is not { } resolution ? 1 : resolution == preferred ? 0 : 2;
+    public static int ScoreRelease(string verdict, string title, int? preferred) =>
+        (VerdictTier(verdict) >= 2 ? 0 : 100) + (2 - ResolutionPreferenceTier(title, preferred)) * 10 + 3 - VerdictTier(verdict);
+    public static ReleaseRank Describe(TorrentResult r, string query, int target = 1080, string? category = "all")
+    {
+        string? Kind(string? value) => value?.Trim().ToLowerInvariant() switch
+        {
+            null or "" or "all" => null, "movie" or "film" or "films" => "movies",
+            "show" or "series" or "television" => "tv", "app" or "apps" or "software" => "software", "game" => "games",
+            var other => other
+        };
+        var actual = Kind(r.Route?.Kind); var requested = Kind(category);
+        var languageTitle = Replace(r.Title, @"[._()[\]\-]+");
+        var language = Match(languageTitle, @"\b(?:vostfr|subfrench|truefrench|french|vf{1,2})\b").Success ? 0
+            : Match(languageTitle, @"\b(?:eng|english|dual\s+audio|dual[-\s]?audio|dub(?:bed)?)\b").Success ? 2 : 1;
+        var resolution = ParseResolution(r.Title);
+        return new(actual == null || requested == null ? 0 : actual == requested ? 1 : -1,
+            RelevanceTier(r.Title, query), language, IsJunkSource(r.Title), IsImplausible(r), r.Seeders >= 3,
+            resolution, ResolutionAffinity(resolution, target), SeedersBucket(r.Seeders), RecencyBucket(r.PublishedAt), r.SizeBytes ?? 0, DirectPlayableFromTitle(r.Title));
+    }
+    public static int Compare(ReleaseRank a, ReleaseRank b)
+    {
+        int[] left = [a.CategoryMatch, a.Relevance, 2 - (a.Junk ? 1 : 0) - (a.Implausible ? 1 : 0), a.Viable ? 1 : 0,
+            a.Affinity, DirectPlayableRank(a.DirectPlayable), a.LanguagePreference, Math.Min(a.Seeders, 9), a.Recency, a.Seeders];
+        int[] right = [b.CategoryMatch, b.Relevance, 2 - (b.Junk ? 1 : 0) - (b.Implausible ? 1 : 0), b.Viable ? 1 : 0,
+            b.Affinity, DirectPlayableRank(b.DirectPlayable), b.LanguagePreference, Math.Min(b.Seeders, 9), b.Recency, b.Seeders];
+        for (var i = 0; i < left.Length; i++) if (left[i] != right[i]) return right[i] - left[i];
+        return b.SizeBytes.CompareTo(a.SizeBytes);
+    }
 }

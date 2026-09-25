@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using AngleSharp.Html.Parser;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Search;
 using static TorrentFlow.Search.EpisodeParser;
 
@@ -15,11 +15,11 @@ public interface ITorrentSourceAdapter
     Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions options, CancellationToken cancellationToken = default);
 }
 
-public abstract class TorrentAdapter(IndexerHttp http, IConfiguration configuration) : ITorrentSourceAdapter
+public abstract class TorrentAdapter(IndexerHttp http, IOptions<SearchModuleOptions> options) : ITorrentSourceAdapter
 {
     public abstract string Id { get; }
     protected IndexerHttp Http => http;
-    protected string? Setting(string key) => configuration[$"TorrentFlow:Search:{key}"] ?? Environment.GetEnvironmentVariable(key);
+    protected string? Setting(string key) => options.Value.Setting(key);
     protected static string S(JsonElement row, string key) => row.TryGetProperty(key, out var value) && value.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined) ? value.ToString() : "";
     protected static long L(JsonElement row, string key) => long.TryParse(S(row, key), out var n) ? n : 0;
     protected static int I(JsonElement row, string key) => (int)Math.Clamp(L(row, key), 0, int.MaxValue);
@@ -39,7 +39,7 @@ public abstract class TorrentAdapter(IndexerHttp http, IConfiguration configurat
     public abstract Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions options, CancellationToken cancellationToken = default);
 }
 
-public sealed class ApiBayAdapter(IndexerHttp http, IConfiguration configuration) : TorrentAdapter(http, configuration)
+public sealed class ApiBayAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
 {
     public override string Id => "apibay";
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
@@ -54,14 +54,14 @@ public sealed class ApiBayAdapter(IndexerHttp http, IConfiguration configuration
         return rows.Take(o.Limit ?? 40).Select((r, i) =>
         {
             var title = S(r, "name"); var hash = S(r, "info_hash").ToLowerInvariant();
-            return new TorrentResult { Id = $"apibay-{S(r, "id")}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true),
+            return new TorrentResult { Id = $"apibay-{(S(r, "id") is { Length: > 0 } id ? id : hash.Length > 0 ? hash : i.ToString())}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true),
                 SizeBytes = L(r, "size") is > 0 and var size ? size : null, Seeders = I(r, "seeders"), Leechers = I(r, "leechers"), Category = S(r, "category"),
                 Source = Id, SourceUrl = $"https://thepiratebay.org/description.php?id={S(r, "id")}", PublishedAt = Unix(L(r, "added")), Tags = ReleaseQuality.ExtractTags(title) };
         }).ToArray();
     }
 }
 
-public sealed class TorrentsCsvAdapter(IndexerHttp http, IConfiguration configuration) : TorrentAdapter(http, configuration)
+public sealed class TorrentsCsvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
 {
     public override string Id => "torrentscsv";
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
@@ -80,7 +80,7 @@ public sealed class TorrentsCsvAdapter(IndexerHttp http, IConfiguration configur
     }
 }
 
-public sealed class NyaaAdapter(IndexerHttp http, IConfiguration configuration) : TorrentAdapter(http, configuration)
+public sealed class NyaaAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
 {
     public override string Id => "nyaa";
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
@@ -104,7 +104,7 @@ public sealed class NyaaAdapter(IndexerHttp http, IConfiguration configuration) 
     }
 }
 
-public sealed class YtsAdapter(IndexerHttp http, IConfiguration configuration) : TorrentAdapter(http, configuration)
+public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
 {
     public override string Id => "yts";
     public override async Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions o, CancellationToken cancellationToken = default)
@@ -121,7 +121,7 @@ public sealed class YtsAdapter(IndexerHttp http, IConfiguration configuration) :
             var name = S(movie, "title_long") is { Length: > 0 } longTitle ? longTitle : S(movie, "title");
             var title = $"{name} [{S(t, "quality")}] [{S(t, "type")}] [YTS]";
             var hash = S(t, "hash").ToLowerInvariant();
-            results.Add(new() { Id = $"yts-{S(movie, "id")}-{S(t, "hash")}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true), SizeBytes = Size(S(t, "size")),
+            results.Add(new() { Id = $"yts-{S(movie, "id")}-{(t.TryGetProperty("hash", out _) ? S(t, "hash") : S(t, "quality"))}", Title = title, InfoHash = hash, Magnet = Magnet(hash, title, true), SizeBytes = Size(S(t, "size")),
                 SizeLabel = S(t, "size"), Seeders = I(t, "seeds"), Leechers = I(t, "peers"), Category = "movies", Source = Id,
                 SourceUrl = S(movie, "url") is { Length: > 0 } url ? url : $"https://yts.mx/movies/{S(movie, "slug")}", PublishedAt = Date(S(t, "date_uploaded")), Tags = ReleaseQuality.ExtractTags(title),
                 Metadata = S(movie, "medium_cover_image").Length == 0 ? null : new() { Source = "tmdb", MediaType = "movie",
@@ -133,7 +133,7 @@ public sealed class YtsAdapter(IndexerHttp http, IConfiguration configuration) :
     }
 }
 
-public sealed class EztvAdapter(IndexerHttp http, IConfiguration configuration) : TorrentAdapter(http, configuration)
+public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
 {
     public override string Id => "eztv";
     private readonly object gate = new();
@@ -143,6 +143,15 @@ public sealed class EztvAdapter(IndexerHttp http, IConfiguration configuration) 
         var t = Replace(query, @"[._]+");
         t = Replace(t, @"\bS\s?\d{1,3}\s*E\s?\d{1,4}\b.*$|\bSeason\s*\d{1,3}\b.*$|\bS\s?\d{1,3}\b.*$|\b(1080p|720p|2160p|480p|complete|batch)\b.*$", "");
         return Replace(t, @"\s{2,}").Trim();
+    }
+    public static EztvEpisode? EpisodeFromQuery(string query)
+    {
+        var t = Replace(query, @"[._]+");
+        var m = Match(t, @"\bS\s?(\d{1,3})\s*E\s?(\d{1,4})\b");
+        if (m.Success) return new(int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value));
+        m = Match(t, @"\bSeason\s*(\d{1,3})\b");
+        if (!m.Success) m = Match(t, @"\bS(\d{1,3})\b");
+        return m.Success ? new(int.Parse(m.Groups[1].Value)) : null;
     }
     private async Task<string?> Imdb(string title, CancellationToken token)
     {
@@ -179,8 +188,8 @@ public sealed class EztvAdapter(IndexerHttp http, IConfiguration configuration) 
         if (imdb == null) return [];
         var hosts = IndexerHttp.MirrorList(Setting("EZTV_BASE_URL"), "https://eztv.wf/api", "https://eztvx.to/api", "https://eztv.re/api");
         using var doc = JsonDocument.Parse(await Http.MirrorsAsync(Id, hosts, h => $"{h}/get-torrents?imdb_id={imdb}&limit=100&page=1", IndexerHttp.BrowserAgent, cancellationToken));
-        var wanted = Parse(Replace(o.Query, @"[._]+"));
-        return Rows(doc.RootElement, "torrents").Where(r => wanted.Season == null || I(r, "season") == 0 && wanted.Episode == null
+        var wanted = EpisodeFromQuery(o.Query);
+        return Rows(doc.RootElement, "torrents").Where(r => wanted == null || I(r, "season") == 0 && wanted.Episode == null
             || I(r, "season") == wanted.Season && (wanted.Episode == null || I(r, "episode") == wanted.Episode)).Take(o.Limit ?? 40)
             .Select(r =>
             {
@@ -191,9 +200,10 @@ public sealed class EztvAdapter(IndexerHttp http, IConfiguration configuration) 
                     SourceUrl = S(r, "episode_url") is { Length: > 0 } url ? url : "https://eztv.wf", PublishedAt = Unix(L(r, "date_released_unix")), Tags = ReleaseQuality.ExtractTags(title) };
             }).Where(r => r.Title.Length > 0 && r.InfoHash?.Length > 0).ToArray();
     }
+    public sealed record EztvEpisode(int Season, int? Episode = null);
 }
 
-public sealed class X1337Adapter(IndexerHttp http, IConfiguration configuration) : TorrentAdapter(http, configuration)
+public sealed class X1337Adapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration, IIndexerBrowserFetcher? browser = null) : TorrentAdapter(http, configuration)
 {
     public override string Id => "1337x";
     private const string Agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -204,7 +214,16 @@ public sealed class X1337Adapter(IndexerHttp http, IConfiguration configuration)
         var root = (Setting("X1337_BASE_URL") ?? "https://1337x.to").TrimEnd('/');
         var cat = o.Category switch { "anime" => "Anime", "movies" => "Movies", "tv" => "TV", "music" => "Music", "apps" => "Apps", "games" => "Games", "books" => "Other", _ => null };
         var q = Uri.EscapeDataString(o.Query.Trim());
-        var html = await Http.GetAsync(cat == null ? $"{root}/search/{q}/1/" : $"{root}/category-search/{q}/{cat}/1/", Agent, 14000, Accept, cancellationToken);
+        var url = cat == null ? $"{root}/search/{q}/1/" : $"{root}/category-search/{q}/{cat}/1/";
+        string html;
+        try { html = await Http.GetAsync(url, Agent, 14000, Accept, cancellationToken); }
+        catch (Exception e) when (!cancellationToken.IsCancellationRequested && Setting("X1337_USE_PLAYWRIGHT") == "1"
+            && (e is HttpRequestException { StatusCode: null or System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.ServiceUnavailable } || e is OperationCanceledException))
+        {
+            var loaded = browser == null ? null : await browser.FetchAsync(url, 40000, "table.table-list tbody tr", cancellationToken);
+            if (loaded == null || loaded.Status == 403) throw new HttpRequestException("1337x HTTP 403 (Cloudflare). Browser unavailable or failed.", e);
+            html = loaded.Html;
+        }
         if (html.Contains("Just a moment") || html.Contains("cf-browser-verification") || html.Contains("Performing security verification")) throw new HttpRequestException("1337x blocked by Cloudflare");
         var doc = await new HtmlParser().ParseDocumentAsync(html, cancellationToken);
         using var pool = new SemaphoreSlim(4);
@@ -225,14 +244,21 @@ public sealed class X1337Adapter(IndexerHttp http, IConfiguration configuration)
                 var detail = await Http.GetAsync(detailUrl, Agent, 10000, Accept, cancellationToken);
                 var parsed = await new HtmlParser().ParseDocumentAsync(detail, cancellationToken);
                 magnet = parsed.QuerySelector("a[href^='magnet:']")?.GetAttribute("href");
+                if (magnet == null && Match(detail, @"magnet:\?xt=urn:btih:[a-zA-Z0-9]+[^""'<\s]*") is { Success: true } found) magnet = found.Value;
                 hash = magnet == null ? null : Match(magnet, "btih:([a-zA-Z0-9]+)").Groups[1].Value.ToLowerInvariant();
-                torrent = parsed.QuerySelector("a[href$='.torrent']")?.GetAttribute("href");
+                if (string.IsNullOrEmpty(hash)) hash = parsed.QuerySelectorAll(".infohash-box span").LastOrDefault()?.TextContent.Trim().ToLowerInvariant();
+                torrent = parsed.QuerySelector("a[href*='.torrent']")?.GetAttribute("href");
             }
             catch (Exception e) when (!cancellationToken.IsCancellationRequested && e is HttpRequestException or OperationCanceledException) { }
             finally { pool.Release(); }
             var title = link.TextContent.Trim();
-            return new TorrentResult { Id = $"1337x-{Match(path, @"/torrent/(\d+)").Groups[1].Value}", Title = title, Source = Id, SourceUrl = detailUrl,
-                InfoHash = hash, Magnet = magnet, TorrentUrl = torrent, SizeBytes = Size(size), SizeLabel = size, Seeders = Num("td.coll-2.seeds"), Leechers = Num("td.coll-3.leeches"), Tags = ReleaseQuality.ExtractTags(title) };
+            var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(title)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            var published = row.QuerySelector("td.coll-date")?.TextContent.Trim();
+            var date = Match(published ?? "", @"^\d+(am|pm)$").Success ? DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+                : Date(Replace(Replace(published ?? "", @"(\d+)(st|nd|rd|th)", "$1"), @"\.", "").Replace('\'', ' '));
+            return new TorrentResult { Id = $"1337x-{hash ?? index.ToString()}-{encoded[..Math.Min(12, encoded.Length)]}", Title = title, Source = Id, SourceUrl = detailUrl,
+                InfoHash = hash, Magnet = magnet, TorrentUrl = torrent, SizeBytes = Size(size), SizeLabel = size, PublishedAt = date,
+                Seeders = Num("td.coll-2.seeds"), Leechers = Num("td.coll-3.leeches"), Tags = ReleaseQuality.ExtractTags(title) };
         });
         return (await Task.WhenAll(tasks)).OfType<TorrentResult>().ToArray();
     }

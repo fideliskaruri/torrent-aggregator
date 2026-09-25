@@ -27,10 +27,15 @@ public sealed record SearchOptions
     public bool Enrich { get; init; } = true;
     public bool Background { get; init; }
     public int? AdapterDeadlineMs { get; init; }
+    public SearchRoutingPreferences? Routing { get; init; }
 }
+
+public sealed record SearchRoutingPreferences(string[]? Categories = null, string? BaseDownloadPath = null,
+    IReadOnlyDictionary<string, string>? PathRules = null, string? SavePath = null);
 
 public sealed record SearchFilters
 {
+    public string[]? Sources { get; init; }
     public long? MinSeeders { get; init; }
     public long? MaxSeeders { get; init; }
     public long? MinSizeBytes { get; init; }
@@ -81,7 +86,7 @@ public sealed record EpisodeInfo
     public string? Label { get; init; }
     public bool IsBatch { get; init; }
     public bool IsSeasonPack { get; init; }
-    public bool IsMultiSeason { get; init; }
+    public bool? IsMultiSeason { get; init; }
     public string? SpecialType { get; init; }
 }
 
@@ -105,7 +110,10 @@ public sealed record MediaMetadata
     public Dictionary<string, JsonElement>? AdditionalProperties { get; init; }
 }
 
-public sealed record DownloadRoute(string Kind, string Category, string Confidence, string? CleanTitle = null, string? SavePath = null, string? RelativePath = null);
+public sealed record DownloadRoute(string Kind, string Category, string Confidence,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? CleanTitle = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? SavePath = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? RelativePath = null);
 public sealed record SourceStatus(string Id, int Count, string? Error = null);
 public sealed record AvailableSource(string Id, string Name, bool EnabledByDefault);
 public sealed record ReleaseGroup(string Key, string Label, TorrentResult Best, IReadOnlyList<TorrentResult> Alternatives);

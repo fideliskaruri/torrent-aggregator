@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
@@ -15,7 +15,7 @@ public sealed class SearchThrottledException(int seconds) : Exception($"Indexers
 }
 
 public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adapters, SearchCacheStore cache,
-    ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IConfiguration configuration,
+    ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
     ILogger<TorrentSearchService> logger) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
@@ -23,7 +23,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     private readonly object flightGate = new();
     private readonly Dictionary<string, Task<SearchResponse>> flights = [];
     private readonly SemaphoreSlim adapterSlots = new(24);
-    private bool Enable1337 => configuration["TorrentFlow:Search:ENABLE_1337X"] == "1" || Environment.GetEnvironmentVariable("ENABLE_1337X") == "1";
+    private bool Enable1337 => moduleOptions.Value.Setting("ENABLE_1337X") == "1";
     public IReadOnlyList<AvailableSource> AvailableSources => [
         new("nyaa", "Nyaa", true), new("apibay", "ThePirateBay", true), new("torrentscsv", "TorrentsCSV", true),
         new("yts", "YTS", true), new("1337x", "1337x", Enable1337)];
@@ -68,7 +68,13 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var page = totalPages == 0 ? 1 : Math.Clamp(options.Page, 1, totalPages);
         IReadOnlyList<TorrentResult> results = pool.Results.Skip((page - 1) * options.PageSize).Take(options.PageSize).ToArray();
         if (options.Enrich && results.Count > 0) results = await enricher.EnrichAsync(options.Query, results, cancellationToken);
-        results = results.Select(r => DownloadRouting.Attach(r, options.Category, settings)).ToArray();
+        var routing = options.Routing is { } prefs ? new ClientSetting
+        {
+            Categories = prefs.Categories == null ? null : System.Text.Json.JsonSerializer.Serialize(prefs.Categories),
+            BaseDownloadPath = prefs.BaseDownloadPath, SavePath = prefs.SavePath,
+            PathRules = prefs.PathRules == null ? null : System.Text.Json.JsonSerializer.Serialize(prefs.PathRules)
+        } : settings;
+        results = results.Select(r => DownloadRouting.Attach(r, options.Category, routing)).ToArray();
         return pool with { Query = options.Query, Results = results, Groups = ReleaseRanking.Groups(results), Page = page, PageSize = options.PageSize,
             TotalPages = totalPages, TotalCount = pool.Results.Count, Cached = cached ? true : null, TookMs = watch.ElapsedMilliseconds };
     }

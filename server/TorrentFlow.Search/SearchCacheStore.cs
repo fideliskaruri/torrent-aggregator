@@ -17,9 +17,31 @@ public sealed class SearchCacheStore(IDbContextFactory<TorrentFlowDbContext> fac
     private readonly (int Count, DateTime Reset)[] budgets = new (int, DateTime)[2];
     public static string Key(SearchOptions options, int target)
     {
-        var raw = JsonSerializer.Serialize(new { q = options.Query.Trim().ToLowerInvariant(), category = options.Category, limit = options.Limit,
-            sources = options.Sources?.Order(StringComparer.Ordinal).ToArray(), filters = options.Filters ?? new(), target }, Json);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)))[..40].ToLowerInvariant();
+        var parts = JsonSerializer.SerializeToElement(new { q = options.Query.Trim().ToLowerInvariant(), category = options.Category,
+            limit = (object?)options.Limit ?? "default", sources = (object?)options.Sources?.Order(StringComparer.Ordinal).ToArray() ?? "default",
+            filters = options.Filters ?? new(), target }, Json);
+        using var bytes = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(bytes, new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        {
+            void Write(JsonElement element)
+            {
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    writer.WriteStartObject();
+                    foreach (var p in element.EnumerateObject().OrderBy(p => p.Name, StringComparer.Ordinal)) { writer.WritePropertyName(p.Name); Write(p.Value); }
+                    writer.WriteEndObject();
+                }
+                else if (element.ValueKind == JsonValueKind.Array)
+                {
+                    writer.WriteStartArray();
+                    foreach (var item in element.EnumerateArray()) Write(item);
+                    writer.WriteEndArray();
+                }
+                else element.WriteTo(writer);
+            }
+            Write(parts);
+        }
+        return Convert.ToHexString(SHA256.HashData(bytes.ToArray()))[..40].ToLowerInvariant();
     }
     public int Spend(bool background)
     {

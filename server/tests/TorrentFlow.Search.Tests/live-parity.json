@@ -1,0 +1,368 @@
+[
+  {
+    "query": "dune",
+    "wallMs": 3224,
+    "dotnet": {
+      "tookMs": 2920,
+      "totalCount": 127,
+      "sources": [
+        {
+          "id": "nyaa",
+          "count": 9
+        },
+        {
+          "id": "apibay",
+          "count": 80
+        },
+        {
+          "id": "torrentscsv",
+          "count": 25
+        },
+        {
+          "id": "yts",
+          "count": 45
+        },
+        {
+          "id": "eztv",
+          "count": 0
+        }
+      ],
+      "keys": [
+        "availableSources",
+        "groups",
+        "page",
+        "pageSize",
+        "query",
+        "results",
+        "sources",
+        "tookMs",
+        "totalCount",
+        "totalPages"
+      ],
+      "resultKeys": [
+        "bestPick",
+        "category",
+        "episode",
+        "groupKey",
+        "health",
+        "id",
+        "infoHash",
+        "leechers",
+        "magnet",
+        "publishedAt",
+        "route",
+        "score",
+        "seeders",
+        "sizeBytes",
+        "source",
+        "sourceUrl",
+        "tags",
+        "title"
+      ]
+    },
+    "typescript": {
+      "tookMs": 3073,
+      "totalCount": 127,
+      "sources": [
+        {
+          "id": "nyaa",
+          "count": 9
+        },
+        {
+          "id": "apibay",
+          "count": 80
+        },
+        {
+          "id": "torrentscsv",
+          "count": 25
+        },
+        {
+          "id": "yts",
+          "count": 45
+        },
+        {
+          "id": "eztv",
+          "count": 0
+        }
+      ],
+      "keys": [
+        "availableSources",
+        "groups",
+        "page",
+        "pageSize",
+        "query",
+        "results",
+        "sources",
+        "tookMs",
+        "totalCount",
+        "totalPages"
+      ],
+      "resultKeys": [
+        "bestPick",
+        "category",
+        "episode",
+        "groupKey",
+        "health",
+        "id",
+        "infoHash",
+        "leechers",
+        "magnet",
+        "metadata",
+        "publishedAt",
+        "route",
+        "score",
+        "seeders",
+        "sizeBytes",
+        "source",
+        "sourceUrl",
+        "tags",
+        "title"
+      ]
+    },
+    "commonHashes": 127
+  },
+  {
+    "query": "ubuntu",
+    "wallMs": 1974,
+    "dotnet": {
+      "tookMs": 1414,
+      "totalCount": 91,
+      "sources": [
+        {
+          "id": "nyaa",
+          "count": 1
+        },
+        {
+          "id": "apibay",
+          "count": 80
+        },
+        {
+          "id": "torrentscsv",
+          "count": 25
+        },
+        {
+          "id": "yts",
+          "count": 0
+        },
+        {
+          "id": "eztv",
+          "count": 0
+        }
+      ],
+      "keys": [
+        "availableSources",
+        "groups",
+        "page",
+        "pageSize",
+        "query",
+        "results",
+        "sources",
+        "tookMs",
+        "totalCount",
+        "totalPages"
+      ],
+      "resultKeys": [
+        "bestPick",
+        "category",
+        "episode",
+        "groupKey",
+        "health",
+        "id",
+        "infoHash",
+        "leechers",
+        "magnet",
+        "publishedAt",
+        "route",
+        "score",
+        "seeders",
+        "sizeBytes",
+        "source",
+        "sourceUrl",
+        "tags",
+        "title"
+      ]
+    },
+    "typescript": {
+      "tookMs": 1972,
+      "totalCount": 91,
+      "sources": [
+        {
+          "id": "nyaa",
+          "count": 1
+        },
+        {
+          "id": "apibay",
+          "count": 80
+        },
+        {
+          "id": "torrentscsv",
+          "count": 25
+        },
+        {
+          "id": "yts",
+          "count": 0
+        },
+        {
+          "id": "eztv",
+          "count": 0
+        }
+      ],
+      "keys": [
+        "availableSources",
+        "groups",
+        "page",
+        "pageSize",
+        "query",
+        "results",
+        "sources",
+        "tookMs",
+        "totalCount",
+        "totalPages"
+      ],
+      "resultKeys": [
+        "bestPick",
+        "category",
+        "episode",
+        "groupKey",
+        "health",
+        "id",
+        "infoHash",
+        "leechers",
+        "magnet",
+        "metadata",
+        "publishedAt",
+        "route",
+        "score",
+        "seeders",
+        "sizeBytes",
+        "source",
+        "sourceUrl",
+        "tags",
+        "title"
+      ]
+    },
+    "commonHashes": 91
+  },
+  {
+    "query": "big buck bunny",
+    "wallMs": 3447,
+    "dotnet": {
+      "tookMs": 1915,
+      "totalCount": 23,
+      "sources": [
+        {
+          "id": "nyaa",
+          "count": 0
+        },
+        {
+          "id": "apibay",
+          "count": 22
+        },
+        {
+          "id": "torrentscsv",
+          "count": 1
+        },
+        {
+          "id": "yts",
+          "count": 0
+        },
+        {
+          "id": "eztv",
+          "count": 0
+        }
+      ],
+      "keys": [
+        "availableSources",
+        "groups",
+        "page",
+        "pageSize",
+        "query",
+        "results",
+        "sources",
+        "tookMs",
+        "totalCount",
+        "totalPages"
+      ],
+      "resultKeys": [
+        "bestPick",
+        "completed",
+        "episode",
+        "groupKey",
+        "health",
+        "id",
+        "infoHash",
+        "leechers",
+        "magnet",
+        "publishedAt",
+        "route",
+        "score",
+        "seeders",
+        "sizeBytes",
+        "source",
+        "sourceUrl",
+        "tags",
+        "title"
+      ]
+    },
+    "typescript": {
+      "tookMs": 3446,
+      "totalCount": 23,
+      "sources": [
+        {
+          "id": "nyaa",
+          "count": 0
+        },
+        {
+          "id": "apibay",
+          "count": 22
+        },
+        {
+          "id": "torrentscsv",
+          "count": 1
+        },
+        {
+          "id": "yts",
+          "count": 0
+        },
+        {
+          "id": "eztv",
+          "count": 0
+        }
+      ],
+      "keys": [
+        "availableSources",
+        "groups",
+        "page",
+        "pageSize",
+        "query",
+        "results",
+        "sources",
+        "tookMs",
+        "totalCount",
+        "totalPages"
+      ],
+      "resultKeys": [
+        "bestPick",
+        "completed",
+        "episode",
+        "groupKey",
+        "health",
+        "id",
+        "infoHash",
+        "leechers",
+        "magnet",
+        "metadata",
+        "publishedAt",
+        "route",
+        "score",
+        "seeders",
+        "sizeBytes",
+        "source",
+        "sourceUrl",
+        "tags",
+        "title"
+      ]
+    },
+    "commonHashes": 23
+  }
+]
