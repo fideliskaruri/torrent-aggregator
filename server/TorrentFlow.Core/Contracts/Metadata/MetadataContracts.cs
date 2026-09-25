@@ -20,6 +20,8 @@ public sealed record MediaMetadata
     public IReadOnlyList<string>? Genres { get; init; }
     public string? OriginalLanguage { get; init; }
     public IReadOnlyList<string>? OriginCountry { get; init; }
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, System.Text.Json.JsonElement>? AdditionalProperties { get; init; }
 }
 
 /// <summary>One release to enrich. Only the raw release title participates in the TS logic.</summary>

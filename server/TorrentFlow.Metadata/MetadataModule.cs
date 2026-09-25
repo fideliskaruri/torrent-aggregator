@@ -43,6 +43,7 @@ public static class MetadataModule
         services.AddSingleton<RecommendationService>();
         services.AddSingleton<BrowseService>();
         services.AddSingleton<TitleExtrasService>();
+        services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Search.ISearchResultEnricher, SearchResultEnricher>());
         return services;
     }
 

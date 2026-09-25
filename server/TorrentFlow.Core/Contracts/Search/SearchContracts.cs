@@ -1,3 +1,4 @@
+using TorrentFlow.Core.Contracts.Metadata;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -10,7 +11,9 @@ public interface ITorrentSearchService
 
 public interface ISearchResultEnricher
 {
-    Task<IReadOnlyList<TorrentResult>> EnrichAsync(string query, IReadOnlyList<TorrentResult> results, CancellationToken cancellationToken = default);
+    /// <summary>Called when a search starts so the query's own metadata lookup overlaps the indexer fan-out.</summary>
+    void Prime(string query, string? category) { }
+    Task<IReadOnlyList<TorrentResult>> EnrichAsync(string query, string? category, IReadOnlyList<TorrentResult> results, CancellationToken cancellationToken = default);
 }
 
 public sealed record SearchOptions
@@ -88,26 +91,6 @@ public sealed record EpisodeInfo
     public bool IsSeasonPack { get; init; }
     public bool? IsMultiSeason { get; init; }
     public string? SpecialType { get; init; }
-}
-
-public sealed record MediaMetadata
-{
-    public required string Source { get; init; }
-    public required string MediaType { get; init; }
-    public required string ExternalId { get; init; }
-    public required string Title { get; init; }
-    public string[]? Aliases { get; init; }
-    public string? PosterUrl { get; init; }
-    public string? BackdropUrl { get; init; }
-    public string? Synopsis { get; init; }
-    public double? Rating { get; init; }
-    public int? Year { get; init; }
-    public string? ReleaseDate { get; init; }
-    public string[]? Genres { get; init; }
-    public string? OriginalLanguage { get; init; }
-    public string[]? OriginCountry { get; init; }
-    [JsonExtensionData]
-    public Dictionary<string, JsonElement>? AdditionalProperties { get; init; }
 }
 
 public sealed record DownloadRoute(string Kind, string Category, string Confidence,
