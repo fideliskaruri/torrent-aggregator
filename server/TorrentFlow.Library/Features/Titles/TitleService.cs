@@ -75,7 +75,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
     {
         var key = query.WorkKey.Trim().ToLowerInvariant();
         await using var db = await factory.CreateDbContextAsync(ct);
-        var cat = await catalog.FindByWorkKeyAsync(key, ct);
+        var cat = await catalog.FindByWorkKeyAsync(key, ct) ?? await FindCatalogByComputedKey(db, key, ct);
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         var watch = watches.FirstOrDefault(x => ReleaseSelection.MatchesWork(key, x.Title));
         var engineRows = await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed").OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
@@ -205,6 +205,17 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("seasons", seasons), ("season", selected), ("episodes", episodes), ("episodesTruncated", maxEpisode > 200),
             ("library", library), ("known", cat != null || query.Provider != null || watch != null || local.Count > 0 || progress.Count > 0 || releases.Length > 0 || cached != null),
             ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));
+    }
+    /// <summary>
+    /// TS findCatalogByComputedKey: CatalogEntry.workKey comes from the catalog pipeline's own derivation
+    /// (for example "film:dune:2021"), so a browse link's slug misses the exact lookup. Recompute each recent row's key instead.
+    /// </summary>
+    private static async Task<CatalogWork?> FindCatalogByComputedKey(TorrentFlowDbContext db, string key, CancellationToken ct)
+    {
+        var rows = await db.CatalogEntries.AsNoTracking().OrderByDescending(x => x.RefreshedAt).Take(400).ToListAsync(ct);
+        var e = rows.FirstOrDefault(x => ReleaseNames.WorkKeyMatches(key, x.Title, x.Year));
+        return e == null ? null : new(e.Id, e.WorkKey, e.Title, e.Year, e.MediaType, e.PosterUrl, e.BackdropUrl, e.Overview, e.Rating, e.Source, e.Rank,
+            e.ReleaseDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), e.WorkId);
     }
     private static bool MultiSeason(string name) => Regex.IsMatch(name, @"(?i)\bS\d+\s*[-–]\s*S?\d+\b|\bcomplete\s+(?:series|collection)\b");
     private static bool InvalidMedia(EngineTorrent row)
