@@ -227,6 +227,7 @@ Rules that hold across the module:
   Unlocated files still contribute their names to coverage. Pack mapping checks for episode ranges in the file name only, never in folder names.
 - Title detail loads linked torrents that fall outside its 400-row scan (TS `missingLinkedHashes`),
   so they are not marked failed.
+- A target whose engine row is waiting in the built-in download queue stays `queued`, not a 0% download (TS 446bff0).
 - The title POST seeds and settles targets like TS `seedSeasonEpisodeTargets` and
   `settleSeasonEpisodeTargets`:
   - Season retries reset only failed targets.
@@ -237,7 +238,7 @@ Rules that hold across the module:
 
 ### Verification and remaining parity work
 
-The Library suite has 111 tests. They include:
+The Library suite has 113 tests. They include:
 - SQLite-backed `WebApplicationFactory` route tests
 - pure ordering, bounded concurrency, cursor, selection and automation policy tests
 - `ReviewFixTests`, one regression test per code-review fix
@@ -247,7 +248,7 @@ The Library suite has 111 tests. They include:
 
 `ts-oracle.json` holds outputs captured from the TypeScript original on real-looking release names.
 `TsOracle\oracle.ts` regenerates it. Test hosts replace the artwork and AniList contracts with fakes,
-so tests never touch the network. The full solution build has zero warnings/errors and all 9,010
+so tests never touch the network. The full solution build has zero warnings/errors and all 9,012
 tests pass (6 skipped in Media/Engine).
 
 `server\tests\TorrentFlow.Library.Tests\verify-parity.py` compares running isolated Next (3102)

@@ -102,6 +102,43 @@ public sealed class ReviewFixTests
     }
 
     [Fact]
+    public void EngineQueuedTransferStaysQueuedNotAZeroPercentDownload()
+    {
+        // Port of TS acquisition-target.test.ts "an engine-queued transfer stays queued, not a 0% download" (446bff0).
+        var hash = new string('c', 40);
+        var target = new AcquisitionTarget { Id = "t", UserId = LocalUser.Id, TargetKey = "k", WorkKey = "example-show", Scope = "episode", Status = "queued", InfoHash = hash };
+        var row = Engine("Example Show S01E02 1080p", hash: hash);
+        row.Status = "queued"; row.Progress = 0; row.VerifiedBitfield = null;
+        TitleService.Reconcile(target, row);
+        Assert.Equal(("queued", 0.0), (target.Status, target.Progress));
+
+        // Promotion (or Download now) moves it on by itself on the next read.
+        row.Status = "downloading"; row.Progress = .01;
+        TitleService.Reconcile(target, row);
+        Assert.Equal(("downloading", .01), (target.Status, target.Progress));
+    }
+
+    [Fact]
+    public async Task TitlePageShowsAnEngineQueuedEpisodeAsQueued()
+    {
+        using var host = new LibraryHost(); using var client = host.CreateClient();
+        var hash = new string('c', 40);
+        await host.Seed(db =>
+        {
+            db.WatchListItems.Add(LibraryHost.Watch());
+            var row = Engine("Example Show S01E01 1080p", hash: hash);
+            row.Status = "queued"; row.Progress = 0; row.VerifiedBitfield = null;
+            db.EngineTorrents.Add(row);
+            db.AcquisitionTargets.Add(new() { Id = "t1", UserId = LocalUser.Id, TargetKey = "example-show:episode:1:1", WorkKey = "example-show",
+                Scope = "episode", Season = 1, Episode = 1, Status = "downloading", InfoHash = hash, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+        });
+        var episode = (await Json(await client.GetAsync("/api/title/example-show"))).GetProperty("episodes")[0];
+        Assert.Equal("queued", episode.GetProperty("transfer").GetProperty("status").GetString());
+        await using var db = await Db(host);
+        Assert.Equal("queued", (await db.AcquisitionTargets.SingleAsync()).Status);
+    }
+
+    [Fact]
     public async Task LinkedTorrentOutsideScanWindowIsNotMarkedFailed()
     {
         using var host = new LibraryHost(); using var client = host.CreateClient();

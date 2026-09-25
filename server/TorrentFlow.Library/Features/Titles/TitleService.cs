@@ -45,7 +45,9 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         else
         {
             target.Progress = Math.Clamp(row.Progress, 0, 1);
-            target.Status = row.Progress >= 1 || row.Status.Equals("seeding", StringComparison.OrdinalIgnoreCase) ? "downloaded" : target.Status == "failed" ? "failed" : "downloading";
+            // An engine row waiting in the built-in download queue is admitted but not moving (TS 446bff0).
+            target.Status = row.Progress >= 1 || row.Status.Equals("seeding", StringComparison.OrdinalIgnoreCase) ? "downloaded" : target.Status == "failed" ? "failed" :
+                row.Status.Equals("queued", StringComparison.OrdinalIgnoreCase) ? "queued" : "downloading";
             if (target.Status == "downloaded") target.Progress = 1;
         }
     }
