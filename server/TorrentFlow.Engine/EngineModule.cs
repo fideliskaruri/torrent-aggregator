@@ -35,6 +35,7 @@ public static class EngineModule
             c.DefaultRequestHeaders.UserAgent.ParseAdd("TorrentFlow/1.0");
         });
         services.AddSingleton<ClientSettingsStore>();
+        services.AddSingleton<SecretProtector>();
         services.AddSingleton<StorageBudget>();
         services.AddSingleton<MonoTorrentBackend>();
         services.AddSingleton<ITorrentBackend>(sp => sp.GetRequiredService<MonoTorrentBackend>());
