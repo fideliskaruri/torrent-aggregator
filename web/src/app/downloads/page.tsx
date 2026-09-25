@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   ChevronRight,
+  Download,
   FolderOpen,
   HardDriveDownload,
   MoreHorizontal,
@@ -1844,6 +1845,20 @@ function FilmRow({
       </div>
 
       <div className="flex items-center justify-end gap-2 lg:gap-0.5">
+        {isPaused(t.state) && t.progress < 1 ? (
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="lg:mr-1.5"
+            onClick={() => onAction("resume", t)}
+            aria-label={`Resume ${display.title}`}
+            data-torrent-resume
+          >
+            <Download className="h-3.5 w-3.5" />
+            Resume
+          </Button>
+        ) : null}
         {isBuiltin ? (
           canStreamTransfer(t) ? (
             <Button
