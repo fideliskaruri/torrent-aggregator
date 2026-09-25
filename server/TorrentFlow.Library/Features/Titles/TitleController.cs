@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -12,7 +13,7 @@ namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class TitleController(TitleService titles, GrabService grabs, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
-    EpisodeSearchIdentity identity) : ControllerBase
+    EpisodeSearchIdentity identity, IHostApplicationLifetime lifetime) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(string workKey, [FromQuery] string? t, [FromQuery] int? y,
@@ -97,63 +98,108 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
             var (searchType, searchAliases) = await identity.ResolveAsync(title, detail["year"] as int?, detail["mediaType"] as string, input.Aliases, ct);
             input = input with { MediaType = searchType, Aliases = searchAliases };
         }
-        var tracked = new List<AcquisitionTarget>();
+        // Target keys this request owns, by episode (null for a single title/episode scope).
+        var tracked = new Dictionary<string, int?>(StringComparer.Ordinal);
         if (retention == "keep")
         {
+            var now = DateTime.UtcNow;
             foreach (var ep in scope == "season" ? episodes.Cast<int?>() : new int?[] { episode })
             {
                 var targetScope = scope == "season" ? "episode" : scope!;
                 var key = $"{workKey}:{targetScope}:{season?.ToString() ?? "-"}:{ep?.ToString() ?? "-"}";
+                tracked[key] = ep;
                 var target = await db.AcquisitionTargets.FirstOrDefaultAsync(x => x.UserId == LocalUser.Id && x.TargetKey == key, ct);
                 if (target == null)
                 {
-                    target = new() { Id = Ids.New(), UserId = LocalUser.Id, TargetKey = key, WorkKey = workKey, Scope = targetScope, Season = season, Episode = ep, CreatedAt = DateTime.UtcNow };
-                    db.AcquisitionTargets.Add(target);
+                    db.AcquisitionTargets.Add(new() { Id = Ids.New(), UserId = LocalUser.Id, TargetKey = key, WorkKey = workKey, WorkId = work.Id,
+                        Scope = targetScope, Season = season, Episode = ep, Status = "queued", PreferredResolution = resolution, CreatedAt = now, UpdatedAt = now });
+                    continue;
                 }
-                target.WorkId = work.Id; target.Status = "queued"; target.Progress = 0; target.InfoHash = null; target.FilePath = null;
-                target.Error = null; target.PreferredResolution = resolution; target.UpdatedAt = DateTime.UtcNow;
-                tracked.Add(target);
+                target.WorkId = work.Id; target.PreferredResolution = resolution; target.UpdatedAt = now;
+                // TS seedSeasonEpisodeTargets: a season retry resets only terminal failures and never downgrades an episode
+                // that is already downloading or downloaded. A single explicit request restarts its own target (TS upsert).
+                if (scope == "season" && target.Status != "failed") continue;
+                target.Status = "queued"; target.Progress = 0; target.InfoHash = null; target.FilePath = null; target.Error = null;
             }
             await db.SaveChangesAsync(ct);
         }
+        // Once targets are seeded the acquisition must finish and settle even if the client disconnects;
+        // only host shutdown may interrupt it.
+        var workToken = lifetime.ApplicationStopping;
+        SeasonFanoutResult? seasonResult = null;
+        GrabResult? single = null;
+        Exception? crash = null;
         try
         {
             if (scope == "season")
-            {
-                var result = await SeasonFanout.Run(episodes, (ep, before) => grabs.Grab(input with { Cursor = new EpisodeCursor(season!.Value, ep) }, ct, before), ct);
-                foreach (var target in tracked)
-                {
-                    var transfer = result.Transfers.First(x => x.Episode == target.Episode);
-                    target.Status = transfer.Status; target.InfoHash = transfer.InfoHash; target.Error = transfer.Error; target.UpdatedAt = DateTime.UtcNow;
-                }
-                await db.SaveChangesAsync(ct);
-                var ok = result.CoveredEpisodes.Count > 0;
-                var body = LibraryJson.Object(("ok", ok), ("message", ok ? $"{result.CoveredEpisodes.Count} of {episodes.Length} episodes started" :
-                    "No episode downloads started — try again shortly."),
-                    ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = result.CoveredEpisodes.Count,
-                        strategy = "singles", coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
-                            LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Error)) :
-                            LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
-                        planReason = "Each episode used the same acquisition path as its individual Download button." }));
-                if (result.Storage != null) body["storage"] = result.Storage;
-                return StatusCode(ok ? 200 : 409, body);
-            }
-            var single = await grabs.Grab(input with { Cursor = season != null && episode != null ? new EpisodeCursor(season.Value, episode.Value) : null }, ct);
-            foreach (var target in tracked)
-            {
-                target.Status = single.Ok ? "downloading" : "failed"; target.InfoHash = single.InfoHash; target.Error = single.Ok ? null : single.Message;
-                target.UpdatedAt = DateTime.UtcNow;
-            }
-            await db.SaveChangesAsync(ct);
-            return StatusCode(single.Ok ? 200 : 409, LibraryJson.Object(("ok", single.Ok), ("message", single.Message),
-                ("title", single.Title), ("savePath", single.SavePath), ("infoHash", single.InfoHash), ("storage", single.Storage),
-                ("queued", single.Queued), ("queuePosition", single.QueuePosition)));
+                seasonResult = await SeasonFanout.Run(episodes, (ep, before) => grabs.Grab(input with { Cursor = new EpisodeCursor(season!.Value, ep) }, workToken, before), workToken);
+            else
+                single = await grabs.Grab(input with { Cursor = season != null && episode != null ? new EpisodeCursor(season.Value, episode.Value) : null }, workToken);
         }
-        catch (Exception error) when (!ct.IsCancellationRequested)
+        catch (Exception error)
         {
-            foreach (var target in tracked) { target.Status = "failed"; target.Error = error.Message; target.UpdatedAt = DateTime.UtcNow; }
-            await db.SaveChangesAsync(ct);
-            return StatusCode(500, new { ok = false, message = error.Message });
+            crash = error;
         }
+        finally
+        {
+            if (tracked.Count > 0) await SettleTargets(tracked, scope == "season", work.Id, seasonResult, single, crash, CancellationToken.None);
+        }
+        if (crash != null) return StatusCode(500, new { ok = false, message = crash.Message });
+        if (seasonResult is { } result)
+        {
+            var ok = result.CoveredEpisodes.Count > 0;
+            var body = LibraryJson.Object(("ok", ok), ("message", ok ? $"{result.CoveredEpisodes.Count} of {episodes.Length} episodes started" :
+                "No episode downloads started — try again shortly."),
+                ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = result.CoveredEpisodes.Count,
+                    strategy = "singles", coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
+                        LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Error)) :
+                        LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
+                    planReason = "Each episode used the same acquisition path as its individual Download button." }));
+            if (result.Storage != null) body["storage"] = result.Storage;
+            return StatusCode(ok ? 200 : 409, body);
+        }
+        return StatusCode(single!.Ok ? 200 : 409, LibraryJson.Object(("ok", single.Ok), ("message", single.Message),
+            ("title", single.Title), ("savePath", single.SavePath), ("infoHash", single.InfoHash), ("storage", single.Storage),
+            ("queued", single.Queued), ("queuePosition", single.QueuePosition)));
+    }
+
+    /// <summary>
+    /// Port of TS settleSeasonEpisodeTargets / failQueuedSeasonEpisodeTargets. An outcome applies only to a row that is still
+    /// pending: a failure settles only "queued", a success settles "queued" or "failed", so a concurrent later attempt that
+    /// already succeeded is never overwritten.
+    /// </summary>
+    internal async Task SettleTargets(IReadOnlyDictionary<string, int?> tracked, bool season, string workId,
+        SeasonFanoutResult? seasonResult, GrabResult? single, Exception? failure, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var now = DateTime.UtcNow;
+        var owned = db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id);
+        async Task Apply(string key, string status, string? hash, string? error)
+        {
+            string[] open = status == "failed" ? ["queued"] : ["queued", "failed"];
+            await owned.Where(x => x.TargetKey == key && open.Contains(x.Status)).ExecuteUpdateAsync(s => s
+                .SetProperty(t => t.WorkId, workId).SetProperty(t => t.Status, status).SetProperty(t => t.Progress, 0)
+                .SetProperty(t => t.InfoHash, hash).SetProperty(t => t.FilePath, (string?)null).SetProperty(t => t.Error, error)
+                .SetProperty(t => t.UpdatedAt, now), ct);
+        }
+        if (seasonResult != null)
+        {
+            foreach (var transfer in seasonResult.Transfers)
+                foreach (var key in tracked.Where(x => x.Value == transfer.Episode).Select(x => x.Key))
+                    await Apply(key, transfer.Status, transfer.InfoHash, transfer.Error);
+            return;
+        }
+        if (single != null && !season)
+        {
+            foreach (var key in tracked.Keys)
+                await Apply(key, single.Ok ? "downloading" : "failed", single.Ok ? single.InfoHash : null, single.Ok ? null : single.Message);
+            return;
+        }
+        // No outcome (a throw or host shutdown): whatever is still queued failed; settled rows stay as they are.
+        var message = failure?.Message ?? "The acquisition was interrupted before it finished.";
+        var keys = tracked.Keys.ToArray();
+        await owned.Where(x => keys.Contains(x.TargetKey) && x.Status == "queued").ExecuteUpdateAsync(s => s
+            .SetProperty(t => t.Status, "failed").SetProperty(t => t.Progress, 0).SetProperty(t => t.InfoHash, (string?)null)
+            .SetProperty(t => t.FilePath, (string?)null).SetProperty(t => t.Error, message).SetProperty(t => t.UpdatedAt, now), ct);
     }
 }

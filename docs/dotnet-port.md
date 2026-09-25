@@ -145,18 +145,33 @@ of the legacy parser:
 The scheduler reads the saved automation interval, respects run locks, and can be disabled for
 isolated verification with `--TorrentFlow:Library:DisableScheduler=true`.
 
+Rules that hold across the module:
+- Verified file lists come in two shapes: TS rows store an absolute `path`, while the .NET engine
+  stores a torrent-relative `path` plus an absolute `fullPath`. `VerifiedFiles` reads `fullPath`
+  first. Pack mapping checks for episode ranges in the file name only, never in folder names.
+- Title detail loads linked torrents that fall outside its 400-row scan (TS `missingLinkedHashes`),
+  so they are not marked failed.
+- The title POST seeds and settles targets like TS `seedSeasonEpisodeTargets` and
+  `settleSeasonEpisodeTargets`:
+  - Season retries reset only failed targets.
+  - A failed outcome settles only rows that are still queued.
+  - The grab runs on `ApplicationStopping`, not `RequestAborted`, and settles in a `finally`.
+- Deletion plans read coverage from the release name and every file name (TS `statedCoverage` and
+  `coverageWithin`). Episode ranges count as season-wide, which is deliberately stricter than TS.
+
 ### Verification and remaining parity work
 
-The Library suite has 95 tests. They include:
+The Library suite has 111 tests. They include:
 - SQLite-backed `WebApplicationFactory` route tests
 - pure ordering, bounded concurrency, cursor, selection and automation policy tests
+- `ReviewFixTests`, one regression test per code-review fix
 - table-driven `LadderParityTests`, which compare rungs, title variants, alias forms, episode
   matching, display titles, work identity/keys and film messages against
   `TsOracle\ts-oracle.json`
 
 `ts-oracle.json` holds outputs captured from the TypeScript original on real-looking release names.
 `TsOracle\oracle.ts` regenerates it. Test hosts replace the artwork and AniList contracts with fakes,
-so tests never touch the network. The full solution build has zero warnings/errors and all 8,511
+so tests never touch the network. The full solution build has zero warnings/errors and all 8,527
 tests pass.
 
 `server\tests\TorrentFlow.Library.Tests\verify-parity.py` compares running isolated Next (3102)
