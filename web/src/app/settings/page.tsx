@@ -16,6 +16,7 @@ import { Link } from "react-router";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
 import { DownloadLocationFields } from "@/components/settings/download-location-fields";
 import { FolderPicker } from "@/components/settings/folder-picker";
+import { RemoteAccessSection } from "@/components/settings/remote-access-section";
 import { RetentionPanel } from "@/components/settings/retention-panel";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { SourcesSettings } from "@/components/settings/sources-settings";
@@ -1271,6 +1272,8 @@ export default function SettingsPage() {
         </SettingsDisclosure>
       </form>
       <SourcesSettings />
+
+      <RemoteAccessSection />
 
       <FolderPicker
         open={pickerOpen}

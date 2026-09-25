@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TorrentFlow.Api.RemoteAccess;
 using TorrentFlow.Data;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
@@ -24,29 +26,51 @@ var isPublishedBundle = IsPublishedBundle();
 var configuredUrls = builder.Configuration["urls"];
 var aspNetCoreUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
 var defaultUrl = "http://127.0.0.1:3000";
-if (string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls))
-    builder.WebHost.UseUrls(defaultUrl);
-
-if (isPublishedBundle && string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls))
-{
-    if (!IsLoopbackPortAvailable(3000))
-    {
-        Console.Error.WriteLine("TorrentFlow could not start because http://127.0.0.1:3000 is already in use. Close the other app or launch TorrentFlow with --urls <address>.");
-        Environment.ExitCode = 1;
-        // A double-clicked exe closes its console on exit; keep the message readable.
-        if (!Console.IsInputRedirected)
-        {
-            Console.Error.WriteLine("Press any key to close.");
-            Console.ReadKey(intercept: true);
-        }
-        return;
-    }
-}
+var ownerUrls = !string.IsNullOrWhiteSpace(configuredUrls) ? configuredUrls
+    : !string.IsNullOrWhiteSpace(aspNetCoreUrls) ? aspNetCoreUrls
+    : defaultUrl;
 
 var dataDir = DataDirectoryResolver.Resolve(builder.Configuration["TorrentFlow:DataDirectory"],
     builder.Environment.ContentRootPath, AppContext.BaseDirectory, DataDirectoryResolver.DefaultDirectory(), Console.WriteLine);
 Directory.CreateDirectory(dataDir);
 builder.Configuration["TorrentFlow:DataDirectory"] = dataDir;
+
+// Remote access adds a second listener meant only for cloudflared. It joins the same UseUrls list: calling
+// ConfigureKestrel().Listen() would silently override --urls / ASPNETCORE_URLS.
+var remoteAccess = RemoteAccessStore.Load(builder.Configuration, dataDir);
+foreach (var warning in remoteAccess.LoadWarnings)
+    Console.Error.WriteLine($"TorrentFlow remote access: {warning}");
+remoteAccess.OwnerPorts = OwnerPorts(ownerUrls);
+if (remoteAccess.Startup.Enabled)
+{
+    if (remoteAccess.OwnerPorts.Contains(remoteAccess.Startup.TunnelPort))
+    {
+        var clash = $"TorrentFlow could not start because the remote access tunnel port {remoteAccess.Startup.TunnelPort} is the same port TorrentFlow uses on this computer ({ownerUrls}). Choose a different tunnel port in {remoteAccess.FilePath} or TorrentFlow:RemoteAccess:TunnelPort.";
+        if (!isPublishedBundle) throw new InvalidOperationException(clash);
+        ExitWithMessage(clash);
+        return;
+    }
+    builder.WebHost.UseUrls(ownerUrls + ";" + remoteAccess.Startup.TunnelUrl);
+}
+else if (string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls))
+{
+    builder.WebHost.UseUrls(defaultUrl);
+}
+
+if (isPublishedBundle && string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls))
+{
+    if (!IsPortAvailable(IPAddress.Loopback, 3000))
+    {
+        ExitWithMessage("TorrentFlow could not start because http://127.0.0.1:3000 is already in use. Close the other app or launch TorrentFlow with --urls <address>.");
+        return;
+    }
+}
+if (isPublishedBundle && remoteAccess.Startup.Enabled
+    && !IsPortAvailable(IPAddress.Parse(remoteAccess.Startup.TunnelBindAddress), remoteAccess.Startup.TunnelPort))
+{
+    ExitWithMessage($"TorrentFlow could not start because the remote access port {remoteAccess.Startup.TunnelUrl} is already in use. Close the other app or choose a different tunnel port in {remoteAccess.FilePath}.");
+    return;
+}
 var dbPath = builder.Configuration["TorrentFlow:DatabasePath"] ?? Path.Combine(dataDir, "torrentflow.db");
 builder.Services.AddTorrentFlowData($"Data Source={dbPath}");
 
@@ -69,9 +93,20 @@ builder.Services.AddControllers()
         o.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 
+builder.Services.AddSingleton(remoteAccess);
+builder.Services.TryAddSingleton(TimeProvider.System);
+builder.Services.AddHttpClient(HttpAccessKeySource.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddSingleton<IAccessKeySource, HttpAccessKeySource>();
+builder.Services.AddSingleton<AccessKeyCache>();
+builder.Services.AddSingleton<AccessTokenValidator>();
+
 var app = builder.Build();
 app.Logger.LogInformation("TorrentFlow data directory: {DataDirectory}; database: {DatabasePath}", dataDir, dbPath);
 await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
+
+// Trust is decided first, before static files, the SPA fallback and every endpoint.
+app.UseMiddleware<RemoteAccessMiddleware>();
+app.UseMiddleware<UnsafeMethodGuardMiddleware>();
 
 // The React SPA (web/) builds into web/dist. Static files run before routing so the history-API fallback
 // below never captures real assets (it would answer /assets/*.js with index.html).
@@ -104,8 +139,10 @@ app.Use(async (context, next) =>
 app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engine, HttpContext http) =>
 {
     http.Response.Headers.CacheControl = "no-store";
-    return Results.Json(new { streaming = engine.CurrentValue.Streaming });
+    // Streaming routes are refused on the tunnel, so the SPA must hide playback there too.
+    return Results.Json(new { streaming = engine.CurrentValue.Streaming && !RemoteAccessClaims.IsTunnel(http) });
 });
+app.MapRemoteAccessEndpoints();
 
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.
 app.MapGet("/activity", () => Results.Redirect("/notifications", permanent: true, preserveMethod: true));
@@ -152,6 +189,21 @@ if (launchBrowser)
 {
     var browserUrl = GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl);
     app.Lifetime.ApplicationStarted.Register(() => OpenBrowser(browserUrl));
+}
+if (remoteAccess.Startup.Enabled)
+{
+    // Kestrel:Endpoints config overrides UseUrls; report the tunnel as down instead of trusting what was requested.
+    app.Lifetime.ApplicationStarted.Register(() =>
+    {
+        var addresses = app.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>()
+            .Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses;
+        if (addresses is null || addresses.Count == 0) return;
+        var port = remoteAccess.Startup.TunnelPort;
+        remoteAccess.TunnelBound = addresses.Any(a => RemoteAccessRules.ParseOwnerPorts(a).Contains(port));
+        if (remoteAccess.TunnelBound == false)
+            app.Logger.LogError("Remote access is on but the tunnel port {Port} is not among the bound addresses ({Addresses}). Remove the Kestrel:Endpoints override or add {TunnelUrl} to it.",
+                port, string.Join(", ", addresses), remoteAccess.Startup.TunnelUrl);
+    });
 }
 
 app.Run();
@@ -210,11 +262,11 @@ static bool IsPublishedBundle()
 #pragma warning restore IL3000
 }
 
-static bool IsLoopbackPortAvailable(int port)
+static bool IsPortAvailable(IPAddress address, int port)
 {
     try
     {
-        var listener = new TcpListener(IPAddress.Loopback, port);
+        var listener = new TcpListener(address, port);
         listener.Start();
         listener.Stop();
         return true;
@@ -224,5 +276,19 @@ static bool IsLoopbackPortAvailable(int port)
         return false;
     }
 }
+
+static void ExitWithMessage(string message)
+{
+    Console.Error.WriteLine(message);
+    Environment.ExitCode = 1;
+    // A double-clicked exe closes its console on exit; keep the message readable.
+    if (!Console.IsInputRedirected)
+    {
+        Console.Error.WriteLine("Press any key to close.");
+        Console.ReadKey(intercept: true);
+    }
+}
+
+static IReadOnlyList<int> OwnerPorts(string urls) => RemoteAccessRules.ParseOwnerPorts(urls);
 
 public partial class Program;

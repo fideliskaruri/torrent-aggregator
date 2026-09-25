@@ -221,6 +221,13 @@ In-app streaming (players, prewarm, swarm probes, subtitles) is switched off by 
 
 The streaming code is kept (and still tested with the flag on) so it can be reworked later.
 
+## Remote access
+
+Opt-in owner access from a phone or away from home through Cloudflare Tunnel + Access: a second listener
+(default `127.0.0.1:3940`) meant only for `cloudflared`, where every request needs a valid Access token for
+an owner email. The local listener stays the trusted owner and refuses Cloudflare-proxied requests (421).
+Streaming is off on the tunnel. See [remote-access.md](remote-access.md) for setup and the security model.
+
 ## Build and test
 
 ```powershell

@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
     <ProjectReference Include="..\TorrentFlow.Core\TorrentFlow.Core.csproj" />
     <ProjectReference Include="..\TorrentFlow.Data\TorrentFlow.Data.csproj" />
     <ProjectReference Include="..\TorrentFlow.Search\TorrentFlow.Search.csproj" />

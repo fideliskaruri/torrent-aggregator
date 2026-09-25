@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { createRequestLifecycle } from "@/lib/observability/poll-schedule";
+import { sessionAwareFetch } from "@/lib/session-expiry";
 
 export type ApiQueryState<T> = {
   data: T | null;
@@ -200,7 +201,9 @@ export function useApiQuery<T = unknown>(
 
     void (async () => {
       try {
-        const res = await fetch(url, { signal: controller.signal });
+        // Only this call's rejection may mean "session expired"; a throw from
+        // `select` or JSON parsing below is an ordinary error.
+        const res = await sessionAwareFetch(url, { signal: controller.signal });
 
         if (res.status === 401 && emptyOnUnauthorized) {
           if (!cancelled) {
