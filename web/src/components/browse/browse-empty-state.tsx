@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The one state left after the home page stopped being empty.
  *
@@ -31,32 +29,21 @@
  */
 
 import { useCallback, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { Link } from "react-router";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SEARCH_HREF } from "@/lib/navigation";
 
 export function BrowseEmptyState({
   onRetry,
 }: {
-  /**
-   * Optional: the caller's own retry. Defaults to re-running the server
-   * render, which is what actually re-reads the catalog — the rails are
-   * assembled server-side, so a client-only refetch would ask the same failing
-   * question through a longer pipe.
-   */
-  onRetry?: () => void;
-} = {}) {
-  const router = useRouter();
+  /** Re-reads the catalog from scratch (the caller remounts its query). */
+  onRetry: () => void;
+}) {
   const [retrying, startTransition] = useTransition();
 
   const retry = useCallback(() => {
-    if (onRetry) {
-      onRetry();
-      return;
-    }
-    startTransition(() => router.refresh());
-  }, [onRetry, router]);
+    startTransition(onRetry);
+  }, [onRetry]);
 
   return (
     <div className="min-w-0 py-10" data-browse-empty>
@@ -70,7 +57,7 @@ export function BrowseEmptyState({
       <p className="mt-4 text-center text-[12px] text-[var(--text-tertiary)]">
         Search still works if you know what you are looking for —{" "}
         <Link
-          href={SEARCH_HREF}
+          to={SEARCH_HREF}
           data-dense-ui
           className="text-[var(--accent-text)] underline-offset-4 transition-colors hover:text-[var(--accent-hover)] hover:underline"
         >

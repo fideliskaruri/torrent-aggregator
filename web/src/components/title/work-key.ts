@@ -30,7 +30,7 @@ import { workIdentity } from "@/lib/torrents/work-identity";
 import type { MediaMetadata } from "@/lib/torrents/types";
 
 /** Where a title page lives. Exported so nothing hardcodes the route. */
-export const TITLE_HREF = "/title";
+const TITLE_HREF = "/title";
 
 /**
  * Casefold a work name into a path segment.
@@ -41,7 +41,7 @@ export const TITLE_HREF = "/title";
  * anime) folds to nothing, so it falls back to percent-encoding the
  * normalised name — still a legal, stable path segment, just not a pretty one.
  */
-export function slugifyWorkName(name: string): string {
+function slugifyWorkName(name: string): string {
   const folded = (name ?? "")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -84,21 +84,6 @@ export function workIdentityFor(
 }
 
 /**
- * The key for a *release name* — the identity path every torrent takes.
- *
- * `metadata` is passed straight through to `workIdentity`, where it may only
- * improve the display name of a group it agrees with. It cannot change the
- * key, which is what makes a wrong catalog match unable to merge two works.
- */
-export function workKeyForRelease(
-  releaseName: string,
-  metadata?: MediaMetadata | null,
-): string {
-  const identity = workIdentityFor(releaseName, metadata);
-  return workKeyFor(identity.name, identity.year);
-}
-
-/**
  * Every key a row with this name/year could legitimately be addressed by.
  *
  * Two, not one: a `WatchListItem` stores `"Dune"` with no year and its
@@ -107,14 +92,14 @@ export function workKeyForRelease(
  * library row still matches its downloads. It cannot over-match in the
  * dangerous direction — asking for `dune-2021` never returns the 1984 film.
  */
-export function workKeyVariants(name: string, year?: number | null): string[] {
+function workKeyVariants(name: string, year?: number | null): string[] {
   const withYear = workKeyFor(name, year);
   const bare = workKeyFor(name, null);
   return withYear === bare ? [bare] : [withYear, bare];
 }
 
 /** Does a row named `name` (optionally dated `year`) answer to `key`? */
-export function workKeyMatches(
+function workKeyMatches(
   key: string,
   name: string,
   year?: number | null,
@@ -185,7 +170,7 @@ const LEGACY_SIZE_GROUP =
  * The key itself first, then the pre-cleanup spelling with its size/group run
  * removed. Never more than these two, and never a guess that drops a word.
  */
-export function workKeyAliases(key: string): string[] {
+function workKeyAliases(key: string): string[] {
   const wanted = (key ?? "").trim().toLowerCase();
   if (!wanted) return [];
   const legacy = wanted.replace(LEGACY_SIZE_GROUP, "");

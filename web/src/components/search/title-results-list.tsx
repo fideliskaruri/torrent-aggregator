@@ -1,5 +1,3 @@
-"use client";
-
 import { SearchX } from "lucide-react";
 import type { TitleResult } from "./group-titles";
 import {

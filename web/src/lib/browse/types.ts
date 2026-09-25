@@ -28,16 +28,6 @@
  */
 export type AvailabilityState = "ready" | "warm" | "fetchable" | "unavailable";
 
-/** Full availability result for one title (or episode). */
-export interface Availability {
-  /** Null means "not yet determined" — no claim made either way. */
-  state: AvailabilityState | null;
-  /** Info hash of the local torrent, when state is `ready` or `warm`. */
-  infoHash?: string;
-  /** Download fraction 0–1 when state is `warm`. */
-  progress?: number;
-}
-
 // ---------------------------------------------------------------------------
 // Playback progress (POST / GET /api/progress)
 // ---------------------------------------------------------------------------
@@ -156,11 +146,3 @@ export interface BrowsePayload {
 // ---------------------------------------------------------------------------
 // Completion threshold
 // ---------------------------------------------------------------------------
-
-/**
- * Fraction of duration at which playback is considered complete.
- *
- * Viewers abandon during credits, and an episode that never leaves Continue
- * Watching is a bug. 90% is the industry-standard threshold (Netflix, Plex).
- */
-export const COMPLETION_THRESHOLD = 0.9;

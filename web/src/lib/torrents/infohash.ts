@@ -20,7 +20,7 @@ const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
  * Returns null when the input is not valid base32 or does not produce exactly
  * 20 bytes (40 hex chars).
  */
-export function base32ToHex(value: string): string | null {
+function base32ToHex(value: string): string | null {
   if (value.length !== 32) return null;
 
   let bits = "";
@@ -41,7 +41,7 @@ export function base32ToHex(value: string): string | null {
  * Normalise a raw infoHash string (hex or base32) to 40-char lowercase hex.
  * Returns null for anything that is not a valid infoHash.
  */
-export function normalizeInfoHash(raw: string | null | undefined): string | null {
+function normalizeInfoHash(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const value = raw.trim();
   if (/^[0-9a-f]{40}$/i.test(value)) return value.toLowerCase();

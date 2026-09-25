@@ -27,7 +27,7 @@
  * a returning user never reads stale data.
  */
 
-export interface PollDecisionFacts {
+interface PollDecisionFacts {
   /** `document.hidden` — the tab is backgrounded/minimised. */
   hidden: boolean;
   /** A request from this query has not settled yet. */
@@ -45,9 +45,9 @@ export interface PollDecisionFacts {
   deadlineMs?: number;
 }
 
-export type PollSkipReason = "hidden" | "in-flight";
+type PollSkipReason = "hidden" | "in-flight";
 
-export interface PollDecision {
+interface PollDecision {
   poll: boolean;
   /** Why the tick was dropped, for diagnostics. `null` when polling. */
   reason: PollSkipReason | null;
@@ -60,7 +60,7 @@ export interface PollDecision {
  * "hidden" even if a request happens to be outstanding — that is the
  * actionable one.
  */
-export function decidePoll(facts: PollDecisionFacts): PollDecision {
+function decidePoll(facts: PollDecisionFacts): PollDecision {
   if (facts.hidden) return { poll: false, reason: "hidden" };
   if (facts.inFlight && !isRequestPastDeadline(facts)) {
     return { poll: false, reason: "in-flight" };
@@ -111,8 +111,8 @@ function isRequestPastDeadline(facts: PollDecisionFacts): boolean {
  * deadline-triggered replacement, resetting the moment any request settles
  * normally.
  */
-export const MIN_REQUEST_DEADLINE_MS = 15_000;
-export const MAX_REQUEST_DEADLINE_MS = 60_000;
+const MIN_REQUEST_DEADLINE_MS = 15_000;
+const MAX_REQUEST_DEADLINE_MS = 60_000;
 
 /**
  * First loads get a materially more patient deadline than refreshes. There is
@@ -120,7 +120,7 @@ export const MAX_REQUEST_DEADLINE_MS = 60_000;
  * paths (no caches warm) are exactly when a response legitimately takes tens
  * of seconds.
  */
-export const FIRST_LOAD_REQUEST_DEADLINE_MS = 60_000;
+const FIRST_LOAD_REQUEST_DEADLINE_MS = 60_000;
 
 /**
  * The saturation point for the adaptive growth. Chosen so a genuinely slow
@@ -129,9 +129,9 @@ export const FIRST_LOAD_REQUEST_DEADLINE_MS = 60_000;
  * deadline that grew without bound would be a permanent stuck owner wearing a
  * different hat.
  */
-export const MAX_ADAPTIVE_REQUEST_DEADLINE_MS = 600_000;
+const MAX_ADAPTIVE_REQUEST_DEADLINE_MS = 600_000;
 
-export interface RequestDeadlineFacts {
+interface RequestDeadlineFacts {
   /** Nothing has ever loaded for this query yet. */
   firstLoad?: boolean;
   /**
@@ -141,7 +141,7 @@ export interface RequestDeadlineFacts {
   timeoutStreak?: number;
 }
 
-export function requestDeadlineMs(
+function requestDeadlineMs(
   intervalMs: number,
   facts: RequestDeadlineFacts = {},
 ): number {
@@ -167,7 +167,7 @@ export function requestDeadlineMs(
   return Math.min(MAX_ADAPTIVE_REQUEST_DEADLINE_MS, base * 2 ** streak);
 }
 
-export interface OutstandingRequest {
+interface OutstandingRequest {
   /** The generation that owns the slot. Never reused. */
   generation: number;
   /** Epoch ms when the request was issued, for the deadline check. */
@@ -184,14 +184,14 @@ export interface OutstandingRequest {
  * generation-checked — a stale owner's release is a no-op — and a claim always
  * wins, because the caller that claims has just aborted whatever came before.
  */
-export interface RequestSlot {
+interface RequestSlot {
   claim(request: OutstandingRequest): void;
   /** Clears the slot only if `generation` still owns it. */
   release(generation: number): void;
   current(): OutstandingRequest | null;
 }
 
-export function createRequestSlot(): RequestSlot {
+function createRequestSlot(): RequestSlot {
   let outstanding: OutstandingRequest | null = null;
   return {
     claim(request) {
@@ -259,9 +259,9 @@ export interface RequestLifecycle {
   timeoutStreak(): number;
 }
 
-export type VisibilityRefreshSkipReason = "not-stale" | "in-flight";
+type VisibilityRefreshSkipReason = "not-stale" | "in-flight";
 
-export interface VisibilityRefreshDecision {
+interface VisibilityRefreshDecision {
   refresh: boolean;
   /** Why the refresh was dropped, for diagnostics. `null` when refreshing. */
   reason: VisibilityRefreshSkipReason | null;
@@ -363,7 +363,7 @@ export function createRequestLifecycle(): RequestLifecycle {
  * visibility: it opted out of liveness, and honouring that is what makes this
  * safe to put in the shared hook.
  */
-export function shouldRefreshOnVisible(args: {
+function shouldRefreshOnVisible(args: {
   intervalMs: number;
   hiddenForMs: number;
   missedTick: boolean;

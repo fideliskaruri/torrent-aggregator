@@ -50,7 +50,7 @@ export function stateLabel(state: string) {
 const CONTAINER_EXT = /\.(mkv|mp4|avi|m4v|mov|ts|webm|wmv|flv|mpg|mpeg)$/i;
 const BRACKET_GROUP = /^\s*(?:\[[^\]]{2,40}\]\s*)+/;
 
-export function resolutionChip(raw: string): string | null {
+function resolutionChip(raw: string): string | null {
   const resolution = parseResolution(raw);
   return resolution ? `${resolution}p` : null;
 }

@@ -358,13 +358,6 @@ export function parseEpisode(title: string): EpisodeInfo {
   return specialType ? { ...parsed, specialType } : parsed;
 }
 
-export function compareEpisodes(a: EpisodeInfo, b: EpisodeInfo): number {
-  const sa = a.season ?? 0;
-  const sb = b.season ?? 0;
-  if (sa !== sb) return sa - sb;
-  return (a.episode ?? 0) - (b.episode ?? 0);
-}
-
 /**
  * Explicit companion-material marker. This is intentionally lexical: file
  * size, category and episode zero are not enough evidence to call a release an
@@ -379,25 +372,6 @@ export function classifySpecialRelease(
   if (/\bmovie\b/.test(normalized)) return "movie";
   if (/\bspecials?\b/.test(normalized)) return "special";
   return undefined;
-}
-
-/** Suggest next episode search string from last known episode label */
-export function nextEpisodeQuery(title: string, lastEpisode?: string | null): string {
-  if (!lastEpisode) return title;
-
-  const se = lastEpisode.match(/S(\d{1,3})E(\d{1,4})/i);
-  if (se) {
-    const season = parseInt(se[1], 10);
-    const episode = parseInt(se[2], 10) + 1;
-    return `${title} S${pad(season)}E${pad(episode)}`;
-  }
-
-  const ep = lastEpisode.match(/Ep\s*(\d{1,4})/i);
-  if (ep) {
-    return `${title} ${parseInt(ep[1], 10) + 1}`;
-  }
-
-  return title;
 }
 
 /**

@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
 import {
@@ -198,7 +196,7 @@ function MissingRailsNote({ rails }: { rails: BrowsePayload["rails"] }) {
               {preview.blurb}
             </span>
             <Link
-              href={preview.href}
+              to={preview.href}
               className="mt-auto inline-flex items-center self-start min-h-[44px] pt-1 text-[12px] text-[var(--accent-text)] underline-offset-4 transition-colors hover:text-[var(--accent-hover)] hover:underline lg:min-h-0"
             >
               {preview.cta}

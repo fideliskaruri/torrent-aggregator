@@ -5,7 +5,6 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const shim = (file: string) => path.join(root, "src", "shims", file);
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, root, "VITE_");
@@ -19,10 +18,6 @@ export default defineConfig(({ mode }) => {
     css: { postcss: {} },
     resolve: {
       alias: [
-        { find: /^next\/link$/, replacement: shim("next-link.tsx") },
-        { find: /^next\/navigation$/, replacement: shim("next-navigation.ts") },
-        { find: /^next\/image$/, replacement: shim("next-image.tsx") },
-        { find: /^next\/font\/google$/, replacement: shim("next-font-google.ts") },
         { find: /^@\//, replacement: `${path.join(root, "src")}/` },
       ],
     },

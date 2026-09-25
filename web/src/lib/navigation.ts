@@ -58,12 +58,6 @@ export const SEARCH_HREF = "/search";
  */
 export const HEADER_SEARCH_HREF = SEARCH_HREF;
 
-/** The search affordance as a nav item, for anything that renders it as one. */
-export const SEARCH_NAV_ITEM: NavItem = {
-  href: SEARCH_HREF,
-  label: "Search",
-} as const;
-
 /**
  * Kept for old bookmarks and presentation maps. It is not a navigation entry.
  */
@@ -102,9 +96,6 @@ export const SECONDARY_NAV: readonly NavItem[] = [] as const;
 /** Desktop header: the primary path. */
 export const DESKTOP_NAV: readonly NavItem[] = [...PRIMARY_NAV];
 
-/** Index in DESKTOP_NAV where the primary path ends and secondary begins. */
-export const DESKTOP_NAV_DIVIDER_INDEX = PRIMARY_NAV.length;
-
 /**
  * The desktop header's text links, and where the divider sits among them.
  *
@@ -136,7 +127,7 @@ export const MORE_ACTIVE_PREFIXES: readonly string[] = [
  * History is deliberately absent from both lists: it is a filtered view of the
  * download log, linked from Notifications.
  */
-export const HISTORY_HREF = "/history";
+const HISTORY_HREF = "/history";
 
 export function navActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
@@ -151,7 +142,7 @@ export function navActive(pathname: string, href: string): boolean {
  * a real entry, and only a list-wide decision can keep exactly one row
  * highlighted.
  */
-export function navItemActive(pathname: string, item: NavItem): boolean {
+function navItemActive(pathname: string, item: NavItem): boolean {
   if (navActive(pathname, item.href)) return true;
   return (item.owns ?? []).some((href) => navActive(pathname, href));
 }

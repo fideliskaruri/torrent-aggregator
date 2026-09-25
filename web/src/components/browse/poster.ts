@@ -10,28 +10,11 @@
  */
 
 /**
- * Hosts `next/image` is configured to optimise (`next.config.ts`
- * `images.remotePatterns`).
- *
- * A poster URL can be anything a metadata provider handed us, and `next/image`
- * hard-fails on a host it was not told about — one stray URL would blank a
- * whole rail. So the rule is by *host*, not by rail: known host → optimised
- * `next/image`, anything else → a plain `<img>` that can only ever fail to its
- * own fallback.
+ * Known metadata-provider image hosts. Posters from these hosts render with
+ * the fill/priority treatment; anything else gets a plain `<img>` that can
+ * only ever fail to its own fallback.
  */
-/**
- * Hosts `next/image` is allowed to optimise.
- *
- * MUST stay in sync with `remotePatterns` in `next.config.ts`. A host listed
- * here but missing there does not degrade gracefully — `next/image` rejects
- * the request and the poster fails outright. The reverse (there but not here)
- * is safe: the URL simply falls through to a plain `<img>`.
- *
- * Optimising these is not cosmetic. A TVmaze `original_untouched` poster is
- * ~1.3 MB; served raw into a 124px tile a single rail would pull tens of
- * megabytes, which is exactly the load time this product is trying to win.
- */
-export const OPTIMIZED_IMAGE_HOSTS = new Set([
+const OPTIMIZED_IMAGE_HOSTS = new Set([
   "image.tmdb.org",
   "s4.anilist.co",
   "static.tvmaze.com",
@@ -42,7 +25,7 @@ export const OPTIMIZED_IMAGE_HOSTS = new Set([
  * shard serves a given asset is not stable, so this is matched by suffix
  * rather than enumerated.
  */
-export const OPTIMIZED_HOST_SUFFIXES = [".mzstatic.com"];
+const OPTIMIZED_HOST_SUFFIXES = [".mzstatic.com"];
 
 export function isOptimizableImageUrl(url: string | null | undefined): boolean {
   if (!url) return false;

@@ -10,7 +10,7 @@
  * Pure and DOM-free: `browse-ui.test.ts` drives it as a table.
  */
 import type { Rail, RailItem } from "@/lib/browse";
-import { formatClock, progressPercent } from "./availability";
+import { progressPercent } from "./availability";
 
 export interface HeroPick {
   item: RailItem;
@@ -52,74 +52,6 @@ export function pickHeroItem(rails: readonly Rail[]): HeroPick | null {
 
 function eyebrowFor(rail: Rail): string {
   return EYEBROW_BY_RAIL[rail.id] ?? rail.title;
-}
-
-/**
- * The hero paragraph.
- *
- * Prefers the work's own synopsis. Failing that it states the playback status
- * in as few words as will do the job — and says **nothing at all** while the
- * availability probe is still outstanding.
- *
- * It used to explain the app's plumbing back at the viewer — "You stopped at
- * 1:12:00 — 43% in. It is downloaded in full, so it picks up instantly and
- * seeks anywhere." That is three sentences about the downloader in the one
- * place a catalogue is supposed to be telling you about the film, and the user
- * called it out as noise. Nobody needs to be told that a fully downloaded file
- * seeks; they need to know what the thing is and whether to press play. Status
- * that matters is already visible as a chip, a progress bar and the button
- * label, so saying it again in prose adds nothing.
- *
- * The unresolved state is the same mistake in a smaller costume. "Not checked
- * yet." is not a fact about the film, it is the app narrating its own probe
- * queue, and because it only ever appears on first paint the user sees it
- * *flash* and then be replaced — on a title they are 42% of the way through
- * and which is sitting complete on their disk. Reporting our own ignorance is
- * worse than silence: silence is merely empty, whereas "not checked" reads as
- * a claim about the film's availability and is contradicted a second later.
- */
-export function heroPitch(item: RailItem): string {
-  const overview = item.overview?.trim();
-  if (overview) return overview;
-  if (item.availability === null) return "";
-  return heroStatus(item);
-}
-
-/** Terse fallback: one short clause, distinct per state. */
-export function heroStatus(item: RailItem): string {
-  const clock = formatClock(item.resumePositionSec);
-  const resumed = clock && (item.resumePositionSec ?? 0) > 0;
-  const state = item.availability;
-
-  // Handled before the switch, never as a `default:` — sharing a branch with
-  // `unavailable` is the exact false negative this state exists to avoid.
-  // Returns nothing: an outstanding probe is a fact about us, not the film,
-  // and the caller renders no prose rather than narrating our queue.
-  if (state === null) {
-    return "";
-  }
-
-  switch (state) {
-    case "ready":
-      return resumed ? `Resume from ${clock}.` : "Downloaded — ready to play.";
-    case "warm":
-      return resumed
-        ? `Resume from ${clock} — still downloading.`
-        : "Playable now.";
-    case "fetchable":
-      return "Not downloaded yet.";
-    case "unavailable":
-      return item.watchListItemId
-        ? "Not available yet."
-        : "No release found.";
-    default:
-      return assertNeverPitch(state);
-  }
-}
-
-/** See `availability.ts` — a new state must break the build, not the copy. */
-function assertNeverPitch(value: never): never {
-  throw new Error(`Unhandled availability state in heroPitch: ${String(value)}`);
 }
 
 /**

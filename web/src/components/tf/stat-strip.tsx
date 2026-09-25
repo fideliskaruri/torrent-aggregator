@@ -39,7 +39,7 @@ const SPAN_CLASS: Record<keyof typeof COLUMNS, Record<number, string>> = {
  * Stretching the last tile keeps the strip clean at any item count, not just
  * the counts that happen to divide evenly.
  */
-export function lastItemSpan(count: number, columns: number): number {
+function lastItemSpan(count: number, columns: number): number {
   if (count <= 0 || columns <= 0) return 1;
   const remainder = count % columns;
   return remainder === 0 ? 1 : columns - remainder + 1;

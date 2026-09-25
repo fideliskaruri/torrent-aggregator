@@ -1,9 +1,14 @@
-"use client";
-
-import Image from "next/image";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { isOptimizableImageUrl, posterInitial, posterTint } from "./poster";
+
+const FILL: CSSProperties = {
+  position: "absolute",
+  height: "100%",
+  width: "100%",
+  inset: 0,
+  color: "transparent",
+};
 
 /**
  * Artwork for a card or hero, with the no-artwork case treated as normal.
@@ -17,8 +22,8 @@ import { isOptimizableImageUrl, posterInitial, posterTint } from "./poster";
  * look composed. It deliberately sets no words: every caller already prints the
  * title next to it.
  *
- * Three states, not two: optimised image for hosts `next/image` knows, plain
- * image for anything else, and the designed tile when there is no URL *or* the
+ * Three states, not two: a filled, priority-aware image for known provider
+ * hosts, a plain image for anything else, and the designed tile when there is no URL *or* the
  * URL fails to load.
  *
  * The caller owns the box and its aspect ratio; this fills it absolutely, so
@@ -34,7 +39,7 @@ export function PosterImage({
 }: {
   src: string | null;
   title: string;
-  /** Passed straight to `next/image`; required for a `fill` image to be sized. */
+  /** The `<img>` `sizes` hint for the filled poster box. */
   sizes: string;
   priority?: boolean;
   /**
@@ -53,12 +58,14 @@ export function PosterImage({
 
   if (isOptimizableImageUrl(usable)) {
     return (
-      <Image
+      <img
         src={usable}
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : undefined}
+        decoding="async"
+        style={FILL}
         alt=""
-        fill
         sizes={sizes}
-        priority={priority}
         onError={() => setFailed(true)}
         className={cn("object-cover", className)}
       />
@@ -66,10 +73,8 @@ export function PosterImage({
   }
 
   return (
-    // A self-hosted install can point at any image host, and an unknown host
-    // makes `next/image` throw at request time rather than degrade — so unknown
-    // hosts get a plain tag that can only ever fall through to the tile above.
-    // eslint-disable-next-line @next/next/no-img-element
+    // A self-hosted install can point at any image host; unknown hosts get a
+    // plain tag that can only ever fall through to the tile above.
     <img
       src={usable}
       alt=""

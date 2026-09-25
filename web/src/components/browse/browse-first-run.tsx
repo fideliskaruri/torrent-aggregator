@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The browse page's honest answer when the server pass came back with nothing.
  *
@@ -18,7 +16,7 @@
  * and never pays for it: the server already rendered the board.
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { BrowsePayload } from "@/lib/browse";
 import { TfErrorState } from "@/components/tf/error-state";
 import { BrowseBoard } from "./browse-board";
@@ -28,12 +26,22 @@ import { isFirstRun } from "./first-run";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 
-export function BrowseFirstRun({
-  serverError,
-}: {
+interface BrowseFirstRunProps {
   /** Why the server pass failed, or null when it simply had nothing. */
   serverError: string | null;
-}) {
+}
+
+/** The empty state's retry starts over: a fresh mount re-asks `/api/browse` from the skeleton. */
+export function BrowseFirstRun(props: BrowseFirstRunProps) {
+  const [generation, setGeneration] = useState(0);
+  const reload = useCallback(() => setGeneration((n) => n + 1), []);
+  return <BrowseFirstRunView key={generation} {...props} onReload={reload} />;
+}
+
+function BrowseFirstRunView({
+  serverError,
+  onReload,
+}: BrowseFirstRunProps & { onReload: () => void }) {
   // A failed server pass has already told us something is wrong, so the first
   // paint is the error state rather than a skeleton that resolves into one.
   // A clean install still asks, because "we found nothing" is a claim worth
@@ -76,7 +84,7 @@ export function BrowseFirstRun({
 
   return (
     <div className="container-app min-w-0">
-      <BrowseEmptyState />
+      <BrowseEmptyState onRetry={onReload} />
     </div>
   );
 }

@@ -68,7 +68,7 @@ const FETCH_TIMEOUT_MS = 30_000;
  * look. Never phrased as "no release", which is a statement about availability
  * that a timeout is no evidence for.
  */
-export const GRAB_TIMEOUT_MESSAGE =
+const GRAB_TIMEOUT_MESSAGE =
   "Still working after 30s, so we stopped waiting — the grab may still be running on the server. Check Downloads before trying again.";
 
 /**

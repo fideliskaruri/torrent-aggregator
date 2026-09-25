@@ -1,5 +1,3 @@
-"use client";
-
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -14,7 +12,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RetentionPanel } from "@/components/settings/retention-panel";
@@ -65,27 +63,6 @@ interface DownloadPathWarning {
   reasons: UnsafeDownloadPathReason[];
   message: string;
 }
-
-export const PRIMARY_DOWNLOAD_CLIENT_OPTIONS = [
-  {
-    value: "builtin",
-    label: "TorrentFlow built-in",
-    stance: "recommended",
-    hint: "Ready to watch in the browser. No other app or connection details needed.",
-  },
-  {
-    value: "qbittorrent",
-    label: "qBittorrent",
-    stance: "advanced",
-    hint: "Requires qBittorrent to be running and reachable.",
-  },
-  {
-    value: "transmission",
-    label: "Transmission",
-    stance: "advanced",
-    hint: "Requires Transmission to be running and reachable.",
-  },
-] as const;
 
 const QUALITY_CHOICES = [
   { value: 480, label: "480p", hint: "Small files" },
@@ -156,7 +133,7 @@ function effectiveCategoryPath(
   return savePath.trim();
 }
 
-export function parseSettingsTab(
+function parseSettingsTab(
   value: string | null,
 ): "connection" | "folders" | "categories" | null {
   return value === "connection" || value === "folders" || value === "categories"
@@ -1030,7 +1007,7 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <Button asChild type="button" variant="link" className="h-auto p-0">
-                  <Link href="/watchlist">Open Library automation</Link>
+                  <Link to="/watchlist">Open Library automation</Link>
                 </Button>
               </div>
               <label htmlFor="automation-timing" className="sr-only">

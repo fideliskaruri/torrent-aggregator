@@ -19,7 +19,7 @@ import {
 import type { WorkSearchScope } from "@/lib/search/work-search";
 
 /** The minimum query length worth sending. */
-export const MIN_QUERY_LENGTH = 2;
+const MIN_QUERY_LENGTH = 2;
 
 export interface SearchRequest {
   url: string;

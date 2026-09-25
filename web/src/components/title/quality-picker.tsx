@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Quality chooser — the one extra step between pressing Download and sending
  * a keep-it grab to the server.

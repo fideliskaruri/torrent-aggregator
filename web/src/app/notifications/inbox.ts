@@ -32,7 +32,7 @@ export interface InboxCandidate {
   infoHash: string | null;
 }
 
-export type NotificationKind = "completion" | "failure";
+type NotificationKind = "completion" | "failure";
 
 export interface Notification {
   id: string;
@@ -62,33 +62,13 @@ const COMPLETED = new Set(["sent", "completed", "downloaded", "done"]);
 const TERMINAL_FAILURE = new Set(["failed", "error", "exhausted"]);
 
 /**
- * Every status the inbox recognises, for the server to filter on.
- *
- * The unread count is answered by a query, not by counting a page of the feed,
- * and a query needs the allowlist as data. Kept derived from the two sets
- * above so a status can never be added to one and forgotten here.
- */
-export const INBOX_STATUSES: readonly string[] = [
-  ...COMPLETED,
-  ...TERMINAL_FAILURE,
-];
-
-/**
- * The most unread notifications worth counting.
- *
- * {@link badgeText} renders anything over 99 as "99+", so counting past 100
- * would buy a number nobody sees at the cost of an unbounded read.
- */
-export const UNREAD_COUNT_CAP = 100;
-
-/**
  * Turn a raw row into a notification, or `null` if it is not news.
  *
  * Unknown statuses return `null` rather than being shown. An inbox that
  * displays anything it does not recognise fills up with whatever the next
  * subsystem happens to write, which is how the last one got to 274 rows.
  */
-export function toNotification(row: InboxCandidate): Notification | null {
+function toNotification(row: InboxCandidate): Notification | null {
   const status = row.status.trim().toLowerCase();
 
   if (COMPLETED.has(status)) {
@@ -126,7 +106,7 @@ export function toNotification(row: InboxCandidate): Notification | null {
  * than replaced with something vague, because a specific unknown message is
  * still more use than "Something went wrong".
  */
-export function plainFailure(message: string | null): string | null {
+function plainFailure(message: string | null): string | null {
   const raw = (message ?? "").trim();
   if (!raw) return "No working release was found.";
 
@@ -148,27 +128,8 @@ export function plainFailure(message: string | null): string | null {
   return raw;
 }
 
-/**
- * The one thing worth offering for a failure.
- *
- * One action, not a menu. A failed download beside Retry, Search again, Open
- * settings and Remove asks the user to diagnose their own problem, which is
- * the job the message above already did.
- */
-export function recoveryFor(notification: Notification): {
-  label: string;
-  href: string;
-} | null {
-  if (notification.kind !== "failure") return null;
-  const detail = notification.detail ?? "";
-  if (/download client|credentials|not writable|drive is full/i.test(detail)) {
-    return { label: "Open settings", href: "/settings" };
-  }
-  return { label: "Try again", href: "/search" };
-}
-
 /** Newest first, then by id so equal timestamps cannot reorder between renders. */
-export function sortNotifications(items: readonly Notification[]): Notification[] {
+function sortNotifications(items: readonly Notification[]): Notification[] {
   return [...items].sort(
     (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
   );
@@ -181,23 +142,6 @@ export function buildInbox(rows: readonly InboxCandidate[]): Notification[] {
     if (n) out.push(n);
   }
   return sortNotifications(out);
-}
-
-/**
- * How many notifications arrived after the user last looked.
- *
- * `lastReadAt` is an ISO timestamp, not a set of ids: the user reads the
- * *page*, not individual rows, and a per-row read model would need storage
- * that grows forever to answer a question nobody asks.
- *
- * A null `lastReadAt` means never opened, so everything is unread.
- */
-export function unreadCount(
-  items: readonly Notification[],
-  lastReadAt: string | null,
-): number {
-  if (!lastReadAt) return items.length;
-  return items.filter((n) => n.createdAt > lastReadAt).length;
 }
 
 /**

@@ -83,7 +83,7 @@ export function verdictDisplay(
  * the point is freshness, not precision, and a measurement is a prediction, not
  * a stopwatch.
  */
-export function relativeAge(measuredAtMs: number, nowMs: number): string {
+function relativeAge(measuredAtMs: number, nowMs: number): string {
   const diffMs = Math.max(0, nowMs - measuredAtMs);
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) return "just now";
