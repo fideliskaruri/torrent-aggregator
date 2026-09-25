@@ -105,6 +105,37 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.DoesNotContain(hash, list);
     }
 
+    [Theory]
+    [InlineData(9201, "Sintel", "movies", "movies", "Movies", new[] { "Movies", "Sintel" })]
+    [InlineData(9202, "Some.Show.S01E02.1080p.WEB.x264-GRP", "tv", "tv", "TV", new[] { "TV", "Some Show", "Season 01" })]
+    public async Task SendRoutesANamedReleaseIntoItsSmartFolder(int seed, string name, string searchCategory, string kind, string category, string[] parts)
+    {
+        await ConfigureStorageAsync();
+        var expected = Path.Combine([Path.Combine(factory.Root, "downloads"), .. parts]);
+
+        var json = await Json(await _http.PostAsJsonAsync("/api/torrent/send", new { magnet = EngineHarness.Magnet(seed), name, searchCategory }));
+
+        Assert.True(json.GetProperty("ok").GetBoolean());
+        Assert.Equal(category, json.GetProperty("target").GetProperty("category").GetString());
+        Assert.Equal(expected, json.GetProperty("target").GetProperty("savePath").GetString());
+        Assert.Equal(kind, json.GetProperty("smart").GetProperty("kind").GetString());
+        Assert.True(Directory.Exists(expected));
+        await factory.Services.GetRequiredService<TorrentFlow.Core.Contracts.Engine.ITorrentEngine>().RemoveAsync(EngineHarness.Hash(seed), false);
+    }
+
+    [Fact]
+    public async Task EngineAddWithoutASavePathRoutesLikeTheSendRoute()
+    {
+        await ConfigureStorageAsync();
+        var engine = factory.Services.GetRequiredService<TorrentFlow.Core.Contracts.Engine.ITorrentEngine>();
+
+        var result = await engine.AddAsync(new() { Magnet = EngineHarness.Magnet(9203), Name = "Tears of Steel 2012 1080p", Purpose = "keep", SearchCategory = "movies" });
+
+        Assert.True(result.Ok, result.Message);
+        Assert.True(Directory.Exists(Path.Combine(factory.Root, "downloads", "Movies", "Tears of Steel")));
+        await engine.RemoveAsync(EngineHarness.Hash(9203), false);
+    }
+
     [Fact]
     public async Task SendQueuesThenListAndForceShapes()
     {

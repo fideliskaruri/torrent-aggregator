@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Engine.Client;
@@ -88,8 +90,7 @@ public sealed class TorrentSendController(
         }
         if (!hasSource) return BadRequest(new { error = "magnet or torrentUrl is required (or infoHash with retention)" });
 
-        var category = body.Str("category") ?? body.Str("searchCategory");
-        var resolved = ClientSettingsStore.ResolveDownloadTarget(config, category, savePathOverride);
+        var resolved = await SmartTargetAsync(body, config, ct);
         var purpose = retention == "stream" ? TorrentPurpose.Stream : TorrentPurpose.Keep;
         var overrideCap = body.Bool("overrideStorageCap") ?? false;
         var expected = body.Num("expectedSizeBytes") is { } n && n > 0 ? (long)n : (long?)null;
@@ -124,12 +125,7 @@ public sealed class TorrentSendController(
             OverrideStorageCap = overrideCap,
         }, ct);
 
-        var smart = new
-        {
-            kind = (resolved.Category ?? "other").ToLowerInvariant(),
-            category = resolved.Category ?? "Other",
-            confidence = body.Bool("categoryManual") == true ? "high" : body.Str("searchCategory") is not null ? "medium" : "low",
-        };
+        var smart = new { kind = resolved.Smart.Kind, category = resolved.Smart.Category, confidence = resolved.Smart.Confidence };
         if (!result.Ok)
             return StatusCode(502, new { ok = false, message = result.Message, offline = false, code = result.StorageLimit is null ? "SEND_FAILED" : "STORAGE_LIMIT",
                 clientType = "builtin", sendTarget = target, target = targetJson, smart });
@@ -159,8 +155,7 @@ public sealed class TorrentSendController(
             }
             return BadRequest(new { error = "magnet or torrentUrl is required (or infoHash with retention)" });
         }
-        var category = body.Str("category") ?? body.Str("searchCategory");
-        var resolved = ClientSettingsStore.ResolveDownloadTarget(config, category, body.Str("savePath"));
+        var resolved = await SmartTargetAsync(body, config, ct);
         var hash = infoHash ?? (magnet is null ? null : TorrentSource.HashFromMagnet(magnet));
         var existingTransfer = hash is null ? null : await db.EngineTorrents.AsNoTracking()
             .FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.Hash.ToLower() == hash, ct);
@@ -209,7 +204,7 @@ public sealed class TorrentSendController(
         history.Category = resolved.Category;
         history.SavePath = resolved.SavePath;
         history.ClientType = config.ClientType;
-        history.SendKind = (resolved.Category ?? "other").ToLowerInvariant();
+        history.SendKind = resolved.Kind;
         db.DownloadHistories.Add(history);
         await db.SaveChangesAsync(ct);
         if (result.Ok) storage.ResetDirectorySizeCache();
@@ -218,11 +213,7 @@ public sealed class TorrentSendController(
         {
             ok = result.Ok, message = result.Message, offline, clientType = config.ClientType, sendTarget = target,
             target = new Dictionary<string, object?> { ["category"] = resolved.Category, ["savePath"] = resolved.SavePath },
-            smart = new
-            {
-                kind = (resolved.Category ?? "other").ToLowerInvariant(), category = resolved.Category ?? "Other",
-                confidence = body.Bool("categoryManual") == true ? "high" : body.Str("searchCategory") is not null ? "medium" : "low",
-            },
+            smart = new { kind = resolved.Smart.Kind, category = resolved.Smart.Category, confidence = resolved.Smart.Confidence },
             retentionState = existingTransfer?.Origin switch
             {
                 TorrentOrigin.User => "kept", TorrentOrigin.Stream => "stream", TorrentOrigin.Prewarm => "prewarm",
@@ -230,6 +221,38 @@ public sealed class TorrentSendController(
             },
             streamDegraded = purpose == TorrentPurpose.Stream,
         });
+    }
+
+    /// <summary>resolveSmartSendTarget over the body hints; a watchlist grab supplies the catalog's own metadata.</summary>
+    private async Task<SmartSendTarget> SmartTargetAsync(JsonElement body, ClientConfig config, CancellationToken ct)
+    {
+        MediaMetadata? metadata = null;
+        if (body.TryGetProperty("metadata", out var meta) && meta.ValueKind == JsonValueKind.Object)
+        {
+            try { metadata = meta.Deserialize<MediaMetadata>(JsonSerializerOptions.Web); }
+            catch (JsonException) { metadata = null; }
+        }
+        if (metadata is null && body.Str("watchListItemId") is { Length: > 0 } watchId
+            && await db.WatchListItems.AsNoTracking().FirstOrDefaultAsync(w => w.UserId == LocalUser.Id && w.Id == watchId, ct) is { } watch)
+            metadata = CatalogMetadata(watch.MediaType, watch.ExternalId, watch.Title);
+        string[]? tags = body.TryGetProperty("tags", out var t) && t.ValueKind == JsonValueKind.Array
+            ? [.. t.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!)]
+            : null;
+        return SmartSendTargets.Resolve(config, HttpContext.RequestServices.GetService<ISmartCategorizer>(), new SmartSendOptions
+        {
+            Name = body.Str("name"), Tags = tags, Metadata = metadata, Source = body.Str("source"),
+            SearchCategory = body.Str("searchCategory"), CategoryManual = body.Bool("categoryManual") == true,
+            Category = body.Str("category"), SavePath = body.Str("savePath"),
+        });
+    }
+
+    /// <summary>catalogMetadata (catalog-identity.ts): only a known media type with a title identifies a work.</summary>
+    private static MediaMetadata? CatalogMetadata(string? mediaType, string? externalId, string? title)
+    {
+        var type = (mediaType ?? "").Trim().ToLowerInvariant();
+        var name = (title ?? "").Trim();
+        if (type is not ("anime" or "movie" or "tv") || name.Length == 0) return null;
+        return new MediaMetadata { Source = type == "anime" ? "anilist" : "tmdb", MediaType = type, ExternalId = (externalId ?? "").Trim(), Title = name };
     }
 
     /// <summary>Changes only the retention of an existing transfer (Keep / Stream-only), never adding anything.</summary>

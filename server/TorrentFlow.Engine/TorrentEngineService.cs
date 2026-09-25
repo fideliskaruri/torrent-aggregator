@@ -30,7 +30,8 @@ internal sealed class TorrentEngineService(
     IHttpClientFactory httpFactory,
     TimeProvider time,
     ILogger<TorrentEngineService> logger,
-    CompletedLayoutFinalizer? layout = null) : ITorrentEngine
+    CompletedLayoutFinalizer? layout = null,
+    ISmartCategorizer? categorizer = null) : ITorrentEngine
 {
     public const string HttpClientName = "TorrentFlow.Engine.TorrentFiles";
     public const string DownloadedCannotPause = "Downloaded files cannot be paused.";
@@ -55,6 +56,22 @@ internal sealed class TorrentEngineService(
     private DateTime Now => time.GetUtcNow().UtcDateTime;
 
     // ---------------------------------------------------------------- add
+
+    /// <summary>
+    /// An explicit SavePath wins; otherwise a named release is routed like resolveSmartSendTarget
+    /// (&lt;base&gt;/&lt;category&gt;/&lt;show&gt;/Season NN), which is what every Next send path (grab, automation, prewarm) uses.
+    /// </summary>
+    private DownloadTarget ResolveTarget(ClientConfig config, EngineAddRequest request)
+    {
+        if (!string.IsNullOrEmpty(request.SavePath) || categorizer is null || string.IsNullOrWhiteSpace(request.Name))
+            return ClientSettingsStore.ResolveDownloadTarget(config, request.Category, request.SavePath);
+        var smart = SmartSendTargets.Resolve(config, categorizer, new SmartSendOptions
+        {
+            Name = request.Name, Tags = request.Tags, Metadata = request.Metadata, Source = request.Source,
+            SearchCategory = request.SearchCategory, CategoryManual = request.CategoryManual, Category = request.Category,
+        });
+        return new DownloadTarget(smart.Category, smart.SavePath);
+    }
 
     public async Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default)
     {
@@ -86,7 +103,7 @@ internal sealed class TorrentEngineService(
         if (bytes is not null) SaveTorrentFile(hash, bytes);
 
         var config = await settings.GetConfigAsync(ct);
-        var target = ClientSettingsStore.ResolveDownloadTarget(config, request.Category, request.SavePath);
+        var target = ResolveTarget(config, request);
         var savePath = target.SavePath ?? Path.Combine(Options.DataDirectory, "downloads");
         // builtin-engine addTorrent mkdirs the destination before any row exists: an unusable path fails cleanly.
         try { Directory.CreateDirectory(savePath); }

@@ -108,6 +108,13 @@ public sealed record EngineAddRequest
     public required string Purpose { get; init; }
     public string? Category { get; init; }
     public string? SavePath { get; init; }
+    /// <summary>Smart-target hints (resolveSmartSendTarget) used when no SavePath is given.</summary>
+    public string? SearchCategory { get; init; }
+    public TorrentFlow.Core.Contracts.Metadata.MediaMetadata? Metadata { get; init; }
+    public string? Source { get; init; }
+    public IReadOnlyList<string>? Tags { get; init; }
+    /// <summary>Trust <see cref="Category"/> as the owner's manual choice instead of the smart label.</summary>
+    public bool CategoryManual { get; init; }
     /// <summary>Sortable episode position ("s00001e00002").</summary>
     public string? QueueKey { get; init; }
     public string? WorkId { get; init; }
