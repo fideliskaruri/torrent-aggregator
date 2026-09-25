@@ -713,13 +713,28 @@ internal sealed class TorrentEngineService(
             var files = backend.Get(hash)?.Files.Select(f => f.FullPath).ToList()
                 ?? VerifiedFiles(row).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!).ToList();
             if (files.Count == 0 && LoadTorrentFile(hash) is { } meta) files = FilesFromMetadata(meta, row.SavePath);
+            string? baseRoot = null;
+            List<string> otherPaths = [];
+            if (deleteFiles)
+            {
+                baseRoot = (await settings.GetConfigAsync(ct)).DownloadRoot;
+                var others = await db.EngineTorrents.AsNoTracking().Where(r => r.Hash != row.Hash).ToListAsync(ct);
+                foreach (var other in others)
+                {
+                    if (!string.IsNullOrWhiteSpace(other.SavePath)) otherPaths.Add(other.SavePath);
+                    otherPaths.AddRange(VerifiedFiles(other).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!));
+                }
+            }
             db.EngineTorrents.Remove(row);
             await db.SaveChangesAsync(ct);
             if (backend.Contains(hash)) await backend.RemoveAsync(hash);
             _startedAt.TryRemove(hash, out _);
             lock (_openStreams) { _pendingDetach.Remove(hash); _pendingLayout.Remove(hash); }
-            if (deleteFiles) DeleteReleaseFiles(files, row.SavePath);
-            if (deleteFiles) TryDelete(TorrentFilePath(hash));
+            if (deleteFiles)
+            {
+                DeleteReleaseFiles(files, row.SavePath, baseRoot, otherPaths);
+                TryDelete(TorrentFilePath(hash));
+            }
         }
         storage.ResetDirectorySizeCache();
         await PromoteAsync(CancellationToken.None);
@@ -1087,6 +1102,26 @@ internal sealed class TorrentEngineService(
             return t.Files.Select(f => Path.Combine(savePath, f.Path.Replace('/', Path.DirectorySeparatorChar))).ToList();
         }
         catch (Exception) { return []; }
+    }
+
+    /// <summary>
+    /// Deletes a release from disk the way Next's <c>deleteTorrent</c> does: its recorded files and its own folder
+    /// (sidecar junk included) per <see cref="ReleaseFileRemoval.Plan"/>, then empty folders below the save path and
+    /// up to (never including) the download root. Without a root, only the files and folders they leave empty inside
+    /// the save path go.
+    /// </summary>
+    internal static void DeleteReleaseFiles(IReadOnlyList<string> files, string? savePath, string? baseRoot, IReadOnlyList<string> otherPaths)
+    {
+        if (string.IsNullOrWhiteSpace(baseRoot))
+        {
+            DeleteReleaseFiles(files, savePath);
+            return;
+        }
+        var plan = ReleaseFileRemoval.Plan(files, savePath, baseRoot, otherPaths);
+        ReleaseFileRemoval.Execute(plan);
+        ReleaseFileRemoval.PruneEmptyDescendants(savePath, baseRoot);
+        foreach (var start in plan.Files.Select(Path.GetDirectoryName).Append(savePath).Where(p => p is not null).Distinct())
+            Clients.External.ExternalClientRegistry.PruneEmptyParents(start, baseRoot);
     }
 
     /// <summary>
