@@ -14,6 +14,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    // Tailwind runs through its Vite plugin. An inline config stops Vite from walking up to the
+    // Next app's postcss.config.mjs, which needs the root node_modules.
+    css: { postcss: {} },
     resolve: {
       alias: [
         { find: /^next\/link$/, replacement: shim("next-link.tsx") },
