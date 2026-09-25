@@ -508,6 +508,7 @@ internal sealed class TorrentEngineService(
                 WorkId = row.WorkId,
                 QueueKey = row.QueueKey,
                 Files = includeFiles ? live.Files.Select(f => new EngineFileInfo(f.Index, f.Path, f.Length, f.Selected, f.Progress, f.FullPath)).ToList() : null,
+                BytesReceived = live.BytesReceived,
             };
         }
         var display = PersistedDisplayState(row);
@@ -750,6 +751,18 @@ internal sealed class TorrentEngineService(
     internal int OpenStreamCount(string hash)
     {
         lock (_openStreams) return _openStreams.GetValueOrDefault(hash);
+    }
+
+    public async Task<IReadOnlyList<EngineByteRange>> GetDownloadedRangesAsync(string infoHash, int fileIndex, CancellationToken ct = default)
+    {
+        var hash = infoHash.Trim().ToLowerInvariant();
+        if (backend.Contains(hash))
+            return backend.DownloadedRanges(hash, fileIndex).Select(r => new EngineByteRange(r.Start, r.End)).ToList();
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var row = await FindAsync(db, hash, ct);
+        if (row is null || !IsDownloaded(row)) return [];
+        var files = VerifiedFiles(row);
+        return fileIndex >= 0 && fileIndex < files.Count && files[fileIndex].Size > 0 ? [new EngineByteRange(0, files[fileIndex].Size)] : [];
     }
 
     private void OnStreamClosed(string hash)

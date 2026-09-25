@@ -68,3 +68,46 @@ dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5100 --To
 ```
 
 The host listens on `http://127.0.0.1:3000` by default. During development always pass another port.
+
+## Media module (`server/TorrentFlow.Media`)
+
+Ports `src/app/api/{stream,subtitles,playback,prewarm}` and `src/lib/{media,playback,prewarm}`.
+
+Endpoints: `GET/HEAD /api/stream/{infoHash}` (file index; 425 while metadata loads),
+`GET/HEAD /api/stream/{infoHash}/{**filePath}` (Range serving through `ITorrentEngine.OpenFileStreamAsync`;
+same parser semantics as npm `range-parser`, open-ended ranges capped, `.srt/.ass` sidecars converted to
+WebVTT), `POST /api/stream/{infoHash}/select`, `GET/HEAD /api/subtitles/{infoHash}`,
+`POST /api/playback/{plan,candidates,failover,switch}`, `GET /api/playback/status`,
+`GET/HEAD /api/playback/hls/{sessionId}/{**segment}`, `GET/HEAD /api/playback/vod/{vodId}/{**file}`,
+`GET/POST /api/prewarm`, `GET /api/prewarm/swarm-probe`.
+
+ffmpeg/ffprobe resolution (first hit wins):
+
+1. `TorrentFlow:Media:FfmpegPath` / `TorrentFlow:Media:FfprobePath`
+2. `FFMPEG_PATH` / `FFPROBE_PATH`
+3. The binaries the TypeScript app ships: `node_modules/ffmpeg-static/ffmpeg[.exe]` and
+   `node_modules/ffprobe-static/bin/<platform>/<arch>/ffprobe[.exe]`, searched upward from the content
+   root, the working directory, the app base directory and `TorrentFlow:Media:NodeModulesRoot`
+4. `PATH`
+
+A missing ffmpeg does not break direct playback; plans that need a session report it the way the TS app does.
+
+Options (`TorrentFlow:Media`): `SessionsDirectory` (default `<DataDirectory>/.sessions`),
+`MaxConcurrentSessions` (4), `SessionIdleTimeoutSeconds` (120), `PreProbeSchedulerEnabled`,
+`SwarmWatchEnabled`. `MediaLifecycleHost` removes stale session directories at startup and kills every
+ffmpeg process on shutdown. `PreProbeScheduler` is a `BackgroundService` and logs
+`[preprobe-scheduler] pre-probe scheduler armed`. `MediaModule` replaces the Search module's no-op
+`ISwarmProbeEngine`.
+
+Contracts added for this module:
+
+- `Core/Contracts/Media/UpcomingPlaybackTargets.cs`: `IUpcomingPlaybackTargets`. The default reads
+  continue-watching rows; Library may replace it.
+- `ITorrentEngine.GetDownloadedRangesAsync` (default: empty) and `EngineTorrent.BytesReceived`
+  (`[JsonIgnore]`), used by the probe and swarm measurements.
+- The engine multiplexes MonoTorrent's single `StreamProvider` stream (`SharedTorrentStreams`), so
+  concurrent readers such as the player, ffprobe and ffmpeg can share one file.
+
+Known gaps compared with TS: no hybrid disk+engine serving or completed-media recovery, a simplified
+`rankResultsForTarget`/work filter, pre-warm never grabs automatically (suspension pauses instead of
+parking streams), and next-episode targets use episode+1 without the watchlist.

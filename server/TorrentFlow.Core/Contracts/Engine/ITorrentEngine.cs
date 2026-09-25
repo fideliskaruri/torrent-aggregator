@@ -40,6 +40,13 @@ public interface ITorrentEngine
     /// <summary>Bytes reserved by queued kept downloads that have not written anything yet.</summary>
     Task<long> QueuedReservedBytesAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Hash-verified byte ranges of one file (file-relative, end exclusive), merged and ascending. Empty when the
+    /// transfer is not live or has no metadata; a completed (parked) transfer reports the whole file.
+    /// </summary>
+    Task<IReadOnlyList<EngineByteRange>> GetDownloadedRangesAsync(string infoHash, int fileIndex, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<EngineByteRange>>([]);
+
     /// <summary>Raised once per transfer when it completes and its files are verified on disk.</summary>
     event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
 }
@@ -155,9 +162,15 @@ public sealed record EngineTorrentInfo
     public string? WorkId { get; init; }
     public string? QueueKey { get; init; }
     public IReadOnlyList<EngineFileInfo>? Files { get; init; }
+    /// <summary>Payload bytes received from peers this session (live transfers only). Not part of the UI shape.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public long? BytesReceived { get; init; }
 }
 
 public sealed record EngineFileInfo(int Index, string Path, long Length, bool Selected, double Progress, string? FullPath = null);
+
+/// <summary>A file-relative byte range; <see cref="End"/> is exclusive.</summary>
+public sealed record EngineByteRange(long Start, long End);
 
 public sealed class EngineTorrentCompletedEventArgs(string hash, string name, string? savePath, string origin) : EventArgs
 {

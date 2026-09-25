@@ -24,7 +24,11 @@ internal sealed record BackendSnapshot(
     bool HasMetadata,
     string SavePath,
     IReadOnlyList<BackendFile> Files,
-    string? Error);
+    string? Error)
+{
+    /// <summary>Payload bytes received from peers since the transfer was loaded.</summary>
+    public long? BytesReceived { get; init; }
+}
 
 internal sealed record BackendAddOutcome(bool Ok, string Message, BackendSnapshot? Snapshot = null);
 
@@ -46,4 +50,7 @@ internal interface ITorrentBackend
     Task<Stream> OpenStreamAsync(string hash, int fileIndex, CancellationToken ct);
     /// <summary>Raw .torrent metadata once known, so a later rehydrate never needs the network.</summary>
     byte[]? GetMetadata(string hash);
+
+    /// <summary>Verified, file-relative byte ranges (end exclusive) for one live file; empty when unknown.</summary>
+    IReadOnlyList<(long Start, long End)> DownloadedRanges(string hash, int fileIndex) => [];
 }

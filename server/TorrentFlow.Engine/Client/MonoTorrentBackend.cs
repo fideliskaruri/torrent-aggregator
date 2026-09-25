@@ -209,8 +209,10 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         if (file.Priority == Priority.DoNotDownload) await m.SetFilePriorityAsync(file, Priority.Normal);
         if (m.State is TorrentState.Stopped or TorrentState.Paused) await m.StartAsync();
         if (m.StreamProvider is null) throw new InvalidOperationException("Torrent was not added in streaming mode.");
-        return await m.StreamProvider.CreateStreamAsync(file, prebuffer: false, ct);
+        return await _sharedStreams.GetValue(m, static mgr => new SharedTorrentStreams(mgr)).OpenAsync(file, ct);
     }
+
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TorrentManager, SharedTorrentStreams> _sharedStreams = new();
 
     public byte[]? GetMetadata(string hash)
     {
@@ -270,7 +272,31 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             m.HasMetadata,
             m.SavePath,
             files,
-            err);
+            err)
+        { BytesReceived = m.Monitor.DataBytesReceived };
+    }
+
+    public IReadOnlyList<(long Start, long End)> DownloadedRanges(string hash, int fileIndex)
+    {
+        if (!_managers.TryGetValue(hash, out var m) || !m.HasMetadata || m.Torrent is null) return [];
+        if (fileIndex < 0 || fileIndex >= m.Files.Count) return [];
+        var file = m.Files[fileIndex];
+        if (file.Length <= 0) return [];
+        var pieceLength = (long)m.Torrent.PieceLength;
+        var bitfield = m.Bitfield;
+        var fileStart = file.OffsetInTorrent;
+        var fileEnd = fileStart + file.Length;
+        var ranges = new List<(long Start, long End)>();
+        for (var piece = file.StartPieceIndex; piece <= file.EndPieceIndex && piece < bitfield.Length; piece++)
+        {
+            if (!bitfield[piece]) continue;
+            var start = Math.Clamp(Math.Max(piece * pieceLength, fileStart) - fileStart, 0, file.Length);
+            var end = Math.Clamp(Math.Min((piece + 1) * pieceLength, fileEnd) - fileStart, 0, file.Length);
+            if (end <= start) continue;
+            if (ranges.Count > 0 && start <= ranges[^1].End) ranges[^1] = (ranges[^1].Start, Math.Max(ranges[^1].End, end));
+            else ranges.Add((start, end));
+        }
+        return ranges;
     }
 
     public async ValueTask DisposeAsync()
