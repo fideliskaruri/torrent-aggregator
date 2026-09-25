@@ -45,7 +45,7 @@ export function parseRuleSources(
   return out;
 }
 
-export function serializeRuleSources(
+function serializeRuleSources(
   sources: readonly string[] | null | undefined,
 ): string | null {
   if (!sources?.length) return null;
@@ -53,7 +53,7 @@ export function serializeRuleSources(
   return selected.length ? selected.join(",") : null;
 }
 
-export function maxSizeGbToBytes(value: string): number | null {
+function maxSizeGbToBytes(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const gb = Number(trimmed);
@@ -83,17 +83,6 @@ export function buildRuleCreatePayload(form: RuleFormState) {
     sources: serializeRuleSources(form.sources),
     maxSizeBytes: maxSizeGbToBytes(form.maxSizeGb),
   };
-}
-
-export function buildRuleTogglePayload(id: string, enabled: boolean) {
-  return { id, enabled };
-}
-
-export function buildRuleRetargetPayload(
-  id: string,
-  category: string | null | undefined,
-) {
-  return { id, category: category ?? "all" };
 }
 
 export function buildRuleFilterPayload(

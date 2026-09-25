@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -125,9 +124,10 @@ public sealed partial class RecommendationService(
         var body = JsonSerializer.Serialize(new { query = AniListQuery, variables = new { id = long.Parse(id, CultureInfo.InvariantCulture) } });
         using var req = new HttpRequestMessage(HttpMethod.Post, AniListRecommendationsUrl) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
         req.Headers.Accept.ParseAdd("application/json");
-        using var res = await httpFactory.CreateClient(TmdbClient.HttpClientName).SendAsync(req, cts.Token).ConfigureAwait(false);
+        using var client = httpFactory.CreateClient(TmdbClient.HttpClientName);
+        using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) return [];
-        var json = await res.Content.ReadFromJsonAsync<JsonElement>(cts.Token).ConfigureAwait(false);
+        var json = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonElementAsync(res.Content, cts.Token).ConfigureAwait(false);
         return ParseAniList(json);
     }
 
@@ -165,9 +165,10 @@ public sealed partial class RecommendationService(
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(10));
         using var req = TmdbClient.BuildRequest(key, $"https://api.themoviedb.org/3/{mediaType}/{id}/recommendations", [("language", "en-US"), ("page", "1")]);
-        using var res = await httpFactory.CreateClient(TmdbClient.HttpClientName).SendAsync(req, cts.Token).ConfigureAwait(false);
+        using var client = httpFactory.CreateClient(TmdbClient.HttpClientName);
+        using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) throw new HttpRequestException($"TMDB recommendations HTTP {(int)res.StatusCode}");
-        var json = await res.Content.ReadFromJsonAsync<JsonElement>(cts.Token).ConfigureAwait(false);
+        var json = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonElementAsync(res.Content, cts.Token).ConfigureAwait(false);
         var recs = ParseTmdb(json, mediaType);
         _tmdbCache.Set(cacheKey, recs, recs.Count > 0 ? PositiveTtl : NegativeTtl);
         return recs;

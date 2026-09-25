@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Seasons and episodes — reframed as a horizontal filmstrip.
  *
@@ -92,7 +90,7 @@ export interface EpisodeListProps {
 }
 
 /** Stable per-row key for tracking one in-flight action. */
-export function episodeActionKey(season: number, episode: number): string {
+function episodeActionKey(season: number, episode: number): string {
   return `s${season}e${episode}`;
 }
 
@@ -105,13 +103,13 @@ export function episodeIntentKey(
 }
 
 /** Clamped 0–100 integer for a 0–1 fraction. */
-export function progressPercent(fraction: number | null | undefined): number {
+function progressPercent(fraction: number | null | undefined): number {
   if (fraction == null || !Number.isFinite(fraction)) return 0;
   return Math.round(Math.min(1, Math.max(0, fraction)) * 100);
 }
 
 /** `Watched X of Y (Z%)` for the loaded season. */
-export function watchedProgressLabel(episodes: EpisodeRowModel[]): string {
+function watchedProgressLabel(episodes: EpisodeRowModel[]): string {
   const total = episodes.length;
   const watched = episodes.filter((e) => e.watched === true).length;
   const percent = total === 0 ? 0 : Math.round((watched / total) * 100);

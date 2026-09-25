@@ -93,6 +93,18 @@ function main() {
       state: "none",
       why: "same rule: absence of evidence is not evidence",
     },
+    {
+      name: "a kept download waiting in the engine queue is 'queued'",
+      input: { retentionState: "kept", progress: 0, state: "queued", queuePosition: 3 },
+      state: "queued",
+      why: "it is admitted but not moving; 'Downloading 0%' would be a lie",
+    },
+    {
+      name: "a queued STREAM is still a stream",
+      input: { retentionState: "stream", progress: 0, state: "queued" },
+      state: "stream",
+      why: "retention decides first: Download still means 'keep this'",
+    },
   ];
   for (const row of classify) {
     check(row.name, () => {
@@ -119,6 +131,7 @@ function main() {
   }> = [
     { state: "downloaded", progress: 1, label: /^Downloaded$/, disabled: true },
     { state: "downloading", progress: 0.42, label: /^Downloading 42%$/, disabled: true },
+    { state: "queued", progress: 0, label: /^Queued$/, disabled: true },
     { state: "stream", progress: 1, label: /^Download$/, disabled: false },
     { state: "none", progress: 0, label: /^Download$/, disabled: false },
   ];
@@ -133,11 +146,22 @@ function main() {
   check("a suppressed button always explains why", () => {
     // Disabling with no reason is its own dead end — the viewer cannot tell a
     // deliberate 'you already have this' from a broken control.
-    for (const state of ["downloaded", "downloading"] as const) {
+    for (const state of ["downloaded", "downloading", "queued"] as const) {
       const c = downloadControlFor({ state, progress: 0.5 });
       assert.ok(c.disabled);
       assert.ok(c.hint && c.hint.trim().length > 0, `${state} gave no hint`);
     }
+  });
+
+  check("a queued control names its place in line", () => {
+    const held = classifyHeld({
+      retentionState: "kept",
+      progress: 0,
+      state: "queued",
+      queuePosition: 2,
+    });
+    assert.equal(held.queuePosition, 2);
+    assert.equal(downloadControlFor(held).label, "Queued · #2");
   });
 
   // ── Lookup: results carry hashes in more than one shape ─────────────────

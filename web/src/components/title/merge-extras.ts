@@ -211,12 +211,6 @@ export function formatAirDate(airDate: string | null): string | null {
   return `${Number.parseInt(day, 10)} ${MONTHS[index]} ${year}`;
 }
 
-/** `48` → `48 min`. Null for anything that is not a real runtime. */
-export function formatRuntime(minutes: number | null): string | null {
-  if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) return null;
-  return `${Math.round(minutes)} min`;
-}
-
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }

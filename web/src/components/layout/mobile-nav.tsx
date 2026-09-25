@@ -1,8 +1,5 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router";
 import {
   Activity,
   Boxes,
@@ -60,7 +57,7 @@ const MORE_ITEMS = SECONDARY_NAV.map((item) => ({
 }));
 
 export function MobileNav() {
-  const pathname = usePathname();
+  const pathname = useLocation().pathname;
   const { badge } = useUnreadNotifications();
   const [moreOpen, setMoreOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -195,7 +192,7 @@ export function MobileNav() {
                   return (
                     <li key={href}>
                       <Link
-                        href={href}
+                        to={href}
                         aria-current={active ? "page" : undefined}
                         onClick={() => setMoreOpen(false)}
                         className={cn(
@@ -258,7 +255,7 @@ export function MobileNav() {
             return (
               <Link
                 key={href}
-                href={href}
+                to={href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "relative flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",

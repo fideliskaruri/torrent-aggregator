@@ -22,7 +22,7 @@ export interface ReleaseStatus {
   date: Date | null;
 }
 
-export function parseReleaseDate(
+function parseReleaseDate(
   input: Date | string | number | null | undefined,
 ): Date | null {
   if (input == null) return null;
@@ -62,14 +62,6 @@ export function releaseStatus(
     comingLabel: formatComingLabel(date),
     date,
   };
-}
-
-/** True only when a concrete date is strictly in the future. */
-export function isUnreleased(
-  input: Date | string | number | null | undefined,
-  now: Date = new Date(),
-): boolean {
-  return releaseStatus(input, now).unreleased;
 }
 
 // ---------------------------------------------------------------------------

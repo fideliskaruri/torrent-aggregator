@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * "More like this" — the answer to a film page being a hero and then nothing.
  *
@@ -17,7 +15,7 @@
  * poster that repeats its own caption is the duplicate-title bug this repo has
  * already fixed once.
  */
-import Link from "next/link";
+import { Link } from "react-router";
 import { PosterImage } from "@/components/browse/poster-image";
 import { posterTint } from "@/components/browse/poster";
 import type { TitleSimilar } from "./types";
@@ -74,7 +72,7 @@ export function MoreLikeThis({
         {items.map((item) => (
           <li key={`${item.workKey}:${item.title}:${item.year ?? ""}`}>
             <Link
-              href={item.href}
+              to={item.href}
               data-similar-card
               className="group block rounded-[var(--radius)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
             >

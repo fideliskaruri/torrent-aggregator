@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The title page — the spine of the product.
  *
@@ -1443,13 +1441,12 @@ function buildDetailUrl(
  * browsing session.
  */
 function writeRememberedSeasonCookie(workKey: string, season: number): void {
-  if (typeof document === "undefined") return;
   const current = readCookieRaw(REMEMBERED_SEASON_COOKIE_NAME);
   const next = nextRememberedSeasonCookieValue(current, workKey, season);
   if (next == null) return;
   const oneYearSeconds = 60 * 60 * 24 * 365;
   const secure =
-    typeof window !== "undefined" && window.location.protocol === "https:"
+    window.location.protocol === "https:"
       ? "; Secure"
       : "";
   document.cookie = `${REMEMBERED_SEASON_COOKIE_NAME}=${next}; Path=/; Max-Age=${oneYearSeconds}; SameSite=Lax${secure}`;
@@ -1463,7 +1460,6 @@ function writeRememberedSeasonCookie(workKey: string, season: number): void {
  * never is, because `writeRememberedSeasonCookie` above set it in this tab.
  */
 function readRememberedSeasonFromDocument(workKey: string): number | null {
-  if (typeof document === "undefined") return null;
   return readRememberedSeason(
     readCookieRaw(REMEMBERED_SEASON_COOKIE_NAME),
     workKey,
@@ -1471,7 +1467,6 @@ function readRememberedSeasonFromDocument(workKey: string): number | null {
 }
 
 function readCookieRaw(name: string): string | null {
-  if (typeof document === "undefined") return null;
   const prefix = `${name}=`;
   for (const part of document.cookie.split(";")) {
     const trimmed = part.trim();
@@ -1481,7 +1476,6 @@ function readCookieRaw(name: string): string | null {
 }
 
 function readLegacySeasonFromLocation(): number | null {
-  if (typeof window === "undefined") return null;
   const raw = new URL(window.location.href).searchParams.get("s");
   if (!raw) return null;
   const parsed = Number.parseInt(raw, 10);
@@ -1489,7 +1483,6 @@ function readLegacySeasonFromLocation(): number | null {
 }
 
 function removeLegacySeasonFromLocation(): void {
-  if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   if (!url.searchParams.has("s")) return;
   url.searchParams.delete("s");
@@ -1584,7 +1577,7 @@ function titleProgressHasActiveTransfer(
  * Same shape as the real page so nothing moves when data arrives — a skeleton
  * that reserves the wrong space is a layout shift with extra steps.
  */
-export function TitleDetailSkeleton() {
+function TitleDetailSkeleton() {
   return (
     <div aria-hidden>
       <div className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">

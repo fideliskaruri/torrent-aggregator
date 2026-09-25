@@ -54,6 +54,6 @@ public sealed class DatabaseInitializer(IDbContextFactory<TorrentFlowDbContext> 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=$n";
         var p = cmd.CreateParameter(); p.ParameterName = "$n"; p.Value = table; cmd.Parameters.Add(p);
-        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct)) > 0;
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct), System.Globalization.CultureInfo.InvariantCulture) > 0;
     }
 }

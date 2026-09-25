@@ -21,6 +21,89 @@ the scenes while the app manages acquisition, playback, local files, and library
 | Library | Progress, history, retention, storage limits, and watch state |
 | Operations | Prisma migrations, diagnostics, automation, and CI validation |
 
+## Run the .NET version
+
+No Docker required. Install the **.NET 10 SDK**, **Node.js 22.23.2** (the repository's
+pinned Node 20+ toolchain; `web/package.json` currently requires Node 22.12+ within 22.x),
+and **pnpm** (`npm i -g pnpm`, or `corepack enable` if Corepack is installed).
+
+From the repository root:
+
+```powershell
+.\run.ps1
+```
+
+On Linux/macOS: `sh ./run.sh`. Open **http://127.0.0.1:3000**.
+The first run installs the locked **web/** dependencies and builds the SPA automatically;
+later runs rebuild it only when its inputs change or `web/dist/index.html` is missing.
+There is no separate root/Next.js install or database setup step for the .NET version.
+`dotnet build server/TorrentFlow.Api` does the same; use `-p:SkipWebBuild=true` for a
+backend-only build. `dotnet test TorrentFlow.slnx` does not install/build the SPA.
+
+Data defaults to `server/TorrentFlow.Api/data` when using these scripts. Configure the host
+with environment variables (double underscores map to nested configuration:
+`TorrentFlow__X__Y`) or `--TorrentFlow:X:Y=value` arguments. For example, in PowerShell:
+
+```powershell
+$env:TorrentFlow__DataDirectory = 'D:\TorrentFlow\data'
+$env:TorrentFlow__DatabasePath = 'D:\existing-clone\prisma\dev.db'
+$env:TMDB_API_KEY = 'your-key'
+.\run.ps1
+```
+
+`TorrentFlow:DatabasePath` adopts existing Prisma databases automatically; back up the
+database first and stop the old app before sharing it. Without this override the database
+is `torrentflow.db` under the data directory. The host reads process environment/configuration,
+not the Next.js `.env` file. On Linux/macOS use `export NAME=value`.
+
+To distribute a **single folder** that needs neither the .NET SDK/runtime nor Node/pnpm:
+
+```powershell
+dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
+```
+
+Copy the **entire** output folder (including `wwwroot`), then run
+`.\TorrentFlow.Api.exe --urls http://127.0.0.1:3000` from that folder.
+Published data defaults to `data` under the working directory; set
+`TorrentFlow__DataDirectory` to an absolute, writable location to keep it stable across upgrades.
+Use `-r linux-x64`, `-r linux-arm64`, `-r osx-arm64` or `-r osx-x64` with a matching output
+directory for those platforms. The publish can be produced on any OS (e.g. build the Linux folder
+on Windows).
+
+### Linux and macOS
+
+Prerequisites for a published folder (no SDK, runtime, Node or pnpm needed):
+
+- **Linux**: glibc x64/arm64 distro (Ubuntu 22.04+, Debian 12+, Fedora, …) with ICU and OpenSSL,
+  which most desktop/server installs already have. If startup fails with
+  `Couldn't find a valid ICU package`, install ICU:
+  `sudo apt install libicu-dev` (Debian/Ubuntu; `libicu74` or similar also works),
+  `sudo dnf install libicu` (Fedora/RHEL), `sudo pacman -S icu` (Arch).
+  Alpine/musl needs a `linux-musl-x64` publish plus `apk add icu-libs`.
+- **macOS**: nothing extra. Unsigned binaries may need
+  `xattr -dr com.apple.quarantine <folder>` after downloading.
+- Optional: `xdg-open` (Linux desktop) for
+  the "Open folder" button (headless servers get a clear "could not launch its file manager"
+  error instead), and Chromium/Chrome/Edge for the optional indexer browser fallback
+  (`/usr/bin/chromium`, `google-chrome`, `/Applications/Google Chrome.app`, … are detected, or set
+  `TorrentFlow:Search:BrowserExecutable`).
+
+Run it from a native file system (not a Windows mount such as `/mnt/c` under WSL, which is slow):
+
+```sh
+cp -r TorrentFlow-linux-x64 ~/torrentflow && cd ~/torrentflow
+chmod +x TorrentFlow.Api
+TorrentFlow__DataDirectory="$HOME/.local/share/torrentflow" ./TorrentFlow.Api --urls http://127.0.0.1:3000
+```
+
+The SQLite database is created and migrated under the data directory on first start; the
+secrets key file (`.torrentflow.key`) is written with owner-only (`600`) permissions. The default
+download folder suggestion is `~/Downloads/TorrentFlow`. Paths are case-sensitive on Linux.
+
+From source, install the .NET 10 SDK (e.g. `sudo apt install dotnet-sdk-10.0` or
+`https://dot.net/v1/dotnet-install.sh`), Node.js and pnpm as above, then run `sh ./run.sh`.
+The existing Next.js instructions below remain separate.
+
 ## Quick start
 
 ### Requirements

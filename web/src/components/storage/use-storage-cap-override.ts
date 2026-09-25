@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * React binding for the "confirm, don't block" storage rule.
  *

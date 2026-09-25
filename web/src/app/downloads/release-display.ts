@@ -41,16 +41,32 @@ const STATE_LABELS: Record<string, string> = {
   stoppedUP: "Stopped",
   error: "Error",
   missingFiles: "Files missing",
+  // The built-in engine's own download queue: admitted and ordered, but not
+  // transferring yet because the active-download cap is full.
+  queued: "Queued",
 };
 
-export function stateLabel(state: string) {
-  return STATE_LABELS[state] ?? state;
+/**
+ * The row's state in English. A built-in queued row also carries its 1-based
+ * `queuePosition`, which is the one thing worth knowing about it ("Queued · #2").
+ */
+export function stateLabel(state: string, queuePosition?: number | null) {
+  const label = STATE_LABELS[state] ?? state;
+  if (
+    state === "queued" &&
+    typeof queuePosition === "number" &&
+    Number.isFinite(queuePosition) &&
+    queuePosition > 0
+  ) {
+    return `${label} · #${Math.floor(queuePosition)}`;
+  }
+  return label;
 }
 
 const CONTAINER_EXT = /\.(mkv|mp4|avi|m4v|mov|ts|webm|wmv|flv|mpg|mpeg)$/i;
 const BRACKET_GROUP = /^\s*(?:\[[^\]]{2,40}\]\s*)+/;
 
-export function resolutionChip(raw: string): string | null {
+function resolutionChip(raw: string): string | null {
   const resolution = parseResolution(raw);
   return resolution ? `${resolution}p` : null;
 }

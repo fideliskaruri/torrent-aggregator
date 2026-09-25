@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The storage cap, presented as a question rather than a verdict.
  *
@@ -38,7 +36,7 @@
  *   - Existing `AlertDialog` primitives and semantic tokens only; no new pattern.
  */
 
-import Link from "next/link";
+import { Link } from "react-router";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,7 +122,7 @@ export function StorageCapDialog({ facts, onCancel, onConfirm }: StorageCapDialo
           </AlertDialogCancel>
 
           <Link
-            href={facts?.settingsHref ?? "/settings?tab=folders"}
+            to={facts?.settingsHref ?? "/settings?tab=folders"}
             className={cn(buttonVariants({ variant: "secondary" }), "min-h-[44px]")}
             onClick={onCancel}
           >

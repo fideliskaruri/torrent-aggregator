@@ -21,10 +21,6 @@ function clean(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-export function historyMessageFromFacts(facts: HistoryFactRow): string | null {
-  return clean(facts.message);
-}
-
 export function parseHistoryFacts(row: HistoryFactRow): HistoryFacts {
   const facts: HistoryFacts = {
     message: clean(row.message),

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -16,13 +17,13 @@ public sealed class SearchThrottledException(int seconds) : Exception($"Indexers
 
 public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adapters, SearchCacheStore cache,
     ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
-    ILogger<TorrentSearchService> logger) : ITorrentSearchService
+    ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
     private readonly ITorrentSourceAdapter[] all = adapters.ToArray();
     private readonly object flightGate = new();
     private readonly Dictionary<string, Task<SearchResponse>> flights = [];
-    private readonly SemaphoreSlim adapterSlots = new(24);
+    private readonly SemaphoreSlim adapterSlots = new(moduleOptions.Value.MaxConcurrentAdapters);
     private bool Enable1337 => moduleOptions.Value.Setting("ENABLE_1337X") == "1";
     public IReadOnlyList<AvailableSource> AvailableSources => [
         new("nyaa", "Nyaa", true), new("apibay", "ThePirateBay", true), new("torrentscsv", "TorrentsCSV", true),
@@ -54,11 +55,15 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
             {
                 if (!flights.TryGetValue(flightKey, out work!))
                 {
-                    if (flights.Count >= 64) throw new SearchThrottledException(1);
+                    if (flights.Count >= moduleOptions.Value.MaxConcurrentSearches) throw new SearchThrottledException(1);
                     var captured = options;
-                    work = Task.Run(() => FetchPoolAsync(captured, key, target));
+                    work = Task.Run(() => FetchPoolAsync(captured, key, target, hostLifetime?.ApplicationStopping ?? CancellationToken.None));
                     flights[flightKey] = work;
-                    _ = work.ContinueWith(_ => { lock (flightGate) flights.Remove(flightKey); }, CancellationToken.None,
+                    _ = work.ContinueWith(completed =>
+                    {
+                        if (completed.IsFaulted) logger.LogDebug(completed.Exception, "Shared search failed for cache key {CacheKey}", key);
+                        lock (flightGate) flights.Remove(flightKey);
+                    }, CancellationToken.None,
                         TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 }
             }
@@ -79,19 +84,20 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         return pool with { Query = options.Query, Results = results, Groups = ReleaseRanking.Groups(results), Page = page, PageSize = options.PageSize,
             TotalPages = totalPages, TotalCount = pool.Results.Count, Cached = cached ? true : null, TookMs = watch.ElapsedMilliseconds };
     }
-    private async Task<SearchResponse> FetchPoolAsync(SearchOptions options, string key, int target)
+    private async Task<SearchResponse> FetchPoolAsync(SearchOptions options, string key, int target, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         var retry = cache.Spend(options.Background);
         if (retry > 0)
         {
-            var stale = options.SkipCache ? null : await cache.GetAsync(key, true);
+            var stale = options.SkipCache ? null : await cache.GetAsync(key, true, token);
             return stale != null ? stale with { Cached = true } : throw new SearchThrottledException(retry);
         }
         var selected = all.Where(a => options.Sources?.Length > 0 ? options.Sources.Contains(a.Id) : a.Id != "1337x" || Enable1337).ToArray();
         var limit = Math.Min(Math.Max(options.Limit ?? 50, options.PageSize), 80);
         var outcomes = await Task.WhenAll(selected.Select(async adapter =>
         {
-            var work = RunAdapterAsync(adapter, options with { Limit = limit });
+            var work = RunAdapterAsync(adapter, options with { Limit = limit }, token);
             try
             {
                 var results = !options.Background && options.AdapterDeadlineMs is > 0 and var ms
@@ -105,7 +111,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
                     CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                 return (Results: (IReadOnlyList<TorrentResult>)Array.Empty<TorrentResult>(), Status: new SourceStatus(adapter.Id, 0, $"{adapter.Id} exceeded the {options.AdapterDeadlineMs}ms search budget"), Truncated: true);
             }
-            catch (Exception e)
+            catch (Exception e) when (!token.IsCancellationRequested)
             {
                 logger.LogDebug(e, "Search adapter {Id} failed", adapter.Id);
                 return (Results: (IReadOnlyList<TorrentResult>)Array.Empty<TorrentResult>(), Status: new SourceStatus(adapter.Id, 0, e.Message), Truncated: false);
@@ -116,12 +122,13 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var ranked = ReleaseRanking.Rank(filtered.Select(r => DownloadRouting.Attach(r, options.Category)), options.Query, target, options.Category);
         if (options.Limit != null) ranked = ranked.Take(Math.Max(0, options.Limit.Value)).ToArray();
         var response = new SearchResponse { Query = options.Query, Results = ranked, TotalCount = ranked.Count, Sources = outcomes.Select(o => o.Status).ToArray() };
-        if (!outcomes.Any(o => o.Truncated)) await cache.SetAsync(key, response);
+        if (!outcomes.Any(o => o.Truncated)) await cache.SetAsync(key, response, token);
         return response;
     }
-    private async Task<IReadOnlyList<TorrentResult>> RunAdapterAsync(ITorrentSourceAdapter adapter, SearchOptions options)
+    private async Task<IReadOnlyList<TorrentResult>> RunAdapterAsync(ITorrentSourceAdapter adapter, SearchOptions options, CancellationToken token)
     {
-        using var lifetime = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        lifetime.CancelAfter(moduleOptions.Value.AdapterLifetimeMs);
         await adapterSlots.WaitAsync(lifetime.Token);
         try { return await adapter.SearchAsync(options, lifetime.Token); }
         finally { adapterSlots.Release(); }

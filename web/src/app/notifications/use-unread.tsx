@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useState } from "react";
 
 import { badgeText, unreadCountUrl } from "./inbox";
@@ -15,7 +13,7 @@ const READ_EVENT = "tf:notifications-read";
  * live in two other components — to clear; without it a badge would sit there
  * contradicting the page the user is currently reading.
  */
-export function markNotificationsRead(): void {
+function markNotificationsRead(): void {
   localStorage.setItem(STORAGE_KEY, new Date().toISOString());
   window.dispatchEvent(new CustomEvent(READ_EVENT));
 }

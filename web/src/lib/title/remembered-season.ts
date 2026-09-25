@@ -31,7 +31,7 @@
 export const REMEMBERED_SEASON_COOKIE_NAME = "tf_season";
 
 /** Titles remembered at once. Oldest entries are evicted first past this. */
-export const MAX_ENTRIES = 100;
+const MAX_ENTRIES = 100;
 
 /**
  * Serialized cookie value ceiling, in characters.
@@ -39,14 +39,14 @@ export const MAX_ENTRIES = 100;
  * Browsers cap a cookie (name + value) around 4096 bytes; this leaves
  * headroom for the cookie name, attributes and multi-byte workKeys.
  */
-export const MAX_COOKIE_VALUE_LENGTH = 3500;
+const MAX_COOKIE_VALUE_LENGTH = 3500;
 
 /** A season must be a positive integer; anything else is not a season. */
 const MIN_SEASON = 1;
 /** Generous ceiling — well past any real show — that only rejects garbage. */
 const MAX_SEASON = 9999;
 
-export type RememberedSeasonMap = Record<string, number>;
+type RememberedSeasonMap = Record<string, number>;
 
 function normalizeWorkKey(workKey: string): string {
   return workKey.trim().toLowerCase();
@@ -70,7 +70,7 @@ export function isValidSeason(value: unknown): value is number {
  * simply parses to `{}`, which falls through to the rest of the precedence
  * chain rather than breaking the page.
  */
-export function parseRememberedSeasonMap(
+function parseRememberedSeasonMap(
   raw: string | null | undefined,
 ): RememberedSeasonMap {
   if (!raw) return {};

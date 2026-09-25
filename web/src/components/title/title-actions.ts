@@ -36,7 +36,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 /** Opens the player on a file we actually hold. */
-export interface PlayTitleAction {
+interface PlayTitleAction {
   kind: "play";
   label: "Play" | "Resume";
   infoHash: string;
@@ -47,7 +47,7 @@ export interface PlayTitleAction {
 }
 
 /** Searches and sends, in one click. Never navigates to a release table. */
-export interface GetTitleAction {
+interface GetTitleAction {
   kind: "get";
   label: "Get" | "Download";
   season: number | null;
@@ -78,7 +78,7 @@ export interface GetTitleAction {
  * nothing must say so, never open a black player and let the viewer conclude
  * the app is broken.
  */
-export interface StreamTitleAction {
+interface StreamTitleAction {
   kind: "stream";
   label: "Play";
   season: number | null;
@@ -101,7 +101,7 @@ export interface StreamTitleAction {
  * back. `season` is carried when a season is in view so the lookup can be
  * narrowed; it is never used to synthesise an episode number.
  */
-export interface DiscoverTitleAction {
+interface DiscoverTitleAction {
   kind: "discover";
   label: "Find episodes";
   season: number | null;
@@ -138,7 +138,7 @@ const STATE_POLICY: Record<AvailabilityState, "local" | "stream" | "remote"> = {
 };
 
 /** The minimum a thing needs for this module to decide about it. */
-export interface Playable {
+interface Playable {
   availability: AvailabilityState | null;
   infoHash: string | null;
   filePath?: string | null;
@@ -156,7 +156,7 @@ export interface Playable {
  *     with no info hash — → Play via a grab. A thin earlier search is not a
  *     reason to demote the primary control to Get.
  */
-export function resolvePlayableAction(item: Playable): TitleAction {
+function resolvePlayableAction(item: Playable): TitleAction {
   const state = item.availability;
   const infoHash = item.infoHash?.trim();
   const season = item.season ?? null;
@@ -309,7 +309,7 @@ function firstPlayableEpisode(episodes: TitleEpisode[]): TitleEpisode | null {
  * caller has. Returning `null` moves the decision to the one place equipped to
  * make it: {@link resolvePrimaryAction}, which offers discovery instead.
  */
-export function nextUpTarget(payload: TitleDetailPayload): {
+function nextUpTarget(payload: TitleDetailPayload): {
   season: number;
   episode: number;
 } | null {
@@ -418,39 +418,4 @@ function assertNeverAction(action: never): never {
 export function offersDownload(transfer: TitleEpisodeTransfer | null): boolean {
   if (!transfer) return true;
   return transfer.status === "failed";
-}
-
-/**
- * The plain-language state line shown beside the controls, or null when there
- * is nothing to report.
- *
- * Deliberately not a button label. The button keeps an action word — what
- * pressing it will do — while progress and completion live here. Folding them
- * together is what produced buttons reading "Downloading 42%", which is a
- * status pretending to be an instruction.
- */
-export function transferStatusLine(
-  transfer: TitleEpisodeTransfer | null,
-): string | null {
-  if (!transfer) return null;
-  switch (transfer.status) {
-    case "queued":
-      return "Queued";
-    case "downloading": {
-      // Clamped, and floored rather than rounded: 99.6% must not print as
-      // "100%" next to a torrent that is still running.
-      const pct = Math.floor(Math.min(Math.max(transfer.progress, 0), 1) * 100);
-      return `Downloading ${pct}%`;
-    }
-    case "downloaded":
-      return "Downloaded";
-    case "failed":
-      return transfer.error?.trim() ? `Failed — ${transfer.error.trim()}` : "Failed";
-    default:
-      return assertNeverTransfer(transfer.status);
-  }
-}
-
-function assertNeverTransfer(status: never): never {
-  throw new Error(`Unhandled transfer status: ${JSON.stringify(status)}`);
 }

@@ -1,0 +1,137 @@
+[
+  {
+    "route": "/api/watchlist",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/history",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/activity",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/activity?limit=7",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/activity/unread",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/progress?active=1",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/rules",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/breaking-bad",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": [
+      {
+        "path": "/library/addPayload/posterUrl",
+        "next": "https://static.tvmaze.com/uploads/images/original_untouched/501/1253519.jpg",
+        "dotnet": null
+      },
+      {
+        "path": "/posterUrl",
+        "next": "https://static.tvmaze.com/uploads/images/original_untouched/501/1253519.jpg",
+        "dotnet": null
+      }
+    ]
+  },
+  {
+    "route": "/api/title/dune-2021",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": [
+      {
+        "path": "/library/addPayload/posterUrl",
+        "next": "https://is1-ssl.mzstatic.com/image/thumb/Video116/v4/15/53/b9/1553b93b-25b7-cbed-eff5-34d8efe8e09a/pr_source.lsr/600x900bb.jpg",
+        "dotnet": null
+      },
+      {
+        "path": "/posterUrl",
+        "next": "https://is1-ssl.mzstatic.com/image/thumb/Video116/v4/15/53/b9/1553b93b-25b7-cbed-eff5-34d8efe8e09a/pr_source.lsr/600x900bb.jpg",
+        "dotnet": null
+      }
+    ]
+  },
+  {
+    "route": "/api/title/attack-on-titan",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": [
+      {
+        "path": "/library/addPayload/posterUrl",
+        "next": "https://static.tvmaze.com/uploads/images/original_untouched/632/1582290.jpg",
+        "dotnet": null
+      },
+      {
+        "path": "/posterUrl",
+        "next": "https://static.tvmaze.com/uploads/images/original_untouched/632/1582290.jpg",
+        "dotnet": null
+      }
+    ]
+  },
+  {
+    "route": "/api/title/library-parity-fixture",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/breaking-bad/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/dune-2021/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/attack-on-titan/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/library-parity-fixture/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/library/backfill-estimate",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  }
+]

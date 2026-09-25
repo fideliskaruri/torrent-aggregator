@@ -1,25 +1,8 @@
-"use client";
-
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { useEffect, useState } from "react";
 
 type Density = "comfortable" | "compact";
 
-interface UiPrefs {
-  density: Density;
-  setDensity: (d: Density) => void;
-}
-
-const Ctx = createContext<UiPrefs>({
-  density: "compact",
-  setDensity: () => undefined,
-});
-
+/** Mirrors the stored density preference onto `<html data-density>`. */
 export function UiPreferencesProvider({
   children,
 }: {
@@ -41,16 +24,5 @@ export function UiPreferencesProvider({
     document.documentElement.dataset.density = density;
   }, [density]);
 
-  const setDensity = useCallback((d: Density) => {
-    setDensityState(d);
-    localStorage.setItem("tf-density", d);
-  }, []);
-
-  return (
-    <Ctx.Provider value={{ density, setDensity }}>{children}</Ctx.Provider>
-  );
-}
-
-export function useUiPreferences() {
-  return useContext(Ctx);
+  return children;
 }

@@ -32,9 +32,11 @@ internal sealed class SearchResultEnricher(IMetadataResolver resolver, ILogger<S
             logger.LogWarning(e, "Metadata enrichment failed for {Query}", query);
             return results;
         }
+        // Like enrichResultsWithMetadata, every row takes the resolved answer, including null: adapter-supplied
+        // metadata (YTS) that fails the identity check must not survive onto an unrelated release.
         var enriched = new TorrentResult[results.Count];
         for (var i = 0; i < results.Count; i++)
-            enriched[i] = i < metadata.Count && metadata[i] is { } m ? results[i] with { Metadata = m } : results[i];
+            enriched[i] = i < metadata.Count ? results[i] with { Metadata = metadata[i] } : results[i];
         return enriched;
     }
 }

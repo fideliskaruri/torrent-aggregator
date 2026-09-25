@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -284,7 +283,8 @@ public sealed class CatalogService(
     IOptions<MetadataOptions> options,
     TimeProvider time,
     ILogger<CatalogService> logger,
-    ArtworkResolver? artwork = null) : ICatalogLookup
+    ArtworkResolver? artwork = null,
+    IHostApplicationLifetime? hostLifetime = null) : ICatalogLookup
 {
     public static readonly TimeSpan CatalogTtl = TimeSpan.FromHours(1);
     public const int ColdStartBudgetMs = 12_000;
@@ -301,7 +301,8 @@ public sealed class CatalogService(
 
     private readonly Lock _gate = new();
     private Task<CatalogRefreshResult>? _inFlight;
-    private readonly Dictionary<string, Task<int>> _relatedInFlight = new(StringComparer.Ordinal);
+    private readonly TorrentFlow.Metadata.Caching.SingleFlight<int> _relatedInFlight = new();
+    private CancellationToken StoppingToken => hostLifetime?.ApplicationStopping ?? CancellationToken.None;
 
     public sealed record CatalogRefreshResult(Dictionary<string, int> Written, List<string> Errors, bool Offline, Dictionary<string, string> Origin, long TookMs);
 
@@ -349,7 +350,8 @@ public sealed class CatalogService(
         if (status.Item1 == 0)
         {
             var refresh = RefreshAsync();
-            await Task.WhenAny(refresh, Task.Delay(TimeSpan.FromMilliseconds(ColdStartBudgetMs), time, ct)).ConfigureAwait(false);
+            try { await refresh.WaitAsync(TimeSpan.FromMilliseconds(ColdStartBudgetMs), time, ct).ConfigureAwait(false); }
+            catch (TimeoutException) { logger.LogDebug("Catalog refresh continues beyond the cold-start budget"); }
             try { var after = await ReadStatusAsync(ct).ConfigureAwait(false); return (after.EntryCount, after.RefreshedAt, true); }
             catch (Exception e) when (e is not OperationCanceledException) { return (0, null, true); }
         }
@@ -372,14 +374,17 @@ public sealed class CatalogService(
 
     private async Task<CatalogRefreshResult> RunRefreshAsync()
     {
+        var ct = StoppingToken;
         var started = time.GetTimestamp();
         var written = new Dictionary<string, int>();
         var origin = new Dictionary<string, string>();
         var errors = new List<string>();
         try
         {
-            var chartsTask = Task.WhenAll(CatalogText.Feeds.Select(FetchFeedAsync));
+            ct.ThrowIfCancellationRequested();
+            var chartsTask = Task.WhenAll(CatalogText.Feeds.Select(f => FetchFeedAsync(f, ct)));
             var trendingTask = Task.WhenAll(new[] { ("movie", "trending"), ("tv", "popular") }.Select(s => FetchTrendingAsync(s.Item1, s.Item2)));
+            await Task.WhenAll(chartsTask, trendingTask).ConfigureAwait(false);
             var charts = await chartsTask.ConfigureAwait(false);
             var trending = await trendingTask.ConfigureAwait(false);
             errors.AddRange(charts.Where(c => c.Error is not null).Select(c => $"{c.Feed.Label}: {c.Error}"));
@@ -407,8 +412,11 @@ public sealed class CatalogService(
                 var items = answered.Where(c => c.Feed.Source == source).SelectMany(c => c.Releases.Select(r => (r, c.Feed.MediaType))).ToList();
                 if (items.Count == 0) return ((string, List<CatalogDraft>)?)null;
                 var works = CatalogText.CollapseToWorks(items).Take(WorksPerSource).ToList();
-                var art = await AttachArtworkAsync(works).ConfigureAwait(false);
-                var details = await ResolveDetailBoundedAsync(works).ConfigureAwait(false);
+                var artTask = AttachArtworkAsync(works, ct);
+                var detailTask = ResolveDetailBoundedAsync(works, ct);
+                await Task.WhenAll(artTask, detailTask).ConfigureAwait(false);
+                var art = await artTask.ConfigureAwait(false);
+                var details = await detailTask.ConfigureAwait(false);
                 return (source, works.Select((w, i) => CatalogText.DraftFromWork(w, art[i].PosterUrl, art[i].BackdropUrl, details[i])).ToList());
             })).ConfigureAwait(false);
             foreach (var fallback in fallbacks.OfType<(string Source, List<CatalogDraft> Drafts)>())
@@ -418,7 +426,7 @@ public sealed class CatalogService(
             }
             if (prepared.Count == 0) return new(written, errors, true, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
             foreach (var (source, drafts) in prepared)
-                written[source] = await ReplaceSourceAsync(source, null, drafts, CancellationToken.None).ConfigureAwait(false);
+                written[source] = await ReplaceSourceAsync(source, null, drafts, ct).ConfigureAwait(false);
             return new(written, errors, false, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
         }
         catch (Exception e)
@@ -434,43 +442,62 @@ public sealed class CatalogService(
     private const int DetailConcurrency = 4;
 
     /// <summary>artwork.ts resolveArtworkBounded: chart works get posters within a 15 s budget; a miss or hang costs artwork only.</summary>
-    private async Task<IReadOnlyList<ArtworkResult>> AttachArtworkAsync(List<ChartWork> works)
+    private async Task<IReadOnlyList<ArtworkResult>> AttachArtworkAsync(List<ChartWork> works, CancellationToken ct)
     {
         var none = works.Select(_ => ArtworkResult.None).ToList();
         if (artwork is null || works.Count == 0) return none;
-        var batch = artwork.ResolveBatchAsync(works.Select(w => new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType))).ToList());
-        if (await Task.WhenAny(batch, Task.Delay(TimeSpan.FromMilliseconds(ArtworkBudgetMs), time)).ConfigureAwait(false) != batch || !batch.IsCompletedSuccessfully)
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(ArtworkBudgetMs), time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
+        try
+        {
+            var art = await artwork.ResolveBatchAsync(works.Select(w => new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType))).ToList(), linked.Token)
+                .ConfigureAwait(false);
+            return works.Select((_, i) => i < art.Count ? art[i] : ArtworkResult.None).ToList();
+        }
+        catch (Exception e)
+        {
+            logger.LogDebug(e, "Catalog artwork unavailable within its budget");
             return none;
-        return works.Select((_, i) => i < batch.Result.Count ? batch.Result[i] : ArtworkResult.None).ToList();
+        }
     }
 
     /// <summary>
     /// detail.ts resolveDetailBounded over work-detail.ts's TMDB tier: overview / rating / release date from the same
-    /// TMDB match that chose the poster, within a 20 s budget. Never throws.
+    /// TMDB match that chose the poster, within a 20 s budget (all-or-nothing, like the TS). Never throws.
     /// </summary>
-    private async Task<IReadOnlyList<CatalogDetail?>> ResolveDetailBoundedAsync(List<ChartWork> works)
+    private async Task<IReadOnlyList<CatalogDetail?>> ResolveDetailBoundedAsync(List<ChartWork> works, CancellationToken ct)
     {
         var none = new CatalogDetail?[works.Count];
-        if (artwork is null || works.Count == 0 || !tmdb.HasKey) return none;
+        if (artwork is null || works.Count == 0 || tmdb.ApiKey is null) return none;
         var output = new CatalogDetail?[works.Count];
-        var run = Parallel.ForEachAsync(Enumerable.Range(0, works.Count), new ParallelOptions { MaxDegreeOfParallelism = DetailConcurrency }, async (i, _) =>
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(DetailBudgetMs), time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
+        try
         {
-            try
+            await Parallel.ForEachAsync(Enumerable.Range(0, works.Count),
+                new ParallelOptions { MaxDegreeOfParallelism = DetailConcurrency, CancellationToken = linked.Token }, async (i, token) =>
             {
-                var w = works[i];
-                if (await artwork.ResolveTmdbRefAsync(new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType))).ConfigureAwait(false) is not { } reference) return;
-                if (await tmdb.FetchDetailAsync(reference.MediaType, reference.Id).ConfigureAwait(false) is not { } d) return;
-                var title = (TmdbClient.Str(d, "title") ?? TmdbClient.Str(d, "name") ?? "").Trim();
-                if (title.Length == 0) return;
-                var overview = TmdbClient.Str(d, "overview")?.Trim();
-                double? rating = TmdbClient.Num(d, "vote_average") is > 0 and var v ? v : null;
-                var date = TmdbClient.Str(d, "release_date").OrEmpty(TmdbClient.Str(d, "first_air_date"))?.Trim();
-                output[i] = new CatalogDetail(string.IsNullOrEmpty(overview) ? null : overview, rating, string.IsNullOrEmpty(date) ? null : date);
-            }
-            catch (Exception e) when (e is not OutOfMemoryException) { }
-        });
-        if (await Task.WhenAny(run, Task.Delay(TimeSpan.FromMilliseconds(DetailBudgetMs), time)).ConfigureAwait(false) != run) return none;
-        return output;
+                try
+                {
+                    var w = works[i];
+                    if (await artwork.ResolveTmdbRefAsync(new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType)), token).ConfigureAwait(false) is not { } reference) return;
+                    if (await tmdb.FetchDetailAsync(reference.MediaType, reference.Id, ct: token).ConfigureAwait(false) is not { } d) return;
+                    var title = (TmdbClient.Str(d, "title") ?? TmdbClient.Str(d, "name") ?? "").Trim();
+                    if (title.Length == 0) return;
+                    var overview = TmdbClient.Str(d, "overview")?.Trim();
+                    double? rating = TmdbClient.Num(d, "vote_average") is > 0 and var v ? v : null;
+                    var date = TmdbClient.Str(d, "release_date").OrEmpty(TmdbClient.Str(d, "first_air_date"))?.Trim();
+                    output[i] = new CatalogDetail(string.IsNullOrEmpty(overview) ? null : overview, rating, string.IsNullOrEmpty(date) ? null : date);
+                }
+                catch (Exception e) when (e is not OperationCanceledException) { logger.LogDebug(e, "[catalog] detail lookup failed for {Title}", works[i].Title); }
+            }).ConfigureAwait(false);
+            return output;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogDebug("[catalog] detail enrichment exceeded its budget");
+            return none;
+        }
     }
 
     /// <summary>store.ts replaceCatalogSource: upsert ranked rows then drop the rest of the partition.</summary>
@@ -502,17 +529,19 @@ public sealed class CatalogService(
 
     private sealed record FeedResult(CatalogFeed Feed, List<FeedRelease> Releases, string? Error);
 
-    private async Task<FeedResult> FetchFeedAsync(CatalogFeed feed)
+    private async Task<FeedResult> FetchFeedAsync(CatalogFeed feed, CancellationToken ct)
     {
         try
         {
-            using var cts = new CancellationTokenSource(FeedTimeoutMs);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(FeedTimeoutMs);
             using var req = new HttpRequestMessage(HttpMethod.Get, $"{options.Value.ApibayBaseUrl.TrimEnd('/')}/precompiled/data_top100_{feed.Category}.json");
             req.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
             req.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
-            using var res = await httpFactory.CreateClient(TmdbClient.HttpClientName).SendAsync(req, cts.Token).ConfigureAwait(false);
+            using var client = httpFactory.CreateClient(TmdbClient.HttpClientName);
+            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode) return new(feed, [], $"apibay HTTP {(int)res.StatusCode}");
-            var data = await res.Content.ReadFromJsonAsync<JsonElement>(cts.Token).ConfigureAwait(false);
+            var data = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonElementAsync(res.Content, cts.Token).ConfigureAwait(false);
             return data.ValueKind != JsonValueKind.Array ? new(feed, [], "apibay returned a non-list body") : new(feed, CatalogText.ParseFeedBody(data), null);
         }
         catch (Exception e)
@@ -529,7 +558,7 @@ public sealed class CatalogService(
         var titles = new List<CatalogTitle>();
         string? error = null;
         var pages = await Task.WhenAll(Enumerable.Range(1, TmdbPages).Select(p =>
-            tmdb.TryGetAsync($"/trending/{kind}/week", [("page", p.ToString(CultureInfo.InvariantCulture))], TmdbTimeoutMs))).ConfigureAwait(false);
+            tmdb.TryGetAsync($"/trending/{kind}/week", [("page", p.ToString(CultureInfo.InvariantCulture))], TmdbTimeoutMs, StoppingToken))).ConfigureAwait(false);
         var seen = new HashSet<int>();
         foreach (var page in pages)
         {
@@ -548,41 +577,36 @@ public sealed class CatalogService(
         var title = seedTitle.Trim();
         if (title.Length == 0) return Task.FromResult(0);
         var normalized = MediaTypes.Normalize(mediaType);
-        var key = $"{title}\0{normalized ?? ""}";
-        lock (_gate)
-        {
-            if (_relatedInFlight.TryGetValue(key, out var existing)) return existing;
-            var task = Task.Run(() => RunRelatedAsync(title, normalized));
-            _relatedInFlight[key] = task;
-            _ = task.ContinueWith(_ => { lock (_gate) _relatedInFlight.Remove(key); }, TaskScheduler.Default);
-            return task;
-        }
+        return _relatedInFlight.RunAsync($"{title}\0{normalized ?? ""}", () => RunRelatedAsync(title, normalized));
     }
 
     private async Task<int> RunRelatedAsync(string title, string? mediaType)
     {
         try
         {
-            var trending = await ReadRowsAsync("trending", null, WorksPerSource).ConfigureAwait(false);
-            var popular = await ReadRowsAsync("popular", null, WorksPerSource).ConfigureAwait(false);
+            var ct = StoppingToken;
+            var trending = await ReadRowsAsync("trending", null, WorksPerSource, ct).ConfigureAwait(false);
+            var popular = await ReadRowsAsync("popular", null, WorksPerSource, ct).ConfigureAwait(false);
             var pool = trending.Concat(popular).ToList();
             var onScreen = trending.Take(RailHead).Concat(popular.Take(RailHead)).Select(r => r.WorkKey).ToHashSet(StringComparer.Ordinal);
 
-            var tmdbTask = RelatedFromTmdbAsync(mediaType, title, pool, onScreen);
             List<CatalogDraft>? drafts = null;
-            if (await Task.WhenAny(tmdbTask, Task.Delay(TimeSpan.FromMilliseconds(RelatedBudgetMs), time)).ConfigureAwait(false) == tmdbTask
-                && tmdbTask.IsCompletedSuccessfully)
-                drafts = tmdbTask.Result;
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(RelatedBudgetMs), time))
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct))
+            {
+                try { drafts = await RelatedFromTmdbAsync(mediaType, title, pool, onScreen, linked.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { logger.LogDebug("[catalog] TMDB related exceeded its budget for {Seed}", title); }
+            }
             if (drafts is null || drafts.Count == 0)
             {
                 if (pool.Count == 0) return 0;
                 drafts = CatalogText.PickRelated(pool, title, mediaType, RailHead, onScreen).Select(CatalogText.DraftFromRow).ToList();
             }
 
-            await ReplaceSourceAsync("related", title, drafts, CancellationToken.None).ConfigureAwait(false);
-            await using var db = await dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+            await ReplaceSourceAsync("related", title, drafts, ct).ConfigureAwait(false);
+            await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
             await db.CatalogEntries.Where(e => e.Source == "related" && e.SeedTitle != null && e.SeedTitle != "" && e.SeedTitle != title)
-                .ExecuteDeleteAsync().ConfigureAwait(false);
+                .ExecuteDeleteAsync(ct).ConfigureAwait(false);
             return drafts.Count;
         }
         catch (Exception e)
@@ -593,18 +617,19 @@ public sealed class CatalogService(
     }
 
     /// <summary>refresh.ts relatedFromTmdb: null when TMDB cannot answer, so the caller falls back to the pool.</summary>
-    private async Task<List<CatalogDraft>?> RelatedFromTmdbAsync(string? mediaType, string title, IReadOnlyList<CatalogEntry> pool, IReadOnlySet<string> onScreen)
+    private async Task<List<CatalogDraft>?> RelatedFromTmdbAsync(string? mediaType, string title, IReadOnlyList<CatalogEntry> pool, IReadOnlySet<string> onScreen,
+        CancellationToken ct)
     {
         if (tmdb.ApiKey is null) return null;
         string[] kinds = mediaType is null ? ["movie", "tv"] : [MediaTypes.IsSeries(mediaType) ? "tv" : "movie"];
         var searches = await Task.WhenAll(kinds.Select(async kind =>
         {
-            var body = await tmdb.TryGetAsync($"/search/{kind}", [("query", title), ("include_adult", "false")], TmdbReadTimeoutMs).ConfigureAwait(false);
+            var body = await tmdb.TryGetAsync($"/search/{kind}", [("query", title), ("include_adult", "false")], TmdbReadTimeoutMs, ct).ConfigureAwait(false);
             return body is { } b ? CatalogText.ParseTmdbList(b, kind, options.Value.TmdbImageBaseUrl).FirstOrDefault() : null;
         })).ConfigureAwait(false);
         if (searches.FirstOrDefault(s => s is not null) is not { } found) return null;
 
-        var recommendations = await tmdb.TryGetAsync($"/{found.Kind}/{found.TmdbId}/recommendations", [], TmdbReadTimeoutMs).ConfigureAwait(false);
+        var recommendations = await tmdb.TryGetAsync($"/{found.Kind}/{found.TmdbId}/recommendations", [], TmdbReadTimeoutMs, ct).ConfigureAwait(false);
         if (recommendations is not { } rec) return null;
         var titles = CatalogText.ParseTmdbList(rec, found.Kind, options.Value.TmdbImageBaseUrl);
         if (titles.Count == 0) return null;
@@ -637,11 +662,8 @@ public sealed class CatalogRefreshWorker(CatalogService catalog, IOptions<Metada
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-                await catalog.RefreshAsync().ConfigureAwait(false);
+                await catalog.RefreshAsync().WaitAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }
     }
 }
-
-
-

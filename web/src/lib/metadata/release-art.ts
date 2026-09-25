@@ -209,7 +209,7 @@ export function artworkQueryForRelease(
  * `tv:severance` and `any:severance` — two lookups, two cache entries, and two
  * chances to disagree about the poster on one screen.
  */
-export function artworkKey(
+function artworkKey(
   title: string,
   year: number | null | undefined,
 ): string {

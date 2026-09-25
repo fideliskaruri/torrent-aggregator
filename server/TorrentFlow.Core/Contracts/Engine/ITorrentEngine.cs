@@ -121,6 +121,8 @@ public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? 
 /// <summary>Mirrors the TypeScript AddTorrentDetails "builtin-transfer" variant.</summary>
 public sealed record EngineAddDetails(string Action, double Pct, int Peers, int? QueuePosition = null)
 {
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "This instance property is part of the serialized HTTP contract.")]
     public string Type => "builtin-transfer";
 
     public const string Started = "started";

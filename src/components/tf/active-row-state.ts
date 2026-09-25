@@ -2,7 +2,7 @@
  * What a download row's numbers say about themselves.
  *
  * Shared by the `/downloads` page, which renders its own state wording
- * (`stateLabel` in `src/app/downloads/page.tsx`) but reuses these two: the
+ * (`stateLabel` in `src/app/downloads/release-display.ts`) but reuses these two: the
  * exact place this app has repeatedly claimed things that were not true — a
  * floored 0% on a running torrent, a speed on a row that is not moving.
  */

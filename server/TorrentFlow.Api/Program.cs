@@ -45,6 +45,29 @@ builder.Services.AddControllers()
 var app = builder.Build();
 await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
 
+// The React SPA (web/) builds into web/dist. Static files run before routing so the history-API fallback
+// below never captures real assets (it would answer /assets/*.js with index.html).
+// Published: wwwroot beside the exe. Dev: web/dist, whether launched via `dotnet run` (content root
+// = server/TorrentFlow.Api) or `dotnet <dll>` from the repo root.
+var contentRoot = builder.Environment.ContentRootPath;
+var webRoot = builder.Configuration["TorrentFlow:WebRoot"]
+    ?? new[]
+    {
+        Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+        Path.Combine(contentRoot, "web", "dist"),
+        Path.Combine(contentRoot, "..", "..", "web", "dist"),
+    }.Select(Path.GetFullPath).FirstOrDefault(p => File.Exists(Path.Combine(p, "index.html")))
+    ?? Path.GetFullPath(Path.Combine(contentRoot, "..", "..", "web", "dist"));
+Microsoft.Extensions.FileProviders.PhysicalFileProvider? webFiles = Directory.Exists(webRoot) ? new(webRoot) : null;
+if (webFiles is not null)
+{
+    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = webFiles });
+    var types = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+    types.Mappings[".webmanifest"] = "application/manifest+json";
+    app.UseStaticFiles(new StaticFileOptions { FileProvider = webFiles, ContentTypeProvider = types });
+}
+app.UseRouting();
+
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.
 app.MapGet("/activity", () => Results.Redirect("/notifications", permanent: true, preserveMethod: true));
 app.MapGet("/client", () => Results.Redirect("/downloads", permanent: true, preserveMethod: true));
@@ -79,16 +102,11 @@ app.MapGet("/api/health", async (TorrentFlowDbContext db, HttpContext http, Canc
 });
 app.MapControllers();
 
-// The React SPA (web/) builds into web/dist; serve it with history-API fallback for client routes.
-var webRoot = builder.Configuration["TorrentFlow:WebRoot"]
-    ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "web", "dist"));
-if (Directory.Exists(webRoot))
-{
-    var files = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(webRoot);
-    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
-    app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
-    app.MapFallbackToFile("{**path:regex(^(?!api/).*$)}", "index.html", new StaticFileOptions { FileProvider = files });
-}
+
+// Missing hashed chunks (stale tab after an update, or wrong casing on case-sensitive file systems) must
+// 404 rather than return index.html, which the browser would reject as a script with the wrong MIME type.
+if (webFiles is not null)
+    app.MapFallbackToFile("{**path:regex(^(?!api/|assets/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles });
 
 app.Run();
 
