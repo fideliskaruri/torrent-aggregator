@@ -109,10 +109,10 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
     }
 
     [HttpDelete]
-    public async Task<IActionResult> Delete([FromQuery] string? id, CancellationToken ct)
+    public async Task<IActionResult> Delete(CancellationToken ct)
     {
         Fields.Guard(Request);
-        if (string.IsNullOrWhiteSpace(id)) Fields.Fail("id is required", "id");
+        var id = Fields.Query(Request, "id", required: true, maxLength: 128)!;
         await using var db = await factory.CreateDbContextAsync(ct);
         var item = await db.WatchListItems.FirstOrDefaultAsync(x => x.UserId == LocalUser.Id && x.Id == id, ct);
         if (item != null)

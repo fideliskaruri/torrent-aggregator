@@ -64,6 +64,11 @@ web/                          Vite + React SPA (built into web/dist, served by t
 - Globalization: ICU is on, so `string.Normalize` matches JS `String.prototype.normalize`. The host
   pins the default culture to invariant; still pass `CultureInfo.InvariantCulture` and use ordinal
   comparisons in code. On Linux, install `libicu` (present on most distros).
+- Memory: the host runs workstation GC (`ServerGarbageCollection=false` in `TorrentFlow.Api.csproj`).
+  Server GC grows its gen0 budget until GC committed is ~3x the live heap, which alone pushed the
+  process past the 200 MB target under 5 live downloads. Watch `runtime` in
+  `/api/diagnostics/health` (working set, private bytes, GC heap/committed, threads, handles);
+  judge leaks by private bytes and the post-GC heap, not working set (~100 MB of it is shared images).
 
 ## External torrent clients
 
@@ -113,7 +118,18 @@ Install root dependencies first (`pnpm install --frozen-lockfile`). On the contr
 The harness discovers every source GET route and refuses newly discovered routes until their
 safe request is added to `scripts/parity/cases.mjs`. IDs come from the snapshot; empty tables use
 explicit missing-resource IDs. Media-byte endpoints exercise errors rather than starting playback.
-Safe invalid-body POSTs cover progress, torrent send, and playback planning.
+
+After sanitizing, the harness seeds one inert fixture into both copies: a Work, a completed
+on-demand WatchListItem, a paused Big Buck Bunny (CC) EngineTorrent with no magnet, and a failed
+title AcquisitionTarget linked to it. The library, title, progress, stream, subtitles and
+client/torrents reads therefore run against real rows. The .NET stream index resumes a paused
+transfer to serve it, and the magnet-less fixture then errors, so stream index reads run last.
+
+Mutation routes are covered only by reviewed rejecting probes: missing/invalid/wrong-type
+bodies, malformed JSON, wrong content type, cross-site origin and invalid hashes. Each is
+rejected before any write, engine start, provider call or filesystem change. Non-GET requests
+carry a same-origin `origin` header. A Next 2xx on a probe aborts the run; a .NET 2xx fails the
+case and is flagged as unsafe. Never add a probe without checking the Next handler.
 
 The source defaults to `D:\code\torrent-aggregator\dev.db`. A consistent SQLite snapshot, including
 committed WAL changes, produces two copies under `D:\code\memtest\parity\<run>`. Both are sanitized
@@ -128,11 +144,20 @@ failure. `--no-next-build` requires an existing `.next-parity` build; rebuild af
 
 Each run writes private, gitignored `scripts/parity/reports/<run>/report.md` and `report.json`,
 plus host/build logs. Reports include statuses, exact content-type/cache-control headers and
-structural JSON differences. Normalization masks volatile values while retaining keys/types;
+structural JSON differences. JSON content types ignore a `charset=utf-8` parameter, since JSON is
+always UTF-8 (RFC 8259). Any other media type or parameter difference still fails.
+Normalization masks volatile values while retaining keys/types;
 ranked and paginated arrays keep their ordering. Bare .NET 404s mean **not ported**; application JSON
 404s remain comparable. Exit codes: **0** parity (including not-ported), **1** differences/request
 errors, **2** setup/harness failure. Provider-backed reads can vary with live upstream data; inspect
 their diffs rather than masking meaningful results. Reports contain local library data: never commit.
+
+Known, accepted diffs: `/api/diagnostics/health` has no .NET counterpart for Node-only sections
+(named cache registry, component health registry, completion sweep, event-loop delay). It also
+reports .NET process memory under `runtime`, and `enginePressure.clientPresent` is always true
+because MonoTorrent starts eagerly, while Next's WebTorrent client is lazy. For the same reason,
+the stream index for a paused fixture returns 404 on Next (no live client) and 425 on .NET (it
+resumes the transfer, and metadata is pending).
 
 ### Settings and Downloads parity
 
@@ -148,18 +173,32 @@ Sintel/Big Buck Bunny transfer, pause/resume, cap-one queuing, API force, and br
 The SPA queue action and preprobe panel depend on their separate UI/prewarm port work; diagnostics
 retain runtime-specific .NET memory metrics rather than inventing Node event-loop measurements.
 
+## Single-exe distribution
+
+```powershell
+.\scripts\publish-exe.ps1
+```
+
+The script builds `web/` with pnpm, then publishes `server/TorrentFlow.Api` as
+`artifacts\exe\TorrentFlow.exe`. No SDK, .NET runtime, Node, pnpm, or Docker is needed on the
+recipient's machine. The exe serves the SPA from embedded `web/dist` resources when no physical
+`wwwroot` folder is present, but still prefers on-disk web roots for development.
+
+By default it stores the database and settings in `%LOCALAPPDATA%\TorrentFlow`. If a `portable`
+marker file sits next to the exe, it instead keeps data in `data\` beside the exe so the whole
+folder stays self-contained. Pass `--urls http://127.0.0.1:3000` to override the port, or
+`--no-browser` to suppress the automatic browser launch.
+
 ## Folder distribution
 
 ```powershell
 dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
 ```
 
-Ship the entire folder and run `TorrentFlow.Api.exe --urls http://127.0.0.1:3000`.
-No SDK, .NET runtime, Node, pnpm, or Docker is needed on the recipient's machine.
-Use `linux-x64` or `osx-arm64` for other platforms (Linux still needs native dependencies such as ICU;
-see the README's "Linux and macOS" section, verified on Ubuntu 24.04/WSL with a Windows-built publish).
-Publish includes `web/dist` under `wwwroot`; the host resolves `TorrentFlow:WebRoot` first,
-then `wwwroot` beside its executable, then the development `web/dist` directory.
+Ship the entire folder and run `.\TorrentFlow.exe --urls http://127.0.0.1:3000` from that
+folder. Use `linux-x64`, `linux-arm64`, `osx-arm64`, or `osx-x64` with a matching output
+directory for those platforms.
+
 See the root README for data migration and environment configuration.
 
 ## Library module

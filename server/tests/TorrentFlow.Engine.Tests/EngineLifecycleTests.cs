@@ -141,6 +141,44 @@ public class EngineLifecycleTests
     }
 
     [Fact]
+    public async Task PerHashLocksDoNotOutliveTheirOperations()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 1);
+        for (var i = 1; i <= 3; i++) await h.Engine.AddAsync(Keep(i, ep: i));
+        await h.Engine.PauseAsync(H(1));
+        await h.Engine.ResumeAsync(H(1));
+        await h.Engine.ForceAsync(H(3));
+        await h.Engine.RemoveAsync(H(2), deleteFiles: false);
+        await h.Engine.PauseAsync(H(99));                 // unknown hash still takes (and must drop) a lock
+        await h.Engine.TickAsync();
+
+        Assert.Equal(0, h.Engine.HashLockCount);
+    }
+
+    [Fact]
+    public async Task AContendedHashLockStaysSharedAndACancelledWaiterLetsGo()
+    {
+        await using var h = await EngineHarness.CreateAsync();
+        var gate = new StartGate();
+        h.Backend.BeforeAdd = gate.For(H(1));
+        var add = h.Engine.AddAsync(Keep(1, ep: 1));
+        await gate.Entered.Task;
+        Assert.Equal(1, h.Engine.HashLockCount);
+
+        using var cts = new CancellationTokenSource();
+        var cancelled = h.Engine.PauseAsync(H(1), cts.Token);
+        var pause = h.Engine.PauseAsync(H(1));
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelled);
+        Assert.Equal(1, h.Engine.HashLockCount);         // the add and the waiting pause still share one entry
+
+        gate.Release.SetResult();
+        await Task.WhenAll(add, pause);
+        Assert.Equal("paused", (await h.RowAsync(1)).Status);   // still serialised: the pause ran after the add
+        Assert.Equal(0, h.Engine.HashLockCount);
+    }
+
+    [Fact]
     public async Task PauseDuringADelayedPromotionIsNotUndone()
     {
         await using var h = await EngineHarness.CreateAsync(cap: 1);

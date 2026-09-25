@@ -63,10 +63,10 @@ public sealed class RulesController(IDbContextFactory<TorrentFlowDbContext> fact
         return Ok(body);
     }
     [HttpDelete]
-    public async Task<IActionResult> Delete([FromQuery] string? id, CancellationToken ct)
+    public async Task<IActionResult> Delete(CancellationToken ct)
     {
         Fields.Guard(Request);
-        if (string.IsNullOrWhiteSpace(id)) Fields.Fail("id is required", "id");
+        var id = Fields.Query(Request, "id", required: true, maxLength: 128)!;
         await using var db = await factory.CreateDbContextAsync(ct);
         await db.AutoRules.Where(x => x.Id == id && x.UserId == LocalUser.Id).ExecuteDeleteAsync(ct);
         return Ok(new { ok = true });

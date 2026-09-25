@@ -1,16 +1,25 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Data;
+using TorrentFlow.Engine.Client;
 using TorrentFlow.Engine.Clients.External;
 
 namespace TorrentFlow.Engine.Controllers;
 
 [ApiController]
 [Route("api/client/torrents")]
-public sealed class ClientTorrentsController(ITorrentEngine engine, ExternalClientRegistry clients, IOptions<JsonOptions> json) : ControllerBase
+public sealed class ClientTorrentsController(
+    ITorrentEngine engine,
+    ExternalClientRegistry clients,
+    IOptions<JsonOptions> json,
+    IDbContextFactory<TorrentFlowDbContext> dbFactory) : ControllerBase
 {
     private static readonly string[] Actions = ["pause", "resume", "delete", "force"];
     private static readonly string[] Owners = ["builtin", "qbittorrent", "transmission"];
@@ -39,9 +48,11 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ExternalClie
             try
             {
                 var rows = await clients.ListAsync(config, owner, ct);
-                var owned = rows.Where(t => !string.IsNullOrWhiteSpace(t.Hash))
-                    .GroupBy(t => t.Hash.Trim().ToLowerInvariant()).Select(g => g.Last())
-                    .Select(t => Owned(owner == "builtin" ? StripCacheStats(t) : t, owner)).ToList();
+                var deduped = rows.Where(t => !string.IsNullOrWhiteSpace(t.Hash))
+                    .GroupBy(t => t.Hash.Trim().ToLowerInvariant()).Select(g => g.Last());
+                var owned = owner == BuiltinOwner
+                    ? BuiltinListOrder(deduped).Select(t => BuiltinListRow(Owned(StripCacheStats(t), owner), t)).ToList()
+                    : deduped.Select(t => Owned(t, owner)).ToList();
                 return (Torrents: owned, Issue: (ClientIssue?)null);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -52,9 +63,115 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ExternalClie
             }
         }));
         var torrents = snapshots.SelectMany(s => s.Torrents).ToList();
+        await AnnotateAcquisitionIntentAsync(torrents, ct);
         var issues = snapshots.Select(s => s.Issue).OfType<ClientIssue>().ToList();
         return Ok(new ListResponse(torrents, config.ClientType, config.ClientType == "builtin" ? "" : config.Host, false, config.ExternalClientType,
             config.ExternalClientType is not null, issues.Count > 0, issues));
+    }
+
+    /// <summary>
+    /// The built-in list is sorted by name (numeric-aware) then hash, like builtin-engine listTorrents, so rows
+    /// do not jump when a transfer goes live.
+    /// </summary>
+    private static IEnumerable<EngineTorrentInfo> BuiltinListOrder(IEnumerable<EngineTorrentInfo> rows) =>
+        rows.OrderBy(t => t.Name, NameOrder).ThenBy(t => t.Hash, StringComparer.Ordinal);
+
+    private static readonly StringComparer NameOrder =
+        StringComparer.Create(System.Globalization.CultureInfo.InvariantCulture, System.Globalization.CompareOptions.NumericOrdering);
+
+    /// <summary>
+    /// Matches the shape Next lists for built-in rows. Work identity comes only from acquisition intent (below),
+    /// never the engine row, and a row that is not loaded in the client reports no peer count and no positive
+    /// playability claim (only a known-invalid <c>playable: false</c>), exactly like the persisted-row branch there.
+    /// </summary>
+    private JsonObject BuiltinListRow(JsonObject node, EngineTorrentInfo t)
+    {
+        node.Remove("workId");
+        node.Remove("queueKey");
+        if (!IsLoaded(t.Hash))
+        {
+            node.Remove("peers");
+            if (t.Playable != false) node.Remove("playable");
+        }
+        return node;
+    }
+
+    private bool IsLoaded(string hash) =>
+        HttpContext?.RequestServices.GetService<ITorrentBackend>()?.Contains(hash.Trim().ToLowerInvariant()) == true;
+
+    /// <summary>
+    /// client/torrents GET: each transfer carries the work/episode it was acquired for (acquisitionIntentByHash),
+    /// so Downloads groups by work instead of guessing from release names.
+    /// </summary>
+    private async Task AnnotateAcquisitionIntentAsync(List<JsonObject> torrents, CancellationToken ct)
+    {
+        var hashes = torrents.Select(t => t["hash"]?.GetValue<string>()?.Trim().ToLowerInvariant())
+            .OfType<string>().Where(h => h.Length > 0).Distinct().ToList();
+        if (hashes.Count == 0) return;
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var targets = await db.AcquisitionTargets.AsNoTracking()
+            .Where(a => a.UserId == LocalUser.Id && a.InfoHash != null && hashes.Contains(a.InfoHash.ToLower()))
+            .OrderByDescending(a => a.UpdatedAt)
+            .Select(a => new AcquisitionIntent(a.InfoHash!, a.WorkId, a.WorkKey, a.Scope, a.Season, a.Episode,
+                a.Work != null ? a.Work.CanonicalTitle : null, a.Work != null ? a.Work.Year : null, a.Work != null ? a.Work.MediaType : null))
+            .ToListAsync(ct);
+        if (targets.Count == 0) return;
+        var byHash = IntentByHash(targets);
+        var workKeys = byHash.Values.Select(t => t.WorkKey).Where(k => !string.IsNullOrEmpty(k)).Distinct().ToList();
+        var catalog = (await db.CatalogEntries.AsNoTracking().Where(c => workKeys.Contains(c.WorkKey))
+                .OrderByDescending(c => c.RefreshedAt).Select(c => new { c.WorkKey, c.Title, c.Year, c.MediaType }).ToListAsync(ct))
+            .GroupBy(c => c.WorkKey).ToDictionary(g => g.Key, g => g.First());
+        foreach (var torrent in torrents)
+        {
+            var hash = torrent["hash"]?.GetValue<string>()?.Trim().ToLowerInvariant();
+            if (hash is null || !byHash.TryGetValue(hash, out var target)) continue;
+            var entry = catalog.GetValueOrDefault(target.WorkKey);
+            torrent["workId"] = target.WorkId;
+            torrent["workKey"] = target.WorkKey;
+            torrent["workTitle"] = target.CanonicalTitle ?? entry?.Title ?? DisplayTitleFromWorkKey(target.WorkKey);
+            torrent["workYear"] = target.Year ?? entry?.Year;
+            torrent["workMediaType"] = (target.MediaType != "unknown" ? target.MediaType : null)
+                ?? entry?.MediaType ?? torrent["category"]?.GetValue<string>();
+            torrent["targetScope"] = target.Scope;
+            torrent["season"] = target.Season;
+            torrent["episode"] = target.Episode;
+        }
+    }
+
+    internal sealed record AcquisitionIntent(string InfoHash, string? WorkId, string WorkKey, string Scope, int? Season, int? Episode,
+        string? CanonicalTitle, int? Year, string? MediaType);
+
+    /// <summary>
+    /// acquisition-intent.ts: a non-episode target wins; one episode is itself; several episodes of one torrent
+    /// collapse to its season (or no season when they span seasons). Input is newest first.
+    /// </summary>
+    internal static Dictionary<string, AcquisitionIntent> IntentByHash(IEnumerable<AcquisitionIntent> targets) =>
+        targets.Where(t => !string.IsNullOrWhiteSpace(t.InfoHash))
+            .GroupBy(t => t.InfoHash.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g =>
+            {
+                var rows = g.ToList();
+                if (rows.FirstOrDefault(r => r.Scope != "episode") is { } whole) return whole;
+                var first = rows[0];
+                var seasons = rows.Select(r => r.Season).Distinct().Count();
+                var episodes = rows.Select(r => r.Episode).Distinct().Count();
+                if (seasons == 1 && episodes == 1) return first;
+                return first with { Scope = "season", Season = seasons == 1 ? first.Season : null, Episode = null };
+            });
+
+    private static readonly HashSet<string> MinorWords =
+        ["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to"];
+
+    /// <summary>work-key.ts displayTitleFromWorkKey: the slug spelled back out as words, never a guessed year.</summary>
+    internal static string DisplayTitleFromWorkKey(string key)
+    {
+        var raw = (key ?? "").Trim();
+        try { raw = Uri.UnescapeDataString(raw); } catch (UriFormatException) { }
+        var words = Regex.Replace(Regex.Replace(raw, "[-_]+", " "), @"\s+", " ").Trim();
+        if (words.Length == 0) return "";
+        return string.Join(' ', words.Split(' ').Select((w, i) =>
+            i > 0 && MinorWords.Contains(w.ToLowerInvariant()) ? w.ToLowerInvariant()
+            : w[0] is >= 'a' and <= 'z' ? char.ToUpperInvariant(w[0]) + w[1..] : w));
     }
 
     /// <summary>Stream/prewarm entries are cache, not downloads: the UI must not show their live speeds as progress.</summary>

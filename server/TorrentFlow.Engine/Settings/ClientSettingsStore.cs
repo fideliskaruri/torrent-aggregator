@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Engine.Clients.External;
 
 namespace TorrentFlow.Engine.Settings;
 
@@ -30,13 +32,17 @@ public sealed record ClientConfig
 
 public sealed record DownloadTarget(string? Category, string? SavePath);
 
-public sealed class ClientSettingsStore(IDbContextFactory<TorrentFlowDbContext> dbFactory)
+public sealed class ClientSettingsStore(
+    IDbContextFactory<TorrentFlowDbContext> dbFactory,
+    IOptions<ExternalClientOptions>? externalClients = null)
 {
     public const string DefaultHost = "http://127.0.0.1:8080";
     public static readonly IReadOnlyList<string> DefaultCategories = ["Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "Other"];
 
     public static string DefaultDownloadDir() =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "TorrentFlow");
+
+    public bool ExternalClientsEnabled => externalClients?.Value.Enabled == true;
 
     /// <summary>
     /// First run: built-in is the default client. Folder and storage cap are deliberately not backfilled —
@@ -45,7 +51,18 @@ public sealed class ClientSettingsStore(IDbContextFactory<TorrentFlowDbContext> 
     public async Task<ClientSetting> EnsureAsync(TorrentFlowDbContext db, CancellationToken ct = default)
     {
         var row = await db.ClientSettings.FirstOrDefaultAsync(s => s.UserId == LocalUser.Id, ct);
-        if (row is not null) return row;
+        if (row is not null)
+        {
+            // Built-in-only builds: settle a stored external selection on builtin, like switchToBuiltin does
+            // (externalClientType is kept), so modules that read the row directly agree with the effective client.
+            if (!ExternalClientsEnabled && row.ClientType is not "builtin")
+            {
+                row.ClientType = "builtin";
+                row.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+            }
+            return row;
+        }
         var now = DateTime.UtcNow;
         row = new ClientSetting
         {
@@ -66,15 +83,18 @@ public sealed class ClientSettingsStore(IDbContextFactory<TorrentFlowDbContext> 
     public async Task<ClientConfig> GetConfigAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return ToConfig(await EnsureAsync(db, ct));
+        return EffectiveConfig(ToConfig(await EnsureAsync(db, ct)));
     }
 
     public async Task<ClientConfig> GetConnectionConfigAsync(SecretProtector secrets, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var row = await EnsureAsync(db, ct);
-        return ToConfig(row) with { Password = secrets.Decrypt(row.Password) };
+        return EffectiveConfig(ToConfig(row)) with { Password = secrets.Decrypt(row.Password) };
     }
+
+    private ClientConfig EffectiveConfig(ClientConfig config) =>
+        ExternalClientsEnabled ? config : config with { ClientType = "builtin", ExternalClientType = null };
 
     public static ClientConfig ToConfig(ClientSetting s)
     {

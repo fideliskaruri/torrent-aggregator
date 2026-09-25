@@ -108,10 +108,39 @@ internal sealed class Fields(JsonElement body)
     public string? Enum(string key, string[] values, bool required = false, bool nullable = false)
     {
         var value = String(key, required, nullable: nullable);
-        if (value != null && !values.Contains(value)) Fail($"{key} must be one of {string.Join(", ", values)}", key);
+        if (value != null && !values.Contains(value)) Fail($"{key} must be one of: {string.Join(", ", values)}", key);
         return value;
     }
     public static void Fail(string message, string? field = null) => throw new LibraryRequestException(400, message, field);
+
+    /// <summary>lib/http/request.ts queryString: absent vs blank are different messages, like the Next routes.</summary>
+    public static string? Query(HttpRequest request, string name, bool required = false, int? maxLength = null, string[]? allowed = null)
+    {
+        if (!request.Query.TryGetValue(name, out var raw))
+        {
+            if (required) Fail($"Missing query parameter `{name}`", name);
+            return null;
+        }
+        var value = raw.ToString().Trim();
+        if (required && value.Length == 0) Fail($"Query parameter `{name}` is required", name);
+        if (maxLength != null && value.Length > maxLength) Fail($"{name} must be at most {maxLength} characters", name);
+        if (allowed != null && !allowed.Contains(value)) Fail($"{name} must be one of: {string.Join(", ", allowed)}", name);
+        return value;
+    }
+
+    /// <summary>lib/http/request.ts queryNumber with integer: an absent or empty parameter is simply unset.</summary>
+    public static int? QueryInt(HttpRequest request, string name, int min, int max)
+    {
+        var raw = request.Query[name].ToString();
+        if (!request.Query.ContainsKey(name) || raw.Length == 0) return null;
+        if (!Regex.IsMatch(raw.Trim(), @"^-?(?:\d+|\d*\.\d+)$")) Fail($"{name} must be a number", name);
+        var value = double.Parse(raw.Trim(), CultureInfo.InvariantCulture);
+        if (!double.IsFinite(value)) Fail($"{name} must be a finite number", name);
+        if (value != Math.Truncate(value)) Fail($"{name} must be an integer", name);
+        if (value < min) Fail($"{name} must be at least {min}", name);
+        if (value > max) Fail($"{name} must be at most {max}", name);
+        return (int)value;
+    }
     public static void Guard(HttpRequest request)
     {
         var site = request.Headers["Sec-Fetch-Site"].ToString().ToLowerInvariant();

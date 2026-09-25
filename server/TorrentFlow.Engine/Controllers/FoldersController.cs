@@ -136,10 +136,14 @@ public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbCo
         IActionResult Refuse(int status, string reason, string message) =>
             StatusCode(status, new { ok = false, error = "Refused to remove that entry", message, reason });
 
-        var rel = body.Str("relativePath")?.Trim();
-        if (string.IsNullOrEmpty(rel))
-            return BadRequest(new { ok = false, error = "No entry named", message = "Name the untracked file or folder to remove.", reason = "empty-path" });
-        if (rel.Length > 4096 || rel.Contains('\0') || Path.IsPathRooted(rel)) return Refuse(403, "outside-root", "That path is not inside the download folder.");
+        if (!body.Has("relativePath") || body.Str("relativePath")?.Trim() is "")
+            return BadRequest(new { error = "relativePath is required", field = "relativePath" });
+        if (body.Str("relativePath") is null)
+            return BadRequest(new { error = "relativePath must be a string", field = "relativePath" });
+        var rel = body.Str("relativePath")!.Trim();
+        if (rel.Length > 4096)
+            return BadRequest(new { error = "relativePath must be at most 4096 characters", field = "relativePath" });
+        if (rel.Contains('\0') || Path.IsPathRooted(rel)) return Refuse(403, "outside-root", "That path is not inside the download folder.");
         var config = await store.GetConfigAsync(ct);
         if (config.DownloadRoot is not { } rootRaw) return BadRequest(new { ok = false, error = "No download folder configured" });
         var root = Path.GetFullPath(rootRaw);

@@ -143,11 +143,19 @@ public sealed class TitleExtrasService(
                 var episodes = await keyless.GetTvmazeEpisodesAsync(show.Id, ExtrasTimeoutMs, ct).ConfigureAwait(false);
                 var seasons = episodes.Select(e => e.Season).Where(s => s >= 1).Distinct().Order().ToList();
                 var wanted = q.Season is >= 1 ? q.Season : seasons.Cast<int?>().FirstOrDefault() ?? 1;
+                // TS merges resolveWorkDetail (keyless-detail tvmazeDetail) into the TVmaze listing: the summary as
+                // plain text, TVmaze's own 0–10 score, genres and premiere date.
+                var overview = HtmlText.StripToText(show.Summary);
+                var rating = show.Rating is > 0 and <= 10 ? Math.Round(show.Rating.Value * 10, MidpointRounding.AwayFromZero) / 10 : (double?)null;
+                var genres = show.Genres.Select(g => g.Trim()).Where(g => g.Length > 0).DistinctBy(g => g.ToLowerInvariant()).ToList();
+                var premiered = string.IsNullOrWhiteSpace(show.Premiered) ? null : show.Premiered.Trim();
                 result = result with
                 {
                     Season = wanted, SeasonCount = seasons.Count == 0 ? null : seasons.Count, Seasons = seasons,
                     Episodes = episodes.Where(e => e.Season == wanted).Select(e => new TitleEpisodeMeta(e.Episode, e.Name, null, e.AirDate, e.RuntimeMin, e.StillUrl)).ToList(),
-                    Overview = show.Summary, Resolved = seasons.Count > 0 || show.Summary is not null,
+                    Overview = overview, Rating = rating, RatingSource = rating is null ? null : "tvmaze",
+                    ReleaseDate = premiered, Genres = genres.Count > 0 ? genres : result.Genres,
+                    Resolved = seasons.Count > 0 || overview is not null || rating is not null || genres.Count > 0 || premiered is not null,
                 };
             }
         }

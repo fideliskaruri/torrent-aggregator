@@ -21,10 +21,23 @@ export function structuralDiff(expected, actual, pointer = "$", differences = []
   return differences;
 }
 
+// JSON has no charset parameter (RFC 8259 §11: it is always UTF-8), so Next's bare
+// `application/json` and ASP.NET's `application/json; charset=utf-8` are the same
+// contract. Any other media type or parameter difference still counts.
+export function contentTypeKey(value) {
+  if (value == null) return value;
+  const [type, ...params] = value.split(";").map((part) => part.trim().toLowerCase());
+  const kept = params.filter((p) => p && !(/(^|[+/])json$/.test(type) && p.replace(/\s+/g, "") === "charset=utf-8"));
+  return [type, ...kept.sort()].join("; ");
+}
+
+const headerMatch = { "content-type": (a, b) => contentTypeKey(a) === contentTypeKey(b) };
+
 export function compare(c, next, dotnet) {
   if (next.error || dotnet.error) return { outcome: "error", statusMatch: false, headers: {}, differences: [], next, dotnet };
   const headers = Object.fromEntries(["content-type", "cache-control"].map((key) => [
-    key, { expected: next.headers[key], actual: dotnet.headers[key], match: next.headers[key] === dotnet.headers[key] },
+    key, { expected: next.headers[key], actual: dotnet.headers[key],
+      match: (headerMatch[key] ?? Object.is)(next.headers[key], dotnet.headers[key]) },
   ]));
   const differences = structuralDiff(c.normalizer(next.body), c.normalizer(dotnet.body));
   const statusMatch = next.status === dotnet.status;

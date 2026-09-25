@@ -251,4 +251,24 @@ public sealed class ReviewFixTests
         Assert.Equal(outcome, plan.Outcome);
         if (reason != null) Assert.Equal(reason, Assert.Single(plan.Blocked).Reason);
     }
+
+    [Fact]
+    public async Task TitleDetailFindsCatalogRowByComputedKey()
+    {
+        using var host = new LibraryHost(); using var client = host.CreateClient();
+        // The catalog pipeline keys rows its own way; a browse link's slug must still reach the row's metadata.
+        await host.Seed(db => db.CatalogEntries.Add(new()
+        {
+            Id = Guid.NewGuid().ToString("N"), WorkKey = "film:example film:2026", Title = "Example: Film", Year = 2026, MediaType = "movie",
+            Overview = "A blurb.", PosterUrl = "https://example.test/poster.jpg", Source = "trending", Rank = 1, RefreshedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow
+        }));
+        var detail = await Json(await client.GetAsync("/api/title/example-film?t=Example%3A+Film&type=movie"));
+        Assert.Equal("Example: Film", detail.GetProperty("title").GetString());
+        Assert.Equal(2026, detail.GetProperty("year").GetInt32());
+        Assert.Equal("A blurb.", detail.GetProperty("overview").GetString());
+        Assert.True(detail.GetProperty("known").GetBoolean());
+        // A dated key never reaches a row from a different year.
+        var other = await Json(await client.GetAsync("/api/title/example-film-1999"));
+        Assert.False(other.GetProperty("known").GetBoolean());
+    }
 }

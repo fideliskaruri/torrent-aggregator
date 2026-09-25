@@ -136,19 +136,24 @@ public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> f
     public async Task<IActionResult> Handle(CancellationToken ct)
     {
         var mutate = Request.Method == "POST";
-        Fields f;
-        if (mutate) f = await Fields.Read(Request, ct);
+        string id, kind;
+        int? season, episode;
+        Fields f = default!;
+        if (mutate)
+        {
+            f = await Fields.Read(Request, ct);
+            id = f.String("watchListItemId", true, 128)!;
+            kind = f.Enum("scope", ["show", "season", "episode"], true)!;
+            season = f.Int("season", 10000);
+            episode = f.Int("episode");
+        }
         else
         {
-            var values = Request.Query.ToDictionary(x => x.Key, x => (object?)x.Value.ToString());
-            foreach (var key in new[] { "season", "episode" })
-                if (values.TryGetValue(key, out var value) && int.TryParse(value as string, out var n)) values[key] = n;
-            f = new(JsonSerializer.SerializeToElement(values));
+            id = Fields.Query(Request, "watchListItemId", required: true, maxLength: 128)!;
+            kind = Fields.Query(Request, "scope", required: true, allowed: ["show", "season", "episode"])!;
+            season = Fields.QueryInt(Request, "season", 1, 10000);
+            episode = Fields.QueryInt(Request, "episode", 1, 100000);
         }
-        var id = f.String("watchListItemId", true, 128);
-        var kind = f.Enum("scope", ["show", "season", "episode"], true)!;
-        var season = f.Int("season", 10000);
-        var episode = f.Int("episode");
         if (mutate && f.Bool("confirm") != true)
             return BadRequest(new { ok = false, error = "Confirmation required", message = "Deleting files needs `confirm: true`. Ask for the plan with GET first and show the file count and size.", reason = "unconfirmed" });
         if (kind != "show" && (season == null || kind == "episode" && episode == null))

@@ -102,8 +102,10 @@ public class LoopbackSwarmTests : IAsyncLifetime
         Assert.Equal(Convert.ToBase64String([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80]), snap.PieceBitfield);
         var path = Assert.Single(snap.Files).FullPath;
         Assert.Equal(Path.Combine(save, "synthetic.bin"), path);   // a single-file torrent lands directly in the save path
+        Assert.NotNull(backend.GetMetadata(_hash));
         await backend.RemoveAsync(_hash);                           // release the file handles
         Assert.Equal(_payload, await File.ReadAllBytesAsync(path));
+        Assert.False(backend.HasSideState(_hash));                   // no per-hash state outlives the transfer
     }
 
     [Fact]

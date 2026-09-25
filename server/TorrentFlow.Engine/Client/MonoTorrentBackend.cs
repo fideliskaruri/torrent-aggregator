@@ -183,6 +183,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public IReadOnlyList<BackendSnapshot> List() => _managers.Values.Select(Snapshot).ToList();
 
+    public IReadOnlyCollection<string> LiveHashes() => _managers.Keys.ToList();
+
     public async Task PauseAsync(string hash)
     {
         // Stop, not Pause: a MonoTorrent pause keeps peer connections open, which is exactly the memory we want back.
@@ -208,6 +210,23 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Removing torrent {Hash} from the client failed", hash);
+        }
+
+        // Per-hash side state must go with the manager, or it grows with every transfer ever run. The service keeps
+        // its own .torrent copy on disk. Under the gate so a concurrent re-add of the same hash keeps its entries.
+        await _gate.WaitAsync();
+        try
+        {
+            if (!_managers.ContainsKey(hash))
+            {
+                _metadata.TryRemove(hash, out _);
+                _purposes.TryRemove(hash, out _);
+                _errors.TryRemove(hash, out _);
+            }
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 
@@ -235,6 +254,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         return await _sharedStreams.GetValue(m, static mgr => new SharedTorrentStreams(mgr)).OpenAsync(file, ct);
     }
 
+    internal bool HasSideState(string hash) =>
+        _metadata.ContainsKey(hash) || _purposes.ContainsKey(hash) || _errors.ContainsKey(hash);
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TorrentManager, SharedTorrentStreams> _sharedStreams = new();
 
     public byte[]? GetMetadata(string hash)

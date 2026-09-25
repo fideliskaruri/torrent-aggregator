@@ -56,6 +56,7 @@ internal sealed class FakeBackend : ITorrentBackend
         return Live.TryGetValue(hash, out var s) ? s : null;
     }
     public IReadOnlyList<BackendSnapshot> List() => Live.Values.ToList();
+    public IReadOnlyCollection<string> LiveHashes() => Live.Keys.ToList();
     public Task PauseAsync(string hash) { Update(hash, s => s with { State = "paused" }); return Task.CompletedTask; }
     public Task ResumeAsync(string hash) { Update(hash, s => s with { State = "stalledDL" }); return Task.CompletedTask; }
     public Task RemoveAsync(string hash) { Live.TryRemove(hash, out _); return Task.CompletedTask; }

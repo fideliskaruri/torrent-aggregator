@@ -503,9 +503,10 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
-      "torrentflow.api": {
+      "TorrentFlow": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.Extensions.FileProviders.Embedded": "[10.0.12, )",
           "TorrentFlow.Core": "[1.0.0, )",
           "TorrentFlow.Data": "[1.0.0, )",
           "TorrentFlow.Engine": "[1.0.0, )",
@@ -581,6 +582,15 @@
           "Microsoft.Extensions.Logging": "10.0.12",
           "SQLitePCLRaw.bundle_e_sqlite3": "2.1.12",
           "SQLitePCLRaw.core": "2.1.12"
+        }
+      },
+      "Microsoft.Extensions.FileProviders.Embedded": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "u9y/tTPnkv+lsIqN4NRjhzh5XGv7pPCXjPEdbYVK9daidg+xFFEHv//gTlrjZJAKLMcHbArnCU/wVl0KrPJEJA==",
+        "dependencies": {
+          "Microsoft.Extensions.FileProviders.Abstractions": "10.0.12"
         }
       },
       "MonoTorrent": {
