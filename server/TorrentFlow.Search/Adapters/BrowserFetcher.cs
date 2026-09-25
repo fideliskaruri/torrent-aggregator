@@ -71,7 +71,7 @@ public sealed class BrowserFetcher(IConfiguration configuration, IOptions<Search
                         if (bytes.Length + received.Count > 8 * 1024 * 1024) throw new IOException("Indexer browser response exceeds 8 MiB");
                         bytes.Write(buffer, 0, received.Count);
                     } while (!received.EndOfMessage);
-                    using var doc = JsonDocument.Parse(bytes.ToArray());
+                    using var doc = JsonDocument.Parse(bytes.GetBuffer().AsMemory(0, (int)bytes.Length));
                     var message = doc.RootElement;
                     if (message.TryGetProperty("method", out var eventName) && eventName.GetString() == "Network.responseReceived")
                     {
