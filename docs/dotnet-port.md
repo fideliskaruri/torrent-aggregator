@@ -64,6 +64,11 @@ web/                          Vite + React SPA (built into web/dist, served by t
 - Globalization: ICU is on, so `string.Normalize` matches JS `String.prototype.normalize`. The host
   pins the default culture to invariant; still pass `CultureInfo.InvariantCulture` and use ordinal
   comparisons in code. On Linux, install `libicu` (present on most distros).
+- Memory: the host runs workstation GC (`ServerGarbageCollection=false` in `TorrentFlow.Api.csproj`).
+  Server GC grows its gen0 budget until GC committed is ~3x the live heap, which alone pushed the
+  process past the 200 MB target under 5 live downloads. Watch `runtime` in
+  `/api/diagnostics/health` (working set, private bytes, GC heap/committed, threads, handles);
+  judge leaks by private bytes and the post-GC heap, not working set (~100 MB of it is shared images).
 
 ## External torrent clients
 

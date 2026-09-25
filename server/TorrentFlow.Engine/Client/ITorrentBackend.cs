@@ -42,6 +42,8 @@ internal interface ITorrentBackend
     bool Contains(string hash);
     BackendSnapshot? Get(string hash);
     IReadOnlyList<BackendSnapshot> List();
+    /// <summary>Hashes of the loaded transfers, without building snapshots.</summary>
+    IReadOnlyCollection<string> LiveHashes();
     Task PauseAsync(string hash);
     Task ResumeAsync(string hash);
     /// <summary>Detaches from the client. Deleting files is the caller's job (it knows the recorded paths).</summary>

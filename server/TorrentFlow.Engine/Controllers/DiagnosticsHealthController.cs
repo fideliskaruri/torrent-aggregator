@@ -33,6 +33,7 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOption
 
         using var proc = Process.GetCurrentProcess();
         Response.Headers.CacheControl = "no-store";
+        var gc = GC.GetGCMemoryInfo();
         var body = new Dictionary<string, object?>
         {
             ["status"] = dbUp ? "ok" : "degraded",
@@ -54,6 +55,13 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOption
                 rssBytes = proc.WorkingSet64,
                 privateBytes = proc.PrivateMemorySize64,
                 managedHeapBytes = GC.GetTotalMemory(false),
+                gcHeapSizeBytes = gc.HeapSizeBytes,
+                gcCommittedBytes = gc.TotalCommittedBytes,
+                gcFragmentedBytes = gc.FragmentedBytes,
+                gcServer = System.Runtime.GCSettings.IsServerGC,
+                gcCollections = new[] { GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2) },
+                threads = proc.Threads.Count,
+                handles = proc.HandleCount,
                 maxActiveDownloads = options.CurrentValue.MaxActiveDownloads,
                 maxConnections = options.CurrentValue.MaxConnections,
                 diskCacheBytes = options.CurrentValue.DiskCacheBytes,
