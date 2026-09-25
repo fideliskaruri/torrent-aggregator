@@ -231,6 +231,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         return await m.StreamProvider.CreateStreamAsync(file, prebuffer: false, ct);
     }
 
+    internal bool HasSideState(string hash) =>
+        _metadata.ContainsKey(hash) || _purposes.ContainsKey(hash) || _errors.ContainsKey(hash);
+
     public byte[]? GetMetadata(string hash)
     {
         if (_metadata.TryGetValue(hash, out var bytes)) return bytes;

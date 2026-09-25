@@ -103,7 +103,7 @@ public class LoopbackSwarmTests : IAsyncLifetime
         Assert.NotNull(backend.GetMetadata(_hash));
         await backend.RemoveAsync(_hash);                           // release the file handles
         Assert.Equal(_payload, await File.ReadAllBytesAsync(path));
-        Assert.Null(backend.GetMetadata(_hash));                    // no per-hash state outlives the transfer
+        Assert.False(backend.HasSideState(_hash));                   // no per-hash state outlives the transfer
     }
 
     [Fact]

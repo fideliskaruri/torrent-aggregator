@@ -36,7 +36,8 @@ internal sealed class TorrentEngineService(
 
     private readonly SemaphoreSlim _queueGate = new(1, 1);
     // Lock order: a hash lock is always taken before _queueGate, and never while holding another hash lock.
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _hashLocks = new(StringComparer.Ordinal);
+    // Entries are ref-counted (holder + waiters) and dropped at zero, so the map never outgrows the in-flight work.
+    private readonly Dictionary<string, HashLock> _hashLocks = new(StringComparer.Ordinal);
     // Rows marked downloading whose backend start is still in flight; the monitor must not treat them as stranded.
     private readonly ConcurrentDictionary<string, byte> _starting = new(StringComparer.Ordinal);
     // When each transfer was last loaded into the client; the metadata deadline counts from here, not the row.
@@ -283,15 +284,53 @@ internal sealed class TorrentEngineService(
     {
         // Every lifecycle operation (add, start, pause, resume, force, delete, stream open) passes through here.
         WakeMonitor();
-        var gate = _hashLocks.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
-        return new Releaser(gate);
+        HashLock entry;
+        lock (_hashLocks)
+        {
+            if (!_hashLocks.TryGetValue(hash, out entry!)) _hashLocks[hash] = entry = new HashLock();
+            entry.Refs++;
+        }
+        try
+        {
+            await entry.Gate.WaitAsync(ct);
+        }
+        catch
+        {
+            ReleaseRef(hash, entry);
+            throw;
+        }
+        return new Releaser(this, hash, entry);
     }
 
-    private sealed class Releaser(SemaphoreSlim gate) : IDisposable
+    private void ReleaseRef(string hash, HashLock entry)
+    {
+        lock (_hashLocks)
+        {
+            if (--entry.Refs == 0) _hashLocks.Remove(hash);
+        }
+    }
+
+    /// <summary>Test seam: per-hash lock entries currently held or awaited.</summary>
+    internal int HashLockCount
+    {
+        get { lock (_hashLocks) return _hashLocks.Count; }
+    }
+
+    private sealed class HashLock
+    {
+        public readonly SemaphoreSlim Gate = new(1, 1);
+        public int Refs;
+    }
+
+    private sealed class Releaser(TorrentEngineService owner, string hash, HashLock entry) : IDisposable
     {
         private int _released;
-        public void Dispose() { if (Interlocked.Exchange(ref _released, 1) == 0) gate.Release(); }
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) != 0) return;
+            entry.Gate.Release();
+            owner.ReleaseRef(hash, entry);
+        }
     }
 
     private static string PurposeOf(EngineTorrent row) => row.Origin switch
