@@ -45,6 +45,20 @@ builder.Services.AddControllers()
 var app = builder.Build();
 await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
 
+// The React SPA (web/) builds into web/dist. Static files run before routing so the history-API fallback
+// below never captures real assets (it would answer /assets/*.js with index.html).
+var webRoot = builder.Configuration["TorrentFlow:WebRoot"]
+    ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "web", "dist"));
+Microsoft.Extensions.FileProviders.PhysicalFileProvider? webFiles = Directory.Exists(webRoot) ? new(webRoot) : null;
+if (webFiles is not null)
+{
+    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = webFiles });
+    var types = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+    types.Mappings[".webmanifest"] = "application/manifest+json";
+    app.UseStaticFiles(new StaticFileOptions { FileProvider = webFiles, ContentTypeProvider = types });
+}
+app.UseRouting();
+
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.
 app.MapGet("/activity", () => Results.Redirect("/notifications", permanent: true, preserveMethod: true));
 app.MapGet("/client", () => Results.Redirect("/downloads", permanent: true, preserveMethod: true));
@@ -79,16 +93,9 @@ app.MapGet("/api/health", async (TorrentFlowDbContext db, HttpContext http, Canc
 });
 app.MapControllers();
 
-// The React SPA (web/) builds into web/dist; serve it with history-API fallback for client routes.
-var webRoot = builder.Configuration["TorrentFlow:WebRoot"]
-    ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "web", "dist"));
-if (Directory.Exists(webRoot))
-{
-    var files = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(webRoot);
-    app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
-    app.UseStaticFiles(new StaticFileOptions { FileProvider = files });
-    app.MapFallbackToFile("{**path:regex(^(?!api/).*$)}", "index.html", new StaticFileOptions { FileProvider = files });
-}
+
+if (webFiles is not null)
+    app.MapFallbackToFile("{**path:regex(^(?!api/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles });
 
 app.Run();
 
