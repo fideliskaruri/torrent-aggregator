@@ -1,7 +1,4 @@
-import { useCallback, useState } from "react";
 import { Outlet, ScrollRestoration, type Location } from "react-router";
-import { Geist, Geist_Mono } from "next/font/google";
-import { RouterRefreshContext } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { KeyboardRoot } from "@/components/layout/keyboard-root";
@@ -9,12 +6,10 @@ import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { ServiceWorkerRegistrar } from "@/components/pwa/service-worker-registrar";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import "./fonts.css";
 import "./globals.css";
-
-// Loads the self-hosted font faces; the CSS variables live in fonts.css.
-Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 // A fresh document load always has location.key "default"; keying it per load
 // keeps a new visit from restoring the last session's scroll (Next starts at the top).
@@ -28,12 +23,8 @@ const scrollKey = (location: Location) =>
  * layout, with the page rendered through the router outlet.
  */
 export default function RootLayout() {
-  // `router.refresh()` re-runs the page: bumping the key re-mounts the outlet.
-  const [refreshKey, setRefreshKey] = useState(0);
-  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
-
   return (
-    <RouterRefreshContext.Provider value={refresh}>
+    <>
       <ScrollRestoration getKey={scrollKey} />
       <ServiceWorkerRegistrar />
       <AuthSessionProvider>
@@ -48,7 +39,7 @@ export default function RootLayout() {
               tabIndex={-1}
               className="app-main pb-[calc(var(--mobile-nav-h)+var(--safe-bottom))] md:pb-0"
             >
-              <Outlet key={refreshKey} />
+              <Outlet />
             </main>
             <footer className="app-footer hidden md:block">
               <div className="container-app flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[11px] text-[var(--text-tertiary)]">
@@ -79,6 +70,6 @@ export default function RootLayout() {
           </KeyboardRoot>
         </UiPreferencesProvider>
       </AuthSessionProvider>
-    </RouterRefreshContext.Provider>
+    </>
   );
 }

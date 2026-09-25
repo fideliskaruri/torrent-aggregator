@@ -22,6 +22,7 @@ public static partial class TitleCleaning
     [GeneratedRegex(@"[\[\](){}【】]")] private static partial Regex Brackets();
     [GeneratedRegex(@"\b(s\d{1,2}e\d{1,3}|ep?\s*\d{1,3}|season\s*\d+)\b", RegexOptions.IgnoreCase)] private static partial Regex NormStructure();
     [GeneratedRegex(@"\b(1080p|720p|480p|2160p|4k|hevc|x265|x264|web-?dl|webrip|bluray|bdrip|hdtv|aac|flac|10bit|dual|multi|sub|dub|vostfr|raw)\b", RegexOptions.IgnoreCase)] private static partial Regex NormQuality();
+    [GeneratedRegex(@"\s+")] private static partial Regex Whitespace();
 
     public static string CleanTorrentTitle(string title)
     {
@@ -29,7 +30,7 @@ public static partial class TitleCleaning
         t = Structure().Replace(t, " ");
         t = Quality().Replace(t, " ");
         t = Separators().Replace(t, " ");
-        return Regex.Replace(t, @"\s+", " ").Trim();
+        return Whitespace().Replace(t, " ").Trim();
     }
 
     public static string NormalizeTitle(string title)
@@ -38,7 +39,7 @@ public static partial class TitleCleaning
         t = NormStructure().Replace(t, " ");
         t = NormQuality().Replace(t, " ");
         t = Separators().Replace(t, " ");
-        return Regex.Replace(t, @"\s+", " ").Trim();
+        return Whitespace().Replace(t, " ").Trim();
     }
 }
 
@@ -177,7 +178,7 @@ public sealed partial class MetadataResolver : IMetadataResolver
         if (cleaned.Length == 0) return null;
         var key = $"{(string.IsNullOrEmpty(category) ? "all" : category)}:{cleaned.ToLowerInvariant()}";
         if (_memory.TryGet(key, out var cached)) return cached;
-        return await _inFlight.RunAsync(key, () => ResolveUncachedAsync(rawTitle, cleaned, category, key)).WaitAsync(cancellationToken).ConfigureAwait(false);
+        return await _inFlight.RunAsync(key, () => ResolveUncachedAsync(rawTitle, cleaned, category, key), cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<MediaMetadata?> ResolveUncachedAsync(string rawTitle, string cleaned, string? category, string key)

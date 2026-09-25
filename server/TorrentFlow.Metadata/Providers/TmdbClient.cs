@@ -93,14 +93,14 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout < TimeSpan.FromMilliseconds(1) ? TimeSpan.FromMilliseconds(1) : timeout);
         using var request = BuildRequest(key, $"{Base}{path}", query);
-        using var response = await httpFactory.CreateClient(HttpClientName).SendAsync(request, cts.Token).ConfigureAwait(false);
+        using var client = httpFactory.CreateClient(HttpClientName);
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             if (throwOnHttpError) throw new HttpRequestException($"TMDB HTTP {(int)response.StatusCode}");
             return null;
         }
-        await using var stream = await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false);
-        return await JsonDocument.ParseAsync(stream, cancellationToken: cts.Token).ConfigureAwait(false);
+        return await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
     }
 
     private static IEnumerable<(string, string)> SearchParams(string q) =>

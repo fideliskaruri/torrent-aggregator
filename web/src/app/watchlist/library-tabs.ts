@@ -41,7 +41,7 @@ export interface LibraryRow {
  * under All and simply claims no narrower home — the same rule the rest of the
  * app follows for unknown availability.
  */
-export function tabForRow(row: LibraryRow): Exclude<LibraryTab, "all"> | null {
+function tabForRow(row: LibraryRow): Exclude<LibraryTab, "all"> | null {
   switch (normalizeMediaType(row.mediaType)) {
     case "movie":
       return "movies";
@@ -95,12 +95,4 @@ export function tabCounts(rows: readonly LibraryRow[]): Record<LibraryTab, numbe
 export function visibleTabs(rows: readonly LibraryRow[]): LibraryTab[] {
   const counts = tabCounts(rows);
   return LIBRARY_TABS.filter((tab) => tab === "all" || counts[tab] > 0);
-}
-
-/** Parse a tab from a URL or stored preference, falling back to the default. */
-export function parseLibraryTab(raw: string | null | undefined): LibraryTab {
-  const value = (raw ?? "").trim().toLowerCase();
-  return (LIBRARY_TABS as readonly string[]).includes(value)
-    ? (value as LibraryTab)
-    : DEFAULT_LIBRARY_TAB;
 }

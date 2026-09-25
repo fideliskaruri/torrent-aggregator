@@ -1,14 +1,14 @@
-import type { WorkSearchCategory, WorkSearchScope } from "@/lib/search/work-search";
+import type { WorkSearchScope } from "@/lib/search/work-search";
 
 /** Legacy `/everything` ids remain parseable only for bookmark redirects. */
-export type LegacySectionScopeId =
+type LegacySectionScopeId =
   | "anime"
   | "music"
   | "games"
   | "software"
   | "books"
   | "everything";
-export type SearchScopeId = WorkSearchScope | LegacySectionScopeId;
+type SearchScopeId = WorkSearchScope | LegacySectionScopeId;
 
 /**
  * How a scope's results are chosen.
@@ -16,10 +16,10 @@ export type SearchScopeId = WorkSearchScope | LegacySectionScopeId;
  *  - `work` — TMDB-backed. Poster cards → title page → release chosen for you.
  *  - `release` — the release is the artifact. Rows, chosen directly.
  */
-export type SearchScopeKind = "work" | "release";
+type SearchScopeKind = "work" | "release";
 
 /** The category vocabulary the aggregator and its adapters speak. */
-export type AggregatorCategory =
+type AggregatorCategory =
   | "all"
   | "anime"
   | "movies"
@@ -116,117 +116,9 @@ export const SEARCH_SCOPES = [
 
 export const DEFAULT_SCOPE_ID: WorkSearchScope = "all";
 
-/**
- * Compatibility vocabulary for old `/everything` bookmarks.
- *
- * It is deliberately separate from `SEARCH_SCOPES`: these categories belong
- * to the internal aggregator, not to title discovery.
- */
-export const SECTION_SCOPES = [
-  {
-    id: "music",
-    label: "Music",
-    blurb: "Albums, discographies and singles.",
-    kind: "release",
-    playable: false,
-    category: "music",
-    downloadCategory: "Music",
-    placeholder: "Daft Punk Discovery, Radiohead FLAC…",
-  },
-  {
-    id: "games",
-    label: "Games",
-    blurb: "PC and console games, including repacks.",
-    kind: "release",
-    playable: false,
-    category: "games",
-    downloadCategory: "Games",
-    placeholder: "Stardew Valley, Elden Ring…",
-  },
-  {
-    id: "software",
-    label: "Software",
-    blurb: "Applications and tools.",
-    kind: "release",
-    playable: false,
-    category: "apps",
-    downloadCategory: "Software",
-    placeholder: "Blender, Photoshop, Office…",
-  },
-  {
-    id: "books",
-    label: "Books",
-    blurb: "Ebooks, audiobooks and comics.",
-    kind: "release",
-    playable: false,
-    category: "books",
-    downloadCategory: "Books",
-    placeholder: "Mistborn epub, Atomic Habits…",
-  },
-  {
-    id: "anime",
-    label: "Anime",
-    blurb: "Anime release compatibility scope.",
-    kind: "release",
-    playable: true,
-    category: "anime",
-    downloadCategory: "Anime",
-    placeholder: "Frieren, Attack on Titan…",
-  },
-  {
-    id: "everything",
-    label: "All categories",
-    blurb: "Every aggregator category.",
-    kind: "release",
-    playable: false,
-    category: "all",
-    downloadCategory: null,
-    placeholder: "Anything at all…",
-  },
-] as const satisfies readonly SearchScope[];
-
 export function getScope(id: string | null | undefined): SearchScope {
   return (
     SEARCH_SCOPES.find((s) => s.id === id) ??
     SEARCH_SCOPES.find((s) => s.id === DEFAULT_SCOPE_ID)!
   );
-}
-
-/**
- * Narrow an untrusted scope id, or null.
- *
- * Separate from {@link getScope} because a URL that names a scope we do not
- * have should be *noticed* by a caller that cares, not silently answered with
- * films — a `?scope=podcasts` link quietly returning film results is a worse
- * outcome than an honest fallback the page can mention.
- */
-export function parseScopeId(value: unknown): SearchScopeId | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  const hit = [...SEARCH_SCOPES, ...SECTION_SCOPES].find(
-    (s) => s.id === normalized,
-  );
-  return hit ? hit.id : null;
-}
-
-/** Every category the aggregator accepts. Used to validate the API route. */
-export const AGGREGATOR_CATEGORIES: readonly AggregatorCategory[] = [
-  "all",
-  "anime",
-  "movies",
-  "tv",
-  "music",
-  "apps",
-  "games",
-  "books",
-] as const;
-
-export function parseAggregatorCategory(
-  value: unknown,
-): AggregatorCategory | null {
-  if (typeof value !== "string") return null;
-  const v = value.trim().toLowerCase();
-  return (AGGREGATOR_CATEGORIES as readonly string[]).includes(v)
-    ? (v as AggregatorCategory)
-    : null;
 }

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import {
   LOADING_MIN_VISIBLE_MS,

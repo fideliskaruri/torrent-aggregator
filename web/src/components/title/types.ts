@@ -114,7 +114,7 @@ export interface TitleLibraryState {
 }
 
 /** Where playback got to, when there is somewhere to resume. */
-export interface TitleResume {
+interface TitleResume {
   infoHash: string;
   filePath: string | null;
   positionSec: number;
@@ -331,48 +331,6 @@ export interface TitleExtrasPayload {
 
 export type TitleRetention = "stream" | "keep";
 
-/** Body accepted by `POST /api/title/[workKey]` — the one-click grab. */
-export interface TitleGrabRequest {
-  /** Explicit intent boundary; coordinates must match the selected scope. */
-  scope?: "title" | "season" | "episode";
-  /** Omit both for a film (or a whole-title grab). */
-  season?: number | null;
-  episode?: number | null;
-  /** Known episode numbers for a one-press season grab. */
-  episodes?: number[] | null;
-  /** Never accepted for scoped acquisition. Retained for strict rejection. */
-  infoHash?: string | null;
-  /** Stream-only cache or permanent keep, matching `/api/torrent/send`. */
-  retention?: TitleRetention;
-  /**
-   * Preferred resolution in pixels (480 / 720 / 1080 / 2160).
-   * Only sent when the user has chosen a quality via the Download picker.
-   * Play never sends this — it is instant and never prompts.
-   */
-  preferredResolution?: number | null;
-  /** Passed through when the page was reached with only a title in the URL. */
-  title?: string | null;
-  mediaType?: string | null;
-  year?: number | null;
-  /** Provider identity hints re-verified by the server before acquisition. */
-  provider?: string | null;
-  providerId?: string | null;
-  sourceType?: string | null;
-  format?: string | null;
-  /**
-   * The owner saw the real figures and chose to exceed their own storage cap.
-   * Only the cap can be overridden this way — the free-space floor cannot.
-   */
-  overrideStorageCap?: boolean;
-  /**
-   * Whether the season has finished airing.  The server uses this to decide
-   * whether to allow a pack grab.  The client computes this from TMDB episode
-   * air dates; absence defaults to `true` (completed) on the server so existing
-   * integrations are unaffected.
-   */
-  seasonComplete?: boolean;
-}
-
 /** What `POST /api/title/[workKey]` answers. */
 export interface TitleGrabResponse {
   ok: boolean;
@@ -395,12 +353,25 @@ export interface TitleGrabResponse {
    * the setting lives — so the UI can offer a choice instead of a dead end.
    */
   storage?: StorageOverrideFacts | null;
+  /**
+   * The download was admitted into the chronological queue instead of starting
+   * at once, because the active-download cap was already full. Nothing is
+   * transferring for it yet.
+   */
+  queued?: boolean;
+  /** 1-based place in that queue, when known. */
+  queuePosition?: number | null;
 }
 
 /** What a season-level one-click grab answers. */
-export interface TitleSeasonEpisodeTransfer {
+interface TitleSeasonEpisodeTransfer {
   episode: number;
-  status: "downloading" | "failed";
+  /**
+   * `queued` means the engine accepted the episode and placed it in the
+   * chronological download queue — admitted, ordered, but not transferring
+   * yet. It is a success, not a slower `downloading`.
+   */
+  status: "downloading" | "queued" | "failed";
   infoHash: string | null;
   error: string | null;
 }

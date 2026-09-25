@@ -1,0 +1,9 @@
+<Project>
+  <!-- Standalone test-project builds skip the SPA. Solution tests use VSTestSessionCorrelationId;
+       changing reference properties in solution builds would compile shared outputs concurrently. -->
+  <ItemGroup Condition="'$(BuildingSolutionFile)' != 'true'">
+    <ProjectReference Update="@(ProjectReference)">
+      <AdditionalProperties>%(ProjectReference.AdditionalProperties);SkipWebBuild=true</AdditionalProperties>
+    </ProjectReference>
+  </ItemGroup>
+</Project>

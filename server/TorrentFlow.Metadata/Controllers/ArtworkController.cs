@@ -25,8 +25,8 @@ public sealed class ArtworkController(ArtworkResolver resolver) : ControllerBase
             return Ok(empty);
         }
 
-        var items = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
-            ? arr.EnumerateArray().ToList()
+        IEnumerable<JsonElement> items = body.ValueKind == JsonValueKind.Object && body.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
+            ? arr.EnumerateArray()
             : [];
         var queries = items
             .Select(item => new ArtworkQuery(
@@ -39,7 +39,7 @@ public sealed class ArtworkController(ArtworkResolver resolver) : ControllerBase
             .ToList();
         if (queries.Count == 0) return Ok(empty);
 
-        var resolved = await resolver.ResolveBatchAsync(queries);
+        var resolved = await resolver.ResolveBatchAsync(queries, HttpContext.RequestAborted);
         var artwork = new Dictionary<string, ArtworkResult>(StringComparer.Ordinal);
         for (var i = 0; i < queries.Count; i++)
             artwork[ArtworkMatching.ArtworkKey(queries[i].Title, queries[i].Year)] = i < resolved.Count ? resolved[i] : ArtworkResult.None;

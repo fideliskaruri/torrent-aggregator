@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Component,
   useCallback,
@@ -31,10 +29,9 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
-import { cn, formatBytes } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
-import { SwarmChip, deadEvidenceFromSamples, type SwarmSample } from "@/components/watch/swarm-chip";
+import { deadEvidenceFromSamples, type SwarmSample } from "@/components/watch/swarm-chip";
 import {
   subtitleListUrl,
   subtitleTrackSrc,
@@ -45,14 +42,13 @@ import {
 } from "@/lib/media/subtitles";
 import type { ProgressUpdateBody } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
-import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
 import type { PlaybackFailureKind, PlaybackFailureClass } from "@/lib/clients/errors";
 import Hls from "hls.js";
 
 // Re-export so existing consumers (tests, other components) keep working.
 export { infoHashFromMagnet };
 
-export type StreamFile = {
+type StreamFile = {
   path: string;
   length: number;
   index: number;
@@ -74,7 +70,7 @@ type StreamManifest = {
   targetVideoIndex?: number | null;
 };
 
-export type StreamProgress = {
+type StreamProgress = {
   totalBytes?: number | null;
   downloadedBytes?: number | null;
   progress?: number | null;
@@ -171,58 +167,7 @@ type PlaybackMode = "direct" | "hls";
 type CandidateVerdict = "good" | "weak" | "dead" | "unknown";
 type CandidatePlayability = "direct" | "transcode" | "unknown";
 
-export const PLAYER_CONTROL_SET = [
-  "play-pause",
-  "skip-back",
-  "skip-forward",
-  "clock",
-  "timeline",
-  "volume",
-  "speed",
-  "subtitles",
-  "audio-settings",
-  "quality",
-  "fullscreen",
-] as const;
-
-export type PlayerControlId = (typeof PLAYER_CONTROL_SET)[number];
-
-export function playerControlsForMode(_mode: "inline" | "theatre" | "fullscreen"): readonly PlayerControlId[] {
-  return PLAYER_CONTROL_SET;
-}
-
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
-
-export function qualitySelectorEmptyCopy(loading: boolean, count: number): string | null {
-  if (count > 0) return null;
-  return loading ? "Checking other versions…" : "No other versions available yet.";
-}
-
-/**
- * Shared box model for every quality-selector row. Pinning the same
- * `min-h` on the loaded button and the loading skeleton keeps a row's
- * height identical across the load transition, so the panel reserves its
- * space up front and never jitters as candidates arrive.
- */
-const QUALITY_ROW_BASE =
-  "flex w-full min-h-[77px] items-start gap-3 rounded-xl px-3 py-2.5 text-left";
-
-/**
- * Placeholder row rendered while cached releases load. It mirrors the loaded
- * row's dot + three text lines so the reserved space matches the real result.
- */
-function QualityCandidateSkeletonRow() {
-  return (
-    <div data-quality-skeleton aria-hidden className={cn(QUALITY_ROW_BASE, "cursor-default")}>
-      <SkeletonBlock className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" />
-      <div className="min-w-0 flex-1">
-        <SkeletonBlock className="h-[15px] w-1/2 rounded" />
-        <SkeletonBlock className="mt-2 h-[13px] w-3/4 rounded" />
-        <SkeletonBlock className="mt-2 h-[12px] w-2/3 rounded" />
-      </div>
-    </div>
-  );
-}
 
 type PlaybackCandidate = {
   infoHash: string;
@@ -239,7 +184,7 @@ type PlaybackCandidate = {
   verdict: CandidateVerdict;
 };
 
-export function nextAutomaticCandidate(
+function nextAutomaticCandidate(
   candidates: readonly PlaybackCandidate[],
   activeInfoHash: string,
   triedHashes: Set<string>,
@@ -367,7 +312,7 @@ type PlaybackPlanResponse = {
   };
 };
 
-export type PlanAudioTrack = PlaybackPlanResponse["plan"]["audio"][number];
+type PlanAudioTrack = PlaybackPlanResponse["plan"]["audio"][number];
 
 /**
  * Identity of the plan whose own answer is being mirrored back into state.
@@ -379,7 +324,7 @@ export type PlanAudioTrack = PlaybackPlanResponse["plan"]["audio"][number];
  * so an armed-but-unconsumed value could survive a close/reopen or a file
  * switch and swallow a plan the player genuinely needed.
  */
-export type PlanAudioEcho = {
+type PlanAudioEcho = {
   infoHash: string;
   filePath: string;
   /** Plan generation the echo belongs to. A seek/retry bumps it, invalidating the echo. */
@@ -394,7 +339,7 @@ export type PlanAudioEcho = {
  * else (different release, different file, newer plan generation, different
  * audio index, nothing armed) must plan — suppression is never the default.
  */
-export function shouldSuppressPlanEcho(
+function shouldSuppressPlanEcho(
   armed: PlanAudioEcho | null | undefined,
   current: PlanAudioEcho,
 ): boolean {
@@ -413,39 +358,19 @@ export function shouldSuppressPlanEcho(
  * Never fabricated: a missing, non-numeric, non-finite or non-positive value is
  * `null`, and buffer sizing falls back to the resolution tiers.
  */
-export function normalizeProbeBitrate(raw: unknown): number | null {
+function normalizeProbeBitrate(raw: unknown): number | null {
   const value = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
   if (!Number.isFinite(value) || value <= 0) return null;
   return value;
 }
 
-export function candidateVerdictLabel(verdict: CandidateVerdict): string {
-  if (verdict === "good") return "Fast";
-  if (verdict === "weak") return "Slow";
-  if (verdict === "dead") return "Not delivering";
-  return "Untested";
-}
-
-export function candidatePlayabilityLabel(playability: CandidatePlayability): string {
-  // No mechanism words: a viewer never needs to hear "convert"/"remux". Both a
-  // direct file and one the server prepares simply *play* — the only honest
-  // distinction a person cares about is whether it plays.
-  if (playability === "direct") return "Plays instantly";
-  if (playability === "transcode") return "Plays";
-  return "Playback compatibility not confirmed";
-}
-
-export function candidateQualityShape(candidate: PlaybackCandidate): string {
-  return candidate.resolution ? `${candidate.resolution}p` : "";
-}
-
-export function isUpNextPlayableEnoughToAdvance(
+function isUpNextPlayableEnoughToAdvance(
   availability: UpNextAvailability | null | undefined,
 ): boolean {
   return availability === "ready" || availability === "downloading";
 }
 
-export function nextViewerWaitingState(
+function nextViewerWaitingState(
   current: boolean,
   event: "waiting" | "playing" | "canplay" | "advancing",
   active: boolean,
@@ -454,36 +379,11 @@ export function nextViewerWaitingState(
   return event === "waiting";
 }
 
-export function shouldShowViewerBuffering(args: {
+function shouldShowViewerBuffering(args: {
   waiting: boolean;
   activeVideoAdvancing: boolean;
 }): boolean {
   return args.waiting && !args.activeVideoAdvancing;
-}
-
-export function shouldShowFullscreenStatusOverlay(args: {
-  hasVisibleVideo: boolean;
-  viewerWaiting: boolean;
-  preparing: boolean;
-  activeVideoAdvancing: boolean;
-  seeking: boolean;
-}): boolean {
-  if (args.hasVisibleVideo && args.activeVideoAdvancing) return false;
-  // No source yet, or a source is being prepared: the stage status is the only
-  // indicator there is, so show it even mid-seek.
-  if (!args.hasVisibleVideo || args.preparing) return true;
-  // With a visible video, a seek already draws its own dedicated spinner
-  // (shouldShowSeekSpinner). Stacking the buffering overlay on top of it is the
-  // "double loader" — let the seek spinner own that moment.
-  if (args.seeking) return false;
-  return args.viewerWaiting;
-}
-
-export function shouldShowSeekSpinner(args: {
-  seeking: boolean;
-  activeVideoAdvancing: boolean;
-}): boolean {
-  return args.seeking && !args.activeVideoAdvancing;
 }
 
 /**
@@ -512,7 +412,7 @@ export function shouldShowSeekSpinner(args: {
  * phases, which is why a cold start flickered several loaders in succession.
  * This collapses both: callers render one node gated on this one boolean.
  */
-export function shouldShowUnifiedLoader(args: {
+function shouldShowUnifiedLoader(args: {
   hasVisibleVideo: boolean;
   activeVideoAdvancing: boolean;
   seeking: boolean;
@@ -540,7 +440,7 @@ export function shouldShowUnifiedLoader(args: {
   return args.preparing || args.checking || args.seeking || args.waiting;
 }
 
-export type VideoPlaybackQualitySnapshot = {
+type VideoPlaybackQualitySnapshot = {
   droppedVideoFrames: number;
   totalVideoFrames: number;
   corruptedVideoFrames: number;
@@ -564,7 +464,7 @@ const EMPTY_PLAYBACK_QUALITY: VideoPlaybackQualitySnapshot = {
  * selection, and never throws — a browser without the API (or jsdom in
  * tests) yields an all-zero snapshot rather than breaking rendering.
  */
-export function videoPlaybackQualitySnapshot(
+function videoPlaybackQualitySnapshot(
   video: Pick<HTMLVideoElement, "getVideoPlaybackQuality"> | null | undefined,
 ): VideoPlaybackQualitySnapshot {
   if (!video || typeof video.getVideoPlaybackQuality !== "function") return EMPTY_PLAYBACK_QUALITY;
@@ -583,7 +483,7 @@ export function videoPlaybackQualitySnapshot(
   }
 }
 
-export type PlanSource = "disk" | "swarm";
+type PlanSource = "disk" | "swarm";
 
 /**
  * Decide whether the current plan reads from local disk or from the swarm.
@@ -594,7 +494,7 @@ export type PlanSource = "disk" | "swarm";
  * server remuxes complete local files through a session too — so it returns
  * null (unknown) rather than lying in either direction.
  */
-export function planSourceFromPlan(plan: {
+function planSourceFromPlan(plan: {
   source?: string | null;
   locality?: string | null;
   absolutePath?: string | null;
@@ -609,7 +509,7 @@ export function planSourceFromPlan(plan: {
   return null;
 }
 
-export function loaderStatusFromSamples({
+function loaderStatusFromSamples({
   preparingLabel,
   sample,
   elapsedSec,
@@ -743,7 +643,7 @@ function StreamLoader({ className, status }: { className?: string; status?: stri
  * position lands. This is what kills the "one click, then it bounces back a few
  * times" scrub.
  */
-export function shouldAdoptTimeUpdate(args: {
+function shouldAdoptTimeUpdate(args: {
   seekInFlight: boolean;
   hasPendingUserSeek: boolean;
   /**
@@ -765,9 +665,9 @@ export function shouldAdoptTimeUpdate(args: {
  */
 const MEDIA_ADVANCE_EPSILON = 0.01;
 
-export type MediaErrorKind = "aborted" | "network" | "decode" | "unsupported" | "unknown";
+type MediaErrorKind = "aborted" | "network" | "decode" | "unsupported" | "unknown";
 
-export function mediaErrorKindFromCode(code: number | null | undefined): MediaErrorKind {
+function mediaErrorKindFromCode(code: number | null | undefined): MediaErrorKind {
   switch (code) {
     case 1:
       return "aborted";
@@ -782,7 +682,7 @@ export function mediaErrorKindFromCode(code: number | null | undefined): MediaEr
   }
 }
 
-export function interpretMediaElementError(error: Pick<MediaError, "code" | "message"> | null | undefined): {
+function interpretMediaElementError(error: Pick<MediaError, "code" | "message"> | null | undefined): {
   kind: MediaErrorKind;
   recoverable: boolean;
   problem: StreamProblem | null;
@@ -842,7 +742,7 @@ export function interpretMediaElementError(error: Pick<MediaError, "code" | "mes
   };
 }
 
-export function terminalPlaybackCopy(args: {
+function terminalPlaybackCopy(args: {
   problem: StreamProblem | null;
   message: string | null;
   deliveryDetail: string;
@@ -882,7 +782,7 @@ export function terminalPlaybackCopy(args: {
  * here" problem is terminal and may replace
  * the spinner with a panel.
  */
-export function isTerminalPlayback(args: { problem: StreamProblem | null; hasStreamFailure: boolean }): boolean {
+function isTerminalPlayback(args: { problem: StreamProblem | null; hasStreamFailure: boolean }): boolean {
   const recovering =
     args.problem === "stalled" || args.problem === "preparing" || args.problem === "metadata";
   return args.hasStreamFailure || (args.problem !== null && !recovering);
@@ -894,7 +794,7 @@ export function isTerminalPlayback(args: { problem: StreamProblem | null; hasStr
  * Only the fields the Next button acts on. `infoHash` is the whole point: it is
  * what turns "a grab happened somewhere" into "play this now".
  */
-export type OnDemandGrabResponse = {
+type OnDemandGrabResponse = {
   ok?: boolean;
   message?: string | null;
   infoHash?: string | null;
@@ -911,27 +811,27 @@ export type OnDemandGrabResponse = {
  * fallback exists only for a response that arrived with nothing to say — and
  * even that names the actual outcome rather than "something went wrong".
  */
-export function upNextFailureMessage(body: OnDemandGrabResponse | null): string {
+function upNextFailureMessage(body: OnDemandGrabResponse | null): string {
   const message = body?.message?.trim();
   if (message) return message;
   return "Could not find a playable release for the next episode.";
 }
 
-export function upNextUnavailableActionLabel(): string {
+function upNextUnavailableActionLabel(): string {
   // A verb, because it is a button that does something. "Not fetched yet" was a
   // status pretending to be an action, which is part of why pressing it and
   // seeing nothing change read as broken.
   return "Fetch and play";
 }
 
-export type SeekIntent = {
+type SeekIntent = {
   targetSec: number;
   actualSec: number;
   attempts: number;
   elapsedMs: number;
 };
 
-export function nextSeekIntentAction(
+function nextSeekIntentAction(
   intent: SeekIntent | null,
   toleranceSec = 2,
   retryDelayMs = 700,
@@ -950,7 +850,7 @@ export function nextSeekIntentAction(
  * so the render layer never imports engine internals beyond the two string
  * unions it already shares.
  */
-export type StructuredPlaybackFailure = {
+type StructuredPlaybackFailure = {
   code: PlaybackFailureKind;
   failureClass: PlaybackFailureClass;
   retryable: boolean;
@@ -963,7 +863,7 @@ export type StructuredPlaybackFailure = {
 };
 
 /** What the recovery UI should offer for a given failure. */
-export type PlaybackFailureAffordance = "retry";
+type PlaybackFailureAffordance = "retry";
 
 /**
  * Turn a structured failure into viewer words + the one right next action (I19).
@@ -978,7 +878,7 @@ export type PlaybackFailureAffordance = "retry";
  * `ENGINE_ERROR` is not delivery, but a fresh attempt is the only move a viewer
  * has, so it also offers retry.
  */
-export function playbackFailureCopy(failure: StructuredPlaybackFailure): {
+function playbackFailureCopy(failure: StructuredPlaybackFailure): {
   headline: string;
   detail: string | null;
   affordance: PlaybackFailureAffordance;
@@ -1032,7 +932,7 @@ export function playbackFailureCopy(failure: StructuredPlaybackFailure): {
 }
 
 /** Read a structured failure off a fetch Response body, if it carries one. */
-export function structuredFailureFromBody(
+function structuredFailureFromBody(
   body: { code?: unknown; failureClass?: unknown; retryable?: unknown } | null | undefined,
 ): StructuredPlaybackFailure | null {
   const code = typeof body?.code === "string" ? body.code : null;
@@ -1069,7 +969,7 @@ export function structuredFailureFromBody(
  * toward the newest target so the last gesture always wins); only `ignore` a
  * repeat of the target already being planned, which would just thrash ffmpeg.
  */
-export function nextSeekRestartAction(
+function nextSeekRestartAction(
   args: {
     inFlight: boolean;
     inFlightTargetSec: number | null;
@@ -1088,7 +988,7 @@ export function nextSeekRestartAction(
 }
 
 /** Exact element-time landing point after a plan rebases its media timeline. */
-export function seekPositionInPlannedTimeline(
+function seekPositionInPlannedTimeline(
   requestedSourceSec: number,
   plannedTimelineStartSec: number,
 ): number {
@@ -1096,7 +996,7 @@ export function seekPositionInPlannedTimeline(
   return Math.max(0, requestedSourceSec - plannedTimelineStartSec);
 }
 
-export function canAutoAdvanceToUpNext(
+function canAutoAdvanceToUpNext(
   next: UpNextEpisodeCard | null,
   cancelled: boolean,
 ): boolean {
@@ -1104,7 +1004,7 @@ export function canAutoAdvanceToUpNext(
 }
 
 /** Label an audio track for the picker: "English · AC-3 5.1". */
-export function audioTrackLabel(track: PlanAudioTrack, index: number): string {
+function audioTrackLabel(track: PlanAudioTrack, index: number): string {
   const parts: string[] = [];
   if (track.title) parts.push(track.title);
   else if (track.language) parts.push(track.language.toUpperCase());
@@ -1146,11 +1046,11 @@ function directoryOf(path: string) {
   return slash >= 0 ? clean.slice(0, slash).toLowerCase() : "";
 }
 
-export function isVideoFile(path: string) {
+function isVideoFile(path: string) {
   return VIDEO_EXTENSIONS.has(extensionOf(path));
 }
 
-export function selectVideoFiles(files: StreamFile[]) {
+function selectVideoFiles(files: StreamFile[]) {
   return files.filter((file) => isVideoFile(file.path));
 }
 
@@ -1175,7 +1075,7 @@ function episodeFromFilePath(path: string): { season: number; episode: number } 
   return null;
 }
 
-export function resolveVideoFileSelection(
+function resolveVideoFileSelection(
   files: StreamFile[],
   target: { season?: number | null; episode?: number | null },
 ): StreamFile | null {
@@ -1211,7 +1111,7 @@ const FEATURE_DOMINANCE_RATIO = 1.6;
  * when no file dominates (a true multi-film pack) do we return null and let the
  * picker stand.
  */
-export function selectMainFeatureFile(files: StreamFile[]): StreamFile | null {
+function selectMainFeatureFile(files: StreamFile[]): StreamFile | null {
   const videos = selectVideoFiles(files);
   if (videos.length === 0) return null;
   if (videos.length === 1) return videos[0];
@@ -1233,7 +1133,7 @@ export function selectMainFeatureFile(files: StreamFile[]): StreamFile | null {
  * a genuine multi-feature pack where it returned null), fall back to the local
  * dominance test so behaviour degrades to exactly what it was before.
  */
-export function mainFeatureFile(
+function mainFeatureFile(
   files: StreamFile[],
   primaryVideoIndex: number | null | undefined,
 ): StreamFile | null {
@@ -1244,23 +1144,7 @@ export function mainFeatureFile(
   return selectMainFeatureFile(files);
 }
 
-/**
- * A clean, mechanism-free label for the file picker.
- *
- * Never the raw release path (a tracker wrapper folder plus a scene filename).
- * An episode gets its `SxxEyy`; anything else is a plain "Video N". Size is kept
- * only as a disambiguator so a feature reads apart from a sample.
- */
-export function fileOptionLabel(file: StreamFile, _index: number): string {
-  const parsed = episodeFromFilePath(file.path);
-  const base = parsed
-    ? `S${String(parsed.season).padStart(2, "0")}E${String(parsed.episode).padStart(2, "0")}`
-    : "Video";
-  const size = Number.isFinite(file.length) && file.length > 0 ? formatBytes(file.length) : null;
-  return size ? `${base} · ${size}` : base;
-}
-
-export function PlayerIdentity({
+function PlayerIdentity({
   showTitle,
   episodeTitle,
   season,
@@ -1289,9 +1173,9 @@ export function PlayerIdentity({
   );
 }
 
-export const PLAYER_RESOLUTIONS = [480, 720, 1080, 2160] as const;
+const PLAYER_RESOLUTIONS = [480, 720, 1080, 2160] as const;
 
-export function PlayerQualityChoices({
+function PlayerQualityChoices({
   disabled = false,
   onSelect,
 }: {
@@ -1316,7 +1200,7 @@ export function PlayerQualityChoices({
   );
 }
 
-export function preferredResolutionRequestBody(input: {
+function preferredResolutionRequestBody(input: {
   title: string;
   mediaType: string;
   season: number | null;
@@ -1339,7 +1223,7 @@ function videoFileForPath(files: StreamFile[], path: string | null): StreamFile 
   return selectVideoFiles(files).find((file) => file.path === path) ?? null;
 }
 
-export function findSidecarSubtitle(files: StreamFile[], videoPath: string) {
+function findSidecarSubtitle(files: StreamFile[], videoPath: string) {
   const videoBase = basenameWithoutExtension(videoPath);
   const videoDir = directoryOf(videoPath);
   return files.find(
@@ -1350,7 +1234,7 @@ export function findSidecarSubtitle(files: StreamFile[], videoPath: string) {
   );
 }
 
-export function encodeStreamFilePath(filePath: string) {
+function encodeStreamFilePath(filePath: string) {
   return filePath
     .replace(/\\/g, "/")
     .split("/")
@@ -1359,11 +1243,11 @@ export function encodeStreamFilePath(filePath: string) {
     .join("/");
 }
 
-export function streamPath(infoHash: string, filePath: string) {
+function streamPath(infoHash: string, filePath: string) {
   return `/api/stream/${encodeURIComponent(infoHash)}/${encodeStreamFilePath(filePath)}`;
 }
 
-export function streamStatusMessage(status: number): {
+function streamStatusMessage(status: number): {
   problem: StreamProblem;
   message: string;
 } {
@@ -1404,30 +1288,7 @@ export function streamStatusMessage(status: number): {
   };
 }
 
-export function bufferingLabel(progress?: StreamProgress) {
-  const total = progress?.totalBytes ?? null;
-  const downloaded =
-    progress?.downloadedBytes ??
-    (total != null && progress?.progress != null
-      ? Math.max(0, Math.min(total, total * progress.progress))
-      : null);
-  const peers = progress?.peers;
-  const peerText =
-    peers == null ? "" : ` · ${peers} ${peers === 1 ? "peer" : "peers"}`;
-
-  if (downloaded != null && total != null) {
-    return `buffering — ${formatBytes(downloaded)} / ${formatBytes(total)}${peerText}`;
-  }
-  if (downloaded != null) {
-    return `buffering — ${formatBytes(downloaded)} downloaded${peerText}`;
-  }
-  if (progress?.progress != null) {
-    return `buffering — ${Math.round(progress.progress * 1000) / 10}% downloaded${peerText}`;
-  }
-  return `buffering — starting playback…${peerText}`;
-}
-
-export type UpNextAvailability = "ready" | "downloading" | "not-fetched";
+type UpNextAvailability = "ready" | "downloading" | "not-fetched";
 
 type UpNextEpisodeCard = {
   title: string;
@@ -1454,7 +1315,7 @@ type UpNextEpisodeCard = {
  * `filePath` is optional and additive: a server that does not send one yields a
  * card with `filePath: null`, and every existing behaviour is unchanged.
  */
-export function normalizeUpNextCard(raw: unknown): UpNextEpisodeCard | null {
+function normalizeUpNextCard(raw: unknown): UpNextEpisodeCard | null {
   if (!raw || typeof raw !== "object") return null;
   const card = raw as Record<string, unknown>;
   if (
@@ -1509,7 +1370,7 @@ type CurrentTarget = {
   watchListItemId?: string | null;
 };
 
-export function episodeTitleForTarget(
+function episodeTitleForTarget(
   episodeTitles: Readonly<Record<string, string>> | undefined,
   season: number | null | undefined,
   episode: number | null | undefined,
@@ -1538,11 +1399,11 @@ type IdleWindow = Window & {
  * shipped it recently, and background warming must degrade to a plain timer
  * there instead of throwing inside a playback effect.
  */
-export function requestIdle(callback: () => void): {
+function requestIdle(callback: () => void): {
   handle: number | null;
   timer: number | null;
 } {
-  const view = typeof window === "undefined" ? null : (window as IdleWindow);
+  const view = window as IdleWindow;
   if (view && typeof view.requestIdleCallback === "function") {
     return {
       handle: view.requestIdleCallback(callback, { timeout: WARM_IDLE_TIMEOUT_MS }),
@@ -1556,8 +1417,8 @@ export function requestIdle(callback: () => void): {
 }
 
 /** Cancel a handle returned by {@link requestIdle}. */
-export function cancelIdle(handle: number): void {
-  const view = typeof window === "undefined" ? null : (window as IdleWindow);
+function cancelIdle(handle: number): void {
+  const view = window as IdleWindow;
   if (view && typeof view.cancelIdleCallback === "function") {
     view.cancelIdleCallback(handle);
   }
@@ -1597,35 +1458,7 @@ const MAX_METADATA_RETRIES = 8;
 const OPENING_WATCHDOG_MS = 30000;
 const LOADER_STILL_WORKING_AFTER_SECONDS = 15;
 
-function sourceChip(title: string): string | null {
-  const tier = parseSourceTier(title);
-  if (tier === SOURCE_TIER.WEBDL) return "WEB-DL";
-  if (tier === SOURCE_TIER.WEBRIP) return /\bweb[-_. ]?rip\b/i.test(title) ? "WEBRip" : null;
-  if (tier === SOURCE_TIER.HDTV) return "HDTV";
-  if (tier === SOURCE_TIER.BLURAY) return "BluRay";
-  return null;
-}
-
-/**
- * Technical identity belongs in diagnostics, not as the viewer's label. The
- * release path can be a tracker wrapper folder plus a scene filename, which is
- * why the old chip read like a filesystem accident. These chips show only what a
- * viewer chooses by — resolution and source — never codec/container identity
- * (H.265, DDP5.1, MKV are mechanism, not a label a person reads).
- */
-export function releaseDetailChips(path: string, bytes: number): string[] {
-  const filename = path.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? path;
-  const withoutExt = filename.replace(/\.(mkv|mp4|avi|m4v|mov|webm|ts|m2ts|mpe?g)$/i, "");
-  const chips: string[] = [];
-  const resolution = parseResolution(withoutExt);
-  if (resolution) chips.push(`${resolution}p`);
-  const source = sourceChip(withoutExt);
-  if (source) chips.push(source);
-  if (Number.isFinite(bytes) && bytes > 0) chips.push(formatBytes(bytes));
-  return chips;
-}
-
-export function upNextStatusSentence(state: UpNextAvailability): string {
+function upNextStatusSentence(state: UpNextAvailability): string {
   if (state === "ready") return "Ready to play now.";
   if (state === "downloading") {
     return "Still downloading — you can start now, but it may pause to catch up.";
@@ -1654,7 +1487,7 @@ async function readJson<T>(res: Response): Promise<T | null> {
  */
 let capabilitiesCache: ClientCapabilities | null = null;
 
-export function detectCapabilities(): ClientCapabilities {
+function detectCapabilities(): ClientCapabilities {
   if (capabilitiesCache) return capabilitiesCache;
   const video = document.createElement("video");
   const hasMSE = typeof MediaSource !== "undefined" && typeof MediaSource.isTypeSupported === "function";
@@ -1671,13 +1504,8 @@ export function detectCapabilities(): ClientCapabilities {
   return capabilitiesCache;
 }
 
-/** Test seam — the cache would otherwise leak between cases. */
-export function resetCapabilitiesCacheForTests() {
-  capabilitiesCache = null;
-}
-
 /** `h:mm:ss` / `m:ss` clock for the source-timeline seek bar. */
-export function formatClock(totalSeconds: number): string {
+function formatClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -1687,8 +1515,8 @@ export function formatClock(totalSeconds: number): string {
 }
 
 /** A buffered span expressed in seconds on the *source* timeline. */
-export type SourceRange = { start: number; end: number };
-export type ByteRange = { start: number; end: number };
+type SourceRange = { start: number; end: number };
+type ByteRange = { start: number; end: number };
 
 function sameRanges(a: SourceRange[], b: SourceRange[]): boolean {
   return (
@@ -1701,7 +1529,7 @@ function sameRanges(a: SourceRange[], b: SourceRange[]): boolean {
   );
 }
 
-export function byteRangesToSourceRanges(
+function byteRangesToSourceRanges(
   byteRanges: ByteRange[] | null | undefined,
   fileLength: number,
   sourceDuration: number | null,
@@ -1729,7 +1557,7 @@ export function byteRangesToSourceRanges(
   return out;
 }
 
-export function sourceTimeInRanges(ranges: SourceRange[], position: number): boolean {
+function sourceTimeInRanges(ranges: SourceRange[], position: number): boolean {
   return ranges.some((range) => position >= range.start - 0.5 && position <= range.end + 0.5);
 }
 
@@ -1811,7 +1639,7 @@ function TimelineBands({
  * Ranges are clamped to `[0, sourceDuration]` and empty/degenerate ones are
  * dropped, so nothing can be painted outside the bar it belongs to.
  */
-export function bufferedSourceRanges(
+function bufferedSourceRanges(
   buffered: TimeRanges | null | undefined,
   timelineOffset: number,
   sourceDuration: number | null,
@@ -1844,7 +1672,7 @@ export function bufferedSourceRanges(
  * the viewer can watch into, so it does not count. Returns 0 when the playhead
  * is not inside any range, which is the truth during a re-buffer.
  */
-export function bufferedAheadOf(ranges: SourceRange[], position: number): number {
+function bufferedAheadOf(ranges: SourceRange[], position: number): number {
   for (const range of ranges) {
     if (position >= range.start - 0.5 && position <= range.end) {
       return Math.max(0, range.end - position);
@@ -1868,7 +1696,7 @@ export function bufferedAheadOf(ranges: SourceRange[], position: number): number
  * tear down buffers, refetch fragments and re-append — which is what the viewer
  * feels as a stutter when scrubbing a local file.
  */
-export function canPlayNatively(rung: string, playUrl: string): boolean {
+function canPlayNatively(rung: string, playUrl: string): boolean {
   if (rung === "direct") return true;
   return !/\.m3u8(?:$|[?#])/i.test(playUrl);
 }
@@ -1886,7 +1714,7 @@ export function canPlayNatively(rung: string, playUrl: string): boolean {
  * hundreds of MB of decoded fragments pinned for a rewind that usually never
  * comes, so the tiers trade seconds of history for headroom ahead.
  */
-export type HlsBufferSettings = {
+type HlsBufferSettings = {
   maxBufferLength: number;
   maxMaxBufferLength: number;
   maxBufferSize: number;
@@ -1894,7 +1722,7 @@ export type HlsBufferSettings = {
 };
 
 /** Pixel-height tiers. Width is consulted too: anamorphic 4K can report <1440 high. */
-export function hlsBufferSettingsForSource(input: {
+function hlsBufferSettingsForSource(input: {
   width?: number | null;
   height?: number | null;
   bitrateBps?: number | null;
@@ -1937,7 +1765,7 @@ export function hlsBufferSettingsForSource(input: {
  * is exactly the stutter this is supposed to prevent. Pure so the rule is
  * testable without a media element.
  */
-export function hlsSeekNeedsLoadRestart(args: {
+function hlsSeekNeedsLoadRestart(args: {
   buffered: SourceRange[];
   targetSec: number;
   /** Seconds of continuous buffer ahead of the target that count as "already there". */
@@ -1947,7 +1775,7 @@ export function hlsSeekNeedsLoadRestart(args: {
   return bufferedAheadOf(args.buffered, args.targetSec) < minAhead;
 }
 
-export function hlsSeekShouldRestartLoader(args: {
+function hlsSeekShouldRestartLoader(args: {
   hasUserSeekIntent: boolean;
   buffered: SourceRange[];
   targetSec: number;
@@ -1962,7 +1790,7 @@ export function hlsSeekShouldRestartLoader(args: {
 }
 
 /** Media-element `buffered` as plain ranges, for the pure seek rule above. */
-export function timeRangesToRanges(buffered: TimeRanges | null | undefined): SourceRange[] {
+function timeRangesToRanges(buffered: TimeRanges | null | undefined): SourceRange[] {
   const ranges: SourceRange[] = [];
   if (!buffered) return ranges;
   for (let i = 0; i < buffered.length; i += 1) {
@@ -1974,13 +1802,13 @@ export function timeRangesToRanges(buffered: TimeRanges | null | undefined): Sou
 }
 
 /** Below this, a stored position is noise rather than a place to resume. */
-export const RESUME_MIN_SEC = 5;
+const RESUME_MIN_SEC = 5;
 
 /** Don't write a position that moved less than this since the last write. */
-export const PROGRESS_MIN_DELTA_SEC = 5;
+const PROGRESS_MIN_DELTA_SEC = 5;
 
 /** Steady-state cadence for progress writes during playback. */
-export const PROGRESS_INTERVAL_MS = 10_000;
+const PROGRESS_INTERVAL_MS = 10_000;
 
 /**
  * Should a progress write actually go out?
@@ -1990,7 +1818,7 @@ export const PROGRESS_INTERVAL_MS = 10_000;
  * is right, so they skip the cadence — but never the "did it actually move"
  * check, because re-posting an identical position is pure write amplification.
  */
-export function shouldPostProgress(args: {
+function shouldPostProgress(args: {
   positionSec: number;
   durationSec: number | null;
   lastPostedSec: number | null;
@@ -2011,7 +1839,7 @@ export function shouldPostProgress(args: {
 }
 
 /** A track as the subtitles endpoint returns it: `src` is null when unusable. */
-export type SubtitleTrackWithSrc = SubtitleTrack & { src: string | null };
+type SubtitleTrackWithSrc = SubtitleTrack & { src: string | null };
 
 type SubtitleListResponse = {
   tracks?: SubtitleTrackWithSrc[];
@@ -2025,7 +1853,7 @@ type SubtitleListResponse = {
 
 type SubtitleStatus = "idle" | "loading" | "extracting" | "ready" | "error";
 
-export function subtitleStatusCopy(
+function subtitleStatusCopy(
   status: SubtitleStatus,
   note: string | null,
 ): string | null {
@@ -2034,14 +1862,14 @@ export function subtitleStatusCopy(
   return note;
 }
 
-export function unsupportedSubtitleNote(
+function unsupportedSubtitleNote(
   tracks: SubtitleTrackWithSrc[],
 ): string | null {
   if (tracks.length === 0 || tracks.some((track) => track.src)) return null;
   return "These subtitles use a format this player can’t display. Try another track or open the video in another player.";
 }
 
-export function shouldPreserveOutgoingEpisode(args: {
+function shouldPreserveOutgoingEpisode(args: {
   transitioning: boolean;
   hasPlayableSource: boolean;
   exactNextFileKnown: boolean;
@@ -2322,8 +2150,7 @@ function InlineStreamPlayerInner({
    const [qualityLoading, setQualityLoading] = useState(false);
    const [qualityError, setQualityError] = useState<string | null>(null);
    const [switchingInfoHash, setSwitchingInfoHash] = useState<string | null>(null);
-   const [seekHoverTime, setSeekHoverTime] = useState<number | null>(null);
-   const [playPulse, setPlayPulse] = useState<"play" | "pause" | null>(null);
+    const [playPulse, setPlayPulse] = useState<"play" | "pause" | null>(null);
    const [resetInfoHash, setResetInfoHash] = useState(activeInfoHash);
    const [resetPlayableSrc, setResetPlayableSrc] = useState(playableSrc);
    if (activeInfoHash !== resetInfoHash) {
@@ -2531,10 +2358,6 @@ function InlineStreamPlayerInner({
     manifest?.infoHash === activeInfoHash && manifestKey === targetIdentity
       ? manifest
       : null;
-  const videoFiles = useMemo(
-    () => (activeManifest ? selectVideoFiles(activeManifest.files) : []),
-    [activeManifest],
-  );
   const selectedFile = activeManifest
     ? videoFileForPath(activeManifest.files, selectedPath)
     : null;
@@ -3134,48 +2957,6 @@ function InlineStreamPlayerInner({
     }
   }, [activeInfoHash, manifest, manifestKey, targetIdentity, activeFilePath, requestedEpisode]);
 
-  const fetchPlayerSample = useCallback(
-    async (signal: AbortSignal): Promise<SwarmSample | null> => {
-      if (!activeInfoHash) return null;
-      const params = new URLSearchParams({ poll: "1" });
-      if (effectiveSelectedPath) params.set("file", effectiveSelectedPath);
-      const res = await fetch(`/api/stream/${encodeURIComponent(activeInfoHash)}?${params}`, {
-        signal,
-        cache: "no-store",
-      });
-      if (!res.ok && res.status !== 425) return null;
-      const body = await readJson<StreamManifest>(res);
-      if (!body) return null;
-      if (Array.isArray(body.files)) {
-        setManifest((prev) => ({
-          infoHash: activeInfoHash,
-          files: body.files.map((file) => {
-            if ("downloadedRanges" in file) return file;
-            const previous = prev?.infoHash === activeInfoHash
-              ? prev.files.find((p) => p.path === file.path)
-              : null;
-            return previous?.downloadedRanges ? { ...file, downloadedRanges: previous.downloadedRanges } : file;
-          }),
-          clientType: body.clientType ?? prev?.clientType,
-          primaryVideoIndex:
-            typeof body.primaryVideoIndex === "number"
-              ? body.primaryVideoIndex
-              : prev?.primaryVideoIndex ?? null,
-        }));
-      }
-      const swarm = body.swarm;
-      if (!swarm || typeof swarm !== "object") return null;
-      return {
-        peers: typeof swarm.peers === "number" ? swarm.peers : null,
-        downloadSpeedBps:
-          typeof swarm.downloadSpeedBps === "number" ? swarm.downloadSpeedBps : null,
-        progress: typeof swarm.progress === "number" ? swarm.progress : null,
-        observedAt: typeof swarm.observedAt === "number" ? swarm.observedAt : Date.now(),
-      };
-    },
-    [activeInfoHash, effectiveSelectedPath],
-  );
-
   const copySelected = useCallback(async () => {
     const loaded = await loadManifest();
     if (!loaded) return;
@@ -3282,7 +3063,7 @@ function InlineStreamPlayerInner({
   const upNextFilePath = upNext?.filePath ?? null;
   useEffect(() => {
     if (!upNextInfoHash || !upNextFilePath) return;
-    if (typeof document !== "undefined" && document.hidden) return;
+    if (document.hidden) return;
     const key = `${upNextInfoHash}|${upNextFilePath}`;
     if (warmedTargetRef.current === key) return;
     const controller = new AbortController();
@@ -5581,12 +5362,6 @@ function InlineStreamPlayerInner({
     const selectedAudioSummary = selectedAudioTrack
       ? `${languageLabel(selectedAudioTrack.language) || selectedAudioTrack.title || "Selected"} audio`
       : null;
-    const closeMenus = () => {
-      setSubtitleMenuOpen(false);
-      setAudioMenuOpen(false);
-      setVolumeMenuOpen(false);
-      setQualityMenuOpen(false);
-    };
 
     return (
       <div

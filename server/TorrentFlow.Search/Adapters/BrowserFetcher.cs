@@ -17,15 +17,25 @@ public interface IIndexerBrowserFetcher
 public sealed class BrowserFetcher(IConfiguration configuration, IOptions<SearchModuleOptions> options, IHttpClientFactory clients, ILogger<BrowserFetcher> logger) : IIndexerBrowserFetcher
 {
     private readonly SemaphoreSlim slot = new(1);
+
+    internal static IEnumerable<string> DefaultBrowserCandidates()
+    {
+        if (OperatingSystem.IsWindows())
+            return [Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe")];
+        if (OperatingSystem.IsMacOS())
+            return ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium"];
+        return ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+            "/usr/bin/microsoft-edge", "/snap/bin/chromium"];
+    }
     public async Task<BrowserPage?> FetchAsync(string url, int timeoutMs, string selector, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(timeoutMs);
         var token = timeout.Token;
         var configured = options.Value.BrowserExecutable;
-        string[] candidates = [configured ?? "",
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Microsoft", "Edge", "Application", "msedge.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Google", "Chrome", "Application", "chrome.exe")];
+        string[] candidates = [configured ?? "", .. DefaultBrowserCandidates()];
         var binary = candidates.FirstOrDefault(File.Exists);
         if (binary == null) { logger.LogDebug("Optional indexer browser is unavailable"); return null; }
         var acquired = false;
@@ -71,7 +81,7 @@ public sealed class BrowserFetcher(IConfiguration configuration, IOptions<Search
                         if (bytes.Length + received.Count > 8 * 1024 * 1024) throw new IOException("Indexer browser response exceeds 8 MiB");
                         bytes.Write(buffer, 0, received.Count);
                     } while (!received.EndOfMessage);
-                    using var doc = JsonDocument.Parse(bytes.ToArray());
+                    using var doc = JsonDocument.Parse(bytes.GetBuffer().AsMemory(0, (int)bytes.Length));
                     var message = doc.RootElement;
                     if (message.TryGetProperty("method", out var eventName) && eventName.GetString() == "Network.responseReceived")
                     {

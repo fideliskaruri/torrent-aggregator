@@ -23,7 +23,6 @@ import {
   LIBRARY_TABS,
   LIBRARY_TAB_LABELS,
   rowInTab,
-  tabForRow,
   type LibraryTab,
 } from "@/app/watchlist/library-tabs";
 import {
@@ -85,7 +84,7 @@ export interface DownloadRow {
  * Movies would hide it in a tab nobody would think to look in. Under All,
  * where every row lives regardless, it is still there.
  */
-export function downloadMediaType(row: DownloadRow): MediaType | null {
+function downloadMediaType(row: DownloadRow): MediaType | null {
   const stated = normalizeMediaType(row.category);
   if (stated) return stated;
   return workIdentityFor(row.name ?? "").isSeries ? "tv" : null;
@@ -103,15 +102,8 @@ export function isSeriesDownload(row: DownloadRow): boolean {
   return isSeriesMediaType(downloadMediaType(row));
 }
 
-/** Which narrow tab this row belongs to, or null when nothing vouches for one. */
-export function tabForDownload(
-  row: DownloadRow,
-): Exclude<DownloadTab, "all"> | null {
-  return tabForRow({ mediaType: downloadMediaType(row) });
-}
-
 /** Does `row` belong under `tab`? All holds everything, including the unknown. */
-export function downloadInTab(row: DownloadRow, tab: DownloadTab): boolean {
+function downloadInTab(row: DownloadRow, tab: DownloadTab): boolean {
   return rowInTab({ mediaType: downloadMediaType(row) }, tab);
 }
 

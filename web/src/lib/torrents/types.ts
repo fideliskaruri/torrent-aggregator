@@ -48,7 +48,7 @@ export interface TorrentResult {
 }
 
 /** Download destination decided by the backend */
-export interface DownloadRoute {
+interface DownloadRoute {
   kind: string;
   category: string;
   confidence: "high" | "medium" | "low";
@@ -66,55 +66,6 @@ export type TorrentSourceId =
   | "torrentscsv"
   | "eztv"
   | "yts";
-
-export interface SearchOptions {
-  query: string;
-  category?: "all" | "anime" | "movies" | "tv" | "music" | "apps" | "games" | "books";
-  /** Optional max ranked results (e.g. rules/watchlist). Not a page size. */
-  limit?: number;
-  /** 1-based page index (default 1). */
-  page?: number;
-  /** Results per page (default 20, max 50). */
-  pageSize?: number;
-  sources?: TorrentSourceId[];
-  /**
-   * Rank for this resolution instead of the user's global preference.
-   *
-   * Set by callers acting on behalf of one title that carries its own quality
-   * choice. Left undefined everywhere else, so the global setting stays the
-   * single answer for search and for titles that never expressed one — an
-   * override that defaulted to a number would quietly become the real setting.
-   */
-  targetResolution?: number | null;
-}
-
-export interface SearchResponse {
-  query: string;
-  results: TorrentResult[];
-  groups?: ReleaseGroup[];
-  tookMs: number;
-  cached?: boolean;
-  /** Total ranked results after filters (before pagination). */
-  totalCount: number;
-  /** Current 1-based page. */
-  page: number;
-  /** Page size used for this response. */
-  pageSize: number;
-  /** totalCount / pageSize, at least 1 when totalCount > 0, else 0. */
-  totalPages: number;
-  sources: {
-    id: TorrentSourceId;
-    count: number;
-    error?: string;
-  }[];
-}
-
-export interface ReleaseGroup {
-  key: string;
-  label: string;
-  best: TorrentResult;
-  alternatives: TorrentResult[];
-}
 
 export interface MediaMetadata {
   source: "anilist" | "tmdb";
@@ -145,13 +96,7 @@ export interface MediaMetadata {
   originCountry?: string[];
 }
 
-export interface TorrentSourceAdapter {
-  readonly id: TorrentSourceId;
-  readonly name: string;
-  search(options: SearchOptions): Promise<TorrentResult[]>;
-}
-
-export interface ClientTorrent {
+interface ClientTorrent {
   hash: string;
   name: string;
   progress: number; // 0–1
@@ -171,6 +116,11 @@ export interface ClientTorrent {
   savePath?: string | null;
   /** Whether this torrent is permanent or a stream cache entry. */
   retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+  /**
+   * 1-based place in the download queue. Present only while `state` is
+   * "queued" — the transfer is admitted and ordered but not in the engine yet.
+   */
+  queuePosition?: number;
 }
 
 /**

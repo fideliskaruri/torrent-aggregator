@@ -5,6 +5,14 @@ namespace TorrentFlow.Search;
 
 public sealed class SearchModuleOptions
 {
+    /// <summary>Process-wide bounds; shared searches continue after a request disconnects, but stop with the host.</summary>
+    [Range(1, 256)]
+    public int MaxConcurrentAdapters { get; set; } = 24;
+    [Range(1, 256)]
+    public int MaxConcurrentSearches { get; set; } = 64;
+    [Range(1, 600_000)]
+    public int AdapterLifetimeMs { get; set; } = 180_000;
+
     [ConfigurationKeyName("NYAA_BASE_URL"), Url]
     public string? NyaaBaseUrl { get; set; }
     [ConfigurationKeyName("APIBAY_BASE_URL"), Url]

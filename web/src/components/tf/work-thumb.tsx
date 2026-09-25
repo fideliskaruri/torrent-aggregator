@@ -1,6 +1,3 @@
-"use client";
-
-import Image from "next/image";
 import {
   isOptimizableImageUrl,
   posterInitial,
@@ -20,10 +17,8 @@ import { cn } from "@/lib/utils";
  *  - **A tile is not a caption.** The fallback draws one large initial as a
  *    graphic element, not the title again in a box — the row already says the
  *    title, and repeating it in a square is noise pretending to be design.
- *  - **A known host is optimised, an unknown host is not.** `next/image` hard
- *    fails on a host missing from `next.config.ts`, which blanks the image
- *    rather than degrading, so anything unrecognised goes through a plain
- *    `<img>`. Both lists live in `components/browse/poster.ts`.
+ *  - **Known provider hosts get the sized image, others a plain `<img>`.**
+ *    The host list lives in `components/browse/poster.ts`.
  */
 export function TfWorkThumb({
   title,
@@ -65,16 +60,17 @@ export function TfWorkThumb({
   return (
     <div className={frame} style={{ width, height, background: "var(--bg-muted)" }}>
       {isOptimizableImageUrl(posterUrl) ? (
-        <Image
+        <img
           src={posterUrl}
+          loading="lazy"
+          decoding="async"
+          style={{ color: "transparent" }}
           alt=""
           width={width}
           height={height}
           className="h-full w-full object-cover"
-          unoptimized={false}
         />
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={posterUrl}
           alt=""

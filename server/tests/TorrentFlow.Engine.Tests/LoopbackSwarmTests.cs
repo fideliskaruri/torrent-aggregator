@@ -99,7 +99,7 @@ public class LoopbackSwarmTests : IAsyncLifetime
         var snap = backend.Get(_hash)!;
         Assert.Equal(1, snap.Progress, 3);
         var path = Assert.Single(snap.Files).FullPath;
-        Assert.Equal(Path.Combine(save, "synthetic.bin"), path);   // NoSubfolder layout
+        Assert.Equal(Path.Combine(save, "synthetic.bin"), path);   // a single-file torrent lands directly in the save path
         Assert.NotNull(backend.GetMetadata(_hash));
         await backend.RemoveAsync(_hash);                           // release the file handles
         Assert.Equal(_payload, await File.ReadAllBytesAsync(path));

@@ -24,20 +24,12 @@
  *
  * Pure — safe for tests.
  */
-export function canonicalizeSearchQuery(raw: string): string {
+function canonicalizeSearchQuery(raw: string): string {
   return raw
     .normalize("NFKC")
     .replace(/[\s\u00a0\u200b-\u200d\ufeff]+/g, " ")
     .trim()
     .toLowerCase();
-}
-
-/** The query as typed (whitespace-normalized) for echo/display purposes. */
-export function displaySearchQuery(raw: string): string {
-  return raw
-    .normalize("NFKC")
-    .replace(/[\s\u00a0\u200b-\u200d\ufeff]+/g, " ")
-    .trim();
 }
 
 const YEAR_TOKEN = /^(?:18|19|20|21)\d{2}$/;
@@ -87,82 +79,4 @@ export function searchIntentQuery(raw: string): string {
     return kept.join(" ");
   }
   return years[0] ?? (kept.join(" ") || normalized);
-}
-
-export function searchTitleVariants(title: string): string[] {
-  const raw = title.trim();
-  if (!raw) return [];
-  const out: string[] = [];
-  const add = (value: string) => {
-    const v = value.replace(/\s+/g, " ").trim();
-    if (v.length < 2) return;
-    if (out.some((x) => x.toLowerCase() === v.toLowerCase())) return;
-    out.push(v);
-  };
-
-  add(raw);
-  // Drop parenthetical years: "Show (2016)" → "Show"
-  const noYear = raw
-    .replace(/\(\s*(?:19|20)\d{2}\s*\)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  add(noYear);
-
-  // Head before a dash subtitle. TMDB often writes "-Starting" with NO space
-  // after the dash (`Re:ZERO -Starting Life in Another World-`), so require
-  // whitespace only *before* the dash; trailing spaces are optional.
-  const dashHead = (noYear.split(/\s+[-–—]\s*/)[0] ?? noYear)
-    .replace(/[-–—]+$/g, "")
-    .trim();
-  add(dashHead);
-
-  // Prefer short cleaned heads — these are what indexers rank ("Re Zero", "ReZero").
-  for (const base of [dashHead, noYear]) {
-    add(base.replace(/:/g, " "));
-    add(base.replace(/:/g, ""));
-    const alnum = base
-      .replace(/[:._]/g, " ")
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    add(alnum);
-    // Compact token users type into search: "rezero"
-    add(alnum.replace(/\s+/g, ""));
-  }
-
-  // Cap — ladder budget is finite; formal + short aliases is enough.
-  return out.slice(0, 6);
-}
-
-/**
- * Provider discovery gets one deliberately weaker rescue query in addition to
- * the conservative grab ladder. A compact token is commonly a title with its
- * spaces omitted (`moonknight`), so its first four characters can recover the
- * provider's spaced title without broadening torrent queries.
- */
-export function searchDiscoveryVariants(title: string): string[] {
-  const variants = searchTitleVariants(title);
-  const raw = title.trim();
-  const intent = searchIntentQuery(raw);
-  if (
-    intent &&
-    !variants.some((value) => value.toLowerCase() === intent.toLowerCase())
-  ) {
-    variants.push(intent);
-  }
-  if (/^[\p{L}\p{N}]+$/u.test(intent) && intent.length >= 6) {
-    const prefix = Array.from(intent).slice(0, 4).join("");
-    if (
-      !variants.some((value) => value.toLowerCase() === prefix.toLowerCase())
-    ) {
-      variants.push(prefix);
-    }
-  }
-
-  const [primary, ...rescues] = variants;
-  if (!primary) return [];
-  // Autocomplete and discovery are latency-sensitive. Keep the raw query plus
-  // the two strongest normalized rescues rather than serializing the full grab
-  // ladder into outbound provider requests.
-  return [primary, ...rescues.slice(-2)];
 }

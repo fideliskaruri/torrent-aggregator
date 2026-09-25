@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { resolveInstallState, type InstallState } from "./install-state";

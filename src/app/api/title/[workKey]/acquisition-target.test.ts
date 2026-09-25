@@ -78,6 +78,30 @@ check("persisted queued/downloading/downloaded transitions are target-linked", (
   assert.equal(downloaded.progress, 1);
 });
 
+check("an engine-queued transfer stays queued, not a 0% download", () => {
+  const target = {
+    status: "queued",
+    progress: 0,
+    infoHash: "c".repeat(40),
+    filePath: null,
+    error: null,
+  } as const;
+  const queued = resolveAcquisitionTransfer(target, {
+    hash: "c".repeat(40),
+    status: "queued",
+    progress: 0,
+  });
+  assert.equal(queued.status, "queued");
+
+  // Promotion (or Download now) moves it on by itself on the next read.
+  const promoted = resolveAcquisitionTransfer(queued, {
+    hash: "c".repeat(40),
+    status: "downloading",
+    progress: 0.01,
+  });
+  assert.equal(promoted.status, "downloading");
+});
+
 check("an unrelated 12.69GB pack cannot become E02 state", () => {
   const target = {
     status: "downloading",

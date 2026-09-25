@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Quality-selection hook — reads the user's preferred resolution from
  * `/api/settings/client` and exposes it for the Download quality picker.
@@ -51,7 +49,6 @@ async function fetchPreferredResolution(): Promise<QualityValue> {
 
 /** Read whether the user has toggled "Always use my preferred quality". */
 function readAlwaysPreferred(): boolean {
-  if (typeof window === "undefined") return false;
   if (alwaysPreferredOverride !== null) return alwaysPreferredOverride;
   try {
     return localStorage.getItem(ALWAYS_PREFERRED_KEY) === "true";
@@ -61,8 +58,7 @@ function readAlwaysPreferred(): boolean {
 }
 
 /** Persist the "always preferred" toggle. */
-export function writeAlwaysPreferred(value: boolean): void {
-  if (typeof window === "undefined") return;
+function writeAlwaysPreferred(value: boolean): void {
   alwaysPreferredOverride = value;
   try {
     if (value) {
@@ -77,7 +73,6 @@ export function writeAlwaysPreferred(value: boolean): void {
 }
 
 function subscribeAlwaysPreferred(onStoreChange: () => void): () => void {
-  if (typeof window === "undefined") return () => {};
 
   const handleStorage = (event: StorageEvent) => {
     if (event.key !== ALWAYS_PREFERRED_KEY) return;

@@ -1,0 +1,104 @@
+[
+  {
+    "route": "/api/watchlist",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/history",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/activity",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/activity?limit=7",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/activity/unread",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/progress?active=1",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/rules",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/breaking-bad",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/dune-2021",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/attack-on-titan",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/library-parity-fixture",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/breaking-bad/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/dune-2021/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/attack-on-titan/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/title/library-parity-fixture/progress",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  },
+  {
+    "route": "/api/library/backfill-estimate",
+    "nextStatus": 200,
+    "dotnetStatus": 200,
+    "differences": []
+  }
+]

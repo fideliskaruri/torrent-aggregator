@@ -30,17 +30,24 @@ public static class MetadataModule
 
         services.AddSingleton<TmdbClient>();
         services.AddSingleton<AniListClient>();
+        services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup, LibraryAnimeLookup>());
         services.AddSingleton<KeylessClients>();
         services.AddSingleton<RateLimiter>();
         services.AddSingleton<WorkSearchService>();
         services.AddSingleton<SuggestService>();
         services.AddSingleton<ArtworkResolver>();
+        services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ILibraryArtworkResolver, LibraryArtworkResolver>());
         services.AddSingleton<MetadataResolver>();
         services.AddSingleton<IMetadataResolver>(sp => sp.GetRequiredService<MetadataResolver>());
         services.AddSingleton<CatalogService>();
         services.AddSingleton<ICatalogLookup>(sp => sp.GetRequiredService<CatalogService>());
         services.AddHostedService<CatalogRefreshWorker>();
         services.AddSingleton<RecommendationService>();
+        // Default when no module supplies live engine state: presence is Unknown, so file evidence decides readiness.
+        services.TryAddSingleton<ITorrentPresenceProbe, UnknownTorrentPresenceProbe>();
+        services.AddSingleton<LocalFilePresenceCache>();
+        services.AddSingleton<AvailabilityResolver>();
+        services.AddSingleton<HomeReleaseCache>();
         services.AddSingleton<BrowseService>();
         services.AddSingleton<TitleExtrasService>();
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Search.ISearchResultEnricher, SearchResultEnricher>());

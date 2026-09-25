@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   ChevronRight,
@@ -14,6 +12,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Zap,
 } from "lucide-react";
 import { formatBytes, formatDuration, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -62,7 +61,9 @@ import {
   canStreamTransfer,
   isDownloading,
   isPaused,
+  isQueued,
   isDownloaded,
+  leadQueuePosition,
   type SeriesGroup,
 } from "./grouping";
 import {
@@ -84,7 +85,7 @@ import {
   type SnapshotState,
 } from "./snapshot-sync";
 import { SeriesDownloadDialog } from "./series-download-dialog";
-import { isDownloadRow, type ClientTorrent, type NowPlaying, type StreamManifestFile } from "./types";
+import { isDownloadRow, type ClientTorrent, type NowPlaying, type StreamManifestFile, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
   PageSkeletonFrame,
@@ -406,7 +407,7 @@ export default function ClientPage() {
       if (statusFilter === "ready") return isDownloaded(t.state);
       if (statusFilter === "paused") return isPaused(t.state);
       if (statusFilter === "active")
-        return isDownloading(t.state);
+        return isDownloading(t.state) || isQueued(t.state);
       return true;
     });
     // Media type last, and through the shared rule: status answers "what is
@@ -530,11 +531,11 @@ export default function ClientPage() {
     return { downloading, ready, paused, dlspeed, upspeed, total };
   }, [downloadable]);
 
-  async function action(act: "pause" | "resume", torrent: ClientTorrent) {
+  async function action(act: TorrentRowAction, torrent: ClientTorrent) {
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
     invalidateInFlight();
-    await fetch("/api/client/torrents", {
+    const res = await fetch("/api/client/torrents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -542,8 +543,18 @@ export default function ClientPage() {
         hash: torrent.hash,
         ownerClientType: torrent.ownerClientType,
       }),
-    });
+    }).catch(() => null);
     void load();
+    if (act === "force") {
+      if (!res?.ok) {
+        const data = (await res?.json().catch(() => null)) as { message?: string } | null;
+        toast.error(data?.message || "Could not start this download now.");
+        setAnnouncement("Could not start the download.");
+        return;
+      }
+      setAnnouncement("Download starting now.");
+      return;
+    }
     setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
   }
 
@@ -891,7 +902,7 @@ export default function ClientPage() {
         actions={
           <>
             <Button asChild variant="ghost" size="sm">
-              <Link href="/settings?tab=connection">Settings</Link>
+              <Link to="/settings?tab=connection">Settings</Link>
             </Button>
             <Button
               type="button"
@@ -990,7 +1001,7 @@ export default function ClientPage() {
               </Button>
             ) : null}
             <Button asChild size="sm" variant={!isBuiltin ? "secondary" : "default"}>
-              <Link href="/settings?tab=connection">Open connection settings</Link>
+              <Link to="/settings?tab=connection">Open connection settings</Link>
             </Button>
             <Button
               type="button"
@@ -1427,7 +1438,7 @@ function SeriesOverviewRow({
     transferIds.every((transferId) => selected.has(transferId));
   const barTone = isDownloaded(group.state)
     ? "bg-[var(--success)]"
-    : isPaused(group.state)
+    : isPaused(group.state) || isQueued(group.state)
       ? "bg-[var(--text-tertiary)]"
       : "bg-[var(--primary)]";
   const titleHref = downloadTitleHref(head);
@@ -1450,7 +1461,7 @@ function SeriesOverviewRow({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-start gap-2.5">
           {titleHref ? (
-            <Link href={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
+            <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
               <TfWorkThumb title={group.title} posterUrl={art?.posterUrl} sizePx={40} />
             </Link>
           ) : (
@@ -1459,7 +1470,7 @@ function SeriesOverviewRow({
           <div className="min-w-0 flex-1 space-y-1">
             {titleHref ? (
               <Link
-                href={titleHref}
+                to={titleHref}
                 className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
               >
                 <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
@@ -1482,7 +1493,7 @@ function SeriesOverviewRow({
                 }
                 data-group-state
               >
-                {stateLabel(group.state)}
+                {stateLabel(group.state, leadQueuePosition(group.torrents))}
               </Badge>
               <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
                 {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}
@@ -1596,7 +1607,7 @@ function FilmRow({
     season: number | null;
     episode: number | null;
   }) => void;
-  onAction: (act: "pause" | "resume", torrent: ClientTorrent) => void;
+  onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onOpenFolder: (t: ClientTorrent) => void;
   onCopyStreamUrl: (t: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
@@ -1608,7 +1619,7 @@ function FilmRow({
   const art = artwork[query.key];
   const barTone = isDownloaded(t.state)
     ? "bg-[var(--success)]"
-    : isPaused(t.state)
+    : isPaused(t.state) || isQueued(t.state)
       ? "bg-[var(--text-tertiary)]"
       : "bg-[var(--primary)]";
   const titleHref = downloadTitleHref(t);
@@ -1658,7 +1669,7 @@ function FilmRow({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-start gap-2.5" title={t.name}>
             {titleHref ? (
-              <Link href={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
+              <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
                 <TfWorkThumb title={display.title} posterUrl={art?.posterUrl} sizePx={40} />
               </Link>
             ) : (
@@ -1667,7 +1678,7 @@ function FilmRow({
             <div className="min-w-0 flex-1 space-y-1">
               {titleHref ? (
                 <Link
-                  href={titleHref}
+                  to={titleHref}
                   className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
                 >
                   <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
@@ -1684,12 +1695,13 @@ function FilmRow({
                   variant={
                     isDownloaded(t.state)
                       ? "success"
-                      : isPaused(t.state)
+                      : isPaused(t.state) || isQueued(t.state)
                         ? "default"
                         : "accent"
                   }
+                  data-torrent-state
                 >
-                  {stateLabel(t.state)}
+                  {stateLabel(t.state, t.queuePosition)}
                 </Badge>
                 {/*
                   One quality tag at most (resolution). Source tags (WEB-DL),
@@ -1822,6 +1834,16 @@ function FilmRow({
               Open folder
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {isQueued(t.state) ? (
+              <DropdownMenuItem
+                onClick={() => onAction("force", t)}
+                className="min-h-[44px] lg:min-h-0"
+                data-torrent-force
+              >
+                <Zap />
+                Download now
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onClick={() => onAction("pause", t)}
               className="min-h-[44px] lg:min-h-0"

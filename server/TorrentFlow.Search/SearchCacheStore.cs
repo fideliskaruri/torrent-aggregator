@@ -41,7 +41,7 @@ public sealed class SearchCacheStore(IDbContextFactory<TorrentFlowDbContext> fac
             }
             Write(parts);
         }
-        return Convert.ToHexString(SHA256.HashData(bytes.ToArray()))[..40].ToLowerInvariant();
+        return Convert.ToHexString(SHA256.HashData(bytes.GetBuffer().AsSpan(0, (int)bytes.Length)))[..40].ToLowerInvariant();
     }
     public int Spend(bool background)
     {
@@ -100,8 +100,8 @@ public sealed class SearchCacheStore(IDbContextFactory<TorrentFlowDbContext> fac
             row.NormalizedQuery = ReleaseQuality.NormalizeTitle(value.Query);
             await db.SaveChangesAsync(token);
             // Keep stale fallback, but cap disk growth as well as process memory.
-            var excess = await db.SearchCaches.OrderByDescending(r => r.ExpiresAt).Skip(500).Select(r => r.Id).ToArrayAsync(token);
-            if (excess.Length > 0) await db.SearchCaches.Where(r => excess.Contains(r.Id)).ExecuteDeleteAsync(token);
+            await db.SearchCaches.Where(r => db.SearchCaches.OrderByDescending(c => c.ExpiresAt).Skip(500)
+                .Select(c => c.Id).Contains(r.Id)).ExecuteDeleteAsync(token);
         }
         catch (Exception e) when (!token.IsCancellationRequested) { logger.LogWarning(e, "Could not persist search cache"); }
     }
