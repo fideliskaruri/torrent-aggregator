@@ -11,6 +11,7 @@ using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Metadata.Artwork;
 using TorrentFlow.Metadata.Enrichment;
 using TorrentFlow.Metadata.Providers;
 
@@ -173,8 +174,10 @@ public static partial class CatalogText
         {
             var isSeries = SeriesMarker().IsMatch(release.Name);
             var cleaned = TitleCleaning.CleanTorrentTitle(release.Name);
-            if (IsSlopTitle(cleaned)) continue;
             var year = isSeries ? null : ReleaseYear(release.Name);
+            if (year is { } y && cleaned.IndexOf(y.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal) is var at and > 0)
+                cleaned = cleaned[..at].Trim().TrimEnd('(', '[', '-', '.').Trim();
+            if (IsSlopTitle(cleaned)) continue;
             var mediaType = isSeries ? (declared == "anime" ? "anime" : "tv") : declared == "tv" ? null : declared;
             if (mediaType is null) continue;
             var key = isSeries ? $"series:{NormalizeForKey(cleaned)}" : $"film:{NormalizeForKey(cleaned)}:{year?.ToString(CultureInfo.InvariantCulture) ?? ""}";
@@ -239,7 +242,8 @@ public sealed class CatalogService(
     IHttpClientFactory httpFactory,
     IOptions<MetadataOptions> options,
     TimeProvider time,
-    ILogger<CatalogService> logger) : ICatalogLookup
+    ILogger<CatalogService> logger,
+    ArtworkResolver? artwork = null) : ICatalogLookup
 {
     public static readonly TimeSpan CatalogTtl = TimeSpan.FromHours(1);
     public const int ColdStartBudgetMs = 12_000;
@@ -358,7 +362,7 @@ public sealed class CatalogService(
             {
                 var items = answered.Where(c => c.Feed.Source == source).SelectMany(c => c.Releases.Select(r => (r, c.Feed.MediaType))).ToList();
                 if (items.Count == 0) continue;
-                prepared.Add((source, CatalogText.CollapseToWorks(items).Take(WorksPerSource).ToList()));
+                prepared.Add((source, await AttachArtworkAsync(CatalogText.CollapseToWorks(items).Take(WorksPerSource).ToList()).ConfigureAwait(false)));
                 origin[source] = "charts";
             }
             if (prepared.Count == 0) return new(written, errors, true, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
@@ -372,6 +376,19 @@ public sealed class CatalogService(
             errors.Add(e.Message);
             return new(written, errors, true, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
         }
+    }
+
+    public const int ArtworkBudgetMs = 15_000;
+
+    /// <summary>artwork.ts resolveArtworkBounded: chart works get posters within a 15 s budget; a miss or hang costs artwork only.</summary>
+    private async Task<List<CatalogDraft>> AttachArtworkAsync(List<CatalogDraft> works)
+    {
+        if (artwork is null || works.Count == 0) return works;
+        var batch = artwork.ResolveBatchAsync(works.Select(w => new ArtworkQuery(w.Title, w.Year, w.MediaType)).ToList());
+        if (await Task.WhenAny(batch, Task.Delay(TimeSpan.FromMilliseconds(ArtworkBudgetMs), time)).ConfigureAwait(false) != batch || !batch.IsCompletedSuccessfully)
+            return works;
+        var art = batch.Result;
+        return works.Select((w, i) => i < art.Count ? w with { PosterUrl = art[i].PosterUrl, BackdropUrl = art[i].BackdropUrl } : w).ToList();
     }
 
     /// <summary>store.ts replaceCatalogSource: upsert ranked rows then drop the rest of the partition.</summary>
@@ -495,5 +512,6 @@ public sealed class CatalogRefreshWorker(CatalogService catalog, IOptions<Metada
         catch (OperationCanceledException) { }
     }
 }
+
 
 

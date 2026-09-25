@@ -457,6 +457,7 @@ public class CatalogTests
         var works = CatalogText.CollapseToWorks(releases.Select(r => (r, "movie")));
         Assert.Single(works);
         Assert.Equal(9000, works[0].Seeders);
+        Assert.Equal("Dune Part Two", works[0].Title);
         Assert.Equal(2024, works[0].Year);
     }
 
