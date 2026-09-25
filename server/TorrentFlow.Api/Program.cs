@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TorrentFlow.Data;
@@ -13,12 +17,26 @@ System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalizat
 System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
+var isPublishedExe = IsPublishedExe();
 
 // Local single-user app: listen on loopback only unless the owner overrides --urls.
-if (string.IsNullOrEmpty(builder.Configuration["urls"]) && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ASPNETCORE_URLS")))
-    builder.WebHost.UseUrls("http://127.0.0.1:3000");
+var configuredUrls = builder.Configuration["urls"];
+var aspNetCoreUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+var defaultUrl = "http://127.0.0.1:3000";
+var useDefaultUrl = isPublishedExe && string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls);
+if (useDefaultUrl)
+{
+    if (!IsLoopbackPortAvailable(3000))
+    {
+        Console.Error.WriteLine("TorrentFlow could not start because http://127.0.0.1:3000 is already in use. Close the other app or launch TorrentFlow with --urls <address>.");
+        Environment.ExitCode = 1;
+        return;
+    }
 
-var dataDir = builder.Configuration["TorrentFlow:DataDirectory"] ?? Path.Combine(builder.Environment.ContentRootPath, "data");
+    builder.WebHost.UseUrls(defaultUrl);
+}
+
+var dataDir = ResolveDataDirectory(builder.Configuration, builder.Environment);
 Directory.CreateDirectory(dataDir);
 var dbPath = builder.Configuration["TorrentFlow:DatabasePath"] ?? Path.Combine(dataDir, "torrentflow.db");
 builder.Services.AddTorrentFlowData($"Data Source={dbPath}");
@@ -49,16 +67,7 @@ await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
 // below never captures real assets (it would answer /assets/*.js with index.html).
 // Published: wwwroot beside the exe. Dev: web/dist, whether launched via `dotnet run` (content root
 // = server/TorrentFlow.Api) or `dotnet <dll>` from the repo root.
-var contentRoot = builder.Environment.ContentRootPath;
-var webRoot = builder.Configuration["TorrentFlow:WebRoot"]
-    ?? new[]
-    {
-        Path.Combine(AppContext.BaseDirectory, "wwwroot"),
-        Path.Combine(contentRoot, "web", "dist"),
-        Path.Combine(contentRoot, "..", "..", "web", "dist"),
-    }.Select(Path.GetFullPath).FirstOrDefault(p => File.Exists(Path.Combine(p, "index.html")))
-    ?? Path.GetFullPath(Path.Combine(contentRoot, "..", "..", "web", "dist"));
-Microsoft.Extensions.FileProviders.PhysicalFileProvider? webFiles = Directory.Exists(webRoot) ? new(webRoot) : null;
+IFileProvider? webFiles = ResolveWebRootFileProvider(builder.Configuration, builder.Environment.ContentRootPath);
 if (webFiles is not null)
 {
     app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = webFiles });
@@ -108,6 +117,101 @@ app.MapControllers();
 if (webFiles is not null)
     app.MapFallbackToFile("{**path:regex(^(?!api/|assets/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles });
 
+var launchBrowser = isPublishedExe && !Debugger.IsAttached && !args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase));
+if (launchBrowser)
+{
+    var browserUrl = GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl);
+    app.Lifetime.ApplicationStarted.Register(() => OpenBrowser(browserUrl));
+}
+
 app.Run();
+
+static string ResolveDataDirectory(IConfiguration configuration, IHostEnvironment environment)
+{
+    var configured = configuration["TorrentFlow:DataDirectory"];
+    if (!string.IsNullOrWhiteSpace(configured))
+        return Path.GetFullPath(configured);
+
+    if (!IsPublishedExe())
+        return Path.Combine(environment.ContentRootPath, "data");
+
+    var exeDirectory = Path.GetDirectoryName(Environment.ProcessPath ?? AppContext.BaseDirectory) ?? AppContext.BaseDirectory;
+    if (File.Exists(Path.Combine(exeDirectory, "portable")))
+        return Path.Combine(exeDirectory, "data");
+
+    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    return string.IsNullOrWhiteSpace(localAppData)
+        ? Path.Combine(exeDirectory, "data")
+        : Path.Combine(localAppData, "TorrentFlow");
+}
+
+static IFileProvider? ResolveWebRootFileProvider(IConfiguration configuration, string contentRoot)
+{
+    var configured = configuration["TorrentFlow:WebRoot"];
+    if (!string.IsNullOrWhiteSpace(configured))
+        return Directory.Exists(configured) ? new PhysicalFileProvider(Path.GetFullPath(configured)) : null;
+
+    var candidates = new[]
+    {
+        Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+        Path.Combine(contentRoot, "web", "dist"),
+        Path.GetFullPath(Path.Combine(contentRoot, "..", "..", "web", "dist")),
+    };
+
+    foreach (var candidate in candidates)
+    {
+        if (File.Exists(Path.Combine(candidate, "index.html")))
+            return new PhysicalFileProvider(Path.GetFullPath(candidate));
+    }
+
+    const string manifestResourceName = "TorrentFlow.WebAssets.Manifest.xml";
+    var assembly = typeof(Program).Assembly;
+    if (assembly.GetManifestResourceInfo(manifestResourceName) is null)
+        return null;
+
+    var embedded = new ManifestEmbeddedFileProvider(assembly, "wwwroot", manifestResourceName, DateTimeOffset.UtcNow);
+    return embedded.GetFileInfo("index.html").Exists ? embedded : null;
+}
+
+static string GetBrowserUrl(string? configuredUrls, string? aspNetCoreUrls, string defaultUrl)
+{
+    var raw = !string.IsNullOrWhiteSpace(configuredUrls) ? configuredUrls
+        : !string.IsNullOrWhiteSpace(aspNetCoreUrls) ? aspNetCoreUrls
+        : defaultUrl;
+    return raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? defaultUrl;
+}
+
+static void OpenBrowser(string url)
+{
+    try
+    {
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"TorrentFlow started, but could not open the browser automatically: {ex.Message}");
+    }
+}
+
+static bool IsPublishedExe()
+{
+    var processPath = Environment.ProcessPath ?? string.Empty;
+    return string.Equals(Path.GetFileNameWithoutExtension(processPath), "TorrentFlow", StringComparison.OrdinalIgnoreCase);
+}
+
+static bool IsLoopbackPortAvailable(int port)
+{
+    try
+    {
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        listener.Stop();
+        return true;
+    }
+    catch (SocketException)
+    {
+        return false;
+    }
+}
 
 public partial class Program;

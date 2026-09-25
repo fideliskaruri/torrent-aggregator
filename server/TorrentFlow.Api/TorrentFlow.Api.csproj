@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
+    <AssemblyName>TorrentFlow</AssemblyName>
     <RootNamespace>TorrentFlow.Api</RootNamespace>
     <UserSecretsId>torrentflow-local</UserSecretsId>
     <WebProjectDirectory>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', 'web'))</WebProjectDirectory>
@@ -21,6 +22,7 @@
     <WebBuildInputs Include="$(WebProjectDirectory)**\*"
                     Exclude="$(WebProjectDirectory)node_modules\**;$(WebProjectDirectory)dist\**" />
   </ItemGroup>
+  <Import Project="obj\TorrentFlow.WebAssets.g.props" Condition="Exists('obj\TorrentFlow.WebAssets.g.props')" />
   <!-- dotnet test forwards this global property to every project, including API references. -->
   <Target Name="BuildWeb" BeforeTargets="PrepareForBuild"
           Condition="'$(SkipWebBuild)' != 'true' and '$(DesignTimeBuild)' != 'true' and '$(VSTestSessionCorrelationId)' == ''"
@@ -38,7 +40,7 @@
     <Exec WorkingDirectory="$(WebProjectDirectory)" Command="pnpm install --frozen-lockfile" />
     <Exec WorkingDirectory="$(WebProjectDirectory)" Command="pnpm build" />
   </Target>
-  <Target Name="PublishWeb" AfterTargets="ComputeFilesToPublish" DependsOnTargets="BuildWeb">
+  <Target Name="PublishWeb" AfterTargets="ComputeFilesToPublish" DependsOnTargets="BuildWeb" Condition="'$(PublishSingleFile)' != 'true'">
     <Error Condition="!Exists('$(WebProjectDirectory)dist\index.html')"
            Text="web/dist is missing. Publish without SkipWebBuild, or run 'pnpm --dir web install --frozen-lockfile' and 'pnpm --dir web build' first." />
     <ItemGroup>
