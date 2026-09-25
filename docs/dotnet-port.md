@@ -184,8 +184,9 @@ Optional cross-module integrations are `ILibraryArtworkResolver`, `ILibraryAnime
 neither a poster nor a backdrop. The call has a 1,200 ms budget and fills both fields, which is
 how Next's remote fallback works. `LibraryAnimeLookup` wraps `AniListClient`.
 
-The playback observer still uses its no-op default because no Media prewarm service exists yet;
-another workstream owns prewarm.
+Media overrides the no-op playback observer with `PrewarmPlaybackObserver` (registered with
+`services.Replace` in `PrewarmFeature`). It forwards each progress ping to
+`PrewarmService.OnPlaybackProgressAsync`, as the TS progress route calls `onPlaybackProgress`.
 
 Episode grabs use a port of the TypeScript on-demand ladder (`Features\Grabs\EpisodeLadder.cs`). Rungs
 come in this order:
@@ -220,8 +221,10 @@ isolated verification with `--TorrentFlow:Library:DisableScheduler=true`.
 
 Rules that hold across the module:
 - Verified file lists come in two shapes: TS rows store an absolute `path`, while the .NET engine
-  stores a torrent-relative `path` plus an absolute `fullPath`. `VerifiedFiles` reads `fullPath`
-  first. Pack mapping checks for episode ranges in the file name only, never in folder names.
+  stores a torrent-relative `path` plus an absolute `fullPath`. After the Engine content layout,
+  `fullPath` is the moved location, or null for discarded duplicate junk, and `path` keeps the original
+  name. `VerifiedFiles` uses the same rule as the engine: `fullPath`, else `path` only when it is rooted.
+  Unlocated files still contribute their names to coverage. Pack mapping checks for episode ranges in the file name only, never in folder names.
 - Title detail loads linked torrents that fall outside its 400-row scan (TS `missingLinkedHashes`),
   so they are not marked failed.
 - The title POST seeds and settles targets like TS `seedSeasonEpisodeTargets` and
@@ -244,8 +247,8 @@ The Library suite has 111 tests. They include:
 
 `ts-oracle.json` holds outputs captured from the TypeScript original on real-looking release names.
 `TsOracle\oracle.ts` regenerates it. Test hosts replace the artwork and AniList contracts with fakes,
-so tests never touch the network. The full solution build has zero warnings/errors and all 8,527
-tests pass.
+so tests never touch the network. The full solution build has zero warnings/errors and all 9,010
+tests pass (6 skipped in Media/Engine).
 
 `server\tests\TorrentFlow.Library.Tests\verify-parity.py` compares running isolated Next (3102)
 and .NET (5102) hosts. It refuses port 3000 and ignores only generated timestamps and volatile
@@ -261,7 +264,7 @@ disabled, and one identical watchlist item plus progress row seeded. No real dow
 requested. Next ran with `NEXT_DIST_DIR=.next-libgaps`.
 
 This is not certification of full mutation/provider parity. Remaining integration work includes
-Media prewarm (`ILibraryPlaybackObserver`), exhaustive offline/throttling diagnostics and
+exhaustive offline/throttling diagnostics and
 request-validation edge cases. Storage reclamation
 and admission remain Engine-owned; refusal details are remeasured for the response rather than
 being an atomic snapshot of Engine's admission decision.
