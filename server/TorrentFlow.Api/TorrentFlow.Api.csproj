@@ -2,6 +2,9 @@
   <PropertyGroup>
     <RootNamespace>TorrentFlow.Api</RootNamespace>
     <UserSecretsId>torrentflow-local</UserSecretsId>
+    <!-- Workstation GC: a 20-min soak with 5 live downloads plateaued at ~175 MB working set / ~65 MB private
+         (GC committed ~35 MB) versus ~211 MB / ~108 MB (GC committed ~70 MB) under Server GC, same throughput. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />

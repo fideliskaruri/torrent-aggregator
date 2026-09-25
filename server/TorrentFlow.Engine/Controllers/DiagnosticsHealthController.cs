@@ -29,6 +29,7 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, ITorren
         var torrents = await engine.ListAsync(ct);
         var live = torrents.Where(t => t.State is "downloading" or "stalledDL" or "metaDL" or "checkingDL").ToList();
         using var proc = Process.GetCurrentProcess();
+        var gc = GC.GetGCMemoryInfo();
         var body = new Dictionary<string, object?>
         {
             ["status"] = dbUp ? "ok" : "degraded",
@@ -45,6 +46,13 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, ITorren
                 rssBytes = proc.WorkingSet64,
                 privateBytes = proc.PrivateMemorySize64,
                 managedHeapBytes = GC.GetTotalMemory(false),
+                gcHeapSizeBytes = gc.HeapSizeBytes,
+                gcCommittedBytes = gc.TotalCommittedBytes,
+                gcFragmentedBytes = gc.FragmentedBytes,
+                gcServer = System.Runtime.GCSettings.IsServerGC,
+                gcCollections = new[] { GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2) },
+                threads = proc.Threads.Count,
+                handles = proc.HandleCount,
                 liveTorrents = live.Count,
                 peers = live.Sum(t => t.Peers ?? 0),
                 queued = torrents.Count(t => t.State == "queued"),
