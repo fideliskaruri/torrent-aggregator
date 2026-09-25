@@ -615,6 +615,41 @@ public class ExtrasTests
     }
 
     [Fact]
+    public async Task Keyless_series_extras_carry_plain_text_tvmaze_detail()
+    {
+        const string search = """
+            [{"score":0.9,"show":{"id":169,"name":"Breaking Bad","premiered":"2008-01-20","summary":"<p><b>Breaking Bad</b> follows Walter &amp; Jesse.</p><p>Second&#8212;para.</p>",
+              "genres":["Drama"," drama ","Crime"],"rating":{"average":9.26},"runtime":60,"image":{"original":"https://static.tvmaze.com/p.jpg"}}}]
+            """;
+        const string episodes = """[{"season":1,"number":1,"name":"Pilot","airdate":"2008-01-20","runtime":60}]""";
+        var f = new FakeHttpFactory(new FakeHandler(r => Task.FromResult(FakeHandler.Json(
+            r.RequestUri!.AbsoluteUri.StartsWith(KeylessClients.TvmazeSearch, StringComparison.Ordinal) ? search :
+            r.RequestUri.AbsoluteUri.EndsWith("/shows/169/episodes", StringComparison.Ordinal) ? episodes : "[]"))));
+        var time = new ManualTime();
+        var tmdb = new TmdbClient(f, Fixtures.Options(), time);
+        var anilist = new AniListClient(f, time);
+        var keyless = new KeylessClients(f);
+        var service = new TitleExtrasService(tmdb, anilist, keyless, new ArtworkResolver(tmdb, anilist, keyless, Fixtures.Options(), time),
+            new RecommendationService(f, tmdb, null!, time, NullLogger<RecommendationService>.Instance), time, NullLogger<TitleExtrasService>.Instance);
+        var payload = await service.GetAsync(new TitleExtrasQuery("breaking-bad", "Breaking Bad", 2008, "tv", null, null, null, null, false));
+        Assert.Equal("Breaking Bad follows Walter & Jesse.\nSecond—para.", payload.Overview);
+        Assert.Equal(9.3, payload.Rating);
+        Assert.Equal("tvmaze", payload.RatingSource);
+        Assert.Equal(new[] { "Drama", "Crime" }, payload.Genres);
+        Assert.Equal("2008-01-20", payload.ReleaseDate);
+        Assert.Single(payload.Episodes);
+        Assert.True(payload.Resolved);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("  <p> </p> ", null)]
+    [InlineData("a<br/>b<li>c</li>", "a\nb\nc")]
+    [InlineData("&lt;p&gt; stays text &nbsp;&foo;", "<p> stays text &foo;")]
+    [InlineData("x&#xD83D;y&#128512;", "xy\U0001F600")]
+    public void Html_summary_becomes_plain_text(string? html, string? expected) => Assert.Equal(expected, HtmlText.StripToText(html));
+
+    [Fact]
     public void Home_release_evidence_uses_types_4_to_6()
     {
         var json = System.Text.Json.JsonDocument.Parse("""
