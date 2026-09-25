@@ -71,17 +71,26 @@ The host listens on `http://127.0.0.1:3000` by default. During development alway
 
 ## Media module (`server/TorrentFlow.Media`)
 
-Ports `src/app/api/{stream,subtitles,playback,prewarm}` and `src/lib/{media,playback,prewarm}`.
+Ports `src/app/api/{stream,playback}` and the media, playback and HLS/VOD logic in `src/lib`.
+Subtitles (`/api/subtitles`) and prewarm (`/api/prewarm`, swarm probe, `ISwarmProbeEngine`, pre-probe
+scheduler) are separate features.
 
 Endpoints: `GET/HEAD /api/stream/{infoHash}` (file index; 425 while metadata loads),
 `GET/HEAD /api/stream/{infoHash}/{**filePath}` (Range serving through `ITorrentEngine.OpenFileStreamAsync`;
-same parser semantics as npm `range-parser`, open-ended ranges capped, `.srt/.ass` sidecars converted to
-WebVTT), `POST /api/stream/{infoHash}/select`, `GET/HEAD /api/subtitles/{infoHash}`,
-`POST /api/playback/{plan,candidates,failover,switch}`, `GET /api/playback/status`,
-`GET/HEAD /api/playback/hls/{sessionId}/{**segment}`, `GET/HEAD /api/playback/vod/{vodId}/{**file}`,
-`GET/POST /api/prewarm`, `GET /api/prewarm/swarm-probe`.
+same parser semantics as npm `range-parser`, open-ended ranges capped, `.srt` sidecars converted to
+WebVTT), `POST /api/stream/{infoHash}/select`, `POST /api/playback/{plan,candidates,failover,switch}`,
+`GET /api/playback/status`, `GET/HEAD /api/playback/hls/{sessionId}/{**segment}`,
+`GET/HEAD /api/playback/vod/{vodId}/{**file}`.
 
-ffmpeg/ffprobe resolution (first hit wins):
+Registration: `MediaModule.AddMediaModule` only calls per-feature extension methods: `AddMediaCore`,
+`AddMediaProbing`, `AddMediaStreaming`, `AddMediaPlayback` (`Common/MediaServiceCollectionExtensions.cs`)
+and `AddMediaSessions` (`Hls/MediaSessionHost.cs`). New media features add their own `AddMedia<Feature>()`
+method and one call line there. `AddMediaCore` uses TryAdd throughout and registers the shared services:
+options, `IProcessRunner`, `FfmpegLocator`, `MediaPaths`, `MediaSettings`, `ForegroundTracker` and
+`SwarmMeasurements`.
+
+ffmpeg/ffprobe resolution is `TorrentFlow.Media.Tools.FfmpegLocator` (`ResolveFfmpeg`/`ResolveFfprobe`,
+or the `TryResolve*` variants; register it with `services.AddFfmpegLocator()`). First hit wins:
 
 1. `TorrentFlow:Media:FfmpegPath` / `TorrentFlow:Media:FfprobePath`
 2. `FFMPEG_PATH` / `FFPROBE_PATH`
@@ -90,24 +99,20 @@ ffmpeg/ffprobe resolution (first hit wins):
    root, the working directory, the app base directory and `TorrentFlow:Media:NodeModulesRoot`
 4. `PATH`
 
-A missing ffmpeg does not break direct playback; plans that need a session report it the way the TS app does.
+A missing binary throws `FfmpegBinaryMissingException`. Direct playback still works; plans that need a
+session report the error.
 
 Options (`TorrentFlow:Media`): `SessionsDirectory` (default `<DataDirectory>/.sessions`),
-`MaxConcurrentSessions` (4), `SessionIdleTimeoutSeconds` (120), `PreProbeSchedulerEnabled`,
-`SwarmWatchEnabled`. `MediaLifecycleHost` removes stale session directories at startup and kills every
-ffmpeg process on shutdown. `PreProbeScheduler` is a `BackgroundService` and logs
-`[preprobe-scheduler] pre-probe scheduler armed`. `MediaModule` replaces the Search module's no-op
-`ISwarmProbeEngine`.
+`MaxConcurrentSessions` (4), `SessionIdleTimeoutSeconds` (120) and `SwarmWatchEnabled`.
+`MediaSessionHost` removes stale session directories at startup, reaps idle HLS sessions and kills every
+ffmpeg process on shutdown.
 
-Contracts added for this module:
+Engine additions for this module:
 
-- `Core/Contracts/Media/UpcomingPlaybackTargets.cs`: `IUpcomingPlaybackTargets`. The default reads
-  continue-watching rows; Library may replace it.
 - `ITorrentEngine.GetDownloadedRangesAsync` (default: empty) and `EngineTorrent.BytesReceived`
   (`[JsonIgnore]`), used by the probe and swarm measurements.
 - The engine multiplexes MonoTorrent's single `StreamProvider` stream (`SharedTorrentStreams`), so
   concurrent readers such as the player, ffprobe and ffmpeg can share one file.
 
-Known gaps compared with TS: no hybrid disk+engine serving or completed-media recovery, a simplified
-`rankResultsForTarget`/work filter, pre-warm never grabs automatically (suspension pauses instead of
-parking streams), and next-episode targets use episode+1 without the watchlist.
+Known gaps compared with TS: no hybrid disk+engine serving or completed-media recovery, and a simplified
+`rankResultsForTarget`/work filter.

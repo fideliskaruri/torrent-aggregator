@@ -21,10 +21,6 @@ public sealed class MediaOptions
     [Range(1, 32)] public int MaxConcurrentSessions { get; set; } = 4;
 
     [Range(5, 3600)] public int SessionIdleTimeoutSeconds { get; set; } = 120;
-
-    /// <summary>Arms the background pre-probe scheduler (TS always arms it on the node runtime).</summary>
-    public bool PreProbeSchedulerEnabled { get; set; } = true;
-
     /// <summary>Arms the foreground swarm-delivery watchdog poll.</summary>
     public bool SwarmWatchEnabled { get; set; } = true;
 }

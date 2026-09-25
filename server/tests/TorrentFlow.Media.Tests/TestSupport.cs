@@ -94,7 +94,6 @@ public sealed class MediaApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("TorrentFlow:DataDirectory", Root);
-        builder.UseSetting("TorrentFlow:Media:PreProbeSchedulerEnabled", "false");
         builder.UseSetting("TorrentFlow:Media:SwarmWatchEnabled", "false");
         builder.ConfigureTestServices(s =>
         {

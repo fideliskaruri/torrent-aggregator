@@ -232,7 +232,7 @@ public sealed class HlsSessionLifecycleTests : IDisposable
     }
 }
 
-public sealed class FfBinariesTests : IDisposable
+public sealed class FfmpegLocatorTests : IDisposable
 {
     private readonly string _root = TestPaths.NewRoot();
     private static string Exe(string n) => OperatingSystem.IsWindows() ? n + ".exe" : n;
@@ -297,19 +297,6 @@ public sealed class FfBinariesTests : IDisposable
 public class ControllerHelperTests
 {
     private static JsonElement Json(string s) => JsonDocument.Parse(s).RootElement;
-
-    [Theory]
-    [InlineData(0.149, false)]
-    [InlineData(0.15, true)]
-    [InlineData(0.9, true)]
-    public void PrewarmTriggersAtFifteenPercent(double fraction, bool expected) =>
-        Assert.Equal(expected, PrewarmController.ShouldTrigger(fraction * 1000, 1000));
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(double.NaN)]
-    [InlineData(-1)]
-    public void NoUsableDurationNeverTriggers(double duration) => Assert.False(PrewarmController.ShouldTrigger(500, duration));
 
     [Theory]
     [InlineData("""{"mime":"video/mp4","canPlay":""}""", null)]

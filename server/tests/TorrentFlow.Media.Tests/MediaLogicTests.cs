@@ -353,64 +353,6 @@ public class SubtitleTextTests
         Assert.Contains("line:90% align:middle", SubtitleText.ShiftVttCues("WEBVTT\n\n00:00:10.000 --> 00:00:12.000 line:90% align:middle\nx\n", -5));
         Assert.Contains("00:00:05.000 --> 00:00:07.000", SubtitleText.ShiftVttCues("WEBVTT\n\n00:10.000 --> 00:12.000\nx\n", -5));
     }
-
-    [Fact]
-    public void ExtractArgsSeekBeforeInputAndBoundTheWindow()
-    {
-        var args = SubtitleExtractor.BuildExtractArgs("http://example.test/video", 2, 480);
-        var ss = args.IndexOf("-ss");
-        var i = args.IndexOf("-i");
-        Assert.True(ss >= 0 && ss < i);
-        Assert.Equal("480", args[ss + 1]);
-        var t = args.IndexOf("-t");
-        Assert.True(t > i);
-        Assert.Equal("600", args[t + 1]);
-        var map = args.IndexOf("-map");
-        Assert.Equal(["-map", "0:2"], args.Skip(map).Take(2));
-        Assert.True(SubtitleExtractor.PrefetchExtractTimeoutMs < 45_000);
-    }
-
-    [Fact]
-    public async Task ExtractorHonoursPreAbortAndCancelOfMissingJobs()
-    {
-        var root = TestPaths.NewRoot();
-        try
-        {
-            var runner = new FakeProcessRunner();
-            var ex = new SubtitleExtractor(new MediaPaths(root), new FfmpegLocator(new MediaOptions { FfmpegPath = Environment.ProcessPath }, [], _ => null), runner, NullLog.For<SubtitleExtractor>());
-            using var cts = new CancellationTokenSource();
-            await cts.CancelAsync();
-            var outcome = await ex.ExtractEmbeddedAsync("abc", "video.mkv", 2, "http://x/v", 0, "test", false, null, cts.Token);
-            Assert.False(outcome.Ok);
-            Assert.Equal("aborted", outcome.Error);
-            Assert.Equal("subtitle extraction was canceled", outcome.Message);
-            Assert.Empty(runner.Started);
-            Assert.False(ex.CancelEmbedded("missing", "video.mkv", 2, 0, "test"));
-        }
-        finally { TestPaths.TryDelete(root); }
-    }
-
-    [Fact]
-    public void CacheEvictionDropsTheOldestEntry()
-    {
-        var root = TestPaths.NewRoot();
-        try
-        {
-            var ex = new SubtitleExtractor(new MediaPaths(root), new FfmpegLocator(new MediaOptions(), [], _ => null), new FakeProcessRunner(), NullLog.For<SubtitleExtractor>());
-            ex.CacheSidecar("abc", "old.mkv", "sidecar:old.srt", "WEBVTT\n\n" + new string('a', 4000));
-            ex.CacheSidecar("abc", "new.mkv", "sidecar:new.srt", "WEBVTT\n\n" + new string('b', 4000));
-            var oldPath = ex.CachePath("abc", "old.mkv", "sidecar:old.srt", 0);
-            File.SetLastWriteTimeUtc(oldPath, DateTime.UnixEpoch);
-            File.SetLastAccessTimeUtc(oldPath, DateTime.UnixEpoch);
-            var total = Directory.EnumerateFiles(new MediaPaths(root).SubtitlesDir, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length);
-            ex.Budget = total - new FileInfo(oldPath).Length + 1;
-            var removed = ex.EvictOverBudget();
-            Assert.True(removed >= 1);
-            Assert.False(File.Exists(oldPath));
-            Assert.NotNull(ex.ReadCached("abc", "new.mkv", "sidecar:new.srt", 0));
-        }
-        finally { TestPaths.TryDelete(root); }
-    }
 }
 
 public class ReleaseTests

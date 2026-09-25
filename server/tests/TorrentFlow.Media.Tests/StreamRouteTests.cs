@@ -180,15 +180,6 @@ public class StreamRouteTests : IClassFixture<MediaApiFactory>
     }
 
     [Fact]
-    public async Task SubtitleListingFindsTheSidecar()
-    {
-        var r = await Get($"/api/subtitles/{Hash}?filePath={Uri.EscapeDataString("Movie/Movie.mp4")}");
-        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
-        var body = await r.Content.ReadAsStringAsync();
-        Assert.Contains("sidecar:Movie/Movie.en.srt", body);
-    }
-
-    [Fact]
     public async Task PlaybackStatusIsInactiveWithoutForegroundPlayback()
     {
         var r = await Get("/api/playback/status");
