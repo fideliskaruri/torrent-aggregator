@@ -34,18 +34,23 @@ public static partial class SafeErrors
 /// <summary>Port of rateLimit (src/lib/torrents/search-cache.ts): fixed 60s window per key, bounded bucket table.</summary>
 public sealed class RateLimiter(TimeProvider time)
 {
+    internal const int MaxBuckets = 10_000;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, (int Count, DateTimeOffset Reset)> _buckets = new(StringComparer.Ordinal);
+    internal int BucketCount { get { lock (_gate) return _buckets.Count; } }
 
     public bool Allow(string key, int max = 40)
     {
         var now = time.GetUtcNow();
         lock (_gate)
         {
-            if (_buckets.Count > 10_000)
-                foreach (var stale in _buckets.Where(b => b.Value.Reset < now).Select(b => b.Key).ToList()) _buckets.Remove(stale);
             if (!_buckets.TryGetValue(key, out var bucket) || bucket.Reset < now)
             {
+                if (!_buckets.ContainsKey(key) && _buckets.Count >= MaxBuckets)
+                {
+                    foreach (var stale in _buckets.Where(b => b.Value.Reset < now).Select(b => b.Key).ToArray()) _buckets.Remove(stale);
+                    if (_buckets.Count >= MaxBuckets) _buckets.Remove(_buckets.Keys.First());
+                }
                 _buckets[key] = (1, now.AddMinutes(1));
                 return true;
             }

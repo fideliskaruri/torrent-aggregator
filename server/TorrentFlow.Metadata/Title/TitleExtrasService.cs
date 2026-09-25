@@ -103,6 +103,8 @@ public sealed class TitleExtrasService(
         {
             var workTask = anilist.GetWorkByIdAsync(aid, ct);
             var railTask = recommendations.RecommendationsForProviderAsync("anilist", q.Title, "anime", aid, new HashSet<string>(), 12, ct);
+            _ = railTask.ContinueWith(t => logger.LogDebug(t.Exception, "AniList recommendations failed"),
+                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             var work = await workTask.ConfigureAwait(false);
             var rail = await railTask.ConfigureAwait(false);
             var m = work?.Metadata;
@@ -120,7 +122,7 @@ public sealed class TitleExtrasService(
         if (q.Provider == "tmdb" && int.TryParse(q.ProviderId, NumberStyles.None, CultureInfo.InvariantCulture, out var tid))
             tmdbRef = new TmdbRef(tid, normalized == "tv" ? "tv" : "movie");
         else if (q.Provider is null && tmdb.ApiKey is not null)
-            tmdbRef = await artwork.ResolveTmdbRefAsync(new ArtworkQuery(q.Title, q.Year, q.MediaType)).ConfigureAwait(false);
+            tmdbRef = await artwork.ResolveTmdbRefAsync(new ArtworkQuery(q.Title, q.Year, q.MediaType), ct).ConfigureAwait(false);
 
         return tmdbRef is null ? await KeylessAsync(q, normalized, empty, ct).ConfigureAwait(false) : await TmdbAsync(q, tmdbRef, empty, ct).ConfigureAwait(false);
     }
@@ -129,7 +131,7 @@ public sealed class TitleExtrasService(
     {
         var isSeries = normalized is "tv" or "anime" || q.SeriesHint;
         var animeTask = normalized == "anime"
-            ? anilist.RecommendationsForPosterAsync(q.Title, q.PosterUrl, 12, ct).ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : [], TaskScheduler.Default)
+            ? AnimeRecommendationsAsync(q, ct)
             : Task.FromResult(new List<AniListWork>());
         var result = empty;
         if (isSeries && normalized != "anime")
@@ -155,14 +157,23 @@ public sealed class TitleExtrasService(
         return result with { MoreLikeThis = moreLikeThis };
     }
 
+    private async Task<List<AniListWork>> AnimeRecommendationsAsync(TitleExtrasQuery q, CancellationToken ct)
+    {
+        try { return await anilist.RecommendationsForPosterAsync(q.Title, q.PosterUrl, 12, ct).ConfigureAwait(false); }
+        catch (Exception e) when (!ct.IsCancellationRequested)
+        {
+            logger.LogDebug(e, "Anime recommendations unavailable");
+            return [];
+        }
+    }
+
     private async Task<TitleExtrasPayload> TmdbAsync(TitleExtrasQuery q, TmdbRef r, TitleExtrasPayload empty, CancellationToken ct)
     {
         var series = r.MediaType == "tv";
         var detailTask = tmdb.FetchDetailAsync(r.MediaType, r.Id, ExtrasTimeoutMs, ct);
-        var railTask = recommendations.RecommendationsForProviderAsync("tmdb", q.Title, r.MediaType, r.Id.ToString(CultureInfo.InvariantCulture), new HashSet<string>(), 12, ct);
+        var railTask = TmdbRecommendationsAsync(q, r, ct);
         var detail = await detailTask.ConfigureAwait(false);
-        RecommendationRail? rail = null;
-        try { rail = await railTask.ConfigureAwait(false); } catch (Exception e) when (e is not OperationCanceledException) { }
+        var rail = await railTask.ConfigureAwait(false);
         if (detail is not { } d) return empty with { MoreLikeThis = (rail?.Items ?? []).Select(ToSimilarLink).ToList() };
 
         var seasonCounts = new SortedDictionary<int, int>();
@@ -208,6 +219,20 @@ public sealed class TitleExtrasService(
             OriginalLanguage = TmdbClient.Str(d, "original_language").OrEmpty(null),
             Resolved = true,
         };
+    }
+
+    private async Task<RecommendationRail?> TmdbRecommendationsAsync(TitleExtrasQuery q, TmdbRef r, CancellationToken ct)
+    {
+        try
+        {
+            return await recommendations.RecommendationsForProviderAsync("tmdb", q.Title, r.MediaType,
+                r.Id.ToString(CultureInfo.InvariantCulture), new HashSet<string>(), 12, ct).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogDebug(e, "TMDB recommendations unavailable");
+            return null;
+        }
     }
 
     /// <summary>US certification first, then any non-empty one.</summary>

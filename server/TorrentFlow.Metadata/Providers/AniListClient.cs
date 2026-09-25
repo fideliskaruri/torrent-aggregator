@@ -83,7 +83,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             var media = await FetchUncoalescedAsync(term, perPage, CancellationToken.None).ConfigureAwait(false);
             _recent.Set(key, media, QueryTtl);
             return media;
-        }).WaitAsync(ct).ConfigureAwait(false);
+        }, ct).ConfigureAwait(false);
     }
 
     private async Task<List<JsonElement>> FetchUncoalescedAsync(string term, int perPage, CancellationToken ct)
@@ -108,7 +108,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
                     }
                     throw new AniListHttpException(status);
                 }
-                using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false), cancellationToken: cts.Token).ConfigureAwait(false);
+                using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
                 var root = doc.RootElement;
                 if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0)
                     throw new InvalidOperationException(Str(errors[0], "message") ?? "AniList error");
@@ -139,14 +139,15 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             .OrderBy(x => x.tier).ThenBy(x => x.index).Select(x => x.item).Take(perPage).ToList();
     }
 
-    private Task<HttpResponseMessage> PostAsync(string query, JsonObject variables, CancellationToken ct)
+    private async Task<HttpResponseMessage> PostAsync(string query, JsonObject variables, CancellationToken ct)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, Url)
+        using var request = new HttpRequestMessage(HttpMethod.Post, Url)
         {
             Content = JsonContent.Create(new JsonObject { ["query"] = query, ["variables"] = variables }),
         };
         request.Headers.Accept.ParseAdd("application/json");
-        return httpFactory.CreateClient(HttpClientName).SendAsync(request, ct);
+        using var client = httpFactory.CreateClient(HttpClientName);
+        return await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
     }
 
     private static IEnumerable<string> Titles(JsonElement m)
@@ -167,7 +168,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             cts.CancelAfter(TimeSpan.FromSeconds(10));
             using var response = await PostAsync(ByIdQuery, new JsonObject { ["id"] = numeric }, cts.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return null;
-            using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false), cancellationToken: cts.Token).ConfigureAwait(false);
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
             if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("Media", out var media) && media.ValueKind == JsonValueKind.Object)
                 return ToWork(media.Clone());
             return null;
@@ -191,7 +192,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             using var response = await PostAsync(RecommendationsQuery,
                 new JsonObject { ["search"] = QueryVariants.Canonicalize(title), ["perPage"] = Math.Min(limit, 24) }, cts.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return [];
-            using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false), cancellationToken: cts.Token).ConfigureAwait(false);
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
             var root = doc.RootElement;
             if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0) return [];
             if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("Page", out var page) || !page.TryGetProperty("media", out var mediaList) ||
