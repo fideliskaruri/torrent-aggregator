@@ -34,10 +34,10 @@ public sealed class SettingsClientController(
         return Ok(new { settings = await PublicSettingsAsync(row, ct), defaults = Defaults() });
     }
 
-    internal static object Defaults() => new
+    internal object Defaults() => new
     {
         categories = ClientSettingsStore.DefaultCategories,
-        baseDownloadPath = ClientSettingsStore.DefaultDownloadDir(),
+        baseDownloadPath = store.DefaultDownloadDirectory,
         clientType = "builtin",
     };
 

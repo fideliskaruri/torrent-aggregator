@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFeatures } from "@/lib/features";
+import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
@@ -228,6 +228,7 @@ function plural(n: number, word: string) {
 }
 export default function ClientPage() {
   const { streaming } = useFeatures();
+  const displayPath = useDisplayPath();
   // Rows, error, offline and "was that read authoritative" move together: a
   // failed poll must never be able to leave the rows blanked but the error
   // stale, or vice versa. `snapshot-sync.ts` owns the folding rules.
@@ -1604,7 +1605,7 @@ export default function ClientPage() {
                     </p>
                     {pendingDelete[0].savePath ? (
                       <p className="text-[11px] font-mono text-[var(--text-tertiary)] break-all">
-                        {pendingDelete[0].savePath}
+                        {displayPath(pendingDelete[0].savePath)}
                       </p>
                     ) : null}
                   </div>
@@ -1867,7 +1868,8 @@ function FilmRow({
 }) {
   const pct = progressPercent(t.progress);
   const query = artworkQueryForRelease(t.name, t.category);
-  const { streaming } = useFeatures();
+  const { streaming, openFolder } = useFeatures();
+  const displayPath = useDisplayPath();
   const display = releaseDisplayFacts(t, query);
   const parsedEpisode = parseEpisode(t.name);
   const art = artwork[query.key];
@@ -2085,7 +2087,7 @@ function FilmRow({
                 ].filter(Boolean);
                 return facts.length ? <p className="tabular-nums">{facts.join(" · ")}</p> : null;
               })()}
-              {t.savePath ? <p className="break-all font-mono">{t.savePath}</p> : null}
+              {t.savePath ? <p className="break-all font-mono">{displayPath(t.savePath)}</p> : null}
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -2112,7 +2114,7 @@ function FilmRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
-              disabled={openingHash === t.transferId}
+              disabled={!openFolder || openingHash === t.transferId}
               data-open-folder
               className="min-h-[44px] lg:min-h-0"
             >

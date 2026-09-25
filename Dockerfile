@@ -1,50 +1,38 @@
-# TorrentFlow — production image
-FROM node:22-bookworm-slim AS deps
+# syntax=docker/dockerfile:1
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS web
+WORKDIR /src/web
+RUN corepack enable && corepack prepare pnpm@12.4.2 --activate
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY web/ ./
+RUN pnpm build
+
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS publish
+ARG TARGETARCH
+WORKDIR /src
+COPY Directory.Build.props Directory.Packages.props ./
+COPY server/ server/
+COPY --from=web /src/web/dist/ web/dist/
+RUN dotnet publish server/TorrentFlow.Api -c Release -a $TARGETARCH \
+    --self-contained false -p:UseAppHost=false -p:SkipWebBuild=true -o /out
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY prisma ./prisma
-COPY prisma.config.ts ./
-RUN corepack enable && corepack prepare pnpm@12.4.2 --activate && pnpm install --frozen-lockfile
-
-FROM node:22-bookworm-slim AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
-RUN corepack enable && corepack prepare pnpm@12.4.2 --activate && pnpm run build
-
-FROM node:22-bookworm-slim AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
-ENV DATABASE_URL="file:./data/prod.db"
-ENV DOWNLOAD_DIR="/downloads"
-
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && rm -rf /var/lib/apt/lists/* \
-  && addgroup --system --gid 1001 nodejs \
-  && adduser --system --uid 1001 nextjs
-
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/next.config.ts ./next.config.ts
-
-RUN mkdir -p /app/data /downloads && chown -R nextjs:nodejs /app /downloads
-USER nextjs
-EXPOSE 3000
-ENV PORT=3000
-
-# `npm run start` is `next start -H 127.0.0.1`, which is right on the host (no
-# auth, so do not publish it) and wrong in a container: loopback inside the
-# namespace is unreachable from the published port, so `docker compose up`
-# produced an app that never answered. The container boundary *is* the
-# isolation here; bind to the container's own interfaces and let the compose
-# port mapping decide what is exposed.
-#
-# `migrate deploy` rather than `db push`: the repo has a real migration
-# history, and `db push` diverges from it silently.
-CMD ["sh", "-c", "corepack enable && corepack prepare pnpm@12.4.2 --activate && pnpm exec prisma migrate deploy && pnpm exec next start -H 0.0.0.0 -p ${PORT:-3000}"]
+# curl is deliberate: the base runtime has no HTTP health-probe command.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl gosu ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/*
+ENV ASPNETCORE_URLS=http://0.0.0.0:3000 \
+    TorrentFlow__DataDirectory=/data \
+    TorrentFlow__DefaultDownloadDirectory=/media \
+    TorrentFlow__Engine__ListenPort=6881 \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    PUID=1000 PGID=1000 TZ=Etc/UTC HOME=/data
+COPY --from=publish /out/ ./
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/torrentflow-entrypoint
+RUN mkdir -p /data /media
+EXPOSE 3000 3940 6881/tcp 6881/udp
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+    CMD curl --fail --silent --show-error --max-time 4 http://127.0.0.1:3000/api/health || exit 1
+# Only initialization runs as root; the entrypoint execs the application as PUID:PGID.
+ENTRYPOINT ["torrentflow-entrypoint"]
+CMD ["dotnet", "TorrentFlow.dll"]

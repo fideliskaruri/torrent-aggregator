@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -34,13 +35,18 @@ public sealed record DownloadTarget(string? Category, string? SavePath);
 
 public sealed class ClientSettingsStore(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
-    IOptions<ExternalClientOptions>? externalClients = null)
+    IOptions<ExternalClientOptions>? externalClients = null,
+    IConfiguration? configuration = null)
 {
     public const string DefaultHost = "http://127.0.0.1:8080";
     public static readonly IReadOnlyList<string> DefaultCategories = ["Anime", "Movies", "TV", "Music", "Games", "Software", "Books", "Other"];
 
-    public static string DefaultDownloadDir() =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "TorrentFlow");
+    public static string DefaultDownloadDir(IConfiguration? configuration = null) =>
+        ClientConfig.NullIfBlank(configuration?["TorrentFlow:DefaultDownloadDirectory"])
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "TorrentFlow");
+
+    public string DefaultDownloadDirectory => DefaultDownloadDir(configuration);
+    public bool RunningInContainer => string.Equals(configuration?["DOTNET_RUNNING_IN_CONTAINER"], "true", StringComparison.OrdinalIgnoreCase);
 
     public bool ExternalClientsEnabled => externalClients?.Value.Enabled == true;
 

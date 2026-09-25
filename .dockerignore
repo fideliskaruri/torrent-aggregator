@@ -3,6 +3,27 @@
 # host's node_modules — a slow build that also bakes local secrets into a
 # layer.
 node_modules
+**/node_modules
+**/bin
+**/obj
+**/data
+**/dist
+**/*.db*
+**/.env
+**/.env.*
+**/.torrentflow.key
+**/remote-access.json
+**/packages.lock.json
+!server/**/packages.lock.json
+_bmad
+_bmad-output
+.agents
+.claude
+graphify-out
+skills-lock.json
+bmad-workflow.md
+**/*worktree*
+.docker-validation
 .next
 out
 downloads

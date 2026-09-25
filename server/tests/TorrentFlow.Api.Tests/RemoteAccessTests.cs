@@ -667,6 +667,10 @@ public sealed class RemoteAccessIsolatedTests
         using var tunnel = factory.Tunnel(factory.Token());
         Assert.True((await Json(await local.GetAsync("/api/features"))).GetProperty("streaming").GetBoolean());
         Assert.False((await Json(await tunnel.GetAsync("/api/features"))).GetProperty("streaming").GetBoolean());
+        Assert.False((await Json(await tunnel.GetAsync("/api/features"))).GetProperty("openFolder").GetBoolean());
+        using var folder = await tunnel.PostAsJsonAsync("/api/settings/open-folder", new { path = "/media" });
+        Assert.Equal(HttpStatusCode.Conflict, folder.StatusCode);
+        Assert.True((await Json(folder)).GetProperty("openFolderDisabled").GetBoolean());
     }
 
     [Fact]

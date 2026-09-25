@@ -150,6 +150,8 @@ access is off. Fix it by changing the tunnel's service to that URL
 the SPA hides playback. Cloudflare's service terms restrict serving video and other large media through
 its proxy (they point to Stream, Images or R2 instead), and its 100 s proxy timeout breaks long-lived
 media responses. Browse, search, downloads, library and settings all work remotely for owners.
+Server-side folder launching is also unavailable through the tunnel: `/api/features` reports
+`openFolder: false`, and `/api/settings/open-folder` returns 409 before launching a file manager.
 
 ## Browser details
 
@@ -168,9 +170,14 @@ media responses. Browse, search, downloads, library and settings all work remote
 
 ## Docker
 
-There is no Docker packaging yet. When there is, expose only the tunnel port to the `cloudflared`
-container (bind `TunnelBindAddress` to the container network) and keep the owner port off that network;
-anything that can reach the owner port is treated as the owner.
+See [Docker server hosting](docker.md) for Compose, persistent volumes and an optional VPN example.
+Compose publishes the owner UI only to host loopback, binds the tunnel listener to `0.0.0.0`,
+and connects cloudflared over an internal network. Configure the Cloudflare service as
+`http://torrentflow:3940` (or `http://gluetun:3940` with the standalone VPN example), never port 3000.
+Existing saved listener settings override environment defaults; update them and restart.
+The connector is trusted: a shared Docker network does not filter ports, and anything that can
+reach the owner port without Cloudflare headers is treated as the owner. Do not attach untrusted
+containers or publish the tunnel port. Start cloudflared explicitly with the `remote` profile.
 
 ## Tests
 

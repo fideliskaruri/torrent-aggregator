@@ -143,11 +143,21 @@ app.Use(async (context, next) =>
     }
     await next();
 });
-app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engine, HttpContext http) =>
+app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engine,
+    TorrentFlow.Engine.Settings.ClientSettingsStore settings, IConfiguration configuration, HttpContext http) =>
 {
     http.Response.Headers.CacheControl = "no-store";
     // Streaming routes are refused on the tunnel, so the SPA must hide playback there too.
-    return Results.Json(new { streaming = engine.CurrentValue.Streaming && !RemoteAccessClaims.IsTunnel(http) });
+    return Results.Json(new
+    {
+        streaming = engine.CurrentValue.Streaming && !RemoteAccessClaims.IsTunnel(http),
+        runningInContainer = settings.RunningInContainer,
+        openFolder = !settings.RunningInContainer && !RemoteAccessClaims.IsTunnel(http),
+        displayPathMappings = configuration.GetSection("TorrentFlow:DisplayPathMappings").GetChildren()
+            .Select(m => new { containerPath = m["ContainerPath"], hostPath = m["HostPath"] })
+            .Where(m => !string.IsNullOrWhiteSpace(m.containerPath) && !string.IsNullOrWhiteSpace(m.hostPath))
+            .ToArray(),
+    });
 }).AllowRequesters();
 app.MapRemoteAccessEndpoints();
 app.MapRequestEndpoints();

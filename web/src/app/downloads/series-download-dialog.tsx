@@ -17,7 +17,7 @@
  * survives the round trip.
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useFeatures } from "@/lib/features";
+import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
@@ -347,7 +347,8 @@ function EpisodeCard({
         ? `${seasonLabelFor(season)} pack`
         : (entry.episodeLabel ?? display.title);
   const isBuiltin = t.ownerClientType === "builtin";
-  const { streaming } = useFeatures();
+  const { streaming, openFolder } = useFeatures();
+  const displayPath = useDisplayPath();
   const canPlay = streaming && isBuiltin && canStreamTransfer(t);
   const speed = speedLabel(t.dlspeed);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
@@ -490,7 +491,7 @@ function EpisodeCard({
                 return facts.length ? <p className="tabular-nums">{facts.join(" · ")}</p> : null;
               })()}
               <p className="break-all font-mono">{t.name}</p>
-              {t.savePath ? <p className="break-all font-mono">{t.savePath}</p> : null}
+              {t.savePath ? <p className="break-all font-mono">{displayPath(t.savePath)}</p> : null}
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -514,7 +515,7 @@ function EpisodeCard({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
-              disabled={openingHash === t.transferId}
+              disabled={!openFolder || openingHash === t.transferId}
               className="min-h-[44px] lg:min-h-0"
             >
               {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}

@@ -31,6 +31,7 @@ after(async () => {
 });
 
 const { FeaturesProvider, useFeatures } = await server.ssrLoadModule("/src/lib/features.tsx");
+const { displayPath } = await server.ssrLoadModule("/src/lib/display-path.ts");
 const { visibleBrowseRail, missingRailPreviews } = await server.ssrLoadModule("/src/components/browse/first-run.ts");
 const { TitleCard } = await server.ssrLoadModule("/src/components/browse/title-card.tsx");
 const { HeroBanner } = await server.ssrLoadModule("/src/components/browse/hero-banner.tsx");
@@ -47,6 +48,36 @@ function render(component, props = {}) {
 function FeatureProbe() {
   return String(useFeatures().streaming);
 }
+
+test("folder launching is explicitly enabled and fails closed", () => {
+  function FolderProbe() { return String(useFeatures().openFolder); }
+  for (const [data, loading, error, expected] of [
+    [null, true, null, "false"],
+    [{ openFolder: true }, false, "offline", "false"],
+    [{ openFolder: "true" }, false, null, "false"],
+    [{ openFolder: false, runningInContainer: true }, false, null, "false"],
+    [{ openFolder: true, runningInContainer: false }, false, null, "true"],
+  ]) {
+    query = { data, loading, error };
+    assert.equal(render(FolderProbe), expected);
+  }
+});
+
+test("display mappings preserve filesystem inputs and use the longest directory boundary", () => {
+  const mappings = [
+    { containerPath: "/media/", hostPath: "\\\\NAS\\media\\" },
+    { containerPath: "/media/TV", hostPath: "/mnt/shows/" },
+  ];
+  assert.equal(displayPath("/media/Movies/a.mkv", mappings), "\\\\NAS\\media\\Movies\\a.mkv");
+  assert.equal(displayPath("/media/TV/a.mkv", mappings), "/mnt/shows/a.mkv");
+  assert.equal(displayPath("/media", mappings), "\\\\NAS\\media");
+  assert.equal(displayPath("/media-other/a", mappings), "/media-other/a");
+  assert.equal(displayPath("/MEDIA/a", mappings), "/MEDIA/a");
+  assert.equal(displayPath("/data/db", mappings), "/data/db");
+  assert.equal(displayPath("/media/a/b", [{ containerPath: "/media", hostPath: "/mnt/back\\slash" }]), "/mnt/back\\slash/a/b");
+  assert.equal(displayPath("/media/a", [{ containerPath: "/media", hostPath: "" }]), "/media/a");
+  assert.equal(mappings[0].containerPath, "/media/");
+});
 
 for (const [name, state, expected] of [
   ["loading", { data: null, loading: true, error: null }, "false"],

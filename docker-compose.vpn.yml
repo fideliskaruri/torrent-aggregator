@@ -1,12 +1,32 @@
+# Standalone alternative, NOT an override:
+# docker compose -f docker-compose.vpn.yml up -d
 services:
+  gluetun:
+    image: qmcgaw/gluetun:v3
+    cap_add: [NET_ADMIN]
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER:?Set VPN_SERVICE_PROVIDER in .env}
+      VPN_TYPE: wireguard
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY:?Set WIREGUARD_PRIVATE_KEY in .env}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES:?Set WIREGUARD_ADDRESSES in .env}
+      SERVER_COUNTRIES: ${SERVER_COUNTRIES:-}
+      FIREWALL_INPUT_PORTS: "3000,3940"
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks: [tunnel, vpn-egress]
+    restart: unless-stopped
+
   torrentflow:
     image: ghcr.io/fideliskaruri/torrent-aggregator:${TORRENTFLOW_TAG:-latest}
     build: .
     init: true
-    ports:
-      - "127.0.0.1:3000:3000"
-      - "6881:6881/tcp"
-      - "6881:6881/udp"
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
     environment:
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
@@ -25,7 +45,6 @@ services:
     volumes:
       - tf-data:/data
       - ${MEDIA_PATH:-tf-media}:/media
-    networks: [tunnel, app-egress]
     restart: unless-stopped
     stop_grace_period: 60s
 
@@ -35,7 +54,7 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
-    # Configure the public hostname's service as http://torrentflow:3940, NOT :3000.
+    # TorrentFlow shares gluetun's network namespace: target http://gluetun:3940.
     networks: [tunnel, tunnel-egress]
     depends_on:
       torrentflow:
@@ -45,7 +64,7 @@ services:
 networks:
   tunnel:
     internal: true
-  app-egress:
+  vpn-egress:
   tunnel-egress:
 
 volumes:

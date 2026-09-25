@@ -13,7 +13,9 @@ modeled on CoCo Artifacts: one ASP.NET Core host that serves the JSON API and th
   Prisma created, and `DatabaseInitializer` adopts an existing Prisma database.
 - Lower memory and real parallelism: bounded concurrency with `Channel<T>` / `SemaphoreSlim`,
   `IHttpClientFactory`, streaming instead of buffering, no unbounded caches.
-- Install and run with `.\run.ps1` (Windows) or `sh ./run.sh` (Linux/macOS). No Docker.
+- Install and run with `.\run.ps1` (Windows) or `sh ./run.sh` (Linux/macOS).
+  The Windows executable remains the desktop default; [Docker](docker.md) is the recommended
+  always-on NAS/Linux/Pi host.
   API builds install the frozen web lockfile and build the SPA incrementally. The CLI's
   `VSTestSessionCorrelationId` skips the web target during `dotnet test`; standalone test-project
   builds pass `SkipWebBuild=true` through references. Tests need no Node/pnpm installation.

@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useFeatures } from "@/lib/features";
+import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
 import {
   AlertTriangle,
@@ -165,7 +165,8 @@ function parseSettingsTab(
 }
 
 export default function SettingsPage() {
-  const { streaming } = useFeatures();
+  const { streaming, openFolder: canOpenFolder, runningInContainer } = useFeatures();
+  const displayPath = useDisplayPath();
   const [form, setForm] = useState<ClientForm>(EMPTY_FORM);
   const [savedForm, setSavedForm] = useState<ClientForm>(EMPTY_FORM);
   const [hasPassword, setHasPassword] = useState(false);
@@ -740,6 +741,15 @@ export default function SettingsPage() {
               }
               spaceInputRef={capInputRef}
             />
+            {runningInContainer ? (
+              <p className="break-all text-xs text-[var(--text-tertiary)]" data-container-path>
+                Container paths are used for downloads.{" "}
+                {displayPath(form.baseDownloadPath || "/media") !== (form.baseDownloadPath || "/media")
+                  ? `Host location: ${displayPath(form.baseDownloadPath || "/media")}. `
+                  : "Set MEDIA_DISPLAY_PATH to show the host location. "}
+                Open the media folder on your computer; folder launching is unavailable in a container.
+              </p>
+            ) : null}
             <div className="space-y-1.5">
               <label
                 htmlFor="max-active-downloads"
@@ -1106,7 +1116,7 @@ export default function SettingsPage() {
                     variant="ghost"
                     size="icon"
                     aria-label="Open fallback folder"
-                    disabled={!form.savePath.trim() || Boolean(openingPath)}
+                    disabled={!canOpenFolder || !form.savePath.trim() || Boolean(openingPath)}
                     onClick={() => void openFolder(form.savePath)}
                   >
                     {openingPath === form.savePath ? (

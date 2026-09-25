@@ -7,6 +7,7 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { useDisplayPath } from "@/lib/features";
 import { buildInbox } from "./inbox";
 import { MarkNotificationsRead } from "./use-unread";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
@@ -66,6 +67,7 @@ function statusVariant(
 }
 
 function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean }) {
+  const displayPath = useDisplayPath();
   const [searchParams] = useSearchParams();
   const sentOnly =
     sentOnlyOverride ?? searchParams.get("filter") === "sent";
@@ -294,7 +296,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
               </h2>
               <ul className="surface divide-y divide-[var(--border)] overflow-hidden">
                 {group.items.map((item) => {
-                  const location = formatSaveLocation(item.savePath, item.category);
+                  const location = formatSaveLocation(item.savePath ? displayPath(item.savePath) : null, item.category);
                   const kindLabel = activityKindLabel(item);
                   return (
                     <li
@@ -326,7 +328,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                         {location ? (
                           <p
                             className="truncate font-mono text-[11px] text-[var(--text-tertiary)]"
-                            title={item.savePath ?? undefined}
+                            title={item.savePath ? displayPath(item.savePath) : undefined}
                             data-save-path
                           >
                             Saved to {location}

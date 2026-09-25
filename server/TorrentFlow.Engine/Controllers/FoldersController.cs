@@ -55,6 +55,8 @@ public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbCo
     [HttpPost("api/settings/open-folder")]
     public async Task<IActionResult> Open(CancellationToken ct)
     {
+        if (store.RunningInContainer)
+            return StatusCode(409, new { error = "Folder opening is unavailable in a container. Open the mapped media folder on your computer instead.", openFolderDisabled = true });
         if (await JsonBody.ReadAsync(Request, ct) is not { } body) return JsonBody.InvalidJson();
         var config = await store.GetConfigAsync(ct);
         foreach (var (field, max) in new[] { ("path", 4096), ("category", 100) })

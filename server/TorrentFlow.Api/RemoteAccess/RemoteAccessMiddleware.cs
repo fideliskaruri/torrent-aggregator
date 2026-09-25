@@ -139,6 +139,11 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
             return;
         }
 
+        if (path.Equals("/api/settings/open-folder", StringComparison.OrdinalIgnoreCase))
+        {
+            await WriteJson(context, StatusCodes.Status409Conflict, new { error = "Folder opening is unavailable through remote access.", openFolderDisabled = true });
+            return;
+        }
         // Cloudflare's terms and its 100 s proxy timeout rule out video over the tunnel.
         if (StreamingRoutes.Any(r => path.StartsWithSegments(r, StringComparison.OrdinalIgnoreCase)))
         {

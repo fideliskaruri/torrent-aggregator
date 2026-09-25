@@ -1,0 +1,102 @@
+name: Docker
+
+on:
+  pull_request:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate Compose
+        env:
+          VPN_SERVICE_PROVIDER: custom
+          WIREGUARD_PRIVATE_KEY: validation-placeholder
+          WIREGUARD_ADDRESSES: 10.0.0.2/32
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.vpn.yml config --quiet
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - name: Build runtime smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: torrentflow:smoke
+          cache-from: type=gha
+      - name: Exercise permissions, persistence and health
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker logs tf-smoke || true
+            docker rm -f tf-smoke || true
+            docker volume rm tf-smoke-data tf-smoke-media || true
+          }
+          trap cleanup EXIT
+          if docker run --rm -e PUID=0 torrentflow:smoke; then
+            echo "Root PUID must be rejected"; exit 1
+          fi
+          if docker run --rm -e PGID=invalid torrentflow:smoke; then
+            echo "Non-numeric PGID must be rejected"; exit 1
+          fi
+          docker run -d --name tf-smoke -p 127.0.0.1:3923:3000 \
+            -e PUID=1234 -e PGID=2345 -e TorrentFlow__Engine__RefreshTrackers=false \
+            -v tf-smoke-data:/data -v tf-smoke-media:/media torrentflow:smoke
+          for i in {1..60}; do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' tf-smoke)" = healthy ]; then break; fi
+            sleep 2
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' tf-smoke)" = healthy
+          curl -fsS http://127.0.0.1:3923/api/health | jq -e '.ready == true'
+          curl -fsS http://127.0.0.1:3923/api/features | jq -e '.runningInContainer and (.openFolder == false)'
+          curl -fsS http://127.0.0.1:3923/ | grep -q 'id="root"'
+          test "$(docker exec tf-smoke stat -c %u:%g /data/torrentflow.db)" = 1234:2345
+          docker exec tf-smoke sh -c 'grep -q "^Uid:[[:space:]]*1234[[:space:]]" /proc/1/status'
+          docker exec -u 1234:2345 tf-smoke sh -c 'touch /media/ownership-check && touch /data/persistence-check'
+          test "$(docker exec tf-smoke stat -c %u:%g /media/ownership-check)" = 1234:2345
+          docker restart tf-smoke
+          docker exec tf-smoke test -f /data/persistence-check
+          docker exec tf-smoke ffmpeg -version
+          docker exec tf-smoke ffprobe -version
+      - name: Sign in to GHCR
+        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build both architectures
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

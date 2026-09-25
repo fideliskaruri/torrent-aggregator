@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
+import { useFeatures, useDisplayPath } from "@/lib/features";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -631,6 +632,7 @@ function UntrackedFiles({
   onReveal: (target: string, key: string) => void;
   onRequestDelete: (target: PendingOrphanDelete) => void;
 }) {
+  const displayPath = useDisplayPath();
   // No download folder configured yet — the setup path already says so above,
   // and inventing an "untracked" section for a folder that does not exist would
   // be a control with nothing behind it.
@@ -690,7 +692,7 @@ function UntrackedFiles({
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--success)]" />
           <span>
             Every one of the {formatBytes(usage.diskBytes)} in{" "}
-            <span className="break-all text-[var(--text-tertiary)]">{scan.root}</span>{" "}
+            <span className="break-all text-[var(--text-tertiary)]">{displayPath(scan.root)}</span>{" "}
             is accounted for by a transfer or by TorrentFlow itself. Nothing here
             is holding space you cannot explain.
           </span>
@@ -742,6 +744,7 @@ function UntrackedGroupRow({
   onReveal: (target: string, key: string) => void;
   onRequestDelete: (target: PendingOrphanDelete) => void;
 }) {
+  const { openFolder } = useFeatures();
   const key = group.relativePath || "__loose__";
   const title = group.loose
     ? "Loose files in the download folder"
@@ -770,7 +773,7 @@ function UntrackedGroupRow({
             variant="secondary"
             size="sm"
             className="min-h-[44px] lg:min-h-0"
-            disabled={revealing === key}
+            disabled={!openFolder || revealing === key}
             onClick={() => onReveal(group.path, key)}
           >
             {revealing === key ? (
