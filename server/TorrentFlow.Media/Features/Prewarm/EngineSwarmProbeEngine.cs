@@ -43,6 +43,9 @@ public sealed class EngineSwarmProbeEngine(ITorrentEngine engine, ILogger<Engine
     public async Task<IIsolatedSwarmProbe> OpenIsolatedAsync(string magnet, CancellationToken cancellationToken)
     {
         var hash = ReleaseText.InfoHashFromMagnet(magnet) ?? throw new ArgumentException("magnet must contain a valid BitTorrent info hash", nameof(magnet));
+        // A failed add (metadata timeout) still leaves an error row behind; one this probe created must not surface
+        // in the owner's downloads as a "swarm probe" transfer.
+        var heldBefore = await engine.GetAsync(hash, cancellationToken) is not null;
         // The engine resolves metadata inside AddAsync and does not observe cancellation there, so the add runs
         // detached: if the caller gives up first, a transfer this probe started is still removed when it lands.
         var add = engine.AddAsync(new EngineAddRequest { Magnet = magnet, Purpose = TorrentPurpose.Prewarm, Name = "swarm probe" }, CancellationToken.None);
@@ -55,11 +58,15 @@ public sealed class EngineSwarmProbeEngine(ITorrentEngine engine, ILogger<Engine
         {
             _ = add.ContinueWith(async t =>
             {
-                if (t.IsCompletedSuccessfully && StartedByUs(t.Result)) await RemoveQuietlyAsync(t.Result.Hash ?? hash);
+                if (t.IsCompletedSuccessfully && (StartedByUs(t.Result) || !t.Result.Ok && !heldBefore)) await RemoveQuietlyAsync(t.Result.Hash ?? hash);
             }, TaskScheduler.Default).Unwrap();
             throw;
         }
-        if (!result.Ok) throw new InvalidOperationException(result.Message);
+        if (!result.Ok)
+        {
+            if (!heldBefore) await RemoveQuietlyAsync(result.Hash ?? hash);
+            throw new InvalidOperationException(result.Message);
+        }
         var probe = new Probe(this, result.Hash ?? hash, StartedByUs(result));
         await probe.RefreshAsync(cancellationToken);
         probe.StartPolling();
