@@ -63,7 +63,8 @@ To distribute a **single executable** that needs neither the .NET SDK/runtime no
 ```
 
 The script builds `web/` with pnpm, then publishes `server/TorrentFlow.Api` as
-`artifacts\exe\TorrentFlow.exe`. Double-click the exe or run it directly:
+`artifacts\exe\TorrentFlow.exe` (about 120 MB; it is left uncompressed because a compressed
+bundle roughly doubles the app's private memory). Double-click the exe or run it directly:
 
 ```powershell
 .\artifacts\exe\TorrentFlow.exe --urls http://127.0.0.1:3000

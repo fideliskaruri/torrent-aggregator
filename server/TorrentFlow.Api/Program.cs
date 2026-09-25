@@ -32,6 +32,12 @@ if (isPublishedBundle && string.IsNullOrWhiteSpace(configuredUrls) && string.IsN
     {
         Console.Error.WriteLine("TorrentFlow could not start because http://127.0.0.1:3000 is already in use. Close the other app or launch TorrentFlow with --urls <address>.");
         Environment.ExitCode = 1;
+        // A double-clicked exe closes its console on exit; keep the message readable.
+        if (!Console.IsInputRedirected)
+        {
+            Console.Error.WriteLine("Press any key to close.");
+            Console.ReadKey(intercept: true);
+        }
         return;
     }
 }

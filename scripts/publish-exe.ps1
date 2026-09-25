@@ -14,6 +14,7 @@ try {
     try {
         pnpm install --frozen-lockfile
         pnpm build
+        if ($LASTEXITCODE -ne 0) { throw "web build failed." }
     }
     finally {
         Pop-Location
@@ -22,10 +23,12 @@ try {
     dotnet publish server\TorrentFlow.Api -c Release -r win-x64 --self-contained true `
         -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true `
-        -p:EnableCompressionInSingleFile=true `
+        -p:EnableCompressionInSingleFile=false `
         -p:DebugType=None `
         -p:DebugSymbols=false `
+        -p:SkipWebBuild=true `
         -o $publishDir
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
 
     Get-ChildItem $publishDir -File | Where-Object Name -ne 'TorrentFlow.exe' | Remove-Item -Force
 }
