@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Engine.Clients.External;
 using TorrentFlow.Engine.Settings;
 using TorrentFlow.Engine.Storage;
 
@@ -16,7 +17,8 @@ public sealed class SettingsClientController(
     ClientSettingsStore store,
     SecretProtector secrets,
     StorageBudget storage,
-    ITorrentEngine engine) : ControllerBase
+    ITorrentEngine engine,
+    ExternalClientRegistry clients) : ControllerBase
 {
     internal static readonly int[] SelectableResolutions = [480, 720, 1080, 2160];
     internal const int DefaultResolution = 1080;
@@ -118,6 +120,7 @@ public sealed class SettingsClientController(
 
         if (body.Bool("switchToBuiltin") == true)
         {
+            if (row.ClientType is "qbittorrent" or "transmission") row.ExternalClientType = row.ClientType;
             row.ClientType = "builtin";
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -139,6 +142,8 @@ public sealed class SettingsClientController(
             if (ext is not (null or "" or "qbittorrent" or "transmission")) return Bad("externalClientType must be qbittorrent or transmission");
             row.ExternalClientType = string.IsNullOrEmpty(ext) ? null : ext;
         }
+        if (row.ClientType is "qbittorrent" or "transmission")
+            row.ExternalClientType = row.ClientType;
         if (body.Str("host") is { } host)
         {
             if (!Uri.TryCreate(host.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
@@ -232,9 +237,14 @@ public sealed class SettingsClientController(
 
         object? testResult = null;
         if (body.Bool("test") == true)
-            testResult = row.ClientType == "builtin" && body.Str("testTarget") != "external"
-                ? new { ok = true, message = "Built-in engine is running." }
-                : new { ok = false, message = "Connection test failed. Verify the host and credentials." };
+        {
+            var config = await clients.GetConfigAsync(ct);
+            var type = body.Str("testTarget") == "external" && config.ExternalClientType is { } external && !string.IsNullOrWhiteSpace(config.Host)
+                ? external : config.ClientType;
+            testResult = type == "builtin"
+                ? new EngineActionResult(true, "Built-in engine is running.")
+                : await clients.Get(type).TestAsync(config with { ClientType = type }, ct);
+        }
 
         return Ok(new Dictionary<string, object?>
         {

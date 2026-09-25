@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Engine.Client;
+using TorrentFlow.Engine.Clients.External;
 using TorrentFlow.Engine.Queue;
 using TorrentFlow.Engine.Settings;
 using TorrentFlow.Engine.Storage;
@@ -36,6 +37,7 @@ public static class EngineModule
         });
         services.AddSingleton<ClientSettingsStore>();
         services.AddSingleton<SecretProtector>();
+        services.AddExternalClients();
         services.AddSingleton<StorageBudget>();
         services.AddSingleton<MonoTorrentBackend>();
         services.AddSingleton<ITorrentBackend>(sp => sp.GetRequiredService<MonoTorrentBackend>());

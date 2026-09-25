@@ -4,13 +4,13 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
-using TorrentFlow.Engine.Settings;
+using TorrentFlow.Engine.Clients.External;
 
 namespace TorrentFlow.Engine.Controllers;
 
 [ApiController]
 [Route("api/client/torrents")]
-public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettingsStore settings, IOptions<JsonOptions> json) : ControllerBase
+public sealed class ClientTorrentsController(ITorrentEngine engine, ExternalClientRegistry clients, IOptions<JsonOptions> json) : ControllerBase
 {
     private static readonly string[] Actions = ["pause", "resume", "delete", "force"];
     private static readonly string[] Owners = ["builtin", "qbittorrent", "transmission"];
@@ -33,13 +33,27 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
     [HttpGet]
     public async Task<IActionResult> List(CancellationToken ct)
     {
-        var config = await settings.GetConfigAsync(ct);
-        var torrents = (await engine.ListAsync(ct)).Select(t => Owned(StripCacheStats(t))).ToList();
-        var issues = new List<ClientIssue>();
-        if (config.ClientType is "qbittorrent" or "transmission")
-            issues.Add(new ClientIssue(config.ClientType, Label(config.ClientType),
-                $"{Label(config.ClientType)} is not supported by this server yet; showing built-in transfers only.", false));
-        return Ok(new ListResponse(torrents, config.ClientType, config.Host, false, config.ExternalClientType,
+        var config = await clients.GetConfigAsync(ct);
+        var snapshots = await Task.WhenAll(ExternalClientRegistry.Sources(config).Select(async owner =>
+        {
+            try
+            {
+                var rows = await clients.ListAsync(config, owner, ct);
+                var owned = rows.Where(t => !string.IsNullOrWhiteSpace(t.Hash))
+                    .GroupBy(t => t.Hash.Trim().ToLowerInvariant()).Select(g => g.Last())
+                    .Select(t => Owned(owner == "builtin" ? StripCacheStats(t) : t, owner)).ToList();
+                return (Torrents: owned, Issue: (ClientIssue?)null);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                var error = ExternalClientErrors.Format(ex, owner);
+                return (Torrents: new List<JsonObject>(), Issue: new ClientIssue(owner, ExternalClientRegistry.Label(owner),
+                    error.Offline ? $"{ExternalClientRegistry.Label(owner)} is unavailable." : error.Message, error.Offline));
+            }
+        }));
+        var torrents = snapshots.SelectMany(s => s.Torrents).ToList();
+        var issues = snapshots.Select(s => s.Issue).OfType<ClientIssue>().ToList();
+        return Ok(new ListResponse(torrents, config.ClientType, config.ClientType == "builtin" ? "" : config.Host, false, config.ExternalClientType,
             config.ExternalClientType is not null, issues.Count > 0, issues));
     }
 
@@ -50,12 +64,14 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
             : t;
 
     /// <summary>OwnedClientTorrent: the transfer tagged with the client that owns it (transfer-ownership tagOwnedTorrents).</summary>
-    private JsonObject Owned(EngineTorrentInfo t)
+    private JsonObject Owned(EngineTorrentInfo t, string owner = BuiltinOwner)
     {
         var node = JsonSerializer.SerializeToNode(t, json.Value.JsonSerializerOptions)!.AsObject();
-        node["ownerClientType"] = BuiltinOwner;
-        node["ownerClientLabel"] = BuiltinOwnerLabel;
-        node["transferId"] = $"{BuiltinOwner}:{t.Hash.Trim().ToLowerInvariant()}";
+        node["hash"] = t.Hash.Trim();
+        node["ownerClientType"] = owner;
+        node["ownerClientLabel"] = ExternalClientRegistry.Label(owner);
+        node["transferId"] = $"{owner}:{t.Hash.Trim().ToLowerInvariant()}";
+        if (owner != "builtin") node["savePath"] = t.SavePath;
         return node;
     }
 
@@ -79,13 +95,21 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
         if (!Actions.Contains(action)) return BadRequest(new { error = "Action not supported" });
 
         if (owner != "builtin")
-        {
-            if (action == "force") return BadRequest(new { ok = false, message = $"{Label(owner)} does not queue downloads." });
-            return StatusCode(503, new { ok = false, message = "The configured torrent client is unavailable.", offline = true, code = "CLIENT_UNSUPPORTED" });
-        }
+            return await ExternalActionAsync(owner, action, hash, body.Bool("deleteFiles") ?? true, ct);
 
         if (await engine.GetAsync(hash, ct) is null)
             return NotFound(new { ok = false, message = "That transfer was not found in its recorded owner. Refresh and try again." });
+
+        if (action == "delete" && body.Bool("deleteFiles") != false)
+        {
+            var config = await clients.GetConfigAsync(ct);
+            var torrent = await engine.GetAsync(hash, ct);
+            if (torrent is not null)
+            {
+                var check = await clients.CheckDeleteAsync(config, owner, torrent, ct);
+                if (check.Message is not null) return StatusCode(check.Status, new { ok = false, message = check.Message });
+            }
+        }
 
         var result = action switch
         {
@@ -110,5 +134,50 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
             response["torrent"] = t is null ? null : Owned(t with { Files = null });
         }
         return StatusCode(result.Ok ? 200 : 502, response);
+    }
+
+    private async Task<IActionResult> ExternalActionAsync(string owner, string action, string hash, bool deleteFiles, CancellationToken ct)
+    {
+        var config = await clients.GetConfigAsync(ct);
+        EngineTorrentInfo? torrent;
+        try { torrent = await clients.FindAsync(config, owner, hash, ct); }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            var error = ExternalClientErrors.Format(ex, owner);
+            return StatusCode(error.Offline ? 503 : 502, new
+            {
+                ok = false, message = error.Offline ? $"{Label(owner)} is unavailable." : error.Message, offline = error.Offline,
+            });
+        }
+        if (torrent is null)
+            return NotFound(new { ok = false, message = "That transfer was not found in its recorded owner. Refresh and try again." });
+        if (action == "force") return BadRequest(new { ok = false, message = $"{Label(owner)} does not queue downloads." });
+        if (action == "delete" && deleteFiles)
+        {
+            var check = await clients.CheckDeleteAsync(config, owner, torrent, ct);
+            if (check.Message is not null) return StatusCode(check.Status, new { ok = false, message = check.Message });
+        }
+        var result = await clients.Get(owner).ActAsync(config with { ClientType = owner }, action, hash, deleteFiles, ct);
+        if (action == "delete" && result.Ok)
+        {
+            try
+            {
+                if (await clients.FindAsync(config, owner, hash, ct) is not null)
+                    result = new(false, $"{Label(owner)} did not remove that transfer.");
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                result = new(false, $"Could not verify that {Label(owner)} removed that transfer.");
+            }
+        }
+        if (action == "delete" && deleteFiles && result.Ok)
+        {
+            var pruned = await clients.ConfirmedRemovalAsync(config, owner, torrent, ct);
+            if (pruned > 0) result = result with { Message = $"{result.Message} · cleaned {pruned} empty folder(s)" };
+        }
+        return StatusCode(result.Ok ? 200 : 502, new
+        {
+            ok = result.Ok, message = result.Ok ? result.Message : "Torrent action failed.", ownerClientType = owner, offline = false,
+        });
     }
 }
