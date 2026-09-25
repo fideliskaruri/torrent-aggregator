@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Providers;
+using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Metadata.Artwork;
 
@@ -46,7 +47,7 @@ public static partial class ArtworkMatching
 
     public static string NormalizeTitleForMatch(string input)
     {
-        var d = (input ?? "").Normalize(NormalizationForm.FormKD);
+        var d = TextUtil.CompatibilityFold(input ?? "", true);
         var sb = new StringBuilder(d.Length);
         foreach (var ch in d) if (ch is < '\u0300' or > '\u036f') sb.Append(ch);
         var s = sb.ToString().ToLowerInvariant().Replace("&", " and ");
@@ -382,3 +383,5 @@ public sealed class ArtworkResolver
         return new Resolved(ArtworkResult.None, null, false);
     }
 }
+
+

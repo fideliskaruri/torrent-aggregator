@@ -1,0 +1,6 @@
+{ "data": { "Media": { "recommendations": { "nodes": [
+  { "mediaRecommendation": { "id": 139498, "title": { "romaji": "Tensei Shitara Slime Datta Ken Movie", "english": "That Time I Got Reincarnated as a Slime the Movie: Scarlet Bond" }, "coverImage": { "large": "https://img.test/slime-movie.jpg" }, "startDate": { "year": 2022 }, "averageScore": 76, "format": "MOVIE" } },
+  { "mediaRecommendation": { "id": 2, "title": { "romaji": "Unknown Shape", "english": null }, "coverImage": { "large": "https://img.test/unknown.jpg" }, "startDate": { "year": 2020 }, "averageScore": 50, "format": null } },
+  { "mediaRecommendation": { "id": 3, "title": { "romaji": "A Manga", "english": null }, "coverImage": { "large": "https://img.test/manga.jpg" }, "startDate": { "year": 2020 }, "averageScore": 50, "format": "MANGA" } },
+  { "mediaRecommendation": null }
+] } } } }

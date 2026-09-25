@@ -16,7 +16,7 @@ public static partial class WorkKeys
 
     public static string Slugify(string name)
     {
-        var d = (name ?? "").Normalize(NormalizationForm.FormKD);
+        var d = TextUtil.CompatibilityFold(name ?? "", true);
         var sb = new StringBuilder();
         foreach (var ch in d)
         {
@@ -79,3 +79,4 @@ public static partial class WorkKeys
         return qs.Length > 0 ? $"{TitleHref}/{segment}?{qs}" : $"{TitleHref}/{segment}";
     }
 }
+
