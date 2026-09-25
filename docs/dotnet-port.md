@@ -244,6 +244,16 @@ Sintel/Big Buck Bunny transfer, pause/resume, cap-one queuing, API force, and br
 The SPA queue action and preprobe panel depend on their separate UI/prewarm port work; diagnostics
 retain runtime-specific .NET memory metrics rather than inventing Node event-loop measurements.
 
+### Deleting downloads
+
+- Downloads sends a multi-select or whole-series delete as one request:
+  `POST /api/client/torrents {action:"delete", hashes:[...], ownerClientType:"builtin", deleteFiles}`.
+  The response lists `results[]` per hash. External clients still get one request per transfer.
+- `RemoveManyAsync` removes every row first and deletes files after, so a season folder that only the
+  batch uses is removed whole, sidecar files included. A folder that a download outside the batch still
+  records is kept. The queue is refilled once at the end, so a sibling about to be deleted never starts.
+- Deletes are serialized. A file the client is still releasing after a stop is retried for up to 3 s.
+
 ### Download queue and speed
 
 - Downloads at once: Settings saves `maxActiveDownloads` (1 to 20) on `ClientSettings`; null falls

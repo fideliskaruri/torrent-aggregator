@@ -198,6 +198,82 @@ public class EngineQueueTests
     }
 
     [Fact]
+    public async Task DeletingAWholeSeasonAtOnceRemovesEveryEpisodeAndTheSeasonFolder()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 2);
+        var show = Path.Combine(h.Root, "downloads", "TV", "Show");
+        var season = Path.Combine(show, "Season 01");
+        for (var ep = 1; ep <= 4; ep++)
+            Assert.True((await h.Engine.AddAsync(Keep(ep, ep: ep) with { SavePath = season })).Ok);
+        h.Backend.Complete(EngineHarness.Hash(1));
+        await h.Engine.TickAsync();
+        Assert.Equal("parked", (await h.RowAsync(1)).Status);
+        h.Backend.Complete(EngineHarness.Hash(2));
+        File.WriteAllText(Path.Combine(season, "Show.S01.nfo"), "sidecar");
+        var hashes = Enumerable.Range(1, 4).Select(EngineHarness.Hash).ToList();
+
+        var results = await h.Engine.RemoveManyAsync(hashes, deleteFiles: true);
+
+        Assert.All(results, r => Assert.True(r.Result.Ok));
+        Assert.Empty(await h.RowsAsync());
+        Assert.Empty(h.Backend.Live);
+        Assert.False(Directory.Exists(season), "the season folder should be gone");
+        Assert.False(Directory.Exists(show), "the empty show folder should be gone");
+        Assert.True(Directory.Exists(Path.Combine(h.Root, "downloads")), "the download root stays");
+    }
+
+    [Fact]
+    public async Task DeletingPartOfASeasonKeepsTheFolderForTheRest()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 3);
+        var season = Path.Combine(h.Root, "downloads", "TV", "Show", "Season 01");
+        for (var ep = 1; ep <= 3; ep++)
+            Assert.True((await h.Engine.AddAsync(Keep(ep, ep: ep) with { SavePath = season })).Ok);
+        for (var ep = 1; ep <= 3; ep++) h.Backend.Complete(EngineHarness.Hash(ep));
+
+        var results = await h.Engine.RemoveManyAsync([EngineHarness.Hash(1), EngineHarness.Hash(2)], deleteFiles: true);
+
+        Assert.All(results, r => Assert.True(r.Result.Ok));
+        Assert.False(File.Exists(Path.Combine(season, "file-" + EngineHarness.Hash(1) + ".mkv")));
+        Assert.True(File.Exists(Path.Combine(season, "file-" + EngineHarness.Hash(3) + ".mkv")));
+    }
+
+    [Fact]
+    public async Task AFileStillHeldByTheClientIsRetriedUntilItCanGo()
+    {
+        var root = EngineHarness.NewRoot();
+        var season = Path.Combine(root, "TV", "Show", "Season 01");
+        Directory.CreateDirectory(season);
+        var file = Path.Combine(season, "ep1.mkv");
+        await File.WriteAllBytesAsync(file, [1, 2, 3]);
+        var handle = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+        _ = Task.Delay(400).ContinueWith(_ => handle.Dispose());
+
+        await TorrentEngineService.DeleteReleasesAsync([(season, [file])], root, [], attempts: 20, delayMs: 100);
+
+        Assert.False(File.Exists(file));
+        Assert.False(Directory.Exists(Path.Combine(root, "TV", "Show")));
+        Directory.Delete(root, recursive: true);
+    }
+
+    [Fact]
+    public async Task ParallelSingleDeletesOfASeasonStillLeaveNothingBehind()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 2);
+        var show = Path.Combine(h.Root, "downloads", "TV", "Show");
+        var season = Path.Combine(show, "Season 01");
+        for (var ep = 1; ep <= 4; ep++)
+            Assert.True((await h.Engine.AddAsync(Keep(ep, ep: ep) with { SavePath = season })).Ok);
+        h.Backend.Complete(EngineHarness.Hash(1));
+        h.Backend.Complete(EngineHarness.Hash(2));
+
+        var results = await Task.WhenAll(Enumerable.Range(1, 4).Select(ep => h.Engine.RemoveAsync(EngineHarness.Hash(ep), deleteFiles: true)));
+
+        Assert.All(results, r => Assert.True(r.Ok));
+        Assert.False(Directory.Exists(show));
+    }
+
+    [Fact]
     public async Task FailurePromotesTheNextItem()
     {
         await using var h = await EngineHarness.CreateAsync(cap: 1);

@@ -204,6 +204,7 @@ public sealed class ClientTorrentsController(
     {
         if (await JsonBody.ReadAsync(Request, ct) is not { } body) return JsonBody.InvalidJson();
         var action = body.Str("action");
+        if (body.TryGetProperty("hashes", out var list)) return await DeleteManyAsync(body, action, list, ct);
         var hash = body.Str("hash")?.Trim().ToLowerInvariant();
         var owner = body.Str("ownerClientType");
         if (string.IsNullOrEmpty(action) || string.IsNullOrEmpty(hash) || string.IsNullOrEmpty(owner))
@@ -251,6 +252,49 @@ public sealed class ClientTorrentsController(
             response["torrent"] = t is null ? null : Owned(t with { Files = null });
         }
         return StatusCode(result.Ok ? 200 : 502, response);
+    }
+
+    /// <summary>
+    /// <c>{action:"delete", hashes:[…], ownerClientType:"builtin"}</c>: one delete for a whole selection, so a season's
+    /// episodes are removed together and their shared season folder goes with the last of them.
+    /// </summary>
+    private async Task<IActionResult> DeleteManyAsync(System.Text.Json.JsonElement body, string? action, System.Text.Json.JsonElement list, CancellationToken ct)
+    {
+        var owner = body.Str("ownerClientType");
+        if (action != "delete" || owner != "builtin")
+            return BadRequest(new { error = "hashes is only supported for deleting built-in downloads" });
+        if (list.ValueKind != System.Text.Json.JsonValueKind.Array || list.GetArrayLength() is 0 or > 1000
+            || list.EnumerateArray().Any(h => h.ValueKind != System.Text.Json.JsonValueKind.String || string.IsNullOrWhiteSpace(h.GetString())))
+            return BadRequest(new { error = "hashes must be a non-empty array of info hashes" });
+        var hashes = list.EnumerateArray().Select(h => h.GetString()!.Trim().ToLowerInvariant()).Distinct().ToList();
+        var deleteFiles = body.Bool("deleteFiles") ?? true;
+
+        var results = new Dictionary<string, (bool Ok, string Message)>();
+        var removable = new List<string>();
+        var config = deleteFiles ? await clients.GetConfigAsync(ct) : null;
+        foreach (var hash in hashes)
+        {
+            var torrent = await engine.GetAsync(hash, ct);
+            if (torrent is null) { results[hash] = (false, "That transfer was not found in its recorded owner. Refresh and try again."); continue; }
+            if (config is not null && (await clients.CheckDeleteAsync(config, owner, torrent, ct)).Message is { } refused)
+            {
+                results[hash] = (false, refused);
+                continue;
+            }
+            removable.Add(hash);
+        }
+        foreach (var (hash, result) in await engine.RemoveManyAsync(removable, deleteFiles, ct))
+            results[hash] = (result.Ok, result.Message);
+
+        var failed = results.Count(r => !r.Value.Ok);
+        return StatusCode(failed == 0 ? 200 : 502, new
+        {
+            ok = failed == 0,
+            message = failed == 0 ? $"Removed {hashes.Count}" : $"{failed} of {hashes.Count} could not be removed.",
+            ownerClientType = owner,
+            offline = false,
+            results = hashes.Select(h => new { hash = h, ok = results[h].Ok, message = results[h].Message }),
+        });
     }
 
     private async Task<IActionResult> ExternalActionAsync(string owner, string action, string hash, bool deleteFiles, CancellationToken ct)

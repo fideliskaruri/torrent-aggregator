@@ -41,7 +41,9 @@ internal sealed class TorrentEngineService(
     public const string NotFound = "Torrent not found in engine.";
 
     private readonly SemaphoreSlim _queueGate = new(1, 1);
-    // Lock order: a hash lock is always taken before _queueGate, and never while holding another hash lock.
+    // Lock order: a hash lock is always taken before _queueGate, and never while holding another hash lock, except by
+    // RemoveManyAsync, which holds _removeGate and takes its hashes in ordinal order.
+    private readonly SemaphoreSlim _removeGate = new(1, 1);
     // Entries are ref-counted (holder + waiters) and dropped at zero, so the map never outgrows the in-flight work.
     private readonly Dictionary<string, HashLock> _hashLocks = new(StringComparer.Ordinal);
     // Rows marked downloading whose backend start is still in flight; the monitor must not treat them as stranded.
@@ -768,44 +770,73 @@ internal sealed class TorrentEngineService(
         }
     }
 
-    public async Task<EngineActionResult> RemoveAsync(string infoHash, bool deleteFiles, CancellationToken ct = default)
+    public async Task<EngineActionResult> RemoveAsync(string infoHash, bool deleteFiles, CancellationToken ct = default) =>
+        (await RemoveManyAsync([infoHash], deleteFiles, ct))[0].Result;
+
+    /// <summary>
+    /// Removes several transfers as one delete. Every row goes before any file does, so a season folder the batch
+    /// shares only with itself is proven its own and removed whole (sidecars included), and the queue is refilled once
+    /// at the end instead of starting a sibling that is about to be deleted. Deletes are serialized, so concurrent
+    /// single deletes of one season still see each other gone and the last one takes the folder.
+    /// </summary>
+    public async Task<IReadOnlyList<(string Hash, EngineActionResult Result)>> RemoveManyAsync(
+        IReadOnlyCollection<string> infoHashes, bool deleteFiles, CancellationToken ct = default)
     {
-        var hash = infoHash.Trim().ToLowerInvariant();
-        using (await LockHashAsync(hash, ct))
+        var hashes = infoHashes.Select(h => h.Trim().ToLowerInvariant()).ToList();
+        var results = hashes.Select(h => (Hash: h, Result: new EngineActionResult(false, NotFound))).ToList();
+        var removed = new List<(string Hash, string? SavePath, IReadOnlyList<string> Files)>();
+        var held = new List<IDisposable>();
+        await _removeGate.WaitAsync(ct);
+        try
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var row = await FindAsync(db, hash, ct);
-            if (row is null) return new EngineActionResult(false, NotFound);
-            var files = backend.Get(hash)?.Files.Select(f => f.FullPath).ToList()
-                ?? VerifiedFiles(row).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!).ToList();
-            if (files.Count == 0 && LoadTorrentFile(hash) is { } meta) files = FilesFromMetadata(meta, row.SavePath);
-            string? baseRoot = null;
-            List<string> otherPaths = [];
-            if (deleteFiles)
+            foreach (var hash in hashes.Where(h => h.Length > 0).Distinct().Order(StringComparer.Ordinal))
             {
-                baseRoot = (await settings.GetConfigAsync(ct)).DownloadRoot;
-                var others = await db.EngineTorrents.AsNoTracking().Where(r => r.Hash != row.Hash).ToListAsync(ct);
-                foreach (var other in others)
+                held.Add(await LockHashAsync(hash, ct));
+                await using var db = await dbFactory.CreateDbContextAsync(ct);
+                var row = await FindAsync(db, hash, ct);
+                if (row is null) continue;
+                var files = backend.Get(hash)?.Files.Select(f => f.FullPath).ToList()
+                    ?? VerifiedFiles(row).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!).ToList();
+                if (files.Count == 0 && LoadTorrentFile(hash) is { } meta) files = FilesFromMetadata(meta, row.SavePath);
+                db.EngineTorrents.Remove(row);
+                await db.SaveChangesAsync(ct);
+                if (backend.Contains(hash)) await backend.RemoveAsync(hash);
+                _startedAt.TryRemove(hash, out _);
+                lock (_openStreams) { _pendingDetach.Remove(hash); _pendingLayout.Remove(hash); }
+                removed.Add((hash, row.SavePath, files));
+                for (var i = 0; i < results.Count; i++)
+                    if (results[i].Hash == hash) results[i] = (hash, new EngineActionResult(true, "Removed"));
+            }
+
+            if (deleteFiles && removed.Count > 0)
+            {
+                var baseRoot = (await settings.GetConfigAsync(CancellationToken.None)).DownloadRoot;
+                List<string> otherPaths = [];
+                if (!string.IsNullOrWhiteSpace(baseRoot))
                 {
-                    if (!string.IsNullOrWhiteSpace(other.SavePath)) otherPaths.Add(other.SavePath);
-                    otherPaths.AddRange(VerifiedFiles(other).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!));
+                    await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
+                    foreach (var other in await db.EngineTorrents.AsNoTracking().ToListAsync(CancellationToken.None))
+                    {
+                        if (!string.IsNullOrWhiteSpace(other.SavePath)) otherPaths.Add(other.SavePath);
+                        otherPaths.AddRange(VerifiedFiles(other).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!));
+                    }
+                }
+                await DeleteReleasesAsync(removed.Select(r => (r.SavePath, r.Files)).ToList(), baseRoot, otherPaths);
+                foreach (var r in removed)
+                {
+                    TryDelete(TorrentFilePath(r.Hash));
+                    _layoutManifest.Forget(r.Hash, r.SavePath);
                 }
             }
-            db.EngineTorrents.Remove(row);
-            await db.SaveChangesAsync(ct);
-            if (backend.Contains(hash)) await backend.RemoveAsync(hash);
-            _startedAt.TryRemove(hash, out _);
-            lock (_openStreams) { _pendingDetach.Remove(hash); _pendingLayout.Remove(hash); }
-            if (deleteFiles)
-            {
-                DeleteReleaseFiles(files, row.SavePath, baseRoot, otherPaths);
-                TryDelete(TorrentFilePath(hash));
-                _layoutManifest.Forget(hash, row.SavePath);
-            }
+        }
+        finally
+        {
+            foreach (var h in held) h.Dispose();
+            _removeGate.Release();
         }
         storage.ResetDirectorySizeCache();
-        await PromoteAsync(CancellationToken.None);
-        return new EngineActionResult(true, "Removed");
+        if (removed.Count > 0) await PromoteAsync(CancellationToken.None);
+        return results;
     }
 
     public async Task<EngineActionResult> SelectFilesAsync(string infoHash, IReadOnlyCollection<int> fileIndices, CancellationToken ct = default)
@@ -1188,6 +1219,23 @@ internal sealed class TorrentEngineService(
             return t.Files.Select(f => Path.Combine(savePath, f.Path.Replace('/', Path.DirectorySeparatorChar))).ToList();
         }
         catch (Exception) { return []; }
+    }
+
+    /// <summary>
+    /// Deletes a batch of releases whose rows are already gone, so <paramref name="otherPaths"/> never holds a sibling
+    /// from the same batch and a season folder holding only this batch's episodes is proven theirs. A file the client
+    /// is still letting go of (Windows keeps a handle for a moment after a stop) is retried briefly, not left behind.
+    /// </summary>
+    internal static async Task DeleteReleasesAsync(IReadOnlyList<(string? SavePath, IReadOnlyList<string> Files)> releases,
+        string? baseRoot, IReadOnlyList<string> otherPaths, int attempts = 12, int delayMs = 250)
+    {
+        var owned = releases.SelectMany(r => ReleaseFileRemoval.Plan(r.Files, r.SavePath, baseRoot, []).Files).ToList();
+        for (var attempt = 0; ; attempt++)
+        {
+            foreach (var (savePath, files) in releases) DeleteReleaseFiles(files, savePath, baseRoot, otherPaths);
+            if (attempt + 1 >= attempts || !owned.Any(File.Exists)) return;
+            await Task.Delay(delayMs);
+        }
     }
 
     /// <summary>

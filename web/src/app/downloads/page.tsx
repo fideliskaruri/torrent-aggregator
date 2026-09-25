@@ -702,32 +702,74 @@ export default function ClientPage() {
     // snapshot and resurrect the rows; discard anything already in flight.
     invalidateInFlight();
     try {
-      const results = await Promise.all(
-        pendingDelete.map(async (t) => {
-          const res = await fetch("/api/client/torrents", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "delete",
-              hash: t.hash,
-              ownerClientType: t.ownerClientType,
-              deleteFiles,
-            }),
-          });
-          const text = await res.text();
-          let data: { ok?: boolean; message?: string; error?: string } = {};
-          try {
-            data = text ? (JSON.parse(text) as typeof data) : {};
-          } catch {
-            return { ok: false, name: t.name, msg: "Bad response" };
-          }
+      type DeleteResult = { ok: boolean; name: string; msg?: string };
+      const post = async (payload: Record<string, unknown>) => {
+        const res = await fetch("/api/client/torrents", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete", deleteFiles, ...payload }),
+        });
+        const text = await res.text();
+        try {
           return {
-            ok: res.ok && data.ok !== false,
-            name: t.name,
-            msg: data.message || data.error,
+            res,
+            data: (text ? JSON.parse(text) : {}) as {
+              ok?: boolean;
+              message?: string;
+              error?: string;
+              results?: { hash: string; ok: boolean; message?: string }[];
+            },
           };
-        }),
+        } catch {
+          return { res, data: null };
+        }
+      };
+      // Built-in downloads go in one request: the server removes every row
+      // before any file, so a whole season takes its season folder with it.
+      const builtin = pendingDelete.filter(
+        (t) => t.ownerClientType === "builtin",
       );
+      const external = pendingDelete.filter(
+        (t) => t.ownerClientType !== "builtin",
+      );
+      const results: DeleteResult[] = [];
+      if (builtin.length) {
+        const { res, data } = await post({
+          hashes: builtin.map((t) => t.hash),
+          ownerClientType: "builtin",
+        });
+        for (const t of builtin) {
+          const row = data?.results?.find(
+            (r) => r.hash.toLowerCase() === t.hash.toLowerCase(),
+          );
+          results.push(
+            row
+              ? { ok: row.ok, name: t.name, msg: row.message }
+              : {
+                  ok: false,
+                  name: t.name,
+                  msg: data
+                    ? data.message || data.error || `HTTP ${res.status}`
+                    : "Bad response",
+                },
+          );
+        }
+      }
+      for (const t of external) {
+        const { res, data } = await post({
+          hash: t.hash,
+          ownerClientType: t.ownerClientType,
+        });
+        results.push(
+          data
+            ? {
+                ok: res.ok && data.ok !== false,
+                name: t.name,
+                msg: data.message || data.error,
+              }
+            : { ok: false, name: t.name, msg: "Bad response" },
+        );
+      }
       const failed = results.filter((r) => !r.ok);
       if (failed.length) {
         toast.error(

@@ -179,6 +179,21 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
         });
         Assert.Equal(HttpStatusCode.OK, remove.StatusCode);
         Assert.DoesNotContain("Could not verify whether another configured client still uses these files", await remove.Content.ReadAsStringAsync());
+
+        foreach (var n in new[] { 992, 993 })
+            Assert.Equal(HttpStatusCode.OK, (await http.PostAsJsonAsync("/api/torrent/send", new { magnet = EngineHarness.Magnet(n) })).StatusCode);
+        var removeMany = await http.PostAsJsonAsync("/api/client/torrents", new
+        {
+            action = "delete",
+            hashes = new[] { EngineHarness.Hash(992), EngineHarness.Hash(993), EngineHarness.Hash(994) },
+            ownerClientType = "builtin",
+        });
+        var many = await Read(removeMany);
+        Assert.Equal(HttpStatusCode.BadGateway, removeMany.StatusCode);
+        Assert.Equal([true, true, false], many.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("ok").GetBoolean()));
+        Assert.Equal("1 of 3 could not be removed.", many.GetProperty("message").GetString());
+        var badMany = await http.PostAsJsonAsync("/api/client/torrents", new { action = "pause", hashes = new[] { EngineHarness.Hash(992) }, ownerClientType = "builtin" });
+        Assert.Equal(HttpStatusCode.BadRequest, badMany.StatusCode);
     }
 
     [Fact]

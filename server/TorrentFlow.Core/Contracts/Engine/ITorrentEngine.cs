@@ -23,6 +23,17 @@ public interface ITorrentEngine
 
     Task<EngineActionResult> RemoveAsync(string infoHash, bool deleteFiles, CancellationToken ct = default);
 
+    /// <summary>
+    /// Removes several transfers as one delete, so a folder they share only with each other (a season) goes too.
+    /// </summary>
+    async Task<IReadOnlyList<(string Hash, EngineActionResult Result)>> RemoveManyAsync(
+        IReadOnlyCollection<string> infoHashes, bool deleteFiles, CancellationToken ct = default)
+    {
+        var results = new List<(string, EngineActionResult)>();
+        foreach (var hash in infoHashes) results.Add((hash, await RemoveAsync(hash, deleteFiles, ct)));
+        return results;
+    }
+
     /// <summary>Starts a queued (or paused) kept download now, past the active-download cap.</summary>
     Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default);
 
