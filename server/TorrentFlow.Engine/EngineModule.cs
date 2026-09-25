@@ -29,6 +29,8 @@ public static class EngineModule
             })
             .ValidateDataAnnotations()
             .ValidateOnStart();
+        services.AddOptions<ExternalClientOptions>()
+            .Bind(configuration.GetSection(ExternalClientOptions.Section));
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddHttpClient(TorrentEngineService.HttpClientName, c =>

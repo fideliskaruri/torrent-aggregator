@@ -39,13 +39,14 @@ public sealed class SettingsClientController(
 
     internal async Task<Dictionary<string, object?>> PublicSettingsAsync(ClientSetting s, CancellationToken ct)
     {
-        var config = ClientSettingsStore.ToConfig(s);
+        var config = await store.GetConfigAsync(ct);
         var cap = config.MaxStorageBytes;
         var hasFolder = config.DownloadRoot is not null;
         return new Dictionary<string, object?>
         {
-            ["clientType"] = s.ClientType,
+            ["clientType"] = config.ClientType,
             ["externalClientType"] = config.ExternalClientType,
+            ["externalClientsEnabled"] = store.ExternalClientsEnabled,
             ["host"] = s.Host,
             ["username"] = s.Username,
             ["hasPassword"] = config.HasPassword,
@@ -114,6 +115,10 @@ public sealed class SettingsClientController(
         if (await JsonBody.ReadAsync(Request, ct) is not { } body) return JsonBody.InvalidJson();
         if (SettingsInput.Validate(body) is { } failure) return BadRequest(new { error = failure.Error, field = failure.Field });
         IActionResult Bad(string reason) => BadRequest(new { ok = false, error = reason, message = reason });
+        if (!store.ExternalClientsEnabled && (body.Str("clientType") is "qbittorrent" or "transmission"
+            || body.Str("externalClientType") is "qbittorrent" or "transmission"
+            || (body.Bool("test") == true && body.Str("testTarget") == "external")))
+            return Bad("External clients are disabled in this build. TorrentFlow uses the built-in downloader only.");
 
         var row = await store.EnsureAsync(db, ct);
 

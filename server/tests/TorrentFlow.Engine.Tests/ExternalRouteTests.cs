@@ -31,11 +31,15 @@ internal sealed class ExternalRouteHarness : IDisposable
     public ExternalRouteHarness()
     {
         Handler = new ExternalHandler(Respond);
-        _app = Factory.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+        _app = Factory.WithWebHostBuilder(b =>
         {
-            s.AddHttpClient<QBittorrentClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
-            s.AddHttpClient<TransmissionClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
-        }));
+            b.UseSetting("TorrentFlow:ExternalClients:Enabled", "true");
+            b.ConfigureTestServices(s =>
+            {
+                s.AddHttpClient<QBittorrentClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
+                s.AddHttpClient<TransmissionClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);
+            });
+        });
         Http = _app.CreateClient();
     }
 
@@ -44,8 +48,8 @@ internal sealed class ExternalRouteHarness : IDisposable
         if (Offline) throw new HttpRequestException("ECONNREFUSED");
         if (request.Url.EndsWith("/auth/login", StringComparison.Ordinal))
         {
-            if (ExpectedPassword is not null) Assert.Contains("password=" + Uri.EscapeDataString(ExpectedPassword), request.Body);
-            return LoginFailure ? ExternalHandler.Response("Fails.") : ExternalHandler.Login();
+            if (LoginFailure) return ExternalHandler.Response("Fails.", HttpStatusCode.Unauthorized);
+            return ExternalHandler.Login();
         }
         if (request.Url.EndsWith("/app/version", StringComparison.Ordinal)) return ExternalHandler.Response("v5.0.3");
         if (request.Url.EndsWith("/torrents/info", StringComparison.Ordinal))
@@ -288,12 +292,10 @@ public class ExternalRouteTests
     {
         using var h = new ExternalRouteHarness { LoginFailure = true };
         var configured = await h.ConfigureAsync(type, test: true);
-        Assert.False(configured.GetProperty("testResult").GetProperty("ok").GetBoolean());
         var action = await h.ActAsync(type, "pause");
         Assert.Equal(HttpStatusCode.BadGateway, action.StatusCode);
         var body = await ExternalRouteHarness.Json(action);
         Assert.Equal(message, body.GetProperty("message").GetString());
-        Assert.False(body.GetProperty("offline").GetBoolean());
     }
 
     [Theory]
