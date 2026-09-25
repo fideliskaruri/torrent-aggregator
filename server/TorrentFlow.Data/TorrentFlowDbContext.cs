@@ -225,6 +225,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.AutomationIntervalMinutes).HasColumnName("automationIntervalMinutes");
             entity.Property(e => e.BaseDownloadPath).HasColumnName("baseDownloadPath");
+            entity.Property(e => e.MaxActiveDownloads).HasColumnName("maxActiveDownloads");
             entity.Property(e => e.Categories).HasColumnName("categories");
             entity.Property(e => e.Category).HasColumnName("category");
             entity.Property(e => e.ClientType)

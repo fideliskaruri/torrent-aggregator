@@ -227,20 +227,39 @@ public class EngineLifecycleTests
     }
 
     [Fact]
-    public async Task ResumeDoesNotJumpAheadOfWaitingRows()
+    public async Task ResumeOverridesTheQueueWithoutPreemptingWaitingRows()
     {
         await using var h = await EngineHarness.CreateAsync(cap: 2);
         await h.Engine.AddAsync(Keep(1, ep: 1));
         await h.Engine.AddAsync(Keep(5, ep: 5));
-        await h.Engine.PauseAsync(H(5));
         await h.SeedAsync(4, "queued", ep: 4);
+        await h.Engine.PauseAsync(H(5));
+        Assert.Equal("downloading", (await h.RowAsync(4)).Status);
 
         var r = await h.Engine.ResumeAsync(H(5));
 
-        Assert.StartsWith("Queued", r.Message);
+        // The owner's resume starts now even over the cap; the promoted row keeps its slot.
+        Assert.Equal("Resumed", r.Message);
         Assert.Equal("downloading", (await h.RowAsync(4)).Status);
-        Assert.Equal("queued", (await h.RowAsync(5)).Status);
-        Assert.False(h.Backend.Contains(H(5)));
+        Assert.Equal("downloading", (await h.RowAsync(5)).Status);
+        Assert.NotNull((await h.RowAsync(5)).ForcedAt);
+        Assert.True(h.Backend.Contains(H(5)));
+    }
+
+    [Fact]
+    public async Task ResumeOnAQueuedRowStartsItNow()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 1);
+        await h.Engine.AddAsync(Keep(1, ep: 1));
+        await h.Engine.AddAsync(Keep(2, ep: 2));
+        Assert.Equal("queued", (await h.RowAsync(2)).Status);
+
+        var r = await h.Engine.ResumeAsync(H(2));
+
+        Assert.Equal("Resumed", r.Message);
+        Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        Assert.Equal("downloading", (await h.RowAsync(1)).Status);
+        Assert.True(h.Backend.Contains(H(2)));
     }
 
     [Fact]

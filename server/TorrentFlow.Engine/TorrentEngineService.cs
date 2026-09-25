@@ -32,7 +32,8 @@ internal sealed class TorrentEngineService(
     ILogger<TorrentEngineService> logger,
     CompletedLayoutFinalizer? layout = null,
     CompletedLayoutManifestStore? layoutManifest = null,
-    ISmartCategorizer? categorizer = null) : ITorrentEngine
+    ISmartCategorizer? categorizer = null,
+    DownloadLimits? limits = null) : ITorrentEngine
 {
     public const string HttpClientName = "TorrentFlow.Engine.TorrentFiles";
     public const string DownloadedCannotPause = "Downloaded files cannot be paused.";
@@ -59,7 +60,8 @@ internal sealed class TorrentEngineService(
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
 
     private EngineOptions Options => options.CurrentValue;
-    private int Cap => Math.Max(1, Options.MaxActiveDownloads);
+    private int Cap => Math.Max(1, limits?.MaxActiveOverride ?? Options.MaxActiveDownloads);
+    private int _limitsAttached;
     private DateTime Now => time.GetUtcNow().UtcDateTime;
 
     // ---------------------------------------------------------------- add
@@ -388,6 +390,28 @@ internal sealed class TorrentEngineService(
         return DownloadQueue.QueuedReservedBytes(await QueueRowsAsync(db, ct));
     }
 
+    /// <summary>
+    /// Loads the owner's saved downloads-at-once cap and refills slots whenever it changes, so raising it starts
+    /// queued downloads right away. Lowering it never stops a running transfer; the queue just waits longer.
+    /// </summary>
+    internal async Task AttachLimitsAsync(CancellationToken ct = default)
+    {
+        if (limits is null || Interlocked.Exchange(ref _limitsAttached, 1) == 1) return;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            var saved = await db.ClientSettings.AsNoTracking().Where(s => s.UserId == LocalUser.Id)
+                .Select(s => s.MaxActiveDownloads).FirstOrDefaultAsync(ct);
+            limits.SetMaxActive(saved);
+        }
+        limits.Changed += (_, _) =>
+        {
+            WakeMonitor();
+            _ = PromoteAsync(CancellationToken.None).ContinueWith(
+                t => logger.LogWarning(t.Exception, "Refilling the queue after a cap change failed"),
+                TaskContinuationOptions.OnlyOnFaulted);
+        };
+    }
+
     /// <summary>Fills free slots from the head of the queue. Runs after complete / pause / delete / fail.</summary>
     internal async Task<IReadOnlyList<string>> PromoteAsync(CancellationToken ct = default)
     {
@@ -472,6 +496,7 @@ internal sealed class TorrentEngineService(
     /// <summary>Startup: apply the cap to whatever the database says, then start only active + forced kept rows.</summary>
     internal async Task RehydrateAsync(CancellationToken ct = default)
     {
+        await AttachLimitsAsync(ct);
         List<EngineTorrent> start;
         await _queueGate.WaitAsync(ct);
         try
@@ -630,73 +655,17 @@ internal sealed class TorrentEngineService(
         return new EngineActionResult(true, "Paused");
     }
 
-    public async Task<EngineActionResult> ResumeAsync(string infoHash, CancellationToken ct = default)
-    {
-        var hash = infoHash.Trim().ToLowerInvariant();
-        EngineActionResult? result = null;
-        List<EngineTorrent> claimed = [];
-        using (await LockHashAsync(hash, ct))
-        {
-            EngineTorrent? start = null;
-            await _queueGate.WaitAsync(ct);
-            try
-            {
-                await using var db = await dbFactory.CreateDbContextAsync(ct);
-                var row = await FindAsync(db, hash, ct);
-                if (row is null) return new EngineActionResult(false, NotFound);
-                if (IsDownloaded(row)) return new EngineActionResult(true, "Already downloaded");
-                if (row.Status == EngineTorrentStatus.Downloading && backend.Contains(hash))
-                {
-                    if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, null);
-                    await backend.ResumeAsync(hash);
-                    return new EngineActionResult(true, "Re-announced");
-                }
-                if (row.Status == EngineTorrentStatus.Queued)
-                {
-                    var pos = await QueuePositionAsync(db, hash, ct);
-                    return new EngineActionResult(true, pos is { } p ? $"Queued — #{p} in line" : "Queued");
-                }
-                var others = (await QueueRowsAsync(db, ct)).Where(r => r.Hash != hash).ToList();
-                row.Error = null;
-                row.UpdatedAt = Now;
-                if (DownloadQueue.ShouldQueueNewDownload(others, Cap, row.Origin, forced: false))
-                {
-                    row.Status = EngineTorrentStatus.Queued;
-                    await db.SaveChangesAsync(ct);
-                    // Join the line; if a slot is free the head of the queue (maybe this row) takes it.
-                    claimed = await ClaimPromotionsAsync(db);
-                    start = claimed.FirstOrDefault(r => r.Hash == hash);
-                    if (start is null)
-                    {
-                        if (backend.Contains(hash)) await backend.RemoveAsync(hash);
-                        var pos = await QueuePositionAsync(db, hash, CancellationToken.None);
-                        result = new EngineActionResult(true, pos is { } p ? $"Queued — #{p} in line" : "Queued");
-                    }
-                    else
-                    {
-                        claimed.Remove(start);
-                    }
-                }
-                else
-                {
-                    row.Status = EngineTorrentStatus.Downloading;
-                    await db.SaveChangesAsync(ct);
-                    _starting.TryAdd(hash, 0);
-                    start = row;
-                }
-            }
-            finally
-            {
-                _queueGate.Release();
-            }
-            if (start is not null) result = await StartOrResumeAsync(start, "Resumed");
-        }
-        await StartClaimedAsync(claimed);
-        if (!result!.Ok) await PromoteAsync(CancellationToken.None);
-        return result;
-    }
+    /// <summary>
+    /// Resume is the owner's explicit decision, so it overrides the queue: the transfer starts now even when every
+    /// slot is taken (it is marked forced, like "Download now"). Queued rows wait behind it; nothing is preempted.
+    /// </summary>
+    public Task<EngineActionResult> ResumeAsync(string infoHash, CancellationToken ct = default) =>
+        StartNowAsync(infoHash, "Resumed", reannounceIfLive: true, ct);
 
-    public async Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default)
+    public Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default) =>
+        StartNowAsync(infoHash, "Downloading now", reannounceIfLive: false, ct);
+
+    private async Task<EngineActionResult> StartNowAsync(string infoHash, string okMessage, bool reannounceIfLive, CancellationToken ct)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
         EngineActionResult result;
@@ -711,6 +680,12 @@ internal sealed class TorrentEngineService(
                 if (found is null) return new EngineActionResult(false, NotFound);
                 row = found;
                 if (IsDownloaded(row)) return new EngineActionResult(true, "Already downloaded");
+                if (reannounceIfLive && row.Status == EngineTorrentStatus.Downloading && backend.Get(hash) is { State: not "paused" })
+                {
+                    if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, null);
+                    await backend.ResumeAsync(hash);
+                    return new EngineActionResult(true, "Re-announced");
+                }
                 row.ForcedAt = Now;
                 row.Status = EngineTorrentStatus.Downloading;
                 row.Error = null;
@@ -722,7 +697,8 @@ internal sealed class TorrentEngineService(
             {
                 _queueGate.Release();
             }
-            result = await StartOrResumeAsync(row, "Downloading now");
+            WakeMonitor();
+            result = await StartOrResumeAsync(row, okMessage);
         }
         if (!result.Ok) await PromoteAsync(CancellationToken.None);
         return result;
@@ -737,6 +713,8 @@ internal sealed class TorrentEngineService(
             {
                 // Loaded earlier as a stream (files deselected): a kept download fetches every file.
                 if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(row.Hash, null);
+                // The metadata deadline counts from this start, not from before the pause.
+                _startedAt[row.Hash] = Now;
                 await backend.ResumeAsync(row.Hash);
                 return new EngineActionResult(true, okMessage);
             }

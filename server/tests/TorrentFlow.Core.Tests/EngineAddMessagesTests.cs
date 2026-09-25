@@ -14,6 +14,11 @@ public sealed class EngineAddMessagesTests
         Assert.Equal(expected, EngineAddMessages.Format(new EngineAddResult(true, "", new EngineAddDetails(action, pct, peers))));
 
     [Fact]
+    public void QueuedAddsKeepTheQueueMessage() =>
+        Assert.Equal("Queued — #2 in line", EngineAddMessages.Format(
+            new EngineAddResult(true, "Queued — #2 in line", new EngineAddDetails(EngineAddDetails.Queued, 0, 0, 2))));
+
+    [Fact]
     public void ExternalAndFailedMessagesPassThrough()
     {
         Assert.Equal("Added to qBittorrent", EngineAddMessages.Format(new EngineAddResult(true, "Added to qBittorrent")));

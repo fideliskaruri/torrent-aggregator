@@ -53,6 +53,10 @@ internal static class SettingsInput
             if (choices is not null && !choices.Any(n => n == number))
                 return new($"{name} must be one of: {string.Join(", ", choices)}", name);
         }
+        if (body.Has("maxActiveDownloads") && !body.IsNull("maxActiveDownloads")
+            && (body.Num("maxActiveDownloads") is not { } cap || cap != Math.Floor(cap)
+                || cap < Queue.DownloadLimits.MinActiveDownloads || cap > Queue.DownloadLimits.MaxActiveDownloads))
+            return new($"maxActiveDownloads must be a whole number from {Queue.DownloadLimits.MinActiveDownloads} to {Queue.DownloadLimits.MaxActiveDownloads}", "maxActiveDownloads");
         if (body.TryGetProperty("categories", out var cats) && cats.ValueKind != JsonValueKind.Null)
         {
             if (cats.ValueKind != JsonValueKind.Array) return new("categories must be an array", "categories");

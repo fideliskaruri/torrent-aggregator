@@ -16,7 +16,7 @@ namespace TorrentFlow.Engine.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/diagnostics/health")]
-public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOptionsMonitor<EngineOptions> options) : ControllerBase
+public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOptionsMonitor<EngineOptions> options, Queue.DownloadLimits limits) : ControllerBase
 {
     private static readonly DateTime Started = Process.GetCurrentProcess().StartTime.ToUniversalTime();
     /// <summary>engine-pressure.ts COMPLETE_PROGRESS.</summary>
@@ -62,7 +62,7 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOption
                 gcCollections = new[] { GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2) },
                 threads = proc.Threads.Count,
                 handles = proc.HandleCount,
-                maxActiveDownloads = options.CurrentValue.MaxActiveDownloads,
+                maxActiveDownloads = limits.MaxActiveOverride ?? options.CurrentValue.MaxActiveDownloads,
                 maxConnections = options.CurrentValue.MaxConnections,
                 diskCacheBytes = options.CurrentValue.DiskCacheBytes,
             },

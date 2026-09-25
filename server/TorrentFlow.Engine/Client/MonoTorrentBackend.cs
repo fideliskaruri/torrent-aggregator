@@ -108,6 +108,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             _errors.TryRemove(spec.Hash, out _);
             manager.TorrentStateChanged += OnStateChanged;
             await OneTrackerPerTierAsync(manager);
+            await AddPublicTrackersAsync(manager, _options.PublicTrackers);
             _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
             if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);
@@ -155,6 +156,24 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Indexer .torrent files often list one or two trackers; magnets are widened before they get here. Adding the
+    /// public trackers to every public torrent (each in its own tier) finds far more of the swarm. Private torrents
+    /// must only talk to their own tracker.
+    /// </summary>
+    internal static async Task AddPublicTrackersAsync(TorrentManager manager, IReadOnlyList<string> trackers)
+    {
+        var tiers = manager.TrackerManager;
+        if (tiers.Private || trackers.Count == 0) return;
+        var known = tiers.Tiers.SelectMany(t => t.Trackers).Select(t => t.Uri.AbsoluteUri.TrimEnd('/'))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var url in trackers)
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !known.Add(uri.AbsoluteUri.TrimEnd('/'))) continue;
+            await tiers.AddTrackerAsync(uri);
+        }
+    }
+
     private static async Task DeselectAllAsync(TorrentManager manager)
     {
         foreach (var file in manager.Files)
@@ -193,7 +212,12 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public async Task ResumeAsync(string hash)
     {
-        if (_managers.TryGetValue(hash, out var m) && m.State is TorrentState.Stopped or TorrentState.Paused or TorrentState.Error)
+        if (!_managers.TryGetValue(hash, out var m)) return;
+        // A pause stops the manager, which announces "stopped" to every tracker first; resuming in that window used to
+        // be a silent no-op, leaving the torrent paused after the owner pressed resume.
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (m.State is TorrentState.Stopping && DateTime.UtcNow < deadline) await Task.Delay(100);
+        if (m.State is TorrentState.Stopped or TorrentState.Paused or TorrentState.Error)
             await m.StartAsync();
     }
 

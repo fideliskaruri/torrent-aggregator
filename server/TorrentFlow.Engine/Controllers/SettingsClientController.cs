@@ -5,6 +5,7 @@ using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Engine.Clients.External;
+using TorrentFlow.Engine.Queue;
 using TorrentFlow.Engine.Settings;
 using TorrentFlow.Engine.Storage;
 
@@ -17,7 +18,9 @@ public sealed class SettingsClientController(
     ClientSettingsStore store,
     SecretProtector secrets,
     StorageBudget storage,
-    ExternalClientRegistry clients) : ControllerBase
+    ExternalClientRegistry clients,
+    DownloadLimits limits,
+    Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engineOptions) : ControllerBase
 {
     internal static readonly int[] SelectableResolutions = [480, 720, 1080, 2160];
     internal const int DefaultResolution = 1080;
@@ -60,6 +63,9 @@ public sealed class SettingsClientController(
             ["verboseDiagnostics"] = s.VerboseDiagnostics == true,
             ["preferredResolution"] = s.PreferredResolution is { } r && SelectableResolutions.Contains(r) ? r : DefaultResolution,
             ["automationIntervalMinutes"] = s.AutomationIntervalMinutes is { } m && AutomationIntervals.Contains(m) ? m : 0,
+            ["maxActiveDownloads"] = s.MaxActiveDownloads is >= DownloadLimits.MinActiveDownloads and <= DownloadLimits.MaxActiveDownloads
+                ? s.MaxActiveDownloads : DefaultMaxActive(),
+            ["maxActiveDownloadsDefault"] = DefaultMaxActive(),
             ["categories"] = config.Categories,
             ["pathRules"] = config.PathRules,
             ["pathWarnings"] = PathWarnings(config),
@@ -69,6 +75,9 @@ public sealed class SettingsClientController(
             ["storageUsage"] = await StorageUsageAsync(config, ct),
         };
     }
+
+    private int DefaultMaxActive() =>
+        Math.Clamp(engineOptions.CurrentValue.MaxActiveDownloads, DownloadLimits.MinActiveDownloads, DownloadLimits.MaxActiveDownloads);
 
     private static List<object> PathWarnings(ClientConfig config)
     {
@@ -206,6 +215,13 @@ public sealed class SettingsClientController(
             var m = body.Num("automationIntervalMinutes") ?? 0;
             row.AutomationIntervalMinutes = (int)m;
         }
+        var capChanged = false;
+        if (body.Has("maxActiveDownloads"))
+        {
+            // Null clears the saved value, falling back to the configured default.
+            row.MaxActiveDownloads = body.IsNull("maxActiveDownloads") ? null : (int)body.Num("maxActiveDownloads")!.Value;
+            capChanged = true;
+        }
         if (body.TryGetProperty("categories", out var cats) && cats.ValueKind != JsonValueKind.Null)
         {
             if (cats.ValueKind != JsonValueKind.Array) return Bad("categories must be an array");
@@ -237,6 +253,8 @@ public sealed class SettingsClientController(
         storage.ResetDirectorySizeCache();
         row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
+        // After the save, so a restart reads the same cap the running queue now uses.
+        if (capChanged) limits.SetMaxActive(row.MaxActiveDownloads);
 
         object? testResult = null;
         if (body.Bool("test") == true)

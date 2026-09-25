@@ -32,6 +32,9 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
     [InlineData("""{"host":"ftp://example.com"}""", "host", "host must use http or https")]
     [InlineData("""{"verboseDiagnostics":"true"}""", "verboseDiagnostics", "verboseDiagnostics must be a boolean")]
     [InlineData("""{"switchToBuiltin":true,"test":"yes"}""", "test", "test must be a boolean")]
+    [InlineData("""{"maxActiveDownloads":0}""", "maxActiveDownloads", "maxActiveDownloads must be a whole number from 1 to 20")]
+    [InlineData("""{"maxActiveDownloads":2.5}""", "maxActiveDownloads", "maxActiveDownloads must be a whole number from 1 to 20")]
+    [InlineData("""{"maxActiveDownloads":"3"}""", "maxActiveDownloads", "maxActiveDownloads must be a whole number from 1 to 20")]
     public async Task RejectsMalformedFieldsBeforeMutation(string body, string field, string error)
     {
         var before = await Read(await _http.GetAsync("/api/settings/client"));
@@ -42,6 +45,28 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
         Assert.Equal(error, result.GetProperty("error").GetString());
         var after = await Read(await _http.GetAsync("/api/settings/client"));
         Assert.Equal(before.GetProperty("settings").GetProperty("clientType").GetString(), after.GetProperty("settings").GetProperty("clientType").GetString());
+    }
+
+    [Fact]
+    public async Task MaxActiveDownloadsIsSavedAppliedAndClearable()
+    {
+        var limits = factory.Services.GetRequiredService<TorrentFlow.Engine.Queue.DownloadLimits>();
+        try
+        {
+            var saved = (await Read(await _http.PutAsJsonAsync("/api/settings/client", new { maxActiveDownloads = 5 }))).GetProperty("settings");
+            Assert.Equal(5, saved.GetProperty("maxActiveDownloads").GetInt32());
+            Assert.Equal(5, limits.MaxActiveOverride);
+            var read = (await Read(await _http.GetAsync("/api/settings/client"))).GetProperty("settings");
+            Assert.Equal(5, read.GetProperty("maxActiveDownloads").GetInt32());
+
+            var cleared = (await Read(await _http.PutAsJsonAsync("/api/settings/client", new { maxActiveDownloads = (int?)null }))).GetProperty("settings");
+            Assert.Null(limits.MaxActiveOverride);
+            Assert.Equal(cleared.GetProperty("maxActiveDownloadsDefault").GetInt32(), cleared.GetProperty("maxActiveDownloads").GetInt32());
+        }
+        finally
+        {
+            await _http.PutAsJsonAsync("/api/settings/client", new { maxActiveDownloads = (int?)null });
+        }
     }
 
     [Fact]

@@ -42,6 +42,7 @@ public static class EngineModule
         services.AddSingleton<SecretProtector>();
         services.AddExternalClients();
         services.AddSingleton<StorageBudget>();
+        services.AddSingleton<DownloadLimits>();
         services.AddSingleton<MonoTorrentBackend>();
         services.AddSingleton<ITorrentBackend>(sp => sp.GetRequiredService<MonoTorrentBackend>());
         services.AddContentLayout(configuration);

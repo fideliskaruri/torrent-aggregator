@@ -27,6 +27,9 @@ public partial class ClientSetting
 
     public long? MaxStorageBytes { get; set; }
 
+    /// <summary>Owner's cap on kept downloads transferring at once; null uses the engine default.</summary>
+    public int? MaxActiveDownloads { get; set; }
+
     public string? Categories { get; set; }
 
     public string? PathRules { get; set; }

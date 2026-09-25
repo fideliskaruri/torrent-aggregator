@@ -96,6 +96,7 @@ internal sealed class EngineHarness : IAsyncDisposable
     public EngineOptions Options { get; }
     public StorageBudget Storage { get; }
     public TorrentEngineService Engine { get; }
+    public Queue.DownloadLimits Limits { get; } = new();
 
     private EngineHarness(string root, ServiceProvider services, EngineOptions options, Layout.CompletedLayoutFinalizer? layout)
     {
@@ -105,7 +106,7 @@ internal sealed class EngineHarness : IAsyncDisposable
         Db = services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>();
         Storage = new StorageBudget(TimeProvider.System) { FreeBytesProvider = _ => 10L << 40 };
         Engine = new TorrentEngineService(Db, Backend, new StaticOptionsMonitor<EngineOptions>(options), new ClientSettingsStore(Db), Storage,
-            new NoHttpFactory(), TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout);
+            new NoHttpFactory(), TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout, limits: Limits);
     }
 
     public static string NewRoot()

@@ -8,6 +8,8 @@ public static class EngineAddMessages
         if (!result.Ok || result.Details is not { } details) return result.Message;
         var pct = Math.Clamp((int)Math.Round(double.IsFinite(details.Pct) ? details.Pct : 0, MidpointRounding.AwayFromZero), 0, 100);
         if (details.Action == EngineAddDetails.AlreadyComplete) return $"Already complete ({pct}%)";
+        // A queued add keeps the engine's own "Queued — #n in line" copy; "Download started" would be untrue.
+        if (details.Action == EngineAddDetails.Queued) return result.Message;
         var peers = Math.Max(0, details.Peers);
         var suffix = $"{pct}% · {peers} {(peers == 1 ? "peer" : "peers")}";
         return details.Action == EngineAddDetails.AlreadyDownloading ? $"Download already in progress ({suffix})" : $"Download started ({suffix})";

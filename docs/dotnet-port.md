@@ -173,6 +173,16 @@ Sintel/Big Buck Bunny transfer, pause/resume, cap-one queuing, API force, and br
 The SPA queue action and preprobe panel depend on their separate UI/prewarm port work; diagnostics
 retain runtime-specific .NET memory metrics rather than inventing Node event-loop measurements.
 
+### Download queue and speed
+
+- Downloads at once: Settings saves `maxActiveDownloads` (1 to 20) on `ClientSettings`; null falls
+  back to `TorrentFlow:Engine:MaxActiveDownloads` / `TORRENTFLOW_MAX_ACTIVE_DOWNLOADS` (default 2).
+  Raising it starts queued rows immediately; lowering it never stops a running transfer.
+- Resume is an owner override, unlike the Next engine: it starts the transfer now (marked forced,
+  like Download now) even when every slot is taken, including a queued row. Nothing is preempted.
+- Speed defaults: 120 peers per torrent, 400 overall, 40 half-open, 32 MB disk cache, UPnP/NAT-PMP
+  and local peer discovery on, and the public tracker list added to every non-private torrent.
+
 ## Single-exe distribution
 
 ```powershell

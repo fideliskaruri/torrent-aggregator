@@ -50,6 +50,7 @@ export interface ClientForm {
   maxStorageGb: string;
   preferredResolution: number;
   automationIntervalMinutes: number;
+  maxActiveDownloads: number;
   verboseDiagnostics: boolean;
   defaultRetentionPolicy: RetentionPolicy;
   categories: string[];
@@ -89,6 +90,14 @@ const AUTOMATION_INTERVAL_CHOICES = [
   { value: 360, label: "Every 6 hours" },
 ] as const;
 
+const MAX_ACTIVE_DOWNLOADS = 20;
+
+function clampMaxActive(value: number): number {
+  return Number.isFinite(value)
+    ? Math.min(MAX_ACTIVE_DOWNLOADS, Math.max(1, Math.trunc(value)))
+    : EMPTY_FORM.maxActiveDownloads;
+}
+
 const EMPTY_FORM: ClientForm = {
   clientType: "builtin",
   externalClientType: "",
@@ -101,6 +110,7 @@ const EMPTY_FORM: ClientForm = {
   maxStorageGb: "0",
   preferredResolution: 1080,
   automationIntervalMinutes: 0,
+  maxActiveDownloads: 2,
   verboseDiagnostics: false,
   defaultRetentionPolicy: "EPHEMERAL",
   categories: [
@@ -269,6 +279,8 @@ export default function SettingsPage() {
               automationIntervalMinutes:
                 settings.automationIntervalMinutes ??
                 EMPTY_FORM.automationIntervalMinutes,
+              maxActiveDownloads:
+                settings.maxActiveDownloads ?? EMPTY_FORM.maxActiveDownloads,
               verboseDiagnostics: settings.verboseDiagnostics === true,
               defaultRetentionPolicy:
                 settings.defaultRetentionPolicy ??
@@ -454,6 +466,7 @@ export default function SettingsPage() {
           verboseDiagnostics: form.verboseDiagnostics,
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
+          maxActiveDownloads: clampMaxActive(form.maxActiveDownloads),
           defaultRetentionPolicy: form.defaultRetentionPolicy,
           categories: form.categories,
           pathRules: form.pathRules,
@@ -503,6 +516,8 @@ export default function SettingsPage() {
           settings?.preferredResolution ?? form.preferredResolution,
         automationIntervalMinutes:
           settings?.automationIntervalMinutes ?? form.automationIntervalMinutes,
+        maxActiveDownloads:
+          settings?.maxActiveDownloads ?? form.maxActiveDownloads,
         verboseDiagnostics:
           settings?.verboseDiagnostics ?? form.verboseDiagnostics,
         defaultRetentionPolicy:
@@ -754,6 +769,43 @@ export default function SettingsPage() {
                 className="text-xs leading-relaxed text-[var(--text-tertiary)]"
               >
                 Downloads pause before going beyond this amount.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="max-active-downloads"
+                className="text-xs font-medium text-[var(--text-secondary)]"
+              >
+                Downloads at once
+              </label>
+              <Input
+                id="max-active-downloads"
+                type="number"
+                min={1}
+                max={MAX_ACTIVE_DOWNLOADS}
+                step={1}
+                inputMode="numeric"
+                value={
+                  Number.isFinite(form.maxActiveDownloads)
+                    ? form.maxActiveDownloads
+                    : ""
+                }
+                onChange={(event) =>
+                  updateForm((current) => ({
+                    ...current,
+                    maxActiveDownloads: event.target.valueAsNumber,
+                  }))
+                }
+                className="h-11 max-w-[8rem] scroll-mb-32 text-base sm:text-sm"
+                aria-describedby="max-active-downloads-help"
+                data-max-active-downloads
+              />
+              <p
+                id="max-active-downloads-help"
+                className="text-xs leading-relaxed text-[var(--text-tertiary)]"
+              >
+                The rest wait in line. Resume or Download now always starts a
+                download right away.
               </p>
             </div>
           </section>

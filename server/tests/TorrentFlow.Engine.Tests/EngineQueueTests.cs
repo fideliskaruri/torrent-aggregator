@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Engine.Queue;
 using TorrentFlow.Data.Entities;
@@ -96,10 +97,51 @@ public class EngineQueueTests
         Assert.Equal("paused", (await h.RowAsync(1)).Status);
         Assert.Equal("downloading", (await h.RowAsync(2)).Status);
 
-        // Resuming while the slot is taken waits in the queue instead of exceeding the cap.
+        // Resume is the owner's override: it starts now even though the slot is taken.
         var resumed = await h.Engine.ResumeAsync(EngineHarness.Hash(1));
-        Assert.StartsWith("Queued", resumed.Message);
-        Assert.Equal("queued", (await h.RowAsync(1)).Status);
+        Assert.Equal("Resumed", resumed.Message);
+        Assert.Equal("downloading", (await h.RowAsync(1)).Status);
+        Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        Assert.True(h.Backend.Contains(EngineHarness.Hash(1)));
+    }
+
+    [Fact]
+    public async Task RaisingTheSavedCapStartsQueuedDownloadsRightAway()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 1);
+        await h.Engine.AttachLimitsAsync();
+        for (var i = 1; i <= 3; i++) await h.Engine.AddAsync(Keep(i, ep: i));
+        Assert.Equal("queued", (await h.RowAsync(3)).Status);
+
+        h.Limits.SetMaxActive(3);
+
+        for (var i = 0; i < 50 && (await h.RowAsync(3)).Status != "downloading"; i++) await Task.Delay(50);
+        Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        Assert.Equal("downloading", (await h.RowAsync(3)).Status);
+        Assert.True(h.Backend.Contains(EngineHarness.Hash(3)));
+    }
+
+    [Fact]
+    public async Task SavedCapIsLoadedAndLoweringItNeverStopsRunningDownloads()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 1);
+        await using (var db = await h.Db.CreateDbContextAsync())
+        {
+            (await db.ClientSettings.SingleAsync()).MaxActiveDownloads = 2;
+            await db.SaveChangesAsync();
+        }
+        await h.Engine.AttachLimitsAsync();
+        Assert.Equal(2, h.Limits.MaxActiveOverride);
+        for (var i = 1; i <= 3; i++) await h.Engine.AddAsync(Keep(i, ep: i));
+        Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        Assert.Equal("queued", (await h.RowAsync(3)).Status);
+
+        h.Limits.SetMaxActive(1);
+        await Task.Delay(100);
+
+        Assert.Equal("downloading", (await h.RowAsync(1)).Status);
+        Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        Assert.Equal("queued", (await h.RowAsync(3)).Status);
     }
 
     [Fact]
