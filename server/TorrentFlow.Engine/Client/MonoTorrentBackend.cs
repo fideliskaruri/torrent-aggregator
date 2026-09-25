@@ -66,7 +66,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         return port;
     }
 
-    private TorrentSettings TorrentSettingsFor(string purpose) => new TorrentSettingsBuilder
+    private TorrentSettings TorrentSettingsFor(string purpose, bool createContainingDirectory = true) => new TorrentSettingsBuilder
     {
         MaximumConnections = purpose == Core.Contracts.Engine.TorrentPurpose.Prewarm
             ? Math.Min(_options.PrewarmMaxConnections, _options.MaxConnectionsPerTorrent)
@@ -74,10 +74,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         AllowDht = _options.Dht,
         AllowPeerExchange = true,
         // A multi-file torrent downloads into its own release folder, so two releases sharing a season folder never
-        // write over each other mid-download. Once complete and released, Layout/CompletedLayoutFinalizer applies the
-        // content-layout rules (NoSubfolder, double wraps, season folders) with collision checks. Single-file torrents
-        // always land directly in the save path.
-        CreateContainingDirectory = true,
+        // write over each other mid-download. When a torrent is re-added against files we already laid out, the engine
+        // can ask MonoTorrent to use the flat paths directly and hash-check those files instead.
+        CreateContainingDirectory = createContainingDirectory,
     }.ToSettings();
 
     public async Task<BackendAddOutcome> AddAsync(BackendAddSpec spec, CancellationToken ct)
@@ -90,7 +89,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
                 return new BackendAddOutcome(true, "", Snapshot(existing));
 
             Directory.CreateDirectory(spec.SavePath);
-            var settings = TorrentSettingsFor(spec.Purpose);
+            var settings = TorrentSettingsFor(spec.Purpose, spec.CreateContainingDirectory);
             if (spec.TorrentBytes is { Length: > 0 })
             {
                 var torrent = Torrent.Load(spec.TorrentBytes);
