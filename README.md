@@ -21,6 +21,56 @@ the scenes while the app manages acquisition, playback, local files, and library
 | Library | Progress, history, retention, storage limits, and watch state |
 | Operations | Prisma migrations, diagnostics, automation, and CI validation |
 
+## Run the .NET version
+
+No Docker required. Install the **.NET 10 SDK**, **Node.js 22.23.2** (the repository's
+pinned Node 20+ toolchain; `web/package.json` currently requires Node 22.12+ within 22.x),
+and **pnpm** (`npm i -g pnpm`, or `corepack enable` if Corepack is installed).
+
+From the repository root:
+
+```powershell
+.\run.ps1
+```
+
+On Linux/macOS: `sh ./run.sh`. Open **http://127.0.0.1:5106**.
+The first run installs the locked **web/** dependencies and builds the SPA automatically;
+later runs rebuild it only when its inputs change or `web/dist/index.html` is missing.
+There is no separate root/Next.js install or database setup step for the .NET version.
+`dotnet build server/TorrentFlow.Api` does the same; use `-p:SkipWebBuild=true` for a
+backend-only build. `dotnet test TorrentFlow.slnx` does not install/build the SPA.
+
+Data defaults to `server/TorrentFlow.Api/data` when using these scripts. Configure the host
+with environment variables (double underscores map to nested configuration:
+`TorrentFlow__X__Y`) or `--TorrentFlow:X:Y=value` arguments. For example, in PowerShell:
+
+```powershell
+$env:TorrentFlow__DataDirectory = 'D:\TorrentFlow\data'
+$env:TorrentFlow__DatabasePath = 'D:\existing-clone\prisma\dev.db'
+$env:TMDB_API_KEY = 'your-key'
+.\run.ps1
+```
+
+`TorrentFlow:DatabasePath` adopts existing Prisma databases automatically; back up the
+database first and stop the old app before sharing it. Without this override the database
+is `torrentflow.db` under the data directory. The host reads process environment/configuration,
+not the Next.js `.env` file. On Linux/macOS use `export NAME=value`.
+
+To distribute a **single folder** that needs neither the .NET SDK/runtime nor Node/pnpm:
+
+```powershell
+dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
+```
+
+Copy the **entire** output folder (including `wwwroot`), then run
+`.\TorrentFlow.Api.exe --urls http://127.0.0.1:5106` from that folder.
+Published data defaults to `data` under the working directory; set
+`TorrentFlow__DataDirectory` to an absolute, writable location to keep it stable across upgrades.
+Use `-r linux-x64` or `-r osx-arm64` with a matching output directory for those platforms,
+then run `./TorrentFlow.Api --urls http://127.0.0.1:5106`.
+Linux needs its standard .NET native dependencies, including ICU.
+The existing Next.js instructions below remain separate.
+
 ## Quick start
 
 ### Requirements

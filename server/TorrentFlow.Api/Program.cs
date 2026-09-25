@@ -48,7 +48,9 @@ await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
 // The React SPA (web/) builds into web/dist. Static files run before routing so the history-API fallback
 // below never captures real assets (it would answer /assets/*.js with index.html).
 var webRoot = builder.Configuration["TorrentFlow:WebRoot"]
-    ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "web", "dist"));
+    ?? (Directory.Exists(Path.Combine(AppContext.BaseDirectory, "wwwroot"))
+        ? Path.Combine(AppContext.BaseDirectory, "wwwroot")
+        : Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", "web", "dist")));
 Microsoft.Extensions.FileProviders.PhysicalFileProvider? webFiles = Directory.Exists(webRoot) ? new(webRoot) : null;
 if (webFiles is not null)
 {
