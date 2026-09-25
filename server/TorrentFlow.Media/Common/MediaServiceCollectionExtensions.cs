@@ -20,7 +20,10 @@ public static class MediaServiceCollectionExtensions
     public static IServiceCollection AddMediaCore(this IServiceCollection services, IConfiguration configuration)
     {
         if (services.Any(d => d.ServiceType == typeof(MediaPaths))) return services;
-        services.AddOptions<MediaOptions>().Bind(configuration.GetSection(MediaOptions.SectionName));
+        services.AddOptions<MediaOptions>()
+            .Bind(configuration.GetSection(MediaOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IProcessRunner, SystemProcessRunner>();
         services.AddFfmpegLocator();

@@ -1,4 +1,7 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using TorrentFlow.Media.Common;
 using TorrentFlow.Media.Controllers;
 using TorrentFlow.Media.Ffmpeg;
 using TorrentFlow.Media.Hls;
@@ -368,5 +371,38 @@ public sealed class FfmpegSmokeTests : IDisposable
             manager.StopAll();
         }
         Assert.False(Directory.Exists(session.OutputDir));
+    }
+}
+
+public class MediaRegistrationTests
+{
+    private static ServiceProvider Build(Dictionary<string, string?> settings)
+    {
+        var config = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
+        var services = new ServiceCollection();
+        services.AddMediaCore(config);
+        services.AddMediaCore(config);
+        return services.BuildServiceProvider();
+    }
+
+    [Theory]
+    [InlineData("TorrentFlow:Media:MaxConcurrentSessions", "0")]
+    [InlineData("TorrentFlow:Media:SessionIdleTimeoutSeconds", "1")]
+    public void OutOfRangeOptionsFailValidation(string key, string value)
+    {
+        using var sp = Build(new() { [key] = value });
+        Assert.Throws<Microsoft.Extensions.Options.OptionsValidationException>(() => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MediaOptions>>().Value);
+    }
+
+    [Fact]
+    public void AddMediaCoreIsIdempotentAndBindsConfiguration()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["TorrentFlow:Media:MaxConcurrentSessions"] = "7" }).Build();
+        var services = new ServiceCollection();
+        services.AddMediaCore(config).AddMediaCore(config);
+        Assert.Single(services, d => d.ServiceType == typeof(FfmpegLocator));
+        using var sp = services.BuildServiceProvider();
+        Assert.Equal(7, sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MediaOptions>>().Value.MaxConcurrentSessions);
     }
 }
