@@ -12,6 +12,18 @@ public sealed class OnDemandController(IDbContextFactory<TorrentFlowDbContext> f
     [HttpPost]
     public async Task<IActionResult> Post(CancellationToken ct)
     {
+        try { return await Grab(ct); }
+        catch (LibraryRequestException error)
+        {
+            // define-route.ts: every failure uses the canonical { ok: false, error, message, field? } envelope.
+            var body = LibraryJson.Object(("ok", false), ("error", error.Message), ("message", error.Message));
+            if (error.Field != null) body["field"] = error.Field;
+            return StatusCode(error.Status, body);
+        }
+    }
+
+    private async Task<IActionResult> Grab(CancellationToken ct)
+    {
         var f = await Fields.Read(Request, ct);
         var id = f.String("watchListItemId");
         var title = f.String("title");

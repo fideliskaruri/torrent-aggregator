@@ -18,7 +18,19 @@ public sealed class BackfillController(IDbContextFactory<TorrentFlowDbContext> f
     [HttpPost]
     public async Task<IActionResult> Post(CancellationToken ct)
     {
-        var f = await Fields.Read(Request, ct);
+        // Like the Next route: no content-type or browser-origin gate (it never writes), and any unparseable body
+        // is the same Invalid JSON envelope.
+        Fields f;
+        try
+        {
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(Request.Body, default, ct);
+            f = new(doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                ? doc.RootElement.Clone() : System.Text.Json.JsonDocument.Parse("{}").RootElement.Clone());
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return BadRequest(new { ok = false, error = "Invalid JSON", message = "Invalid JSON" });
+        }
         var id = f.String("watchListItemId");
         var from = f.Number("fromSeason", min: -1e9) ?? 0;
         var to = f.Number("toSeason", min: -1e9) ?? 0;
