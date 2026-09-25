@@ -236,6 +236,11 @@ when requested. Sidecars preserve the existing UTF-8 `TextDecoder` behavior (inc
 and replacement of malformed bytes), rather than guessing a legacy encoding. SRT conversion is
 in-process; ASS/SSA conversion and embedded 10-minute windows use ffmpeg. Windows start on an
 8-minute stride, independently of the playback offset.
+Embedded extraction retains source timestamps (`-copyts`) and uses an absolute window end
+(`-to`). Input seeking alone can return subtitle preroll rather than window-relative cues,
+including with the original TypeScript arguments. The service drops expired cues, clamps cues
+crossing the start, and rebases once before caching. Embedded cache keys are versioned so
+previously cached, incorrectly timed results are not reused; sidecar keys remain unchanged.
 
 Embedded extraction exposes the engine's seekable streams through an ephemeral, token-addressed
 loopback HTTP input; it never stages a whole video or trusts a request Host header. Extractions share

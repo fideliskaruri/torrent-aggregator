@@ -41,7 +41,7 @@ internal sealed class SubtitleExtraction(IConfiguration configuration, IHostEnvi
 
     private string CacheFile(string hash, string path, string track, double start) =>
         Path.Combine(CacheDirectory, Convert.ToHexStringLower(SHA1.HashData(Encoding.UTF8.GetBytes(
-            $"{hash}\0{path}\0{track}\0{start.ToString(CultureInfo.InvariantCulture)}"))) + ".vtt");
+            $"{(track.StartsWith("embedded:", StringComparison.Ordinal) ? "source-timestamps-v2\0" : "")}{hash}\0{path}\0{track}\0{start.ToString(CultureInfo.InvariantCulture)}"))) + ".vtt");
 
     public string? ReadCache(string hash, string path, string track, double start = 0)
     {
@@ -149,7 +149,15 @@ internal sealed class SubtitleExtraction(IConfiguration configuration, IHostEnvi
                                 return new(null, "timeout", $"subtitle extraction exceeded {timeout / 1000}s");
                             }
                         });
-                        if (outcome.Ok) WriteCache(hash, path, track, outcome.Vtt!, start);
+                        if (outcome.Ok)
+                        {
+                            // Subtitle demuxer seeks may return preroll without rebasing it.
+                            // ffmpeg preserves source timestamps; we drop expired cues and
+                            // convert to window time exactly once, before caching.
+                            var vtt = SubtitleRules.ShiftVttCues(outcome.Vtt!, -start);
+                            outcome = outcome with { Vtt = vtt.Contains("-->", StringComparison.Ordinal) ? vtt : "WEBVTT\n\n" };
+                            WriteCache(hash, path, track, outcome.Vtt!, start);
+                        }
                         return outcome;
                     }
                     finally
@@ -238,11 +246,12 @@ internal sealed class SubtitleExtraction(IConfiguration configuration, IHostEnvi
 
     internal static string[] BuildExtractArgs(string source, int index, double start = 0) =>
     [
-        "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-copyts",
         "-rw_timeout", "15000000", "-analyzeduration", "5000000", "-probesize", "10000000",
         "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_on_network_error", "1", "-reconnect_delay_max", "5",
         .. start > 0 ? new[] { "-ss", start.ToString(CultureInfo.InvariantCulture) } : [],
-        "-i", source, "-t", "600", "-map", $"0:{index}", "-c:s", "webvtt", "-f", "webvtt", "-"
+        "-i", source, "-to", (start + SubtitleRules.WindowDuration).ToString(CultureInfo.InvariantCulture),
+        "-map", $"0:{index}", "-c:s", "webvtt", "-f", "webvtt", "-"
     ];
 
     public async Task<(List<SubtitleStream>? Streams, string? Error)> ProbeAsync(
