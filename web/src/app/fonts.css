@@ -1,0 +1,5 @@
+:root {
+  /* `next/font/google` set these on <html>; the SPA self-hosts the same faces via @fontsource. */
+  --font-geist-sans: "Geist Variable";
+  --font-geist-mono: "Geist Mono Variable";
+}

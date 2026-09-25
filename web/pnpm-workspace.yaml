@@ -1,0 +1,6 @@
+# Standalone project: keeps pnpm from treating the repo root (Next.js app) as this package's workspace.
+packages:
+  - .
+
+minimumReleaseAgeExclude:
+  - vite@8.3.1
