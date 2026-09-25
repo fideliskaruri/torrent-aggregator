@@ -186,6 +186,23 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         {
             _logger.LogWarning(ex, "Removing torrent {Hash} from the client failed", hash);
         }
+
+        // Per-hash side state must go with the manager, or it grows with every transfer ever run. The service keeps
+        // its own .torrent copy on disk. Under the gate so a concurrent re-add of the same hash keeps its entries.
+        await _gate.WaitAsync();
+        try
+        {
+            if (!_managers.ContainsKey(hash))
+            {
+                _metadata.TryRemove(hash, out _);
+                _purposes.TryRemove(hash, out _);
+                _errors.TryRemove(hash, out _);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task SetSelectedFilesAsync(string hash, IReadOnlySet<int>? selected)

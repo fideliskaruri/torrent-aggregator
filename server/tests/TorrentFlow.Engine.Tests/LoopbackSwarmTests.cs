@@ -100,8 +100,10 @@ public class LoopbackSwarmTests : IAsyncLifetime
         Assert.Equal(1, snap.Progress, 3);
         var path = Assert.Single(snap.Files).FullPath;
         Assert.Equal(Path.Combine(save, "synthetic.bin"), path);   // NoSubfolder layout
+        Assert.NotNull(backend.GetMetadata(_hash));
         await backend.RemoveAsync(_hash);                           // release the file handles
         Assert.Equal(_payload, await File.ReadAllBytesAsync(path));
+        Assert.Null(backend.GetMetadata(_hash));                    // no per-hash state outlives the transfer
     }
 
     [Fact]
