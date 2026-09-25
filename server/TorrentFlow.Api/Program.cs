@@ -8,6 +8,10 @@ using TorrentFlow.Media;
 using TorrentFlow.Metadata;
 using TorrentFlow.Search;
 
+// Culture-neutral formatting everywhere (numbers in headers, ffmpeg args, logs), whatever the machine locale is.
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Local single-user app: listen on loopback only unless the owner overrides --urls.

@@ -58,6 +58,9 @@ web/                          Vite + React SPA (built into web/dist, served by t
   when it explains a real constraint.
 - Tests: xUnit in `server/tests/TorrentFlow.<X>.Tests`. Port the TypeScript tests' assertions for the
   logic you port. No network in unit tests; use fake `HttpMessageHandler`s and HTML fixtures.
+- Globalization: ICU is on, so `string.Normalize` matches JS `String.prototype.normalize`. The host
+  pins the default culture to invariant; still pass `CultureInfo.InvariantCulture` and use ordinal
+  comparisons in code. On Linux, install `libicu` (present on most distros).
 
 ## Build and test
 
