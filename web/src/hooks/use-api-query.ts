@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * `useApiQuery` — one honest answer to "what is this panel doing right now?"
  *
@@ -274,7 +272,6 @@ export function useApiQuery<T = unknown>(
     const id = setInterval(() => {
       const decision = lifecycleRef.current.decide({
         hidden:
-          typeof document !== "undefined" &&
           document.visibilityState === "hidden",
         now: Date.now(),
         intervalMs: refreshMs,
@@ -293,7 +290,6 @@ export function useApiQuery<T = unknown>(
   // first screen, which is not a trade this app gets to make.
   useEffect(() => {
     if (!url || !enabled || !refreshMs || refreshMs <= 0) return;
-    if (typeof document === "undefined") return;
     const onVisibility = () => {
       if (document.visibilityState === "hidden") {
         hiddenSinceRef.current = Date.now();

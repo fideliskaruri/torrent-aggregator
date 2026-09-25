@@ -1,7 +1,5 @@
-"use client";
-
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import { SEARCH_HREF } from "@/lib/navigation";
 import { openSearchOverlay } from "@/components/search/search-overlay";
 
@@ -12,7 +10,7 @@ import { openSearchOverlay } from "@/components/search/search-overlay";
  *   h home (browse) · s search · w library · c client · a activity · r rules · t settings
  */
 export function useKeyboardShortcuts() {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let pendingG = false;
@@ -48,15 +46,15 @@ export function useKeyboardShortcuts() {
 
       if (pendingG) {
         pendingG = false;
-        if (e.key === "h") router.push("/");
-        if (e.key === "s") router.push(SEARCH_HREF);
-        if (e.key === "w") router.push("/watchlist");
-        if (e.key === "c") router.push("/downloads");
-        if (e.key === "a") router.push("/notifications");
-        if (e.key === "r") router.push("/rules");
+        if (e.key === "h") void navigate("/");
+        if (e.key === "s") void navigate(SEARCH_HREF);
+        if (e.key === "w") void navigate("/watchlist");
+        if (e.key === "c") void navigate("/downloads");
+        if (e.key === "a") void navigate("/notifications");
+        if (e.key === "r") void navigate("/rules");
         // d = downloads log (history subset); prefer Activity for “what ran”
-        if (e.key === "d") router.push("/history");
-        if (e.key === "t") router.push("/settings");
+        if (e.key === "d") void navigate("/history");
+        if (e.key === "t") void navigate("/settings");
       }
     }
 
@@ -65,5 +63,5 @@ export function useKeyboardShortcuts() {
       window.removeEventListener("keydown", onKey);
       if (gTimer) clearTimeout(gTimer);
     };
-  }, [router]);
+  }, [navigate]);
 }

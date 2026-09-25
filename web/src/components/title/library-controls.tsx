@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The library side of the hero: what the library should do with this work.
  *

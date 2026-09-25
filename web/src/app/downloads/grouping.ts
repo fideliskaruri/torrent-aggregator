@@ -154,7 +154,7 @@ function usableSize(bytes: number): number {
  * about would reintroduce the exact error above in the one case where we have
  * no evidence at all.
  */
-export function combinedProgress(
+function combinedProgress(
   members: readonly Pick<TransferRow, "progress" | "sizeBytes">[],
 ): number {
   let total = 0;
@@ -181,7 +181,7 @@ export function combinedProgress(
  * honest description of a group holding one paused episode, and it is the
  * state the user has to act on.
  */
-export function combinedState(
+function combinedState(
   members: readonly Pick<TransferRow, "state">[],
 ): string {
   let best: string | null = null;
@@ -208,7 +208,7 @@ export function combinedState(
 // ---------------------------------------------------------------------------
 
 /** Aggregate figures shared by a group and by each of its seasons. */
-export interface CombinedTotals {
+interface CombinedTotals {
   /** Size-weighted, 0–1, over the members that are not double-counted. */
   progress: number;
   /** Bytes, over the members that are not double-counted. */
@@ -263,7 +263,7 @@ export interface SeriesGroup<T> extends CombinedTotals {
   seasonCount: number;
 }
 
-export interface SingleGroup<T> {
+interface SingleGroup<T> {
   kind: "single";
   key: string;
   /**

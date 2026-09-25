@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 import { openSearchOverlay } from "@/components/search/search-overlay";
 import { searchUrlFor } from "@/components/search/search-overlay-state";

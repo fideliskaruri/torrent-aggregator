@@ -1,7 +1,5 @@
-"use client";
-
 import { useId } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { Play, Search } from "lucide-react";
 import type { RailItem } from "@/lib/browse";
 import { browseReleaseGate } from "@/lib/browse/release-status";
@@ -20,7 +18,7 @@ import { PosterImage } from "./poster-image";
 import { titleHrefForItem } from "@/components/title/work-key";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 
-/** Poster box width per breakpoint. Also drives `sizes` for `next/image`. */
+/** Poster box width per breakpoint. Also drives the poster `<img>` `sizes`. */
 const CARD_WIDTH = "w-[124px] sm:w-[148px] lg:w-[168px]";
 const CARD_SIZES = "(min-width: 1024px) 168px, (min-width: 640px) 148px, 124px";
 
@@ -272,7 +270,7 @@ export function TitleCard({
       <div className="group relative">
         {titleHref ? (
           <Link
-            href={titleHref}
+            to={titleHref}
             data-rail-card
             data-card-target="title"
             aria-label={linkName}
@@ -308,7 +306,7 @@ export function TitleCard({
 
         {fallbackSearch ? (
           <Link
-            href={fallbackSearch.href}
+            to={fallbackSearch.href}
             title={`Search releases for ${title}`}
             aria-label={`Search releases for ${title}`}
             className={cn(
@@ -328,7 +326,7 @@ export function TitleCard({
           user, and the rail's arrow-key run counts `[data-rail-card]` only. */}
       {titleHref ? (
         <Link
-          href={titleHref}
+          to={titleHref}
           tabIndex={-1}
           data-dense-ui
           className="block rounded-[6px] outline-none"

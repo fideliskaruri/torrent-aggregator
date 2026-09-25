@@ -1,6 +1,6 @@
 type Timer = ReturnType<typeof setTimeout>;
 
-export type VisiblePollerDocument = Pick<
+type VisiblePollerDocument = Pick<
   Document,
   "visibilityState" | "addEventListener" | "removeEventListener"
 >;

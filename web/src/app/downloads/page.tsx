@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import {
   ChevronRight,
@@ -891,7 +889,7 @@ export default function ClientPage() {
         actions={
           <>
             <Button asChild variant="ghost" size="sm">
-              <Link href="/settings?tab=connection">Settings</Link>
+              <Link to="/settings?tab=connection">Settings</Link>
             </Button>
             <Button
               type="button"
@@ -990,7 +988,7 @@ export default function ClientPage() {
               </Button>
             ) : null}
             <Button asChild size="sm" variant={!isBuiltin ? "secondary" : "default"}>
-              <Link href="/settings?tab=connection">Open connection settings</Link>
+              <Link to="/settings?tab=connection">Open connection settings</Link>
             </Button>
             <Button
               type="button"
@@ -1450,7 +1448,7 @@ function SeriesOverviewRow({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-start gap-2.5">
           {titleHref ? (
-            <Link href={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
+            <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
               <TfWorkThumb title={group.title} posterUrl={art?.posterUrl} sizePx={40} />
             </Link>
           ) : (
@@ -1459,7 +1457,7 @@ function SeriesOverviewRow({
           <div className="min-w-0 flex-1 space-y-1">
             {titleHref ? (
               <Link
-                href={titleHref}
+                to={titleHref}
                 className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
               >
                 <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
@@ -1658,7 +1656,7 @@ function FilmRow({
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-start gap-2.5" title={t.name}>
             {titleHref ? (
-              <Link href={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
+              <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
                 <TfWorkThumb title={display.title} posterUrl={art?.posterUrl} sizePx={40} />
               </Link>
             ) : (
@@ -1667,7 +1665,7 @@ function FilmRow({
             <div className="min-w-0 flex-1 space-y-1">
               {titleHref ? (
                 <Link
-                  href={titleHref}
+                  to={titleHref}
                   className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
                 >
                   <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">

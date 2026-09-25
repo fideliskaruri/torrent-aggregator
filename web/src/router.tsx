@@ -2,34 +2,27 @@ import type { ComponentType } from "react";
 import {
   createBrowserRouter,
   isRouteErrorResponse,
-  Navigate,
   useRouteError,
   type RouteObject,
 } from "react-router";
-import { NavigationSignal } from "next/navigation";
 import RootLayout from "@/app/layout";
 import { NotFoundPage } from "@/app/not-found";
 
 /** Each `src/app/.../page.tsx` becomes a lazily loaded route, like Next.js page chunks. */
-// Redirect-only pages (activity, client) return `never` from redirect(), like in Next.js.
-function page(load: () => Promise<{ default: ComponentType | (() => void) }>): Pick<RouteObject, "lazy"> {
+function page(load: () => Promise<{ default: ComponentType }>): Pick<RouteObject, "lazy"> {
   return {
-    lazy: async () => ({ Component: (await load()).default as ComponentType }),
+    lazy: async () => ({ Component: (await load()).default }),
   };
 }
 
-/** Turns `redirect()` / `notFound()` thrown during render into navigation or the 404 view. */
+/** Renders a 404 response as the not-found view; anything else propagates. */
 function RouteBoundary() {
   const error = useRouteError();
-  if (error instanceof NavigationSignal) {
-    if (error.kind === "redirect" && error.href) return <Navigate replace to={error.href} />;
-    return <NotFoundPage />;
-  }
   if (isRouteErrorResponse(error) && error.status === 404) return <NotFoundPage />;
   throw error;
 }
 
-export const routes: RouteObject[] = [
+const routes: RouteObject[] = [
   {
     path: "/",
     Component: RootLayout,

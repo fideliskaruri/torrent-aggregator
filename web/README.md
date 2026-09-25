@@ -12,7 +12,7 @@ pnpm -C web build                                # typecheck + web/dist
 
 - `src/` mirrors the Next.js layout (`app/**/page.tsx`, `components/`, `hooks/`, client-safe `lib/`) so the
   two trees diff cleanly. Routes are declared in `src/router.tsx`.
-- `src/shims/` implements `next/link`, `next/navigation`, `next/image` and `next/font/google` over
-  react-router and plain elements; `vite.config.ts` and `tsconfig.json` alias them.
+- Navigation uses react-router 7 directly (`Link`, `useNavigate`, `useLocation`, `useSearchParams`); images
+  are plain `<img>` and the Geist faces are self-hosted via `@fontsource-variable/*` (imported in `app/layout.tsx`).
 - Page titles use `useDocumentTitle` instead of Next.js `metadata`.
 - `pnpm-workspace.yaml` keeps this a standalone pnpm project, separate from the repo root.

@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The series download dialog — Season 1 chapter rail, one column of episode
  * cards below it.
@@ -19,7 +17,7 @@
  * survives the round trip.
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import {
   Check,
   ChevronDown,
@@ -598,7 +596,7 @@ export function SeriesDownloadDialog({
           <h2 className="truncate pr-1 text-[15px] font-semibold text-[var(--text)]">
             {titleHref ? (
               <Link
-                href={titleHref}
+                to={titleHref}
                 className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                 data-mobile-dialog-title-link
               >
@@ -648,7 +646,7 @@ export function SeriesDownloadDialog({
         <DialogHeader className="hidden shrink-0 gap-3 border-b border-[var(--border)] px-5 pb-3 pr-14 pt-4 sm:flex">
           <div className="flex items-start gap-3">
             {titleHref ? (
-              <Link href={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
+              <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
                 {poster}
               </Link>
             ) : (
@@ -661,7 +659,7 @@ export function SeriesDownloadDialog({
                   // focusable) so the same destination is not announced twice;
                   // this is the real, keyboard-reachable way to the title page.
                   <Link
-                    href={titleHref}
+                    to={titleHref}
                     className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                     data-dialog-title-link
                   >

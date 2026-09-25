@@ -32,7 +32,7 @@ export interface LibraryCardRow {
 }
 
 /** `S02E06`, or null when either half is unknown. */
-export function formatEpisode(
+function formatEpisode(
   season: number | null | undefined,
   episode: number | null | undefined,
 ): string | null {
@@ -58,7 +58,7 @@ export function positionLine(row: LibraryCardRow): string | null {
   return cursor ? `Waiting for ${cursor}` : null;
 }
 
-export type ActivityKind = "update" | "tracking" | "paused" | null;
+type ActivityKind = "update" | "tracking" | "paused" | null;
 
 export interface ActivityLine {
   kind: ActivityKind;

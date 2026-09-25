@@ -1,8 +1,5 @@
-"use client";
-
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { Link, useSearchParams } from "react-router";
 import { Radar } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +66,7 @@ function statusVariant(
 }
 
 function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean }) {
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const sentOnly =
     sentOnlyOverride ?? searchParams.get("filter") === "sent";
   const [visibleLimit, setVisibleLimit] = useState(ACTIVITY_BATCH_SIZE);
@@ -229,7 +226,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       aria-label="Activity view"
     >
       <Link
-        href="/notifications"
+        to="/notifications"
         aria-current={!sentOnly ? "page" : undefined}
         className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
           !sentOnly
@@ -240,7 +237,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
         Inbox
       </Link>
       <Link
-        href="/history"
+        to="/history"
         aria-current={sentOnly ? "page" : undefined}
         className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
           sentOnly

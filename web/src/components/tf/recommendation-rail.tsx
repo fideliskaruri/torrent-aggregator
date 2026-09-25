@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import type { RecommendationRail } from "@/lib/recommend";
@@ -118,7 +116,7 @@ export function RecommendationRailSection({
                                   />
                                   {titleHref ? (
                                     <Link
-                                      href={titleHref}
+                                      to={titleHref}
                                       tabIndex={-1}
                                       aria-hidden
                                       className="absolute inset-0"
@@ -128,7 +126,7 @@ export function RecommendationRailSection({
                                 <div className="flex flex-1 flex-col p-2">
                                   {titleHref ? (
                                     <Link
-                                      href={titleHref}
+                                      to={titleHref}
                                       className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
                                     >
                                       <p

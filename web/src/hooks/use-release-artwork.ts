@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useMemo, useState } from "react";
 import type { Artwork } from "@/lib/metadata/artwork";
 import {
@@ -119,11 +117,4 @@ export function useReleaseArtwork(
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, tick]);
-}
-
-/** Test seam and a way for a caller to drop stale art. Not used in render. */
-export function __resetReleaseArtworkCache() {
-  cache.clear();
-  inFlight.clear();
-  subscribers.clear();
 }

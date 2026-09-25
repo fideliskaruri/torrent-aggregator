@@ -59,7 +59,7 @@ export function formatReleaseDate(
  * nobody has cast on, so a `0.0` is treated as *not rated* (absent) and a
  * missing count drops the "(votes)" rather than printing "(0)" or "()".
  */
-export function tmdbScore(
+function tmdbScore(
   rating: number | null | undefined,
   voteCount: number | null | undefined,
 ): string | null {
@@ -74,7 +74,7 @@ export function tmdbScore(
  * The trailing fact after the year: "3 Seasons" for a series, the runtime for
  * a film. Null when neither is known.
  */
-export function seasonRuntimeLabel(input: {
+function seasonRuntimeLabel(input: {
   isSeries: boolean;
   seasonCount: number | null | undefined;
   runtimeLabel?: string | null;
@@ -119,7 +119,7 @@ export interface HeroMetaInput {
  * every existing caller keeps its badge. A keyless install is served by AniList,
  * TVmaze or iTunes, and each is credited by name rather than borrowing TMDB's.
  */
-export function ratingBadgeLabel(
+function ratingBadgeLabel(
   source: HeroMetaInput["ratingSource"],
 ): string {
   switch (source) {
@@ -141,7 +141,7 @@ export function ratingBadgeLabel(
  * present), and the line begins with the score so the badge reads as its
  * label.
  */
-export function metaLine(input: HeroMetaInput): string {
+function metaLine(input: HeroMetaInput): string {
   return factsLine([
     tmdbScore(input.rating, input.voteCount),
     input.year ? String(input.year) : null,

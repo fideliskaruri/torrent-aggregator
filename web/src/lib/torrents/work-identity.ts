@@ -86,7 +86,7 @@ const NON_YEAR_NUMERIC_TOKENS =
  * title before the year, and a title can itself be a number. `2012.2009.1080p`
  * is the 2009 film *2012*, and only "last" gets that right.
  */
-export function releaseYear(title: string): number | null {
+function releaseYear(title: string): number | null {
   if (!title) return null;
   const scrubbed = title
     .replace(/[._]+/g, " ")
@@ -112,55 +112,10 @@ function normalizeForKey(s: string): string {
 }
 
 /**
- * May a catalog title be borrowed as the display name for this work?
- *
- * The catalog is allowed to *refine* a name, never to blur one. So the test is
- * one-directional: accept when the catalog title is at least as specific as
- * the name the release itself states.
- *
- *   release "Dune Prophecy"     catalog "Dune: Prophecy"  → accept (equal once
- *                                                           punctuation is
- *                                                           normalised)
- *   release "The Office"        catalog "The Office (US)" → accept (refines)
- *   release "Children of Dune"  catalog "Dune"            → REJECT (blurs)
- *   release "Dune"              catalog "Dune: Prophecy"  → REJECT (spin-off)
- *
- * The middle rule is the whole point. Bidirectional containment used to accept
- * "Children of Dune" ← "Dune", and a single mis-enriched row titled "Dune" then
- * contains-matched *Dune Prophecy*, *Children of Dune* and *Dune Part Two* at
- * once. Grouping stayed correct — identity never comes from metadata — but all
- * five works came back named "Dune" and wearing Dune's poster.
- *
- * The last rule closes the mirror image, which one-directional containment left
- * open: a *bare* release "Dune" contains-matched the longer catalog titles
- * "Dune: Prophecy" and "Dune: Part Two", so a title page for the 2021 film —
- * which has no cached row of its own — borrowed a spin-off's poster and blurb.
- * A colon/spaced-dash subtitle names a distinct work, not a refinement, so it is
- * rejected; a parenthetical disambiguator ("(US)") still refines and is kept.
- *
- * Rejecting the vaguer title costs nothing: the release-derived name is
- * already accurate, just less pretty.
- */
-export function catalogAgrees(releaseName: string, catalogTitle: string): boolean {
-  const a = normalizeForKey(releaseName);
-  const b = normalizeForKey(catalogTitle);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  // `b` (catalog) must contain `a` (release), not the other way round.
-  if (!b.includes(a)) return false;
-  // `b` strictly extends `a`. Accept a disambiguating qualifier, but reject a
-  // colon/spaced-dash subtitle whose head is exactly `a`: "Dune: Prophecy" and
-  // "Dune - Part Two" are separate works from "Dune", not refinements of it.
-  const head = catalogTitle.split(/:\s*|\s+[-–—]\s+/)[0];
-  if (normalizeForKey(head) === a) return false;
-  return true;
-}
-
-/**
  * Provider aliases may prove translated titles are the same work. The bounded
  * fallback supports cached anime metadata created before aliases were retained.
  */
-export function metadataAgrees(
+function metadataAgrees(
   releaseName: string,
   metadata: MediaMetadata | null | undefined,
 ): boolean {
@@ -339,7 +294,7 @@ function filmNameFromRelease(title: string, year: number | null): string {
  * identical defect. One rule, stated once, used by both — otherwise the two
  * groupings disagree about how many films "Dune Part Two" is.
  */
-export function stripTrailingJunkNumber(
+function stripTrailingJunkNumber(
   rawTitle: string,
   cleaned: string,
 ): string {
@@ -406,67 +361,4 @@ export function workIdentity(
     year,
     isSeries,
   };
-}
-
-export type WorkGroup<T> = {
-  key: string;
-  /** Best display name available across the group's releases. */
-  name: string;
-  year: number | null;
-  isSeries: boolean;
-  /** Poster from the first release whose catalog match agreed with the name. */
-  posterUrl: string | null;
-  /** Releases in the order they arrived, i.e. still rank-ordered. */
-  items: T[];
-};
-
-/**
- * Split a rank-ordered result list into one group per work.
- *
- * Input order is preserved inside each group, and groups are emitted in the
- * order their best-ranked release appeared — so the work the user most likely
- * meant stays first without anything having to score "relevance" a second
- * time.
- */
-export function groupReleasesByWork<T>(
-  items: readonly T[],
-  getTitle: (item: T) => string,
-  getMetadata?: (item: T) => MediaMetadata | null | undefined,
-): WorkGroup<T>[] {
-  const groups = new Map<string, WorkGroup<T>>();
-
-  for (const item of items) {
-    const title = getTitle(item);
-    const metadata = getMetadata?.(item) ?? null;
-    const identity = workIdentity(title, metadata);
-
-    let group = groups.get(identity.key);
-    if (!group) {
-      group = {
-        key: identity.key,
-        name: identity.name,
-        year: identity.year,
-        isSeries: identity.isSeries,
-        posterUrl: null,
-        items: [],
-      };
-      groups.set(identity.key, group);
-    }
-    group.items.push(item);
-
-    // Take artwork from a release whose catalog match agrees with the group
-    // name. A poster is a strong visual claim about identity, so it may not
-    // come from a row we only *suspect* belongs here.
-    if (
-      !group.posterUrl &&
-      metadata?.posterUrl &&
-      metadataAgrees(group.name, metadata)
-    ) {
-      group.posterUrl = metadata.posterUrl;
-      // The agreeing catalog title is also the better label.
-      if (metadata.title?.trim()) group.name = metadata.title.trim();
-    }
-  }
-
-  return [...groups.values()];
 }

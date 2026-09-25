@@ -1,7 +1,5 @@
-"use client";
-
 import { useEffect, useId, useState } from "react";
-import Link from "next/link";
+import { Link } from "react-router";
 import { useSession } from "@/components/providers/session-provider";
 import { toast } from "sonner";
 import {
@@ -206,7 +204,6 @@ const LAST_AUTO_KEY = "tf:last-automation";
 const STATUSES = ["watching", "planned", "completed", "dropped"] as const;
 
 function readLastAuto(): LastAutoSummary | null {
-  if (typeof window === "undefined") return null;
   try {
     const raw = sessionStorage.getItem(LAST_AUTO_KEY);
     if (!raw) return null;
@@ -654,7 +651,7 @@ export default function WatchlistPage() {
                     pointer devices where a mouse makes the box unnecessary.
                   */}
                   <Link
-                    href="/settings"
+                    to="/settings"
                     className="inline-flex min-h-[44px] items-center whitespace-nowrap py-2 align-middle text-[var(--accent-text)] underline underline-offset-2 lg:min-h-0 lg:py-0"
                   >
                     Turn on automatic checks
@@ -682,7 +679,7 @@ export default function WatchlistPage() {
             </span>
           </span>
           <Link
-            href="/notifications"
+            to="/notifications"
             className="inline-flex items-center gap-1 min-h-[44px] font-medium text-[var(--accent-text)] hover:underline lg:min-h-0"
           >
             View in Activity
@@ -804,14 +801,12 @@ export default function WatchlistPage() {
                 <div className="relative w-[4.75rem] sm:w-[5.5rem] shrink-0 self-stretch min-h-[7.25rem] overflow-hidden bg-[var(--bg-muted)]">
                   {item.posterUrl && !brokenPosters.has(item.id) ? (
                     <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={item.posterUrl}
                         alt=""
                         aria-hidden
                         className="absolute inset-0 h-full w-full scale-125 object-cover opacity-45 blur-lg"
                       />
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={item.posterUrl}
                         alt=""
@@ -840,7 +835,7 @@ export default function WatchlistPage() {
                   )}
                   {titleHref ? (
                     <Link
-                      href={titleHref}
+                      to={titleHref}
                       data-library-card-link
                       aria-label={`Open ${item.title}`}
                       className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]"
@@ -854,7 +849,7 @@ export default function WatchlistPage() {
                     <div className="min-w-0">
                       {titleHref ? (
                         <Link
-                          href={titleHref}
+                          to={titleHref}
                           data-library-card-link
                           className="block min-w-0 min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0"
                         >
@@ -976,7 +971,7 @@ export default function WatchlistPage() {
 
                     <Button asChild variant="ghost" size="sm">
                       <Link
-                        href={`${SEARCH_HREF}?q=${encodeURIComponent(
+                        to={`${SEARCH_HREF}?q=${encodeURIComponent(
                           item.nextEpisodeHint || item.title,
                         )}&category=${searchCat}`}
                       >

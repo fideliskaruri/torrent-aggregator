@@ -1,5 +1,3 @@
-"use client";
-
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { Play, Plus, Trash2, Zap } from "lucide-react";
@@ -57,7 +55,7 @@ interface Rule {
 const selectClass =
   "flex h-11 lg:h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
 
-export const RULE_CATEGORY_OPTIONS = [
+const RULE_CATEGORY_OPTIONS = [
   { value: "all", label: "All video" },
   { value: "anime", label: "Anime" },
   { value: "movies", label: "Movies" },
@@ -70,7 +68,7 @@ const RULE_CATEGORY_VALUES = new Set<string>(
   RULE_CATEGORY_OPTIONS.map((option) => option.value),
 );
 
-export function normalizeRuleCategory(
+function normalizeRuleCategory(
   category: string | null | undefined,
 ): RuleCategoryValue {
   return RULE_CATEGORY_VALUES.has(category ?? "")
@@ -78,7 +76,7 @@ export function normalizeRuleCategory(
     : "all";
 }
 
-export function describeRuleCategory(category: string | null | undefined) {
+function describeRuleCategory(category: string | null | undefined) {
   const option = RULE_CATEGORY_OPTIONS.find((entry) => entry.value === category);
   if (!option) {
     const stored = category?.trim() || "unknown";
@@ -97,7 +95,7 @@ export function describeRuleCategory(category: string | null | undefined) {
   };
 }
 
-export function buildRuleTogglePayload(
+function buildRuleTogglePayload(
   id: string,
   enabled: boolean,
   _storedCategory?: string | null,
@@ -106,7 +104,7 @@ export function buildRuleTogglePayload(
   return { id, enabled };
 }
 
-export function buildRuleRetargetPayload(
+function buildRuleRetargetPayload(
   id: string,
   category: string | null | undefined,
 ) {

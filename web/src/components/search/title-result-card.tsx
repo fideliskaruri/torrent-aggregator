@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "react-router";
 import type { TitleResult } from "./group-titles";
 import { cn } from "@/lib/utils";
 import { PosterImage } from "@/components/browse/poster-image";
@@ -125,7 +123,7 @@ export function TitleResultCard({
 
   return (
     <Link
-      href={title.href}
+      to={title.href}
       aria-label={accessibleName}
       data-card-target="title"
       data-title-card

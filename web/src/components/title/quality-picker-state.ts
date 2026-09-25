@@ -42,9 +42,6 @@ export type QualityValue = (typeof QUALITY_CHOICES)[number]["value"];
 /** localStorage key. Storing the value makes the preference portable across sessions. */
 export const ALWAYS_PREFERRED_KEY = "tf:download:always-preferred";
 
-/** The four valid quality values, ascending. */
-export const QUALITY_VALUES = QUALITY_CHOICES.map((c) => c.value) as number[];
-
 /**
  * True when the user should be asked which quality to download.
  *
@@ -81,12 +78,4 @@ export function nearestQuality(resolution: number): QualityValue {
         : prev,
     QUALITY_CHOICES[0],
   ).value;
-}
-
-/**
- * Label for a raw resolution number as stored in settings.
- * Returns `null` for an unrecognised value.
- */
-export function qualityLabel(resolution: number): string | null {
-  return QUALITY_CHOICES.find((c) => c.value === resolution)?.label ?? null;
 }
