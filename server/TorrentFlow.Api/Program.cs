@@ -96,8 +96,10 @@ app.MapGet("/api/health", async (TorrentFlowDbContext db, HttpContext http, Canc
 app.MapControllers();
 
 
+// Missing hashed chunks (stale tab after an update, or wrong casing on case-sensitive file systems) must
+// 404 rather than return index.html, which the browser would reject as a script with the wrong MIME type.
 if (webFiles is not null)
-    app.MapFallbackToFile("{**path:regex(^(?!api/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles });
+    app.MapFallbackToFile("{**path:regex(^(?!api/|assets/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles });
 
 app.Run();
 

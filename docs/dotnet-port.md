@@ -84,7 +84,8 @@ dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained tru
 
 Ship the entire folder and run `TorrentFlow.Api.exe --urls http://127.0.0.1:5106`.
 No SDK, .NET runtime, Node, pnpm, or Docker is needed on the recipient's machine.
-Use `linux-x64` or `osx-arm64` for other platforms (Linux still needs native dependencies such as ICU).
+Use `linux-x64` or `osx-arm64` for other platforms (Linux still needs native dependencies such as ICU;
+see the README's "Linux and macOS" section, verified on Ubuntu 24.04/WSL with a Windows-built publish).
 Publish includes `web/dist` under `wwwroot`; the host resolves `TorrentFlow:WebRoot` first,
 then `wwwroot` beside its executable, then the development `web/dist` directory.
 See the root README for data migration and environment configuration.

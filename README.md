@@ -66,9 +66,42 @@ Copy the **entire** output folder (including `wwwroot`), then run
 `.\TorrentFlow.Api.exe --urls http://127.0.0.1:5106` from that folder.
 Published data defaults to `data` under the working directory; set
 `TorrentFlow__DataDirectory` to an absolute, writable location to keep it stable across upgrades.
-Use `-r linux-x64` or `-r osx-arm64` with a matching output directory for those platforms,
-then run `./TorrentFlow.Api --urls http://127.0.0.1:5106`.
-Linux needs its standard .NET native dependencies, including ICU.
+Use `-r linux-x64`, `-r linux-arm64`, `-r osx-arm64` or `-r osx-x64` with a matching output
+directory for those platforms. The publish can be produced on any OS (e.g. build the Linux folder
+on Windows).
+
+### Linux and macOS
+
+Prerequisites for a published folder (no SDK, runtime, Node or pnpm needed):
+
+- **Linux**: glibc x64/arm64 distro (Ubuntu 22.04+, Debian 12+, Fedora, …) with ICU and OpenSSL,
+  which most desktop/server installs already have. If startup fails with
+  `Couldn't find a valid ICU package`, install ICU:
+  `sudo apt install libicu-dev` (Debian/Ubuntu; `libicu74` or similar also works),
+  `sudo dnf install libicu` (Fedora/RHEL), `sudo pacman -S icu` (Arch).
+  Alpine/musl needs a `linux-musl-x64` publish plus `apk add icu-libs`.
+- **macOS**: nothing extra. Unsigned binaries may need
+  `xattr -dr com.apple.quarantine <folder>` after downloading.
+- Optional: `xdg-open` (Linux desktop) for
+  the "Open folder" button (headless servers get a clear "could not launch its file manager"
+  error instead), and Chromium/Chrome/Edge for the optional indexer browser fallback
+  (`/usr/bin/chromium`, `google-chrome`, `/Applications/Google Chrome.app`, … are detected, or set
+  `TorrentFlow:Search:BrowserExecutable`).
+
+Run it from a native file system (not a Windows mount such as `/mnt/c` under WSL, which is slow):
+
+```sh
+cp -r TorrentFlow-linux-x64 ~/torrentflow && cd ~/torrentflow
+chmod +x TorrentFlow.Api
+TorrentFlow__DataDirectory="$HOME/.local/share/torrentflow" ./TorrentFlow.Api --urls http://127.0.0.1:5106
+```
+
+The SQLite database is created and migrated under the data directory on first start; the
+secrets key file (`.torrentflow.key`) is written with owner-only (`600`) permissions. The default
+download folder suggestion is `~/Downloads/TorrentFlow`. Paths are case-sensitive on Linux.
+
+From source, install the .NET 10 SDK (e.g. `sudo apt install dotnet-sdk-10.0` or
+`https://dot.net/v1/dotnet-install.sh`), Node.js and pnpm as above, then run `sh ./run.sh`.
 The existing Next.js instructions below remain separate.
 
 ## Quick start
