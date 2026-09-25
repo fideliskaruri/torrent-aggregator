@@ -116,6 +116,11 @@ interface ClientTorrent {
   savePath?: string | null;
   /** Whether this torrent is permanent or a stream cache entry. */
   retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+  /**
+   * 1-based place in the download queue. Present only while `state` is
+   * "queued" — the transfer is admitted and ordered but not in the engine yet.
+   */
+  queuePosition?: number;
 }
 
 /**
