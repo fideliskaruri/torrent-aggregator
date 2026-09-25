@@ -27,6 +27,9 @@ public sealed class SecretProtector(IOptions<EngineOptions> options)
                 configured = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
                 Directory.CreateDirectory(options.Value.DataDirectory);
                 File.WriteAllText(file, configured);
+                // Windows relies on the data folder's ACL; elsewhere keep the key readable by its owner only.
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
         }
         return _key = SHA256.HashData(Encoding.UTF8.GetBytes(configured));
