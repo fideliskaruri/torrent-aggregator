@@ -1,0 +1,8 @@
+{ "results": [
+  { "id": 693134, "title": "Dune: Part Two", "media_type": "movie", "release_date": "2024-02-27", "poster_path": "/p.jpg", "backdrop_path": "/b.jpg", "overview": "Paul unites.", "vote_average": 8.2 },
+  { "id": 693134, "title": "Dune: Part Two (dupe)", "media_type": "movie" },
+  { "id": 17, "name": "Some Person", "media_type": "person" },
+  { "id": 1396, "name": "Breaking Bad", "first_air_date": "2008-01-20", "poster_path": null, "vote_average": 0 },
+  { "id": 0, "title": "zero id" },
+  { "id": 9, "title": "   " }
+] }

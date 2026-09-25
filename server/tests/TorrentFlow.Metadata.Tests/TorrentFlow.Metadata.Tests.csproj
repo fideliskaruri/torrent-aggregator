@@ -10,6 +10,10 @@
     <ProjectReference Include="..\..\TorrentFlow.Metadata\TorrentFlow.Metadata.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>
+

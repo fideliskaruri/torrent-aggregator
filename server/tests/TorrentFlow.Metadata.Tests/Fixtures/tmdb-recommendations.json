@@ -1,0 +1,5 @@
+{ "page": 1, "results": [
+  { "id": 82684, "name": "That Time I Got Reincarnated as a Slime", "poster_path": "/slime.jpg", "first_air_date": "2018-10-02", "vote_average": 8.46, "vote_count": 1200 },
+  { "id": 5, "name": "Obscure", "poster_path": "/o.jpg", "first_air_date": "2019-01-01", "vote_average": 9.9, "vote_count": 3 },
+  { "id": 6, "name": "No Poster", "poster_path": null, "first_air_date": "2019-01-01", "vote_average": 7, "vote_count": 100 }
+] }
