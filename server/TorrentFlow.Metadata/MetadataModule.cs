@@ -3,6 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Artwork;
+using TorrentFlow.Metadata.Browse;
+using TorrentFlow.Metadata.Catalog;
+using TorrentFlow.Metadata.Recommend;
+using TorrentFlow.Metadata.Title;
 using TorrentFlow.Metadata.Enrichment;
 using TorrentFlow.Metadata.Providers;
 using TorrentFlow.Metadata.Search;
@@ -33,7 +37,12 @@ public static class MetadataModule
         services.AddSingleton<ArtworkResolver>();
         services.AddSingleton<MetadataResolver>();
         services.AddSingleton<IMetadataResolver>(sp => sp.GetRequiredService<MetadataResolver>());
-        //EXTRA
+        services.AddSingleton<CatalogService>();
+        services.AddSingleton<ICatalogLookup>(sp => sp.GetRequiredService<CatalogService>());
+        services.AddHostedService<CatalogRefreshWorker>();
+        services.AddSingleton<RecommendationService>();
+        services.AddSingleton<BrowseService>();
+        services.AddSingleton<TitleExtrasService>();
         return services;
     }
 
@@ -53,3 +62,4 @@ public static class MetadataModule
             o.ArtworkTimeoutMs = (int)v;
     }
 }
+
