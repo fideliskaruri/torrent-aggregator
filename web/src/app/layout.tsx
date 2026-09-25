@@ -7,6 +7,7 @@ import { DownloadSetupProvider } from "@/components/setup/download-setup";
 import { ServiceWorkerRegistrar } from "@/components/pwa/service-worker-registrar";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
+import { FeaturesProvider } from "@/lib/features";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./fonts.css";
@@ -29,6 +30,7 @@ export default function RootLayout() {
       <ScrollRestoration getKey={scrollKey} />
       <ServiceWorkerRegistrar />
       <AuthSessionProvider>
+        <FeaturesProvider>
         <UiPreferencesProvider>
           <DownloadSetupProvider>
           <KeyboardRoot>
@@ -72,6 +74,7 @@ export default function RootLayout() {
           </KeyboardRoot>
           </DownloadSetupProvider>
         </UiPreferencesProvider>
+        </FeaturesProvider>
       </AuthSessionProvider>
     </>
   );

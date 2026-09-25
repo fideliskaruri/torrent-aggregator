@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Download, Loader2, Play, Search } from "lucide-react";
+import { useFeatures } from "@/lib/features";
 import { toast } from "sonner";
 import { PosterImage } from "@/components/browse/poster-image";
 import { PlayOverlay } from "@/components/browse/play-overlay";
@@ -169,6 +170,7 @@ function ButtonBody({
 }
 
 export function TitleDetail(props: TitleDetailProps) {
+  const { streaming: streamingEnabled } = useFeatures();
   const [season, setSeason] = useState<number | null>(() =>
     resolveInitialSeason({
       legacySeason: props.legacySeason,
@@ -180,6 +182,9 @@ export function TitleDetail(props: TitleDetailProps) {
     Record<string, SeasonGrabStatus>
   >({});
   const [playing, setPlaying] = useState<PlayTarget | null>(null);
+  useEffect(() => {
+    if (!streamingEnabled) setPlaying(null);
+  }, [streamingEnabled]);
   // The cap is a guardrail, not a wall: an over-cap Download raises an informed
   // confirmation instead of a dead-end toast. Play never reaches it — the
   // server-side gate reclaims stream cache and proceeds.
@@ -417,6 +422,7 @@ export function TitleDetail(props: TitleDetailProps) {
         actionDeps.current;
       if (!shouldRunTitleAction(action, statusFor(key))) return;
 
+      if (!streamingEnabled && retention === "stream") return;
       if (action.kind === "play" && retention === "stream") {
         const episodeTitle =
           action.season != null &&
@@ -570,7 +576,7 @@ export function TitleDetail(props: TitleDetailProps) {
     // Every changing value runAction needs is read from `actionDeps.current`.
     // startTransferPoll is stable, so this callback also stays stable across
     // progress ticks and the memoised episode cards never rebuild.
-    [startTransferPoll],
+    [startTransferPoll, streamingEnabled],
   );
 
   const seasonStatusFor = useCallback(
@@ -831,6 +837,7 @@ function TitleContent({
   ) => void;
   onLibraryChanged: () => void;
 }) {
+  const { streaming } = useFeatures();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
   // Quality picker for the hero Download button. Play is always instant.
   const [heroPicker, setHeroPicker] = useState(false);
@@ -1199,7 +1206,7 @@ function TitleContent({
                     the "Coming {date}" label and grayed art already say why, and
                     a disabled action is just clutter that does nothing. Tracking
                     it via "Add to library" stays available below. */}
-                {gated ? null : (
+                {gated || (!streaming && primary.kind !== "discover") ? null : (
                 <Button
                   type="button"
                   size="lg"
@@ -1251,7 +1258,7 @@ function TitleContent({
                   <Button
                     type="button"
                     size="lg"
-                    variant="secondary"
+                    variant={streaming ? "secondary" : "default"}
                     data-title-download
                     data-action-kind="get"
                     aria-label={`Download — ${title}`}

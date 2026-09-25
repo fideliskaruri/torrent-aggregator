@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { Play, Search } from "lucide-react";
 import type { RailItem } from "@/lib/browse";
@@ -59,6 +60,7 @@ export function TitleCard({
   onAction,
   priority = false,
 }: TitleCardProps) {
+  const { streaming } = useFeatures();
   // Future primary dates and confirmed cinema-only movies share one Browse
   // gate. Unknown evidence and series always stay open.
   const releaseGate = browseReleaseGate(item);
@@ -71,12 +73,12 @@ export function TitleCard({
   const fallbackSearch =
     !unreleased && action.kind === "blocked" ? searchAction(item) : null;
   const title = cleanDisplayTitle(item.title);
-  const fraction = unreleased ? null : clampFraction(item.progressFraction);
+  const fraction = unreleased || !streaming ? null : clampFraction(item.progressFraction);
   // Theatrical-window films show "In cinemas" (or "Digital Aug 2026");
   // future-dated films show "Coming {date}". Both take priority over actions.
   const label = unreleased
     ? (releaseGate.label ?? "Coming soon")
-    : actionLabel(action, status);
+    : !streaming && action.kind === "play" ? "Downloaded" : actionLabel(action, status);
   const blocked = action.disabled;
 
   // Every card goes to the same place: the page about this work. Null only
@@ -94,7 +96,7 @@ export function TitleCard({
   const runnable =
     !unreleased &&
     !blocked &&
-    (action.kind === "play" || action.kind === "get");
+    ((streaming && action.kind === "play") || action.kind === "get");
 
   // A row id is not unique on the page — the same episode legitimately appears
   // in Continue Watching and Ready to Play — and two elements sharing an id
@@ -178,7 +180,7 @@ export function TitleCard({
     <>
       {status === "pending" ? (
         <LoadingGlyph className="h-3 w-3" />
-      ) : !unreleased && action.kind === "play" ? (
+      ) : streaming && !unreleased && action.kind === "play" ? (
         <Play className="h-3 w-3 shrink-0 fill-current" aria-hidden />
       ) : null}
       <span className="truncate">{label}</span>

@@ -22,7 +22,8 @@ import { TfErrorState } from "@/components/tf/error-state";
 import { BrowseBoard } from "./browse-board";
 import { BrowseEmptyState } from "./browse-empty-state";
 import { BrowseSkeleton } from "./browse-skeleton";
-import { isFirstRun } from "./first-run";
+import { isFirstRun, visibleBrowseRail } from "./first-run";
+import { useFeatures } from "@/lib/features";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 
@@ -42,6 +43,7 @@ function BrowseFirstRunView({
   serverError,
   onReload,
 }: BrowseFirstRunProps & { onReload: () => void }) {
+  const { streaming } = useFeatures();
   // A failed server pass has already told us something is wrong, so the first
   // paint is the error state rather than a skeleton that resolves into one.
   // A clean install still asks, because "we found nothing" is a claim worth
@@ -53,7 +55,10 @@ function BrowseFirstRunView({
     { enabled: !serverError || dismissedServerError },
   );
 
-  const rails = useMemo(() => data?.rails ?? [], [data]);
+  const rails = useMemo(
+    () => (data?.rails ?? []).filter((rail) => visibleBrowseRail(rail.id, streaming)),
+    [data, streaming],
+  );
   const showLoading = useStableLoading(loading && !data && !error);
 
   const failure = data ? null : (error ?? (dismissedServerError ? null : serverError));

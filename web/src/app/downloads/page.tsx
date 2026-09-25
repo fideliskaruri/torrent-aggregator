@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import {
@@ -212,6 +213,7 @@ async function loadDownloadEpisodeTitle(payload: {
 }
 
 export default function ClientPage() {
+  const { streaming } = useFeatures();
   // Rows, error, offline and "was that read authoritative" move together: a
   // failed poll must never be able to leave the rows blanked but the error
   // stale, or vice versa. `snapshot-sync.ts` owns the folding rules.
@@ -247,6 +249,9 @@ export default function ClientPage() {
   );
   const [switchingBuiltin, setSwitchingBuiltin] = useState(false);
   const [playing, setPlaying] = useState<NowPlaying | null>(null);
+  useEffect(() => {
+    if (!streaming) setPlaying(null);
+  }, [streaming]);
   const [announcement, setAnnouncement] = useState("");
   const deleteOpenerRef = useRef<HTMLElement | null>(null);
   const seriesDialogOpenerRef = useRef<HTMLElement | null>(null);
@@ -812,6 +817,7 @@ export default function ClientPage() {
   }
 
   async function copyStreamUrl(t: ClientTorrent) {
+    if (!streaming) return;
     try {
       const res = await fetch(`/api/stream/${encodeURIComponent(t.hash)}`);
       const body = (await res.json().catch(() => null)) as {
@@ -1755,6 +1761,7 @@ function FilmRow({
 }) {
   const pct = progressPercent(t.progress);
   const query = artworkQueryForRelease(t.name, t.category);
+  const { streaming } = useFeatures();
   const display = releaseDisplayFacts(t, query);
   const parsedEpisode = parseEpisode(t.name);
   const art = artwork[query.key];
@@ -1894,7 +1901,7 @@ function FilmRow({
             Resume
           </Button>
         ) : null}
-        {isBuiltin ? (
+        {streaming && isBuiltin ? (
           canStreamTransfer(t) ? (
             <Button
               type="button"
@@ -1974,7 +1981,7 @@ function FilmRow({
               <Magnet />
               Copy magnet link
             </DropdownMenuItem>
-            {isBuiltin ? (
+            {streaming && isBuiltin ? (
               <>
                 <DropdownMenuItem
                   onClick={() => onCopyStreamUrl(t)}

@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useFeatures } from "@/lib/features";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -153,6 +154,7 @@ function parseSettingsTab(
 }
 
 export default function SettingsPage() {
+  const { streaming } = useFeatures();
   const [form, setForm] = useState<ClientForm>(EMPTY_FORM);
   const [savedForm, setSavedForm] = useState<ClientForm>(EMPTY_FORM);
   const [hasPassword, setHasPassword] = useState(false);
@@ -468,7 +470,7 @@ export default function SettingsPage() {
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
           maxActiveDownloads: clampMaxActive(form.maxActiveDownloads),
-          defaultRetentionPolicy: form.defaultRetentionPolicy,
+          defaultRetentionPolicy: streaming ? form.defaultRetentionPolicy : "KEPT",
           categories: form.categories,
           pathRules: form.pathRules,
           test,
@@ -783,6 +785,7 @@ export default function SettingsPage() {
               </select>
             </div>
 
+            {streaming ? (
             <div className="space-y-1.5">
               <label
                 htmlFor="file-behavior"
@@ -808,6 +811,7 @@ export default function SettingsPage() {
                 ))}
               </select>
             </div>
+            ) : null}
           </section>
 
           <section
@@ -1253,6 +1257,7 @@ export default function SettingsPage() {
               </div>
             </section>
 
+            {streaming ? (
             <section className="space-y-4">
               <div>
                 <h3 className="text-sm font-medium text-[var(--text)]">
@@ -1288,6 +1293,7 @@ export default function SettingsPage() {
               <SwarmProbePanel />
               <RetentionPanel showPolicy={false} />
             </section>
+            ) : null}
           </div>
         </SettingsDisclosure>
       </form>

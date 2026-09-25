@@ -95,6 +95,7 @@ public sealed class MediaApiFactory : WebApplicationFactory<Program>
     {
         builder.UseSetting("TorrentFlow:DataDirectory", Root);
         builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
+        builder.UseSetting("TorrentFlow:Engine:Streaming", "true");
         builder.UseSetting("TorrentFlow:Media:SwarmWatchEnabled", "false");
         builder.ConfigureTestServices(s =>
         {

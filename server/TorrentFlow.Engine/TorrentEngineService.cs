@@ -86,6 +86,8 @@ internal sealed class TorrentEngineService(
     public async Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default)
     {
         var purpose = request.Purpose is TorrentPurpose.Stream or TorrentPurpose.Prewarm ? request.Purpose : TorrentPurpose.Keep;
+        if (purpose != TorrentPurpose.Keep && !options.CurrentValue.Streaming)
+            return new EngineAddResult(false, "Streaming is turned off.");
         var origin = TorrentOrigin.FromPurpose(purpose);
 
         var bytes = request.TorrentBytes;

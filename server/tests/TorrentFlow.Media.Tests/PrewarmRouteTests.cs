@@ -29,6 +29,7 @@ public sealed class PrewarmApiFactory : WebApplicationFactory<Program>
     {
         builder.UseSetting("TorrentFlow:DataDirectory", Root);
         builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
+        builder.UseSetting("TorrentFlow:Engine:Streaming", "true");
         builder.UseSetting("TorrentFlow:WebRoot", Path.Combine(Root, "no-web"));
         builder.ConfigureTestServices(s =>
         {
@@ -83,10 +84,21 @@ public class PrewarmRouteTests(PrewarmApiFactory factory) : IClassFixture<Prewar
     {
         var services = new ServiceCollection();
         services.AddSingleton<ISwarmProbeEngine, NoSwarm>();
-        services.AddPrewarmFeature(new ConfigurationBuilder().Build());
+        services.AddPrewarmFeature(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["TorrentFlow:Engine:Streaming"] = "true" }).Build());
         Assert.Equal(typeof(EngineSwarmProbeEngine), Assert.Single(services, d => d.ServiceType == typeof(ISwarmProbeEngine)).ImplementationType);
         Assert.Contains(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(PreProbeScheduler));
         Assert.IsType<EngineSwarmProbeEngine>(factory.Services.GetRequiredService<ISwarmProbeEngine>());
+    }
+
+    [Fact]
+    public void WithStreamingOffTheFeatureKeepsTheNoOpsAndNeverSchedules()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<ISwarmProbeEngine, NoSwarm>();
+        services.AddPrewarmFeature(new ConfigurationBuilder().Build());
+        Assert.Equal(typeof(NoSwarm), Assert.Single(services, d => d.ServiceType == typeof(ISwarmProbeEngine)).ImplementationType);
+        Assert.DoesNotContain(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(PreProbeScheduler));
     }
 
     [Fact]

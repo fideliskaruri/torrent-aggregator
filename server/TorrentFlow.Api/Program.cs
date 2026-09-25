@@ -83,6 +83,26 @@ if (webFiles is not null)
 }
 app.UseRouting();
 
+// Streaming is off by default (see EngineOptions.Streaming); its routes answer 404 so the SPA can tell it apart.
+string[] streamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path;
+    if (!context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions>>().CurrentValue.Streaming
+        && streamingRoutes.Any(r => path.StartsWithSegments(r, StringComparison.OrdinalIgnoreCase)))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        await context.Response.WriteAsJsonAsync(new { error = "Streaming is turned off.", streamingDisabled = true });
+        return;
+    }
+    await next();
+});
+app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engine, HttpContext http) =>
+{
+    http.Response.Headers.CacheControl = "no-store";
+    return Results.Json(new { streaming = engine.CurrentValue.Streaming });
+});
+
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.
 app.MapGet("/activity", () => Results.Redirect("/notifications", permanent: true, preserveMethod: true));
 app.MapGet("/client", () => Results.Redirect("/downloads", permanent: true, preserveMethod: true));

@@ -20,6 +20,9 @@ public static class PrewarmFeature
         services.AddSingleton<PreProber>();
         services.AddSingleton<PreProbeLock>();
         services.AddSingleton<PrewarmService>();
+        // Prewarm and swarm probes add torrents in streaming mode; with streaming off, Search and Library keep their
+        // no-op defaults and the background pre-probe scheduler never runs.
+        if (!string.Equals(configuration["TorrentFlow:Engine:Streaming"], "true", StringComparison.OrdinalIgnoreCase)) return services;
         // Search registers a no-op default; the built-in engine can actually attach to a swarm.
         services.Replace(ServiceDescriptor.Singleton<ISwarmProbeEngine, EngineSwarmProbeEngine>());
         // Library registers a no-op playback observer; progress pings drive prewarm here.

@@ -9,9 +9,9 @@ using MonoTorrent.Connections;
 namespace TorrentFlow.Engine.Client;
 
 /// <summary>
-/// Singleton owner of MonoTorrent's <see cref="ClientEngine"/>. All torrents are added with
-/// <c>AddStreamingAsync</c> so any of them can serve a read stream; the streaming piece picker still
-/// downloads every selected piece, it just goes to the read position first when a stream is open.
+/// Singleton owner of MonoTorrent's <see cref="ClientEngine"/>. Torrents use the standard (rarest-first) picker unless
+/// <see cref="EngineOptions.Streaming"/> is on, in which case they are added with <c>AddStreamingAsync</c> so any of
+/// them can serve a read stream. The streaming picker downloads sequentially and is much slower on a full download.
 /// </summary>
 internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 {
@@ -97,11 +97,15 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             {
                 var torrent = Torrent.Load(spec.TorrentBytes);
                 _metadata[spec.Hash] = spec.TorrentBytes;
-                manager = await Engine.AddStreamingAsync(torrent, spec.SavePath, settings);
+                manager = _options.Streaming
+                    ? await Engine.AddStreamingAsync(torrent, spec.SavePath, settings)
+                    : await Engine.AddAsync(torrent, spec.SavePath, settings);
             }
             else if (spec.Magnet is not null && MagnetLink.TryParse(spec.Magnet, out var magnet) && magnet is not null)
             {
-                manager = await Engine.AddStreamingAsync(magnet, spec.SavePath, settings);
+                manager = _options.Streaming
+                    ? await Engine.AddStreamingAsync(magnet, spec.SavePath, settings)
+                    : await Engine.AddAsync(magnet, spec.SavePath, settings);
             }
             else
             {
@@ -276,7 +280,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         var file = m.Files[fileIndex];
         if (file.Priority == Priority.DoNotDownload) await m.SetFilePriorityAsync(file, Priority.Normal);
         if (m.State is TorrentState.Stopped or TorrentState.Paused) await m.StartAsync();
-        if (m.StreamProvider is null) throw new InvalidOperationException("Torrent was not added in streaming mode.");
+        if (m.StreamProvider is null) throw new InvalidOperationException("Streaming is turned off.");
         return await _sharedStreams.GetValue(m, static mgr => new SharedTorrentStreams(mgr)).OpenAsync(file, ct);
     }
 

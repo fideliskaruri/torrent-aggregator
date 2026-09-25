@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { useSession } from "@/components/providers/session-provider";
 import { toast } from "sonner";
@@ -223,6 +224,7 @@ function writeLastAuto(summary: LastAutoSummary) {
 }
 
 export default function WatchlistPage() {
+  const { streaming } = useFeatures();
   const { data: session } = useSession();
   const { prefs, loaded: prefsLoaded } = useDownloadPrefs();
   const [items, setItems] = useState<WatchItem[]>([]);
@@ -767,7 +769,7 @@ export default function WatchlistPage() {
             const latestInfoHash = infoHashFromMagnet(item.latestReleaseMagnet);
             const itemState = libraryItemState(item, {
               sending: sendingId === item.id,
-              canStream: isBuiltinClient && Boolean(latestInfoHash),
+              canStream: streaming && isBuiltinClient && Boolean(latestInfoHash),
             });
             const nextLabel = itemState.nextLabel;
             const cardPosition = positionLine(item);
@@ -1097,7 +1099,7 @@ export default function WatchlistPage() {
                     ) : null}
                   </div>
 
-                  {isBuiltinClient && latestInfoHash ? (
+                  {streaming && isBuiltinClient && latestInfoHash ? (
                     <InlineStreamPlayer
                       infoHash={latestInfoHash}
                       title={canonicalWatchlistPlayerTitle(item)}

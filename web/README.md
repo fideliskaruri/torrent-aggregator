@@ -16,3 +16,14 @@ pnpm -C web build                                # typecheck + web/dist
   are plain `<img>` and the Geist faces are self-hosted via `@fontsource-variable/*` (imported in `app/layout.tsx`).
 - Page titles use `useDocumentTitle` instead of Next.js `metadata`.
 - `pnpm-workspace.yaml` keeps this a standalone pnpm project, separate from the repo root.
+
+## Streaming feature flag
+
+`FeaturesProvider` reads `GET /api/features` once for the app and refreshes every 30 seconds.
+Only `{ "streaming": true }` enables playback; loading, missing flags and errors hide it.
+Disabled streaming leaves search, kept downloads and Library automation available, hides
+players and streaming-only settings, and redirects old `/watch/*` URLs home.
+
+From `web/`, run `node --test tests\features.test.mjs tests\legacy-ui.test.mjs` for feature-gate
+regressions and the existing library-add/season-selection suites against the SPA modules.
+The tests reuse Vite and Node's test runner; no extra test dependencies are needed.

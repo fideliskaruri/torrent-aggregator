@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { useFeatures } from "@/lib/features";
 import { Play } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
@@ -39,13 +40,14 @@ export interface HeroBannerProps {
  * it — a greyed control with no explanation is the thing users file bugs about.
  */
 export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps) {
+  const { streaming } = useFeatures();
   const { item, eyebrow } = pick;
   const action = resolveCardAction(item);
   const releaseGate = browseReleaseGate(item);
   const title = cleanDisplayTitle(item.title);
-  const facts = heroFacts(item);
+  const facts = heroFacts(streaming ? item : { ...item, progressFraction: null });
   const factsText = factsLine(facts);
-  const fraction = releaseGate.gated
+  const fraction = releaseGate.gated || !streaming
     ? null
     : clampFraction(item.progressFraction);
   const label = releaseGate.gated
@@ -150,7 +152,11 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           ) : null}
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            {releaseGate.gated ? (
+            {!releaseGate.gated && !streaming && action.kind === "play" ? (
+              <Button asChild size="lg" data-hero-primary>
+                <Link to={titleHref ?? "/downloads"}>{titleHref ? "Download" : "Downloads"}</Link>
+              </Button>
+            ) : releaseGate.gated ? (
               titleHref ? (
                 <Button asChild size="lg" variant="secondary">
                   <Link to={titleHref}>Details</Link>

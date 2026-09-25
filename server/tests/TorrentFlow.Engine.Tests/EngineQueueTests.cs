@@ -65,6 +65,20 @@ public class EngineQueueTests
     }
 
     [Fact]
+    public async Task StreamAndPrewarmAddsAreRefusedWhileStreamingIsOff()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 1);
+        h.Options.Streaming = false;
+        var s = await h.Engine.AddAsync(new EngineAddRequest { Magnet = EngineHarness.Magnet(2), Purpose = TorrentPurpose.Stream });
+        var p = await h.Engine.AddAsync(new EngineAddRequest { Magnet = EngineHarness.Magnet(3), Purpose = TorrentPurpose.Prewarm });
+        Assert.False(s.Ok);
+        Assert.False(p.Ok);
+        Assert.Equal("Streaming is turned off.", s.Message);
+        Assert.Empty(h.Backend.Live);
+        Assert.True((await h.Engine.AddAsync(Keep(1))).Ok);
+    }
+
+    [Fact]
     public async Task CompletionParksTheTransferAndPromotesTheNextEpisode()
     {
         await using var h = await EngineHarness.CreateAsync(cap: 1);

@@ -68,12 +68,13 @@ public class LoopbackSwarmTests : IAsyncLifetime
         try { Directory.Delete(_root, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
-    private MonoTorrentBackend Leecher(string name) => new(Options.Create(new EngineOptions
+    private MonoTorrentBackend Leecher(string name, bool streaming = false) => new(Options.Create(new EngineOptions
     {
         DataDirectory = Path.Combine(_root, name),
         ListenPort = FreePort(),
         Dht = false,
         PublicTrackers = [],
+        Streaming = streaming,
     }), NullLogger<MonoTorrentBackend>.Instance);
 
     private static async Task WaitUntil(Func<bool> condition, TimeSpan timeout, string message)
@@ -109,9 +110,22 @@ public class LoopbackSwarmTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task StreamingOffAddsWithTheStandardPickerAndRefusesStreams()
+    {
+        await using var backend = Leecher("standard");
+        var save = Path.Combine(_root, "standard", "downloads");
+        var added = await backend.AddAsync(new BackendAddSpec(_hash, null, _torrentBytes, save, TorrentPurpose.Keep, null), CancellationToken.None);
+        Assert.True(added.Ok, added.Message);
+        Assert.Null(backend.Engine.Torrents.Single().StreamProvider);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => backend.OpenStreamAsync(_hash, 0, CancellationToken.None));
+        Assert.Equal("Streaming is turned off.", error.Message);
+        await backend.RemoveAsync(_hash);
+    }
+
+    [Fact]
     public async Task StreamSeamReadsBytesInOrderAndSeeks()
     {
-        await using var backend = Leecher("stream");
+        await using var backend = Leecher("stream", streaming: true);
         var save = Path.Combine(_root, "stream", "downloads");
         var added = await backend.AddAsync(new BackendAddSpec(_hash, null, _torrentBytes, save, TorrentPurpose.Stream, null), CancellationToken.None);
         Assert.True(added.Ok, added.Message);

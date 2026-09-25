@@ -20,7 +20,8 @@ public sealed class TorrentSendController(
     ClientSettingsStore settings,
     StorageBudget storage,
     TorrentFlowDbContext db,
-    ExternalClientRegistry clients) : ControllerBase
+    ExternalClientRegistry clients,
+    Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engineOptions) : ControllerBase
 {
     private static readonly (string Field, int Max)[] StringLimits =
         [("magnet", 8192), ("torrentUrl", 2048), ("name", 500), ("source", 100), ("infoHash", 64), ("searchCategory", 100),
@@ -52,6 +53,8 @@ public sealed class TorrentSendController(
         var torrentUrl = body.Str("torrentUrl")?.Trim();
         var infoHashRaw = body.Str("infoHash")?.Trim();
         var retention = body.Str("retention");
+        // With streaming off, a stream-only request is an ordinary download.
+        if (retention == "stream" && !engineOptions.CurrentValue.Streaming) retention = "keep";
         var scope = body.Str("scope");
         var target = body.Str("target") ?? "primary";
         var savePathOverride = body.Str("savePath");
@@ -168,6 +171,7 @@ public sealed class TorrentSendController(
             retention = existingTransfer?.Origin == TorrentOrigin.User || !string.IsNullOrEmpty(watchId) || saved.DefaultRetentionPolicy == "KEPT"
                 ? "keep" : "stream";
         }
+        if (!engineOptions.CurrentValue.Streaming) retention = "keep";
         var purpose = retention == "stream" && string.IsNullOrEmpty(watchId) ? TorrentPurpose.Stream : TorrentPurpose.Keep;
         var history = new DownloadHistory
         {

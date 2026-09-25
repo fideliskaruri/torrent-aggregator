@@ -68,6 +68,10 @@ export const RAIL_PREVIEWS: readonly RailPreview[] = [
   },
 ] as const;
 
+export function visibleBrowseRail(id: string, streaming: boolean): boolean {
+  return streaming || (id !== "continue-watching" && id !== "ready-to-play");
+}
+
 /** The minimum a rail-like object has to expose to be counted. */
 export interface CountableRail {
   id: string;
@@ -90,11 +94,14 @@ export interface CountableRail {
  */
 export function missingRailPreviews(
   rails: readonly CountableRail[],
+  streaming = true,
 ): RailPreview[] {
   const populated = new Set(
     rails.filter((rail) => rail.items.length > 0).map((rail) => rail.id),
   );
-  return RAIL_PREVIEWS.filter((preview) => !populated.has(preview.id));
+  return RAIL_PREVIEWS.filter(
+    (preview) => visibleBrowseRail(preview.id, streaming) && !populated.has(preview.id),
+  );
 }
 
 /** True when the payload has no card in any rail — the first-run case. */

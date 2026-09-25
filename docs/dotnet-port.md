@@ -147,6 +147,20 @@ standard `cat=` roots, falling back to `t=search` when the indexer rejects the t
 `category`; the magnet is `magneturl`, a magnet `link`, or one built from `infohash`, and an http(s) `link`
 or enclosure becomes `TorrentUrl`.
 
+## Streaming (off by default)
+
+In-app streaming (players, prewarm, swarm probes, subtitles) is switched off by `TorrentFlow:Engine:Streaming`
+(default `false`; env `TorrentFlow__Engine__Streaming=true` turns it back on). With it off:
+- The engine adds torrents with MonoTorrent's standard piece picker (`AddAsync`) rather than `AddStreamingAsync`.
+  On the same Ubuntu ISO swarm through `/api/torrent/send`, that went from 5.9 MB/s to 14.4 MB/s over 120 s.
+- Stream and prewarm adds are refused, and `retention: "stream"` becomes a normal kept download.
+- `/api/stream`, `/api/playback`, `/api/prewarm` and `/api/subtitles` answer 404 with `streamingDisabled: true`,
+  and the pre-probe scheduler isn't registered.
+- `GET /api/features` returns `{ "streaming": false }`. The SPA's `FeaturesProvider` hides all playback UI
+  and redirects `/watch/*` home.
+
+The streaming code is kept (and still tested with the flag on) so it can be reworked later.
+
 ## Build and test
 
 ```powershell

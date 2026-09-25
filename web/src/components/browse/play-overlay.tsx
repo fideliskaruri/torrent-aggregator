@@ -4,6 +4,7 @@ import { InlineStreamPlayer } from "@/components/watch/inline-player";
 import type { ProgressEntry } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { resumeLookupKey, resumePositionForTarget } from "./resume-progress";
+import { useFeatures } from "@/lib/features";
 
 const RESUME_LOOKUP_TIMEOUT_MS = 3_000;
 
@@ -49,7 +50,12 @@ export interface PlayOverlayProps {
  * was furniture around a video, and furniture around a video is the thing we
  * are removing.
  */
-export function PlayOverlay({
+export function PlayOverlay(props: PlayOverlayProps) {
+  const { streaming } = useFeatures();
+  return streaming ? <EnabledPlayOverlay {...props} /> : null;
+}
+
+function EnabledPlayOverlay({
   infoHash,
   title,
   subtitle,

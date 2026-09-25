@@ -30,6 +30,14 @@ public sealed class EngineOptions
 
     [Range(1, 1000)] public int MaxOpenFiles { get; set; } = 40;
 
+    /// <summary>
+    /// In-app streaming (play while downloading, prewarm, swarm probes). Off by default: MonoTorrent's streaming
+    /// piece picker downloads sequentially and measured ~7x slower than the standard picker on the same swarm.
+    /// </summary>
+    public bool Streaming { get; set; }
+
+    public const string StreamingKey = Section + ":Streaming";
+
     public bool Dht { get; set; } = true;
 
     /// <summary>UPnP / NAT-PMP mapping of the listen port, so peers behind other NATs can connect to us.</summary>

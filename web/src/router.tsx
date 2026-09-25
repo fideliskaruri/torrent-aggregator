@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import {
   createBrowserRouter,
+  Navigate,
   isRouteErrorResponse,
   useRouteError,
   type RouteObject,
@@ -35,6 +36,7 @@ const routes: RouteObject[] = [
           { path: "search", ...page(() => import("@/app/search/page")) },
           { path: "everything", ...page(() => import("@/app/everything/page")) },
           { path: "watchlist", ...page(() => import("@/app/watchlist/page")) },
+          { path: "watch/*", element: <Navigate to="/" replace /> },
           { path: "title/:workKey", ...page(() => import("@/app/title/[workKey]/page")) },
           { path: "downloads", ...page(() => import("@/app/downloads/page")) },
           { path: "activity", ...page(() => import("@/app/activity/page")) },

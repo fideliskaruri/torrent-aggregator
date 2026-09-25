@@ -65,6 +65,7 @@ import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
 import type { TitleRetention, TitleSeason } from "./types";
+import { useFeatures } from "@/lib/features";
 
 export interface EpisodeListProps {
   seasons: TitleSeason[];
@@ -130,6 +131,7 @@ export function EpisodeList({
   onSeasonGrab,
   onAction,
 }: EpisodeListProps) {
+  const { streaming } = useFeatures();
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
 
   // Single quality picker for the whole list. One picker serves every card's
@@ -279,7 +281,7 @@ export function EpisodeList({
               <Button
                 type="button"
                 size="sm"
-                variant="secondary"
+                variant={streaming ? "secondary" : "default"}
                 data-season-grab
                 data-action="download"
                 aria-busy={seasonGrabStatus.status === "pending" || undefined}
@@ -511,6 +513,7 @@ function EpisodeCardImpl({
   downloadStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
 }) {
+  const { streaming } = useFeatures();
   const transfer = episode.transfer;
   const transferComplete =
     transfer?.status === "downloaded" && Boolean(transfer.infoHash);
@@ -682,7 +685,7 @@ function EpisodeCardImpl({
               press is keyboard-reachable; the Download control is a SIBLING
               layered on top, never a child, so a click on Download can never
               also fire Play. */}
-          <button
+          {streaming ? <button
             type="button"
             data-episode-action
             data-action="stream"
@@ -711,7 +714,12 @@ function EpisodeCardImpl({
               </span>
             </span>
             {caption}
-          </button>
+          </button> : (
+            <div className="flex min-h-[96px] w-full items-stretch text-left sm:block sm:min-h-0">
+              <span className="relative block shrink-0">{still}</span>
+              {caption}
+            </div>
+          )}
 
           {/* Compact keep-it affordance. Icon-only to stay out of the card's
               way, but a 44px touch target and a full aria-label so it is neither
@@ -735,6 +743,7 @@ function EpisodeCardImpl({
                 "transition-colors hover:text-[var(--text)] hover:border-[var(--border-strong)]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
                 "disabled:cursor-default disabled:opacity-70 lg:h-8 lg:min-h-[44px] lg:min-w-[44px]",
+                !streaming && "bg-[var(--accent)] text-[var(--primary-foreground)]",
                 // Downloading shows a live percentage, so the pill grows to fit
                 // the digits; every other state is a single glyph in a circle.
                 transfer?.status === "downloading"

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useFeatures } from "@/lib/features";
 import { Loader2, Radar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -69,6 +70,11 @@ function toneBadge(tone: VerdictTone): {
 }
 
 export function SwarmProbePanel() {
+  const { streaming } = useFeatures();
+  return streaming ? <EnabledSwarmProbePanel /> : null;
+}
+
+function EnabledSwarmProbePanel() {
   const [data, setData] = useState<ProbeSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<Scope | null>(null);

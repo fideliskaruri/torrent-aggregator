@@ -17,6 +17,7 @@
  * survives the round trip.
  */
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
@@ -345,7 +346,8 @@ function EpisodeCard({
         ? `${seasonLabelFor(season)} pack`
         : (entry.episodeLabel ?? display.title);
   const isBuiltin = t.ownerClientType === "builtin";
-  const canPlay = isBuiltin && canStreamTransfer(t);
+  const { streaming } = useFeatures();
+  const canPlay = streaming && isBuiltin && canStreamTransfer(t);
   const speed = speedLabel(t.dlspeed);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
 
@@ -418,7 +420,7 @@ function EpisodeCard({
       </div>
 
       <div className="flex items-center justify-between gap-2 pt-0.5">
-        {isBuiltin ? (
+        {streaming && isBuiltin ? (
           <Button
             type="button"
             variant="secondary"
@@ -489,7 +491,7 @@ function EpisodeCard({
               <Magnet />
               Copy magnet link
             </DropdownMenuItem>
-            {isBuiltin ? (
+            {streaming && isBuiltin ? (
               <DropdownMenuItem
                 onClick={() => onCopyStreamUrl(t)}
                 className="min-h-[44px] lg:min-h-0"

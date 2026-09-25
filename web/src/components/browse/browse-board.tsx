@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
@@ -8,7 +9,7 @@ import {
   type ActionStatus,
   type CardAction,
 } from "./availability";
-import { RAIL_PREVIEWS, missingRailPreviews } from "./first-run";
+import { RAIL_PREVIEWS, missingRailPreviews, visibleBrowseRail } from "./first-run";
 import { HeroBanner } from "./hero-banner";
 import { pickHeroItem } from "./hero";
 import { PlayOverlay } from "./play-overlay";
@@ -32,15 +33,24 @@ interface NowPlaying {
  * single place a duplicate grab could be prevented.
  */
 export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
+  const { streaming } = useFeatures();
   const [statuses, setStatuses] = useState<Record<string, ActionStatus>>({});
   const [playing, setPlaying] = useState<NowPlaying | null>(null);
+  useEffect(() => {
+    if (!streaming) setPlaying(null);
+  }, [streaming]);
   const { ensureDownloadSetup } = useDownloadSetup();
 
-  const hero = useMemo(() => pickHeroItem(payload.rails), [payload.rails]);
+  const rails = useMemo(
+    () => payload.rails.filter((rail) => visibleBrowseRail(rail.id, streaming)),
+    [payload.rails, streaming],
+  );
+  const hero = useMemo(() => pickHeroItem(rails), [rails]);
 
   const runAction = useCallback(
     async (item: RailItem, action: CardAction) => {
       if (action.kind === "play") {
+        if (!streaming) return;
         // Play plays. Open the overlay immediately on the hash we have. If the
         // engine no longer holds it the stream 404s, so we re-fetch in the
         // background and hand the fresh hash in as a prop update — the player
@@ -96,7 +106,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
         const res = await fetch("/api/library/ondemand", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(action.request),
+          body: JSON.stringify({ ...action.request, retention: "keep" }),
         });
         const data = (await res.json().catch(() => null)) as {
           ok?: boolean;
@@ -118,7 +128,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
         });
       }
     },
-    [statuses, ensureDownloadSetup],
+    [statuses, ensureDownloadSetup, streaming],
   );
 
   return (
@@ -132,7 +142,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
       ) : null}
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
-        {payload.rails.map((rail, index) => (
+        {rails.map((rail, index) => (
           <Rail
             key={rail.id}
             rail={rail}
@@ -141,7 +151,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
             onAction={runAction}
           />
         ))}
-        <MissingRailsNote rails={payload.rails} />
+        <MissingRailsNote rails={rails} />
       </div>
 
       {playing ? (
@@ -174,8 +184,9 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
  * and a footer listing all five would be saying it twice.
  */
 function MissingRailsNote({ rails }: { rails: BrowsePayload["rails"] }) {
-  const missing = useMemo(() => missingRailPreviews(rails), [rails]);
-  if (!missing.length || missing.length === RAIL_PREVIEWS.length) return null;
+  const { streaming } = useFeatures();
+  const missing = useMemo(() => missingRailPreviews(rails, streaming), [rails, streaming]);
+  if (!missing.length || missing.length === RAIL_PREVIEWS.filter((rail) => visibleBrowseRail(rail.id, streaming)).length) return null;
 
   return (
     <section

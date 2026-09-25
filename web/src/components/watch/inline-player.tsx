@@ -1,3 +1,4 @@
+import { useFeatures } from "@/lib/features";
 import {
   Component,
   useCallback,
@@ -1919,6 +1920,11 @@ class InlinePlayerErrorBoundary extends Component<
 const OPENING_BOUNDARY_KEY = "__inline-player-opening__";
 
 export function InlineStreamPlayer(props: InlinePlayerProps) {
+  const { streaming } = useFeatures();
+  return streaming ? <EnabledInlineStreamPlayer {...props} /> : null;
+}
+
+function EnabledInlineStreamPlayer(props: InlinePlayerProps) {
   // The error boundary is keyed so a genuinely different release mounted into a
   // persistent parent gets a clean slate. But the opening handoff — the player
   // opens the instant Play is pressed (infoHash null), then the grab resolves

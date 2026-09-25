@@ -35,6 +35,7 @@ internal sealed class ExternalRouteHarness : IDisposable
         {
             b.UseSetting("TorrentFlow:ExternalClients:Enabled", "true");
             b.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
+            b.UseSetting("TorrentFlow:Engine:Streaming", "true");
             b.ConfigureTestServices(s =>
             {
                 s.AddHttpClient<QBittorrentClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);

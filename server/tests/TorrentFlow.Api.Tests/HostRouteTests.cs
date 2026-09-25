@@ -60,6 +60,21 @@ public sealed class HostRouteTests(HostFactory factory) : IClassFixture<HostFact
         Assert.InRange(root.GetProperty("database").GetProperty("latencyMs").GetInt32(), 0, 30_000);
     }
 
+    [Fact]
+    public async Task StreamingIsOffByDefault()
+    {
+        using var features = JsonDocument.Parse(await Client().GetStringAsync("/api/features"));
+        Assert.False(features.RootElement.GetProperty("streaming").GetBoolean());
+
+        foreach (var path in new[] { "/api/stream/abc", "/api/playback/status", "/api/prewarm", "/api/subtitles/abc" })
+        {
+            var response = await Client().GetAsync(path);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.True(doc.RootElement.GetProperty("streamingDisabled").GetBoolean());
+        }
+    }
+
     [Theory]
     [InlineData("/assets/app.js", "text/javascript")]
     [InlineData("/manifest.webmanifest", "application/manifest+json")]
