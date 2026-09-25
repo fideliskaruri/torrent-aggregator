@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using TorrentFlow.Media.Common;
 using TorrentFlow.Media.Ffmpeg;
 using TorrentFlow.Media.Playback;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Hls;
 
@@ -58,7 +59,7 @@ public sealed record HlsStartResult(HlsSession? Session, string? Error)
 /// </summary>
 public sealed partial class HlsSessionManager(
     MediaPaths paths,
-    FfBinaries binaries,
+    FfmpegLocator binaries,
     IProcessRunner runner,
     IOptions<MediaOptions> options,
     TimeProvider clock,
@@ -125,7 +126,7 @@ public sealed partial class HlsSessionManager(
             }
             string ffmpeg;
             try { ffmpeg = binaries.ResolveFfmpeg(); }
-            catch (FfBinaryMissingException ex)
+            catch (FfmpegBinaryMissingException ex)
             {
                 CleanupAll(toClean);
                 return new HlsStartResult(null, ex.Message);

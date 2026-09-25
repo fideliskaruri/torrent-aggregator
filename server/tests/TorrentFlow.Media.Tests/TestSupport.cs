@@ -12,6 +12,7 @@ using TorrentFlow.Media.Common;
 using TorrentFlow.Media.Ffmpeg;
 using TorrentFlow.Media.Playback;
 using TorrentFlow.Media.Probing;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Tests;
 
@@ -184,7 +185,7 @@ public sealed class FfmpegFactAttribute : FactAttribute
 
 internal static class Ff
 {
-    public static readonly FfBinaries Binaries = new(new MediaOptions(), [Directory.GetCurrentDirectory(), AppContext.BaseDirectory], Environment.GetEnvironmentVariable);
+    public static readonly FfmpegLocator Binaries = new(new MediaOptions(), [Directory.GetCurrentDirectory(), AppContext.BaseDirectory], Environment.GetEnvironmentVariable);
 }
 
 internal static class Fixtures

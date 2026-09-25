@@ -5,12 +5,13 @@ using Microsoft.Extensions.Logging;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Media.Ffmpeg;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Probing;
 
 /// <summary>Port of src/lib/media/probe.ts + the MediaProbe cache + warm-probe single-flight.</summary>
 public sealed class MediaProber(
-    FfBinaries binaries,
+    FfmpegLocator binaries,
     IProcessRunner runner,
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
     ILogger<MediaProber> logger)
@@ -27,7 +28,7 @@ public sealed class MediaProber(
     {
         string ffprobe;
         try { ffprobe = binaries.ResolveFfprobe(); }
-        catch (FfBinaryMissingException ex) { return ProbeOutcome.Fail("probe_failed", ex.Message); }
+        catch (FfmpegBinaryMissingException ex) { return ProbeOutcome.Fail("probe_failed", ex.Message); }
         var args = ProbeShape.BuildProbeArgs(input, network, timeoutMs);
         var run = await ProcessRuns.RunAsync(runner, ffprobe, args, TimeSpan.FromMilliseconds(timeoutMs + 2000), 4 * 1024 * 1024, ct);
         if (run.Failure is "timeout" or "aborted") return ProbeOutcome.Fail("timeout", $"ffprobe timed out after {timeoutMs}ms");

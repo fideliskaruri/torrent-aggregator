@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using TorrentFlow.Media.Common;
 using TorrentFlow.Media.Ffmpeg;
 using TorrentFlow.Media.Playback;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Vod;
 
@@ -46,7 +47,7 @@ public sealed record VodFileResult(int Status, string? Message, string? Path)
 /// </summary>
 public sealed partial class VodRuntime(
     MediaPaths paths,
-    FfBinaries binaries,
+    FfmpegLocator binaries,
     IProcessRunner runner,
     TimeProvider clock,
     ILogger<VodRuntime> logger)
@@ -274,7 +275,7 @@ public sealed partial class VodRuntime(
             if (IsReadyOnDisk(entry.Dir)) { MarkReady(entry); return; }
             string ffmpeg;
             try { ffmpeg = binaries.ResolveFfmpeg(); }
-            catch (FfBinaryMissingException ex) { FailWholeFile(entry, ex.Message, environment: true); return; }
+            catch (FfmpegBinaryMissingException ex) { FailWholeFile(entry, ex.Message, environment: true); return; }
             TryDelete(Path.Combine(entry.Dir, VodPlanning.WholeFilePlaylist));
             TryDelete(Path.Combine(entry.Dir, VodPlanning.WholeFileData));
             IRunningProcess proc;
@@ -387,7 +388,7 @@ public sealed partial class VodRuntime(
         {
             string ffmpeg;
             try { ffmpeg = binaries.ResolveFfmpeg(); }
-            catch (FfBinaryMissingException ex) { return VodFileResult.Fail(500, ex.Message); }
+            catch (FfmpegBinaryMissingException ex) { return VodFileResult.Fail(500, ex.Message); }
             var args = VodPlanning.BuildVodSegmentArgs(entry.Plan, entry.SourcePath, segment, forceSoftware: true);
             args.Add("pipe:1");
             var result = await ProcessRuns.RunAsync(runner, ffmpeg, args, SegmentTimeout, 1024L * 1024 * 1024, CancellationToken.None);

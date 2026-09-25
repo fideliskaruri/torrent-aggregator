@@ -4,6 +4,7 @@ using TorrentFlow.Media.Ffmpeg;
 using TorrentFlow.Media.Hls;
 using TorrentFlow.Media.Playback;
 using TorrentFlow.Media.Probing;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Tests;
 
@@ -24,7 +25,7 @@ public sealed class HlsSessionLifecycleTests : IDisposable
 
     private HlsSessionManager Create(int maxConcurrent, string? ffmpeg) =>
         new(new TorrentFlow.Media.Common.MediaPaths(Path.Combine(_root, ".sessions")),
-            new FfBinaries(new MediaOptions { FfmpegPath = ffmpeg }, [], _ => null), _runner,
+            new FfmpegLocator(new MediaOptions { FfmpegPath = ffmpeg }, [], _ => null), _runner,
             Fixtures.Options(o => { o.MaxConcurrentSessions = maxConcurrent; o.SessionIdleTimeoutSeconds = 60; }), _clock, NullLog.For<HlsSessionManager>())
         { RemoveRetryDelaysMs = [10] };
 
@@ -257,11 +258,11 @@ public sealed class FfBinariesTests : IDisposable
         Directory.CreateDirectory(project);
         var vars = new Dictionary<string, string?> { ["FFMPEG_PATH"] = env, ["PATH"] = Path.GetDirectoryName(onPath) };
 
-        Assert.Equal(configured, new FfBinaries(new MediaOptions { FfmpegPath = configured }, [project], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
-        Assert.Equal(env, new FfBinaries(new MediaOptions(), [project], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
+        Assert.Equal(configured, new FfmpegLocator(new MediaOptions { FfmpegPath = configured }, [project], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
+        Assert.Equal(env, new FfmpegLocator(new MediaOptions(), [project], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
         vars.Remove("FFMPEG_PATH");
-        Assert.Equal(bundled, new FfBinaries(new MediaOptions(), [project], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
-        Assert.Equal(onPath, new FfBinaries(new MediaOptions(), [Path.Combine(_root, "elsewhere")], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
+        Assert.Equal(bundled, new FfmpegLocator(new MediaOptions(), [project], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
+        Assert.Equal(onPath, new FfmpegLocator(new MediaOptions(), [Path.Combine(_root, "elsewhere")], k => vars.GetValueOrDefault(k)).ResolveFfmpeg());
     }
 
     [Fact]
@@ -275,20 +276,20 @@ public sealed class FfBinariesTests : IDisposable
             _ => "x64",
         };
         var probe = Touch("node_modules", "ffprobe-static", "bin", platform, arch, Exe("ffprobe"));
-        Assert.Equal(probe, new FfBinaries(new MediaOptions(), [_root], _ => null).ResolveFfprobe());
+        Assert.Equal(probe, new FfmpegLocator(new MediaOptions(), [_root], _ => null).ResolveFfprobe());
     }
 
     [Fact]
     public void MissingBinariesExplainTheFix()
     {
-        var bins = new FfBinaries(new MediaOptions(), [_root], _ => null);
-        var ex = Assert.Throws<FfBinaryMissingException>(bins.ResolveFfprobe);
+        var bins = new FfmpegLocator(new MediaOptions(), [_root], _ => null);
+        var ex = Assert.Throws<FfmpegBinaryMissingException>(bins.ResolveFfprobe);
         Assert.Contains("ffprobe-static", ex.Message);
         Assert.Contains("npm install ffprobe-static", ex.Message);
         Assert.Null(bins.TryResolveFfmpeg());
-        var bad = Assert.Throws<FfBinaryMissingException>(() => new FfBinaries(new MediaOptions { FfmpegPath = Path.Combine(_root, "boom.exe") }, [], _ => null).ResolveFfmpeg());
+        var bad = Assert.Throws<FfmpegBinaryMissingException>(() => new FfmpegLocator(new MediaOptions { FfmpegPath = Path.Combine(_root, "boom.exe") }, [], _ => null).ResolveFfmpeg());
         Assert.Contains("boom", bad.Message);
-        var badEnv = Assert.Throws<FfBinaryMissingException>(() => new FfBinaries(new MediaOptions(), [], k => k == "FFMPEG_PATH" ? Path.Combine(_root, "missing") : null).ResolveFfmpeg());
+        var badEnv = Assert.Throws<FfmpegBinaryMissingException>(() => new FfmpegLocator(new MediaOptions(), [], k => k == "FFMPEG_PATH" ? Path.Combine(_root, "missing") : null).ResolveFfmpeg());
         Assert.Contains("FFMPEG_PATH", badEnv.Message);
     }
 }
@@ -362,7 +363,7 @@ public sealed class FfmpegSmokeTests : IDisposable
         Assert.Equal("remux", plan.Rung);
 
         var manager = new HlsSessionManager(new TorrentFlow.Media.Common.MediaPaths(Path.Combine(_root, ".sessions")),
-            new FfBinaries(new MediaOptions { FfmpegPath = ffmpeg }, [], _ => null), runner, Fixtures.Options(), TimeProvider.System, NullLog.For<HlsSessionManager>());
+            new FfmpegLocator(new MediaOptions { FfmpegPath = ffmpeg }, [], _ => null), runner, Fixtures.Options(), TimeProvider.System, NullLog.For<HlsSessionManager>());
         var session = manager.GetOrCreate("smoke", "tiny.mkv", plan, source).Session!;
         Assert.Equal("disk", session.Source);
         try

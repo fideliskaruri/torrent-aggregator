@@ -1,10 +1,12 @@
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
-namespace TorrentFlow.Media.Ffmpeg;
+namespace TorrentFlow.Media.Tools;
 
-public sealed class FfBinaryMissingException(string binary, string pkg, string cause)
+public sealed class FfmpegBinaryMissingException(string binary, string pkg, string cause)
     : Exception($"{binary} is unavailable \u2014 the bundled \"{pkg}\" binary could not be resolved. " +
         $"Playback probing/transcoding is disabled until it is restored (set TorrentFlow:Media:{(binary == "ffmpeg" ? "FfmpegPath" : "FfprobePath")}, " +
         $"{(binary == "ffmpeg" ? "FFMPEG_PATH" : "FFPROBE_PATH")}, run \"npm install {pkg}\", or put {binary} on PATH). Underlying error: {cause}");
@@ -15,7 +17,7 @@ public sealed class FfBinaryMissingException(string binary, string pkg, string c
 /// <c>node_modules/ffprobe-static/bin/&lt;platform&gt;/&lt;arch&gt;</c>) found walking up from the content root and
 /// working directory → PATH. Results are cached once found.
 /// </summary>
-public sealed class FfBinaries
+public sealed class FfmpegLocator
 {
     private readonly MediaOptions _options;
     private readonly IReadOnlyList<string> _searchRoots;
@@ -23,10 +25,10 @@ public sealed class FfBinaries
     private string? _ffmpeg;
     private string? _ffprobe;
 
-    public FfBinaries(IOptions<MediaOptions> options, IHostEnvironment env)
+    public FfmpegLocator(IOptions<MediaOptions> options, IHostEnvironment env)
         : this(options.Value, [env.ContentRootPath, Environment.CurrentDirectory, AppContext.BaseDirectory], Environment.GetEnvironmentVariable) { }
 
-    internal FfBinaries(MediaOptions options, IReadOnlyList<string> searchRoots, Func<string, string?> env)
+    public FfmpegLocator(MediaOptions options, IReadOnlyList<string> searchRoots, Func<string, string?> env)
     {
         _options = options;
         _searchRoots = searchRoots;
@@ -37,9 +39,9 @@ public sealed class FfBinaries
 
     public string ResolveFfprobe() => _ffprobe ??= Resolve("ffprobe", "ffprobe-static", _options.FfprobePath, "FFPROBE_PATH", FfprobePackagePath);
 
-    public string? TryResolveFfmpeg() { try { return ResolveFfmpeg(); } catch (FfBinaryMissingException) { return null; } }
+    public string? TryResolveFfmpeg() { try { return ResolveFfmpeg(); } catch (FfmpegBinaryMissingException) { return null; } }
 
-    public string? TryResolveFfprobe() { try { return ResolveFfprobe(); } catch (FfBinaryMissingException) { return null; } }
+    public string? TryResolveFfprobe() { try { return ResolveFfprobe(); } catch (FfmpegBinaryMissingException) { return null; } }
 
     private static string Exe(string name) => OperatingSystem.IsWindows() ? name + ".exe" : name;
 
@@ -62,13 +64,13 @@ public sealed class FfBinaries
     {
         if (!string.IsNullOrWhiteSpace(configured))
         {
-            if (!File.Exists(configured)) throw new FfBinaryMissingException(binary, pkg, $"TorrentFlow:Media path \"{configured}\" does not exist on disk");
+            if (!File.Exists(configured)) throw new FfmpegBinaryMissingException(binary, pkg, $"TorrentFlow:Media path \"{configured}\" does not exist on disk");
             return Path.GetFullPath(configured);
         }
         var fromEnv = _env(envVar);
         if (!string.IsNullOrWhiteSpace(fromEnv))
         {
-            if (!File.Exists(fromEnv)) throw new FfBinaryMissingException(binary, pkg, $"{envVar}=\"{fromEnv}\" does not exist on disk");
+            if (!File.Exists(fromEnv)) throw new FfmpegBinaryMissingException(binary, pkg, $"{envVar}=\"{fromEnv}\" does not exist on disk");
             return Path.GetFullPath(fromEnv);
         }
         var roots = new List<string>();
@@ -84,10 +86,10 @@ public sealed class FfBinaries
         }
         var onPath = FindOnPath(Exe(binary), _env("PATH"));
         if (onPath is not null) return onPath;
-        throw new FfBinaryMissingException(binary, pkg, $"no {envVar}, no node_modules/{pkg} above {string.Join(", ", _searchRoots)}, and {binary} is not on PATH");
+        throw new FfmpegBinaryMissingException(binary, pkg, $"no {envVar}, no node_modules/{pkg} above {string.Join(", ", _searchRoots)}, and {binary} is not on PATH");
     }
 
-    internal static string? FindOnPath(string exe, string? pathVar)
+    public static string? FindOnPath(string exe, string? pathVar)
     {
         if (string.IsNullOrWhiteSpace(pathVar)) return null;
         foreach (var dir in pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
@@ -100,5 +102,15 @@ public sealed class FfBinaries
             catch (ArgumentException) { }
         }
         return null;
+    }
+}
+
+public static class FfmpegLocatorServiceCollectionExtensions
+{
+    /// <summary>Registers <see cref="FfmpegLocator"/> once; safe to call from several feature registrations.</summary>
+    public static IServiceCollection AddFfmpegLocator(this IServiceCollection services)
+    {
+        services.TryAddSingleton<FfmpegLocator>();
+        return services;
     }
 }

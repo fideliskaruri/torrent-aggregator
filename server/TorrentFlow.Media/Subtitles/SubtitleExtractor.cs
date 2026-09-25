@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Media.Common;
 using TorrentFlow.Media.Ffmpeg;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Subtitles;
 
@@ -17,7 +18,7 @@ public sealed record SubtitleOutcome(bool Ok, string? Vtt, string? Error, string
 /// scheduler (foreground jumps ahead of prefetch), shared in-flight jobs with per-consumer cancellation, a
 /// SHA-1 keyed WebVTT disk cache with a 512 MiB LRU budget, and ASS/SSA sidecar conversion.
 /// </summary>
-public sealed class SubtitleExtractor(MediaPaths paths, FfBinaries binaries, IProcessRunner runner, ILogger<SubtitleExtractor> logger)
+public sealed class SubtitleExtractor(MediaPaths paths, FfmpegLocator binaries, IProcessRunner runner, ILogger<SubtitleExtractor> logger)
 {
     public const int MaxSubtitleBytes = 8 * 1024 * 1024;
     public const int ExtractTimeoutMs = 45_000;
@@ -178,7 +179,7 @@ public sealed class SubtitleExtractor(MediaPaths paths, FfBinaries binaries, IPr
             {
                 string ffmpeg;
                 try { ffmpeg = binaries.ResolveFfmpeg(); }
-                catch (FfBinaryMissingException ex) { return SubtitleOutcome.Fail("failed", ex.Message); }
+                catch (FfmpegBinaryMissingException ex) { return SubtitleOutcome.Fail("failed", ex.Message); }
                 var outcome = await RunFfmpegAsync(ffmpeg, BuildExtractArgs(sourceUrl, job.StreamIndex, job.WindowStartSec), timeoutMs, allowEmpty: true, job.Cancel.Token);
                 if (outcome.Ok) WriteCache(key, outcome.Vtt!);
                 return outcome;
@@ -242,7 +243,7 @@ public sealed class SubtitleExtractor(MediaPaths paths, FfBinaries binaries, IPr
         if (ext is not ("ass" or "ssa")) return SubtitleOutcome.Fail("failed", $"unsupported sidecar type .{ext}");
         string ffmpeg;
         try { ffmpeg = binaries.ResolveFfmpeg(); }
-        catch (FfBinaryMissingException ex) { return SubtitleOutcome.Fail("failed", ex.Message); }
+        catch (FfmpegBinaryMissingException ex) { return SubtitleOutcome.Fail("failed", ex.Message); }
         Directory.CreateDirectory(CacheDir);
         var scratch = Path.Combine(CacheDir, $"in-{Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(6))}.{ext}");
         try

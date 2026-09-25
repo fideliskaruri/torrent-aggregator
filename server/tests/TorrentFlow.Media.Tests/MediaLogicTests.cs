@@ -9,6 +9,7 @@ using TorrentFlow.Media.Streaming;
 using TorrentFlow.Media.Subtitles;
 using TorrentFlow.Media.Swarm;
 using TorrentFlow.Media.Vod;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Tests;
 
@@ -376,7 +377,7 @@ public class SubtitleTextTests
         try
         {
             var runner = new FakeProcessRunner();
-            var ex = new SubtitleExtractor(new MediaPaths(root), new FfBinaries(new MediaOptions { FfmpegPath = Environment.ProcessPath }, [], _ => null), runner, NullLog.For<SubtitleExtractor>());
+            var ex = new SubtitleExtractor(new MediaPaths(root), new FfmpegLocator(new MediaOptions { FfmpegPath = Environment.ProcessPath }, [], _ => null), runner, NullLog.For<SubtitleExtractor>());
             using var cts = new CancellationTokenSource();
             await cts.CancelAsync();
             var outcome = await ex.ExtractEmbeddedAsync("abc", "video.mkv", 2, "http://x/v", 0, "test", false, null, cts.Token);
@@ -395,7 +396,7 @@ public class SubtitleTextTests
         var root = TestPaths.NewRoot();
         try
         {
-            var ex = new SubtitleExtractor(new MediaPaths(root), new FfBinaries(new MediaOptions(), [], _ => null), new FakeProcessRunner(), NullLog.For<SubtitleExtractor>());
+            var ex = new SubtitleExtractor(new MediaPaths(root), new FfmpegLocator(new MediaOptions(), [], _ => null), new FakeProcessRunner(), NullLog.For<SubtitleExtractor>());
             ex.CacheSidecar("abc", "old.mkv", "sidecar:old.srt", "WEBVTT\n\n" + new string('a', 4000));
             ex.CacheSidecar("abc", "new.mkv", "sidecar:new.srt", "WEBVTT\n\n" + new string('b', 4000));
             var oldPath = ex.CachePath("abc", "old.mkv", "sidecar:old.srt", 0);

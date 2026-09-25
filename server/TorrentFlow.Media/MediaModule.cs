@@ -13,6 +13,7 @@ using TorrentFlow.Media.Streaming;
 using TorrentFlow.Media.Subtitles;
 using TorrentFlow.Media.Swarm;
 using TorrentFlow.Media.Vod;
+using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media;
 
@@ -25,7 +26,7 @@ public static class MediaModule
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IProcessRunner, SystemProcessRunner>();
 
-        services.AddSingleton<FfBinaries>();
+        services.AddFfmpegLocator();
         services.AddSingleton<MediaPaths>();
         services.AddSingleton<MediaSettings>();
         services.AddSingleton<CompletedMedia>();
