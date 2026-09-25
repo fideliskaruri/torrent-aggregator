@@ -7,6 +7,8 @@ import {
   bestQueryRelevanceTier,
   hasRelevantTitle,
 } from "@/lib/search/relevance";
+import { createSingleFlight } from "@/lib/cache/single-flight";
+import { boundedTtlCache } from "@/lib/cache/bounded-ttl-cache";
 
 const ANILIST_URL = "https://graphql.anilist.co";
 const ANILIST_RETRY_DELAYS_MS = [50, 100] as const;
@@ -185,12 +187,56 @@ export function isAniListSeriesFormat(
   return format !== "MOVIE";
 }
 
+/**
+ * Enrichment asks AniList the same question several times at once (six release
+ * titles for one show reduce to one or two distinct catalog queries, and the
+ * shortened candidate of every noisy release name is usually the *same* show
+ * name). Sharing the in-flight request and remembering the answer briefly
+ * keeps every answer identical while spending a single slot of AniList's
+ * per-minute budget instead of six — which also stops the 429 retry ladder
+ * below from being entered in the first place.
+ *
+ * The TTL is short and deliberately not a substitute for the real metadata
+ * caches: it exists to collapse one page's worth of duplicate questions, not
+ * to serve stale catalog data. It is also consistent with the `revalidate:
+ * 3600` already requested on the fetch below, which does not apply to POST.
+ */
+const aniListInFlight = createSingleFlight<AniListMedia[]>();
+
+const ANILIST_QUERY_TTL_MS = 60_000;
+
+const aniListRecent = boundedTtlCache<AniListMedia[]>({
+  maxEntries: 300,
+  ttlMs: ANILIST_QUERY_TTL_MS,
+  pruneIntervalMs: 60_000,
+  name: "metadata:anilist-query",
+});
+
+/** Test seam: forget every remembered AniList answer. */
+export function resetAniListQueryCache(): void {
+  aniListRecent.clear();
+}
+
 async function fetchAniListMedia(
   search: string,
   perPage: number,
 ): Promise<AniListMedia[]> {
   const term = canonicalizeSearchQuery(search);
   if (!term) return [];
+  const key = `${perPage}:${term.toLowerCase()}`;
+  const remembered = aniListRecent.get(key);
+  if (remembered) return remembered;
+  return aniListInFlight.run(key, async () => {
+    const media = await fetchAniListMediaUncoalesced(term, perPage);
+    aniListRecent.set(key, media);
+    return media;
+  });
+}
+
+async function fetchAniListMediaUncoalesced(
+  term: string,
+  perPage: number,
+): Promise<AniListMedia[]> {
   const deadline = Date.now() + 10_000;
 
   const runQuery = async (query: string): Promise<AniListMedia[]> => {

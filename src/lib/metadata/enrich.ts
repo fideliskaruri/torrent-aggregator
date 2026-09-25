@@ -9,6 +9,8 @@ import {
   setCachedMetadata,
   setMemoryQueryCache,
 } from "./cache";
+import { createPhaseTimer } from "@/lib/observability/phase-timing";
+import { createSingleFlight } from "@/lib/cache/single-flight";
 
 export { cleanTorrentTitle } from "./clean-torrent-title";
 
@@ -190,6 +192,23 @@ export async function resolveMetadata(
   const cached = getMemoryQueryCache(memKey);
   if (cached !== undefined) return cached;
 
+  // The memory cache is only written once a lookup *finishes*, so six release
+  // titles that clean to the same subject used to run six identical candidate
+  // ladders side by side. Coalescing them changes no answer and removes the
+  // duplication that dominated enrichment latency.
+  return resolveInFlight.run(memKey, () =>
+    resolveMetadataUncached(rawTitle, cleaned, category, memKey),
+  );
+}
+
+const resolveInFlight = createSingleFlight<MediaMetadata | null>();
+
+async function resolveMetadataUncached(
+  rawTitle: string,
+  cleaned: string,
+  category: string | undefined,
+  memKey: string,
+): Promise<MediaMetadata | null> {
   const preferAnime =
     category === "anime" ||
     /\b(anime|subbed|dubbed|bd\s*box|ova|ona)\b/i.test(rawTitle);
@@ -320,10 +339,23 @@ export async function enrichResultsWithMetadata(
   results: TorrentResult[],
   query: string,
   category?: string,
+  /**
+   * An already-started `resolveMetadata(query, category)`.
+   *
+   * The primary lookup depends only on the query, not on any result, so it can
+   * run while the indexer fan-out is still in flight instead of adding a whole
+   * catalog round-trip after it. Callers that have nothing to overlap with can
+   * omit it and get the previous sequential behaviour.
+   */
+  primaryLookup?: Promise<MediaMetadata | null>,
 ): Promise<TorrentResult[]> {
   if (!results.length) return results;
 
-  const primary = await resolveMetadata(query, category);
+  const timer = createPhaseTimer("enrich");
+  const primary = await timer.step(
+    "primary",
+    () => primaryLookup ?? resolveMetadata(query, category),
+  );
 
   // Two different limits, deliberately. TMDB/AniList *lookups* are the scarce,
   // rate-limited resource, so we resolve metadata for at most 6 unique titles
@@ -340,20 +372,25 @@ export async function enrichResultsWithMetadata(
   ].slice(0, 6);
 
   const titleMeta = new Map<string, MediaMetadata | null>();
-  await Promise.all(
-    uniqueTitles.map(async (t) => {
-      // Prefer a title-specific lookup; fall back to primary only if it matches
-      let meta = await resolveMetadata(t, category);
-      if (
-        !meta &&
-        primary &&
-        metadataIdentityCompatible(t, primary, query, category)
-      ) {
-        meta = primary;
-      }
-      titleMeta.set(t, meta);
-    }),
+  await timer.step("per-title", () =>
+    Promise.all(
+      uniqueTitles.map(async (t) => {
+        const t0 = performance.now();
+        // Prefer a title-specific lookup; fall back to primary only if it matches
+        let meta = await resolveMetadata(t, category);
+        if (
+          !meta &&
+          primary &&
+          metadataIdentityCompatible(t, primary, query, category)
+        ) {
+          meta = primary;
+        }
+        titleMeta.set(t, meta);
+        timer.record(`title:${t.slice(0, 24)}`, performance.now() - t0);
+      }),
+    ),
   );
+  timer.done({ titles: uniqueTitles.length });
 
   return results.map((r) => {
     const key = cleanTorrentTitle(r.title);

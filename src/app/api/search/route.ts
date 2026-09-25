@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { searchTorrents, listAvailableSources, SearchThrottledError } from "@/lib/torrents/aggregator";
+import {
+  searchTorrents,
+  listAvailableSources,
+  SearchThrottledError,
+  INTERACTIVE_ADAPTER_DEADLINE_MS,
+} from "@/lib/torrents/aggregator";
 import type { TorrentSourceId } from "@/lib/torrents/types";
 import type { SearchFilters } from "@/lib/torrents/filters";
 import { AGGREGATOR_CATEGORIES } from "@/lib/torrents/search-scopes";
@@ -11,6 +16,7 @@ import {
   requestFailureResponse,
   type RequestResult,
 } from "@/lib/http/request";
+import { createPhaseTimer } from "@/lib/observability/phase-timing";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +45,7 @@ function binaryQuery(
 }
 
 export async function GET(request: NextRequest) {
+  const timer = createPhaseTimer("api/search");
 
   const { searchParams } = request.nextUrl;
   const qResult = queryString(searchParams, "q", {
@@ -185,12 +192,15 @@ export async function GET(request: NextRequest) {
   const skipCache = refreshResult.value ?? false;
 
   try {
+    timer.mark("parse");
     // Routing prefs from logged-in user settings (base folder, categories)
     let routing = null;
     try {
-      const session = await auth();
+      const session = await timer.step("auth", () => auth());
       if (session?.user?.id) {
-        const cfg = await getUserClientConfig(session.user.id);
+        const cfg = await timer.step("client-config", () =>
+          getUserClientConfig(session.user!.id!),
+        );
         if (cfg) {
           routing = {
             categories: cfg.categories,
@@ -204,22 +214,30 @@ export async function GET(request: NextRequest) {
       // unauthenticated / no settings — routes still include kind/category
     }
 
-    const result = await searchTorrents({
-      query: q,
-      category,
-      page,
-      pageSize,
-      limit,
-      sources,
-      enrich,
-      filters,
-      skipCache,
-      routing,
-    });
-    return NextResponse.json({
+    const result = await timer.step("searchTorrents", () =>
+      searchTorrents({
+        query: q,
+        category,
+        page,
+        pageSize,
+        limit,
+        sources,
+        enrich,
+        filters,
+        skipCache,
+        routing,
+        // Interactive display path: a single unreachable source must not hold
+        // the whole page hostage for the full adapter timeout.
+        adapterDeadlineMs: INTERACTIVE_ADAPTER_DEADLINE_MS,
+      }),
+    );
+    const body = NextResponse.json({
       ...result,
       availableSources: listAvailableSources(),
     });
+    timer.mark("serialize");
+    timer.done({ q, cached: result.cached === true, rows: result.results.length });
+    return body;
   } catch (err) {
     if (err instanceof SearchThrottledError) {
       return NextResponse.json(

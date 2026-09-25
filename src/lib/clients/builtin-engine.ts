@@ -61,6 +61,18 @@ import {
   shouldRehydrateTorrent,
 } from "./builtin-engine-lifecycle";
 import { createSnapshotScheduler } from "./snapshot-scheduler";
+import {
+  QUEUED_STATUS,
+  maxActiveDownloads,
+  planRehydrate,
+  promotionCandidates,
+  queuePositions,
+  shouldParkOnResume,
+  shouldQueueNewDownload,
+  createAdmissionControl,
+  createCoalescingRunner,
+  type QueueRow,
+} from "./download-queue";
 import { finalizeCompletedDownload } from "./completion-finalizer";
 import {
   isSupportedVideoFileName,
@@ -260,6 +272,25 @@ export const PUBLIC_TRACKERS = [
 // workload. Twenty is WebTorrent's own disk-backed default: enough to absorb
 // active sequential reads without turning every transfer into a RAM cache.
 export const STREAMING_STORE_CACHE_SLOTS = 20;
+
+/**
+ * Store cache for a kept download.
+ *
+ * `storeCacheSlots` is fixed when the torrent object is constructed — before a
+ * magnet knows its piece length — so it cannot be derived from piece size. A
+ * kept download is not being read back while it fetches, so it does not need
+ * the read-ahead window a player does: twenty 8-16 MiB REMUX pieces is up to
+ * 320 MB of cache per transfer, and a season of those is the memory the queue
+ * and this number exist to remove. Four is enough to absorb sequential writes
+ * without turning the transfer into a RAM buffer. Measured on a 13-episode
+ * local season it is worth noticeably less than the queue itself — at full
+ * loopback speed the dominant cost is WebTorrent's in-flight block buffers,
+ * not the store cache — but it is strictly less memory for no measured loss of
+ * throughput, and it scales with however many downloads are active. Stream and
+ * prewarm adds keep the full {@link STREAMING_STORE_CACHE_SLOTS} — playback is
+ * the case the cache is actually for.
+ */
+export const KEPT_STORE_CACHE_SLOTS = 4;
 
 const ADD_OPTIONS: BuiltinAddOptions = {
   strategy: "sequential",
@@ -1078,6 +1109,18 @@ async function recordRehydrateFailure(
   });
 }
 
+/** A failed restore frees the slot it was planned into; refill it. */
+async function recordRehydrateFailureAndPromote(
+  row: EngineTorrentRehydrateRow,
+  err: unknown,
+): Promise<void> {
+  try {
+    await recordRehydrateFailure(row, err);
+  } finally {
+    void promoteQueuedDownloads(row.userId);
+  }
+}
+
 function scheduleRehydrateReadyPersist(
   row: EngineTorrentRehydrateRow,
   t: WtTorrent,
@@ -1471,6 +1514,16 @@ async function getWtClient(): Promise<WebTorrentLike> {
         "[builtin-engine] could not patch WebTorrent piece race; expect noisy uncaughtException logs",
       );
     }
+    // An incoming peer that handshakes after its torrent was destroyed reads
+    // `this.swarm.private` off null and crashes the process.
+    const { patchWebTorrentPeerHandshake } = await import(
+      "@/lib/clients/webtorrent-peer-handshake"
+    );
+    if (!(await patchWebTorrentPeerHandshake())) {
+      console.warn(
+        "[builtin-engine] could not patch WebTorrent peer handshake; a peer arriving for a destroyed torrent can crash the process",
+      );
+    }
     // Must run before any metadata arrives: WebTorrent's own `_onMetadata`
     // guard is defeated by its own `await`, so concurrent peers re-initialise
     // the torrent and corrupt the bitfield (see webtorrent-metadata-race).
@@ -1485,14 +1538,14 @@ async function getWtClient(): Promise<WebTorrentLike> {
     // Outgoing message encryption XORs in place, and `_message` forwards the
     // caller's own buffer — so announcing our bitfield to an encrypted peer
     // overwrites it with ciphertext (see webtorrent-wire-encrypt).
-    const { patchWebTorrentWireEncrypt } = await import(
-      "@/lib/clients/webtorrent-wire-encrypt"
-    );
-    if (!(await patchWebTorrentWireEncrypt())) {
-      console.warn(
-        "[builtin-engine] could not patch wire encryption aliasing; expect corrupted progress and spurious hash failures",
-      );
-    }
+    const { patchWebTorrentWireEncrypt, patchWireEncryptAliasingFromWire } =
+      await import("@/lib/clients/webtorrent-wire-encrypt");
+    // `bittorrent-protocol` is a transitive dependency, so under pnpm's strict
+    // layout this import legitimately fails and the old warning fired on every
+    // clean install for a defect that was not there. It is a best-effort early
+    // patch; the authoritative one is applied to the prototype of the first
+    // real wire below, which needs no module resolution at all.
+    let wirePatched = await patchWebTorrentWireEncrypt();
     // Peer sockets get only a `once('error')` from WebTorrent, so a second
     // reset on the same socket has no listener and crashes out of Node.
     const { patchWebTorrentConnErrors } = await import(
@@ -1522,6 +1575,33 @@ async function getWtClient(): Promise<WebTorrentLike> {
       );
     }
     const client = new WebTorrent(BUILTIN_CLIENT_OPTIONS);
+    // Every wire shares one prototype, so the first one the client hands us is
+    // enough to patch them all — including wires that already exist. Warn only
+    // if a real wire appeared and the patch still did not land, which is the
+    // only situation that actually means the internals moved.
+    const patchFromWire = (wire: unknown) => {
+      if (wirePatched || !wire || typeof wire !== "object") return;
+      wirePatched = patchWireEncryptAliasingFromWire(wire);
+      if (!wirePatched) {
+        console.warn(
+          "[builtin-engine] could not patch wire encryption aliasing; expect corrupted progress and spurious hash failures",
+        );
+        // One warning is a report; one per wire is a flood.
+        wirePatched = true;
+      }
+    };
+    client.on("wire", (wire: unknown) => patchFromWire(wire));
+    client.on("torrent", (torrent: unknown) => {
+      const t = torrent as WtTorrent | undefined;
+      try {
+        t?.on?.("wire", (wire: unknown) => patchFromWire(wire));
+      } catch {
+        /* best-effort */
+      }
+      for (const wire of readProp(() => t?.wires, []) ?? []) {
+        patchFromWire(wire);
+      }
+    });
     // WebTorrent queues every torrent added before the peer server emits
     // "listening" by attaching `client.once("listening")` in torrent.js. A
     // cold rehydrate can add dozens of rows synchronously, tripping
@@ -1595,10 +1675,17 @@ async function checkStoragePolicy(
     config.baseDownloadPath?.trim() ||
     config.savePath?.trim() ||
     dest;
+  // Queued downloads have written no bytes yet, so the folder measurement
+  // cannot see them. Without reserving their expected sizes, thirteen episodes
+  // fanned out in parallel all pass the same free space and the cap is only
+  // discovered once the disk is already full.
+  const reserved = config.userId
+    ? await queuedDownloadBytes(config.userId)
+    : 0;
   const r = await assertStorageBudget({
     root,
     maxStorageBytes: config.maxStorageBytes,
-    incomingBytes: incomingBytes ?? null,
+    incomingBytes: (incomingBytes ?? 0) + reserved || null,
   });
   if (r.ok) return { ok: true };
   if (overrideStorageCap && isOverridableLimit(r.limit)) return { ok: true };
@@ -1931,6 +2018,288 @@ async function upsertEngineTorrent(opts: {
   }
 }
 
+// ── Download queue ─────────────────────────────────────────────────────────
+//
+// Kept downloads transfer a few at a time; the rest are persisted rows with no
+// WebTorrent handle at all. See lib/clients/download-queue for the ordering and
+// cap rules — everything here is the database + engine side of them.
+
+const QUEUE_ROW_SELECT = {
+  hash: true,
+  status: true,
+  origin: true,
+  workId: true,
+  queueKey: true,
+  createdAt: true,
+  forcedAt: true,
+  sizeBytes: true,
+} as const;
+
+type PersistedQueueRow = {
+  hash: string;
+  status: string;
+  origin: string;
+  workId: string | null;
+  queueKey: string | null;
+  createdAt: Date;
+  forcedAt: Date | null;
+  sizeBytes: bigint;
+};
+
+function toQueueRow(row: PersistedQueueRow): QueueRow {
+  return { ...row, sizeBytes: Number(row.sizeBytes ?? 0) };
+}
+
+/** Rows that participate in the cap: live kept transfers plus the queue. */
+async function queueRowsForUser(userId: string): Promise<QueueRow[]> {
+  const rows = await prisma.engineTorrent.findMany({
+    where: { userId, status: { in: ["downloading", QUEUED_STATUS] } },
+    select: QUEUE_ROW_SELECT,
+  });
+  return rows.map(toQueueRow);
+}
+
+/** Bytes queued rows will claim once they start. Exported for the storage gate. */
+export async function queuedDownloadBytes(userId: string): Promise<number> {
+  try {
+    const rows = await prisma.engineTorrent.findMany({
+      where: { userId, status: QUEUED_STATUS },
+      select: { sizeBytes: true },
+    });
+    return rows.reduce((sum, row) => sum + Number(row.sizeBytes ?? 0), 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Serializes gate + claim per user, and counts fresh adds that were admitted
+ * but have not written their `downloading` row yet (metadata can take 90s).
+ */
+const admission = createAdmissionControl();
+
+/**
+ * Admit a kept download as a queue row with no live torrent behind it.
+ *
+ * `workId` is best-effort: the column is a foreign key and a caller can hand us
+ * a work that was deleted between the search and the add, which must downgrade
+ * the grouping rather than lose the download.
+ */
+async function persistQueuedDownload(opts: {
+  userId: string;
+  hash: string;
+  name: string;
+  magnet: string | null;
+  torrentUrl: string | null;
+  savePath: string;
+  category: string | null;
+  workId: string | null;
+  queueKey: string | null;
+  sizeBytes: number;
+}): Promise<boolean> {
+  const size = BigInt(Math.max(0, Math.floor(opts.sizeBytes || 0)));
+  const write = async (workId: string | null) => {
+    const shared = {
+      name: opts.name,
+      magnet: opts.magnet,
+      torrentUrl: opts.torrentUrl,
+      savePath: opts.savePath,
+      category: opts.category,
+      status: QUEUED_STATUS,
+      sizeBytes: size,
+      queueKey: opts.queueKey,
+      workId,
+      forcedAt: null,
+      error: null,
+    };
+    await prisma.engineTorrent.upsert({
+      where: { userId_hash: { userId: opts.userId, hash: opts.hash } },
+      create: {
+        userId: opts.userId,
+        hash: opts.hash,
+        origin: USER_ORIGIN,
+        progress: 0,
+        ...shared,
+      },
+      update: shared,
+    });
+  };
+  try {
+    await write(opts.workId);
+    return true;
+  } catch (err) {
+    if (opts.workId) {
+      try {
+        await write(null);
+        return true;
+      } catch {
+        /* fall through to the warning below */
+      }
+    }
+    console.warn("[builtin-engine] could not queue download", opts.hash, err);
+    return false;
+  }
+}
+
+/**
+ * Start a specific queued row.
+ *
+ * The status flip is a compare-and-set on `queued`, so two concurrent
+ * promotions (a completion and a delete landing together) cannot both admit the
+ * same row. The add itself is deliberately not awaited: it blocks on swarm
+ * metadata for up to 90s and nothing upstream — a finished download, a delete,
+ * an HTTP action — should wait for that.
+ */
+async function startQueuedRow(
+  userId: string,
+  hash: string,
+  opts: { forced?: boolean } = {},
+): Promise<boolean> {
+  const h = hash.toLowerCase();
+  let row;
+  try {
+    const claimed = await prisma.engineTorrent.updateMany({
+      where: {
+        userId,
+        hash: h,
+        status: opts.forced ? { in: [QUEUED_STATUS, "paused"] } : QUEUED_STATUS,
+      },
+      data: {
+        status: "downloading",
+        ...(opts.forced ? { forcedAt: new Date() } : {}),
+      },
+    });
+    if (claimed.count === 0) return false;
+    row = await prisma.engineTorrent.findUnique({
+      where: { userId_hash: { userId, hash: h } },
+    });
+  } catch (err) {
+    console.warn("[builtin-engine] could not claim queued row", h, err);
+    return false;
+  }
+  if (!row) return false;
+
+  void (async () => {
+    try {
+      const { getUserClientConfig } = await import("@/lib/clients");
+      const config = await getUserClientConfig(userId);
+      if (!config) throw new Error("No download settings for this user");
+      const result = await builtinClient.addTorrent(config, {
+        magnet: row.magnet ?? undefined,
+        torrentUrl: row.torrentUrl ?? undefined,
+        name: row.name,
+        savePath: row.savePath ?? undefined,
+        category: row.category ?? undefined,
+        purpose: "keep",
+        workId: row.workId,
+        queueKey: row.queueKey,
+        bypassQueue: true,
+      });
+      if (!result.ok) throw new Error(result.message);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[builtin-engine] promoted download ${h} failed:`, message);
+      try {
+        await prisma.engineTorrent.updateMany({
+          where: { userId, hash: h, status: "downloading" },
+          data: { status: "error", error: message, forcedAt: null },
+        });
+      } catch {
+        /* best-effort */
+      }
+      // The slot this row was holding is free again.
+      void promoteQueuedDownloads(userId);
+    }
+  })();
+  return true;
+}
+
+/**
+ * Refill free transfer slots from the head of the queue.
+ *
+ * Call this whenever an active kept download stops occupying a slot —
+ * completed, paused, deleted or failed.
+ */
+export async function promoteQueuedDownloads(
+  userId: string | null | undefined,
+): Promise<string[]> {
+  const uid = userId?.trim();
+  if (!uid) return [];
+  return runPromotion(uid);
+}
+
+async function promotionPass(uid: string): Promise<string[]> {
+  return admission.withLock(uid, async () => {
+    const rows = await queueRowsForUser(uid);
+    const cap = maxActiveDownloads() - admission.pendingCount(uid, rows);
+    const started: string[] = [];
+    for (const hash of promotionCandidates(rows, cap)) {
+      if (await startQueuedRow(uid, hash)) started.push(hash);
+    }
+    return started;
+  });
+}
+
+// A request that lands while a pass runs triggers another pass after it, so a
+// slot freed mid-pass (or a failed start's retry) is never lost.
+const runPromotion = createCoalescingRunner(promotionPass, (err) =>
+  console.warn("[builtin-engine] promotion pass failed", err),
+);
+
+/**
+ * Re-apply the cap to whatever the last process left behind.
+ *
+ * A database written before the queue existed — or by a crash mid-season —
+ * holds every episode as `downloading`. Rehydrating all of them is exactly the
+ * memory blow-up the queue prevents, so the plan runs before any row reaches
+ * WebTorrent: forced rows always start, the queue head fills the remaining
+ * slots, and the rest are persisted as queued.
+ */
+async function applyStartupQueuePlan(userId?: string | null): Promise<void> {
+  try {
+    const rows = await prisma.engineTorrent.findMany({
+      where: {
+        ...(userId?.trim() ? { userId: userId.trim() } : {}),
+        origin: USER_ORIGIN,
+        status: { in: ["downloading", QUEUED_STATUS] },
+      },
+      select: {
+        ...QUEUE_ROW_SELECT,
+        userId: true,
+        progress: true,
+        verifiedBitfield: true,
+        verifiedFilesJson: true,
+      },
+    });
+    const byUser = new Map<string, typeof rows>();
+    for (const row of rows) {
+      // A finished transfer is not competing for a slot; demoting it to
+      // "queued" would hide a completed download behind a queue position.
+      if (persistedTorrentIsDownloaded(row)) continue;
+      const list = byUser.get(row.userId) ?? [];
+      list.push(row);
+      byUser.set(row.userId, list);
+    }
+    for (const [uid, userRows] of byUser) {
+      const plan = planRehydrate(userRows.map(toQueueRow), maxActiveDownloads());
+      if (plan.demote.length > 0) {
+        await prisma.engineTorrent.updateMany({
+          where: { userId: uid, hash: { in: plan.demote } },
+          data: { status: QUEUED_STATUS },
+        });
+      }
+      if (plan.active.length > 0) {
+        await prisma.engineTorrent.updateMany({
+          where: { userId: uid, hash: { in: plan.active } },
+          data: { status: "downloading" },
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("[builtin-engine] startup queue plan failed", err);
+  }
+}
+
 /**
  * Load durable EngineTorrent rows and re-add magnets into the live WebTorrent client.
  * Non-blocking per torrent: errors are caught individually; we do not wait for metadata.
@@ -1954,7 +2323,11 @@ async function rehydrateFromDb(
   const work = (async () => {
     let succeeded = false;
     let retryNeeded = false;
+    const rehydratedUsers = new Set<string>(userId?.trim() ? [userId.trim()] : []);
     try {
+      // Before anything reaches WebTorrent: only the active head of the queue
+      // (plus anything forced) may be restored.
+      await applyStartupQueuePlan(userId);
       const rows = await prisma.engineTorrent.findMany({
         where: {
           ...(userId?.trim() ? { userId: userId.trim() } : {}),
@@ -1964,6 +2337,7 @@ async function rehydrateFromDb(
       });
 
       for (const row of rows) {
+        rehydratedUsers.add(row.userId);
         if (!shouldRehydrateTorrent(row)) continue;
         const addUri = row.torrentUrl?.trim() || row.magnet?.trim();
         if (!addUri) continue;
@@ -1990,7 +2364,7 @@ async function rehydrateFromDb(
                 } catch {
                   /* best-effort */
                 }
-                void recordRehydrateFailure(
+                void recordRehydrateFailureAndPromote(
                   row,
                   new InvalidCompletedMediaError(),
                 ).catch(() => {
@@ -2047,7 +2421,12 @@ async function rehydrateFromDb(
             addInput.input,
             dest,
             undefined,
-            startupBitfield ? { bitfield: startupBitfield } : {},
+            {
+              ...(startupBitfield ? { bitfield: startupBitfield } : {}),
+              ...(row.origin === USER_ORIGIN
+                ? { storeCacheSlots: KEPT_STORE_CACHE_SLOTS }
+                : {}),
+            },
           );
           let settled = false;
           let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2098,7 +2477,7 @@ async function rehydrateFromDb(
               /* best-effort */
             }
             s.meta.delete(hash);
-            void recordRehydrateFailure(row, err).catch(() => {
+            void recordRehydrateFailureAndPromote(row, err).catch(() => {
               /* best-effort */
             });
           };
@@ -2116,7 +2495,7 @@ async function rehydrateFromDb(
             `[builtin-engine] failed to re-add ${hash}:`,
             errorMessage(err),
           );
-          await recordRehydrateFailure(row, err).catch(() => {
+          await recordRehydrateFailureAndPromote(row, err).catch(() => {
             /* best-effort */
           });
         }
@@ -2133,6 +2512,8 @@ async function rehydrateFromDb(
     } finally {
       if (succeeded) s.rehydrated.add(key);
       s.rehydrating.delete(key);
+      // Whatever the pass restored or failed, the queue must move on.
+      for (const uid of rehydratedUsers) void promoteQueuedDownloads(uid);
     }
   })();
 
@@ -2994,6 +3375,9 @@ async function persistAndParkCompletedTorrent(
     })
     .finally(() => {
       state().parking.delete(key);
+      // This download no longer occupies a transfer slot — whether it parked
+      // cleanly or was rejected, the queue must move on.
+      void promoteQueuedDownloads(userId);
     });
 
   state().parking.set(key, work);
@@ -3248,6 +3632,13 @@ export class BuiltinClient implements TorrentClientAdapter {
       return { ok: false, message: "No magnet or torrent URL provided" };
     }
 
+    let reservation: { userId: string; hash: string } | null = null;
+    const releaseReservation = (promote: boolean) => {
+      if (!reservation) return;
+      admission.release(reservation.userId, reservation.hash);
+      if (promote) void promoteQueuedDownloads(reservation.userId);
+      reservation = null;
+    };
     try {
       const client = await ensureClientAndRehydrate(config);
       const dest =
@@ -3393,6 +3784,85 @@ export class BuiltinClient implements TorrentClientAdapter {
         }
       }
 
+      // ── Download queue gate ───────────────────────────────────────────
+      //
+      // A kept download that has no free transfer slot is admitted as a row and
+      // never handed to WebTorrent: no wires, no peers, no piece cache, and no
+      // 90s wait on swarm metadata for the caller. It enters the engine when a
+      // slot frees (promoteQueuedDownloads) or when the owner forces it.
+      const queueHash = existingHash?.toLowerCase() || null;
+      if (
+        config.userId &&
+        queueHash &&
+        payload.purpose === "keep" &&
+        !payload.bypassQueue &&
+        !payload.forced
+      ) {
+        const uid = config.userId;
+        // Gate + claim run under the per-user lock, and an admitted add holds a
+        // reservation until its row says `downloading` — otherwise concurrent
+        // season workers all read "0 active" before any metadata resolves.
+        const queuedResult = await admission.withLock(uid, async (): Promise<AddTorrentResult | null> => {
+        const existingRow = await prisma.engineTorrent.findUnique({
+          where: { userId_hash: { userId: uid, hash: queueHash } },
+          select: { status: true },
+        });
+        const existingStatus = existingRow?.status?.toLowerCase() ?? null;
+        // A paused row stays paused — it is not waiting for a slot, the owner
+        // stopped it — and a finished one has nothing left to queue.
+        const admissible =
+          existingStatus == null ||
+          existingStatus === QUEUED_STATUS ||
+          existingStatus === "error" ||
+          existingStatus === "removed";
+        const gateRows = await queueRowsForUser(uid);
+        if (
+          admissible &&
+          shouldQueueNewDownload({
+            rows: gateRows,
+            cap: maxActiveDownloads(),
+            origin: USER_ORIGIN,
+            pending: admission.pendingCount(uid, gateRows),
+          })
+        ) {
+          const queued = await persistQueuedDownload({
+            userId: uid,
+            hash: queueHash,
+            name: payload.name || queueHash,
+            magnet: magnetForPersist(payload, addUri),
+            torrentUrl: payload.torrentUrl?.trim() || null,
+            savePath: dest,
+            category: payload.category ?? null,
+            workId: payload.workId ?? null,
+            queueKey: payload.queueKey ?? null,
+            sizeBytes: payload.expectedSizeBytes ?? 0,
+          });
+          if (queued) {
+            const position = queuePositions(
+              await queueRowsForUser(uid),
+            ).get(queueHash);
+            return {
+              ok: true,
+              message: position
+                ? `Queued — #${position} in line`
+                : "Queued",
+              details: {
+                type: "builtin-transfer",
+                action: "queued",
+                pct: 0,
+                peers: 0,
+                ...(position ? { queuePosition: position } : {}),
+              },
+            };
+          }
+        }
+        admission.reserve(uid, queueHash);
+        reservation = { userId: uid, hash: queueHash };
+        return null;
+        });
+        if (queuedResult) return queuedResult;
+      }
+
       const torrent = await new Promise<WtTorrent>((resolve, reject) => {
         // Existing bytes may still sit under a release root from before the
         // layout rewrite. Lift them now, while nothing has the files open.
@@ -3447,8 +3917,7 @@ export class BuiltinClient implements TorrentClientAdapter {
             ),
           );
         }, 90_000);
-        const t = addTorrentWithEngineDefaults(client, addUri, dest, (ready) => {
-          if (settled) return;
+        const t = addTorrentWithEngineDefaults(client, addUri, dest, (ready) => {          if (settled) return;
           const validation = validateTorrentMediaPayload(ready.files ?? []);
           if (!validation.ok) {
             settled = true;
@@ -3461,7 +3930,13 @@ export class BuiltinClient implements TorrentClientAdapter {
           settled = true;
           clearTimeout(timer);
           resolve(ready);
-        }, eff.selection === "deselect" ? { deselect: true } : {});
+        }, {
+          ...(eff.selection === "deselect" ? { deselect: true } : {}),
+          // Playback needs the read-ahead window; a kept download does not.
+          ...(payload.purpose === "keep"
+            ? { storeCacheSlots: KEPT_STORE_CACHE_SLOTS }
+            : {}),
+        });
         if (eff.capPeers) enforcePrewarmPeerCap(t);
         holder.t = t;
         t.on("error", (err: unknown) => {
@@ -3519,6 +3994,8 @@ export class BuiltinClient implements TorrentClientAdapter {
           promoteTo: eff.promoteTo,
           promoteFrom: eff.promoteFrom,
         });
+        // The row now counts itself; the reservation has done its job.
+        releaseReservation(false);
         if (completed) {
           void persistAndParkCompletedTorrent(config.userId, torrent);
         } else {
@@ -3570,6 +4047,9 @@ export class BuiltinClient implements TorrentClientAdapter {
         ok: false,
         message,
       };
+    } finally {
+      // Still held means the add never produced a row: free the slot.
+      releaseReservation(true);
     }
   }
 
@@ -3645,9 +4125,22 @@ export class BuiltinClient implements TorrentClientAdapter {
     // DB rows not yet live (after restart / before rehydrate peers) — still show
     if (uid) {
       try {
+        const positions = queuePositions(
+          persistedRows.map((row) => ({
+            hash: row.hash.toLowerCase(),
+            status: row.status,
+            origin: row.origin,
+            workId: row.workId,
+            queueKey: row.queueKey,
+            createdAt: row.createdAt,
+            forcedAt: row.forcedAt,
+            sizeBytes: Number(row.sizeBytes ?? 0),
+          })),
+        );
         for (const row of persistedRows) {
           const h = row.hash.toLowerCase();
           if (seen.has(h)) continue;
+          const position = positions.get(h);
           out.push({
             hash: row.hash,
             name: row.name,
@@ -3661,6 +4154,7 @@ export class BuiltinClient implements TorrentClientAdapter {
             category: row.category ?? undefined,
             savePath: row.savePath,
             error: row.error ?? undefined,
+            ...(position ? { queuePosition: position } : {}),
           });
           seen.add(h);
         }
@@ -3700,7 +4194,25 @@ export class BuiltinClient implements TorrentClientAdapter {
         return { ok: false, message: "Torrent not found in engine" };
       }
       const t = findTorrent(client, hash);
-      if (!t) return { ok: false, message: "Torrent not found in engine" };
+      if (!t) {
+        // A queued download has no live torrent by design. Pausing it takes it
+        // out of the queue entirely; resuming puts it back in line.
+        if (config.userId) {
+          const paused = await prisma.engineTorrent.updateMany({
+            where: {
+              userId: config.userId,
+              hash: hash.toLowerCase(),
+              status: QUEUED_STATUS,
+            },
+            data: { status: "paused", forcedAt: null },
+          });
+          if (paused.count > 0) {
+            void promoteQueuedDownloads(config.userId);
+            return { ok: true, message: "Paused" };
+          }
+        }
+        return { ok: false, message: "Torrent not found in engine" };
+      }
       if (isComplete(t)) {
         if (config.userId) void persistAndParkCompletedTorrent(config.userId, t);
         return { ok: false, message: "Downloaded files cannot be paused" };
@@ -3716,11 +4228,13 @@ export class BuiltinClient implements TorrentClientAdapter {
               userId: config.userId,
               hash: hash.toLowerCase(),
             },
-            data: { status: "paused" },
+            data: { status: "paused", forcedAt: null },
           });
         } catch {
           /* best-effort */
         }
+        // The slot this download held is free now.
+        void promoteQueuedDownloads(config.userId);
       }
       return { ok: true, message: "Paused" };
     } catch (err) {
@@ -3741,21 +4255,96 @@ export class BuiltinClient implements TorrentClientAdapter {
         return { ok: false, message: "Torrent not found in engine" };
       }
       const t = findTorrent(client, hash);
-      if (!t) return { ok: false, message: "Torrent not found in engine" };
+      if (!t) {
+        // Not live: this is a paused (or queued) row. Resuming returns it to the
+        // queue rather than starting it past the cap — "Download now" is the
+        // action that jumps the line, and it is a separate, explicit press.
+        if (config.userId) {
+          const requeued = await prisma.engineTorrent.updateMany({
+            where: {
+              userId: config.userId,
+              hash: hash.toLowerCase(),
+              status: { in: ["paused", QUEUED_STATUS] },
+              origin: USER_ORIGIN,
+            },
+            data: { status: QUEUED_STATUS },
+          });
+          if (requeued.count > 0) {
+            void promoteQueuedDownloads(config.userId);
+            return { ok: true, message: "Queued" };
+          }
+        }
+        return { ok: false, message: "Torrent not found in engine" };
+      }
       if (isComplete(t)) {
         if (config.userId) {
           void persistAndParkCompletedTorrent(config.userId, t);
         }
         return { ok: true, message: "Already downloaded" };
       }
-      const lookup = await lookupExistingOrigin(config.userId, hash.toLowerCase());
+      const h = hash.toLowerCase();
+      const lookup = await lookupExistingOrigin(config.userId, h);
+      const uid = config.userId;
+      if (uid) {
+        const row = await prisma.engineTorrent
+          .findUnique({
+            where: { userId_hash: { userId: uid, hash: h } },
+            select: { origin: true, forcedAt: true },
+          })
+          .catch(() => null);
+        if (row?.origin === USER_ORIGIN && row.forcedAt == null) {
+          // A paused torrent still live in WebTorrent is a kept download like
+          // any other: resuming it must go through the cap, not around it.
+          const parked = await admission.withLock(uid, async () => {
+            const rows = await queueRowsForUser(uid);
+            if (
+              shouldParkOnResume({
+                rows,
+                cap: maxActiveDownloads(),
+                pending: admission.pendingCount(uid, rows),
+                hash: h,
+              })
+            ) {
+              await prisma.engineTorrent.updateMany({
+                where: { userId: uid, hash: h },
+                data: { status: QUEUED_STATUS, forcedAt: null },
+              });
+              // Park like a queued row: out of WebTorrent, files kept.
+              state().meta.delete(h);
+              quiesceCompletedTorrent(t);
+              try {
+                t.destroy?.({ destroyStore: false });
+              } catch {
+                /* best-effort */
+              }
+              return true;
+            }
+            resumeTransferForLookup(t, lookup);
+            await prisma.engineTorrent
+              .updateMany({
+                where: { userId: uid, hash: h },
+                data: { status: "downloading" },
+              })
+              .catch(() => undefined);
+            return false;
+          });
+          if (parked) {
+            const position = queuePositions(await queueRowsForUser(uid)).get(h);
+            return {
+              ok: true,
+              message: position ? `Queued — #${position} in line` : "Queued",
+            };
+          }
+          return { ok: true, message: "Resumed" };
+        }
+      }
       resumeTransferForLookup(t, lookup);
-      if (config.userId) {
+      if (uid) {
         try {
           await prisma.engineTorrent.updateMany({
             where: {
-              userId: config.userId,
-              hash: hash.toLowerCase(),
+              userId: uid,
+              hash: h,
             },
             data: {
               status: "downloading",
@@ -3766,6 +4355,60 @@ export class BuiltinClient implements TorrentClientAdapter {
         }
       }
       return { ok: true, message: "Resumed" };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /**
+   * Download now: start a queued item immediately, past the active cap.
+   *
+   * It still occupies a slot while it runs (so the next completion promotes one
+   * fewer), but it is never held back by the cap again, including across a
+   * restart — that is what `forcedAt` records.
+   */
+  async forceTorrent(
+    config: ClientConnectionConfig,
+    hash: string,
+  ): Promise<AddTorrentResult> {
+    const h = hash.toLowerCase();
+    if (!config.userId) {
+      return { ok: false, message: "No user for this engine" };
+    }
+    try {
+      if (!(await assertOwnsTorrent(config, h))) {
+        return { ok: false, message: "Torrent not found in engine" };
+      }
+      const row = await prisma.engineTorrent.findUnique({
+        where: { userId_hash: { userId: config.userId, hash: h } },
+        select: { status: true },
+      });
+      const status = row?.status?.toLowerCase() ?? null;
+      if (status === null) {
+        return { ok: false, message: "Torrent not found in engine" };
+      }
+      if (status !== QUEUED_STATUS && status !== "paused") {
+        return {
+          ok: false,
+          message: "That download is not waiting in the queue.",
+        };
+      }
+      if (!(await startQueuedRow(config.userId, h, { forced: true }))) {
+        return { ok: false, message: "That download already started." };
+      }
+      return {
+        ok: true,
+        message: "Starting now",
+        details: {
+          type: "builtin-transfer",
+          action: "started",
+          pct: 0,
+          peers: 0,
+        },
+      };
     } catch (err) {
       return {
         ok: false,
@@ -3937,6 +4580,7 @@ export class BuiltinClient implements TorrentClientAdapter {
           });
         }
         scheduleIdleClientDestroy();
+        void promoteQueuedDownloads(config.userId);
         return { ok: true, message: "Already removed" };
       }
 
@@ -4001,6 +4645,8 @@ export class BuiltinClient implements TorrentClientAdapter {
       } catch {
         /* optional table */
       }
+      // A deleted download releases its slot.
+      void promoteQueuedDownloads(config.userId);
       return {
         ok: true,
         message: deleteFiles

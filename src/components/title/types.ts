@@ -395,12 +395,25 @@ export interface TitleGrabResponse {
    * the setting lives — so the UI can offer a choice instead of a dead end.
    */
   storage?: StorageOverrideFacts | null;
+  /**
+   * The download was admitted into the chronological queue instead of starting
+   * at once, because the active-download cap was already full. Nothing is
+   * transferring for it yet.
+   */
+  queued?: boolean;
+  /** 1-based place in that queue, when known. */
+  queuePosition?: number | null;
 }
 
 /** What a season-level one-click grab answers. */
 export interface TitleSeasonEpisodeTransfer {
   episode: number;
-  status: "downloading" | "failed";
+  /**
+   * `queued` means the engine accepted the episode and placed it in the
+   * chronological download queue — admitted, ordered, but not transferring
+   * yet. It is a success, not a slower `downloading`.
+   */
+  status: "downloading" | "queued" | "failed";
   infoHash: string | null;
   error: string | null;
 }

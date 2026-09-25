@@ -22,6 +22,7 @@ import {
   resolveHuntCursor,
 } from "@/lib/library/cursor";
 import { checkSendStorage } from "@/lib/library/storage-gate";
+import { queueKeyForEpisode } from "@/lib/clients/download-queue";
 import type { StorageOverrideFacts } from "@/lib/library/storage-override";
 import {
   getUserClientConfig,
@@ -70,6 +71,13 @@ export type OnDemandResult = {
   storage?: StorageOverrideFacts | null;
   /** True when grab matched hunt cursor and cursor was advanced */
   advanced?: boolean;
+  /**
+   * The download was admitted but is waiting its turn in the chronological
+   * queue — nothing is transferring for it yet. @see lib/clients/download-queue
+   */
+  queued?: boolean;
+  /** 1-based place in that queue, when known. */
+  queuePosition?: number | null;
   lastEpisode?: string;
   cursorSeason?: number;
   cursorEpisode?: number;
@@ -121,6 +129,28 @@ export type RungDiagnostic = {
   /** Candidates this rung handed to the pipeline. */
   attempted: number;
 };
+
+/**
+ * Is `next` strictly later in the series than `current`?
+ *
+ * Episodes are grabbed concurrently, so a slow E2 can finish after E5 has
+ * already moved the cursor. Without this the late result would silently pull
+ * the hunt cursor backwards and automation would re-grab everything it just
+ * finished. An unset current cursor is "before everything", so any real
+ * position is forward from it.
+ */
+export function isForwardCursorMove(
+  current: { season?: number | null; episode?: number | null },
+  next: { season?: number | null; episode?: number | null },
+): boolean {
+  const ns = Number(next.season);
+  const ne = Number(next.episode);
+  if (!Number.isFinite(ns) || !Number.isFinite(ne)) return false;
+  const cs = Number(current.season);
+  const ce = Number(current.episode);
+  if (!Number.isFinite(cs) || !Number.isFinite(ce)) return true;
+  return ns > cs || (ns === cs && ne > ce);
+}
 
 /**
  * After a successful send: if the grabbed SxxEyy is the library item's hunt
@@ -184,8 +214,30 @@ export async function advanceLibraryItemIfHuntMatch(
     opts.grabbedTitle,
   );
 
-  await db.watchListItem.update({
-    where: { id: item.id },
+  // Concurrency (a season fanned out over a pool) means episodes finish in an
+  // order nobody chose. Two guards keep the cursor from walking backwards:
+  //
+  //   1. It only ever moves FORWARD. A late-finishing E2 must not drag the
+  //      cursor back from E5 to E3.
+  //   2. The write is a compare-and-set on the cursor we read. If another
+  //      episode advanced it in between, this update matches no row and the
+  //      caller is told nothing advanced — rather than overwriting a newer
+  //      position with a stale one.
+  if (
+    !isForwardCursorMove(
+      { season: item.cursorSeason, episode: item.cursorEpisode },
+      { season: advanced.cursorSeason, episode: advanced.cursorEpisode },
+    )
+  ) {
+    return { advanced: false };
+  }
+
+  const moved = await db.watchListItem.updateMany({
+    where: {
+      id: item.id,
+      cursorSeason: item.cursorSeason,
+      cursorEpisode: item.cursorEpisode,
+    },
     data: {
       lastChecked: new Date(),
       latestReleaseTitle: opts.grabbedTitle,
@@ -212,6 +264,11 @@ export async function advanceLibraryItemIfHuntMatch(
         : {}),
     },
   });
+
+  if (moved.count === 0) {
+    // Another episode of this same series advanced the cursor first.
+    return { advanced: false };
+  }
 
   return {
     advanced: true,
@@ -606,6 +663,8 @@ export async function grabSingleEpisode(opts: {
   aliases?: readonly string[];
   /** Minimum output height for kept downloads. */
   preferredResolution?: number | null;
+  /** @see GrabPipelineOptions.beforeSend */
+  beforeSend?: () => Promise<void>;
   /** Optional library item id for GrabJob externalId + hunt-cursor advance */
   watchListItemId?: string | null;
   /** "stream" = reclaimable cache; "keep" = permanent download. */
@@ -752,6 +811,7 @@ export async function grabSingleEpisode(opts: {
       // sends only this one torrent. The RECORDED query stays canonical so
       // Activity shows what the user asked for, not the relaxed rung shape.
       const res = await runGrabPipeline({
+        beforeSend: opts.beforeSend,
         userId: opts.userId,
         workId: opts.workId ?? null,
         search: {
@@ -773,7 +833,17 @@ export async function grabSingleEpisode(opts: {
         // `checkStorageBudget` below honours the override, but the engine runs
         // its own storage check when the payload reaches it. Both have to know,
         // or a confirmed over-cap grab passes here and is refused there.
-        addPayload: { overrideStorageCap: opts.overrideStorageCap === true },
+        addPayload: {
+          overrideStorageCap: opts.overrideStorageCap === true,
+          // Queue position is decided here, from the episode the user asked
+          // for — never from whichever search happened to finish first. A
+          // season fanned out over a pool still downloads in episode order.
+          queueKey: queueKeyForEpisode(season, episode),
+          workId: opts.workId ?? null,
+          // Recorded on the queued row before a single byte exists, so the
+          // storage gate can reserve it against the episodes behind it.
+          expectedSizeBytes: candidate.sizeBytes ?? null,
+        },
         selectCandidate: () => candidate,
         async checkStorageBudget(cand, target) {
           const root =
@@ -863,6 +933,8 @@ export async function grabSingleEpisode(opts: {
         title: res.candidate?.title,
         magnet: res.candidate?.magnet,
         infoHash: normalizeInfoHash(res.candidate?.infoHash),
+        queued: res.queued === true,
+        queuePosition: res.queuePosition ?? null,
       };
     }
     // Honestly label the provenance when we had to relax to win.
@@ -881,6 +953,8 @@ export async function grabSingleEpisode(opts: {
       savePath: res.target?.savePath,
       magnet: res.candidate?.magnet,
       infoHash: normalizeInfoHash(res.candidate?.infoHash),
+      queued: res.queued === true,
+      queuePosition: res.queuePosition ?? null,
       advanced: cursorAdvance.advanced,
       lastEpisode: cursorAdvance.lastEpisode,
       cursorSeason: cursorAdvance.cursorSeason,

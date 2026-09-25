@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { searchAniList, searchAniListWorks } from "@/lib/metadata/anilist";
+import {
+  resetAniListQueryCache,
+  searchAniList,
+  searchAniListWorks,
+} from "@/lib/metadata/anilist";
 import { isSeriesMediaType } from "@/lib/metadata/media-type";
 import { searchTmdb, searchTmdbByType } from "@/lib/metadata/tmdb";
 import {
@@ -478,6 +482,9 @@ async function providerTests() {
   console.log("PASS AniList rescues after a nonempty irrelevant primary response");
 
   let anilistAttempt = 0;
+  // Forget the previous stub's answers: the memo would otherwise satisfy a
+  // rescue variant this case needs to see go out.
+  resetAniListQueryCache();
   globalThis.fetch = (async () => {
     anilistAttempt += 1;
     if (anilistAttempt > 1) {

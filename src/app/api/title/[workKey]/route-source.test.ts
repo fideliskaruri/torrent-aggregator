@@ -11,7 +11,14 @@ assert.match(source, /seedSeasonEpisodeTargets\(\{/);
 assert.match(source, /settleSeasonEpisodeTargets\(\{/);
 assert.match(source, /failQueuedSeasonEpisodeTargets\(\{/);
 assert.match(source, /scope: "episode"/);
-assert.match(source, /status:\s*transfer\.status === "downloading"\s*\?\s*\{ in: \["queued", "failed"\] \}\s*:\s*"queued"/);
+// A settle must never let a failed episode clobber a row that already
+// succeeded, while a success may recover a row left "failed" by an earlier
+// attempt. Pinned as intent, not as one exact spelling, so the branch can be
+// reworded but not quietly widened.
+assert.match(
+  source,
+  /transfer\.status === "failed"\s*\?\s*"queued"\s*:\s*\{ in: \["queued", "failed"\] \}/,
+);
 assert.match(source, /const \{ episodeTransfers: _episodeTransfers, \.\.\.publicResult \}/);
 assert.match(source, /instanceof SearchThrottledError/);
 assert.match(source, /retryAfterSeconds: err\.retryAfterSeconds/);

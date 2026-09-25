@@ -75,6 +75,9 @@ export function shouldRehydrateTorrent(
   const status = String(row.status).toLowerCase();
   if (status === "removed" || status === "error") return false;
   if (status === "parked") return false;
+  // A queued download is deliberately NOT in WebTorrent — that is the whole
+  // point of the queue. It enters the client only when it is promoted.
+  if (status === "queued") return false;
   if (persistedTorrentHasInvalidMedia(row)) return false;
   if (persistedTorrentIsDownloaded(row)) return false;
   return Boolean(row.torrentUrl?.trim() || row.magnet?.trim());
@@ -92,6 +95,9 @@ export function persistedTorrentDisplayState(
   if (persistedTorrentIsDownloaded(row)) return "downloaded";
   if (status === "paused") return "paused";
   if (status.toLowerCase() === "parked") return "paused";
+  // Waiting for a transfer slot. Distinct from paused: the owner did not stop
+  // it, so the UI must offer "Download now", not "Resume".
+  if (status.toLowerCase() === "queued") return "queued";
   if (Number(row.progress) > 0) return "downloading";
   return "metaDL";
 }

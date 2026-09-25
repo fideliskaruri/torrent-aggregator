@@ -555,10 +555,14 @@ async function settleSeasonEpisodeTargets(input: {
         where: {
           userId: input.userId,
           targetKey,
+          // A success (downloading or queued) may settle a row that was seeded
+          // as "queued" or left "failed" by an earlier attempt. A failure must
+          // only settle a still-pending row, so it can never overwrite a later
+          // attempt that already succeeded.
           status:
-            transfer.status === "downloading"
-              ? { in: ["queued", "failed"] }
-              : "queued",
+            transfer.status === "failed"
+              ? "queued"
+              : { in: ["queued", "failed"] },
         },
         data: {
           workId: input.workId,

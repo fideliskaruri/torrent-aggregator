@@ -17,7 +17,7 @@ import {
   getTargetResolution,
   SELECTABLE_RESOLUTIONS,
 } from "./target-resolution";
-import { enrichResultsWithMetadata } from "@/lib/metadata/enrich";
+import { enrichResultsWithMetadata, resolveMetadata } from "@/lib/metadata/enrich";
 import {
   attachDownloadRoutes,
   type RoutingPrefs,
@@ -29,6 +29,7 @@ import {
   rateLimit,
   rateLimitResetSeconds,
 } from "./search-cache";
+import { createPhaseTimer } from "@/lib/observability/phase-timing";
 
 /**
  * Raised only when the indexer budget is spent AND there is nothing cached to
@@ -110,6 +111,57 @@ function clampPage(raw: number | undefined, totalPages: number): number {
 }
 
 /**
+ * Default per-adapter budget for an interactive search.
+ *
+ * Comfortably above every healthy source measured (the slowest honest adapter
+ * answers in about 2.8s) and well under the 12s a single dead mirror costs, so
+ * it only ever cuts off a source that had already stopped being useful.
+ */
+export const INTERACTIVE_ADAPTER_DEADLINE_MS = 6_000;
+
+class AdapterDeadlineError extends Error {
+  constructor(id: string, ms: number) {
+    super(`${id} exceeded the ${ms}ms search budget`);
+    this.name = "AdapterDeadlineError";
+  }
+}
+
+/**
+ * Caps one adapter's contribution to the fan-out without cancelling it.
+ *
+ * The underlying request is left running on purpose: it still populates the
+ * adapter's own mirror memory and any response cache, so the source that was
+ * slow this time is likely to be fast on the next search rather than being
+ * permanently punished. Rejecting here only removes it from *this* response,
+ * where it is reported as a named source error.
+ */
+export async function withAdapterDeadline<T>(
+  work: Promise<T>,
+  deadlineMs: number | undefined,
+  adapterId: string,
+): Promise<T> {
+  if (!deadlineMs || !Number.isFinite(deadlineMs) || deadlineMs <= 0) {
+    return work;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new AdapterDeadlineError(adapterId, deadlineMs)),
+          deadlineMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    // The loser of the race must not surface as an unhandled rejection.
+    void work.catch(() => undefined);
+  }
+}
+
+/**
  * Fan-out search across adapters, normalize, dedupe, filter, rank, enrich.
  * Ranking runs on the filtered set so scores/bestPicks match what the user sees.
  * Returns a paginated slice of ranked results plus totalCount / page metadata.
@@ -126,9 +178,25 @@ export async function searchTorrents(
      * watchlist cannot throttle the user's own interactive searches.
      */
     background?: boolean;
+    /**
+     * Opt-in per-adapter budget for the fan-out, in ms.
+     *
+     * `Promise.allSettled` waits for the slowest source, so one indexer whose
+     * mirrors are all dead pinned every search at the full 12s adapter timeout
+     * — multiplied by however many mirrors it tried in turn. A source that
+     * misses this budget is reported with an honest error exactly like any
+     * other failure, and every healthy source still contributes in full.
+     *
+     * Opt-in rather than always-on, and set only by the interactive search
+     * route: automation must keep waiting the full adapter timeout, because a
+     * grab decision made from a silently narrowed pool is worse than a slow
+     * one.
+     */
+    adapterDeadlineMs?: number;
   },
 ): Promise<SearchResponse> {
   const started = Date.now();
+  const timer = createPhaseTimer("searchTorrents");
   const query = options.query?.trim() ?? "";
   const pageSize = clampPageSize(options.pageSize);
 
@@ -160,7 +228,8 @@ export async function searchTorrents(
     )
       ? options.targetResolution
       : null;
-  const targetResolution = override ?? (await getTargetResolution());
+  const targetResolution =
+    override ?? (await timer.step("target-resolution", getTargetResolution));
   const cacheKey = cacheKeyFrom({
     q: query.toLowerCase(),
     category: options.category ?? "all",
@@ -174,8 +243,22 @@ export async function searchTorrents(
   let sources: SearchResponse["sources"] = [];
   let fromCache = false;
 
+  // Start the query's own metadata lookup now, alongside everything below.
+  //
+  // It depends only on the query, never on a result, yet it used to run as the
+  // first step of enrichment — i.e. strictly *after* the indexer fan-out had
+  // finished — adding a full catalog round-trip to every uncached search for
+  // no reason. The promise is memoized by `resolveMetadata`, so a caller that
+  // never awaits it costs nothing beyond the lookup that enrichment would have
+  // made anyway, and `catch` keeps a provider outage from surfacing as an
+  // unhandled rejection on the path where enrichment is skipped.
+  const primaryLookup =
+    options.enrich === false
+      ? undefined
+      : resolveMetadata(query, options.category).catch(() => null);
+
   if (!options.skipCache) {
-    const cached = await getSearchCache(cacheKey);
+    const cached = await timer.step("cache-read", () => getSearchCache(cacheKey));
     if (cached) {
       fullResults = cached.results;
       sources = cached.sources;
@@ -215,19 +298,39 @@ export async function searchTorrents(
       80,
     );
 
-    const settled = await Promise.allSettled(
-      adapters.map(async (adapter) => {
-        const results = await adapter.search({
-          ...options,
-          query,
-          limit: perSourceLimit,
-        });
-        return { adapter, results };
-      }),
+    const settled = await timer.step("indexer-fanout", () =>
+      Promise.allSettled(
+        adapters.map(async (adapter) => {
+          const t0 = performance.now();
+          try {
+            const results = await withAdapterDeadline(
+              adapter.search({
+                ...options,
+                query,
+                limit: perSourceLimit,
+              }),
+              options.adapterDeadlineMs,
+              adapter.id,
+            );
+            timer.record(
+              `adapter:${adapter.id}:${results.length}`,
+              performance.now() - t0,
+            );
+            return { adapter, results };
+          } catch (err) {
+            timer.record(
+              `adapter:${adapter.id}:failed`,
+              performance.now() - t0,
+            );
+            throw err;
+          }
+        }),
+      ),
     );
 
     sources = [];
     let merged: TorrentResult[] = [];
+    let truncatedByDeadline = false;
 
     for (let i = 0; i < settled.length; i++) {
       const adapter = adapters[i];
@@ -243,6 +346,7 @@ export async function searchTorrents(
           outcome.reason instanceof Error
             ? outcome.reason.message
             : String(outcome.reason);
+        if (outcome.reason instanceof AdapterDeadlineError) truncatedByDeadline = true;
         sources.push({ id: adapter.id, count: 0, error: message });
       }
     }
@@ -255,6 +359,7 @@ export async function searchTorrents(
     }
     results = attachDownloadRoutes(results, options.category, null);
     results = rankResults(results, query, targetResolution, options.category);
+    timer.mark("rank");
 
     if (options.limit != null) {
       results = results.slice(0, options.limit);
@@ -263,7 +368,9 @@ export async function searchTorrents(
     fullResults = results;
 
     // Cache the full unenriched pool so any page can be served from cache.
-    void setSearchCache(cacheKey, {
+    // A pool cut short by the interactive deadline is not the full pool: caching it would hand
+    // automation (which never opts into a deadline) a narrowed result set under the same key.
+    if (!truncatedByDeadline) void setSearchCache(cacheKey, {
       query,
       results: fullResults,
       groups: [],
@@ -285,10 +392,8 @@ export async function searchTorrents(
   let results = fullResults.slice(start, start + pageSize);
 
   if (options.enrich !== false && results.length > 0) {
-    results = await enrichResultsWithMetadata(
-      results,
-      query,
-      options.category,
+    results = await timer.step("enrich", () =>
+      enrichResultsWithMetadata(results, query, options.category, primaryLookup),
     );
   }
 
@@ -300,6 +405,8 @@ export async function searchTorrents(
   );
 
   const groups = groupReleases(results);
+  timer.mark("routes+group");
+  timer.done({ cached: fromCache, total: totalCount });
 
   return {
     query,

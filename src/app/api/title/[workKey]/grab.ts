@@ -86,6 +86,8 @@ export interface TitleGrabDeps {
     mediaType: string;
     aliases: string[];
   };
+  /** Awaited between the episode's search and its send. */
+  beforeSend?: () => Promise<void>;
 }
 
 export async function grabForTitle(
@@ -119,6 +121,7 @@ export async function grabForTitle(
       retention: input.retention ?? "keep",
       overrideStorageCap: input.overrideStorageCap === true,
       preferredResolution: input.preferredResolution ?? null,
+      beforeSend: deps.beforeSend,
     };
     const result = await grabSingleEpisode(request);
     return {
@@ -128,6 +131,8 @@ export async function grabForTitle(
       savePath: result.savePath ?? null,
       infoHash: result.infoHash ?? null,
       storage: result.storage ?? null,
+      queued: result.queued === true,
+      queuePosition: result.queuePosition ?? null,
     };
   }
 
@@ -243,9 +248,18 @@ export interface TitleSeasonGrabInput extends TitleGrabInput {
  * A season action is still one HTTP request for the UI, but it must not have a
  * second candidate-selection implementation. Each episode gets the exact same
  * `grabForTitle` path as an individual card, while one failure remains local
- * to that episode. Episodes run one at a time so storage-cap checks and hunt
- * cursor updates cannot race.
+ * to that episode.
+ *
+ * Episodes used to run strictly one at a time, so a single dead episode — a
+ * ladder that searched every rung and found nothing, or an add that waited out
+ * its metadata timeout — blocked every later episode and the whole request with
+ * it. Searches now run through a small pool, but the adds are committed in
+ * episode order: an episode's send waits until every earlier episode has
+ * either sent, failed, or overrun `orderWaitMs`, so E3/E4 cannot take the free
+ * transfer slots ahead of E1/E2 just because their searches answered first.
  */
+export const SEASON_FANOUT_CONCURRENCY = 4;
+
 export interface SeasonEpisodeFanoutResult {
   transfers: TitleSeasonEpisodeTransfer[];
   coveredEpisodes: number[];
@@ -253,11 +267,55 @@ export interface SeasonEpisodeFanoutResult {
   retryAfterSeconds: number | null;
 }
 
+/** How long a later episode waits for an earlier one to search + send. */
+export const SEASON_ORDER_WAIT_MS = 60_000;
+/** How long an earlier episode's send holds later ones (admission is fast). */
+export const SEASON_SEND_HOLD_MS = 10_000;
+
+export interface SeasonFanoutOptions {
+  concurrency?: number;
+  orderWaitMs?: number;
+  sendHoldMs?: number;
+}
+
 export async function fanOutSeasonEpisodes(
   episodes: readonly number[],
-  grabEpisode: (episode: number) => Promise<TitleGrabResponse>,
+  grabEpisode: (
+    episode: number,
+    hooks: { beforeSend: () => Promise<void> },
+  ) => Promise<TitleGrabResponse>,
+  options: SeasonFanoutOptions | number = {},
 ): Promise<SeasonEpisodeFanoutResult> {
+  const opts = typeof options === "number" ? { concurrency: options } : options;
+  const concurrency = opts.concurrency ?? SEASON_FANOUT_CONCURRENCY;
+  const orderWaitMs = opts.orderWaitMs ?? SEASON_ORDER_WAIT_MS;
+  const sendHoldMs = opts.sendHoldMs ?? SEASON_SEND_HOLD_MS;
   const wanted = uniquePositiveInts(episodes);
+  // `passed[i]` resolves once episode i no longer holds later episodes back:
+  // its send finished (or held for `sendHoldMs`), it failed without sending,
+  // or it never reached a send at all.
+  const passResolvers: Array<() => void> = [];
+  const passed = wanted.map(
+    () =>
+      new Promise<void>((resolve) => {
+        passResolvers.push(resolve);
+      }),
+  );
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        resolve();
+      }, ms);
+      timers.add(timer);
+    });
+  const beforeSendFor = (index: number) => async () => {
+    const earlier = passed.slice(0, index);
+    // A dead or stalled earlier search must not block this one forever.
+    await Promise.race([Promise.all(earlier), sleep(orderWaitMs)]);
+    void sleep(sendHoldMs).then(() => passResolvers[index]());
+  };
   const transfers: Array<TitleSeasonEpisodeTransfer | null> = Array.from(
     { length: wanted.length },
     () => null,
@@ -265,9 +323,11 @@ export async function fanOutSeasonEpisodes(
   let storage: TitleGrabResponse["storage"] = null;
   let retryAfterSeconds: number | null = null;
 
-  for (const [index, episode] of wanted.entries()) {
+  const runOne = async (index: number, episode: number): Promise<void> => {
     try {
-      const result = await grabEpisode(episode);
+      const result = await grabEpisode(episode, {
+        beforeSend: beforeSendFor(index),
+      });
       if (result.storage && !storage) storage = result.storage;
       if (result.retryAfterSeconds != null) {
         retryAfterSeconds = Math.max(
@@ -278,7 +338,9 @@ export async function fanOutSeasonEpisodes(
       transfers[index] = result.ok
         ? {
             episode,
-            status: "downloading",
+            // "Queued" is a real, honest outcome now, not a slower kind of
+            // downloading: nothing is transferring for this episode yet.
+            status: result.queued ? "queued" : "downloading",
             infoHash: result.infoHash ?? null,
             error: null,
           }
@@ -295,8 +357,25 @@ export async function fanOutSeasonEpisodes(
         infoHash: null,
         error: err instanceof Error ? err.message : String(err),
       };
+    } finally {
+      passResolvers[index]();
     }
-  }
+  };
+
+  // A fixed pool of workers pulling from one shared cursor: each finished
+  // episode frees its slot immediately, so a slow one costs one worker rather
+  // than the whole season.
+  const slots = Math.max(1, Math.min(concurrency, wanted.length));
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: slots }, async () => {
+      while (next < wanted.length) {
+        const index = next++;
+        await runOne(index, wanted[index]);
+      }
+    }),
+  );
+  for (const timer of timers) clearTimeout(timer);
 
   const settled = transfers.filter(
     (transfer): transfer is TitleSeasonEpisodeTransfer => transfer != null,
@@ -304,7 +383,10 @@ export async function fanOutSeasonEpisodes(
   return {
     transfers: settled,
     coveredEpisodes: settled
-      .filter((transfer) => transfer.status === "downloading")
+      .filter(
+        (transfer) =>
+          transfer.status === "downloading" || transfer.status === "queued",
+      )
       .map((transfer) => transfer.episode)
       .sort((a, b) => a - b),
     storage,
@@ -325,14 +407,14 @@ export async function grabSeasonForTitle(
   }
 
   const episodeSearchIdentity = await resolveEpisodeSearchIdentity(input);
-  const fanout = await fanOutSeasonEpisodes(episodes, (episode) =>
+  const fanout = await fanOutSeasonEpisodes(episodes, (episode, hooks) =>
     grabForTitle(
       {
         ...input,
         season,
         episode,
       },
-      { episodeSearchIdentity },
+      { episodeSearchIdentity, beforeSend: hooks.beforeSend },
     ),
   );
   const covered = new Set(fanout.coveredEpisodes);

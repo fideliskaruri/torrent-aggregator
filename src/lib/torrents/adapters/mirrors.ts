@@ -26,6 +26,62 @@ import { INDEXER_TIMEOUT_MS, indexerTimeoutSignal } from "./timeouts";
 const preferred = new Map<string, string>();
 
 /**
+ * Hosts that just failed, and when they may lead again.
+ *
+ * Remembering the *winner* was only half the problem. When the first candidate
+ * in the static list is dead, every search pays its full timeout before moving
+ * on — and because nothing was remembered about the failure, the next search
+ * paid it again. One dead mirror at the head of the list therefore added a
+ * fixed ~12s to every query, which is precisely the "why is search sometimes
+ * 16 seconds" case.
+ *
+ * Demotion, never exclusion: a cooling host is still tried, just last. A
+ * mirror that comes back stays reachable, and a transient blip can never
+ * silently remove a source from the pool.
+ */
+const cooldownUntil = new Map<string, number>();
+
+/** Long enough to skip a dead host for a burst of searches, short enough that a recovered mirror returns quickly. */
+const MIRROR_COOLDOWN_MS = 5 * 60 * 1000;
+
+function cooldownKey(key: string, host: string): string {
+  return `${key}\u0000${host}`;
+}
+
+function isCooling(key: string, host: string, now: number): boolean {
+  const until = cooldownUntil.get(cooldownKey(key, host));
+  if (until == null) return false;
+  if (until <= now) {
+    cooldownUntil.delete(cooldownKey(key, host));
+    return false;
+  }
+  return true;
+}
+
+/** Test seam: forget every remembered good/bad host. */
+export function resetMirrorMemory(): void {
+  preferred.clear();
+  cooldownUntil.clear();
+}
+
+/**
+ * Preferred host first, then hosts with no recent failure, then cooling ones.
+ * Order within each band is the caller's original preference order.
+ */
+export function orderMirrorHosts(
+  key: string,
+  hosts: readonly string[],
+  now = Date.now(),
+): string[] {
+  const good = preferred.get(key);
+  const rest = hosts.filter((host) => host !== good);
+  const healthy = rest.filter((host) => !isCooling(key, host, now));
+  const cooling = rest.filter((host) => isCooling(key, host, now));
+  const ordered = [...healthy, ...cooling];
+  return good ? [good, ...ordered] : ordered;
+}
+
+/**
  * Statuses that mean "this host is not serving the API", not "bad request".
  *
  * 404 is deliberately conditional. A host we have never had a good response
@@ -90,11 +146,14 @@ export async function fetchFromMirrors({
   const makeSignal = createSignal ?? indexerTimeoutSignal;
   const request = fetchFn ?? fetch;
   const good = preferred.get(key);
-  const ordered = good
-    ? [good, ...hosts.filter((h) => h !== good)]
-    : [...hosts];
+  const ordered = orderMirrorHosts(key, hosts);
 
   let lastError: Error | null = null;
+
+  const demote = (host: string) => {
+    if (preferred.get(key) === host) preferred.delete(key);
+    cooldownUntil.set(cooldownKey(key, host), Date.now() + MIRROR_COOLDOWN_MS);
+  };
 
   for (const host of ordered) {
     const hostIsProven = good === host;
@@ -109,19 +168,20 @@ export async function fetchFromMirrors({
       if (isHostFailure(res.status, hostIsProven)) {
         lastError = new Error(`${host} HTTP ${res.status}`);
         // A previously-good host that started failing must not stay preferred.
-        if (preferred.get(key) === host) preferred.delete(key);
+        demote(host);
         continue;
       }
       if (res.ok && !looksLikeApi(res)) {
         lastError = new Error(`${host} returned a non-API response`);
-        if (preferred.get(key) === host) preferred.delete(key);
+        demote(host);
         continue;
       }
       preferred.set(key, host);
+      cooldownUntil.delete(cooldownKey(key, host));
       return res;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (preferred.get(key) === host) preferred.delete(key);
+      demote(host);
     }
   }
 
