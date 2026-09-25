@@ -71,6 +71,40 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.False((await Json(r)).TryGetProperty("ok", out var ok) && ok.GetBoolean());
     }
 
+    [Theory]
+    [InlineData("""{"magnet":"magnet:?dn=no-hash"}""", "magnet must contain a valid BitTorrent info hash", "magnet")]
+    [InlineData("""{"infoHash":"xyz"}""", "infoHash must be a 40-character hex or 32-character base32 hash", "infoHash")]
+    [InlineData("""{"torrentUrl":"ftp://x/y.torrent"}""", "torrentUrl must use http or https", "torrentUrl")]
+    [InlineData("""{"magnet":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567","savePath":"a/../b"}""", "savePath may not contain null bytes or traversal segments", "savePath")]
+    [InlineData("""{"magnet":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567","target":"elsewhere"}""", "target must be one of: primary, external", "target")]
+    [InlineData("""{"name":5}""", "name must be a string", "name")]
+    public async Task SendValidationErrorsNameTheField(string body, string error, string field)
+    {
+        var r = await _http.PostAsync("/api/torrent/send", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        var json = await Json(r);
+        Assert.Equal(error, json.GetProperty("error").GetString());
+        Assert.Equal(field, json.GetProperty("field").GetString());
+    }
+
+    [Fact]
+    public async Task SendToAnUnusableSavePathFailsWithoutCreatingATransfer()
+    {
+        await ConfigureStorageAsync();
+        var file = Path.Combine(factory.Root, "not-a-folder.txt");
+        await File.WriteAllTextAsync(file, "x");
+        var hash = EngineHarness.Hash(9101);
+
+        var r = await _http.PostAsJsonAsync("/api/torrent/send", new { magnet = EngineHarness.Magnet(9101), savePath = Path.Combine(file, "Movies") });
+
+        Assert.Equal(HttpStatusCode.BadGateway, r.StatusCode);
+        var json = await Json(r);
+        Assert.False(json.GetProperty("ok").GetBoolean());
+        Assert.False(string.IsNullOrWhiteSpace(json.GetProperty("message").GetString()));
+        var list = await _http.GetStringAsync("/api/client/torrents");
+        Assert.DoesNotContain(hash, list);
+    }
+
     [Fact]
     public async Task SendQueuesThenListAndForceShapes()
     {

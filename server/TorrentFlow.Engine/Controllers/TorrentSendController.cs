@@ -24,6 +24,12 @@ public sealed class TorrentSendController(
         [("magnet", 8192), ("torrentUrl", 2048), ("name", 500), ("source", 100), ("infoHash", 64), ("searchCategory", 100),
          ("category", 100), ("savePath", 4096), ("watchListItemId", 128), ("queueKey", 64), ("workId", 128)];
 
+    private static readonly (string Field, string[] Allowed)[] EnumFields =
+        [("target", ["primary", "external"]), ("retention", ["stream", "keep"]), ("scope", ["title", "season", "episode"])];
+
+    /// <summary>requestFailureResponse: a 400 naming the offending field, as the SPA highlights it.</summary>
+    private BadRequestObjectResult Invalid(string error, string field) => BadRequest(new { error, field });
+
     [HttpPost]
     public async Task<IActionResult> Send(CancellationToken ct)
     {
@@ -31,8 +37,13 @@ public sealed class TorrentSendController(
 
         foreach (var (field, max) in StringLimits)
         {
-            if (!body.IsKind(field, JsonValueKind.String, JsonValueKind.Null)) return BadRequest(new { error = $"{field} must be a string" });
-            if (body.Str(field) is { } v && v.Length > max) return BadRequest(new { error = $"{field} must be at most {max} characters" });
+            if (!body.IsKind(field, JsonValueKind.String, JsonValueKind.Null)) return Invalid($"{field} must be a string", field);
+            if (body.Str(field) is { } v && v.Length > max) return Invalid($"{field} must be at most {max} characters", field);
+        }
+        foreach (var (field, allowed) in EnumFields)
+        {
+            if (!body.IsKind(field, JsonValueKind.String, JsonValueKind.Null)) return Invalid($"{field} must be a string", field);
+            if (body.Str(field) is { } v && !allowed.Contains(v)) return Invalid($"{field} must be one of: {string.Join(", ", allowed)}", field);
         }
 
         var magnet = body.Str("magnet")?.Trim();
@@ -44,22 +55,21 @@ public sealed class TorrentSendController(
         var savePathOverride = body.Str("savePath");
 
         if (!string.IsNullOrEmpty(magnet) && TorrentSource.HashFromMagnet(magnet) is null)
-            return BadRequest(new { error = "magnet must contain a valid BitTorrent info hash" });
+            return Invalid("magnet must contain a valid BitTorrent info hash", "magnet");
         string? infoHash = null;
         if (!string.IsNullOrEmpty(infoHashRaw))
         {
             infoHash = TorrentSource.NormalizeInfoHash(infoHashRaw);
-            if (infoHash is null) return BadRequest(new { error = "infoHash must be a 40-character hex or 32-character base32 hash" });
+            if (infoHash is null) return Invalid("infoHash must be a 40-character hex or 32-character base32 hash", "infoHash");
         }
         if (!string.IsNullOrEmpty(torrentUrl))
         {
-            if (!Uri.TryCreate(torrentUrl, UriKind.Absolute, out var uri)) return BadRequest(new { error = "torrentUrl must be a valid URL" });
-            if (uri.Scheme is not ("http" or "https")) return BadRequest(new { error = "torrentUrl must use http or https" });
+            if (!Uri.TryCreate(torrentUrl, UriKind.Absolute, out var uri)) return Invalid("torrentUrl must be a valid URL", "torrentUrl");
+            if (uri.Scheme is not ("http" or "https")) return Invalid("torrentUrl must use http or https", "torrentUrl");
         }
         if (savePathOverride is not null && (savePathOverride.Contains('\0')
             || savePathOverride.Replace('\\', '/').Split('/').Any(seg => seg == "..")))
-            return BadRequest(new { error = "savePath may not contain null bytes or traversal segments" });
-        if (target is not ("primary" or "external")) return BadRequest(new { error = "target must be primary or external" });
+            return Invalid("savePath may not contain null bytes or traversal segments", "savePath");
 
         var config = await settings.GetConfigAsync(ct);
         if (target == "external" || config.ClientType != "builtin")
