@@ -31,6 +31,7 @@ internal sealed class TorrentEngineService(
     TimeProvider time,
     ILogger<TorrentEngineService> logger,
     CompletedLayoutFinalizer? layout = null,
+    CompletedLayoutManifestStore? layoutManifest = null,
     ISmartCategorizer? categorizer = null) : ITorrentEngine
 {
     public const string HttpClientName = "TorrentFlow.Engine.TorrentFiles";
@@ -47,6 +48,7 @@ internal sealed class TorrentEngineService(
     private readonly ConcurrentDictionary<string, DateTime> _startedAt = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _openStreams = new(StringComparer.Ordinal);
     private readonly HashSet<string> _pendingDetach = new(StringComparer.Ordinal);
+    private readonly CompletedLayoutManifestStore _layoutManifest = layoutManifest ?? new CompletedLayoutManifestStore(Path.Combine(options.CurrentValue.EngineDirectory, "layout-manifest.json"));
     // Lifecycle operations bump _wakes; a tick that found nothing live, queued or stranded records the generation it
     // started under, and later ticks skip the database until the next wake. A failed tick never marks idle.
     private int _wakes;
@@ -280,13 +282,15 @@ internal sealed class TorrentEngineService(
         return meta;
     }
 
-    private async Task<BackendAddOutcome> StartInBackendAsync(EngineTorrent row, string purpose, TimeSpan? metadataTimeout, CancellationToken ct)
+    private async Task<BackendAddOutcome> StartInBackendAsync(EngineTorrent row, string purpose, TimeSpan? metadataTimeout, CancellationToken ct,
+        bool reuseExistingLayout = false)
     {
         var bytes = LoadTorrentFile(row.Hash);
         if (bytes is null && string.IsNullOrWhiteSpace(row.Magnet))
             return new BackendAddOutcome(false, "No saved source to retry this release.");
+        reuseExistingLayout = reuseExistingLayout || _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
-            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout);
+            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseExistingLayout);
         var wasLoaded = backend.Contains(row.Hash);
         try
         {
@@ -779,6 +783,7 @@ internal sealed class TorrentEngineService(
             {
                 DeleteReleaseFiles(files, row.SavePath, baseRoot, otherPaths);
                 TryDelete(TorrentFilePath(hash));
+                _layoutManifest.Forget(hash, row.SavePath);
             }
         }
         storage.ResetDirectorySizeCache();
@@ -916,6 +921,11 @@ internal sealed class TorrentEngineService(
             var row = await FindAsync(db, hash, CancellationToken.None);
             if (row is null || row.Status != EngineTorrentStatus.Parked || !IsDownloaded(row)) return LayoutOutcome.Unchanged;
             var outcome = await layout.FinalizeAsync(db, row, CancellationToken.None);
+            if (outcome == LayoutOutcome.LaidOut)
+            {
+                var files = VerifiedFiles(row).Select(f => f.FullPath).Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!).ToList();
+                _layoutManifest.Remember(row.Hash, row.SavePath, files);
+            }
             if (outcome != LayoutOutcome.Unchanged) storage.ResetDirectorySizeCache();
             return outcome;
         }

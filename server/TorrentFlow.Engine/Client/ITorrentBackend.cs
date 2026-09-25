@@ -7,7 +7,8 @@ internal sealed record BackendAddSpec(
     byte[]? TorrentBytes,
     string SavePath,
     string Purpose,
-    TimeSpan? MetadataTimeout);
+    TimeSpan? MetadataTimeout,
+    bool CreateContainingDirectory = true);
 
 internal sealed record BackendFile(int Index, string Path, string FullPath, long Length, bool Selected, double Progress);
 
