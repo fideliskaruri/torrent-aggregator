@@ -67,7 +67,8 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
     {
         base.Dispose(disposing);
         if (!disposing) return;
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        using (var connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(directory, "library.db")}"))
+            Microsoft.Data.Sqlite.SqliteConnection.ClearPool(connection);
         if (Directory.Exists(directory)) Directory.Delete(directory, true);
     }
 }
