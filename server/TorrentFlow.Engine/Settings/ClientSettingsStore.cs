@@ -13,6 +13,8 @@ public sealed record ClientConfig
     public string Host { get; init; } = ClientSettingsStore.DefaultHost;
     public string? Username { get; init; }
     public bool HasPassword { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Password { get; init; }
     public string? Category { get; init; }
     public string? SavePath { get; init; }
     public string? BaseDownloadPath { get; init; }
@@ -65,6 +67,13 @@ public sealed class ClientSettingsStore(IDbContextFactory<TorrentFlowDbContext> 
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         return ToConfig(await EnsureAsync(db, ct));
+    }
+
+    public async Task<ClientConfig> GetConnectionConfigAsync(SecretProtector secrets, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var row = await EnsureAsync(db, ct);
+        return ToConfig(row) with { Password = secrets.Decrypt(row.Password) };
     }
 
     public static ClientConfig ToConfig(ClientSetting s)

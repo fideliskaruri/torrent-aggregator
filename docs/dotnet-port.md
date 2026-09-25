@@ -65,6 +65,26 @@ web/                          Vite + React SPA (built into web/dist, served by t
   pins the default culture to invariant; still pass `CultureInfo.InvariantCulture` and use ordinal
   comparisons in code. On Linux, install `libicu` (present on most distros).
 
+## External torrent clients
+
+`TorrentFlow.Engine/Clients/External` owns qBittorrent Web API v2 and Transmission RPC adapters.
+`AddExternalClients` registers typed HTTP clients with explicit timeouts. Cookie handling and redirects
+are disabled on pooled handlers: qBittorrent logs in per operation and retries an expired SID once;
+Transmission replays a 409 request once with the supplied session ID and optional Basic authentication.
+Saved passwords are decrypted only for connection configuration and are never serialized.
+
+The client routes aggregate the built-in engine and configured external sources. Preferences select
+future sends, not ownership of existing transfers. Every list row carries `ownerClientType`,
+`ownerClientLabel`, and the normalized `<type>:<hash>` transfer ID. Switching back to built-in retains
+the external connection. Controls verify the recorded owner; file deletion refuses unknown or
+overlapping other owners, and remote deletion is verified before clearing remembered transfer rows.
+Connection tests use the same adapters as sends and controls. The `ITorrentEngine` contract remains
+the built-in engine contract for streaming and queue consumers.
+
+`ExternalClientTests` replays the TypeScript adapter fixtures, authentication handshakes, status mappings,
+and download-layout assertions. `ExternalRouteTests` uses the API test factory with fake HTTP handlers
+to exercise preferences, encrypted credentials, sends, ownership, offline responses, and safe deletion.
+
 ## Build and test
 
 ```powershell
