@@ -76,6 +76,20 @@ dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5106 --To
 The host listens on `http://127.0.0.1:3000` by default. During development always pass another port.
 The root run scripts select port 5106. `-p:SkipWebBuild=true` skips frontend work for backend-only builds.
 
+### Settings and Downloads parity
+
+`SettingsParityTests` covers typed settings validation, nullable/reset semantics, external-client
+retention, folder navigation/reveal validation, and the complete storage-usage payload returned by
+settings, retention preview, and untracked-file deletion. The inventory is bounded to 50,000 entries
+and 12 directory levels; incomplete scans are explicitly non-authoritative. Tracked claims include
+unverified release paths, so preallocated downloads cannot be offered as untracked cleanup.
+
+Browser verification uses isolated database copies and non-default ports, with `NEXT_DIST_DIR` set
+for the reference build. Settings and Downloads were exercised at 390/768/1280 px, including a real
+Sintel/Big Buck Bunny transfer, pause/resume, cap-one queuing, API force, and browser delete-with-files.
+The SPA queue action and preprobe panel depend on their separate UI/prewarm port work; diagnostics
+retain runtime-specific .NET memory metrics rather than inventing Node event-loop measurements.
+
 ## Folder distribution
 
 ```powershell

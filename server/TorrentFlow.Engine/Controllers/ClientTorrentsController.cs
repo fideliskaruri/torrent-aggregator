@@ -39,7 +39,7 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
         if (config.ClientType is "qbittorrent" or "transmission")
             issues.Add(new ClientIssue(config.ClientType, Label(config.ClientType),
                 $"{Label(config.ClientType)} is not supported by this server yet; showing built-in transfers only.", false));
-        return Ok(new ListResponse(torrents, config.ClientType, config.Host, false, config.ExternalClientType,
+        return Ok(new ListResponse(torrents, config.ClientType, config.ClientType == "builtin" ? "" : config.Host, false, config.ExternalClientType,
             config.ExternalClientType is not null, issues.Count > 0, issues));
     }
 
