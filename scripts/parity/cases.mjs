@@ -30,7 +30,15 @@ const volatile = new Set([
   "timestamp", "generatedAt", "createdAt", "updatedAt", "observedAt", "lastChecked",
   "lastUsedAt", "expiresAt", "verifiedAt", "latencyMs", "durationMs", "elapsedMs",
   "uptime", "uptimeSeconds", "requestId", "correlationId", "traceId", "buildId",
+  "scannedAtMs",
 ]);
+
+/** Inert rows seeded into both snapshot copies by run.mjs (see seedFixture). */
+export const FIXTURE = {
+  workId: "parity-fixture-work", workKey: "parity-fixture-big-buck-bunny-2008",
+  watchListItemId: "parity-fixture-item", torrentId: "parity-fixture-torrent", targetId: "parity-fixture-target",
+  infoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+};
 
 export function normalize(value, { replacements = [], unordered = [] } = {}, pointer = "$") {
   if (Array.isArray(value)) {
@@ -109,10 +117,71 @@ export async function createCases(root, db, options = {}) {
       method: "POST", route, path: route, body: {}, label: "invalid empty body",
     })),
   );
+  const seeded = (await db.execute({ sql: "SELECT 1 FROM WatchListItem WHERE id = ?", args: [FIXTURE.watchListItemId] })
+    .catch(() => ({ rows: [] }))).rows.length > 0;
+  if (seeded) {
+    const hash = FIXTURE.infoHash, key = encodeURIComponent(FIXTURE.workKey);
+    const item = encodeURIComponent(FIXTURE.watchListItemId);
+    fixtures.seeded = FIXTURE;
+    cases.push(
+      ...[
+        ["/api/library/delete", `/api/library/delete?watchListItemId=${item}&scope=show`],
+        ["/api/progress", `/api/progress?infoHash=${hash}`],
+        ["/api/stream/[infoHash]", `/api/stream/${hash}`],
+        ["/api/subtitles/[infoHash]", `/api/subtitles/${hash}`],
+        ["/api/title/[workKey]", `/api/title/${key}`],
+        ["/api/title/[workKey]/progress", `/api/title/${key}/progress`],
+      ].filter(([, p]) => !cases.some((c) => c.method === "GET" && c.path === p))
+        .map(([route, p]) => ({ method: "GET", route, path: p, label: "seeded fixture" })),
+      { method: "POST", route: "/api/library/delete", path: "/api/library/delete",
+        body: { watchListItemId: FIXTURE.watchListItemId, scope: "show", confirm: false }, label: "unconfirmed" },
+    );
+  }
+  // Each probe below was checked against the Next handler: it is rejected before any
+  // write, engine start, provider call or filesystem change. run.mjs aborts if either
+  // host answers a non-GET probe with 2xx. Never add a probe without that review.
+  const probe = (method, route, p, extra, label) => ({ method, route, path: p, ...extra, label });
+  cases.push(
+    probe("GET", "/api/library/delete", "/api/library/delete", {}, "missing id"),
+    probe("GET", "/api/library/delete", "/api/library/delete?watchListItemId=parity-missing-item&scope=bad", {}, "invalid scope"),
+    probe("GET", "/api/stream/[infoHash]", "/api/stream/not-a-hash", {}, "invalid hash"),
+    probe("GET", "/api/subtitles/[infoHash]", "/api/subtitles/not-a-hash?filePath=x", {}, "invalid hash"),
+    probe("HEAD", "/api/subtitles/[infoHash]", "/api/subtitles/not-a-hash?filePath=x", {}, "invalid hash"),
+    probe("DELETE", "/api/subtitles/[infoHash]", "/api/subtitles/not-a-hash?filePath=x", {}, "invalid hash"),
+    probe("HEAD", "/api/playback/hls/[sessionId]/[...segment]", "/api/playback/hls/parity-missing-session/playlist.m3u8", {}, "missing session"),
+    probe("POST", "/api/stream/[infoHash]/select", "/api/stream/not-a-hash/select", { body: {} }, "invalid hash"),
+    probe("POST", "/api/client/torrents", "/api/client/torrents", { body: {} }, "invalid empty body"),
+    probe("POST", "/api/library/delete", "/api/library/delete", { body: {} }, "invalid empty body"),
+    probe("POST", "/api/library/ondemand", "/api/library/ondemand", { body: { season: "1" } }, "invalid body"),
+    probe("POST", "/api/library/backfill-estimate", "/api/library/backfill-estimate", { rawBody: "{" }, "malformed JSON"),
+    probe("POST", "/api/playback/candidates", "/api/playback/candidates", { body: {} }, "invalid empty body"),
+    probe("POST", "/api/playback/failover", "/api/playback/failover", { body: {} }, "invalid empty body"),
+    probe("POST", "/api/playback/switch", "/api/playback/switch", { body: {} }, "invalid empty body"),
+    probe("POST", "/api/prewarm", "/api/prewarm", { body: {} }, "unknown action"),
+    probe("PUT", "/api/prewarm/swarm-probe", "/api/prewarm/swarm-probe", { rawBody: "{" }, "malformed JSON"),
+    probe("PUT", "/api/settings/client", "/api/settings/client", { body: { clientType: 123 } }, "invalid type"),
+    probe("POST", "/api/title/[workKey]", `/api/title/${workKey}`, { body: { scope: "title", preferredResolution: 123 } }, "invalid resolution"),
+    probe("POST", "/api/watchlist", "/api/watchlist", { body: {} }, "invalid empty body"),
+    probe("PATCH", "/api/watchlist", "/api/watchlist", { body: {} }, "invalid empty body"),
+    probe("DELETE", "/api/watchlist", "/api/watchlist", {}, "missing id"),
+    probe("POST", "/api/watchlist", "/api/watchlist", { rawBody: "{}", headers: { "content-type": "text/plain" } }, "wrong content type"),
+    probe("POST", "/api/rules", "/api/rules", { body: {} }, "invalid empty body"),
+    probe("PATCH", "/api/rules", "/api/rules", { body: {} }, "invalid empty body"),
+    probe("DELETE", "/api/rules", "/api/rules", {}, "missing id"),
+    probe("POST", "/api/rules/run", "/api/rules/run", { headers: { "sec-fetch-site": "cross-site" } }, "cross-site"),
+    probe("POST", "/api/settings/open-folder", "/api/settings/open-folder", { body: { path: 123 } }, "invalid type"),
+    probe("POST", "/api/settings/untracked-files", "/api/settings/untracked-files", { body: {} }, "invalid empty body"),
+    probe("POST", "/api/settings/retention-sweep", "/api/settings/retention-sweep", { body: {} }, "invalid empty body"),
+  );
   for (const c of cases) {
     // Filesystem enumeration can vary; ranked/paginated arrays stay ordered.
     const unordered = c.route === "/api/settings/browse-folders" ? ["$.entries"] : [];
     c.normalizer = (value) => normalize(value, { ...options, unordered });
   }
+  // The .NET stream index resumes a known, paused transfer to serve it (Next only reads a live
+  // client). The fixture has no magnet, so that resume flips it to error; run those reads last so
+  // title/progress cases see the seeded state on both hosts.
+  const resumes = (c) => c.method === "GET" && c.route === "/api/stream/[infoHash]";
+  cases.sort((a, b) => Number(resumes(a)) - Number(resumes(b)));
   return { cases, routes, fixtures };
 }

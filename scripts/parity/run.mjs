@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { createClient } from "@libsql/client";
-import { createCases } from "./cases.mjs";
+import { createCases, FIXTURE } from "./cases.mjs";
 import { compare, markdown } from "./diff.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -80,6 +80,44 @@ async function ready(base, proc) {
   throw new Error(`Timed out waiting for ${base}/api/health; see ${proc.logPath}`);
 }
 
+/**
+ * An inert library entry so library, stream, subtitle, progress and client-list routes are
+ * exercised against real rows even when the source library is empty. Big Buck Bunny is a
+ * Creative Commons Blender film. The transfer is paused with no magnet/URL, so neither host
+ * can start or rehydrate it; the work has no provider, so no metadata lookup is triggered.
+ */
+export async function seedFixture(db, tables, dataDir) {
+  if (!["User", "Work", "WatchListItem", "EngineTorrent"].every((t) => tables.has(t))) return false;
+  const user = (await db.execute("SELECT id FROM User ORDER BY id LIMIT 1")).rows[0]?.id;
+  if (!user) return false;
+  const at = "2026-01-01T00:00:00.000+00:00";
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO Work (id, workKey, canonicalTitle, year, mediaType, createdAt, updatedAt)
+          VALUES (?, ?, 'Big Buck Bunny', 2008, 'movie', ?, ?)`,
+    args: [FIXTURE.workId, FIXTURE.workKey, at, at],
+  });
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO WatchListItem (id, userId, workId, mediaType, externalId, title, status, monitored,
+            monitorMode, lastChecked, createdAt, updatedAt)
+          VALUES (?, ?, ?, 'movie', 'parity-fixture-10378', 'Big Buck Bunny', 'completed', 0, 'on_demand', ?, ?, ?)`,
+    args: [FIXTURE.watchListItemId, user, FIXTURE.workId, at, at, at],
+  });
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO EngineTorrent (id, userId, workId, hash, name, magnet, torrentUrl, savePath, category,
+            status, progress, sizeBytes, origin, lastUsedAt, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, 'Big Buck Bunny', NULL, NULL, ?, NULL, 'paused', 0.5, 276134947, 'user', ?, ?, ?)`,
+    args: [FIXTURE.torrentId, user, FIXTURE.workId, FIXTURE.infoHash, dataDir, at, at, at],
+  });
+  if (tables.has("AcquisitionTarget")) await db.execute({
+    // Terminal status: nothing retries or reconciles a failed target on its own.
+    sql: `INSERT OR IGNORE INTO AcquisitionTarget (id, userId, workId, targetKey, workKey, scope, status, progress,
+            infoHash, error, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, 'title', 'failed', 0.5, ?, 'parity fixture', ?, ?)`,
+    args: [FIXTURE.targetId, user, FIXTURE.workId, `${FIXTURE.workKey}:title:-:-`, FIXTURE.workKey, FIXTURE.infoHash, at, at],
+  });
+  return true;
+}
+
 export async function snapshot(source, nextDb, dotnetDb, dataDir) {
   if ((await stat(source)).size < 512) throw new Error(`Source database is empty or invalid: ${source}`);
   const client = createClient({ url: pathToFileURL(source).href });
@@ -117,6 +155,7 @@ export async function snapshot(source, nextDb, dotnetDb, dataDir) {
     });
     await update("AutoRule", { enabled: 0 });
     for (const table of ["GrabJob", "DownloadHistory"]) await update(table, { savePath: dataDir });
+    await seedFixture(db, tables, dataDir);
     await db.execute("PRAGMA wal_checkpoint(TRUNCATE)");
   } finally { db.close(); }
   await copyFile(nextDb, dotnetDb);
@@ -124,10 +163,16 @@ export async function snapshot(source, nextDb, dotnetDb, dataDir) {
 
 export async function request(base, c) {
   try {
+    const hasBody = c.body !== undefined || c.rawBody !== undefined;
     const response = await fetch(base + c.path, {
       method: c.method, redirect: "manual", signal: AbortSignal.timeout(45_000),
-      headers: { accept: "application/json", ...(c.body !== undefined ? { "content-type": "application/json", origin: base } : {}) },
-      ...(c.body !== undefined ? { body: JSON.stringify(c.body) } : {}),
+      headers: {
+        accept: "application/json",
+        ...(hasBody ? { "content-type": "application/json" } : {}),
+        ...(c.method !== "GET" && c.method !== "HEAD" ? { origin: base } : {}),
+        ...c.headers,
+      },
+      ...(hasBody ? { body: c.rawBody ?? JSON.stringify(c.body) } : {}),
     });
     const chunks = [];
     let size = 0;
@@ -222,10 +267,16 @@ async function main() {
       const [left, right] = await Promise.all([request(bases.next, c), request(bases.dotnet, c)]);
       const result = { method: c.method, route: c.route, path: c.path, label: c.label, body: c.body, ...compare(c, left, right) };
       report.results.push(result);
-      console.log(`${result.outcome.padEnd(10)} ${c.method} ${c.path}`);
-      // Validation probes must never silently become successful mutations.
-      if (c.method === "POST" && [left, right].some((r) => r.status >= 200 && r.status < 300))
-        throw new Error(`Unsafe validation probe unexpectedly succeeded: ${c.path}`);
+      // Validation probes must never silently become successful mutations. Each probe is
+      // reviewed against Next, so a Next 2xx means the review is wrong: stop. A .NET 2xx is
+      // a parity bug on a disposable copy; record it loudly and keep comparing.
+      if (c.method !== "GET" && left.status >= 200 && left.status < 300)
+        throw new Error(`Unsafe validation probe unexpectedly succeeded on Next: ${c.method} ${c.path}`);
+      if (c.method !== "GET" && right.status >= 200 && right.status < 300) {
+        result.outcome = "fail";
+        result.unsafe = ".NET accepted a request Next rejects";
+      }
+      console.log(`${result.outcome.padEnd(10)} ${c.method} ${c.path}${result.unsafe ? `  (${result.unsafe})` : ""}`);
     }
     await writeFile(path.join(reportDir, "report.json"), JSON.stringify(report, null, 2));
     await writeFile(path.join(reportDir, "report.md"), markdown(report));

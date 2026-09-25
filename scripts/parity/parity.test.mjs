@@ -45,13 +45,22 @@ test("bare missing routes are not ported; implemented JSON 404s are compared", (
 test("status and both headers are independently checked", () => {
   const expected = response({});
   const actual = response({}, 201);
-  actual.headers["content-type"] += "; charset=utf-8";
+  actual.headers["content-type"] = "text/plain";
   actual.headers["cache-control"] = "no-store";
   const diff = compare(caseStub, expected, actual);
   assert.equal(diff.statusMatch, false);
   assert.equal(diff.headers["content-type"].match, false);
   assert.equal(diff.headers["cache-control"].match, false);
   assert.deepEqual(diff.differences, []);
+});
+
+test("JSON content types ignore only a utf-8 charset", () => {
+  const withType = (type) => ({ ...response({}), headers: { "content-type": type, "cache-control": null } });
+  const json = withType("application/json");
+  assert.equal(compare(caseStub, json, withType("application/json; charset=utf-8")).outcome, "pass");
+  assert.equal(compare(caseStub, json, withType("Application/JSON;charset=UTF-8")).outcome, "pass");
+  assert.equal(compare(caseStub, json, withType("application/json; charset=latin1")).outcome, "fail");
+  assert.equal(compare(caseStub, withType("text/plain"), withType("text/plain; charset=utf-8")).outcome, "fail");
 });
 
 test("options validate flags and regex patterns", () => {
@@ -100,7 +109,8 @@ test("snapshot includes WAL, preserves source, sanitizes both copies and paramet
     assert.ok(suite.cases.some((c) => c.path === "/api/title/real-title-2026"));
     assert.ok(suite.cases.some((c) => c.path.includes("0123456789abcdef0123456789abcdef01234567")));
     assert.ok(suite.cases.some((c) => c.path.includes("watch-real")));
-    assert.ok(suite.cases.filter((c) => c.method === "POST").every((c) => JSON.stringify(c.body) === "{}"));
+    assert.ok(suite.cases.filter((c) => c.method !== "GET" && c.method !== "HEAD")
+      .every((c) => c.label && c.label !== "read"));
     const api = path.join(dir, "src", "app", "api", "new-route");
     await mkdir(api, { recursive: true });
     await writeFile(path.join(api, "route.ts"), "export { read as GET } from './handler';");
