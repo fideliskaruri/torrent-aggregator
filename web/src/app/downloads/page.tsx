@@ -99,6 +99,36 @@ import type { TorrentClientType } from "@/lib/clients";
 
 type StatusFilter = "all" | "active" | "downloading" | "ready" | "paused";
 
+function parseRawTorrentInput(
+  raw: string,
+): { magnet?: string; torrentUrl?: string; name?: string } | null {
+  const value = raw.trim();
+  if (!value) return null;
+  if (/^magnet:\?/i.test(value)) {
+    const dn = (() => {
+      try {
+        const url = new URL(value);
+        return url.searchParams.get("dn")?.trim() || undefined;
+      } catch {
+        const match = /(?:^|[?&])dn=([^&]+)/i.exec(value)?.[1];
+        if (!match) return undefined;
+        try {
+          return decodeURIComponent(match).trim() || undefined;
+        } catch {
+          return match.trim() || undefined;
+        }
+      }
+    })();
+    return dn ? { magnet: value, name: dn } : { magnet: value };
+  }
+  if (/^https?:\/\//i.test(value) && /\.torrent(?:[?#]|$)/i.test(value)) {
+    const tail = value.split("/").pop() ?? "";
+    const name = tail.replace(/\.torrent(?:[?#].*)?$/i, "").trim();
+    return name ? { torrentUrl: value, name: decodeURIComponent(name) } : { torrentUrl: value };
+  }
+  return null;
+}
+
 function downloadTitleHref(torrent: ClientTorrent): string | null {
   const workKey = torrent.workKey?.trim();
   const workTitle = torrent.workTitle?.trim();
@@ -183,6 +213,8 @@ export default function ClientPage() {
   // state owned by the dialog would not survive that round trip.
   const [openSeriesKey, setOpenSeriesKey] = useState<string | null>(null);
   const [selectedSeasonKey, setSelectedSeasonKey] = useState<string | null>(null);
+  const [rawSendValue, setRawSendValue] = useState("");
+  const [sendingRaw, setSendingRaw] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(
     null,
   );
@@ -558,6 +590,47 @@ export default function ClientPage() {
     setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
   }
 
+  async function sendRawTorrent() {
+    const parsed = parseRawTorrentInput(rawSendValue);
+    if (!parsed) {
+      toast.error("Paste a magnet link or a direct .torrent URL.");
+      return;
+    }
+    invalidateInFlight();
+    setSendingRaw(true);
+    try {
+      const res = await fetch("/api/torrent/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...parsed,
+          source: "manual",
+          target: "primary",
+          retention: "keep",
+        }),
+      });
+      const text = await res.text();
+      let data: { ok?: boolean; message?: string; error?: string } = {};
+      try {
+        data = text ? (JSON.parse(text) as typeof data) : {};
+      } catch {
+        toast.error("Bad response from torrent send");
+        return;
+      }
+      if (res.ok && data.ok !== false) {
+        toast.success(data.message || "Added to downloads");
+        setRawSendValue("");
+        void load();
+      } else {
+        toast.error(data.message || data.error || "Could not add torrent");
+      }
+    } catch {
+      toast.error("Network error adding torrent");
+    } finally {
+      setSendingRaw(false);
+    }
+  }
+
   async function actionMany(
     act: "pause" | "resume",
     transfers: ClientTorrent[],
@@ -916,6 +989,39 @@ export default function ClientPage() {
           </>
         }
       />
+
+      <div className="surface space-y-3 p-4" data-raw-torrent-send>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <p className="text-[13px] font-medium text-[var(--text)]">
+              Add a magnet or .torrent URL
+            </p>
+            <p className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+              Paste a magnet link or a direct .torrent URL, then send it to the
+              configured client.
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void sendRawTorrent()}
+            disabled={sendingRaw || !rawSendValue.trim()}
+            className="shrink-0"
+            data-raw-torrent-send-button
+          >
+            {sendingRaw ? <LoadingGlyph className="h-3.5 w-3.5" /> : null}
+            Add torrent
+          </Button>
+        </div>
+        <textarea
+          className="min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--accent)]"
+          value={rawSendValue}
+          onChange={(event) => setRawSendValue(event.target.value)}
+          placeholder="magnet:?xt=urn:btih:… or https://example.com/release.torrent"
+          aria-label="Paste a magnet link or .torrent URL"
+          data-raw-torrent-send-input
+        />
+      </div>
 
       {/*
         The full error panel replaces the page only when there is nothing left

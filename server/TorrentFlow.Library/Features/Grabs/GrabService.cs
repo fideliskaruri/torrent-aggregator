@@ -27,7 +27,11 @@ public sealed class RungDiagnostic
     public int Attempted { get; set; }
 }
 
-public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine)
+public sealed class GrabService(
+    IDbContextFactory<TorrentFlowDbContext> factory,
+    ITorrentSearchService search,
+    ITorrentEngine engine,
+    ISmartCategorizer? categorizer = null)
 {
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
     {
@@ -170,12 +174,20 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         Func<Task>? beforeSend, bool relaxed, CancellationToken ct)
     {
         if (beforeSend != null) await beforeSend();
+        var searchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
+        var target = SmartSendTargets.Resolve(
+            settings,
+            categorizer,
+            candidate.Title,
+            input.MediaType,
+            candidate.Source,
+            searchCategory);
         EngineAddResult result;
         try
         {
             result = await engine.AddAsync(new() { Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = input.Retention,
-                Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
+                Source = candidate.Source, SearchCategory = searchCategory,
                 Metadata = CatalogMetadata(input.MediaType, input.Title),
                 QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap }, ct);
@@ -207,7 +219,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         {
             var storage = result.StorageLimit == null ? null : StorageFacts.Refusal(settings, result.StorageLimit, result.Message,
                 candidate.SizeBytes, await engine.QueuedReservedBytesAsync(ct));
-            return new(false, result.Message) { Query = query, Title = candidate.Title, Magnet = candidate.Magnet, Storage = storage };
+            return new(false, result.Message) { Query = query, Title = candidate.Title, Magnet = candidate.Magnet, SavePath = target.SavePath, Storage = storage };
         }
         // Honestly label the provenance when the ladder had to relax to win.
         var notes = new List<string>();
@@ -216,6 +228,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var next = input.Cursor?.Next();
         return new(true, notes.Count == 0 ? result.Message : $"{result.Message} · {string.Join(" · ", notes)}") { Query = query, Title = candidate.Title,
             Magnet = candidate.Magnet, InfoHash = hash, Queued = queued, QueuePosition = result.Details?.QueuePosition, Advanced = advanced,
+            SavePath = target.SavePath,
             LastEpisode = advanced ? input.Cursor?.Label : null, CursorSeason = advanced ? next?.Season : null,
             CursorEpisode = advanced ? next?.Episode : null, NextEpisodeHint = advanced ? next?.Query(input.Title) : null };
     }

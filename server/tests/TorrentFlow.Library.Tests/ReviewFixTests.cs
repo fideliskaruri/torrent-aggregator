@@ -139,6 +139,30 @@ public sealed class ReviewFixTests
     }
 
     [Fact]
+    public async Task TitlePageDownloadReturnsTheResolvedSavePath()
+    {
+        using var host = new LibraryHost(); using var client = host.CreateClient();
+        await host.Settings();
+        host.Search.Respond = o => new() { Query = o.Query, Results = [FakeSearch.Release("Example Show S01E01 1080p")] };
+
+        var response = await client.PostAsJsonAsync("/api/title/example-show", new
+        {
+            scope = "episode",
+            season = 1,
+            episode = 1,
+            title = "Example Show",
+            mediaType = "tv",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = await Json(response);
+        Assert.True(json.GetProperty("ok").GetBoolean());
+        var savePath = json.GetProperty("savePath").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(savePath));
+        Assert.StartsWith(host.DataDirectory, savePath);
+    }
+
+    [Fact]
     public async Task LinkedTorrentOutsideScanWindowIsNotMarkedFailed()
     {
         using var host = new LibraryHost(); using var client = host.CreateClient();
