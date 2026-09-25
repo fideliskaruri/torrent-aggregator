@@ -17,7 +17,6 @@ public sealed class SettingsClientController(
     ClientSettingsStore store,
     SecretProtector secrets,
     StorageBudget storage,
-    ITorrentEngine engine,
     ExternalClientRegistry clients) : ControllerBase
 {
     internal static readonly int[] SelectableResolutions = [480, 720, 1080, 2160];
@@ -64,7 +63,7 @@ public sealed class SettingsClientController(
             ["pathRules"] = config.PathRules,
             ["pathWarnings"] = PathWarnings(config),
             ["hasExternal"] = config.ExternalClientType is not null,
-            ["defaultRetentionPolicy"] = string.IsNullOrEmpty(s.DefaultRetentionPolicy) ? "EPHEMERAL" : s.DefaultRetentionPolicy,
+            ["defaultRetentionPolicy"] = s.DefaultRetentionPolicy?.Trim().ToUpperInvariant() is "KEEP" or "KEPT" ? "KEPT" : "EPHEMERAL",
             ["defaultRetentionPolicyPersisted"] = !string.IsNullOrEmpty(s.DefaultRetentionPolicy),
             ["storageUsage"] = await StorageUsageAsync(config, ct),
         };
@@ -73,10 +72,29 @@ public sealed class SettingsClientController(
     private static List<object> PathWarnings(ClientConfig config)
     {
         var list = new List<object>();
+        static string Normalize(string path) => path.Trim().Trim('"', '\'').Replace('\\', '/').TrimEnd('/').ToLowerInvariant();
+        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (current.Parent is not null && !System.IO.File.Exists(Path.Combine(current.FullName, "TorrentFlow.slnx"))) current = current.Parent;
+        var repo = Normalize(System.IO.File.Exists(Path.Combine(current.FullName, "TorrentFlow.slnx"))
+            ? current.FullName : Directory.GetCurrentDirectory());
+        var temporary = Normalize(Path.GetTempPath());
         void Check(string field, string? path, string? category = null)
         {
-            if (string.IsNullOrWhiteSpace(path) || Path.IsPathFullyQualified(path)) return;
-            list.Add(new { field, category, path, reasons = new[] { "relative" }, message = $"\"{path}\" is not an absolute path." });
+            if (string.IsNullOrWhiteSpace(path)) return;
+            var normalized = Normalize(path);
+            var segments = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            var reasons = new List<string>();
+            if (segments.Any(s => System.Text.RegularExpressions.Regex.IsMatch(s, @"(?:^|[._-])e2e(?:$|[._-])|^(?:\.?playwright(?:[-_.].*)?|test-results?|playwright-report)$")))
+                reasons.Add("test-directory");
+            if (segments.Contains("node_modules")) reasons.Add("dependencies");
+            if (segments.Any(s => s is "tmp" or ".tmp" or "temp" or ".temp") || normalized == temporary || normalized.StartsWith(temporary + '/', StringComparison.Ordinal))
+                reasons.Add("temporary-directory");
+            if (normalized == repo || normalized.StartsWith(repo + '/', StringComparison.Ordinal)) reasons.Add("inside-repository");
+            if (reasons.Count == 0) return;
+            var detail = reasons.Contains("inside-repository") ? "It is inside the TorrentFlow project."
+                : reasons.Contains("temporary-directory") ? "It is in a temporary directory."
+                : reasons.Contains("dependencies") ? "It is inside node_modules." : "It looks like a test directory.";
+            list.Add(new { field, category, path, reasons, message = $"{detail} Tests, updates, or cleanup tools may remove files stored there. Choose a permanent media folder; TorrentFlow will not move existing files automatically." });
         }
         Check("baseDownloadPath", config.BaseDownloadPath);
         Check("savePath", config.SavePath);
@@ -84,43 +102,25 @@ public sealed class SettingsClientController(
         return list;
     }
 
-    /// <summary>Reduced RetentionStorageUsage: totals by retention plus the measured folder size.</summary>
     private async Task<object?> StorageUsageAsync(ClientConfig config, CancellationToken ct)
     {
         var rows = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
-        long Bytes(IEnumerable<EngineTorrent> rs) => rs.Sum(r => (long)(Math.Max(0, r.SizeBytes) * Math.Clamp(r.Progress, 0, 1)));
-        var kept = Bytes(rows.Where(r => r.Origin == TorrentOrigin.User));
-        var ephemeral = Bytes(rows.Where(r => r.Origin is TorrentOrigin.Stream or TorrentOrigin.Prewarm));
-        long? disk = null;
-        if (config.DownloadRoot is { } root) disk = storage.DirectorySize(root).Bytes;
-        return new
-        {
-            totalBytes = kept + ephemeral,
-            ephemeralBytes = ephemeral,
-            keptBytes = kept,
-            indeterminateBytes = 0,
-            budgetBytes = config.MaxStorageBytes is { } cap ? cap / 4 : (long?)null,
-            graceMs = (long)RetentionSweeper.Grace.TotalMilliseconds,
-            items = Array.Empty<object>(),
-            diskBytes = disk,
-            orphanBytes = disk is { } d ? Math.Max(0, d - kept - ephemeral) : 0,
-            orphans = Array.Empty<object>(),
-            disk = config.DownloadRoot is { } r2 ? new { root = r2, status = "complete", authoritative = true } : null,
-            queuedBytes = await engine.QueuedReservedBytesAsync(ct),
-        };
+        return SettingsDiskInventory.Usage(config, rows, ct);
     }
 
     [HttpPut]
     public async Task<IActionResult> Put(CancellationToken ct)
     {
         if (await JsonBody.ReadAsync(Request, ct) is not { } body) return JsonBody.InvalidJson();
+        if (SettingsInput.Validate(body) is { } failure) return BadRequest(new { error = failure.Error, field = failure.Field });
         IActionResult Bad(string reason) => BadRequest(new { ok = false, error = reason, message = reason });
 
         var row = await store.EnsureAsync(db, ct);
 
         if (body.Bool("switchToBuiltin") == true)
         {
-            if (row.ClientType is "qbittorrent" or "transmission") row.ExternalClientType = row.ClientType;
+            if (string.IsNullOrEmpty(row.ExternalClientType) && row.ClientType is "qbittorrent" or "transmission")
+                row.ExternalClientType = row.ClientType;
             row.ClientType = "builtin";
             row.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -133,24 +133,22 @@ public sealed class SettingsClientController(
 
         if (body.Str("clientType") is { } clientType)
         {
-            if (clientType is not ("builtin" or "qbittorrent" or "transmission")) return Bad("clientType must be builtin, qbittorrent or transmission");
-            row.ClientType = clientType;
+            row.ClientType = clientType.Trim();
         }
         if (body.Has("externalClientType"))
         {
-            var ext = body.Str("externalClientType");
-            if (ext is not (null or "" or "qbittorrent" or "transmission")) return Bad("externalClientType must be qbittorrent or transmission");
-            row.ExternalClientType = string.IsNullOrEmpty(ext) ? null : ext;
+            var ext = body.Str("externalClientType")?.Trim();
+            row.ExternalClientType = ext is null or "" or "none" ? null : ext;
         }
-        if (row.ClientType is "qbittorrent" or "transmission")
-            row.ExternalClientType = row.ClientType;
-        if (body.Str("host") is { } host)
+        if (row.ClientType is "qbittorrent" or "transmission") row.ExternalClientType = row.ClientType;
+        if (body.Str("host")?.Trim() is { Length: > 0 } host)
         {
             if (!Uri.TryCreate(host.Trim(), UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https"))
                 return Bad("host must be an http(s) URL");
-            row.Host = host.Trim();
+            row.Host = host.TrimEnd('/');
         }
-        if (body.Has("username")) row.Username = NullIfBlank(body.Str("username"));
+        if (body.Has("username")) row.Username = body.Str("username")?.Trim();
+        if (body.Has("password") && body.IsNull("password")) row.Password = null;
         if (body.Str("password") is { Length: > 0 } password)
         {
             if (password.Length > 4096) return Bad("password is too long");
@@ -195,24 +193,22 @@ public sealed class SettingsClientController(
         if (body.Bool("verboseDiagnostics") is { } verbose) row.VerboseDiagnostics = verbose;
         if (body.Has("preferredResolution"))
         {
-            var r = body.Num("preferredResolution");
-            if (r is null || !SelectableResolutions.Contains((int)r)) return Bad("preferredResolution must be one of 480, 720, 1080, 2160");
+            var r = body.Num("preferredResolution") ?? DefaultResolution;
             row.PreferredResolution = (int)r;
         }
         if (body.Has("automationIntervalMinutes"))
         {
-            var m = body.Num("automationIntervalMinutes");
-            if (m is null || !AutomationIntervals.Contains((int)m)) return Bad("automationIntervalMinutes must be 0, 30, 120 or 360");
+            var m = body.Num("automationIntervalMinutes") ?? 0;
             row.AutomationIntervalMinutes = (int)m;
         }
-        if (body.TryGetProperty("categories", out var cats))
+        if (body.TryGetProperty("categories", out var cats) && cats.ValueKind != JsonValueKind.Null)
         {
             if (cats.ValueKind != JsonValueKind.Array) return Bad("categories must be an array");
-            var list = cats.EnumerateArray().Where(c => c.ValueKind == JsonValueKind.String).Select(c => c.GetString()!.Trim()).Where(c => c.Length > 0).Distinct().ToList();
+            var list = cats.EnumerateArray().Select(c => c.GetString()!.Trim()).ToList();
             if (list.Count > 64) return Bad("At most 64 categories");
             row.Categories = JsonSerializer.Serialize(list);
         }
-        if (body.TryGetProperty("pathRules", out var rules))
+        if (body.TryGetProperty("pathRules", out var rules) && rules.ValueKind != JsonValueKind.Null)
         {
             if (rules.ValueKind == JsonValueKind.Null) row.PathRules = null;
             else if (rules.ValueKind != JsonValueKind.Object) return Bad("pathRules must be an object");
@@ -224,14 +220,16 @@ public sealed class SettingsClientController(
                     if (p.Value.ValueKind != JsonValueKind.String) continue;
                     var path = p.Value.GetString()!.Trim();
                     if (path.Contains('\0')) return Bad("pathRules contains an invalid null character");
-                    if (path.Length > 0) map[p.Name] = path;
+                    if (path.Length > 0) map[p.Name.Trim()] = path;
                 }
                 if (map.Count > 64) return Bad("At most 64 path rules");
                 row.PathRules = map.Count > 0 ? JsonSerializer.Serialize(map) : null;
             }
         }
-        if (body.Str("defaultRetentionPolicy") is { Length: > 0 } policy) row.DefaultRetentionPolicy = policy;
+        if (body.Has("defaultRetentionPolicy"))
+            row.DefaultRetentionPolicy = body.Str("defaultRetentionPolicy")?.Trim() is "KEEP" or "KEPT" ? "KEPT" : "EPHEMERAL";
 
+        storage.ResetDirectorySizeCache();
         row.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 

@@ -134,6 +134,20 @@ ranked and paginated arrays keep their ordering. Bare .NET 404s mean **not porte
 errors, **2** setup/harness failure. Provider-backed reads can vary with live upstream data; inspect
 their diffs rather than masking meaningful results. Reports contain local library data: never commit.
 
+### Settings and Downloads parity
+
+`SettingsParityTests` covers typed settings validation, nullable/reset semantics, external-client
+retention, folder navigation/reveal validation, and the complete storage-usage payload returned by
+settings, retention preview, and untracked-file deletion. The inventory is bounded to 50,000 entries
+and 12 directory levels; incomplete scans are explicitly non-authoritative. Tracked claims include
+unverified release paths, so preallocated downloads cannot be offered as untracked cleanup.
+
+Browser verification uses isolated database copies and non-default ports, with `NEXT_DIST_DIR` set
+for the reference build. Settings and Downloads were exercised at 390/768/1280 px, including a real
+Sintel/Big Buck Bunny transfer, pause/resume, cap-one queuing, API force, and browser delete-with-files.
+The SPA queue action and preprobe panel depend on their separate UI/prewarm port work; diagnostics
+retain runtime-specific .NET memory metrics rather than inventing Node event-loop measurements.
+
 ## Folder distribution
 
 ```powershell
