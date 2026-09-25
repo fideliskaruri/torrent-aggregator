@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { formatBytes, formatDuration, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useDownloadSetup } from "@/components/setup/download-setup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -216,6 +217,7 @@ export default function ClientPage() {
   const [selectedSeasonKey, setSelectedSeasonKey] = useState<string | null>(null);
   const [rawSendValue, setRawSendValue] = useState("");
   const [sendingRaw, setSendingRaw] = useState(false);
+  const { ensureDownloadSetup } = useDownloadSetup();
   const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(
     null,
   );
@@ -598,6 +600,7 @@ export default function ClientPage() {
       return;
     }
     invalidateInFlight();
+    if (!(await ensureDownloadSetup())) return;
     setSendingRaw(true);
     try {
       const res = await fetch("/api/torrent/send", {

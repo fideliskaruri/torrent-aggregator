@@ -22,7 +22,8 @@
  *     runs the volume to zero can corrupt in-flight files. This is the single
  *     hard stop, and it is drawn at arithmetic rather than at preference.
  *   - **setup** — NOT overridable. There is no cap to exceed yet; the answer is
- *     to finish choosing a folder and a budget.
+ *     to finish choosing a folder and a budget. When the caller can ask for them
+ *     in place (`answerSetup`), the send is retried once after they are saved.
  *
  * The line moved here once already. `reserve` and `wont-fit` used to be one
  * `free-space` kind that was refused outright, which made a 700 MB episode
@@ -229,6 +230,9 @@ export type StorageOverrideOutcome<T> =
  *      retry — the user said no.
  *   4. The retry runs exactly once. If the second attempt is refused too, that
  *      error propagates; the loop cannot be re-entered.
+ *   5. A `setup` refusal is not an override: it asks for the missing folder and
+ *      budget via `answerSetup`, then retries once without any override. The
+ *      retry can still meet the cap prompt, which is asked normally.
  *
  * Play never reaches any of this: the server-side gate reclaims stream cache and
  * proceeds, so a stream send does not come back as a `StorageLimitError`.
@@ -236,11 +240,16 @@ export type StorageOverrideOutcome<T> =
 export async function runWithStorageOverride<T>(
   attempt: (opts: { overrideStorageCap: boolean }) => Promise<T>,
   confirm: (facts: StorageOverrideFacts) => Promise<boolean>,
+  answerSetup?: () => Promise<boolean>,
 ): Promise<StorageOverrideOutcome<T>> {
   try {
     return { status: "done", value: await attempt({ overrideStorageCap: false }) };
   } catch (err) {
     if (!(err instanceof StorageLimitError)) throw err;
+    if (err.storage.limit === "setup" && answerSetup) {
+      if (!(await answerSetup())) return { status: "cancelled" };
+      return runWithStorageOverride(attempt, confirm);
+    }
     if (!err.storage.overridable) throw err;
     const proceed = await confirm(err.storage);
     if (!proceed) return { status: "cancelled" };

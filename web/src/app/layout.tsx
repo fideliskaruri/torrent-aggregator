@@ -3,6 +3,7 @@ import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { KeyboardRoot } from "@/components/layout/keyboard-root";
 import { AuthSessionProvider } from "@/components/providers/session-provider";
+import { DownloadSetupProvider } from "@/components/setup/download-setup";
 import { ServiceWorkerRegistrar } from "@/components/pwa/service-worker-registrar";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
@@ -29,6 +30,7 @@ export default function RootLayout() {
       <ServiceWorkerRegistrar />
       <AuthSessionProvider>
         <UiPreferencesProvider>
+          <DownloadSetupProvider>
           <KeyboardRoot>
             <a href="#main-content" className="skip-link">
               Skip to main content
@@ -68,6 +70,7 @@ export default function RootLayout() {
             <MobileNav />
             <Toaster position="bottom-right" richColors closeButton />
           </KeyboardRoot>
+          </DownloadSetupProvider>
         </UiPreferencesProvider>
       </AuthSessionProvider>
     </>

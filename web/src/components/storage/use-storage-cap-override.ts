@@ -17,6 +17,7 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useDownloadSetup } from "@/components/setup/download-setup";
 import {
   runWithStorageOverride,
   type StorageOverrideFacts,
@@ -40,6 +41,7 @@ export interface UseStorageCapOverride {
 }
 
 export function useStorageCapOverride(): UseStorageCapOverride {
+  const { ensureDownloadSetup } = useDownloadSetup();
   const [facts, setFacts] = useState<StorageOverrideFacts | null>(null);
   // Held in a ref, not state: the pending decision is not rendered, and putting
   // it in state would re-run the resolver identity on every keystroke elsewhere.
@@ -56,16 +58,22 @@ export function useStorageCapOverride(): UseStorageCapOverride {
 
   const run = useCallback(
     <T,>(attempt: (opts: { overrideStorageCap: boolean }) => Promise<T>) =>
-      runWithStorageOverride(attempt, (next) => {
-        // A second refusal while one is already on screen would strand the first
-        // promise forever. Decline the newcomer rather than replacing the dialog.
-        if (decide.current) return Promise.resolve(false);
-        setFacts(next);
-        return new Promise<boolean>((resolve) => {
-          decide.current = resolve;
-        });
-      }),
-    [],
+      runWithStorageOverride(
+        attempt,
+        (next) => {
+          // A second refusal while one is already on screen would strand the first
+          // promise forever. Decline the newcomer rather than replacing the dialog.
+          if (decide.current) return Promise.resolve(false);
+          setFacts(next);
+          return new Promise<boolean>((resolve) => {
+            decide.current = resolve;
+          });
+        },
+        // First Download on a fresh install: ask for the folder and space limit
+        // here, then retry, instead of pointing at Settings.
+        () => ensureDownloadSetup({ recheck: true }),
+      ),
+    [ensureDownloadSetup],
   );
 
   const onCancel = useCallback(() => settle(false), [settle]);

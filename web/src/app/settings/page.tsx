@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
+import { DownloadLocationFields } from "@/components/settings/download-location-fields";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RetentionPanel } from "@/components/settings/retention-panel";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
@@ -704,73 +705,18 @@ export default function SettingsPage() {
               </div>
             ) : null}
 
-            <div className="space-y-1.5">
-              <label
-                htmlFor="download-folder"
-                className="text-xs font-medium text-[var(--text-secondary)]"
-              >
-                Download folder
-              </label>
-              <div className="flex min-w-0 gap-2">
-                <Input
-                  id="download-folder"
-                  value={form.baseDownloadPath}
-                  onChange={(event) =>
-                    updateForm((current) => ({
-                      ...current,
-                      baseDownloadPath: event.target.value,
-                    }))
-                  }
-                  className="h-11 min-w-0 scroll-mb-32 font-mono text-base sm:text-sm"
-                  placeholder="Choose a folder or enter its path"
-                  autoComplete="off"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-11 shrink-0"
-                  onClick={() => openPicker("base")}
-                >
-                  <FolderOpen />
-                  Browse
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label
-                htmlFor="storage-limit"
-                className="text-xs font-medium text-[var(--text-secondary)]"
-              >
-                Space limit
-              </label>
-              <div className="flex max-w-[14rem] items-center gap-2">
-                <Input
-                  ref={capInputRef}
-                  id="storage-limit"
-                  type="number"
-                  min={0}
-                  step={1}
-                  inputMode="decimal"
-                  value={form.maxStorageGb}
-                  onChange={(event) =>
-                    updateForm((current) => ({
-                      ...current,
-                      maxStorageGb: event.target.value,
-                    }))
-                  }
-                  className="h-11 scroll-mb-32 text-base sm:text-sm"
-                  aria-describedby="storage-limit-help"
-                />
-                <span className="text-sm text-[var(--text-secondary)]">GB</span>
-              </div>
-              <p
-                id="storage-limit-help"
-                className="text-xs leading-relaxed text-[var(--text-tertiary)]"
-              >
-                Downloads pause before going beyond this amount.
-              </p>
-            </div>
+            <DownloadLocationFields
+              folder={form.baseDownloadPath}
+              onFolderChange={(value) =>
+                updateForm((current) => ({ ...current, baseDownloadPath: value }))
+              }
+              onBrowse={() => openPicker("base")}
+              spaceGb={form.maxStorageGb}
+              onSpaceGbChange={(value) =>
+                updateForm((current) => ({ ...current, maxStorageGb: value }))
+              }
+              spaceInputRef={capInputRef}
+            />
             <div className="space-y-1.5">
               <label
                 htmlFor="max-active-downloads"

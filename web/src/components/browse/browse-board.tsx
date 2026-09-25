@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
+import { useDownloadSetup } from "@/components/setup/download-setup";
 import {
   cleanDisplayTitle,
   type ActionStatus,
@@ -33,6 +34,7 @@ interface NowPlaying {
 export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
   const [statuses, setStatuses] = useState<Record<string, ActionStatus>>({});
   const [playing, setPlaying] = useState<NowPlaying | null>(null);
+  const { ensureDownloadSetup } = useDownloadSetup();
 
   const hero = useMemo(() => pickHeroItem(payload.rails), [payload.rails]);
 
@@ -86,6 +88,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
       }
       if (action.kind !== "get") return;
       if (statuses[item.id] === "pending") return;
+      if (!(await ensureDownloadSetup())) return;
 
       const label = cleanDisplayTitle(item.title);
       setStatuses((prev) => ({ ...prev, [item.id]: "pending" }));
@@ -115,7 +118,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
         });
       }
     },
-    [statuses],
+    [statuses, ensureDownloadSetup],
   );
 
   return (

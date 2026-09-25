@@ -182,6 +182,11 @@ retain runtime-specific .NET memory metrics rather than inventing Node event-loo
   like Download now) even when every slot is taken, including a queued row. Nothing is preempted.
 - Speed defaults: 120 peers per torrent, 400 overall, 40 half-open, 32 MB disk cache, UPnP/NAT-PMP
   and local peer discovery on, and the public tracker list added to every non-private torrent.
+- First download on a fresh install: instead of refusing with "finish setup in Settings", the SPA
+  asks for the folder and space limit in place (`DownloadSetupProvider`, mounted in the root
+  layout, reusing Settings' `DownloadLocationFields`), saves them, then sends. Direct keep sends
+  call `ensureDownloadSetup()` first; `useStorageCapOverride` answers a server `setup` refusal the
+  same way and retries once. Streams never ask.
 
 ## Single-exe distribution
 

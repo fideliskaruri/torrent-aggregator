@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
+import { useDownloadSetup } from "@/components/setup/download-setup";
 import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
 import {
   parseStorageOverrideFacts,
@@ -231,6 +232,7 @@ export default function WatchlistPage() {
   const [sendingId, setSendingId] = useState<string | null>(null);
   // Over-cap sends ask instead of refusing; free space stays a hard stop.
   const capOverride = useStorageCapOverride();
+  const { ensureDownloadSetup } = useDownloadSetup();
   const [pendingRemove, setPendingRemove] = useState<WatchItem | null>(null);
   const [removing, setRemoving] = useState(false);
   // Deleting files is a second, separate decision with its own dialog. It never
@@ -332,6 +334,7 @@ export default function WatchlistPage() {
     season: number,
     episode: number,
   ) {
+    if (!(await ensureDownloadSetup())) return;
     setSendingId(item.id);
     try {
       const res = await fetch("/api/library/ondemand", {
