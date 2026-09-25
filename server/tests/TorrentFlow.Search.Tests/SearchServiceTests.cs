@@ -179,7 +179,7 @@ public sealed class SearchServiceTests
         };
         controller.Request.QueryString = new("?q=Movie&pageSize=200&category=all");
         var response = Assert.IsType<SearchResponse>(Assert.IsType<OkObjectResult>(await controller.Get(default)).Value);
-        Assert.Equal(200, response.PageSize); Assert.Equal(5, response.AvailableSources!.Count);
+        Assert.Equal(200, response.PageSize); Assert.Equal(7, response.AvailableSources!.Count);
     }
     [Fact]
     public async Task Module_wires_all_adapters_options_and_replaceable_defaults()
@@ -195,7 +195,7 @@ public sealed class SearchServiceTests
         services.AddLogging();
         services.AddSearchModule(config);
         using var provider = services.BuildServiceProvider();
-        Assert.Equal(6, provider.GetServices<ITorrentSourceAdapter>().Count());
+        Assert.Equal(8, provider.GetServices<ITorrentSourceAdapter>().Count());
         Assert.Equal("https://fixture.invalid", provider.GetRequiredService<IOptions<SearchModuleOptions>>().Value.NyaaBaseUrl);
         Assert.True(provider.GetRequiredService<TorrentSearchService>().AvailableSources.Single(s => s.Id == "1337x").EnabledByDefault);
         Assert.Empty((await provider.GetRequiredService<ITorrentSearchService>().SearchAsync(new() { Query = "" })).Results);

@@ -34,6 +34,7 @@ internal sealed class ExternalRouteHarness : IDisposable
         _app = Factory.WithWebHostBuilder(b =>
         {
             b.UseSetting("TorrentFlow:ExternalClients:Enabled", "true");
+            b.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
             b.ConfigureTestServices(s =>
             {
                 s.AddHttpClient<QBittorrentClient>().ConfigurePrimaryHttpMessageHandler(() => Handler);

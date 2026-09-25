@@ -63,6 +63,10 @@ public sealed record TorrentResult
     public string? SizeLabel { get; init; }
     public int Seeders { get; init; }
     public int Leechers { get; init; }
+    /// <summary>The indexer's own seeder count when live tracker counts replaced it.</summary>
+    public int? IndexerSeeders { get; init; }
+    /// <summary>True when Seeders comes from a live tracker scrape rather than the indexer listing.</summary>
+    public bool? SwarmChecked { get; init; }
     public int? Completed { get; init; }
     public string? Category { get; init; }
     public required string Source { get; init; }

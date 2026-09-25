@@ -65,7 +65,9 @@ export type TorrentSourceId =
   | "apibay"
   | "torrentscsv"
   | "eztv"
-  | "yts";
+  | "yts"
+  | "archive"
+  | "torznab";
 
 export interface MediaMetadata {
   source: "anilist" | "tmdb";

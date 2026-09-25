@@ -38,6 +38,12 @@ public static class EngineModule
             c.Timeout = TimeSpan.FromSeconds(30);
             c.DefaultRequestHeaders.UserAgent.ParseAdd("TorrentFlow/1.0");
         });
+        services.AddHttpClient(TrackerListRefreshService.HttpClientName, c =>
+        {
+            c.Timeout = TimeSpan.FromSeconds(10);
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("TorrentFlow/1.0");
+        });
+        services.AddHostedService<TrackerListRefreshService>();
         services.AddSingleton<ClientSettingsStore>();
         services.AddSingleton<SecretProtector>();
         services.AddExternalClients();

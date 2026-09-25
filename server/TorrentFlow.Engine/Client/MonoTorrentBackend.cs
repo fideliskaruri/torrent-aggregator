@@ -53,6 +53,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             AllowedEncryption = [EncryptionType.RC4Full, EncryptionType.RC4Header, EncryptionType.PlainText],
             ListenEndPoints = new Dictionary<string, IPEndPoint> { ["ipv4"] = listen },
             DhtEndPoint = o.Dht ? listen : null,
+            // HTTP webseeds (url-list / ws=) are a reliable source; don't sit a minute on a slow swarm before using them.
+            WebSeedDelay = TimeSpan.FromSeconds(5),
+            WebSeedSpeedTrigger = 512 * 1024,
         };
         return builder.ToSettings();
     }
@@ -108,7 +111,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             _errors.TryRemove(spec.Hash, out _);
             manager.TorrentStateChanged += OnStateChanged;
             await OneTrackerPerTierAsync(manager);
-            await AddPublicTrackersAsync(manager, _options.PublicTrackers);
+            await AddPublicTrackersAsync(manager, _options.EffectivePublicTrackers);
             _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
             if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);

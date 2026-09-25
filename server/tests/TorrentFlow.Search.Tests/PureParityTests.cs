@@ -86,8 +86,54 @@ public sealed class PureParityTests
         var expected = JsonNode.Parse(test.GetProperty("expected").GetRawText());
         if (test.GetProperty("method").GetString() == "compareReleases") expected = JsonValue.Create(Math.Sign(test.GetProperty("expected").GetDouble()));
         var actualNode = JsonSerializer.SerializeToNode(actual, SearchCacheStore.Json);
+        if (test.GetProperty("method").GetString() == "rankResults")
+        {
+            AssertSwarmAwareRanking(index, test, expected!.AsArray(), actualNode!.AsArray());
+            return;
+        }
         RemoveAddedNulls(actualNode, expected);
         Assert.True(JsonNode.DeepEquals(expected, actualNode), $"Case {index}: {test}\nActual: {actualNode}");
+    }
+
+    /// <summary>
+    /// The port ranks by live swarm health as well as quality, so it may deliberately reorder the TypeScript ranking —
+    /// but only by lifting a better-seeded release. Everything else (the set, per-row derived fields) must match.
+    /// </summary>
+    private static void AssertSwarmAwareRanking(int index, JsonElement test, JsonArray expected, JsonArray actual)
+    {
+        static string Id(JsonNode? n) => $"{n!["id"]}|{n["title"]}|{n["seeders"]}|{n["sizeBytes"]}|{n["source"]}";
+        static int Seeders(JsonNode? n) => n!["seeders"]?.GetValue<int>() ?? 0;
+        static int Class(JsonNode? n) => ReleaseRanking.SwarmClass(new TorrentResult { Id = "", Title = "", Source = "", SourceUrl = "", Seeders = Seeders(n) });
+        var message = $"Case {index}: {test}\nActual: {actual}";
+        if (expected.Select(Id).Distinct().Count() != expected.Count)
+        {
+            // Indistinguishable rows: only the score scale may differ.
+            foreach (var row in expected.Concat(actual).OfType<JsonObject>()) row.Remove("score");
+            RemoveAddedNulls(actual, expected);
+            Assert.True(JsonNode.DeepEquals(expected, actual), message);
+            return;
+        }
+        Assert.True(expected.Select(Id).Order().SequenceEqual(actual.Select(Id).Order()), message);
+        var position = actual.Select((n, i) => (Id(n), i)).ToDictionary(x => x.Item1, x => x.i);
+        for (var i = 0; i < expected.Count; i++)
+            for (var j = i + 1; j < expected.Count; j++)
+            {
+                var (x, y) = (expected[i], expected[j]);
+                if (position[Id(x)] < position[Id(y)]) continue;
+                Assert.True(Class(y) > Class(x) || Class(y) == Class(x) && Seeders(y) > Seeders(x), $"{Id(y)} jumped {Id(x)} without a better swarm. {message}");
+            }
+        var byId = actual.ToDictionary(Id);
+        foreach (var e in expected)
+        {
+            var a = byId[Id(e)]!.DeepClone().AsObject();
+            var eo = e!.DeepClone().AsObject();
+            foreach (var field in new[] { "score", "bestPick" }) { a.Remove(field); eo.Remove(field); }
+            RemoveAddedNulls(a, eo);
+            Assert.True(JsonNode.DeepEquals(eo, a), $"Row {Id(e)} differs. {message}");
+        }
+        var groups = actual.Select(n => n!["groupKey"]?.GetValue<string>()).ToArray();
+        for (var i = 0; i < actual.Count; i++)
+            Assert.Equal(Array.IndexOf(groups, groups[i]) == i, actual[i]!["bestPick"]?.GetValue<bool>() == true);
     }
     private static void RemoveAddedNulls(JsonNode? actual, JsonNode? expected)
     {

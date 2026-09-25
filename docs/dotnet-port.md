@@ -90,6 +90,63 @@ the built-in engine contract for streaming and queue consumers.
 and download-layout assertions. `ExternalRouteTests` uses the API test factory with fake HTTP handlers
 to exercise preferences, encrypted credentials, sends, ownership, offline responses, and safe deletion.
 
+## Search sources
+
+Adapters live in `server/TorrentFlow.Search/Adapters` and are registered in `SearchModule`. Settings bind
+from the `TorrentFlow:Search` configuration section (e.g. `TorrentFlow__Search__TORZNAB_URL`) or the bare
+environment variable of the same name.
+
+| Id | Name | Default | Notes |
+| --- | --- | --- | --- |
+| `nyaa` | Nyaa | on | RSS; `NYAA_BASE_URL` |
+| `apibay` | ThePirateBay | on | JSON; `APIBAY_BASE_URL` |
+| `torrentscsv` | TorrentsCSV | on | JSON; `TORRENTS_CSV_BASE_URL` |
+| `yts` | YTS | on | Movies; mirror list via `YTS_BASE_URL` |
+| `eztv` | EZTV | on (TV) | Needs `TMDB_API_KEY` to resolve the IMDb id |
+| `1337x` | 1337x | off | `ENABLE_1337X=1`; `X1337_USE_PLAYWRIGHT=1` for the Cloudflare fallback |
+| `archive` | Internet Archive | off | `ENABLE_ARCHIVE=1`; public-domain/CC films, TV, animation (`ArchiveAdapter.cs`) |
+| `torznab` | Torznab (Jackett/Prowlarr) | off until configured | `TORZNAB_URL` + `TORZNAB_API_KEY` (`TorznabAdapter.cs`) |
+
+**Internet Archive.** One `advancedsearch.php` request per search:
+`title:(<query>) AND mediatype:movies` sorted by `downloads desc`, with `fl[]=btih` so the torrent info-hash
+comes straight from the index (no per-item metadata calls; items without `btih` are skipped). Each result
+carries `TorrentUrl = https://archive.org/download/{id}/{id}_archive.torrent` (the engine fetches it first,
+so webseeds are known immediately) and a magnet with the Archive trackers
+(`http://bt{1,2}.archive.org:6969/announce`) and `ws=https://archive.org/download/`. The torrent's name is the
+identifier, so the webseed is the download root (BEP 19 appends `{id}/{path}`), matching the `url-list` in
+the Archive's own `.torrent`. The Archive reports no seeders: results use `Seeders = 1` plus the `Webseed` tag
+and rank on their scraped swarm like any other result (webseed downloads were unreliable in testing, so they
+get no ranking boost). `tv` and `anime` searches add Archive collection filters. The source is opt-in because
+its swarms are small, magnet-only metadata fetches often stall, and the reported size covers every derivative
+file in the item. `ARCHIVE_BASE_URL` overrides the host (tests only).
+
+**Ranking and swarm health.** `ReleaseRanking.Rank` orders results by relevance and quality first, then by swarm class (dead, 1 to 9
+seeders, 10+), then resolution affinity, then log2 swarm size, so a healthy swarm beats a small swarm that only
+wins on preferred resolution or language. Every adapter is asked for at least 50 results. Before ranking,
+`TorrentSearchService` scrapes the top 60 info hashes on public UDP/HTTP trackers (`TrackerScraper`, BEP 15,
+10 minute cache, early exit once 3 trackers answer; 1.8 s budget interactive, 3.5 s background) and replaces
+indexer seed counts with live ones (`IndexerSeeders` keeps the original, `SwarmChecked` marks scraped rows).
+Every returned magnet is widened with the public tracker list (`PublicTrackers`), which
+`TrackerListRefreshService` refreshes daily from ngosang/trackerslist and caches in the data directory, so a
+copied magnet also finds peers quickly in other clients.
+
+**Torznab.** Point `TORZNAB_URL` at a full Torznab api endpoint and set `TORZNAB_API_KEY`:
+
+```powershell
+# Jackett (all indexers)
+$env:TORZNAB_URL = "http://127.0.0.1:9117/api/v2.0/indexers/all/results/torznab/api"
+# Prowlarr (one indexer; id from the Prowlarr UI)
+# $env:TORZNAB_URL = "http://127.0.0.1:9696/1/api"
+$env:TORZNAB_API_KEY = "<api key>"
+```
+
+or in `appsettings.json` under `TorrentFlow:Search`. While `TORZNAB_URL` is empty the source is listed with
+`enabledByDefault: false` and never queried. Requests use `t=tvsearch` (tv/anime) or `t=movie` (movies) with
+standard `cat=` roots, falling back to `t=search` when the indexer rejects the typed function. Items map
+`torznab:attr` `seeders`, `peers` (leechers = peers − seeders), `infohash`, `magneturl`, `grabs`, and
+`category`; the magnet is `magneturl`, a magnet `link`, or one built from `infohash`, and an http(s) `link`
+or enclosure becomes `TorrentUrl`.
+
 ## Build and test
 
 ```powershell

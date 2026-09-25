@@ -33,9 +33,9 @@ public sealed class RulesController(IDbContextFactory<TorrentFlowDbContext> fact
         if (sources != null)
         {
             var parts = sources.Split(',').Select(x => x.Trim()).ToArray();
-            if (parts.Length > 5 || parts.Any(string.IsNullOrEmpty)) Fields.Fail("sources may contain at most 5 non-empty values", "sources");
+            if (parts.Length > 7 || parts.Any(string.IsNullOrEmpty)) Fields.Fail("sources may contain at most 7 non-empty values", "sources");
             foreach (var source in parts)
-                if (!new[] { "nyaa", "1337x", "apibay", "torrentscsv", "yts" }.Contains(source)) Fields.Fail($"Unknown rule source `{source}`", "sources");
+                if (!new[] { "nyaa", "1337x", "apibay", "torrentscsv", "yts", "archive", "torznab" }.Contains(source)) Fields.Fail($"Unknown rule source `{source}`", "sources");
             sources = string.Join(',', parts.Distinct());
         }
         var enabled = f.Bool("enabled");

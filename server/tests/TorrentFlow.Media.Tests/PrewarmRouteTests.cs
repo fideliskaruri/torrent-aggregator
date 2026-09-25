@@ -28,6 +28,7 @@ public sealed class PrewarmApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("TorrentFlow:DataDirectory", Root);
+        builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
         builder.UseSetting("TorrentFlow:WebRoot", Path.Combine(Root, "no-web"));
         builder.ConfigureTestServices(s =>
         {

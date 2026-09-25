@@ -9,6 +9,8 @@ export const RULE_SOURCE_OPTIONS: ReadonlyArray<{
   { value: "apibay", label: "The Pirate Bay" },
   { value: "torrentscsv", label: "Torrents.csv" },
   { value: "yts", label: "YTS" },
+  { value: "archive", label: "Internet Archive" },
+  { value: "torznab", label: "Torznab (Jackett/Prowlarr)" },
 ];
 
 const RULE_SOURCE_VALUES = new Set<string>(

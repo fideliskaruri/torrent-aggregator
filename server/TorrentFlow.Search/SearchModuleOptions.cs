@@ -34,6 +34,16 @@ public sealed class SearchModuleOptions
     [ConfigurationKeyName("X1337_USE_PLAYWRIGHT"), RegularExpression("^[01]$")]
     public string? Use1337Browser { get; set; }
     public string? BrowserExecutable { get; set; }
+    [ConfigurationKeyName("ARCHIVE_BASE_URL"), Url]
+    public string? ArchiveBaseUrl { get; set; }
+    /// <summary>Internet Archive is opt-in: its swarms are tiny and magnet-only metadata fetches stall.</summary>
+    [ConfigurationKeyName("ENABLE_ARCHIVE"), RegularExpression("^[01]$")]
+    public string? EnableArchive { get; set; }
+    /// <summary>Full Torznab api endpoint (Jackett/Prowlarr). The torznab source is off while this is empty.</summary>
+    [ConfigurationKeyName("TORZNAB_URL"), Url]
+    public string? TorznabUrl { get; set; }
+    [ConfigurationKeyName("TORZNAB_API_KEY")]
+    public string? TorznabApiKey { get; set; }
 
     internal string? Setting(string key) => (key switch
     {
@@ -41,6 +51,7 @@ public sealed class SearchModuleOptions
         "TORRENTS_CSV_BASE_URL" => TorrentsCsvBaseUrl, "X1337_BASE_URL" => X1337BaseUrl,
         "YTS_BASE_URL" => YtsBaseUrl, "EZTV_BASE_URL" => EztvBaseUrl,
         "TMDB_BASE_URL" => TmdbBaseUrl, "TMDB_API_KEY" => TmdbApiKey,
-        "ENABLE_1337X" => Enable1337X, "X1337_USE_PLAYWRIGHT" => Use1337Browser, _ => null
+        "ENABLE_1337X" => Enable1337X, "X1337_USE_PLAYWRIGHT" => Use1337Browser,
+        "ARCHIVE_BASE_URL" => ArchiveBaseUrl, "ENABLE_ARCHIVE" => EnableArchive, "TORZNAB_URL" => TorznabUrl, "TORZNAB_API_KEY" => TorznabApiKey, _ => null
     }) ?? Environment.GetEnvironmentVariable(key);
 }

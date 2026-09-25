@@ -104,6 +104,7 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
         using var disabledFactory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("TorrentFlow:ExternalClients:Enabled", "false");
+            builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
             builder.ConfigureTestServices(services =>
             {
                 services.AddHttpClient<QBittorrentClient>().ConfigurePrimaryHttpMessageHandler(() => handler);

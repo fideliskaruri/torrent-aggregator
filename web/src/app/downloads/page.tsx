@@ -138,8 +138,9 @@ const SHARE_TRACKERS = [
   "udp://tracker.torrent.eu.org:451/announce",
 ];
 
-/** A magnet any torrent client can open: the info hash, the name, and a few public trackers. */
+/** A magnet any torrent client can open: the server-built one when present, else hash + name + a few public trackers. */
 function magnetFor(torrent: ClientTorrent): string {
+  if (torrent.magnet?.trim()) return torrent.magnet.trim();
   const params = [
     `xt=urn:btih:${torrent.hash.trim().toLowerCase()}`,
     `dn=${encodeURIComponent(torrent.name)}`,

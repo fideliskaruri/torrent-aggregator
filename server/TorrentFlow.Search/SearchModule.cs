@@ -28,7 +28,10 @@ public static class SearchModule
         services.AddSingleton<ITorrentSourceAdapter, YtsAdapter>();
         services.AddSingleton<ITorrentSourceAdapter, EztvAdapter>();
         services.AddSingleton<ITorrentSourceAdapter, X1337Adapter>();
+        services.AddSingleton<ITorrentSourceAdapter, ArchiveAdapter>();
+        services.AddSingleton<ITorrentSourceAdapter, TorznabAdapter>();
         services.AddSingleton<SearchCacheStore>();
+        services.TryAddSingleton<ITrackerScraper, TrackerScraper>();
         services.TryAddSingleton<ISearchResultEnricher, NoOpSearchResultEnricher>();
         services.TryAddSingleton<ISwarmProbeEngine, UnavailableSwarmProbeEngine>();
         services.AddSingleton<SwarmHealth>();

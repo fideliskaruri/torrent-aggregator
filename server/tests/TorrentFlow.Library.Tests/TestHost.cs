@@ -26,6 +26,7 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
         Directory.CreateDirectory(directory);
         builder.UseSetting("TorrentFlow:DatabasePath", Path.Combine(directory, "library.db"));
         builder.UseSetting("TorrentFlow:DataDirectory", directory);
+        builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IHostedService>();

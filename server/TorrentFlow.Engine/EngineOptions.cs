@@ -48,21 +48,19 @@ public sealed class EngineOptions
     /// <summary>How often live progress is persisted and completion is checked.</summary>
     [Range(1, 300)] public int MonitorIntervalSeconds { get; set; } = 5;
 
-    /// <summary>Extra trackers added to every public torrent (never replacing the release's own).</summary>
-    public List<string> PublicTrackers { get; set; } =
-    [
-        "udp://tracker.opentrackr.org:1337/announce",
-        "udp://tracker.stealth.si:80/announce",
-        "udp://tracker.torrent.eu.org:451/announce",
-        "udp://exodus.desync.com:6969/announce",
-        "udp://open.demonii.com:1337/announce",
-        "udp://tracker.openbittorrent.com:6969/announce",
-        "udp://open.stealth.si:80/announce",
-        "udp://tracker.tiny-vps.com:6969/announce",
-        "udp://explodie.org:6969/announce",
-        "udp://tracker.dler.org:6969/announce",
-        "https://tracker.opentrackr.org:443/announce",
-    ];
+    /// <summary>
+    /// Extra trackers added to every public torrent (never replacing the release's own). Null (the default) uses the
+    /// shared, runtime-refreshed <see cref="Core.Torrents.PublicTrackers.Current"/>; an explicit list (even empty) wins.
+    /// </summary>
+    public List<string>? PublicTrackers { get; set; }
+
+    /// <summary>The tracker list to add right now: the configured override, else the shared refreshed list.</summary>
+    public IReadOnlyList<string> EffectivePublicTrackers => PublicTrackers ?? Core.Torrents.PublicTrackers.Current;
+
+    /// <summary>Refresh the shared public tracker list from ngosang/trackerslist at startup and daily.</summary>
+    public bool RefreshTrackers { get; set; } = true;
+
+    [Range(1, 24 * 30)] public int TrackerRefreshHours { get; set; } = 24;
 
     /// <summary>Set by the module from TorrentFlow:DataDirectory; fast resume + DHT cache live under it.</summary>
     public string DataDirectory { get; set; } = "";

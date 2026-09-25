@@ -18,6 +18,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("TorrentFlow:DataDirectory", Root);
+        builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
         builder.UseSetting("TorrentFlow:Engine:MaxActiveDownloads", "1");
         builder.UseSetting("TorrentFlow:ExternalClients:Enabled", "true");
         builder.ConfigureTestServices(s =>

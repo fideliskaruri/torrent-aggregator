@@ -42,12 +42,24 @@ public static class ReleaseRanking
     }
     public static int ComputeHealth(TorrentResult r) => r.Seeders <= 0 ? r.Leechers > 0 ? 10 : 0
         : Round(Math.Min(100, Math.Min(70, Math.Log10(r.Seeders + 1d) * 28) + Math.Min(30, Math.Log10(r.Seeders / (double)Math.Max(r.Leechers, 1) + 1) * 20)));
+    /// <summary>Below this a release is "weak": a better-seeded one at another resolution wins.</summary>
+    public const int UsableSeeders = 10;
+    /// <summary>0 dead, 1 weak (1–9), 2 usable (10+). HTTP webseeds earn nothing: the built-in engine could not pull from them in testing.</summary>
+    public static int SwarmClass(TorrentResult r) => r.Seeders >= UsableSeeders ? 2 : r.Seeders >= 1 ? 1 : 0;
+    /// <summary>log2 of seeders, capped at 4096: each doubling of the swarm is one step.</summary>
+    public static int SwarmSizeBucket(int seeders) => seeders <= 0 ? 0 : Math.Min(13, (int)Math.Floor(Math.Log2(seeders)) + 1);
     public static IReadOnlyList<TorrentResult> Dedupe(IEnumerable<TorrentResult> results)
     {
+        // The same info hash listed by several indexers is one swarm: keep the first listing, but with the best counts seen.
+        var list = results.ToList();
+        var best = list.Where(r => !string.IsNullOrEmpty(r.InfoHash)).GroupBy(r => r.InfoHash!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (Seeders: g.Max(r => r.Seeders), Leechers: g.Max(r => r.Leechers)), StringComparer.OrdinalIgnoreCase);
         HashSet<string> hashes = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> keys = [];
-        return results.Where(r => (string.IsNullOrEmpty(r.InfoHash) || hashes.Add(r.InfoHash))
-            && keys.Add($"{NormalizeTitle(r.Title)}|{r.SizeBytes?.ToString() ?? r.SizeLabel ?? ""}")).ToArray();
+        return list.Where(r => (string.IsNullOrEmpty(r.InfoHash) || hashes.Add(r.InfoHash))
+                && keys.Add($"{NormalizeTitle(r.Title)}|{r.SizeBytes?.ToString() ?? r.SizeLabel ?? ""}"))
+            .Select(r => !string.IsNullOrEmpty(r.InfoHash) && best.TryGetValue(r.InfoHash, out var b) && (b.Seeders > r.Seeders || b.Leechers > r.Leechers)
+                ? r with { Seeders = b.Seeders, Leechers = b.Leechers } : r).ToArray();
     }
     public static IReadOnlyList<TorrentResult> Rank(IEnumerable<TorrentResult> results, string query, int target = 1080, string category = "all")
     {
@@ -63,9 +75,11 @@ public static class ReleaseRanking
                 && WorkIdentityParser.MetadataAgrees(WorkIdentityParser.Parse(r.Title).Name, r.Metadata)) relevance = Math.Max(relevance, 3);
             var good = 2 - (description.Junk ? 1 : 0) - (description.Implausible ? 1 : 0);
             var extras = TorrentFilters.IsExtras(r.Title) || (category == "anime" || kind == "anime" || r.Metadata?.MediaType == "anime") && ep.SpecialType != null;
-            double score = (extras ? 0 : 1_000_000_000) + (description.CategoryMatch + 1) * 10_000_000 + relevance * 1_000_000 + good * 100_000
-                + (description.Viable ? 10_000 : 0) + Array.IndexOf(affinities, description.Affinity) * 1000
-                + DirectPlayableRank(description.DirectPlayable) * 300 + description.LanguagePreference * 100 + Math.Min(description.Seeders, 9) * 10 + description.Recency;
+            // Identity and junk gates first, then swarm class, then resolution, then swarm size within the band.
+            double score = (extras ? 0 : 1e12) + (description.CategoryMatch + 1) * 1e10 + relevance * 1e9 + good * 1e8
+                + SwarmClass(r) * 1e7 + Array.IndexOf(affinities, description.Affinity) * 1e5
+                + SwarmSizeBucket(r.Seeders) * 600 + DirectPlayableRank(description.DirectPlayable) * 1200
+                + description.LanguagePreference * 800 + description.Recency * 10;
             var group = Match(r.Title, @"^\s*\[([^\]]{1,60})\]");
             return r with { Episode = ep, Score = score, GroupKey = GroupKey(r.Title, ep), Health = ComputeHealth(r), ReleaseGroup = group.Success ? group.Groups[1].Value.Trim() : null };
         }).OrderByDescending(r => r.Score)

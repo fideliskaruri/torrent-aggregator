@@ -1,5 +1,5 @@
-using System.Text;
 using MonoTorrent;
+using TorrentFlow.Core.Torrents;
 
 namespace TorrentFlow.Engine.Client;
 
@@ -38,49 +38,13 @@ public static class TorrentSource
         catch (Exception ex) when (ex is TorrentException or FormatException or ArgumentException or InvalidOperationException) { return null; }
     }
 
-    public static string BuildMagnet(string hash, string? name, IEnumerable<string> trackers)
-    {
-        var sb = new StringBuilder("magnet:?xt=urn:btih:").Append(hash);
-        if (!string.IsNullOrWhiteSpace(name)) sb.Append("&dn=").Append(Uri.EscapeDataString(name));
-        foreach (var tr in trackers) sb.Append("&tr=").Append(Uri.EscapeDataString(tr));
-        return sb.ToString();
-    }
+    public static string BuildMagnet(string hash, string? name, IEnumerable<string> trackers) =>
+        PublicTrackers.BuildMagnet(hash, name, trackers);
 
     /// <summary>
     /// Appends public trackers without replacing the release's own. A magnet whose only trackers are
     /// local/private is left alone — widening it would leak a private swarm's hash to public trackers.
     /// </summary>
-    public static string WidenTrackers(string magnet, IEnumerable<string> trackers)
-    {
-        var existing = ParseQuery(magnet).Where(kv => kv.Key == "tr").Select(kv => kv.Value).ToList();
-        if (existing.Count > 0 && existing.All(IsLocalOrPrivate)) return magnet;
-        var set = existing.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var sb = new StringBuilder(magnet);
-        foreach (var tr in trackers)
-            if (set.Add(tr)) sb.Append("&tr=").Append(Uri.EscapeDataString(tr));
-        return sb.ToString();
-    }
-
-    private static bool IsLocalOrPrivate(string tracker)
-    {
-        if (!Uri.TryCreate(tracker, UriKind.Absolute, out var uri)) return false;
-        var host = uri.Host;
-        if (host is "localhost" || host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)) return true;
-        if (!System.Net.IPAddress.TryParse(host, out var ip)) return false;
-        if (System.Net.IPAddress.IsLoopback(ip)) return true;
-        var b = ip.GetAddressBytes();
-        return b.Length == 4 && (b[0] == 10 || (b[0] == 172 && b[1] is >= 16 and <= 31) || (b[0] == 192 && b[1] == 168));
-    }
-
-    private static IEnumerable<KeyValuePair<string, string>> ParseQuery(string magnet)
-    {
-        var q = magnet.IndexOf('?');
-        if (q < 0) yield break;
-        foreach (var part in magnet[(q + 1)..].Split('&', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var eq = part.IndexOf('=');
-            if (eq <= 0) continue;
-            yield return new(part[..eq], Uri.UnescapeDataString(part[(eq + 1)..]));
-        }
-    }
+    public static string WidenTrackers(string magnet, IEnumerable<string> trackers) =>
+        PublicTrackers.WidenMagnet(magnet, trackers);
 }

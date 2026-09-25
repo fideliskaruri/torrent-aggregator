@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Torrents;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Engine.Client;
@@ -108,7 +109,7 @@ internal sealed class TorrentEngineService(
             magnet = TorrentSource.BuildMagnet(ih, request.Name, []);
         }
         if (hash is null) return new EngineAddResult(false, "No magnet or torrent URL provided.");
-        if (!string.IsNullOrEmpty(magnet)) magnet = TorrentSource.WidenTrackers(magnet, Options.PublicTrackers);
+        if (!string.IsNullOrEmpty(magnet)) magnet = TorrentSource.WidenTrackers(magnet, Options.EffectivePublicTrackers);
         if (bytes is not null) SaveTorrentFile(hash, bytes);
 
         var config = await settings.GetConfigAsync(ct);
@@ -555,7 +556,7 @@ internal sealed class TorrentEngineService(
             .Where(r => r.UserId == LocalUser.Id && r.Status != EngineTorrentStatus.Removed)
             .OrderBy(r => r.CreatedAt).ToListAsync(ct);
         var positions = DownloadQueue.Positions(rows.Select(ToQueueRow));
-        return rows.Select(r => ToInfo(r, backend.Get(r.Hash), positions, includeFiles: false)).ToList();
+        return rows.Select(r => WithMagnet(r, ToInfo(r, backend.Get(r.Hash), positions, includeFiles: false))).ToList();
     }
 
     public async Task<EngineTorrentInfo?> GetAsync(string infoHash, CancellationToken ct = default)
@@ -564,7 +565,43 @@ internal sealed class TorrentEngineService(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var rows = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
         var row = rows.FirstOrDefault(r => r.Hash == hash);
-        return row is null ? null : ToInfo(row, backend.Get(hash), DownloadQueue.Positions(rows.Select(ToQueueRow)), includeFiles: true);
+        return row is null ? null : WithMagnet(row, ToInfo(row, backend.Get(hash), DownloadQueue.Positions(rows.Select(ToQueueRow)), includeFiles: true));
+    }
+
+    /// <summary>
+    /// A shareable magnet: the transfer's own trackers (from its magnet, else its .torrent) widened with the public
+    /// list. Private torrents, and magnets whose trackers are all local/private, keep only their own trackers.
+    /// </summary>
+    private EngineTorrentInfo WithMagnet(EngineTorrent row, EngineTorrentInfo info)
+    {
+        var own = PublicTrackers.TrackersOf(row.Magnet);
+        var file = TorrentFileTrackers(row.Hash);
+        if (own.Count == 0 && file is { } f) own = f.Trackers;
+        var isPrivate = file?.Private ?? false;
+        var magnet = PublicTrackers.BuildMagnet(row.Hash, info.Name, own);
+        return info with { Magnet = isPrivate ? magnet : PublicTrackers.WidenMagnet(magnet, PublicTrackers.Current) };
+    }
+
+    // A saved .torrent never changes for its hash, so its trackers are read once.
+    private readonly ConcurrentDictionary<string, (IReadOnlyList<string> Trackers, bool Private)> _torrentTrackers = new(StringComparer.Ordinal);
+
+    private (IReadOnlyList<string> Trackers, bool Private)? TorrentFileTrackers(string hash)
+    {
+        if (_torrentTrackers.TryGetValue(hash, out var cached)) return cached;
+        var path = TorrentFilePath(hash);
+        if (!File.Exists(path)) return null;
+        try
+        {
+            var torrent = MonoTorrent.Torrent.Load(path);
+            (IReadOnlyList<string>, bool) result = (torrent.AnnounceUrls.SelectMany(t => t).ToList(), torrent.IsPrivate);
+            _torrentTrackers[hash] = result;
+            return result;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or MonoTorrent.TorrentException or FormatException or ArgumentException or InvalidOperationException)
+        {
+            // Unreadable metadata: treat as private so nothing beyond the bare hash is shared.
+            return ([], true);
+        }
     }
 
     private static EngineTorrentInfo ToInfo(EngineTorrent row, BackendSnapshot? live, IReadOnlyDictionary<string, int> positions, bool includeFiles)

@@ -17,7 +17,7 @@ public sealed class SearchThrottledException(int seconds) : Exception($"Indexers
 
 public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adapters, SearchCacheStore cache,
     ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
-    ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null) : ITorrentSearchService
+    ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null, ITrackerScraper? scraper = null) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
     private readonly ITorrentSourceAdapter[] all = adapters.ToArray();
@@ -25,9 +25,12 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     private readonly Dictionary<string, Task<SearchResponse>> flights = [];
     private readonly SemaphoreSlim adapterSlots = new(moduleOptions.Value.MaxConcurrentAdapters);
     private bool Enable1337 => moduleOptions.Value.Setting("ENABLE_1337X") == "1";
+    private bool EnableArchive => moduleOptions.Value.Setting("ENABLE_ARCHIVE") == "1";
+    private bool TorznabConfigured => !string.IsNullOrWhiteSpace(moduleOptions.Value.Setting("TORZNAB_URL"));
     public IReadOnlyList<AvailableSource> AvailableSources => [
         new("nyaa", "Nyaa", true), new("apibay", "ThePirateBay", true), new("torrentscsv", "TorrentsCSV", true),
-        new("yts", "YTS", true), new("1337x", "1337x", Enable1337)];
+        new("yts", "YTS", true), new("1337x", "1337x", Enable1337), new("archive", "Internet Archive", EnableArchive),
+        new("torznab", "Torznab (Jackett/Prowlarr)", TorznabConfigured)];
     public async Task<SearchResponse> SearchAsync(SearchOptions options, CancellationToken cancellationToken = default)
     {
         var watch = Stopwatch.StartNew();
@@ -93,8 +96,9 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
             var stale = options.SkipCache ? null : await cache.GetAsync(key, true, token);
             return stale != null ? stale with { Cached = true } : throw new SearchThrottledException(retry);
         }
-        var selected = all.Where(a => options.Sources?.Length > 0 ? options.Sources.Contains(a.Id) : a.Id != "1337x" || Enable1337).ToArray();
-        var limit = Math.Min(Math.Max(options.Limit ?? 50, options.PageSize), 80);
+        var selected = all.Where(a => options.Sources?.Length > 0 ? options.Sources.Contains(a.Id) : a.Id switch { "1337x" => Enable1337, "archive" => EnableArchive, "torznab" => TorznabConfigured, _ => true }).ToArray();
+        // Always cast a wide net: the caller's Limit trims the ranked pool, not what each indexer is asked for.
+        var limit = Math.Min(Math.Max(Math.Max(options.Limit ?? 50, options.PageSize), 50), 80);
         var outcomes = await Task.WhenAll(selected.Select(async adapter =>
         {
             var work = RunAdapterAsync(adapter, options with { Limit = limit }, token);
@@ -117,14 +121,58 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
                 return (Results: (IReadOnlyList<TorrentResult>)Array.Empty<TorrentResult>(), Status: new SourceStatus(adapter.Id, 0, e.Message), Truncated: false);
             }
         }));
-        var deduped = ReleaseRanking.Dedupe(outcomes.SelectMany(o => o.Results));
+        var deduped = await WithLiveSwarmsAsync(ReleaseRanking.Dedupe(outcomes.SelectMany(o => o.Results)), options, target, token);
         var filtered = TorrentFilters.Apply(deduped, options.Filters ?? new());
-        var ranked = ReleaseRanking.Rank(filtered.Select(r => DownloadRouting.Attach(r, options.Category)), options.Query, target, options.Category);
+        IReadOnlyList<TorrentResult> ranked = ReleaseRanking.Rank(filtered.Select(r => DownloadRouting.Attach(r, options.Category)), options.Query, target, options.Category)
+            .Select(WithPublicTrackers).ToArray();
         if (options.Limit != null) ranked = ranked.Take(Math.Max(0, options.Limit.Value)).ToArray();
         var response = new SearchResponse { Query = options.Query, Results = ranked, TotalCount = ranked.Count, Sources = outcomes.Select(o => o.Status).ToArray() };
         if (!outcomes.Any(o => o.Truncated)) await cache.SetAsync(key, response, token);
         return response;
     }
+    /// <summary>Sources whose listed counts come from their own live tracker, so a scrape of public trackers may undercount them.</summary>
+    private static readonly HashSet<string> LiveCountSources = new(StringComparer.OrdinalIgnoreCase) { "nyaa" };
+    public const int InteractiveScrapeBudgetMs = 1800;
+    public const int BackgroundScrapeBudgetMs = 3500;
+    public const int ScrapeCandidates = 60;
+
+    /// <summary>
+    /// Replaces stale indexer seeder counts with live tracker counts for the candidates that could win, so ranking
+    /// prefers swarms that are actually alive now. A scrape that answers zero demotes the release to "weak" rather
+    /// than dead: DHT-only swarms are invisible to trackers.
+    /// </summary>
+    private async Task<IReadOnlyList<TorrentResult>> WithLiveSwarmsAsync(IReadOnlyList<TorrentResult> results, SearchOptions options, int target, CancellationToken token)
+    {
+        if (scraper == null || results.Count == 0) return results;
+        var hashes = ReleaseRanking.Rank(results, options.Query, target, options.Category)
+            .Select(r => r.InfoHash?.ToLowerInvariant()).Where(h => h is { Length: 40 }).Distinct().Take(ScrapeCandidates).Cast<string>().ToArray();
+        if (hashes.Length == 0) return results;
+        IReadOnlyDictionary<string, ScrapeCount> live;
+        try
+        {
+            live = await scraper.ScrapeAsync(hashes, TimeSpan.FromMilliseconds(options.Background ? BackgroundScrapeBudgetMs : InteractiveScrapeBudgetMs), token);
+        }
+        catch (Exception e) when (!token.IsCancellationRequested)
+        {
+            logger.LogDebug(e, "Tracker scrape failed");
+            return results;
+        }
+        return results.Select(r => r.InfoHash?.ToLowerInvariant() is { } hash && live.TryGetValue(hash, out var count) ? ApplyLive(r, count) : r).ToArray();
+    }
+
+    /// <summary>A magnet with one tracker (or none) finds peers slowly in any client; hand out the full public list.</summary>
+    internal static TorrentResult WithPublicTrackers(TorrentResult r) =>
+        r.Magnet is { Length: > 0 } magnet ? r with { Magnet = TorrentFlow.Core.Torrents.PublicTrackers.WidenMagnet(magnet) } : r;
+
+    internal static TorrentResult ApplyLive(TorrentResult r, ScrapeCount live)
+    {
+        var trusted = LiveCountSources.Contains(r.Source);
+        var seeders = live.Seeders > 0 ? Math.Max(live.Seeders, trusted ? r.Seeders : 0) : trusted ? r.Seeders : Math.Min(r.Seeders, 1);
+        var leechers = live.Seeders > 0 || live.Leechers > 0 ? Math.Max(live.Leechers, trusted ? r.Leechers : 0) : r.Leechers;
+        return r with { Seeders = seeders, Leechers = leechers, IndexerSeeders = r.Seeders, SwarmChecked = true,
+            Completed = live.Completed > 0 ? Math.Max(live.Completed, r.Completed ?? 0) : r.Completed };
+    }
+
     private async Task<IReadOnlyList<TorrentResult>> RunAdapterAsync(ITorrentSourceAdapter adapter, SearchOptions options, CancellationToken token)
     {
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);

@@ -8,8 +8,8 @@ public static class SearchVocabulary
     public static string? ParseCategory(string? value) => value?.Trim().ToLowerInvariant() is { } category && Categories.Contains(category) ? category : null;
     public static string? ParseScope(string? value) => value?.Trim().ToLowerInvariant() is { } scope
         && new[] { "all", "movies", "series", "anime", "music", "games", "software", "books", "everything" }.Contains(scope) ? scope : null;
-    public static string SourceLabel(string id) => id switch { "nyaa" => "Nyaa", "apibay" => "The Pirate Bay", "torrentscsv" => "Torrents-CSV", "eztv" => "EZTV", "yts" => "YTS", _ => id };
-    public static string SourceShortLabel(string id) => id switch { "apibay" => "TPB", "torrentscsv" => "CSV", _ => SourceLabel(id) };
+    public static string SourceLabel(string id) => id switch { "nyaa" => "Nyaa", "apibay" => "The Pirate Bay", "torrentscsv" => "Torrents-CSV", "eztv" => "EZTV", "yts" => "YTS", "archive" => "Internet Archive", "torznab" => "Torznab", _ => id };
+    public static string SourceShortLabel(string id) => id switch { "apibay" => "TPB", "torrentscsv" => "CSV", "archive" => "IA", _ => SourceLabel(id) };
     public static string SourceErrorReason(string? error)
     {
         if (string.IsNullOrEmpty(error)) return "Unavailable";

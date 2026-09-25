@@ -34,6 +34,8 @@ export interface ClientTorrent {
   ownerClientType: "qbittorrent" | "transmission" | "builtin";
   ownerClientLabel: string;
   transferId: string;
+  /** Shareable magnet built by the server (own trackers + public list); absent for external-client rows. */
+  magnet?: string | null;
 }
 
 /**
