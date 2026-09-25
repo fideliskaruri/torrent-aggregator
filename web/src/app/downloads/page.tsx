@@ -6,6 +6,7 @@ import {
   Download,
   FolderOpen,
   HardDriveDownload,
+  Magnet,
   MoreHorizontal,
   Pause,
   Play,
@@ -129,6 +130,22 @@ function parseRawTorrentInput(
     return name ? { torrentUrl: value, name: decodeURIComponent(name) } : { torrentUrl: value };
   }
   return null;
+}
+
+const SHARE_TRACKERS = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://open.demonii.com:1337/announce",
+  "udp://tracker.torrent.eu.org:451/announce",
+];
+
+/** A magnet any torrent client can open: the info hash, the name, and a few public trackers. */
+function magnetFor(torrent: ClientTorrent): string {
+  const params = [
+    `xt=urn:btih:${torrent.hash.trim().toLowerCase()}`,
+    `dn=${encodeURIComponent(torrent.name)}`,
+    ...SHARE_TRACKERS.map((tr) => `tr=${encodeURIComponent(tr)}`),
+  ];
+  return `magnet:?${params.join("&")}`;
 }
 
 function downloadTitleHref(torrent: ClientTorrent): string | null {
@@ -783,6 +800,16 @@ export default function ClientPage() {
     }
   }
 
+  async function copyMagnet(t: ClientTorrent) {
+    const magnet = magnetFor(t);
+    try {
+      await navigator.clipboard.writeText(magnet);
+      toast.success("Magnet link copied");
+    } catch {
+      toast.error("Could not copy magnet link", { description: magnet });
+    }
+  }
+
   async function copyStreamUrl(t: ClientTorrent) {
     try {
       const res = await fetch(`/api/stream/${encodeURIComponent(t.hash)}`);
@@ -1368,6 +1395,7 @@ export default function ClientPage() {
                       onAction={(act, torrent) => void action(act, torrent)}
                       onOpenFolder={(torrent) => void openDownloadFolder(torrent)}
                       onCopyStreamUrl={(torrent) => void copyStreamUrl(torrent)}
+                      onCopyMagnet={(torrent) => void copyMagnet(torrent)}
                       onDeleteRequest={openDeleteDialog}
                     />
                   );
@@ -1404,6 +1432,7 @@ export default function ClientPage() {
           onActionMany={(act, transfers) => void actionMany(act, transfers)}
           onOpenFolder={(t) => void openDownloadFolder(t)}
           onCopyStreamUrl={(t) => void copyStreamUrl(t)}
+          onCopyMagnet={(t) => void copyMagnet(t)}
           onDeleteRequest={openDeleteDialog}
         />
       ) : null}
@@ -1703,6 +1732,7 @@ function FilmRow({
   onAction,
   onOpenFolder,
   onCopyStreamUrl,
+  onCopyMagnet,
   onDeleteRequest,
 }: {
   torrent: ClientTorrent;
@@ -1719,6 +1749,7 @@ function FilmRow({
   onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onOpenFolder: (t: ClientTorrent) => void;
   onCopyStreamUrl: (t: ClientTorrent) => void;
+  onCopyMagnet: (t: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
 }) {
   const pct = progressPercent(t.progress);
@@ -1934,6 +1965,14 @@ function FilmRow({
               {t.savePath ? <p className="break-all font-mono">{t.savePath}</p> : null}
             </div>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => onCopyMagnet(t)}
+              data-copy-magnet
+              className="min-h-[44px] lg:min-h-0"
+            >
+              <Magnet />
+              Copy magnet link
+            </DropdownMenuItem>
             {isBuiltin ? (
               <>
                 <DropdownMenuItem
@@ -1944,9 +1983,9 @@ function FilmRow({
                   <Copy />
                   Copy stream URL
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
               </>
             ) : null}
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
               disabled={openingHash === t.transferId}

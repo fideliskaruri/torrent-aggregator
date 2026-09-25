@@ -22,6 +22,7 @@ import {
   Check,
   ChevronDown,
   Copy,
+  Magnet,
   FolderOpen,
   MoreHorizontal,
   Pause,
@@ -97,6 +98,7 @@ export interface SeriesDownloadDialogProps {
   onActionMany: (act: "pause" | "resume", torrents: ClientTorrent[]) => void;
   onOpenFolder: (torrent: ClientTorrent) => void;
   onCopyStreamUrl: (torrent: ClientTorrent) => void;
+  onCopyMagnet: (torrent: ClientTorrent) => void;
   onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
 }
 
@@ -315,6 +317,7 @@ function EpisodeCard({
   onAction,
   onOpenFolder,
   onCopyStreamUrl,
+  onCopyMagnet,
   onDeleteRequest,
 }: {
   entry: GroupEntry<ClientTorrent>;
@@ -326,6 +329,7 @@ function EpisodeCard({
   onAction: SeriesDownloadDialogProps["onAction"];
   onOpenFolder: SeriesDownloadDialogProps["onOpenFolder"];
   onCopyStreamUrl: SeriesDownloadDialogProps["onCopyStreamUrl"];
+  onCopyMagnet: SeriesDownloadDialogProps["onCopyMagnet"];
   onDeleteRequest: SeriesDownloadDialogProps["onDeleteRequest"];
 }) {
   const t = entry.torrent;
@@ -477,18 +481,24 @@ function EpisodeCard({
               {t.savePath ? <p className="break-all font-mono">{t.savePath}</p> : null}
             </div>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => onCopyMagnet(t)}
+              data-copy-magnet
+              className="min-h-[44px] lg:min-h-0"
+            >
+              <Magnet />
+              Copy magnet link
+            </DropdownMenuItem>
             {isBuiltin ? (
-              <>
-                <DropdownMenuItem
-                  onClick={() => onCopyStreamUrl(t)}
-                  className="min-h-[44px] lg:min-h-0"
-                >
-                  <Copy />
-                  Copy stream URL
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
+              <DropdownMenuItem
+                onClick={() => onCopyStreamUrl(t)}
+                className="min-h-[44px] lg:min-h-0"
+              >
+                <Copy />
+                Copy stream URL
+              </DropdownMenuItem>
             ) : null}
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
               disabled={openingHash === t.transferId}
@@ -554,6 +564,7 @@ export function SeriesDownloadDialog({
   onActionMany,
   onOpenFolder,
   onCopyStreamUrl,
+  onCopyMagnet,
   onDeleteRequest,
 }: SeriesDownloadDialogProps) {
   const selectedSeason = useMemo(
@@ -786,6 +797,7 @@ export function SeriesDownloadDialog({
                   onAction={onAction}
                   onOpenFolder={onOpenFolder}
                   onCopyStreamUrl={onCopyStreamUrl}
+                  onCopyMagnet={onCopyMagnet}
                   onDeleteRequest={onDeleteRequest}
                 />
               ))}
