@@ -36,12 +36,14 @@
 import { useCallback, useEffect, useState } from "react";
 
 /** What the engine holds for one info hash. */
-export type HeldState = "downloaded" | "downloading" | "stream" | "none";
+export type HeldState = "downloaded" | "downloading" | "queued" | "stream" | "none";
 
 export interface HeldRelease {
   state: HeldState;
   /** 0..1, for the "Downloading… 42%" label. */
   progress: number;
+  /** 1-based place in the built-in download queue, when `state` is "queued". */
+  queuePosition?: number;
 }
 
 type HeldMap = Map<string, HeldRelease>;
@@ -61,6 +63,8 @@ type ClientTorrentLike = {
   progress?: number | null;
   retentionState?: string | null;
   status?: string | null;
+  state?: string | null;
+  queuePosition?: number | null;
 };
 
 /**
@@ -87,6 +91,13 @@ export function classifyHeld(t: ClientTorrentLike): HeldRelease {
   // would hide the button for a release we cannot vouch for, which is the
   // worse failure: the viewer loses the only way to get the file.
   if (retention !== "kept") return { state: "none", progress };
+
+  if (progress < 1 && (t.state ?? "").trim().toLowerCase() === "queued") {
+    const position = t.queuePosition;
+    return typeof position === "number" && Number.isFinite(position) && position > 0
+      ? { state: "queued", progress, queuePosition: Math.floor(position) }
+      : { state: "queued", progress };
+  }
 
   return { state: progress >= 1 ? "downloaded" : "downloading", progress };
 }
@@ -188,6 +199,12 @@ export function downloadControlFor(held: HeldRelease): {
         label: `Downloading ${Math.round(held.progress * 100)}%`,
         disabled: true,
         hint: "Already downloading — see the Client page",
+      };
+    case "queued":
+      return {
+        label: held.queuePosition ? `Queued · #${held.queuePosition}` : "Queued",
+        disabled: true,
+        hint: "Already queued — it starts when a download slot frees up",
       };
     case "stream":
       // Deliberately still pressable: this fetches the rest and keeps it.
