@@ -4,10 +4,12 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <ProjectReference Include="..\..\TorrentFlow.Engine\TorrentFlow.Engine.csproj" />
+    <ProjectReference Include="..\..\TorrentFlow.Api\TorrentFlow.Api.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
