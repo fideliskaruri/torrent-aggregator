@@ -59,19 +59,21 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
             return BadRequest(new { ok = false, message = "Preferred resolution must be 480p, 720p, 1080p, or 2160p." });
         var retention = f.Enum("retention", ["keep", "stream"]) ?? "keep";
         var cap = f.Bool("overrideStorageCap") == true;
-        var claimedProvider = f.String("provider");
-        var externalId = f.String("externalId");
+        // acquisitionIdentityParams: a claim needs provider, providerId, sourceType and title as non-empty strings;
+        // anything else (null, a discovery-only provider) is no claim at all and the work resolves locally.
+        string? Claim(string name) => f.Raw(name) is { ValueKind: JsonValueKind.String } v && v.GetString()!.Trim() is { Length: > 0 and <= 200 } s ? s : null;
+        var claimedProvider = Claim("provider")?.ToLowerInvariant();
+        var externalId = Claim("providerId");
+        var sourceType = Claim("sourceType")?.ToLowerInvariant();
         MediaMetadata? verified = null;
-        if (claimedProvider != null || externalId != null)
+        if (claimedProvider is "anilist" or "tmdb" && externalId != null && sourceType != null && Claim("title") != null)
         {
-            if (claimedProvider is not ("anilist" or "tmdb") || string.IsNullOrWhiteSpace(externalId))
-                return BadRequest(new { ok = false, message = "Unsupported title provider" });
             verified = claimedProvider == "anilist" ? await metadata.GetAniListByIdAsync(externalId, ct) :
-                await metadata.GetTmdbByIdAsync(f.String("mediaType") == "movie" ? "movie" : "tv", externalId, ct);
+                await metadata.GetTmdbByIdAsync(sourceType == "movie" ? "movie" : "tv", externalId, ct);
             if (verified == null || !ReleaseSelection.MatchesWork(workKey, verified.Title, verified.Year))
                 return BadRequest(new { ok = false, message = "Provider identity does not match this title." });
         }
-        var detail = await titles.Detail(new(workKey, f.String("title"), (int?)f.Number("year", nullable: true), f.String("mediaType"), Provider: verified), ct);
+        var detail = await titles.Detail(new(workKey, f.String("title", nullable: true), (int?)f.Number("year", nullable: true), f.String("mediaType", nullable: true), Provider: verified), ct);
         var title = (string)detail["title"]!;
         var type = detail["mediaType"] as string ?? ((bool)detail["isSeries"]! ? "tv" : "movie");
         if (scope == "title" && (bool)detail["isSeries"]!)

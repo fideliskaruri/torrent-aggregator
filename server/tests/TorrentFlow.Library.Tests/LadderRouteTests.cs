@@ -57,6 +57,27 @@ public sealed class LadderRouteTests
     }
 
     [Fact]
+    public async Task MovieDownloadFromTheTitlePageAcceptsNullIdentityHints()
+    {
+        using var host = new LibraryHost(); using var client = host.CreateClient();
+        await host.Settings();
+        host.Search.Respond = o => new() { Query = o.Query, Results = [FakeSearch.Release("Sintel.2010.720p.WEB.H264-CLASSiCALHD", 20)] };
+        // The exact body the SPA's Download dialog posts for a work reached without a provider link.
+        var response = await client.PostAsJsonAsync("/api/title/sintel", new
+        {
+            scope = "title", season = (int?)null, episode = (int?)null, title = "Sintel", mediaType = "movie", year = (int?)null,
+            provider = (string?)null, providerId = (string?)null, sourceType = (string?)null, format = (string?)null,
+            retention = "keep", preferredResolution = 720,
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True((await Json(response)).GetProperty("ok").GetBoolean());
+        var add = Assert.Single(host.Engine.Adds);
+        Assert.Equal("movies", add.SearchCategory);
+        Assert.Equal("Sintel", add.Metadata?.Title);
+    }
+
+    [Fact]
     public async Task FailingLookupDegradesToKnownIdentity()
     {
         var identity = new EpisodeSearchIdentity(new ThrowingLookup());
