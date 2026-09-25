@@ -146,6 +146,7 @@ docs/.autopilot.json
 
 # .NET
 artifacts/publish/
+artifacts/exe/
 bin/
 obj/
 *.user

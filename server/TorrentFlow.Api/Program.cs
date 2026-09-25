@@ -170,7 +170,10 @@ static IFileProvider? ResolveWebRootFileProvider(IConfiguration configuration, s
             return new PhysicalFileProvider(Path.GetFullPath(candidate));
     }
 
+    // Only single-file publishes embed the SPA; other builds have no manifest and the provider would throw.
     var assembly = typeof(Program).Assembly;
+    if (assembly.GetManifestResourceInfo("Microsoft.Extensions.FileProviders.Embedded.Manifest.xml") is null)
+        return null;
     var embedded = new ManifestEmbeddedFileProvider(assembly, "wwwroot");
     return embedded.GetFileInfo("index.html").Exists ? embedded : null;
 }
