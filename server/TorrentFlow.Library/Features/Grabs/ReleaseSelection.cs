@@ -49,17 +49,8 @@ public static class ReleaseSelection
         var years = Regex.Matches(title, @"\b((?:19|20)\d{2})\b").Where(x => x.Index > 0 && int.Parse(x.Value) <= DateTime.UtcNow.Year + 5).ToArray();
         return years.Length > 0 ? int.Parse(years[^1].Value) : null;
     }
-    public static bool ExactEpisode(TorrentResult result, EpisodeCursor cursor)
-    {
-        if (result.Episode?.IsSeasonPack == true || result.Episode?.IsBatch == true || result.Episode?.IsMultiSeason == true) return false;
-        var parsed = EpisodeCursor.Parse(result.Title);
-        var alternate = Regex.Match(result.Title, @"(?i)\b(\d{1,2})x(\d{1,3})\b");
-        if (parsed == null && alternate.Success) parsed = new(int.Parse(alternate.Groups[1].Value), int.Parse(alternate.Groups[2].Value));
-        if (parsed != null) return parsed == cursor && !Regex.IsMatch(result.Title, @"(?i)E\d+\s*(?:-E?|E)\d+");
-        if (result.Episode?.Episode is { } ep) return ep == cursor.Episode && (result.Episode.Season ?? 1) == cursor.Season;
-        var absolute = Regex.Match(result.Title, @"\s-\s(\d{1,4})(?:\s|\.|\[)");
-        return cursor.Season == 1 && absolute.Success && int.Parse(absolute.Groups[1].Value) == cursor.Episode;
-    }
+    /// <summary>Exact single-episode match (TS matchesTargetEpisode): packs, batches and ranges never satisfy an episode.</summary>
+    public static bool ExactEpisode(TorrentResult result, EpisodeCursor cursor) => EpisodeLadder.MatchesTargetEpisode(result, cursor);
     public static bool SameWork(TorrentResult result, string title, IReadOnlyList<string> aliases)
     {
         var name = Normalize(CleanTitle(result.Title));

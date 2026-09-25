@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
@@ -18,6 +19,8 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
     public string DataDirectory => directory;
     public FakeEngine Engine { get; } = new();
     public FakeSearch Search { get; } = new();
+    public FakeArtwork Artwork { get; } = new();
+    public FakeAnimeLookup Anime { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(directory);
@@ -38,6 +41,8 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
             services.AddSingleton<ITorrentSearchService>(Search);
             services.AddSingleton<IMetadataResolver, FakeMetadata>();
             services.AddSingleton<ICatalogLookup, FakeCatalog>();
+            services.Replace(ServiceDescriptor.Singleton<ILibraryArtworkResolver>(Artwork));
+            services.Replace(ServiceDescriptor.Singleton<ILibraryAnimeLookup>(Anime));
         });
     }
     public async Task Seed(Action<TorrentFlowDbContext> seed)
@@ -113,4 +118,19 @@ internal sealed class FakeMetadata : IMetadataResolver
     public Task<IReadOnlyList<MediaMetadata?>> EnrichAsync(IReadOnlyList<MetadataEnrichmentInput> inputs, string query, string? category, MediaMetadata? primary = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<MediaMetadata?>>(inputs.Select(_ => (MediaMetadata?)null).ToArray());
     public Task<MediaMetadata?> GetAniListByIdAsync(string id, CancellationToken cancellationToken = default) => Task.FromResult<MediaMetadata?>(null);
     public Task<MediaMetadata?> GetTmdbByIdAsync(string mediaType, string id, CancellationToken cancellationToken = default) => Task.FromResult<MediaMetadata?>(null);
+}
+public sealed class FakeArtwork : ILibraryArtworkResolver
+{
+    public LibraryArtwork Result { get; set; } = new(null, null);
+    public List<string> Requests { get; } = [];
+    public Task<LibraryArtwork> ResolveAsync(string title, int? year, string? mediaType, CancellationToken cancellationToken)
+    {
+        lock (Requests) Requests.Add(title);
+        return Task.FromResult(Result);
+    }
+}
+public sealed class FakeAnimeLookup : ILibraryAnimeLookup
+{
+    public Func<string, IReadOnlyList<MediaMetadata>> Respond { get; set; } = _ => [];
+    public Task<IReadOnlyList<MediaMetadata>> SearchAsync(string title, int limit, CancellationToken cancellationToken) => Task.FromResult(Respond(title));
 }

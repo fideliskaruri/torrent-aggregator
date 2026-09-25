@@ -14,4 +14,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="TsOracle\ts-oracle.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

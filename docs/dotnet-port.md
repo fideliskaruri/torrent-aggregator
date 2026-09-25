@@ -104,33 +104,76 @@ Deletion requires confirmation and refuses an episode cut out of a multi-episode
 Title pack coverage requires persisted completion/verification evidence, ignores extras, and
 does not invent episode transfers for a pack.
 
-Optional cross-module integrations are `ILibraryArtworkResolver` and `ILibraryPlaybackObserver`
-in `TorrentFlow.Core\Contracts\Library`. Both have safe `TryAddSingleton` defaults. The default
-artwork resolver returns no remote fallback artwork; the default playback observer does no
-Media prewarming. Implementations can replace them without module-to-module project references.
+Optional cross-module integrations are `ILibraryArtworkResolver`, `ILibraryAnimeLookup` and
+`ILibraryPlaybackObserver` in `TorrentFlow.Core\Contracts\Library`. All have safe
+`TryAddSingleton` defaults. Metadata replaces the first two with `services.Replace`.
+`LibraryArtworkResolver` wraps `ArtworkResolver`, and title detail calls it only when there is
+neither a poster nor a backdrop. The call has a 1,200 ms budget and fills both fields, which is
+how Next's remote fallback works. `LibraryAnimeLookup` wraps `AniListClient`.
+
+The playback observer still uses its no-op default because no Media prewarm service exists yet;
+another workstream owns prewarm.
+
+Episode grabs use a port of the TypeScript on-demand ladder (`Features\Grabs\EpisodeLadder.cs`). Rungs
+come in this order:
+- exact
+- rescue alias
+- absolute or quality-absolute
+- alt
+- second alias
+- extra categories
+- relaxed zero-seeder
+
+Each distinct search runs once, with 40 results per rung. A candidate that fails to send falls
+through to the next candidate. Work identity is checked by slug, not by normalized text.
+
+Title-page episode grabs first run the guarded AniList alias recovery (`EpisodeSearchIdentity`,
+a port of `resolveEpisodeSearchIdentity`). A match must have an exact normalized name and must
+not contradict the year. A failed lookup keeps the identity that was already known.
+
+Film grabs are one identity-checked search. They return the TypeScript rejection summary and
+outage messages (`FilmSelection`).
+
+Background automation keeps its single search with seeder-wait. `ReleaseNames` ports these parts
+of the legacy parser:
+- `parseEpisode`
+- the range detector
+- `cleanDisplayTitle`
+- `workIdentity`
+- `workKeyFor`/`workKeyMatches`, including legacy size-key aliases
+
 The scheduler reads the saved automation interval, respects run locks, and can be disabled for
 isolated verification with `--TorrentFlow:Library:DisableScheduler=true`.
 
 ### Verification and remaining parity work
 
-The Library suite has 81 tests, including SQLite-backed `WebApplicationFactory` route tests and
-pure ordering, bounded concurrency, cursor, selection and automation policy tests. The full
-solution build has zero warnings/errors and all 8,466 tests pass.
+The Library suite has 95 tests. They include:
+- SQLite-backed `WebApplicationFactory` route tests
+- pure ordering, bounded concurrency, cursor, selection and automation policy tests
+- table-driven `LadderParityTests`, which compare rungs, title variants, alias forms, episode
+  matching, display titles, work identity/keys and film messages against
+  `TsOracle\ts-oracle.json`
+
+`ts-oracle.json` holds outputs captured from the TypeScript original on real-looking release names.
+`TsOracle\oracle.ts` regenerates it. Test hosts replace the artwork and AniList contracts with fakes,
+so tests never touch the network. The full solution build has zero warnings/errors and all 8,511
+tests pass.
 
 `server\tests\TorrentFlow.Library.Tests\verify-parity.py` compares running isolated Next (3102)
 and .NET (5102) hosts. It refuses port 3000 and ignores only generated timestamps and volatile
-disk-free measurements. `parity-results.json` records the comparison: 14 of 17 requests match;
-the other three differ only in the two poster fields populated by Next's remote artwork fallback.
-Those titles are Breaking Bad, Dune (2021), and Attack on Titan. A populated watchlist/progress
-fixture also matches, as do history/activity, cursor pagination, rules and backfill estimates.
+disk-free measurements. `parity-results.json` records the comparison, run with
+`--work-keys breaking-bad dune-2021 attack-on-titan library-parity-fixture`: all 17 of 17 requests
+match. That includes the remote-fallback artwork for Breaking Bad, Dune (2021) and Attack on Titan.
+It also covers a seeded watchlist/progress fixture, history/activity, cursor pagination, rules and
+backfill estimates.
 
-The requested `prisma\dev.db` source was empty; verification used copies of the populated root
-`dev.db` instead. Engine rows were removed and automation/preprobe disabled in the copies before
-startup; no real downloads were requested. Next ran with `NEXT_DIST_DIR=.next-lib`.
+The requested `prisma\dev.db` source was empty, so verification used copies of the populated root
+`dev.db` instead. Before startup, the copies had their engine rows removed, automation/preprobe
+disabled, and one identical watchlist item plus progress row seeded. No real downloads were
+requested. Next ran with `NEXT_DIST_DIR=.next-libgaps`.
 
 This is not certification of full mutation/provider parity. Remaining integration work includes
-the optional artwork/prewarm implementations, the complete TypeScript search alias/rung ladder
-(including guarded AniList alias recovery), exhaustive offline/throttling diagnostics and
-request-validation edge cases, and the full legacy release-name/pack parser. Storage reclamation
+Media prewarm (`ILibraryPlaybackObserver`), exhaustive offline/throttling diagnostics and
+request-validation edge cases. Storage reclamation
 and admission remain Engine-owned; refusal details are remeasured for the response rather than
 being an atomic snapshot of Engine's admission decision.

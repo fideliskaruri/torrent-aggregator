@@ -17,6 +17,8 @@ public sealed record TitleQuery(string WorkKey, string? Title = null, int? Year 
 
 public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork)
 {
+    private static readonly TimeSpan ArtworkBudget = TimeSpan.FromMilliseconds(1200);
+
     internal static Dictionary<string, object?> Transfer(AcquisitionTarget target) =>
         LibraryJson.Object(("status", target.Status), ("progress", Math.Clamp(target.Progress, 0, 1)),
             ("infoHash", target.InfoHash), ("filePath", target.FilePath), ("error", target.Error));
@@ -107,15 +109,16 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
                 (year == null || x.Year == null || (type == "tv" ? x.Year - year < 2 : Math.Abs(x.Year.Value - year.Value) < 2)));
         var poster = query.Provider?.PosterUrl ?? cat?.PosterUrl ?? cached?.PosterUrl ?? progress.FirstOrDefault(x => x.PosterUrl != null)?.PosterUrl;
         var backdrop = query.Provider?.BackdropUrl ?? cat?.BackdropUrl ?? cached?.BackdropUrl;
-        if (poster == null)
+        if (poster == null && backdrop == null)
         {
+            // Nothing local: one budgeted remote attempt (TS ARTWORK_BUDGET_MS). The resolver keeps its own lookup alive to warm its cache.
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            budget.CancelAfter(TimeSpan.FromMilliseconds(1500));
+            budget.CancelAfter(ArtworkBudget);
             try
             {
                 var resolved = await artwork.ResolveAsync(title, year, type, budget.Token).WaitAsync(budget.Token);
                 poster = resolved.PosterUrl;
-                backdrop ??= resolved.BackdropUrl;
+                backdrop = resolved.BackdropUrl;
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
         }
