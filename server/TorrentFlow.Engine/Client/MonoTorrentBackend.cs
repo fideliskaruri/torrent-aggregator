@@ -35,7 +35,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     internal static EngineSettings BuildSettings(EngineOptions o)
     {
-        var listen = new IPEndPoint(IPAddress.Any, o.ListenPort);
+        // Port 0 would be announced verbatim: trackers drop "port=0" peers and DHT cannot bind it, so resolve a real port.
+        var listen = new IPEndPoint(IPAddress.Any, o.ListenPort > 0 ? o.ListenPort : FreePort());
         var builder = new EngineSettingsBuilder
         {
             MaximumConnections = o.MaxConnections,
@@ -54,6 +55,15 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             DhtEndPoint = o.Dht ? listen : null,
         };
         return builder.ToSettings();
+    }
+
+    private static int FreePort()
+    {
+        var probe = new System.Net.Sockets.TcpListener(IPAddress.Any, 0);
+        probe.Start();
+        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
+        return port;
     }
 
     private TorrentSettings TorrentSettingsFor(string purpose) => new TorrentSettingsBuilder
