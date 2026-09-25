@@ -27,11 +27,7 @@ public sealed class RungDiagnostic
     public int Attempted { get; set; }
 }
 
-public sealed class GrabService(
-    IDbContextFactory<TorrentFlowDbContext> factory,
-    ITorrentSearchService search,
-    ITorrentEngine engine,
-    ISmartCategorizer? categorizer = null)
+public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine)
 {
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
     {
@@ -174,20 +170,12 @@ public sealed class GrabService(
         Func<Task>? beforeSend, bool relaxed, CancellationToken ct)
     {
         if (beforeSend != null) await beforeSend();
-        var searchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
-        var target = SmartSendTargets.Resolve(
-            settings,
-            categorizer,
-            candidate.Title,
-            input.MediaType,
-            candidate.Source,
-            searchCategory);
         EngineAddResult result;
         try
         {
             result = await engine.AddAsync(new() { Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = input.Retention,
-                Source = candidate.Source, SearchCategory = searchCategory,
+                Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
                 Metadata = CatalogMetadata(input.MediaType, input.Title),
                 QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap }, ct);
@@ -219,16 +207,18 @@ public sealed class GrabService(
         {
             var storage = result.StorageLimit == null ? null : StorageFacts.Refusal(settings, result.StorageLimit, result.Message,
                 candidate.SizeBytes, await engine.QueuedReservedBytesAsync(ct));
-            return new(false, result.Message) { Query = query, Title = candidate.Title, Magnet = candidate.Magnet, SavePath = target.SavePath, Storage = storage };
+            return new(false, result.Message) { Query = query, Title = candidate.Title, Magnet = candidate.Magnet, Storage = storage };
         }
         // Honestly label the provenance when the ladder had to relax to win.
         var notes = new List<string>();
         if (advanced && !input.Background) notes.Add($"advanced past {input.Cursor?.Label}");
         if (relaxed) notes.Add("low-seed release");
         var next = input.Cursor?.Next();
+        // The engine picks the smart target on add; report where the transfer actually lives.
+        var savePath = hash == null ? null : (await engine.GetAsync(hash, ct))?.SavePath;
         return new(true, notes.Count == 0 ? result.Message : $"{result.Message} · {string.Join(" · ", notes)}") { Query = query, Title = candidate.Title,
             Magnet = candidate.Magnet, InfoHash = hash, Queued = queued, QueuePosition = result.Details?.QueuePosition, Advanced = advanced,
-            SavePath = target.SavePath,
+            SavePath = savePath,
             LastEpisode = advanced ? input.Cursor?.Label : null, CursorSeason = advanced ? next?.Season : null,
             CursorEpisode = advanced ? next?.Episode : null, NextEpisodeHint = advanced ? next?.Query(input.Title) : null };
     }

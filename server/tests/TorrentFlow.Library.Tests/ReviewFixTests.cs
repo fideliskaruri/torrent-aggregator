@@ -1,3 +1,4 @@
+using TorrentFlow.Core.Contracts.Engine;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -144,6 +145,8 @@ public sealed class ReviewFixTests
         using var host = new LibraryHost(); using var client = host.CreateClient();
         await host.Settings();
         host.Search.Respond = o => new() { Query = o.Query, Results = [FakeSearch.Release("Example Show S01E01 1080p")] };
+        var expected = Path.Combine(host.DataDirectory, "TV", "Example Show", "Season 01");
+        host.Engine.Info = hash => new EngineTorrentInfo { Hash = hash, Name = "Example Show S01E01 1080p", State = "downloading", SavePath = expected };
 
         var response = await client.PostAsJsonAsync("/api/title/example-show", new
         {
@@ -157,9 +160,7 @@ public sealed class ReviewFixTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = await Json(response);
         Assert.True(json.GetProperty("ok").GetBoolean());
-        var savePath = json.GetProperty("savePath").GetString();
-        Assert.False(string.IsNullOrWhiteSpace(savePath));
-        Assert.StartsWith(host.DataDirectory, savePath);
+        Assert.Equal(expected, json.GetProperty("savePath").GetString());
     }
 
     [Fact]

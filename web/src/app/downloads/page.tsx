@@ -997,8 +997,7 @@ export default function ClientPage() {
               Add a magnet or .torrent URL
             </p>
             <p className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
-              Paste a magnet link or a direct .torrent URL, then send it to the
-              configured client.
+              Paste a magnet link or a direct .torrent URL, then add it to your downloads.
             </p>
           </div>
           <Button

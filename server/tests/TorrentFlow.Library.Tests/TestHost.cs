@@ -100,7 +100,8 @@ public sealed class FakeEngine : ITorrentEngine
         return Task.FromResult(Result);
     }
     public Task<IReadOnlyList<EngineTorrentInfo>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<EngineTorrentInfo>>([]);
-    public Task<EngineTorrentInfo?> GetAsync(string infoHash, CancellationToken ct = default) => Task.FromResult<EngineTorrentInfo?>(null);
+    public Func<string, EngineTorrentInfo?> Info { get; set; } = _ => null;
+    public Task<EngineTorrentInfo?> GetAsync(string infoHash, CancellationToken ct = default) => Task.FromResult(Info(infoHash));
     public Task<EngineActionResult> PauseAsync(string infoHash, CancellationToken ct = default) => Task.FromResult(new EngineActionResult(true, ""));
     public Task<EngineActionResult> ResumeAsync(string infoHash, CancellationToken ct = default) => PauseAsync(infoHash, ct);
     public Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default) => PauseAsync(infoHash, ct);
