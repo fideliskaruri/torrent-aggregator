@@ -80,7 +80,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         if (status != null) item.Status = status;
         if (monitored != null) item.Monitored = monitored;
         if (mode != null) item.MonitorMode = mode;
-        item.PreferredResolution = resolution;
+        if (f.Has("preferredResolution")) item.PreferredResolution = resolution;
         if (patch) item.LastChecked = now;
         if (f.Has("lastEpisode")) item.LastEpisode = lastEpisode;
         EpisodeCursor? cursor = null;

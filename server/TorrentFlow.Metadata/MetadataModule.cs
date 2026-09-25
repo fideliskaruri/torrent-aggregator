@@ -30,11 +30,13 @@ public static class MetadataModule
 
         services.AddSingleton<TmdbClient>();
         services.AddSingleton<AniListClient>();
+        services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup, LibraryAnimeLookup>());
         services.AddSingleton<KeylessClients>();
         services.AddSingleton<RateLimiter>();
         services.AddSingleton<WorkSearchService>();
         services.AddSingleton<SuggestService>();
         services.AddSingleton<ArtworkResolver>();
+        services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ILibraryArtworkResolver, LibraryArtworkResolver>());
         services.AddSingleton<MetadataResolver>();
         services.AddSingleton<IMetadataResolver>(sp => sp.GetRequiredService<MetadataResolver>());
         services.AddSingleton<CatalogService>();

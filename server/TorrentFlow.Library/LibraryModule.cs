@@ -24,6 +24,8 @@ public static class LibraryModule
         services.AddSingleton<TitleService>();
         services.TryAddSingleton<ILibraryPlaybackObserver, DefaultPlaybackObserver>();
         services.TryAddSingleton<ILibraryArtworkResolver, DefaultArtworkResolver>();
+        services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();
+        services.AddSingleton<EpisodeSearchIdentity>();
         services.AddSingleton<PlaybackNotifications>();
         services.AddHostedService(sp => sp.GetRequiredService<PlaybackNotifications>());
         services.AddHostedService<AutomationScheduler>();

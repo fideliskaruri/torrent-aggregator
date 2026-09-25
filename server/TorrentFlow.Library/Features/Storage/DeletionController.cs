@@ -49,6 +49,53 @@ public sealed record DeletionPlan(DeletionScope Scope, IReadOnlyList<DeletionRel
 [ApiController, Route("api/library/delete"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentEngine engine) : ControllerBase
 {
+    /// <summary>What a release or file name claims to hold (TS coverageFromName, via the shared episode parser).</summary>
+    internal readonly record struct Coverage(string Kind, int? Season = null, int? Episode = null, int From = 1)
+    {
+        public static Coverage FromName(string name)
+        {
+            var raw = (name ?? "").Trim();
+            if (raw.Length == 0) return new("unknown");
+            var ep = ReleaseNames.ParseEpisode(raw);
+            if (ep.IsMultiSeason == true) return new("seasons", From: ep.Season ?? 1);
+            if (ep.IsSeasonPack || ep.IsBatch) return ep.Season is { } s ? new("season", s) : new("seasons", From: 1);
+            // Stricter than TS (which reads "S01E01-E03" as E01 alone): a range holds several episodes, so it is season-wide here.
+            if (ep.Episode != null && ReleaseNames.IsEpisodeRangeRelease(raw)) return ep.Season is { } rs ? new("season", rs) : new("seasons", From: 1);
+            if (ep.Episode is { } e) return new("episode", ep.Season, e);
+            return new("unknown");
+        }
+        /// <summary>TS coverageWithin: false generously — every wrong true costs the user files.</summary>
+        public bool Within(DeletionScope scope) => scope.Kind switch
+        {
+            "show" => true,
+            "season" => Kind is "episode" or "season" && Season == scope.Season,
+            _ => Kind == "episode" && Season == scope.Season && Episode == scope.Episode,
+        };
+        /// <summary>TS coverageOverlaps: only overlapping material is worth reporting as blocked.</summary>
+        public bool Overlaps(DeletionScope scope)
+        {
+            if (scope.Kind == "show" || Kind == "unknown") return true;
+            if (scope.Kind == "season")
+                return Kind switch { "episode" => Season == null || Season == scope.Season, "season" => Season == scope.Season, _ => scope.Season >= From };
+            return Kind switch
+            {
+                "episode" => Episode == scope.Episode && (Season == null || Season == scope.Season),
+                "season" => Season == scope.Season,
+                _ => scope.Season >= From,
+            };
+        }
+        public string Label => Kind switch
+        {
+            "episode" => Season == null ? $"episode {Episode}" : $"S{Season:00}E{Episode:00}",
+            "season" => $"Season {Season}",
+            "seasons" => $"Season {From} and later",
+            _ => "not stated",
+        };
+        public int Rank => Kind == "seasons" ? 3 : Kind == "season" ? 2 : 1;
+    }
+
+
+    /// <summary>Port of TS planDeletion: the release name and every recorded file name both vote on coverage.</summary>
     internal static DeletionPlan Plan(IEnumerable<EngineTorrent> rows, DeletionScope scope)
     {
         var releases = new List<DeletionRelease>();
@@ -56,48 +103,35 @@ public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> f
         var missing = 0;
         foreach (var row in rows)
         {
-            var files = new List<(string Path, long Size)>();
-            try
+            var entries = VerifiedFiles.Read(row.VerifiedFilesJson) ?? [];
+            // Only files with an on-disk location count toward bytes and presence; a duplicate the layout discarded has none.
+            var files = entries.Where(f => !string.IsNullOrWhiteSpace(f.Path))
+                .Select(f => (Path: f.Path!.Trim(), Size: Math.Max(0, f.Size))).ToList();
+            var present = files.Where(f => !VerifiedFiles.ConfirmedMissing(f.Path)).ToList();
+            var bytes = files.Count > 0 ? present.Sum(x => x.Size) : Math.Max(0, row.SizeBytes);
+            // Unknown names (sample.mkv, poster.jpg) state nothing and must not block an episode delete.
+            var stated = entries.Select(f => f.Name).OfType<string>().Select(Coverage.FromName).Prepend(Coverage.FromName(row.Name))
+                .Where(c => c.Kind != "unknown").ToList();
+            if (stated.Count == 0 && scope.Kind != "show")
             {
-                using var doc = JsonDocument.Parse(row.VerifiedFilesJson ?? "[]");
-                foreach (var f in doc.RootElement.EnumerateArray())
-                    files.Add((f.GetProperty("path").GetString()!, f.GetProperty("size").GetInt64()));
+                blocked.Add(new(row.Name, "unrecognised", "not stated", present.Count, bytes));
+                continue;
             }
-            catch (Exception) { files.Clear(); }
-            var present = files.Where(f => !ConfirmedMissing(f.Path)).ToList();
-            var bytes = files.Count > 0 ? present.Sum(x => x.Size) : row.SizeBytes;
-            var cursor = EpisodeCursor.Parse(row.Name);
-            var seasonMatch = Regex.Match(row.Name, @"(?i)\bS(\d{1,3})\b");
-            int? statedSeason = cursor?.Season ?? (seasonMatch.Success ? int.Parse(seasonMatch.Groups[1].Value) : null);
-            var multiseason = Regex.IsMatch(row.Name, @"(?i)\b(?:complete|S\d+\s*[-–]\s*S?\d+)\b");
-            var multiEpisode = Regex.IsMatch(row.Name, @"(?i)E\d+\s*(?:-E?|E)\d+");
-            var allInside = scope.Kind == "show" || !multiseason && statedSeason == scope.Season &&
-                (scope.Kind == "season" || !multiEpisode && cursor?.Episode == scope.Episode);
-            // A release's name cannot authorize deleting recorded files outside the requested coordinates.
-            if (scope.Kind != "show" && files.Any(x => EpisodeCursor.Parse(Path.GetFileName(x.Path)) is { } c &&
-                (c.Season != scope.Season || scope.Kind == "episode" && c.Episode != scope.Episode))) allInside = false;
-            if (allInside)
+            if (stated.All(c => c.Within(scope)))
             {
                 missing += files.Count - present.Count;
                 releases.Add(new(row.Hash, row.Name, present.Count, bytes, files.Count > 0));
+                continue;
             }
-            else if (statedSeason == null || multiseason || statedSeason == scope.Season)
+            if (stated.Any(c => c.Overlaps(scope)))
             {
-                blocked.Add(new(row.Name, statedSeason == null && !multiseason ? "unrecognised" : "covers-more",
-                    multiseason ? $"Seasons {statedSeason ?? 1} onwards" : cursor?.Label ?? (statedSeason != null ? $"Season {statedSeason}" : "unknown coverage"), present.Count, bytes));
+                var wider = stated.Any(c => c.Kind is "season" or "seasons" || c.Kind == "episode" && c.Season != null);
+                blocked.Add(new(row.Name, wider ? "covers-more" : "unrecognised", stated.OrderByDescending(c => c.Rank).First().Label, present.Count, bytes));
             }
         }
         return new(scope, releases, blocked, missing);
     }
-    private static bool ConfirmedMissing(string path)
-    {
-        try { _ = System.IO.File.GetAttributes(path); return false; }
-        catch (FileNotFoundException) { return true; }
-        catch (DirectoryNotFoundException) { return true; }
-        catch (IOException) { return false; }
-        catch (UnauthorizedAccessException) { return false; }
-        catch (ArgumentException) { return false; }
-    }
+
     [HttpGet, HttpPost]
     public async Task<IActionResult> Handle(CancellationToken ct)
     {

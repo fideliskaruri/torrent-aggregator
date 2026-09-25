@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Media.Features.Prewarm;
 
@@ -21,6 +22,8 @@ public static class PrewarmFeature
         services.AddSingleton<PrewarmService>();
         // Search registers a no-op default; the built-in engine can actually attach to a swarm.
         services.Replace(ServiceDescriptor.Singleton<ISwarmProbeEngine, EngineSwarmProbeEngine>());
+        // Library registers a no-op playback observer; progress pings drive prewarm here.
+        services.Replace(ServiceDescriptor.Singleton<ILibraryPlaybackObserver, PrewarmPlaybackObserver>());
         services.AddHostedService<PreProbeScheduler>();
         return services;
     }

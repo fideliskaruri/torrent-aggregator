@@ -17,29 +17,16 @@ public sealed record TitleQuery(string WorkKey, string? Title = null, int? Year 
 
 public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory, ICatalogLookup catalog, ILibraryArtworkResolver artwork)
 {
+    private static readonly TimeSpan ArtworkBudget = TimeSpan.FromMilliseconds(1200);
+
     internal static Dictionary<string, object?> Transfer(AcquisitionTarget target) =>
         LibraryJson.Object(("status", target.Status), ("progress", Math.Clamp(target.Progress, 0, 1)),
             ("infoHash", target.InfoHash), ("filePath", target.FilePath), ("error", target.Error));
 
     internal static bool FilesAbsent(EngineTorrent row)
     {
-        if (string.IsNullOrEmpty(row.VerifiedFilesJson)) return false;
-        try
-        {
-            using var doc = JsonDocument.Parse(row.VerifiedFilesJson);
-            var files = doc.RootElement.EnumerateArray().ToArray();
-            if (files.Length == 0) return false;
-            return files.All(f =>
-            {
-                if (!f.TryGetProperty("path", out var path) || path.GetString() is not { } file) return false;
-                try { _ = File.GetAttributes(file); return false; }
-                catch (FileNotFoundException) { return true; }
-                catch (DirectoryNotFoundException) { return true; }
-                catch (IOException) { return false; }
-                catch (UnauthorizedAccessException) { return false; }
-            });
-        }
-        catch (Exception) { return false; }
+        var located = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(f => f.Path).OfType<string>().ToList();
+        return located.Count > 0 && located.All(VerifiedFiles.ConfirmedMissing);
     }
     internal static void Reconcile(AcquisitionTarget target, EngineTorrent? row)
     {
@@ -58,7 +45,9 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         else
         {
             target.Progress = Math.Clamp(row.Progress, 0, 1);
-            target.Status = row.Progress >= 1 || row.Status.Equals("seeding", StringComparison.OrdinalIgnoreCase) ? "downloaded" : target.Status == "failed" ? "failed" : "downloading";
+            // An engine row waiting in the built-in download queue is admitted but not moving (TS 446bff0).
+            target.Status = row.Progress >= 1 || row.Status.Equals("seeding", StringComparison.OrdinalIgnoreCase) ? "downloaded" : target.Status == "failed" ? "failed" :
+                row.Status.Equals("queued", StringComparison.OrdinalIgnoreCase) ? "queued" : "downloading";
             if (target.Status == "downloaded") target.Progress = 1;
         }
     }
@@ -90,11 +79,17 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var watches = await db.WatchListItems.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         var watch = watches.FirstOrDefault(x => ReleaseSelection.MatchesWork(key, x.Title));
         var engineRows = await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed").OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
+        var targets = await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.WorkKey == key).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
+        // TS missingLinkedHashes: a linked torrent older than the scan window is still this work's torrent, not a lost one.
+        var scanned = engineRows.Select(x => x.Hash.Trim().ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
+        var missingLinked = targets.Select(x => x.InfoHash?.Trim().ToLowerInvariant()).OfType<string>().Where(x => x.Length > 0 && !scanned.Contains(x)).Distinct().ToArray();
+        if (missingLinked.Length > 0)
+            engineRows.AddRange(await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed" &&
+                (missingLinked.Contains(x.Hash) || missingLinked.Contains(x.Hash.ToLower()))).ToListAsync(ct));
         var local = engineRows.Where(x => ReleaseSelection.MatchesWork(key, ReleaseSelection.CleanTitle(x.Name), ReleaseYear(x.Name))).ToList();
         var hashes = local.Select(x => x.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var progress = (await db.PlaybackProgresses.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct))
             .Where(x => hashes.Contains(x.InfoHash) || watch != null && x.WatchListItemId == watch.Id || ReleaseSelection.MatchesWork(key, x.Title)).ToList();
-        var targets = await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.WorkKey == key).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct);
         foreach (var target in targets) Reconcile(target, engineRows.FirstOrDefault(x => x.Hash.Equals(target.InfoHash, StringComparison.OrdinalIgnoreCase)));
         await db.SaveChangesAsync(ct);
         var title = query.Provider?.Title ?? cat?.Title ?? (query.Title != null && ReleaseSelection.MatchesWork(key, query.Title, query.Year) ? query.Title : null) ??
@@ -107,15 +102,16 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
                 (year == null || x.Year == null || (type == "tv" ? x.Year - year < 2 : Math.Abs(x.Year.Value - year.Value) < 2)));
         var poster = query.Provider?.PosterUrl ?? cat?.PosterUrl ?? cached?.PosterUrl ?? progress.FirstOrDefault(x => x.PosterUrl != null)?.PosterUrl;
         var backdrop = query.Provider?.BackdropUrl ?? cat?.BackdropUrl ?? cached?.BackdropUrl;
-        if (poster == null)
+        if (poster == null && backdrop == null)
         {
+            // Nothing local: one budgeted remote attempt (TS ARTWORK_BUDGET_MS). The resolver keeps its own lookup alive to warm its cache.
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            budget.CancelAfter(TimeSpan.FromMilliseconds(1500));
+            budget.CancelAfter(ArtworkBudget);
             try
             {
                 var resolved = await artwork.ResolveAsync(title, year, type, budget.Token).WaitAsync(budget.Token);
                 poster = resolved.PosterUrl;
-                backdrop ??= resolved.BackdropUrl;
+                backdrop = resolved.BackdropUrl;
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
         }
@@ -214,16 +210,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
     private static bool InvalidMedia(EngineTorrent row)
     {
         if (row.Progress < .9999 || string.IsNullOrWhiteSpace(row.VerifiedBitfield)) return false;
-        try
-        {
-            using var document = JsonDocument.Parse(row.VerifiedFilesJson ?? "[]");
-            var paths = document.RootElement.EnumerateArray()
-                .Where(x => x.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.String)
-                .Select(x => x.GetProperty("path").GetString()).Where(x => !string.IsNullOrEmpty(x)).ToArray();
-            return paths.Length > 0 && !paths.Any(x => Regex.IsMatch(x!, @"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$"));
-        }
-        catch (JsonException) { return false; }
-        catch (InvalidOperationException) { return false; }
+        var paths = (VerifiedFiles.Read(row.VerifiedFilesJson) ?? []).Select(x => x.Name).OfType<string>().ToArray();
+        return paths.Length > 0 && !paths.Any(x => Regex.IsMatch(x, @"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$"));
     }
     private static int? PackSeason(string name)
     {
@@ -238,24 +226,18 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             .OrderBy(x => MultiSeason(x.Name)).ThenByDescending(x => x.Progress))
         {
             if (row.Progress < .9999 || string.IsNullOrWhiteSpace(row.VerifiedBitfield)) continue;
-            try
+            var best = new Dictionary<int, (string Path, long Size)>();
+            foreach (var file in VerifiedFiles.Read(row.VerifiedFilesJson) ?? [])
             {
-                using var files = JsonDocument.Parse(row.VerifiedFilesJson ?? "[]");
-                var best = new Dictionary<int, (string Path, long Size)>();
-                foreach (var file in files.RootElement.EnumerateArray())
-                {
-                    if (!file.TryGetProperty("path", out var pathValue) || pathValue.GetString() is not { } path ||
-                        !Regex.IsMatch(path, @"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$")) continue;
-                    if (path.Split(['\\', '/']).Any(part => Regex.IsMatch(Regex.Replace(part, "[._-]", " "), @"(?i)\b(?:featurettes?|extras?|specials?|samples?|behind the scenes|animatics?)\b"))) continue;
-                    if (EpisodeCursor.Parse(path.Split(['\\', '/'])[^1]) is not { } coordinate || coordinate.Season != season ||
-                        Regex.IsMatch(path, @"(?i)E\d+\s*(?:-E?|E)\d+")) continue;
-                    var size = file.TryGetProperty("size", out var sizeValue) && sizeValue.TryGetInt64(out var bytes) ? Math.Max(0, bytes) : 0;
-                    if (!best.TryGetValue(coordinate.Episode, out var current) || size > current.Size) best[coordinate.Episode] = (path, size);
-                }
-                foreach (var (episode, file) in best) result.TryAdd(episode, (row, file.Path));
+                if (file.Path is not { } path || !Regex.IsMatch(path, @"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$")) continue;
+                if (path.Split(['\\', '/']).Any(part => Regex.IsMatch(Regex.Replace(part, "[._-]", " "), @"(?i)\b(?:featurettes?|extras?|specials?|samples?|behind the scenes|animatics?)\b"))) continue;
+                var fileName = path.Split(['\\', '/'])[^1];
+                if (EpisodeCursor.Parse(fileName) is not { } coordinate || coordinate.Season != season ||
+                    Regex.IsMatch(fileName, @"(?i)E\d+\s*(?:-E?|E)\d+")) continue;
+                var size = Math.Max(0, file.Size);
+                if (!best.TryGetValue(coordinate.Episode, out var current) || size > current.Size) best[coordinate.Episode] = (path, size);
             }
-            catch (JsonException) { }
-            catch (InvalidOperationException) { }
+            foreach (var (episode, file) in best) result.TryAdd(episode, (row, file.Path));
         }
         return result;
     }
