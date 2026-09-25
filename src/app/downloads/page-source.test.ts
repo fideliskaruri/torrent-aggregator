@@ -366,6 +366,28 @@ check("the redesign's structural guarantees survive these fixes", () => {
   assert.match(source, /data-delete-dialog/);
 });
 
+check("Download now is offered only on queued rows and posts the force action", () => {
+  for (const [label, text, marker] of [
+    ["film row", source, "data-torrent-force"],
+    ["episode card", dialogSource, "data-episode-force"],
+  ] as const) {
+    assert.match(
+      text,
+      new RegExp(
+        `\\{isQueued\\(t\\.state\\) \\? \\(\\s*<DropdownMenuItem\\s*onClick=\\{\\(\\) => onAction\\("force", t\\)\\}[\\s\\S]{0,120}${marker}[\\s\\S]{0,80}Download now`,
+      ),
+      `${label} must gate Download now on isQueued`,
+    );
+  }
+  // Same refresh path as pause/resume: drop in-flight reads, POST, then reload.
+  assert.match(
+    source,
+    /async function action\(act: TorrentRowAction[\s\S]{0,200}invalidateInFlight\(\);[\s\S]{0,400}action: act,[\s\S]{0,300}void load\(\);/,
+  );
+  assert.match(source, /stateLabel\(t\.state, t\.queuePosition\)/);
+  assert.match(dialogSource, /stateLabel\(t\.state, t\.queuePosition\)/);
+});
+
 if (process.exitCode) {
   console.error("\nFAIL — client page source shape regressed");
 } else {

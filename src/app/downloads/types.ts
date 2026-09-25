@@ -21,6 +21,8 @@ export interface ClientTorrent {
   category?: string;
   savePath?: string | null;
   retentionState?: "kept" | "stream" | "prewarm" | "unknown";
+  /** 1-based place in the built-in download queue; set only while `state` is "queued". */
+  queuePosition?: number;
   workId?: string | null;
   workKey?: string | null;
   workTitle?: string | null;
@@ -33,6 +35,12 @@ export interface ClientTorrent {
   ownerClientLabel: string;
   transferId: string;
 }
+
+/**
+ * A one-row action on a transfer. `force` is "Download now": it starts a row
+ * waiting in the built-in engine's queue past the active-download cap.
+ */
+export type TorrentRowAction = "pause" | "resume" | "force";
 
 /**
  * A stream (or prewarm) torrent is an ephemeral playback cache — the engine
