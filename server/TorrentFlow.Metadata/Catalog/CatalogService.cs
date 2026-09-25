@@ -11,6 +11,7 @@ using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Artwork;
+using TorrentFlow.Metadata.Browse;
 using TorrentFlow.Metadata.Enrichment;
 using TorrentFlow.Metadata.Providers;
 
@@ -24,6 +25,12 @@ public sealed record CatalogTitle(int TmdbId, string Kind, string Title, int? Ye
 public sealed record FeedRelease(string Name, int Seeders, int Leechers, string? InfoHash, long? SizeBytes);
 
 public sealed record CatalogFeed(string Id, int Category, string Label, string MediaType, string Source);
+
+/// <summary>works.ts CatalogWork: one work collapsed from chart releases.</summary>
+public sealed record ChartWork(string WorkKey, string Title, int? Year, string MediaType, int TotalSeeders, int PeakSeeders, string BestRelease, int ReleaseCount);
+
+/// <summary>detail.ts CatalogDetail.</summary>
+public sealed record CatalogDetail(string? Overview, double? Rating, string? ReleaseDate);
 
 /// <summary>A row to be written into CatalogEntry.</summary>
 public sealed record CatalogDraft(string WorkKey, string Title, int? Year, string MediaType, string? PosterUrl, string? BackdropUrl,
@@ -52,8 +59,7 @@ public static partial class CatalogText
     [GeneratedRegex(@"[^\p{L}\p{N}]+")] private static partial Regex NonAlnum();
     [GeneratedRegex(@"^(\d{4})")] private static partial Regex LeadingYear();
     [GeneratedRegex(@"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?")] private static partial Regex IsoDate();
-    [GeneratedRegex(@"\bS\d{1,3}(?:E\d{1,4})?\b|\b\d{1,2}x\d{2,3}\b|\bSeason\s*\d+|\bComplete\s+Series\b", RegexOptions.IgnoreCase)] private static partial Regex SeriesMarker();
-    [GeneratedRegex(@"(?<![\d.])((?:19|20)\d{2})(?![\d.])")] private static partial Regex YearToken();
+    [GeneratedRegex(@"\p{L}")] private static partial Regex AnyLetter();
 
     /// <summary>slop.ts isSlopTitle: placeholder / coordinate / structural junk.</summary>
     public static bool IsSlopTitle(string? raw)
@@ -70,13 +76,16 @@ public static partial class CatalogText
     public static string NormalizeForKey(string s) =>
         Spaces().Replace(NonAlnum().Replace(Apostrophes().Replace(s.ToLowerInvariant(), ""), " "), " ").Trim();
 
-    /// <summary>availability.ts catalogWorkKey: series keys carry no year; films key on name + year.</summary>
+    /// <summary>
+    /// availability.ts catalogWorkKey: the key a release of this title would produce under workIdentity — series
+    /// through a synthetic "S01E01", films through "{title} {year}".
+    /// </summary>
     public static string CatalogWorkKey(string title, int? year, string? mediaType)
     {
         var trimmed = title.Trim();
         if (trimmed.Length == 0) return "";
-        var mt = MediaTypes.Normalize(mediaType);
-        return mt is "tv" or "anime" ? $"series:{NormalizeForKey(trimmed)}" : $"film:{NormalizeForKey(trimmed)}:{year?.ToString(CultureInfo.InvariantCulture) ?? ""}";
+        if (MediaTypes.IsSeries(mediaType)) return ReleaseNames.WorkIdentity($"{trimmed} S01E01").Key;
+        return ReleaseNames.WorkIdentity(year is { } y && y != 0 ? $"{trimmed} {y.ToString(CultureInfo.InvariantCulture)}" : trimmed).Key;
     }
 
     /// <summary>store.ts catalogEntryId: sha1(source \0 seed \0 workKey).</summary>
@@ -164,47 +173,76 @@ public static partial class CatalogText
         return releases;
     }
 
-    /// <summary>Simplified works.ts collapseToWorks: group chart releases by work, keep peak/total seeders and the healthiest release.</summary>
-    public static List<CatalogDraft> CollapseToWorks(IEnumerable<(FeedRelease Release, string MediaType)> items)
+    /// <summary>works.ts isRenderableWorkName.</summary>
+    public static bool IsRenderableWorkName(string name)
     {
-        var works = new Dictionary<string, (CatalogDraft Draft, int Total)>();
-        var order = new List<string>();
-        foreach (var (release, declared) in items)
-        {
-            var isSeries = SeriesMarker().IsMatch(release.Name);
-            var cleaned = TitleCleaning.CleanTorrentTitle(release.Name);
-            var year = isSeries ? null : ReleaseYear(release.Name);
-            if (year is { } y && cleaned.IndexOf(y.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal) is var at and > 0)
-                cleaned = cleaned[..at].Trim().TrimEnd('(', '[', '-', '.').Trim();
-            if (IsSlopTitle(cleaned)) continue;
-            var mediaType = isSeries ? (declared == "anime" ? "anime" : "tv") : declared == "tv" ? null : declared;
-            if (mediaType is null) continue;
-            var key = isSeries ? $"series:{NormalizeForKey(cleaned)}" : $"film:{NormalizeForKey(cleaned)}:{year?.ToString(CultureInfo.InvariantCulture) ?? ""}";
-            var seeders = Math.Max(0, release.Seeders);
-            if (!works.TryGetValue(key, out var existing))
-            {
-                works[key] = (new CatalogDraft(key, cleaned, year, mediaType, null, null, null, null, seeders, release.Name, null), seeders);
-                order.Add(key);
-                continue;
-            }
-            var draft = existing.Draft;
-            if (seeders > draft.Seeders) draft = draft with { Seeders = seeders, BestRelease = release.Name };
-            works[key] = (draft, existing.Total + seeders);
-        }
-        return order.Select(k => works[k]).OrderByDescending(w => w.Total).Select(w => w.Draft).ToList();
+        var trimmed = name.Trim();
+        return trimmed.Length >= 2 && AnyLetter().IsMatch(trimmed) && !IsSlopTitle(trimmed);
     }
 
-    public static int? ReleaseYear(string title)
+    /// <summary>works.ts resolveWorkMediaType: a release that parses as a series is never filed as a film.</summary>
+    public static string? ResolveWorkMediaType(string? declared, bool isSeries)
     {
-        int? found = null;
-        var ceiling = DateTime.UtcNow.Year + 1;
-        foreach (Match m in YearToken().Matches(title.Replace('.', ' ').Replace('_', ' ')))
-        {
-            var y = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
-            if (y >= 1900 && y <= ceiling) found = y;
-        }
-        return found;
+        var normalized = MediaTypes.Normalize(declared);
+        return isSeries && !MediaTypes.IsSeries(normalized) ? "tv" : normalized;
     }
+
+    /// <summary>works.ts collapseToWorks: group chart releases by workIdentity key, rank by total then peak seeders.</summary>
+    public static List<ChartWork> CollapseToWorks(IEnumerable<(FeedRelease Release, string MediaType)> items)
+    {
+        var works = new Dictionary<string, ChartWork>(StringComparer.Ordinal);
+        foreach (var (release, declared) in items)
+        {
+            var name = release.Name?.Trim();
+            if (string.IsNullOrEmpty(name)) continue;
+            var identity = ReleaseNames.WorkIdentity(name);
+            if (!IsRenderableWorkName(identity.Name)) continue;
+            if (ResolveWorkMediaType(declared, identity.IsSeries) is not { } mediaType) continue;
+            var seeders = Math.Max(0, release.Seeders);
+            if (!works.TryGetValue(identity.Key, out var existing))
+            {
+                works[identity.Key] = new ChartWork(identity.Key, identity.Name, identity.Year, mediaType, seeders, seeders, name, 1);
+                continue;
+            }
+            works[identity.Key] = seeders > existing.PeakSeeders
+                ? existing with { TotalSeeders = existing.TotalSeeders + seeders, ReleaseCount = existing.ReleaseCount + 1, PeakSeeders = seeders, BestRelease = name }
+                : existing with { TotalSeeders = existing.TotalSeeders + seeders, ReleaseCount = existing.ReleaseCount + 1 };
+        }
+        // localeCompare parity for the final tiebreak.
+        return works.Values.OrderByDescending(w => w.TotalSeeders).ThenByDescending(w => w.PeakSeeders)
+            .ThenBy(w => w.Title, StringComparer.InvariantCulture).ToList();
+    }
+
+    /// <summary>works.ts seedWorkKeys: the seed's own keys as a film and as a series.</summary>
+    public static HashSet<string> SeedWorkKeys(string seedTitle) =>
+        new([ReleaseNames.WorkIdentity(seedTitle).Key, ReleaseNames.WorkIdentity($"{seedTitle} S01E01").Key], StringComparer.Ordinal);
+
+    /// <summary>works.ts pickRelated: same-type neighbours of the seed in the chart pool, unseen first.</summary>
+    public static List<CatalogEntry> PickRelated(IReadOnlyList<CatalogEntry> pool, string seedTitle, string? seedMediaType, int limit,
+        IReadOnlySet<string>? alreadyOnScreen = null)
+    {
+        var seedKeys = SeedWorkKeys(seedTitle);
+        var onScreen = alreadyOnScreen ?? new HashSet<string>();
+        var seedIndex = pool.Select((w, i) => (w, i)).FirstOrDefault(x => seedKeys.Contains(x.w.WorkKey), (null!, -1)).Item2;
+        return pool.Select((work, index) => (work, index))
+            .Where(x => !seedKeys.Contains(x.work.WorkKey))
+            .Where(x => seedMediaType is null || MediaTypes.Normalize(x.work.MediaType) == seedMediaType)
+            .OrderBy(x => onScreen.Contains(x.work.WorkKey) ? 1 : 0)
+            .ThenBy(x => seedIndex >= 0 ? Math.Abs(x.index - seedIndex) : 0)
+            .ThenBy(x => x.index)
+            .Take(limit).Select(x => x.work).ToList();
+    }
+
+    public static CatalogDraft DraftFromRow(CatalogEntry row) =>
+        new(row.WorkKey, row.Title, row.Year, row.MediaType, row.PosterUrl, row.BackdropUrl, row.Overview, row.Rating, row.Seeders, row.BestRelease, row.ReleaseDate);
+
+    /// <summary>store.ts draftFromWork: a chart-derived work plus whatever the detail lookup resolved.</summary>
+    public static CatalogDraft DraftFromWork(ChartWork work, string? posterUrl, string? backdropUrl, CatalogDetail? detail) =>
+        new(work.WorkKey, work.Title, work.Year, work.MediaType, posterUrl, backdropUrl, detail?.Overview, detail?.Rating,
+            work.PeakSeeders, work.BestRelease, ReleaseDateToDate(detail?.ReleaseDate));
+
+    public static DateTime? ReleaseDateToDate(string? value) =>
+        ParseReleaseDate(value) is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null;
 
     /// <summary>store.ts dedupeByWorkKey: the first draft claiming a key wins.</summary>
     public static List<CatalogDraft> DedupeByWorkKey(IEnumerable<CatalogDraft> drafts)
@@ -229,6 +267,9 @@ public static class MediaTypes
 
     public static string? Normalize(string? raw) =>
         string.IsNullOrEmpty(raw) ? null : Aliases.GetValueOrDefault(raw.Trim().ToLowerInvariant());
+
+    /// <summary>media-type.ts isSeriesMediaType.</summary>
+    public static bool IsSeries(string? raw) => Normalize(raw) is "tv" or "anime";
 }
 
 /// <summary>
@@ -252,6 +293,7 @@ public sealed class CatalogService(
     public const int RailHead = 24;
     public const int FeedTimeoutMs = 8_000;
     public const int TmdbTimeoutMs = 8_000;
+    public const int TmdbReadTimeoutMs = 3_500;
     private const int TmdbPages = 2;
 
     public const string BrowserUserAgent =
@@ -290,8 +332,8 @@ public sealed class CatalogService(
     public async Task<(int EntryCount, DateTime? RefreshedAt)> ReadStatusAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var count = await db.CatalogEntries.CountAsync(e => e.Source != "related", ct).ConfigureAwait(false);
-        var newest = await db.CatalogEntries.Where(e => e.Source != "related").OrderByDescending(e => e.RefreshedAt)
+        var count = await db.CatalogEntries.CountAsync(ct).ConfigureAwait(false);
+        var newest = await db.CatalogEntries.OrderByDescending(e => e.RefreshedAt)
             .Select(e => (DateTime?)e.RefreshedAt).FirstOrDefaultAsync(ct).ConfigureAwait(false);
         return (count, newest);
     }
@@ -348,8 +390,9 @@ public sealed class CatalogService(
             errors.AddRange(charts.Where(c => c.Error is not null).Select(c => $"{c.Feed.Label}: {c.Error}"));
             errors.AddRange(trending.Where(t => t.Error is not null).Select(t => $"TMDB {t.Kind}: {t.Error}"));
             var answered = charts.Where(c => c.Error is null && c.Releases.Count > 0).ToList();
-            var chartWorks = CatalogText.CollapseToWorks(answered.SelectMany(c => c.Releases.Select(r => (r, c.Feed.MediaType))));
-            var index = chartWorks.GroupBy(w => w.WorkKey).ToDictionary(g => g.Key, g => g.MaxBy(w => w.Seeders)!);
+            var index = answered.Count > 0
+                ? new AvailabilityIndex(CatalogText.CollapseToWorks(answered.SelectMany(c => c.Releases.Select(r => (r, c.Feed.MediaType)))))
+                : AvailabilityIndex.Empty;
 
             var prepared = new List<(string Source, List<CatalogDraft> Drafts)>();
             foreach (var t in trending)
@@ -358,17 +401,28 @@ public sealed class CatalogService(
                 var drafts = t.Titles.Where(x => !CatalogText.IsSlopTitle(x.Title)).Take(WorksPerSource).Select(x =>
                 {
                     var key = CatalogText.CatalogWorkKey(x.Title, x.Year, x.MediaType);
-                    return index.TryGetValue(key, out var hit) ? CatalogText.DraftFromTmdb(x, key, hit.Seeders, hit.BestRelease) : CatalogText.DraftFromTmdb(x, key);
+                    return index.Match(key, x.Year) is { } hit ? CatalogText.DraftFromTmdb(x, key, hit.PeakSeeders, hit.BestRelease) : CatalogText.DraftFromTmdb(x, key);
                 }).ToList();
                 prepared.Add((t.Source, drafts));
                 origin[t.Source] = "tmdb";
             }
-            foreach (var source in CatalogText.Feeds.Select(f => f.Source).Distinct().Where(s => prepared.All(p => p.Source != s)))
+            var missing = CatalogText.Feeds.Select(f => f.Source).Distinct().Where(s => prepared.All(p => p.Source != s)).ToList();
+            var fallbacks = await Task.WhenAll(missing.Select(async source =>
             {
                 var items = answered.Where(c => c.Feed.Source == source).SelectMany(c => c.Releases.Select(r => (r, c.Feed.MediaType))).ToList();
-                if (items.Count == 0) continue;
-                prepared.Add((source, await AttachArtworkAsync(CatalogText.CollapseToWorks(items).Take(WorksPerSource).ToList(), ct).ConfigureAwait(false)));
-                origin[source] = "charts";
+                if (items.Count == 0) return ((string, List<CatalogDraft>)?)null;
+                var works = CatalogText.CollapseToWorks(items).Take(WorksPerSource).ToList();
+                var artTask = AttachArtworkAsync(works, ct);
+                var detailTask = ResolveDetailBoundedAsync(works, ct);
+                await Task.WhenAll(artTask, detailTask).ConfigureAwait(false);
+                var art = await artTask.ConfigureAwait(false);
+                var details = await detailTask.ConfigureAwait(false);
+                return (source, works.Select((w, i) => CatalogText.DraftFromWork(w, art[i].PosterUrl, art[i].BackdropUrl, details[i])).ToList());
+            })).ConfigureAwait(false);
+            foreach (var fallback in fallbacks.OfType<(string Source, List<CatalogDraft> Drafts)>())
+            {
+                prepared.Add(fallback);
+                origin[fallback.Source] = "charts";
             }
             if (prepared.Count == 0) return new(written, errors, true, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
             foreach (var (source, drafts) in prepared)
@@ -384,22 +438,65 @@ public sealed class CatalogService(
     }
 
     public const int ArtworkBudgetMs = 15_000;
+    public const int DetailBudgetMs = 20_000;
+    private const int DetailConcurrency = 4;
 
     /// <summary>artwork.ts resolveArtworkBounded: chart works get posters within a 15 s budget; a miss or hang costs artwork only.</summary>
-    private async Task<List<CatalogDraft>> AttachArtworkAsync(List<CatalogDraft> works, CancellationToken ct)
+    private async Task<IReadOnlyList<ArtworkResult>> AttachArtworkAsync(List<ChartWork> works, CancellationToken ct)
     {
-        if (artwork is null || works.Count == 0) return works;
+        var none = works.Select(_ => ArtworkResult.None).ToList();
+        if (artwork is null || works.Count == 0) return none;
         using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(ArtworkBudgetMs), time);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
         try
         {
-            var art = await artwork.ResolveBatchAsync(works.Select(w => new ArtworkQuery(w.Title, w.Year, w.MediaType)).ToList(), linked.Token).ConfigureAwait(false);
-            return works.Select((w, i) => i < art.Count ? w with { PosterUrl = art[i].PosterUrl, BackdropUrl = art[i].BackdropUrl } : w).ToList();
+            var art = await artwork.ResolveBatchAsync(works.Select(w => new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType))).ToList(), linked.Token)
+                .ConfigureAwait(false);
+            return works.Select((_, i) => i < art.Count ? art[i] : ArtworkResult.None).ToList();
         }
         catch (Exception e)
         {
             logger.LogDebug(e, "Catalog artwork unavailable within its budget");
-            return works;
+            return none;
+        }
+    }
+
+    /// <summary>
+    /// detail.ts resolveDetailBounded over work-detail.ts's TMDB tier: overview / rating / release date from the same
+    /// TMDB match that chose the poster, within a 20 s budget (all-or-nothing, like the TS). Never throws.
+    /// </summary>
+    private async Task<IReadOnlyList<CatalogDetail?>> ResolveDetailBoundedAsync(List<ChartWork> works, CancellationToken ct)
+    {
+        var none = new CatalogDetail?[works.Count];
+        if (artwork is null || works.Count == 0 || tmdb.ApiKey is null) return none;
+        var output = new CatalogDetail?[works.Count];
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(DetailBudgetMs), time);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
+        try
+        {
+            await Parallel.ForEachAsync(Enumerable.Range(0, works.Count),
+                new ParallelOptions { MaxDegreeOfParallelism = DetailConcurrency, CancellationToken = linked.Token }, async (i, token) =>
+            {
+                try
+                {
+                    var w = works[i];
+                    if (await artwork.ResolveTmdbRefAsync(new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType)), token).ConfigureAwait(false) is not { } reference) return;
+                    if (await tmdb.FetchDetailAsync(reference.MediaType, reference.Id, ct: token).ConfigureAwait(false) is not { } d) return;
+                    var title = (TmdbClient.Str(d, "title") ?? TmdbClient.Str(d, "name") ?? "").Trim();
+                    if (title.Length == 0) return;
+                    var overview = TmdbClient.Str(d, "overview")?.Trim();
+                    double? rating = TmdbClient.Num(d, "vote_average") is > 0 and var v ? v : null;
+                    var date = TmdbClient.Str(d, "release_date").OrEmpty(TmdbClient.Str(d, "first_air_date"))?.Trim();
+                    output[i] = new CatalogDetail(string.IsNullOrEmpty(overview) ? null : overview, rating, string.IsNullOrEmpty(date) ? null : date);
+                }
+                catch (Exception e) when (e is not OperationCanceledException) { logger.LogDebug(e, "[catalog] detail lookup failed for {Title}", works[i].Title); }
+            }).ConfigureAwait(false);
+            return output;
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogDebug("[catalog] detail enrichment exceeded its budget");
+            return none;
         }
     }
 
@@ -472,33 +569,86 @@ public sealed class CatalogService(
     }
 
     /// <summary>
-    /// refresh.ts refreshRelatedForSeed (simplified): TMDB recommendations for the seed's best match, bounded by
-    /// RelatedBudgetMs. Single-flight per seed.
+    /// refresh.ts refreshRelatedForSeed: TMDB recommendations for the seed (bounded by RelatedBudgetMs), else the
+    /// seed's same-type neighbours in the chart pool. Single-flight per title + media type; drops other seeds' rows.
     /// </summary>
-    public Task<int> RefreshRelatedForSeedAsync(string seedTitle, string? mediaType) =>
-        _relatedInFlight.RunAsync(seedTitle, () => RunRelatedAsync(seedTitle, mediaType));
+    public Task<int> RefreshRelatedForSeedAsync(string seedTitle, string? mediaType)
+    {
+        var title = seedTitle.Trim();
+        if (title.Length == 0) return Task.FromResult(0);
+        var normalized = MediaTypes.Normalize(mediaType);
+        return _relatedInFlight.RunAsync($"{title}\0{normalized ?? ""}", () => RunRelatedAsync(title, normalized));
+    }
 
-    private async Task<int> RunRelatedAsync(string seedTitle, string? mediaType)
+    private async Task<int> RunRelatedAsync(string title, string? mediaType)
     {
         try
         {
-            if (tmdb.ApiKey is null) return 0;
-            var scope = MediaTypes.Normalize(mediaType) switch { "movie" => "movie", "tv" or "anime" => "tv", _ => "multi" };
-            var candidates = await tmdb.SearchCandidatesAsync(scope, seedTitle, null, 1, RelatedBudgetMs, StoppingToken).ConfigureAwait(false);
-            if (candidates.FirstOrDefault() is not { } top) return 0;
-            var kind = top.MediaType == "movie" ? "movie" : "tv";
-            var body = await tmdb.TryGetAsync($"/{kind}/{top.Id}/recommendations", [("language", "en-US"), ("page", "1")], RelatedBudgetMs, StoppingToken).ConfigureAwait(false);
-            if (body is null) return 0;
-            var drafts = CatalogText.ParseTmdbList(body.Value, kind, options.Value.TmdbImageBaseUrl)
-                .Where(t => !CatalogText.IsSlopTitle(t.Title)).Take(WorksPerSource)
-                .Select(t => CatalogText.DraftFromTmdb(t, CatalogText.CatalogWorkKey(t.Title, t.Year, t.MediaType))).ToList();
-            return drafts.Count == 0 ? 0 : await ReplaceSourceAsync("related", seedTitle, drafts, StoppingToken).ConfigureAwait(false);
+            var ct = StoppingToken;
+            var trending = await ReadRowsAsync("trending", null, WorksPerSource, ct).ConfigureAwait(false);
+            var popular = await ReadRowsAsync("popular", null, WorksPerSource, ct).ConfigureAwait(false);
+            var pool = trending.Concat(popular).ToList();
+            var onScreen = trending.Take(RailHead).Concat(popular.Take(RailHead)).Select(r => r.WorkKey).ToHashSet(StringComparer.Ordinal);
+
+            List<CatalogDraft>? drafts = null;
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(RelatedBudgetMs), time))
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct))
+            {
+                try { drafts = await RelatedFromTmdbAsync(mediaType, title, pool, onScreen, linked.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { logger.LogDebug("[catalog] TMDB related exceeded its budget for {Seed}", title); }
+            }
+            if (drafts is null || drafts.Count == 0)
+            {
+                if (pool.Count == 0) return 0;
+                drafts = CatalogText.PickRelated(pool, title, mediaType, RailHead, onScreen).Select(CatalogText.DraftFromRow).ToList();
+            }
+
+            await ReplaceSourceAsync("related", title, drafts, ct).ConfigureAwait(false);
+            await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+            await db.CatalogEntries.Where(e => e.Source == "related" && e.SeedTitle != null && e.SeedTitle != "" && e.SeedTitle != title)
+                .ExecuteDeleteAsync(ct).ConfigureAwait(false);
+            return drafts.Count;
         }
         catch (Exception e)
         {
-            logger.LogWarning(e, "[catalog] related rebuild failed for {Seed}", seedTitle);
+            logger.LogWarning(e, "[catalog] related rebuild failed for {Seed}", title);
             return 0;
         }
+    }
+
+    /// <summary>refresh.ts relatedFromTmdb: null when TMDB cannot answer, so the caller falls back to the pool.</summary>
+    private async Task<List<CatalogDraft>?> RelatedFromTmdbAsync(string? mediaType, string title, IReadOnlyList<CatalogEntry> pool, IReadOnlySet<string> onScreen,
+        CancellationToken ct)
+    {
+        if (tmdb.ApiKey is null) return null;
+        string[] kinds = mediaType is null ? ["movie", "tv"] : [MediaTypes.IsSeries(mediaType) ? "tv" : "movie"];
+        var searches = await Task.WhenAll(kinds.Select(async kind =>
+        {
+            var body = await tmdb.TryGetAsync($"/search/{kind}", [("query", title), ("include_adult", "false")], TmdbReadTimeoutMs, ct).ConfigureAwait(false);
+            return body is { } b ? CatalogText.ParseTmdbList(b, kind, options.Value.TmdbImageBaseUrl).FirstOrDefault() : null;
+        })).ConfigureAwait(false);
+        if (searches.FirstOrDefault(s => s is not null) is not { } found) return null;
+
+        var recommendations = await tmdb.TryGetAsync($"/{found.Kind}/{found.TmdbId}/recommendations", [], TmdbReadTimeoutMs, ct).ConfigureAwait(false);
+        if (recommendations is not { } rec) return null;
+        var titles = CatalogText.ParseTmdbList(rec, found.Kind, options.Value.TmdbImageBaseUrl);
+        if (titles.Count == 0) return null;
+
+        var known = new Dictionary<string, CatalogEntry>(StringComparer.Ordinal);
+        foreach (var row in pool) known[row.WorkKey] = row;
+        var seedKeys = CatalogText.SeedWorkKeys(title);
+        var seedTitle = title.ToLowerInvariant();
+        var drafts = new List<CatalogDraft>();
+        foreach (var candidate in titles)
+        {
+            if (CatalogText.IsSlopTitle(candidate.Title)) continue;
+            var workKey = CatalogText.CatalogWorkKey(candidate.Title, candidate.Year, candidate.MediaType);
+            if (workKey.Length == 0 || seedKeys.Contains(workKey) || candidate.Title.Trim().ToLowerInvariant() == seedTitle) continue;
+            drafts.Add(known.TryGetValue(workKey, out var row) && !string.IsNullOrEmpty(row.BestRelease)
+                ? CatalogText.DraftFromTmdb(candidate, workKey, row.Seeders, row.BestRelease)
+                : CatalogText.DraftFromTmdb(candidate, workKey));
+        }
+        return drafts.Where(d => !onScreen.Contains(d.WorkKey)).Concat(drafts.Where(d => onScreen.Contains(d.WorkKey))).Take(RailHead).ToList();
     }
 }
 

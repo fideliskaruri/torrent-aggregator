@@ -20,7 +20,7 @@ public sealed record RetentionSweepResult(
 /// </summary>
 public sealed class RetentionSweeper(IDbContextFactory<TorrentFlowDbContext> dbFactory, ITorrentEngine engine, TimeProvider time)
 {
-    public static readonly TimeSpan Grace = TimeSpan.FromMinutes(30);
+    public static readonly TimeSpan Grace = TimeSpan.FromHours(6); // STREAM_CACHE_GRACE_MS
 
     public async Task<RetentionSweepResult> SweepAsync(string mode, long budgetBytes, CancellationToken ct = default)
     {

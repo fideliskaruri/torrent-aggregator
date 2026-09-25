@@ -77,4 +77,11 @@ public sealed class HostRouteTests(HostFactory factory) : IClassFixture<HostFact
         var response = await Client().GetAsync("/api/does-not-exist");
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
+
+    [Fact]
+    public async Task MissingAssetsAreNotAnsweredWithTheSpa()
+    {
+        var response = await Client().GetAsync("/assets/missing-chunk.js");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }

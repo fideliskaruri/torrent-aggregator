@@ -161,7 +161,10 @@ export function resolveAcquisitionTransfer(
     ? "downloaded"
     : target.status === "failed"
       ? "failed"
-      : "downloading";
+      : torrentStatus === "queued"
+        ? // Waiting in the built-in engine's download queue: admitted, not moving.
+          "queued"
+        : "downloading";
   return {
     ...target,
     status,

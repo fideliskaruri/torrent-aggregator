@@ -92,6 +92,26 @@ public sealed class AdapterTests
         var best = Assert.Single(await adapter.SearchAsync(new() { Query = "Movie", Limit = 1 }));
         Assert.Equal("def", best.InfoHash); Assert.Equal(2000000000, best.SizeBytes);
     }
+    [Fact]
+    public async Task Magnets_and_source_urls_escape_like_encodeURIComponent()
+    {
+        using var fake = new FakeHttp(_ => FakeHttp.Json("""{"torrents":[{"infohash":"ABC","name":"Dune (2021) [1080p] it's *good*!","seeders":5}]}"""));
+        var r = Assert.Single(await new TorrentsCsvAdapter(fake.Http(), Config()).SearchAsync(new() { Query = "Dune (2021)" }));
+        Assert.Equal("magnet:?xt=urn:btih:abc&dn=Dune%20(2021)%20%5B1080p%5D%20it's%20*good*!", r.Magnet);
+        Assert.Equal("https://torrents-csv.com/#/search/torrent/Dune%20(2021)%20%5B1080p%5D%20it's%20*good*!/1", r.SourceUrl);
+    }
+    [Fact]
+    public async Task Yts_published_at_uses_the_unix_instant_not_the_zoneless_wall_clock()
+    {
+        using var fake = new FakeHttp(_ => FakeHttp.Json("""
+            {"data":{"movies":[{"id":1,"title":"The Sand Dune","title_long":"The Sand Dune (2018)","torrents":[
+            {"hash":"ABC","quality":"720p","type":"web","size":"1 GB","seeds":1,"date_uploaded":"2020-02-06 23:13:24","date_uploaded_unix":1581027204},
+            {"hash":"DEF","quality":"1080p","type":"web","size":"2 GB","seeds":0,"date_uploaded":"2020-02-06 23:13:24"}]}]}}
+            """));
+        var rows = await new YtsAdapter(fake.Http(), Config()).SearchAsync(new() { Query = "The Sand Dune" });
+        Assert.Equal("2020-02-06T22:13:24.000Z", rows.Single(r => r.InfoHash == "abc").PublishedAt);
+        Assert.Equal("2020-02-06T23:13:24.000Z", rows.Single(r => r.InfoHash == "def").PublishedAt);
+    }
     [Theory]
     [InlineData("Family Guy S03E03", "Family Guy")]
     [InlineData("Family Guy Season 3 complete", "Family Guy")]

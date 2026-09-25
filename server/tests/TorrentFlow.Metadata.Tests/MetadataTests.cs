@@ -456,7 +456,7 @@ public class CatalogTests
         var releases = CatalogText.ParseFeedBody(Fixtures.Json("apibay-top100.json"));
         var works = CatalogText.CollapseToWorks(releases.Select(r => (r, "movie")));
         Assert.Single(works);
-        Assert.Equal(9000, works[0].Seeders);
+        Assert.Equal(9000, works[0].PeakSeeders);
         Assert.Equal("Dune Part Two", works[0].Title);
         Assert.Equal(2024, works[0].Year);
     }
@@ -574,9 +574,10 @@ public class BrowseTests
         var f = new FakeHttpFactory(FakeHandler.Always(Fixtures.Read("apibay-top100.json")));
         var time = new ManualTime();
         var catalog = new CatalogService(db, new TmdbClient(f, Fixtures.Options(), time), f, Fixtures.Options(), time, NullLogger<CatalogService>.Instance);
-        var browse = new BrowseService(db, catalog, time, NullLogger<BrowseService>.Instance);
+        var browse = BrowseFixture.Create(db, f, time, catalog);
         var payload = await browse.BuildAsync(TorrentFlow.Data.LocalUser.Id);
-        Assert.Equal(["next-up", "my-library", "trending-now"], payload.Rails.Select(r => r.Id));
+        Assert.Equal(["next-up", "my-library", "because-you-are-watching", "trending-now", "popular-series"], payload.Rails.Select(r => r.Id));
+        Assert.Equal("Because you're watching Breaking Bad", payload.Rails[2].Title);
         Assert.Equal("S01E02", payload.Rails[0].Cards.First().Subtitle);
         Assert.Equal("next-w1", payload.Rails[0].Cards.First().Id);
         Assert.Equal("watching", payload.Rails[1].Cards.First().Subtitle);
