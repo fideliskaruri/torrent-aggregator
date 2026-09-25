@@ -126,6 +126,8 @@ dev.db.postclean-*
 /.next-gate/
 # The verification/proof build output written by the probe scripts.
 /.next-proof/
+/.next-parity/
+/scripts/parity/reports/
 # Previous production build, kept by promote.mjs so a bad promotion is undoable.
 /.next-rollback/
 /ui-sweep/
