@@ -143,6 +143,7 @@ docs/.autopilot.json
 !docs/plan.db
 
 # .NET
+artifacts/publish/
 bin/
 obj/
 *.user

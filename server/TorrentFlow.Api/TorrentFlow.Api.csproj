@@ -2,6 +2,7 @@
   <PropertyGroup>
     <RootNamespace>TorrentFlow.Api</RootNamespace>
     <UserSecretsId>torrentflow-local</UserSecretsId>
+    <WebProjectDirectory>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', 'web'))</WebProjectDirectory>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
@@ -16,4 +17,37 @@
   <ItemGroup>
     <InternalsVisibleTo Include="TorrentFlow.Api.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <WebBuildInputs Include="$(WebProjectDirectory)**\*"
+                    Exclude="$(WebProjectDirectory)node_modules\**;$(WebProjectDirectory)dist\**" />
+  </ItemGroup>
+  <!-- dotnet test forwards this global property to every project, including API references. -->
+  <Target Name="BuildWeb" BeforeTargets="PrepareForBuild"
+          Condition="'$(SkipWebBuild)' != 'true' and '$(DesignTimeBuild)' != 'true' and '$(VSTestSessionCorrelationId)' == ''"
+          Inputs="@(WebBuildInputs);$(MSBuildProjectFullPath)"
+          Outputs="$(WebProjectDirectory)dist\index.html">
+    <Exec Command="where pnpm &gt;nul 2&gt;nul" Condition="'$(OS)' == 'Windows_NT'" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="PnpmCheckExitCode" />
+    </Exec>
+    <Exec Command="command -v pnpm &gt;/dev/null 2&gt;&amp;1" Condition="'$(OS)' != 'Windows_NT'" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="PnpmCheckExitCode" />
+    </Exec>
+    <Error Condition="'$(PnpmCheckExitCode)' != '0'"
+           Text="pnpm is required to build TorrentFlow's web UI. Install Node.js, then run 'npm i -g pnpm' (or 'corepack enable' if Corepack is installed), reopen your terminal, and retry. Backend-only builds can use -p:SkipWebBuild=true." />
+    <Message Importance="high" Text="Building TorrentFlow web UI (pnpm install --frozen-lockfile + pnpm build)..." />
+    <Exec WorkingDirectory="$(WebProjectDirectory)" Command="pnpm install --frozen-lockfile" />
+    <Exec WorkingDirectory="$(WebProjectDirectory)" Command="pnpm build" />
+  </Target>
+  <Target Name="PublishWeb" AfterTargets="ComputeFilesToPublish" DependsOnTargets="BuildWeb">
+    <Error Condition="!Exists('$(WebProjectDirectory)dist\index.html')"
+           Text="web/dist is missing. Publish without SkipWebBuild, or run 'pnpm --dir web install --frozen-lockfile' and 'pnpm --dir web build' first." />
+    <ItemGroup>
+      <WebDistFiles Include="$(WebProjectDirectory)dist\**\*" />
+      <ResolvedFileToPublish Include="@(WebDistFiles->'%(FullPath)')">
+        <RelativePath>wwwroot\%(WebDistFiles.RecursiveDir)%(WebDistFiles.Filename)%(WebDistFiles.Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>

@@ -13,7 +13,10 @@ modeled on CoCo Artifacts: one ASP.NET Core host that serves the JSON API and th
   Prisma created, and `DatabaseInitializer` adopts an existing Prisma database.
 - Lower memory and real parallelism: bounded concurrency with `Channel<T>` / `SemaphoreSlim`,
   `IHttpClientFactory`, streaming instead of buffering, no unbounded caches.
-- Install and run with `pnpm install` (web) and `dotnet run` (server). No Docker.
+- Install and run with `.\run.ps1` (Windows) or `sh ./run.sh` (Linux/macOS). No Docker.
+  API builds install the frozen web lockfile and build the SPA incrementally. The CLI's
+  `VSTestSessionCorrelationId` skips the web target during `dotnet test`; standalone test-project
+  builds pass `SkipWebBuild=true` through references. Tests need no Node/pnpm installation.
 
 ## Layout
 
@@ -67,7 +70,21 @@ web/                          Vite + React SPA (built into web/dist, served by t
 ```powershell
 dotnet build TorrentFlow.slnx
 dotnet test server/tests/TorrentFlow.<X>.Tests
-dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5100 --TorrentFlow:DataDirectory=D:\code\memtest\<name>
+dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5106 --TorrentFlow:DataDirectory=D:\code\memtest\<name>
 ```
 
 The host listens on `http://127.0.0.1:3000` by default. During development always pass another port.
+The root run scripts select port 5106. `-p:SkipWebBuild=true` skips frontend work for backend-only builds.
+
+## Folder distribution
+
+```powershell
+dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
+```
+
+Ship the entire folder and run `TorrentFlow.Api.exe --urls http://127.0.0.1:5106`.
+No SDK, .NET runtime, Node, pnpm, or Docker is needed on the recipient's machine.
+Use `linux-x64` or `osx-arm64` for other platforms (Linux still needs native dependencies such as ICU).
+Publish includes `web/dist` under `wwwroot`; the host resolves `TorrentFlow:WebRoot` first,
+then `wwwroot` beside its executable, then the development `web/dist` directory.
+See the root README for data migration and environment configuration.
