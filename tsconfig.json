@@ -40,6 +40,8 @@
   ],
   "exclude": [
     "node_modules",
+    "web",
+    "server",
     "scripts/_*.ts",
     "scripts/_*.mts",
     "scripts/_*.mjs",
