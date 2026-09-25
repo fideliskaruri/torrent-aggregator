@@ -175,3 +175,23 @@ layout), `CompletedLayoutFinalizer`:
 
 The smart `TV/<Show>/Season NN` / `Movies/<Title>` save path is chosen by the caller when the download is
 sent. The layout only works inside the row's save path.
+
+## Subtitle endpoint
+
+`TorrentFlow.Media/Features/Subtitles` owns GET/HEAD/DELETE `/api/subtitles/{infoHash}`.
+Track discovery uses cached `MediaProbe` streams and engine file metadata; content is produced only
+when requested. Sidecars preserve the existing UTF-8 `TextDecoder` behavior (including BOM stripping
+and replacement of malformed bytes), rather than guessing a legacy encoding. SRT conversion is
+in-process; ASS/SSA conversion and embedded 10-minute windows use ffmpeg. Windows start on an
+8-minute stride, independently of the playback offset.
+
+Embedded extraction exposes the engine's seekable streams through an ephemeral, token-addressed
+loopback HTTP input; it never stages a whole video or trusts a request Host header. Extractions share
+in-flight work, retain per-consumer cancellation, and run at most two jobs with sixteen queued.
+Derived VTTs use a 512 MiB LRU disk cache under the data directory's `.sessions/subtitles`.
+
+The feature-local binary resolver is intentionally temporary pending consolidation with
+`Media/Tools/FfmpegLocator`: `TorrentFlow:Media:FfmpegPath` / `FfprobePath`, then `FFMPEG_PATH` /
+`FFPROBE_PATH`, PATH, and the existing `node_modules/ffmpeg-static` / `ffprobe-static` layouts.
+Route tests use an in-memory host and fake engine, with no swarms or external requests.
+Optional ffmpeg fixture tests skip explicitly when the executable is unavailable.
