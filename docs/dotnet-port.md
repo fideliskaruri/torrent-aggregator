@@ -70,11 +70,11 @@ web/                          Vite + React SPA (built into web/dist, served by t
 ```powershell
 dotnet build TorrentFlow.slnx
 dotnet test server/tests/TorrentFlow.<X>.Tests
-dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5106 --TorrentFlow:DataDirectory=D:\code\memtest\<name>
+dotnet run --project server/TorrentFlow.Api -- --urls http://127.0.0.1:5199 --TorrentFlow:DataDirectory=D:\code\memtest\<name>
 ```
 
 The host listens on `http://127.0.0.1:3000` by default. During development always pass another port.
-The root run scripts select port 5106. `-p:SkipWebBuild=true` skips frontend work for backend-only builds.
+The root run scripts use http://127.0.0.1:3000 unless you pass `--urls`. `-p:SkipWebBuild=true` skips frontend work for backend-only builds.
 
 ## Folder distribution
 
@@ -82,7 +82,7 @@ The root run scripts select port 5106. `-p:SkipWebBuild=true` skips frontend wor
 dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
 ```
 
-Ship the entire folder and run `TorrentFlow.Api.exe --urls http://127.0.0.1:5106`.
+Ship the entire folder and run `TorrentFlow.Api.exe --urls http://127.0.0.1:3000`.
 No SDK, .NET runtime, Node, pnpm, or Docker is needed on the recipient's machine.
 Use `linux-x64` or `osx-arm64` for other platforms (Linux still needs native dependencies such as ICU).
 Publish includes `web/dist` under `wwwroot`; the host resolves `TorrentFlow:WebRoot` first,
