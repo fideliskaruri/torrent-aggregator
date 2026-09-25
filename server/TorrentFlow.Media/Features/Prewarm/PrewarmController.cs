@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Data;
 
@@ -20,6 +21,7 @@ public sealed class PrewarmController(
     PreProbeLock gate,
     ForegroundTracker foreground,
     PrewarmService prewarm,
+    IHostApplicationLifetime lifetime,
     ILogger<PrewarmController> logger) : ControllerBase
 {
     [HttpGet]
@@ -112,9 +114,11 @@ public sealed class PrewarmController(
             {
                 preProbe = "scheduled";
                 handedToProbe = true;
+                var stopping = lifetime.ApplicationStopping;
                 _ = Task.Run(async () =>
                 {
-                    try { await prober.PreProbeUpcomingAsync(userId); }
+                    try { await prober.PreProbeUpcomingAsync(userId, ct: stopping); }
+                    catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
                     catch (Exception e) { logger.LogError(e, "PREWARM_FAILED background pre-probe"); }
                     finally { release(); }
                 }, CancellationToken.None);
