@@ -43,6 +43,10 @@ internal sealed class TorrentEngineService(
     private readonly ConcurrentDictionary<string, DateTime> _startedAt = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _openStreams = new(StringComparer.Ordinal);
     private readonly HashSet<string> _pendingDetach = new(StringComparer.Ordinal);
+    // Lifecycle operations bump _wakes; a tick that found nothing live, queued or stranded records the generation it
+    // started under, and later ticks skip the database until the next wake. A failed tick never marks idle.
+    private int _wakes;
+    private int _idleAtWake = -1;
 
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
 
@@ -277,6 +281,8 @@ internal sealed class TorrentEngineService(
 
     private async Task<IDisposable> LockHashAsync(string hash, CancellationToken ct)
     {
+        // Every lifecycle operation (add, start, pause, resume, force, delete, stream open) passes through here.
+        WakeMonitor();
         var gate = _hashLocks.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
         return new Releaser(gate);
@@ -821,12 +827,23 @@ internal sealed class TorrentEngineService(
     /// </summary>
     internal async Task TickAsync(CancellationToken ct = default)
     {
+        var liveHashes = backend.LiveHashes().ToList();
+        var generation = Volatile.Read(ref _wakes);
+        if (liveHashes.Count == 0 && Volatile.Read(ref _idleAtWake) == generation) return;
+
         var completed = new List<EngineTorrentCompletedEventArgs>();
         var detach = new List<string>();
         var stranded = new List<string>();
+        var anyQueued = false;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
+            // Only rows the tick can act on: live transfers, plus downloading (stranded) and queued (promotable) rows.
+            // Finished library rows stay unread; EF then writes only the columns that actually changed.
+            var rows = await db.EngineTorrents
+                .Where(r => r.UserId == LocalUser.Id && (liveHashes.Contains(r.Hash)
+                    || r.Status.ToLower() == EngineTorrentStatus.Downloading || r.Status.ToLower() == EngineTorrentStatus.Queued))
+                .ToListAsync(ct);
+            anyQueued = rows.Any(r => string.Equals(r.Status, EngineTorrentStatus.Queued, StringComparison.OrdinalIgnoreCase));
             foreach (var row in rows)
             {
                 var live = backend.Get(row.Hash);
@@ -914,9 +931,12 @@ internal sealed class TorrentEngineService(
             try { TorrentCompleted?.Invoke(this, e); }
             catch (Exception ex) { logger.LogError(ex, "TorrentCompleted handler failed for {Hash}", e.Hash); }
         }
-        // Runs every tick so free slots (after a completion, failure or a cap raise) always refill.
-        await PromoteAsync(ct);
+        // Queued rows can take a slot freed by a completion, failure or cap raise; with none there is nothing to promote.
+        if (liveHashes.Count == 0 && !anyQueued && stranded.Count == 0) Volatile.Write(ref _idleAtWake, generation);
+        if (anyQueued) await PromoteAsync(ct);
     }
+
+    private void WakeMonitor() => Interlocked.Increment(ref _wakes);
 
     /// <summary>
     /// Saves the monitor's batch. A row deleted meanwhile (the user removed it) makes the whole batch fail with a

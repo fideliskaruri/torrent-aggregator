@@ -160,6 +160,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public IReadOnlyList<BackendSnapshot> List() => _managers.Values.Select(Snapshot).ToList();
 
+    public IReadOnlyCollection<string> LiveHashes() => _managers.Keys.ToList();
+
     public async Task PauseAsync(string hash)
     {
         // Stop, not Pause: a MonoTorrent pause keeps peer connections open, which is exactly the memory we want back.
