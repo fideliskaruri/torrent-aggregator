@@ -8,7 +8,12 @@
  * an entire source, which is how a 480p release wins.
  */
 import assert from "node:assert/strict";
-import { fetchFromMirrors, mirrorList } from "@/lib/torrents/adapters/mirrors";
+import {
+  fetchFromMirrors,
+  mirrorList,
+  orderMirrorHosts,
+  resetMirrorMemory,
+} from "@/lib/torrents/adapters/mirrors";
 
 let failures = 0;
 const originalFetch = globalThis.fetch;
@@ -290,6 +295,100 @@ await check(
     assert.equal(seenSignals[1].aborted, false);
   },
 );
+
+await check(
+  "a host that just failed is tried after untried ones, not first",
+  async () => {
+    // `Promise.allSettled` waits for the slowest adapter, and a dead host at
+    // the head of the list costs the full per-host timeout on *every* search
+    // because only the winner was ever remembered. Demote, never exclude: the
+    // dead host is still tried, just last, so a recovered mirror comes back.
+    resetMirrorMemory();
+    stubFetch((url) =>
+      url.startsWith("https://dead")
+        ? new Response("", { status: 503 })
+        : apiOk(),
+    );
+    await fetchFromMirrors({
+      key: "t-cooldown",
+      hosts: ["https://dead", "https://live"],
+      path: (h) => `${h}/q`,
+    });
+
+    assert.deepEqual(
+      orderMirrorHosts("t-cooldown", [
+        "https://dead",
+        "https://live",
+        "https://spare",
+      ]),
+      ["https://live", "https://spare", "https://dead"],
+      "proven host leads, never-tried beats recently-dead",
+    );
+  },
+);
+
+await check("a cooling host leads again once it answers", async () => {
+  resetMirrorMemory();
+  stubFetch((url) =>
+    url.startsWith("https://flaky")
+      ? new Response("", { status: 500 })
+      : apiOk(),
+  );
+  await fetchFromMirrors({
+    key: "t-recover",
+    hosts: ["https://flaky", "https://live"],
+    path: (h) => `${h}/q`,
+  });
+  assert.deepEqual(
+    orderMirrorHosts("t-recover", ["https://flaky", "https://live"]),
+    ["https://live", "https://flaky"],
+    "the cooling host is demoted behind the proven one, never dropped",
+  );
+
+  stubFetch((url) =>
+    url.startsWith("https://live")
+      ? new Response("", { status: 503 })
+      : apiOk(),
+  );
+  await fetchFromMirrors({
+    key: "t-recover",
+    hosts: ["https://flaky", "https://live"],
+    path: (h) => `${h}/q`,
+  });
+  assert.deepEqual(
+    orderMirrorHosts("t-recover", [
+      "https://flaky",
+      "https://live",
+      "https://spare",
+    ]),
+    ["https://flaky", "https://spare", "https://live"],
+    "a successful answer clears the cooldown and re-pins the host",
+  );
+});
+
+await check("the cooldown expires on its own", async () => {
+  resetMirrorMemory();
+  stubFetch((url) =>
+    url.startsWith("https://dead")
+      ? new Response("", { status: 503 })
+      : apiOk(),
+  );
+  await fetchFromMirrors({
+    key: "t-expiry",
+    hosts: ["https://dead", "https://live"],
+    path: (h) => `${h}/q`,
+  });
+  const laterThanAnyCooldown = Date.now() + 60 * 60 * 1000;
+  assert.deepEqual(
+    orderMirrorHosts(
+      "t-expiry",
+      ["https://dead", "https://live", "https://spare"],
+      laterThanAnyCooldown,
+    ),
+    ["https://live", "https://dead", "https://spare"],
+    "an expired cooldown restores the caller's own preference order",
+  );
+});
 
 }
 

@@ -13,6 +13,7 @@ import {
   anilistEpisodeCount,
   fetchAniListRecommendationsForPoster,
   getAniListWorkById,
+  resetAniListQueryCache,
   searchAniListWorks,
 } from "./anilist";
 
@@ -82,6 +83,9 @@ async function main() {
   assert.equal(found[0].metadata.externalId, "112608");
 
   let attempts = 0;
+  // The short in-process memo would otherwise answer this repeat from the
+  // previous stub; the retry ladder is what is under test here.
+  resetAniListQueryCache();
   globalThis.fetch = (async () => {
     attempts += 1;
     if (attempts < 2) {
