@@ -88,3 +88,49 @@ Use `linux-x64` or `osx-arm64` for other platforms (Linux still needs native dep
 Publish includes `web/dist` under `wwwroot`; the host resolves `TorrentFlow:WebRoot` first,
 then `wwwroot` beside its executable, then the development `web/dist` directory.
 See the root README for data migration and environment configuration.
+
+## Library module
+
+`TorrentFlow.Library` implements watchlist CRUD/check, on-demand acquisition, deletion plans and
+confirmed deletion, backfill estimates, rules CRUD/run, automation/run and its hosted scheduler,
+history, activity/unread, playback progress, and title detail/acquisition/progress.
+Feature slices live in `server\TorrentFlow.Library\Features`; there are no schema migrations.
+
+Acquisition calls `ITorrentEngine.AddAsync` with the canonical work ID, expected bytes and sortable
+episode queue key. Engine remains responsible for storage admission and content layout. Season
+acquisition uses four workers, ordered sends, a 60-second order wait and a 10-second send hold.
+Episode outcomes remain distinct (downloading/queued/failed); cursor updates use compare-and-set.
+Deletion requires confirmation and refuses an episode cut out of a multi-episode release.
+Title pack coverage requires persisted completion/verification evidence, ignores extras, and
+does not invent episode transfers for a pack.
+
+Optional cross-module integrations are `ILibraryArtworkResolver` and `ILibraryPlaybackObserver`
+in `TorrentFlow.Core\Contracts\Library`. Both have safe `TryAddSingleton` defaults. The default
+artwork resolver returns no remote fallback artwork; the default playback observer does no
+Media prewarming. Implementations can replace them without module-to-module project references.
+The scheduler reads the saved automation interval, respects run locks, and can be disabled for
+isolated verification with `--TorrentFlow:Library:DisableScheduler=true`.
+
+### Verification and remaining parity work
+
+The Library suite has 81 tests, including SQLite-backed `WebApplicationFactory` route tests and
+pure ordering, bounded concurrency, cursor, selection and automation policy tests. The full
+solution build has zero warnings/errors and all 8,466 tests pass.
+
+`server\tests\TorrentFlow.Library.Tests\verify-parity.py` compares running isolated Next (3102)
+and .NET (5102) hosts. It refuses port 3000 and ignores only generated timestamps and volatile
+disk-free measurements. `parity-results.json` records the comparison: 14 of 17 requests match;
+the other three differ only in the two poster fields populated by Next's remote artwork fallback.
+Those titles are Breaking Bad, Dune (2021), and Attack on Titan. A populated watchlist/progress
+fixture also matches, as do history/activity, cursor pagination, rules and backfill estimates.
+
+The requested `prisma\dev.db` source was empty; verification used copies of the populated root
+`dev.db` instead. Engine rows were removed and automation/preprobe disabled in the copies before
+startup; no real downloads were requested. Next ran with `NEXT_DIST_DIR=.next-lib`.
+
+This is not certification of full mutation/provider parity. Remaining integration work includes
+the optional artwork/prewarm implementations, the complete TypeScript search alias/rung ladder
+(including guarded AniList alias recovery), exhaustive offline/throttling diagnostics and
+request-validation edge cases, and the full legacy release-name/pack parser. Storage reclamation
+and admission remain Engine-owned; refusal details are remeasured for the response rather than
+being an atomic snapshot of Engine's admission decision.
