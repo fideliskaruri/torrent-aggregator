@@ -27,6 +27,7 @@ import {
   Pause,
   Play,
   Trash2,
+  Zap,
 } from "lucide-react";
 import { cn, formatBytes, formatDuration } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,8 @@ import {
   isDownloaded,
   isDownloading,
   isPaused,
+  isQueued,
+  leadQueuePosition,
   type GroupEntry,
   type SeasonBucket,
   type SeriesGroup,
@@ -66,7 +69,7 @@ import {
   stateLabel,
 } from "./release-display";
 import type { Artwork } from "@/lib/metadata/artwork";
-import type { ClientTorrent } from "./types";
+import type { ClientTorrent, TorrentRowAction } from "./types";
 
 export interface SeriesDownloadDialogProps {
   /** `null` while closed, or once the group the dialog was opened for is gone. */
@@ -90,7 +93,7 @@ export interface SeriesDownloadDialogProps {
     season: number | null;
     episode: number | null;
   }) => void;
-  onAction: (act: "pause" | "resume", torrent: ClientTorrent) => void;
+  onAction: (act: TorrentRowAction, torrent: ClientTorrent) => void;
   onActionMany: (act: "pause" | "resume", torrents: ClientTorrent[]) => void;
   onOpenFolder: (torrent: ClientTorrent) => void;
   onCopyStreamUrl: (torrent: ClientTorrent) => void;
@@ -100,7 +103,7 @@ export interface SeriesDownloadDialogProps {
 function barTone(state: string): string {
   return isDownloaded(state)
     ? "bg-[var(--success)]"
-    : isPaused(state)
+    : isPaused(state) || isQueued(state)
       ? "bg-[var(--text-tertiary)]"
       : "bg-[var(--primary)]";
 }
@@ -376,11 +379,13 @@ function EpisodeCard({
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge
-              variant={done ? "success" : isPaused(t.state) ? "default" : "accent"}
+              variant={
+                done ? "success" : isPaused(t.state) || isQueued(t.state) ? "default" : "accent"
+              }
               data-episode-state
             >
               {done ? <Check className="h-3 w-3" aria-hidden /> : null}
-              {stateLabel(t.state)}
+              {stateLabel(t.state, t.queuePosition)}
             </Badge>
             <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
               {formatBytes(t.sizeBytes)}
@@ -493,6 +498,16 @@ function EpisodeCard({
               Open folder
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {isQueued(t.state) ? (
+              <DropdownMenuItem
+                onClick={() => onAction("force", t)}
+                className="min-h-[44px] lg:min-h-0"
+                data-episode-force
+              >
+                <Zap />
+                Download now
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onClick={() => onAction("pause", t)}
               className="min-h-[44px] lg:min-h-0"
@@ -617,7 +632,7 @@ export function SeriesDownloadDialog({
               }
               data-mobile-group-state
             >
-              {stateLabel(group.state)}
+              {stateLabel(group.state, leadQueuePosition(group.torrents))}
             </Badge>
             <span className="min-w-0 flex-1 truncate text-[11px] tabular-nums text-[var(--text-tertiary)]">
               {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
@@ -680,7 +695,7 @@ export function SeriesDownloadDialog({
                   }
                   data-group-state
                 >
-                  {stateLabel(group.state)}
+                  {stateLabel(group.state, leadQueuePosition(group.torrents))}
                 </Badge>
                 <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
                   {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"} ·{" "}
