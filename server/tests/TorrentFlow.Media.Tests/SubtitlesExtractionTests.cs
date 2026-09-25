@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
@@ -74,6 +75,15 @@ public sealed class SubtitlesExtractionTests : IDisposable
         _extraction.WriteCache("hash", "film.mkv", "embedded:2", oldCue, 480);
         Assert.Null(_extraction.ReadCache("hash", "film.mkv", "embedded:2", 0));
         Assert.Equal(oldCue, _extraction.ReadCache("hash", "film.mkv", "embedded:2", 480));
+    }
+
+    [Fact]
+    public void EmbeddedCacheDoesNotReuseTheOldUnrebasedTimestampFormat()
+    {
+        Directory.CreateDirectory(_extraction.CacheDirectory);
+        var oldKey = Convert.ToHexStringLower(SHA1.HashData(Encoding.UTF8.GetBytes("hash\0film.mkv\0embedded:2\0480")));
+        File.WriteAllText(Path.Combine(_extraction.CacheDirectory, oldKey + ".vtt"), "WEBVTT\n\n00:00.000 --> 00:02.000\nstale preroll");
+        Assert.Null(_extraction.ReadCache("hash", "film.mkv", "embedded:2", 480));
     }
 
     [Fact]
@@ -196,17 +206,19 @@ public sealed class SubtitlesExtractionTests : IDisposable
         var result = await _extraction.ExtractAsync(engine, "fixture", "fixture.mkv", 0, 480, "viewer", false, default);
         Assert.True(result.Ok, result.Message);
         Assert.StartsWith("WEBVTT", result.Vtt);
-        Assert.Contains("Later cue.", result.Vtt);
+        Assert.Contains("00:00:01.000 --> 00:00:03.000\nLater cue.", result.Vtt);
+        Assert.Contains("00:00:00.000 --> 00:00:02.000\nStraddling cue.", result.Vtt);
+        Assert.Contains("00:09:59.000 --> 00:10:02.000\nEnd cue.", result.Vtt);
         Assert.DoesNotContain("Early cue.", result.Vtt);
+        Assert.DoesNotContain("Outside cue.", result.Vtt);
         Assert.True(engine.OpenCount > 0);
         var opened = engine.OpenCount;
         var cached = await _extraction.ExtractAsync(engine, "fixture", "fixture.mkv", 0, 480, "viewer", false, default);
         Assert.Equal(result.Vtt, cached.Vtt);
         Assert.Equal(opened, engine.OpenCount);
-        var empty = await _extraction.ExtractAsync(engine, "fixture", "fixture.mkv", 0, 960, "viewer", false, default);
+        var empty = await _extraction.ExtractAsync(engine, "fixture", "fixture.mkv", 0, 1920, "viewer", false, default);
         Assert.True(empty.Ok, empty.Message);
-        Assert.StartsWith("WEBVTT", empty.Vtt);
-        Assert.DoesNotContain("-->", empty.Vtt);
+        Assert.Equal("WEBVTT\n\n", empty.Vtt);
     }
 
     [SubtitlesFfmpegFact]
@@ -231,6 +243,9 @@ public sealed class SubtitlesExtractionTests : IDisposable
         Assert.True(result.Ok, result.Message);
         Assert.Contains("Early cue.", result.Vtt);
         Assert.Contains("Later cue.", result.Vtt);
+        Assert.Contains("00:01.000 --> 00:03.000\nEarly cue.", result.Vtt);
+        Assert.DoesNotContain("End cue.", result.Vtt);
+        Assert.DoesNotContain("Outside cue.", result.Vtt);
     }
 
     private async Task<SubtitleFakeEngine> FixtureEngineAsync()
@@ -238,7 +253,12 @@ public sealed class SubtitlesExtractionTests : IDisposable
         Directory.CreateDirectory(_root);
         var input = Path.Combine(_root, "fixture.srt");
         var output = Path.Combine(_root, "fixture.mkv");
-        await File.WriteAllTextAsync(input, "1\n00:00:01,000 --> 00:00:03,000\nEarly cue.\n\n2\n00:08:01,000 --> 00:08:03,000\nLater cue.\n");
+        await File.WriteAllTextAsync(input,
+            "1\n00:00:01,000 --> 00:00:03,000\nEarly cue.\n\n" +
+            "2\n00:07:59,000 --> 00:08:02,000\nStraddling cue.\n\n" +
+            "3\n00:08:01,000 --> 00:08:03,000\nLater cue.\n\n" +
+            "4\n00:17:59,000 --> 00:18:02,000\nEnd cue.\n\n" +
+            "5\n00:18:01,000 --> 00:18:03,000\nOutside cue.\n");
         using var process = new Process { StartInfo = new(SubtitlesFfmpegFactAttribute.FindBinary("ffmpeg")!)
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardError = true, RedirectStandardOutput = true } };
         foreach (var arg in new[] { "-y", "-hide_banner", "-loglevel", "error", "-f", "srt", "-i", input, "-map", "0:s:0", "-c:s", "srt", output })

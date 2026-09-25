@@ -173,8 +173,11 @@ public class SubtitlesRulesTests
         var args = SubtitleExtraction.BuildExtractArgs("http://example.test/video", 2, 480);
         Assert.True(Array.IndexOf(args, "-ss") < Array.IndexOf(args, "-i"));
         Assert.Equal("480", args[Array.IndexOf(args, "-ss") + 1]);
-        Assert.True(Array.IndexOf(args, "-t") > Array.IndexOf(args, "-i"));
-        Assert.Equal("600", args[Array.IndexOf(args, "-t") + 1]);
+        Assert.Contains("-copyts", args);
+        Assert.True(Array.IndexOf(args, "-to") > Array.IndexOf(args, "-i"));
+        Assert.Equal("1080", args[Array.IndexOf(args, "-to") + 1]);
+        var firstWindow = SubtitleExtraction.BuildExtractArgs("http://example.test/video", 2);
+        Assert.Equal("600", firstWindow[Array.IndexOf(firstWindow, "-to") + 1]);
         Assert.Equal("0:2", args[Array.IndexOf(args, "-map") + 1]);
         Assert.True(SubtitleExtraction.PrefetchTimeoutMs < SubtitleExtraction.ExtractTimeoutMs);
         Assert.DoesNotContain("-reconnect_at_eof", args);
