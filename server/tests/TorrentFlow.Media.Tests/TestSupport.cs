@@ -34,7 +34,7 @@ internal static class TestPaths
 }
 
 /// <summary>In-memory ITorrentEngine: one live torrent per hash, files backed by byte arrays.</summary>
-internal sealed class FakeEngine : ITorrentEngine
+internal sealed class StreamFakeEngine : ITorrentEngine
 {
     private readonly Dictionary<string, (EngineTorrentInfo Info, Dictionary<int, byte[]> Data)> _torrents = new(StringComparer.Ordinal);
     public int OpenCount;
@@ -89,7 +89,7 @@ internal sealed class FakeEngine : ITorrentEngine
 public sealed class MediaApiFactory : WebApplicationFactory<Program>
 {
     public string Root { get; } = TestPaths.NewRoot();
-    internal FakeEngine Engine { get; } = new();
+    internal StreamFakeEngine Engine { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

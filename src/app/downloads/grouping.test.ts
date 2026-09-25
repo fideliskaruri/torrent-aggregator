@@ -17,11 +17,14 @@ import {
   isDownloading,
   isPaused,
   isDownloaded,
+  isQueued,
+  leadQueuePosition,
   type DownloadGroup,
   type SeriesGroup,
   type TransferRow,
 } from "./grouping";
 import { downloadInTab } from "./media-filter";
+import { stateLabel } from "./release-display";
 
 let failures = 0;
 function check(name: string, fn: () => void) {
@@ -565,6 +568,45 @@ check("speed is summed over every member, including the double-counted ones", ()
   assert.equal(group.dlspeed, 3_000);
   assert.equal(group.upspeed, 30);
   assert.equal(group.sizeBytes, 10 * GB, "but its bytes are still not counted twice");
+});
+
+check("a queued transfer is its own state: not downloading, not paused, not done", () => {
+  assert.equal(isQueued("queued"), true);
+  assert.equal(isQueued(" Queued "), true);
+  assert.equal(isDownloading("queued"), false, "it is not moving any bytes");
+  assert.equal(isPaused("queued"), false, "it will start on its own");
+  assert.equal(isDownloaded("queued"), false);
+  // qBittorrent's own queue states keep their existing meaning.
+  assert.equal(isQueued("queuedDL"), false);
+});
+
+check("a group ranks downloading over queued, and queued over paused or done", () => {
+  assert.equal(combinedState([{ state: "queued" }, { state: "downloading" }]), "downloading");
+  assert.equal(combinedState([{ state: "pausedDL" }, { state: "queued" }]), "queued");
+  assert.equal(combinedState([{ state: "uploading" }, { state: "queued" }]), "queued");
+});
+
+check("the lead queue position is the earliest queued member's", () => {
+  assert.equal(
+    leadQueuePosition([
+      { state: "queued", queuePosition: 4 },
+      { state: "queued", queuePosition: 2 },
+      { state: "downloading", queuePosition: 1 },
+    ]),
+    2,
+    "a stale position on a running member is ignored",
+  );
+  assert.equal(leadQueuePosition([{ state: "queued" }]), null);
+  assert.equal(leadQueuePosition([{ state: "queued", queuePosition: 0 }]), null);
+  assert.equal(leadQueuePosition([]), null);
+});
+
+check("the queued badge reads in English, with its place in line", () => {
+  assert.equal(stateLabel("queued"), "Queued");
+  assert.equal(stateLabel("queued", 2), "Queued · #2");
+  assert.equal(stateLabel("queued", null), "Queued");
+  assert.equal(stateLabel("queued", 0), "Queued", "no fake #0");
+  assert.equal(stateLabel("downloading", 3), "Downloading", "only a queued row shows a position");
 });
 
 if (failures > 0) {

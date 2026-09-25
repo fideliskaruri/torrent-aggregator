@@ -129,7 +129,7 @@ export function availabilityMeta(
 // ---------------------------------------------------------------------------
 
 /** Opens the player for a torrent we already hold. */
-export interface PlayAction {
+interface PlayAction {
   kind: "play";
   label: "Play" | "Resume";
   disabled: false;
@@ -140,7 +140,7 @@ export interface PlayAction {
 }
 
 /** Asks the on-demand grabber for one specific episode. */
-export interface GetAction {
+interface GetAction {
   kind: "get";
   label: "Download";
   disabled: false;
@@ -165,7 +165,7 @@ export interface SearchAction {
 }
 
 /** Nothing to offer. Says why, out loud. The only dead end. */
-export interface BlockedAction {
+interface BlockedAction {
   kind: "blocked";
   label: "Unavailable";
   disabled: true;
@@ -329,7 +329,7 @@ function episodeRequest(
   return { season, episode };
 }
 
-export function searchHref(title: string, category?: string | null): string {
+function searchHref(title: string, category?: string | null): string {
   const params = new URLSearchParams({ q: searchQueryFor(title) });
   if (category && category !== "all") params.set("category", category);
   return `${SEARCH_HREF}?${params.toString()}`;
@@ -343,7 +343,7 @@ const SEARCH_CATEGORY_BY_MEDIA_TYPE: Record<string, string> = {
   tv: "tv",
 };
 
-export function searchCategoryFor(mediaType: string | null): string | null {
+function searchCategoryFor(mediaType: string | null): string | null {
   if (!mediaType) return null;
   return SEARCH_CATEGORY_BY_MEDIA_TYPE[mediaType.trim().toLowerCase()] ?? null;
 }
@@ -355,7 +355,7 @@ export function searchCategoryFor(mediaType: string | null): string | null {
  * raw release name for anything that came from a torrent. Searching the raw
  * release name returns nothing, so it is cleaned the same way it is displayed.
  */
-export function searchQueryFor(title: string): string {
+function searchQueryFor(title: string): string {
   return cleanDisplayTitle(title);
 }
 
@@ -505,17 +505,6 @@ export function progressPercent(
   const fraction = clampFraction(value);
   if (fraction == null) return null;
   return Math.max(1, Math.round(fraction * 100));
-}
-
-/** `18:24` / `1:02:11` — playback position, where "18m" would lose the seconds. */
-export function formatClock(seconds: number | null | undefined): string | null {
-  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
-  const total = Math.floor(seconds);
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 }
 
 // ---------------------------------------------------------------------------

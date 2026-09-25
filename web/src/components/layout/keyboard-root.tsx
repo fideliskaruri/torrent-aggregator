@@ -1,5 +1,3 @@
-"use client";
-
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { SearchOverlay } from "@/components/search/search-overlay";
 

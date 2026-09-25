@@ -1,7 +1,6 @@
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using TorrentFlow.Media.Probing;
-using TorrentFlow.Media.Subtitles;
 
 namespace TorrentFlow.Media.Playback;
 
@@ -123,7 +122,10 @@ public static partial class Decide
             .First().s;
 
     public static List<SubtitleCandidate> SubtitleCandidatesFromProbe(IEnumerable<ProbeStream> streams) =>
-        SubtitleText.EmbeddedTracks(streams).Select(t => new SubtitleCandidate(t.Id, t.Language, t.Forced, t.Supported)).ToList();
+        Features.Subtitles.SubtitleRules.BuildTracks(
+                streams.Select(s => new Features.Subtitles.SubtitleStream(s.Index, s.CodecType, s.Codec ?? "", s.Language, s.Title, s.Channels, s.DispositionDefault == true)),
+                files: null, videoPath: "")
+            .Select(t => new SubtitleCandidate(t.Id, t.Language, t.Forced, t.Supported)).ToList();
 
     public static SubtitleDecision SelectDefaultSubtitle(string? audioLanguage, IReadOnlyList<SubtitleCandidate> candidates)
     {

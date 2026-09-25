@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "react-router";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ export function TfEmptyState({
       </div>
       {actionLabel && actionHref ? (
         <Button asChild size="sm" className="mt-1">
-          <Link href={actionHref}>{actionLabel}</Link>
+          <Link to={actionHref}>{actionLabel}</Link>
         </Button>
       ) : null}
     </div>

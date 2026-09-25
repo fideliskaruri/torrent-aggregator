@@ -4,7 +4,7 @@ using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
 using TorrentFlow.Media.Common;
-using TorrentFlow.Media.Swarm;
+using TorrentFlow.Media.Features.Prewarm;
 
 namespace TorrentFlow.Media.Playback;
 

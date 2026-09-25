@@ -96,7 +96,7 @@ internal sealed class EngineHarness : IAsyncDisposable
     public StorageBudget Storage { get; }
     public TorrentEngineService Engine { get; }
 
-    private EngineHarness(string root, ServiceProvider services, EngineOptions options)
+    private EngineHarness(string root, ServiceProvider services, EngineOptions options, Layout.CompletedLayoutFinalizer? layout)
     {
         Root = root;
         Services = services;
@@ -104,7 +104,7 @@ internal sealed class EngineHarness : IAsyncDisposable
         Db = services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>();
         Storage = new StorageBudget(TimeProvider.System) { FreeBytesProvider = _ => 10L << 40 };
         Engine = new TorrentEngineService(Db, Backend, new StaticOptionsMonitor<EngineOptions>(options), new ClientSettingsStore(Db), Storage,
-            new NoHttpFactory(), TimeProvider.System, NullLogger<TorrentEngineService>.Instance);
+            new NoHttpFactory(), TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout);
     }
 
     public static string NewRoot()
@@ -114,7 +114,7 @@ internal sealed class EngineHarness : IAsyncDisposable
         return root;
     }
 
-    public static async Task<EngineHarness> CreateAsync(int cap = 2, long? maxStorageBytes = 1L << 40)
+    public static async Task<EngineHarness> CreateAsync(int cap = 2, long? maxStorageBytes = 1L << 40, Layout.CompletedLayoutFinalizer? layout = null)
     {
         var root = NewRoot();
         var services = new ServiceCollection()
@@ -123,7 +123,7 @@ internal sealed class EngineHarness : IAsyncDisposable
             .BuildServiceProvider();
         await services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
         var options = new EngineOptions { MaxActiveDownloads = cap, DataDirectory = root, MetadataTimeoutSeconds = 5 };
-        var h = new EngineHarness(root, services, options);
+        var h = new EngineHarness(root, services, options, layout);
         await using var db = await h.Db.CreateDbContextAsync();
         var settings = await new ClientSettingsStore(h.Db).EnsureAsync(db);
         settings.BaseDownloadPath = Path.Combine(root, "downloads");

@@ -3,10 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using TorrentFlow.Media.Ffmpeg;
 using TorrentFlow.Media.Playback;
-using TorrentFlow.Media.Prewarm;
 using TorrentFlow.Media.Probing;
 using TorrentFlow.Media.Streaming;
-using TorrentFlow.Media.Swarm;
 using TorrentFlow.Media.Tools;
 
 namespace TorrentFlow.Media.Common;
@@ -15,7 +13,7 @@ public static class MediaServiceCollectionExtensions
 {
     /// <summary>
     /// Services shared by several media features (options, clock, process runner, ffmpeg locator, paths,
-    /// settings, foreground tracking, swarm verdicts). All TryAdd, so any feature may call it.
+    /// settings). ForegroundTracker and SwarmMeasurements come from the prewarm feature. All TryAdd, so any feature may call it.
     /// </summary>
     public static IServiceCollection AddMediaCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -30,8 +28,6 @@ public static class MediaServiceCollectionExtensions
         services.TryAddSingleton<MediaPaths>();
         services.TryAddSingleton<MediaSettings>();
         services.TryAddSingleton<CompletedMedia>();
-        services.TryAddSingleton<ForegroundTracker>();
-        services.TryAddSingleton<SwarmMeasurements>();
         return services;
     }
 

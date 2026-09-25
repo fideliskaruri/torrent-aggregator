@@ -8,7 +8,7 @@ using TorrentFlow.Media.Common;
 using TorrentFlow.Media.Hls;
 using TorrentFlow.Media.Playback;
 using TorrentFlow.Media.Probing;
-using TorrentFlow.Media.Swarm;
+using TorrentFlow.Media.Features.Prewarm;
 using TorrentFlow.Media.Vod;
 
 namespace TorrentFlow.Media.Controllers;

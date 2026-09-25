@@ -1,11 +1,7 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Rows3, Search } from "lucide-react";
+import { Link, useLocation } from "react-router";
+import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
-import { useUiPreferences } from "@/components/providers/ui-preferences";
 import { openSearchOverlay } from "@/components/search/search-overlay";
 import {
   DESKTOP_NAV,
@@ -19,7 +15,7 @@ import {
 
 
 export function Header() {
-  const pathname = usePathname();
+  const pathname = useLocation().pathname;
   const pageTitle = activeNavLabel(pathname);
   const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
   const { items: navRow, dividerIndex } = desktopNavRow();
@@ -39,7 +35,7 @@ export function Header() {
     <header className="app-header" data-app-header>
       <div className="container-app flex h-14 items-center gap-3 sm:gap-4">
         <Link
-          href="/"
+          to="/"
           className="flex min-h-[44px] items-center gap-2 shrink-0 min-w-0 lg:min-h-0"
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--primary-foreground)]">
@@ -94,7 +90,7 @@ export function Header() {
                   />
                 ) : null}
                 <Link
-                  href={href}
+                  to={href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
                     "inline-flex items-center min-h-[44px] lg:min-h-0 px-2 lg:px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
@@ -129,7 +125,7 @@ export function Header() {
               is no input for the `/` shortcut to land on. Full control on
               desktop, icon on phones where the bottom tab bar also carries it. */}
           <Link
-            href={HEADER_SEARCH_HREF}
+            to={HEADER_SEARCH_HREF}
             onClick={onSearchClick}
             aria-current={searchActive ? "page" : undefined}
             data-header-search
@@ -149,7 +145,7 @@ export function Header() {
             </kbd>
           </Link>
           <Link
-            href={HEADER_SEARCH_HREF}
+            to={HEADER_SEARCH_HREF}
             onClick={onSearchClick}
             aria-label="Search"
             aria-current={searchActive ? "page" : undefined}

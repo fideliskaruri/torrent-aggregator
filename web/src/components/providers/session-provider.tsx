@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Local session for client components.
  *

@@ -42,7 +42,7 @@ export interface AddAnswers {
   preferredResolution: number | null;
 }
 
-export type QuestionId = "start-point";
+type QuestionId = "start-point";
 
 export interface AddQuestion {
   id: QuestionId;

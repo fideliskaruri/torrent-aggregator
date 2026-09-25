@@ -19,7 +19,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   anilist: "anime",
 };
 
-export function partialProviderLabels(
+function partialProviderLabels(
   failedProviders: readonly string[] | undefined | null,
 ): string[] {
   const out: string[] = [];
@@ -33,7 +33,7 @@ export function partialProviderLabels(
 }
 
 /** Join labels the way a person would read them aloud. */
-export function joinLabels(labels: readonly string[]): string {
+function joinLabels(labels: readonly string[]): string {
   if (labels.length <= 1) return labels[0] ?? "";
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
   return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;

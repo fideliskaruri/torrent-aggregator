@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-export const DEFAULT_DOCUMENT_TITLE = "TorrentFlow";
+const DEFAULT_DOCUMENT_TITLE = "TorrentFlow";
 
 /**
  * The SPA's replacement for Next.js `metadata.title`: the root layout's

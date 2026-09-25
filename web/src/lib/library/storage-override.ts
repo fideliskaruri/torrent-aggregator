@@ -47,7 +47,7 @@ import { formatBytesShort, type StorageLimitKind } from "./storage-format";
  * tab labelled **Downloads**; `focus=cap` asks that screen to put the caret in
  * the cap field so the owner lands on the control, not merely the page.
  */
-export const STORAGE_CAP_SETTINGS_HREF = "/settings?tab=folders&focus=cap";
+const STORAGE_CAP_SETTINGS_HREF = "/settings?tab=folders&focus=cap";
 
 /** The query value `settings/page.tsx` looks for to focus the cap input. */
 export const STORAGE_CAP_FOCUS_PARAM = "cap";
@@ -59,7 +59,7 @@ export const STORAGE_CAP_FOCUS_PARAM = "cap";
  * the machine itself imposes stay absolute. Everything the *app* decided —
  * the cap and the free-space margin — is the owner's to overrule.
  */
-export function isOverridableLimit(limit: StorageLimitKind | null | undefined): boolean {
+function isOverridableLimit(limit: StorageLimitKind | null | undefined): boolean {
   return limit === "cap" || limit === "reserve";
 }
 
@@ -154,32 +154,6 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
     raiseCapLabel: "Raise the cap",
     raiseCapHref: facts.settingsHref,
     cancelLabel: "Cancel",
-  };
-}
-
-/**
- * Shape returned by a 507 so the client can render the prompt without guessing.
- * Anything missing degrades to "not overridable", which is the safe direction.
- */
-export function storageOverrideFacts(input: {
-  limit: StorageLimitKind;
-  usedBytes: number;
-  capBytes: number | null;
-  freeBytes?: number | null;
-  incomingBytes: number | null;
-  incomingEstimated?: boolean;
-  message: string;
-}): StorageOverrideFacts {
-  return {
-    limit: input.limit,
-    overridable: isOverridableLimit(input.limit),
-    usedBytes: input.usedBytes,
-    capBytes: input.capBytes,
-    freeBytes: input.freeBytes ?? null,
-    incomingBytes: input.incomingBytes,
-    incomingEstimated: input.incomingEstimated === true,
-    settingsHref: STORAGE_CAP_SETTINGS_HREF,
-    message: input.message,
   };
 }
 

@@ -6,8 +6,8 @@ using TorrentFlow.Media.Hls;
 using TorrentFlow.Media.Playback;
 using TorrentFlow.Media.Probing;
 using TorrentFlow.Media.Streaming;
-using TorrentFlow.Media.Subtitles;
-using TorrentFlow.Media.Swarm;
+using TorrentFlow.Media.Features.Subtitles;
+using TorrentFlow.Media.Features.Prewarm;
 using TorrentFlow.Media.Vod;
 using TorrentFlow.Media.Tools;
 
@@ -180,179 +180,6 @@ public class StallTests
     [Fact]
     public void TransientBackwardsDipDoesNotFakeProgress() =>
         Assert.True(Stall.Evaluate(Series(points: [(0, 5_000_000), (15, 4_000_000), (31, 5_000_000)])).Stalled);
-}
-
-public class SubtitleTextTests
-{
-    private static readonly ProbeStream[] SixStreams =
-    [
-        Fixtures.Video("h264", 0), Fixtures.Audio("ac3", 6, 1),
-        Fixtures.Sub("subrip", 2, "eng", "English"), Fixtures.Sub("hdmv_pgs_subtitle", 3), Fixtures.Sub("ass", 4, "jpn"), Fixtures.Sub("dvd_subtitle", 5, "fre"),
-    ];
-
-    [Theory]
-    [InlineData("subrip", "text")]
-    [InlineData("srt", "text")]
-    [InlineData("ass", "text")]
-    [InlineData("ssa", "text")]
-    [InlineData("mov_text", "text")]
-    [InlineData("webvtt", "text")]
-    [InlineData("SubRip", "text")]
-    [InlineData("hdmv_pgs_subtitle", "image")]
-    [InlineData("dvd_subtitle", "image")]
-    [InlineData("dvb_subtitle", "image")]
-    [InlineData("xsub", "image")]
-    [InlineData("vobsub", "image")]
-    [InlineData("some_future_codec", "unknown")]
-    public void ClassifyCodec(string codec, string kind) => Assert.Equal(kind, SubtitleText.ClassifyCodec(codec));
-
-    [Fact]
-    public void EmbeddedTracksCoverOnlySubtitleStreams()
-    {
-        var tracks = SubtitleText.EmbeddedTracks(SixStreams);
-        Assert.Equal(4, tracks.Count);
-        var srt = tracks.Single(t => t.StreamIndex == 2);
-        Assert.True(srt.Supported);
-        Assert.Equal("embedded:2", srt.Id);
-        Assert.True(tracks.Single(t => t.StreamIndex == 4).Supported);
-        Assert.False(tracks.Single(t => t.StreamIndex == 3).Supported);
-        Assert.False(tracks.Single(t => t.StreamIndex == 5).Supported);
-        foreach (var t in tracks.Where(t => !t.Supported))
-        {
-            Assert.Contains("unsupported", t.Label, StringComparison.OrdinalIgnoreCase);
-            Assert.True(t.UnsupportedReason!.Length > 10);
-        }
-        Assert.All(tracks, t => Assert.True(t.NeedsExtraction));
-        Assert.Contains("Japanese", tracks.Single(t => t.StreamIndex == 4).Label);
-        Assert.Empty(SubtitleText.EmbeddedTracks([]));
-    }
-
-    private static readonly string[] SceneFiles =
-    [
-        "Film.2024.1080p.WEB-DL/Film.2024.1080p.WEB-DL.mkv",
-        "Film.2024.1080p.WEB-DL/Film.2024.1080p.WEB-DL.srt",
-        "Film.2024.1080p.WEB-DL/Film.2024.1080p.WEB-DL.eng.forced.srt",
-        "Film.2024.1080p.WEB-DL/Subs/2_English.srt",
-        "Film.2024.1080p.WEB-DL/Subs/3_French.SDH.srt",
-        "Film.2024.1080p.WEB-DL/Film.2024.1080p.WEB-DL.nfo",
-        "Film.2024.1080p.WEB-DL/Sample/sample.mkv",
-    ];
-
-    [Fact]
-    public void FindsSceneSidecars()
-    {
-        var found = SubtitleText.FindSidecars(SceneFiles, SceneFiles[0]);
-        Assert.Contains(found, s => s.Path == SceneFiles[1]);
-        var forced = found.Single(s => s.Path == SceneFiles[2]);
-        Assert.Equal("eng", forced.Language);
-        Assert.True(forced.Forced);
-        Assert.Equal("eng", found.Single(s => s.Path == SceneFiles[3]).Language);
-        Assert.True(found.Single(s => s.Path == SceneFiles[4]).HearingImpaired);
-        Assert.DoesNotContain(found, s => s.Path.EndsWith(".nfo", StringComparison.Ordinal) || s.Path.EndsWith(".mkv", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public void SidecarNamesNeedASeparatorAfterTheBase()
-    {
-        var files = new[] { "Show/Show.S01E01.mkv", "Show/Show.S01E01.srt", "Show/Show.S01E011.srt", "Show/Show.S01E02.srt" };
-        var found = SubtitleText.FindSidecars(files, files[0]);
-        Assert.Equal("Show/Show.S01E01.srt", Assert.Single(found).Path);
-    }
-
-    [Fact]
-    public void OtherDirectoriesOnlyMatchForASoleVideo()
-    {
-        var files = new[] { "A/film.mkv", "B/film.srt" };
-        Assert.Empty(SubtitleText.FindSidecars(files, files[0]));
-        Assert.Single(SubtitleText.FindSidecars(files, files[0], soleVideo: true));
-    }
-
-    [Fact]
-    public void BuildTracksPutsSidecarsFirst()
-    {
-        var tracks = SubtitleText.BuildTracks(SixStreams, SceneFiles, SceneFiles[0]);
-        Assert.Equal("sidecar", tracks[0].Kind);
-        Assert.Equal("embedded", tracks[^1].Kind);
-        Assert.Equal(tracks.Count, tracks.Select(t => t.Id).Distinct().Count());
-        Assert.All(tracks, t => Assert.False(string.IsNullOrEmpty(t.Label)));
-        Assert.All(tracks.Where(t => t.Kind == "sidecar"), t => Assert.False(t.NeedsExtraction));
-    }
-
-    [Theory]
-    [InlineData("embedded:3", "embedded")]
-    [InlineData("sidecar:Show/a.srt", "sidecar")]
-    [InlineData("magic:1", null)]
-    [InlineData("", null)]
-    [InlineData("sidecar:../../etc/passwd", null)]
-    [InlineData("embedded:abc", null)]
-    public void ParseTrackId(string raw, string? kind) => Assert.Equal(kind, SubtitleText.ParseTrackId(raw)?.Kind);
-
-    [Fact]
-    public void TrackUrls()
-    {
-        var src = SubtitleText.TrackSrc("abc", "dir/film.mkv", "embedded:2");
-        Assert.Contains("track=embedded%3A2", src);
-        Assert.Contains("filePath=dir%2Ffilm.mkv", src);
-        Assert.DoesNotContain("offset", src);
-        Assert.EndsWith("?filePath=dir%2Ffilm.mkv", SubtitleText.ListUrl("abc", "dir/film.mkv"));
-        Assert.Contains("offset=90", SubtitleText.TrackSrc("abc", "dir/film.mkv", "embedded:2", 90));
-        Assert.Contains("start=480", SubtitleText.TrackSrc("abc", "f.mkv", "embedded:2", 90, 480));
-    }
-
-    [Theory]
-    [InlineData(479, 0)]
-    [InlineData(480, 480)]
-    [InlineData(961, 960)]
-    [InlineData(-5, 0)]
-    public void WindowStart(double t, double expected) => Assert.Equal(expected, SubtitleText.WindowStart(t));
-
-    [Fact]
-    public void LanguageLabels()
-    {
-        Assert.Equal("English", SubtitleText.LanguageLabel("eng"));
-        Assert.Equal("Japanese", SubtitleText.LanguageLabel("ja"));
-        Assert.Equal("ZZ9", SubtitleText.LanguageLabel("zz9"));
-        Assert.Null(SubtitleText.LanguageLabel(null));
-        Assert.Equal("spa", SubtitleText.LanguageFromToken("Spanish"));
-        Assert.Null(SubtitleText.LanguageFromToken("1080p"));
-    }
-
-    private const string Srt = "1\r\n00:00:01,000 --> 00:00:03,500\r\nHello.\r\n\r\n2\r\n00:01:02,250 --> 00:01:04,000\r\nBye.\r\n";
-
-    [Fact]
-    public void SrtToVtt()
-    {
-        var vtt = SubtitleText.SrtToVtt(Srt);
-        Assert.StartsWith("WEBVTT\n\n", vtt);
-        Assert.Contains("00:00:01.000 --> 00:00:03.500", vtt);
-        Assert.Contains("00:01:02.250 --> 00:01:04.000", vtt);
-        Assert.DoesNotContain("\r", vtt);
-        Assert.Contains("Hello.", vtt);
-        Assert.Contains("Bye.", vtt);
-        Assert.StartsWith("WEBVTT", SubtitleText.SrtToVtt("\uFEFF" + Srt));
-        Assert.True(SubtitleText.IsWebVtt("WEBVTT\n\n00:00.000 --> 00:01.000\nx"));
-        Assert.False(SubtitleText.IsWebVtt(Srt));
-    }
-
-    [Fact]
-    public void ShiftVttCuesBackwards()
-    {
-        const string vtt = "WEBVTT\n\n00:00:10.000 --> 00:00:12.000\nEarly line.\n\n00:01:29.500 --> 00:01:32.000\nStraddles the cut.\n\n00:02:00.000 --> 00:02:03.000\nLater line.\n";
-        var shifted = SubtitleText.ShiftVttCues(vtt, -90);
-        Assert.StartsWith("WEBVTT", shifted);
-        Assert.DoesNotContain("Early line.", shifted);
-        Assert.Contains("00:00:00.000 --> 00:00:02.000\nStraddles the cut.", shifted);
-        Assert.Contains("00:00:30.000 --> 00:00:33.000\nLater line.", shifted);
-        Assert.Equal(vtt, SubtitleText.ShiftVttCues(vtt, 0));
-    }
-
-    [Fact]
-    public void ShiftVttCuesForwardsAndKeepsSettings()
-    {
-        Assert.Contains("00:00:06.000 --> 00:00:07.000", SubtitleText.ShiftVttCues("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nx\n", 5));
-        Assert.Contains("line:90% align:middle", SubtitleText.ShiftVttCues("WEBVTT\n\n00:00:10.000 --> 00:00:12.000 line:90% align:middle\nx\n", -5));
-        Assert.Contains("00:00:05.000 --> 00:00:07.000", SubtitleText.ShiftVttCues("WEBVTT\n\n00:10.000 --> 00:12.000\nx\n", -5));
-    }
 }
 
 public class ReleaseTests
@@ -535,9 +362,9 @@ public class SwarmClassifyTests
     [Fact]
     public void RequiredBitrate()
     {
-        Assert.Equal(1_000_000_000.0 / 2000, SwarmMeasurements.RequiredBitrateBps(1_000_000_000, 2000));
-        Assert.Equal(1_000_000, SwarmMeasurements.RequiredBitrateBps(1_000_000_000, null));
-        Assert.Equal(1_000_000, SwarmMeasurements.RequiredBitrateBps(1_000_000_000, 0));
+        Assert.Equal(1_000_000_000.0 / 2000, SwarmMeasurements.RequiredBitrate(1_000_000_000, 2000));
+        Assert.Equal(1_000_000, SwarmMeasurements.RequiredBitrate(1_000_000_000, null));
+        Assert.Equal(1_000_000, SwarmMeasurements.RequiredBitrate(1_000_000_000, 0));
     }
 
     [Fact]
@@ -553,14 +380,6 @@ public class SwarmClassifyTests
         Assert.Equal("good", SwarmMeasurements.Classify(true, 3, 3_000_000, 3_000_000, 1_000_000));
         Assert.Equal("dead", SwarmMeasurements.Classify(true, 3, 0, 0, 1_000_000));
         Assert.NotEqual("good", SwarmMeasurements.Classify(true, 3, 100_000, 100_000, 1_000_000));
-    }
-
-    [Fact]
-    public void MagnetDisplayName()
-    {
-        Assert.Equal("Big Buck Bunny", SwarmMeasurements.MagnetDisplayName("magnet:?xt=urn:btih:abc&dn=Big+Buck+Bunny"));
-        Assert.Null(SwarmMeasurements.MagnetDisplayName("magnet:?xt=urn:btih:abc"));
-        Assert.Null(SwarmMeasurements.MagnetDisplayName(null));
     }
 }
 

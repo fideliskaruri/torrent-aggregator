@@ -5,8 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Media.Common;
-using TorrentFlow.Media.Prewarm;
-using TorrentFlow.Media.Subtitles;
+using TorrentFlow.Media.Features.Prewarm;
+using TorrentFlow.Media.Features.Subtitles;
 
 namespace TorrentFlow.Media.Streaming;
 
@@ -209,7 +209,7 @@ public sealed class StreamService(
                 try
                 {
                     var raw = await File.ReadAllTextAsync(persisted.AbsolutePath, Encoding.UTF8, ct);
-                    var bytes = Encoding.UTF8.GetBytes(SubtitleText.IsWebVtt(raw) ? raw : SubtitleText.SrtToVtt(raw));
+                    var bytes = Encoding.UTF8.GetBytes(SubtitleRules.IsWebVtt(raw) ? raw : SubtitleRules.SrtToVtt(raw));
                     response.StatusCode = 200;
                     response.ContentType = "text/vtt; charset=utf-8";
                     response.ContentLength = bytes.Length;
@@ -479,7 +479,7 @@ public sealed class StreamService(
             var copied = await StreamCopy.CopyExactlyAsync(s, ms, Math.Min(file.Length, MaxSubtitleBytes), null, timeout.Token);
             if (copied < file.Length) return null;
             var raw = Encoding.UTF8.GetString(ms.ToArray());
-            return Encoding.UTF8.GetBytes(SubtitleText.IsWebVtt(raw) ? raw : SubtitleText.SrtToVtt(raw));
+            return Encoding.UTF8.GetBytes(SubtitleRules.IsWebVtt(raw) ? raw : SubtitleRules.SrtToVtt(raw));
         }
         catch (Exception ex) when (ex is IOException or OperationCanceledException or FileNotFoundException)
         {

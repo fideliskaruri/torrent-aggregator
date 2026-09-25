@@ -9,7 +9,7 @@ function clean(value: string | null | undefined): string | null {
  * The formatter handles separators, camelCase, shouting case, known compound
  * words, and unknown future values rather than patching one literal enum.
  */
-export function formatActivityKind(
+function formatActivityKind(
   value: string | null | undefined,
 ): string | null {
   const raw = clean(value);

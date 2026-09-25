@@ -1,5 +1,5 @@
 :root {
-  /* `next/font/google` set these on <html>; the SPA self-hosts the same faces via @fontsource. */
+  /* Self-hosted Geist faces (@fontsource, imported in layout.tsx). */
   --font-geist-sans: "Geist Variable";
   --font-geist-mono: "Geist Mono Variable";
 }

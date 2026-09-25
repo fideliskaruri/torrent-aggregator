@@ -49,6 +49,8 @@ export interface TransferRow {
   upspeed: number;
   /** Raw client state string, in qBittorrent's vocabulary. */
   state: string;
+  /** 1-based place in the built-in download queue, while `state` is "queued". */
+  queuePosition?: number;
   playable?: boolean;
   workId?: string | null;
   workKey?: string | null;
@@ -116,6 +118,28 @@ export function isPaused(state: string): boolean {
   return PAUSED_STATES.has(state.trim().toLowerCase());
 }
 
+/**
+ * Waiting in the built-in engine's download queue. Unfinished and not stopped,
+ * but not moving either — so it is neither "downloading" nor "paused".
+ */
+export function isQueued(state: string): boolean {
+  return state.trim().toLowerCase() === "queued";
+}
+
+/** The earliest queue position among a set's queued members, or null. */
+export function leadQueuePosition(
+  members: readonly Pick<TransferRow, "state" | "queuePosition">[],
+): number | null {
+  let lead: number | null = null;
+  for (const member of members) {
+    if (!isQueued(member.state ?? "")) continue;
+    const position = member.queuePosition;
+    if (typeof position !== "number" || !Number.isFinite(position) || position <= 0) continue;
+    if (lead == null || position < lead) lead = position;
+  }
+  return lead;
+}
+
 export function canStreamTransfer(
   transfer: Pick<TransferRow, "playable" | "progress" | "state">,
 ): boolean {
@@ -180,6 +204,9 @@ export function combinedProgress(
  * Paused outranks downloaded for the same reason: unfinished-and-stopped is the
  * honest description of a group holding one paused episode, and it is the
  * state the user has to act on.
+ *
+ * Queued sits between the two: behind a member that is actually moving, but
+ * ahead of paused, because a queued member will start on its own.
  */
 export function combinedState(
   members: readonly Pick<TransferRow, "state">[],
@@ -189,12 +216,14 @@ export function combinedState(
   for (const member of members) {
     const state = member.state ?? "";
     const rank = isDownloading(state)
-      ? 3
-      : isPaused(state)
-        ? 2
-        : isDownloaded(state)
-          ? 1
-          : 0;
+      ? 4
+      : isQueued(state)
+        ? 3
+        : isPaused(state)
+          ? 2
+          : isDownloaded(state)
+            ? 1
+            : 0;
     if (rank > bestRank) {
       bestRank = rank;
       best = state;

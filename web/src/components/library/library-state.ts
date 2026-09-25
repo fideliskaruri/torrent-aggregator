@@ -10,7 +10,7 @@ export interface LibraryStateItem {
   latestReleaseMagnet?: string | null;
 }
 
-export type LibraryItemStatusKind =
+type LibraryItemStatusKind =
   | "ready"
   | "in-client"
   | "getting"
@@ -127,7 +127,7 @@ export function automationStateCopy(minutes: number | null): string {
   return `Checks for new episodes every ${hours} hours`;
 }
 
-export function nextEpisodeLabel(item: LibraryStateItem): string | null {
+function nextEpisodeLabel(item: LibraryStateItem): string | null {
   if (item.cursorSeason != null && item.cursorEpisode != null) {
     return `S${pad(item.cursorSeason)}E${pad(item.cursorEpisode)}`;
   }

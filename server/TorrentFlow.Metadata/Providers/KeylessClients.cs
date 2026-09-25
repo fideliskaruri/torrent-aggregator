@@ -31,9 +31,10 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory)
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromMilliseconds(Math.Max(1, timeoutMs)));
-            using var response = await httpFactory.CreateClient(HttpClientName).GetAsync(url, cts.Token).ConfigureAwait(false);
+            using var client = httpFactory.CreateClient(HttpClientName);
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return null;
-            using var doc = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cts.Token).ConfigureAwait(false), cancellationToken: cts.Token).ConfigureAwait(false);
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
             return doc.RootElement.Clone();
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)

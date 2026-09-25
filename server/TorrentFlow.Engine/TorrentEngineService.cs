@@ -7,6 +7,7 @@ using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Engine.Client;
+using TorrentFlow.Engine.Layout;
 using TorrentFlow.Engine.Queue;
 using TorrentFlow.Engine.Settings;
 using TorrentFlow.Engine.Storage;
@@ -28,7 +29,8 @@ internal sealed class TorrentEngineService(
     StorageBudget storage,
     IHttpClientFactory httpFactory,
     TimeProvider time,
-    ILogger<TorrentEngineService> logger) : ITorrentEngine
+    ILogger<TorrentEngineService> logger,
+    CompletedLayoutFinalizer? layout = null) : ITorrentEngine
 {
     public const string HttpClientName = "TorrentFlow.Engine.TorrentFiles";
     public const string DownloadedCannotPause = "Downloaded files cannot be paused.";
@@ -43,6 +45,8 @@ internal sealed class TorrentEngineService(
     private readonly ConcurrentDictionary<string, DateTime> _startedAt = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _openStreams = new(StringComparer.Ordinal);
     private readonly HashSet<string> _pendingDetach = new(StringComparer.Ordinal);
+    // Completed transfers whose content layout waits for the last reader to close (guarded by _openStreams).
+    private readonly HashSet<string> _pendingLayout = new(StringComparer.Ordinal);
 
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
 
@@ -690,7 +694,7 @@ internal sealed class TorrentEngineService(
             await db.SaveChangesAsync(ct);
             if (backend.Contains(hash)) await backend.RemoveAsync(hash);
             _startedAt.TryRemove(hash, out _);
-            lock (_openStreams) _pendingDetach.Remove(hash);
+            lock (_openStreams) { _pendingDetach.Remove(hash); _pendingLayout.Remove(hash); }
             if (deleteFiles) DeleteReleaseFiles(files, row.SavePath);
             if (deleteFiles) TryDelete(TorrentFilePath(hash));
         }
@@ -723,7 +727,10 @@ internal sealed class TorrentEngineService(
                 var files = VerifiedFiles(row);
                 var match = ResolveIndex(fileIndexOrPath, files.Select(f => f.Path).ToList());
                 var path = files[match].FullPath ?? throw new FileNotFoundException("File path not recorded.");
-                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+                var local = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+                // Counted like a live stream so the content layout never moves a file out from under a reader.
+                lock (_openStreams) _openStreams[hash] = _openStreams.GetValueOrDefault(hash) + 1;
+                return new TrackedStream(local, () => OnStreamClosed(hash));
             }
             if (!backend.Contains(hash))
             {
@@ -773,24 +780,67 @@ internal sealed class TorrentEngineService(
             var n = _openStreams.GetValueOrDefault(hash) - 1;
             if (n > 0) _openStreams[hash] = n;
             else _openStreams.Remove(hash);
-            detach = n <= 0 && _pendingDetach.Contains(hash);
+            detach = n <= 0 && (_pendingDetach.Contains(hash) || _pendingLayout.Contains(hash));
         }
         if (detach)
             _ = DetachDeferredAsync(hash).ContinueWith(t => logger.LogWarning(t.Exception, "Deferred detach of {Hash} failed", hash),
                 TaskContinuationOptions.OnlyOnFaulted);
     }
 
-    /// <summary>A completion that landed while a player was reading; detach now that the last stream closed.</summary>
+    /// <summary>
+    /// A completion that landed while a player was reading: detach now that the last stream closed, then lay the files
+    /// out (the layout waits for the same moment, since it renames the files the reader had open).
+    /// </summary>
     private async Task DetachDeferredAsync(string hash)
     {
         using (await LockHashAsync(hash, CancellationToken.None))
         {
+            bool detach;
             lock (_openStreams)
             {
-                if (_openStreams.GetValueOrDefault(hash) > 0 || !_pendingDetach.Remove(hash)) return;
+                if (_openStreams.GetValueOrDefault(hash) > 0) return;
+                detach = _pendingDetach.Remove(hash);
+                if (!_pendingLayout.Remove(hash) && !detach) return;
             }
-            await backend.RemoveAsync(hash);
-            _startedAt.TryRemove(hash, out _);
+            if (detach)
+            {
+                await backend.RemoveAsync(hash);
+                _startedAt.TryRemove(hash, out _);
+            }
+            await FinalizeLayoutLockedAsync(hash);
+        }
+    }
+
+    /// <summary>
+    /// Validates and lays out a parked download. Caller holds the hash lock; runs only once the client has let go of
+    /// the files and no reader is open, otherwise it is deferred to the last stream's close.
+    /// </summary>
+    private async Task<LayoutOutcome> FinalizeLayoutLockedAsync(string hash)
+    {
+        if (layout is null) return LayoutOutcome.Unchanged;
+        lock (_openStreams)
+        {
+            if (_openStreams.GetValueOrDefault(hash) > 0)
+            {
+                _pendingLayout.Add(hash);
+                return LayoutOutcome.Unchanged;
+            }
+        }
+        if (backend.Contains(hash)) return LayoutOutcome.Unchanged;
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
+            var row = await FindAsync(db, hash, CancellationToken.None);
+            if (row is null || row.Status != EngineTorrentStatus.Parked || !IsDownloaded(row)) return LayoutOutcome.Unchanged;
+            var outcome = await layout.FinalizeAsync(db, row, CancellationToken.None);
+            if (outcome != LayoutOutcome.Unchanged) storage.ResetDirectorySizeCache();
+            return outcome;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A layout tweak must never stop a download from counting as finished.
+            logger.LogWarning(ex, "[content-layout] rewrite failed for {Hash}", hash);
+            return LayoutOutcome.Unchanged;
         }
     }
 
@@ -836,7 +886,9 @@ internal sealed class TorrentEngineService(
     {
         var completed = new List<EngineTorrentCompletedEventArgs>();
         var detach = new List<string>();
+        var finalize = new List<string>();
         var stranded = new List<string>();
+        HashSet<string> lostHashes;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
@@ -855,7 +907,7 @@ internal sealed class TorrentEngineService(
                 if (row.Status == EngineTorrentStatus.Parked && IsDownloaded(row))
                 {
                     // Finalised while a stream was open; the last stream normally detaches it, this is the backstop.
-                    if (OpenStreamCount(row.Hash) == 0) detach.Add(row.Hash);
+                    if (OpenStreamCount(row.Hash) == 0) { detach.Add(row.Hash); finalize.Add(row.Hash); }
                     continue;
                 }
                 if (live.HasMetadata)
@@ -898,7 +950,7 @@ internal sealed class TorrentEngineService(
                         {
                             if (_openStreams.GetValueOrDefault(row.Hash) > 0) { _pendingDetach.Add(row.Hash); deferred = true; }
                         }
-                        if (!deferred) detach.Add(row.Hash);
+                        if (!deferred) { detach.Add(row.Hash); finalize.Add(row.Hash); }
                         completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
                     }
                 }
@@ -906,12 +958,22 @@ internal sealed class TorrentEngineService(
             // State first, then detach: a crash in between leaves a parked/error row, never a lost transfer.
             var lost = await SaveTolerantAsync(db);
             completed.RemoveAll(e => lost.Contains(e.Hash));
+            lostHashes = lost;
         }
         foreach (var hash in detach)
         {
             try { await backend.RemoveAsync(hash); }
             catch (Exception ex) { logger.LogWarning(ex, "Detaching {Hash} failed", hash); }
             _startedAt.TryRemove(hash, out _);
+        }
+        // Released by the client, so the files can be validated and moved to their final layout.
+        foreach (var hash in finalize)
+        {
+            if (lostHashes.Contains(hash)) continue;
+            LayoutOutcome outcome;
+            using (await LockHashAsync(hash, CancellationToken.None)) outcome = await FinalizeLayoutLockedAsync(hash);
+            // Not playable video: it is an error row now, not a finished download.
+            if (outcome == LayoutOutcome.Invalid) completed.RemoveAll(e => e.Hash == hash);
         }
         foreach (var hash in stranded)
         {

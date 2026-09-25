@@ -1,12 +1,10 @@
-"use client";
-
 import {
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
-import { usePathname } from "next/navigation";
+import { useLocation } from "react-router";
 import { Search, X, AlertTriangle } from "lucide-react";
 import { TitleResultsList } from "./title-results-list";
 import { titlesFromSearchHits } from "./title-search";
@@ -45,7 +43,6 @@ export function openSearchOverlay(
     category?: WorkSearchScope;
   } = {},
 ) {
-  if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent(OPEN_EVENT, {
       detail: {
@@ -64,7 +61,7 @@ export function openSearchOverlay(
  * title link; acquisition starts on the title page, never in discovery.
  */
 export function SearchOverlay() {
-  const pathname = usePathname();
+  const pathname = useLocation().pathname;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [scopeId, setScopeId] =

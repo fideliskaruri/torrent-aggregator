@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "react-router";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { InstallAppCard } from "@/components/pwa/install-app-card";
 import { Button } from "@/components/ui/button";
@@ -51,7 +51,7 @@ export default function AboutPage() {
       </section>
 
       <Button asChild variant="ghost" size="sm" className="px-0 h-auto">
-        <Link href="/">← Browse</Link>
+        <Link to="/">← Browse</Link>
       </Button>
     </div>
   );

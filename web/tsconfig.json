@@ -14,11 +14,7 @@
     "jsx": "react-jsx",
     "types": ["vite/client", "node"],
     "paths": {
-      "@/*": ["./src/*"],
-      "next/link": ["./src/shims/next-link.tsx"],
-      "next/navigation": ["./src/shims/next-navigation.ts"],
-      "next/image": ["./src/shims/next-image.tsx"],
-      "next/font/google": ["./src/shims/next-font-google.ts"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],

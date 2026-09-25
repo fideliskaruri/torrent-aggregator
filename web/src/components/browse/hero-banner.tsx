@@ -1,6 +1,4 @@
-"use client";
-
-import Link from "next/link";
+import { Link } from "react-router";
 import { Play } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { RailItem } from "@/lib/browse";
@@ -106,7 +104,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
 
           {titleHref ? (
             <Link
-              href={titleHref}
+              to={titleHref}
               id="browse-hero-title"
               title={item.title}
               className="text-display mt-2 line-clamp-2 outline-none transition-colors hover:text-[var(--accent-text)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-[4px]"
@@ -155,16 +153,16 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             {releaseGate.gated ? (
               titleHref ? (
                 <Button asChild size="lg" variant="secondary">
-                  <Link href={titleHref}>Details</Link>
+                  <Link to={titleHref}>Details</Link>
                 </Button>
               ) : null
             ) : action.kind === "search" ? (
               <Button asChild size="lg" data-hero-primary>
-                <Link href={titleHref ?? action.href}>Details</Link>
+                <Link to={titleHref ?? action.href}>Details</Link>
               </Button>
             ) : action.kind === "get" && status === "done" ? (
               <Button asChild size="lg" variant="secondary">
-                <Link href="/downloads">{label}</Link>
+                <Link to="/downloads">{label}</Link>
               </Button>
             ) : (
               <Button
@@ -183,7 +181,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             )}
             {!releaseGate.gated && titleHref && action.kind !== "search" ? (
               <Button asChild size="lg" variant="secondary">
-                <Link href={titleHref} data-hero-details>
+                <Link to={titleHref} data-hero-details>
                   Details
                 </Link>
               </Button>

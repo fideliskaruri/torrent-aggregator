@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Search;
 
@@ -5,8 +6,26 @@ namespace TorrentFlow.Search;
 
 public static class EpisodeParser
 {
-    internal static Match Match(string value, string pattern) => Regex.Match(value, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-    internal static string Replace(string value, string pattern, string replacement = " ") => Regex.Replace(value, pattern, replacement, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+    private const int MaxPatterns = 256;
+    private static readonly Lock RegexGate = new();
+    private static readonly Dictionary<(string Pattern, string Culture), Regex> Patterns = new();
+
+    // Ranking uses more patterns than the runtime's small static Regex cache can retain.
+    private static Regex Pattern(string pattern)
+    {
+        lock (RegexGate)
+        {
+            var key = (pattern, CultureInfo.CurrentCulture.Name);
+            if (Patterns.TryGetValue(key, out var regex)) return regex;
+            regex = new Regex(pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            if (Patterns.Count >= MaxPatterns) Patterns.Remove(Patterns.Keys.First());
+            Patterns.Add(key, regex);
+            return regex;
+        }
+    }
+
+    internal static Match Match(string value, string pattern) => Pattern(pattern).Match(value);
+    internal static string Replace(string value, string pattern, string replacement = " ") => Pattern(pattern).Replace(value, replacement);
     private static int N(Match m, int group = 1) => int.Parse(m.Groups[group].Value);
     public static string? SpecialType(string title)
     {

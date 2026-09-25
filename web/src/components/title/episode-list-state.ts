@@ -100,22 +100,8 @@ export function extrasRequestPending({
  * Specials — is never described by the provider lookup, so the panel must not
  * wait on an answer that can never come.
  */
-export function extrasCanAnswerSeason(season: number | null): boolean {
+function extrasCanAnswerSeason(season: number | null): boolean {
   return season != null && Number.isFinite(season) && season >= 1;
-}
-
-export function episodeSeasonSummary(
-  season: number,
-  rowCount: number,
-  state: EpisodeListLoadState,
-): string {
-  if (state.status === "loading" && rowCount === 0) {
-    return `Loading season ${season}`;
-  }
-  if (state.status === "error" && rowCount === 0) {
-    return `Could not load season ${season}`;
-  }
-  return rowCount > 0 ? `${rowCount} in season ${season}` : `Season ${season}`;
 }
 
 /**

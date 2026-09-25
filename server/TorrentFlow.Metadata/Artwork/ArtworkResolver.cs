@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Providers;
@@ -223,16 +224,19 @@ public sealed class ArtworkResolver
     private readonly AniListClient _anilist;
     private readonly KeylessClients _keyless;
     private readonly IOptions<MetadataOptions> _options;
+    private readonly ILogger<ArtworkResolver>? _logger;
     private readonly BoundedTtlCache<Resolved> _cache;
     private readonly SingleFlight<Resolved> _inFlight = new();
     private readonly SingleFlight<TmdbRef?> _refInFlight = new();
 
-    public ArtworkResolver(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, IOptions<MetadataOptions> options, TimeProvider time)
+    public ArtworkResolver(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, IOptions<MetadataOptions> options, TimeProvider time,
+        ILogger<ArtworkResolver>? logger = null)
     {
         _tmdb = tmdb;
         _anilist = anilist;
         _keyless = keyless;
         _options = options;
+        _logger = logger;
         _cache = new(2000, time);
     }
 
@@ -252,11 +256,16 @@ public sealed class ArtworkResolver
         try
         {
             var task = work(cts.Token);
-            var done = await Task.WhenAny(task, Task.Delay(Timeout.Infinite, cts.Token)).ConfigureAwait(false);
-            return done == task ? await task.ConfigureAwait(false) : fallback;
+            _ = task.ContinueWith(t =>
+            {
+                var error = t.Exception;
+                _logger?.LogDebug(error, "Artwork provider failed");
+            }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            return await task.WaitAsync(cts.Token).ConfigureAwait(false);
         }
-        catch
+        catch (Exception e)
         {
+            _logger?.LogDebug(e, "Artwork provider unavailable within its budget");
             return fallback;
         }
     }
@@ -302,10 +311,11 @@ public sealed class ArtworkResolver
 
     private static TmdbRef? RefOf(ArtCandidate? c) => c?.TmdbId is { } id ? new TmdbRef(id, c.Kind == "tv" ? "tv" : "movie") : null;
 
-    public async Task<ArtworkResult> ResolveAsync(ArtworkQuery q)
+    public async Task<ArtworkResult> ResolveAsync(ArtworkQuery q, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var query = ArtworkMatching.Normalize(q);
             if (query == null) return ArtworkResult.None;
             var key = ArtworkMatching.CacheKey(query);
@@ -315,19 +325,21 @@ public sealed class ArtworkResolver
                 var resolved = await LookupAsync(query).ConfigureAwait(false);
                 Write(key, resolved);
                 return resolved;
-            }).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
             return value.Artwork;
         }
-        catch
+        catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
+            _logger?.LogDebug(e, "Artwork lookup failed");
             return ArtworkResult.None;
         }
     }
 
-    public async Task<TmdbRef?> ResolveTmdbRefAsync(ArtworkQuery q)
+    public async Task<TmdbRef?> ResolveTmdbRefAsync(ArtworkQuery q, CancellationToken cancellationToken = default)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var query = ArtworkMatching.Normalize(q);
             if (query == null || !_tmdb.HasKey) return null;
             var key = ArtworkMatching.CacheKey(query);
@@ -340,21 +352,22 @@ public sealed class ArtworkResolver
                 var art = _cache.TryGet(key, out var entry) ? entry.Artwork : ArtworkResult.None;
                 Write(key, new Resolved(art, reference, true));
                 return reference;
-            }).ConfigureAwait(false);
+            }, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
+            _logger?.LogDebug(e, "Artwork reference lookup failed");
             return null;
         }
     }
 
-    public async Task<IReadOnlyList<ArtworkResult>> ResolveBatchAsync(IReadOnlyList<ArtworkQuery> queries)
+    public async Task<IReadOnlyList<ArtworkResult>> ResolveBatchAsync(IReadOnlyList<ArtworkQuery> queries, CancellationToken cancellationToken = default)
     {
         if (queries.Count == 0) return [];
         var output = new ArtworkResult[queries.Count];
         Array.Fill(output, ArtworkResult.None);
-        await Parallel.ForEachAsync(Enumerable.Range(0, queries.Count), new ParallelOptions { MaxDegreeOfParallelism = BatchConcurrency },
-            async (i, _) => output[i] = await ResolveAsync(queries[i]).ConfigureAwait(false)).ConfigureAwait(false);
+        await Parallel.ForEachAsync(Enumerable.Range(0, queries.Count), new ParallelOptions { MaxDegreeOfParallelism = BatchConcurrency, CancellationToken = cancellationToken },
+            async (i, token) => output[i] = await ResolveAsync(queries[i], token).ConfigureAwait(false)).ConfigureAwait(false);
         return output;
     }
 
@@ -383,5 +396,4 @@ public sealed class ArtworkResolver
         return new Resolved(ArtworkResult.None, null, false);
     }
 }
-
 

@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * The counterpart to `TfEmptyState`.
  *

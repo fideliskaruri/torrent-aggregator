@@ -1,5 +1,3 @@
-"use client";
-
 import { AlertCircle, Check, Download, Zap } from "lucide-react";
 import type { AvailabilityState } from "@/lib/browse";
 import { cn } from "@/lib/utils";

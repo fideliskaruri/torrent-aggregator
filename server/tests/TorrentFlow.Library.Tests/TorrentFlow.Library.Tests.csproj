@@ -7,7 +7,9 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <ProjectReference Include="..\..\TorrentFlow.Library\TorrentFlow.Library.csproj" />
+    <ProjectReference Include="..\..\TorrentFlow.Api\TorrentFlow.Api.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

@@ -15,6 +15,8 @@ public static class MediaModule
         services.AddMediaStreaming();
         services.AddMediaPlayback();
         services.AddMediaSessions();
+        services.AddSubtitlesFeature();
+        services.AddPrewarmFeature(configuration);
         return services;
     }
 }

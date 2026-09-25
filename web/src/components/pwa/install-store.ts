@@ -9,12 +9,12 @@ import {
  * lib.dom, and declaring it globally would imply it exists everywhere — which
  * is exactly the mistake this store avoids.
  */
-export type BeforeInstallPromptEvent = Event & {
+type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
-export type InstallSnapshot = InstallSignals & {
+type InstallSnapshot = InstallSignals & {
   errorMessage: string | null;
 };
 
@@ -32,7 +32,7 @@ export type InstallEnv = {
   writeDismissed: () => void;
 };
 
-export const DISMISS_KEY = "tf:pwa-install-dismissed";
+const DISMISS_KEY = "tf:pwa-install-dismissed";
 
 /**
  * What the server renders, and therefore what the client must render on its
@@ -41,7 +41,7 @@ export const DISMISS_KEY = "tf:pwa-install-dismissed";
  * render. Reading them there produced markup on the client (notably the iOS
  * branch) that the server could never have produced.
  */
-export const SERVER_SNAPSHOT: InstallSnapshot = {
+const SERVER_SNAPSHOT: InstallSnapshot = {
   phase: "idle",
   hasDeferredPrompt: false,
   isStandalone: false,
@@ -51,7 +51,7 @@ export const SERVER_SNAPSHOT: InstallSnapshot = {
   errorMessage: null,
 };
 
-export function createInstallStore(getEnv: () => InstallEnv | null) {
+function createInstallStore(getEnv: () => InstallEnv | null) {
   /** The unspent event. Cleared the moment `prompt()` is called on it. */
   let deferred: BeforeInstallPromptEvent | null = null;
   let phase: InstallPhase = "idle";
@@ -155,11 +155,8 @@ export function createInstallStore(getEnv: () => InstallEnv | null) {
   };
 }
 
-export type InstallStore = ReturnType<typeof createInstallStore>;
-
 /** The real-browser environment. Only called after mount. */
-export function browserInstallEnv(): InstallEnv | null {
-  if (typeof window === "undefined") return null;
+function browserInstallEnv(): InstallEnv | null {
   return {
     addEventListener: (type, listener) => window.addEventListener(type, listener),
     matchesStandalone: () =>
