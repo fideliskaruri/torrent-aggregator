@@ -1,5 +1,8 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Engine.Settings;
 
@@ -7,15 +10,18 @@ namespace TorrentFlow.Engine.Controllers;
 
 [ApiController]
 [Route("api/client/torrents")]
-public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettingsStore settings) : ControllerBase
+public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettingsStore settings, IOptions<JsonOptions> json) : ControllerBase
 {
     private static readonly string[] Actions = ["pause", "resume", "delete", "force"];
     private static readonly string[] Owners = ["builtin", "qbittorrent", "transmission"];
+    public const string BuiltinOwner = "builtin";
+    /// <summary>transfer-ownership clientTypeLabel("builtin").</summary>
+    public const string BuiltinOwnerLabel = "Built-in";
 
     public sealed record ClientIssue(string ClientType, string Label, string Message, bool Offline);
 
     public sealed record ListResponse(
-        IReadOnlyList<EngineTorrentInfo> Torrents,
+        IReadOnlyList<JsonObject> Torrents,
         string ClientType,
         string Host,
         bool Offline,
@@ -28,7 +34,7 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
     public async Task<IActionResult> List(CancellationToken ct)
     {
         var config = await settings.GetConfigAsync(ct);
-        var torrents = (await engine.ListAsync(ct)).Select(StripCacheStats).ToList();
+        var torrents = (await engine.ListAsync(ct)).Select(t => Owned(StripCacheStats(t))).ToList();
         var issues = new List<ClientIssue>();
         if (config.ClientType is "qbittorrent" or "transmission")
             issues.Add(new ClientIssue(config.ClientType, Label(config.ClientType),
@@ -42,6 +48,16 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
         t.RetentionState is "stream" or "prewarm"
             ? t with { Progress = 0, Dlspeed = 0, Upspeed = 0, Eta = 0, Peers = 0 }
             : t;
+
+    /// <summary>OwnedClientTorrent: the transfer tagged with the client that owns it (transfer-ownership tagOwnedTorrents).</summary>
+    private JsonObject Owned(EngineTorrentInfo t)
+    {
+        var node = JsonSerializer.SerializeToNode(t, json.Value.JsonSerializerOptions)!.AsObject();
+        node["ownerClientType"] = BuiltinOwner;
+        node["ownerClientLabel"] = BuiltinOwnerLabel;
+        node["transferId"] = $"{BuiltinOwner}:{t.Hash.Trim().ToLowerInvariant()}";
+        return node;
+    }
 
     private static string Label(string clientType) => clientType switch
     {
@@ -91,7 +107,7 @@ public sealed class ClientTorrentsController(ITorrentEngine engine, ClientSettin
         if (action == "force" && result.Ok)
         {
             var t = await engine.GetAsync(hash, ct);
-            response["torrent"] = t is null ? null : t with { Files = null };
+            response["torrent"] = t is null ? null : Owned(t with { Files = null });
         }
         return StatusCode(result.Ok ? 200 : 502, response);
     }

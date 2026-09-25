@@ -24,6 +24,12 @@ public sealed record RehydratePlan(IReadOnlyList<string> Active, IReadOnlyList<s
 /// Order: within a series by (season, episode) via <see cref="QueueRow.QueueKey"/>; across works by the
 /// work's earliest enqueue time, so a season grabbed first finishes before a season grabbed later even
 /// when its episodes were enqueued out of order. Pure so the rules are testable without a client or DB.
+///
+/// Guarantee for a season fan-out: once any row is waiting, every later kept add or resume joins the line and the
+/// promotion pass in the same gate hands a free slot to the queue head, so waiting rows start in queueKey order.
+/// Arrivals that find a free slot while nothing is waiting start immediately and are never preempted, so with
+/// simultaneous initial sends the first <c>cap</c> arrivals take the slots. grab.ts sends a season in episode order,
+/// which makes those the lowest episodes; an out-of-order sender (3,1,5,2,4 at cap 2) gets E3+E1 active, then E2.
 /// </summary>
 public static class DownloadQueue
 {
@@ -115,12 +121,16 @@ public static class DownloadQueue
         return free == 0 ? [] : Order(rows).Take(free).Select(r => r.Hash).ToList();
     }
 
-    /// <summary>Whether a fresh add has to wait. Forced adds never do, nor anything that is not a kept download.</summary>
+    /// <summary>
+    /// Whether a fresh add (or resume) has to join the queue. Forced adds never do, nor anything that is not a kept
+    /// download. When rows are already waiting it queues even if a slot is free, so the caller's promotion pass gives
+    /// that slot to the queue head (lowest queueKey in the earliest work) instead of whoever arrived last.
+    /// </summary>
     public static bool ShouldQueueNewDownload(IReadOnlyCollection<QueueRow> rows, int cap, string origin, bool forced)
     {
         if (forced) return false;
         if (origin != QueueableOrigin) return false;
-        return ActiveKeptCount(rows) >= cap;
+        return ActiveKeptCount(rows) >= cap || rows.Any(r => IsQueued(r) && r.Origin == QueueableOrigin);
     }
 
     /// <summary>
@@ -140,7 +150,10 @@ public static class DownloadQueue
         return new RehydratePlan(active, kept.Where(r => !activeSet.Contains(r.Hash)).Select(r => r.Hash).ToList());
     }
 
-    /// <summary>Bytes queued rows will claim once they start, for the storage gate.</summary>
+    /// <summary>
+    /// Bytes queued rows will claim once they start, for the storage gate. A row of unknown size reserves the same
+    /// default the storage gate assumes for an unknown incoming release (disk-space DEFAULT_INCOMING_RESERVE_BYTES).
+    /// </summary>
     public static long QueuedReservedBytes(IEnumerable<QueueRow> rows) =>
-        rows.Where(IsQueued).Sum(r => r.SizeBytes is > 0 ? r.SizeBytes.Value : 0);
+        rows.Where(IsQueued).Sum(r => r.SizeBytes is > 0 ? r.SizeBytes.Value : Storage.StorageBudget.DefaultIncomingReserveBytes);
 }

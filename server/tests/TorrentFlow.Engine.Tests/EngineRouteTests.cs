@@ -91,6 +91,9 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(1, queued.GetProperty("queuePosition").GetInt32());
         foreach (var field in new[] { "name", "progress", "sizeBytes", "dlspeed", "upspeed", "state", "retentionState" })
             Assert.True(queued.TryGetProperty(field, out _), field);
+        Assert.Equal("builtin", queued.GetProperty("ownerClientType").GetString());
+        Assert.Equal("Built-in", queued.GetProperty("ownerClientLabel").GetString());
+        Assert.Equal("builtin:" + EngineHarness.Hash(102), queued.GetProperty("transferId").GetString());
 
         var force = await _http.PostAsJsonAsync("/api/client/torrents", new { action = "force", hash = EngineHarness.Hash(102), ownerClientType = "builtin" });
         Assert.Equal(HttpStatusCode.OK, force.StatusCode);
@@ -98,7 +101,60 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.True(forced.GetProperty("ok").GetBoolean());
         Assert.Equal(EngineHarness.Hash(102), forced.GetProperty("torrent").GetProperty("hash").GetString());
         Assert.NotEqual("queued", forced.GetProperty("torrent").GetProperty("state").GetString());
+        Assert.Equal("builtin", forced.GetProperty("torrent").GetProperty("ownerClientType").GetString());
+        Assert.Equal("Built-in", forced.GetProperty("torrent").GetProperty("ownerClientLabel").GetString());
+        Assert.Equal("builtin:" + EngineHarness.Hash(102), forced.GetProperty("torrent").GetProperty("transferId").GetString());
         Assert.True(factory.Backend.Contains(EngineHarness.Hash(102)));
+    }
+
+    [Fact]
+    public async Task UntrackedDeleteRefusesToFollowAJunctionUnderTheRoot()
+    {
+        await ConfigureStorageAsync();
+        var downloads = Path.Combine(factory.Root, "downloads");
+        var outside = Path.Combine(factory.Root, "outside-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(downloads);
+        Directory.CreateDirectory(outside);
+        var victim = Path.Combine(outside, "victim.txt");
+        await File.WriteAllTextAsync(victim, "keep me");
+        var link = Path.Combine(downloads, "link-" + Guid.NewGuid().ToString("N"));
+        if (!TryCreateDirectoryLink(link, outside)) return;   // links unsupported here: nothing to test
+        try
+        {
+            var r = await _http.PostAsJsonAsync("/api/settings/untracked-files", new { relativePath = Path.GetFileName(link) + "/victim.txt" });
+            Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+            Assert.Equal("symlink", (await Json(r)).GetProperty("reason").GetString());
+            Assert.True(File.Exists(victim));
+        }
+        finally
+        {
+            try { Directory.Delete(link); } catch (IOException) { }
+        }
+    }
+
+    private static bool TryCreateDirectoryLink(string link, string target)
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                // A junction needs no elevation, unlike a symlink.
+                using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+                {
+                    UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+                })!;
+                p.WaitForExit(10_000);
+            }
+            else
+            {
+                Directory.CreateSymbolicLink(link, target);
+            }
+            return Directory.Exists(link) && new DirectoryInfo(link).Attributes.HasFlag(FileAttributes.ReparsePoint);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
     }
 
     [Fact]

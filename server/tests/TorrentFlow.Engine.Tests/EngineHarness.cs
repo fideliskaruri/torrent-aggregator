@@ -35,18 +35,26 @@ internal sealed class FakeBackend : ITorrentBackend
     public readonly ConcurrentDictionary<string, BackendSnapshot> Live = new(StringComparer.OrdinalIgnoreCase);
     public readonly List<string> AddLog = [];
     public Func<BackendAddSpec, BackendAddOutcome?>? AddOverride { get; set; }
+    /// <summary>Awaited before an add takes effect: lets a test hold a start mid-flight.</summary>
+    public Func<BackendAddSpec, Task>? BeforeAdd { get; set; }
+    public Action<string>? OnGet { get; set; }
 
-    public Task<BackendAddOutcome> AddAsync(BackendAddSpec spec, CancellationToken ct)
+    public async Task<BackendAddOutcome> AddAsync(BackendAddSpec spec, CancellationToken ct)
     {
+        if (BeforeAdd is { } before) await before(spec);
         lock (AddLog) AddLog.Add(spec.Hash);
-        if (AddOverride?.Invoke(spec) is { } forced) return Task.FromResult(forced);
+        if (AddOverride?.Invoke(spec) is { } forced) return forced;
         var snap = Live.GetOrAdd(spec.Hash, h => new BackendSnapshot(h, "name-" + h, 0, 1000, 0, 0, 0, "stalledDL", true, spec.SavePath,
             [new BackendFile(0, "file-" + h + ".mkv", Path.Combine(spec.SavePath, "file-" + h + ".mkv"), 1000, spec.Purpose == "keep", 0)], null));
-        return Task.FromResult(new BackendAddOutcome(true, "", snap));
+        return new BackendAddOutcome(true, "", snap);
     }
 
     public bool Contains(string hash) => Live.ContainsKey(hash);
-    public BackendSnapshot? Get(string hash) => Live.TryGetValue(hash, out var s) ? s : null;
+    public BackendSnapshot? Get(string hash)
+    {
+        OnGet?.Invoke(hash);
+        return Live.TryGetValue(hash, out var s) ? s : null;
+    }
     public IReadOnlyList<BackendSnapshot> List() => Live.Values.ToList();
     public Task PauseAsync(string hash) { Update(hash, s => s with { State = "paused" }); return Task.CompletedTask; }
     public Task ResumeAsync(string hash) { Update(hash, s => s with { State = "stalledDL" }); return Task.CompletedTask; }
@@ -138,6 +146,20 @@ internal sealed class EngineHarness : IAsyncDisposable
     }
 
     public async Task<EngineTorrent> RowAsync(int n) => (await RowsAsync()).Single(r => r.Hash == Hash(n));
+
+    /// <summary>Writes a row straight to the database, bypassing the engine (a restart, a crash, a stale queue).</summary>
+    public async Task SeedAsync(int n, string status, int? ep = null, string origin = "user", string work = "show", DateTime? updatedAt = null)
+    {
+        await using var db = await Db.CreateDbContextAsync();
+        var now = DateTime.UtcNow;
+        db.EngineTorrents.Add(new EngineTorrent
+        {
+            Id = Data.Ids.New(), UserId = Data.LocalUser.Id, Hash = Hash(n), Name = "n" + n, Magnet = Magnet(n), Status = status, Origin = origin,
+            WorkId = work, QueueKey = ep is { } e ? Queue.DownloadQueue.QueueKeyForEpisode(1, e) : null,
+            CreatedAt = now, UpdatedAt = updatedAt ?? now, LastUsedAt = now, SavePath = Path.Combine(Root, "downloads"),
+        });
+        await db.SaveChangesAsync();
+    }
 
     public async ValueTask DisposeAsync()
     {

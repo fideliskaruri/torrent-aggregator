@@ -93,6 +93,22 @@ public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbCo
         return path.Equals(r, cmp) || path.StartsWith(r + Path.DirectorySeparatorChar, cmp);
     }
 
+    /// <summary>True when any existing directory strictly between <paramref name="root"/> and <paramref name="full"/> is a reparse point.</summary>
+    internal static bool HasLinkBetween(string root, string full)
+    {
+        var r = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        for (var dir = Path.GetDirectoryName(full); dir is not null && dir.Length > r.Length; dir = Path.GetDirectoryName(dir))
+        {
+            try
+            {
+                var info = new DirectoryInfo(dir);
+                if (info.Exists && info.Attributes.HasFlag(FileAttributes.ReparsePoint)) return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }
+        }
+        return false;
+    }
+
     [HttpPost("api/settings/untracked-files")]
     public async Task<IActionResult> DeleteUntracked(CancellationToken ct)
     {
@@ -110,6 +126,8 @@ public sealed class FoldersController(ClientSettingsStore store, TorrentFlowDbCo
         var full = Path.GetFullPath(Path.Combine(root, rel));
         if (!IsWithin(full, root) || full.TrimEnd(Path.DirectorySeparatorChar).Equals(root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
             return Refuse(403, "outside-root", "That path is not inside the download folder.");
+        // A junction or symlink between the root and the entry would point the delete at another folder entirely.
+        if (HasLinkBetween(root, full)) return Refuse(403, "symlink", "Links and junctions are not followed.");
         if (Path.GetFileName(full).StartsWith('.')) return Refuse(403, "internal", "App bookkeeping files cannot be removed here.");
         var isDir = Directory.Exists(full);
         if (!isDir && !System.IO.File.Exists(full)) return Refuse(404, "missing", "That entry no longer exists.");

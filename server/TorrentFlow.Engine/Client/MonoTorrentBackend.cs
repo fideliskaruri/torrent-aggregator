@@ -190,6 +190,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public async Task SetSelectedFilesAsync(string hash, IReadOnlySet<int>? selected)
     {
+        // Selecting everything makes it a kept download: metadata landing later must not deselect it as a stream.
+        if (selected is null && _purposes.ContainsKey(hash)) _purposes[hash] = Core.Contracts.Engine.TorrentPurpose.Keep;
         if (!_managers.TryGetValue(hash, out var m) || !m.HasMetadata) return;
         for (var i = 0; i < m.Files.Count; i++)
         {

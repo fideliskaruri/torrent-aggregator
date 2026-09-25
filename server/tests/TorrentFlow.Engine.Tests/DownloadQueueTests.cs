@@ -124,7 +124,25 @@ public class DownloadQueueTests
     public void QueuedSizesAreReserved()
     {
         var rows = new[] { Row("a", "downloading", size: 1000), Row("q1", size: 2000), Row("q2", size: 3000), Row("q3", size: null) };
-        Assert.Equal(5000, DownloadQueue.QueuedReservedBytes(rows));
+        // q3's size is unknown: it reserves the storage gate's default estimate, not zero.
+        Assert.Equal(5000 + Storage.StorageBudget.DefaultIncomingReserveBytes, DownloadQueue.QueuedReservedBytes(rows));
+    }
+
+    [Fact]
+    public void UnknownSizeQueuedRowsReserveTheDefaultEstimate()
+    {
+        Assert.Equal(2L * 1024 * 1024 * 1024, Storage.StorageBudget.DefaultIncomingReserveBytes);
+        var rows = new[] { Row("a", size: null), Row("b", size: 0), Row("c", "downloading", size: null) };
+        Assert.Equal(2 * Storage.StorageBudget.DefaultIncomingReserveBytes, DownloadQueue.QueuedReservedBytes(rows));
+    }
+
+    [Fact]
+    public void WaitingRowsMakeANewKeptAddQueueEvenWithAFreeSlot()
+    {
+        var rows = new[] { Row("a", "downloading"), Row("q", "queued") };
+        Assert.True(DownloadQueue.ShouldQueueNewDownload(rows, 3, "user", false));
+        Assert.False(DownloadQueue.ShouldQueueNewDownload(rows, 3, "user", true));
+        Assert.False(DownloadQueue.ShouldQueueNewDownload(rows, 3, "stream", false));
     }
 
     [Theory]

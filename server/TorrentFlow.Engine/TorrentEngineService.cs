@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -15,7 +16,9 @@ namespace TorrentFlow.Engine;
 /// <summary>
 /// The built-in engine: EngineTorrent row lifecycle + download queue on top of <see cref="ITorrentBackend"/>.
 /// Queue decisions (admit / promote / demote) are serialised by one gate so two concurrent adds can never
-/// both take the last slot.
+/// both take the last slot. Lifecycle operations on one transfer (add, start, pause, resume, force, delete, stream
+/// open) are serialised by a per-hash lock, and every deferred start re-reads the row first, so a pause or delete
+/// that lands between a queue decision and the client start wins instead of being resurrected.
 /// </summary>
 internal sealed class TorrentEngineService(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
@@ -32,6 +35,14 @@ internal sealed class TorrentEngineService(
     public const string NotFound = "Torrent not found in engine.";
 
     private readonly SemaphoreSlim _queueGate = new(1, 1);
+    // Lock order: a hash lock is always taken before _queueGate, and never while holding another hash lock.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _hashLocks = new(StringComparer.Ordinal);
+    // Rows marked downloading whose backend start is still in flight; the monitor must not treat them as stranded.
+    private readonly ConcurrentDictionary<string, byte> _starting = new(StringComparer.Ordinal);
+    // When each transfer was last loaded into the client; the metadata deadline counts from here, not the row.
+    private readonly ConcurrentDictionary<string, DateTime> _startedAt = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _openStreams = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _pendingDetach = new(StringComparer.Ordinal);
 
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
 
@@ -74,91 +85,135 @@ internal sealed class TorrentEngineService(
         var target = ClientSettingsStore.ResolveDownloadTarget(config, request.Category, request.SavePath);
         var savePath = target.SavePath ?? Path.Combine(Options.DataDirectory, "downloads");
 
-        EngineTorrent row;
-        bool queued;
-        await _queueGate.WaitAsync(ct);
-        try
+        Admission admission;
+        EngineAddResult result;
+        var failed = false;
+        using (await LockHashAsync(hash, ct))
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var existing = await db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
+            await _queueGate.WaitAsync(ct);
+            try { admission = await AdmitAsync(request, hash, magnet, purpose, origin, config, target, savePath, ct); }
+            finally { _queueGate.Release(); }
 
-            if (existing is not null && TorrentOrigin.Rank(origin) > TorrentOrigin.Rank(existing.Origin))
+            if (admission.StartRow is not { } row)
             {
-                existing.Origin = origin;
-                existing.UpdatedAt = Now;
-                await db.SaveChangesAsync(ct);
-                if (origin == TorrentOrigin.User && backend.Contains(hash)) await backend.SetSelectedFilesAsync(hash, null);
+                result = admission.Result!;
             }
-
-            if (backend.Get(hash) is { } live)
+            else
             {
-                if (request.Forced && existing is not null && existing.ForcedAt is null)
+                // The row is persisted as downloading: the request token must not strand it half-started.
+                try
                 {
-                    existing.ForcedAt = Now;
-                    await db.SaveChangesAsync(ct);
+                    var outcome = await StartInBackendAsync(row, purpose, TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), CancellationToken.None);
+                    if (!outcome.Ok)
+                    {
+                        await MarkErrorAsync(hash, outcome.Message);
+                        failed = true;
+                        result = new EngineAddResult(false, outcome.Message, null, hash);
+                    }
+                    else
+                    {
+                        var snap = outcome.Snapshot;
+                        if (snap is not null) await PersistSnapshotAsync(snap);
+                        result = new EngineAddResult(true, "Added to the built-in engine.",
+                            new EngineAddDetails(EngineAddDetails.Started, Math.Round((snap?.Progress ?? 0) * 100, 1), snap?.Peers ?? 0), hash);
+                    }
                 }
-                return live.State == "complete"
-                    ? new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyComplete, 100, 0), hash)
-                    : new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyDownloading, Math.Round(live.Progress * 100, 1), live.Peers), hash);
+                finally
+                {
+                    _starting.TryRemove(hash, out _);
+                }
             }
+        }
 
-            if (existing is not null && IsDownloaded(existing))
-                return new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyComplete, 100, 0), hash);
+        await StartClaimedAsync(admission.Claimed);
+        if (failed) await PromoteAsync(CancellationToken.None);
+        return result;
+    }
 
-            if (existing is not null && existing.Status == EngineTorrentStatus.Queued && !request.Forced && purpose == TorrentPurpose.Keep)
-            {
-                var pos = await QueuePositionAsync(db, hash, ct);
-                return QueuedResult(hash, pos);
-            }
+    private sealed record Admission(EngineAddResult? Result, EngineTorrent? StartRow, List<EngineTorrent> Claimed);
 
-            if (purpose == TorrentPurpose.Keep && existing is null)
-            {
-                var reserved = DownloadQueue.QueuedReservedBytes(await QueueRowsAsync(db, ct));
-                var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, request.ExpectedSizeBytes, reserved, request.OverrideStorageCap);
-                if (!check.Ok) return new EngineAddResult(false, check.Message ?? "Storage limit", null, hash) { StorageLimit = check.Limit };
-            }
+    /// <summary>Runs under the hash lock and the queue gate: decides start / queue and persists the row.</summary>
+    private async Task<Admission> AdmitAsync(EngineAddRequest request, string hash, string? magnet, string purpose, string origin,
+        ClientConfig config, DownloadTarget target, string savePath, CancellationToken ct)
+    {
+        static Admission Done(EngineAddResult result) => new(result, null, []);
 
-            var rows = await QueueRowsAsync(db, ct);
-            queued = DownloadQueue.ShouldQueueNewDownload(rows.Where(r => r.Hash != hash).ToList(), Cap, origin, request.Forced);
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var existing = await db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
 
-            row = existing ?? new EngineTorrent { Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, CreatedAt = Now, LastUsedAt = Now, Origin = origin };
-            row.Name = FirstNonBlank(request.Name, existing?.Name, hash)!;
-            row.Magnet = magnet ?? existing?.Magnet;
-            row.TorrentUrl = request.TorrentUrl ?? existing?.TorrentUrl;
-            row.SavePath = savePath;
-            row.Category = target.Category;
-            row.WorkId = request.WorkId ?? existing?.WorkId;
-            row.QueueKey = request.QueueKey ?? existing?.QueueKey;
-            if (request.ExpectedSizeBytes is > 0 && row.SizeBytes <= 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
-            if (request.Forced) row.ForcedAt = Now;
-            row.Status = queued ? EngineTorrentStatus.Queued : EngineTorrentStatus.Downloading;
-            row.Error = null;
-            row.UpdatedAt = Now;
-            if (existing is null) db.EngineTorrents.Add(row);
+        if (existing is not null && TorrentOrigin.Rank(origin) > TorrentOrigin.Rank(existing.Origin))
+        {
+            existing.Origin = origin;
+            existing.UpdatedAt = Now;
             await db.SaveChangesAsync(ct);
+            if (origin == TorrentOrigin.User && backend.Contains(hash)) await backend.SetSelectedFilesAsync(hash, null);
+        }
 
-            if (queued)
+        if (backend.Get(hash) is { } live)
+        {
+            if (request.Forced && existing is not null && existing.ForcedAt is null)
             {
-                var pos = await QueuePositionAsync(db, hash, ct);
-                return QueuedResult(hash, pos);
+                existing.ForcedAt = Now;
+                await db.SaveChangesAsync(ct);
             }
-        }
-        finally
-        {
-            _queueGate.Release();
+            return Done(live.State == "complete"
+                ? new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyComplete, 100, 0), hash)
+                : new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyDownloading, Math.Round(live.Progress * 100, 1), live.Peers), hash));
         }
 
-        var outcome = await StartInBackendAsync(row, purpose, TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), ct);
-        if (!outcome.Ok)
+        if (existing is not null && IsDownloaded(existing))
+            return Done(new EngineAddResult(true, "", new EngineAddDetails(EngineAddDetails.AlreadyComplete, 100, 0), hash));
+
+        if (existing is not null && existing.Status == EngineTorrentStatus.Queued && !request.Forced && purpose == TorrentPurpose.Keep)
         {
-            await MarkErrorAsync(hash, outcome.Message, ct);
-            await PromoteAsync(ct);
-            return new EngineAddResult(false, outcome.Message, null, hash);
+            var pos = await QueuePositionAsync(db, hash, ct);
+            return Done(QueuedResult(hash, pos));
         }
-        var snap = outcome.Snapshot;
-        if (snap is not null) await PersistSnapshotAsync(snap, ct);
-        return new EngineAddResult(true, "Added to the built-in engine.",
-            new EngineAddDetails(EngineAddDetails.Started, Math.Round((snap?.Progress ?? 0) * 100, 1), snap?.Peers ?? 0), hash);
+
+        if (purpose == TorrentPurpose.Keep && existing is null)
+        {
+            var reserved = DownloadQueue.QueuedReservedBytes(await QueueRowsAsync(db, ct));
+            var check = storage.Check(config.DownloadRoot, config.MaxStorageBytes, request.ExpectedSizeBytes, reserved, request.OverrideStorageCap);
+            if (!check.Ok) return Done(new EngineAddResult(false, check.Message ?? "Storage limit", null, hash) { StorageLimit = check.Limit });
+        }
+
+        var rows = await QueueRowsAsync(db, ct);
+        var queued = DownloadQueue.ShouldQueueNewDownload(rows.Where(r => r.Hash != hash).ToList(), Cap, origin, request.Forced);
+
+        var row = existing ?? new EngineTorrent { Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, CreatedAt = Now, LastUsedAt = Now, Origin = origin };
+        row.Name = FirstNonBlank(request.Name, existing?.Name, hash)!;
+        row.Magnet = magnet ?? existing?.Magnet;
+        row.TorrentUrl = request.TorrentUrl ?? existing?.TorrentUrl;
+        row.SavePath = savePath;
+        row.Category = target.Category;
+        row.WorkId = request.WorkId ?? existing?.WorkId;
+        row.QueueKey = request.QueueKey ?? existing?.QueueKey;
+        if (request.ExpectedSizeBytes is > 0 && row.SizeBytes <= 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
+        if (request.Forced) row.ForcedAt = Now;
+        row.Status = queued ? EngineTorrentStatus.Queued : EngineTorrentStatus.Downloading;
+        row.Error = null;
+        row.UpdatedAt = Now;
+        if (existing is null) db.EngineTorrents.Add(row);
+        if (!queued) _starting.TryAdd(hash, 0);
+        try { await db.SaveChangesAsync(ct); }
+        catch
+        {
+            if (!queued) _starting.TryRemove(hash, out _);
+            throw;
+        }
+        // Persisted: everything after this point ignores the request token.
+        if (!queued) return new Admission(null, row, []);
+        // Rows are already waiting, so the new one joins the line and the head of the queue takes any free slot.
+        var claimed = await ClaimPromotionsAsync(db);
+        var self = claimed.FirstOrDefault(r => r.Hash == hash);
+        if (self is not null)
+        {
+            claimed.Remove(self);
+            _starting.TryAdd(hash, 0);
+            return new Admission(null, self, claimed);
+        }
+        var position = await QueuePositionAsync(db, hash, CancellationToken.None);
+        return new Admission(QueuedResult(hash, position), null, claimed);
     }
 
     private static EngineAddResult QueuedResult(string hash, int? position) =>
@@ -200,17 +255,37 @@ internal sealed class TorrentEngineService(
             return new BackendAddOutcome(false, "No saved source to retry this release.");
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
             row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout);
+        var wasLoaded = backend.Contains(row.Hash);
         try
         {
             var outcome = await backend.AddAsync(spec, ct);
-            if (outcome.Ok && backend.GetMetadata(row.Hash) is { } meta) SaveTorrentFile(row.Hash, meta);
+            if (outcome.Ok)
+            {
+                if (!wasLoaded) _startedAt[row.Hash] = Now;
+                if (backend.GetMetadata(row.Hash) is { } meta) SaveTorrentFile(row.Hash, meta);
+                // Already live as a stream (files deselected): a kept download wants every file.
+                if (wasLoaded && purpose == TorrentPurpose.Keep) await backend.SetSelectedFilesAsync(row.Hash, null);
+            }
             return outcome;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Adding {Hash} to the client failed", row.Hash);
             return new BackendAddOutcome(false, "Torrent was added but dropped from the engine immediately — check server logs.");
         }
+    }
+
+    private async Task<IDisposable> LockHashAsync(string hash, CancellationToken ct)
+    {
+        var gate = _hashLocks.GetOrAdd(hash, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        return new Releaser(gate);
+    }
+
+    private sealed class Releaser(SemaphoreSlim gate) : IDisposable
+    {
+        private int _released;
+        public void Dispose() { if (Interlocked.Exchange(ref _released, 1) == 0) gate.Release(); }
     }
 
     private static string PurposeOf(EngineTorrent row) => row.Origin switch
@@ -245,28 +320,77 @@ internal sealed class TorrentEngineService(
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var candidates = DownloadQueue.PromotionCandidates(await QueueRowsAsync(db, ct), Cap);
-            if (candidates.Count == 0) return [];
-            promoted = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && candidates.Contains(r.Hash)).ToListAsync(ct);
-            foreach (var r in promoted) { r.Status = EngineTorrentStatus.Downloading; r.UpdatedAt = Now; }
-            await db.SaveChangesAsync(ct);
+            promoted = await ClaimPromotionsAsync(db);
         }
         finally
         {
             _queueGate.Release();
         }
+        await StartClaimedAsync(promoted);
+        return promoted.Select(r => r.Hash).ToList();
+    }
 
-        foreach (var r in promoted)
+    /// <summary>
+    /// Caller holds <see cref="_queueGate"/>. Marks the queue head downloading for every free slot and records the
+    /// hashes as starting; the caller must hand the result to <see cref="StartClaimedAsync"/> (outside any hash lock).
+    /// </summary>
+    private async Task<List<EngineTorrent>> ClaimPromotionsAsync(TorrentFlowDbContext db)
+    {
+        var candidates = DownloadQueue.PromotionCandidates(await QueueRowsAsync(db, CancellationToken.None), Cap);
+        if (candidates.Count == 0) return [];
+        var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && candidates.Contains(r.Hash)).ToListAsync(CancellationToken.None);
+        foreach (var r in rows)
+        {
+            r.Status = EngineTorrentStatus.Downloading;
+            r.UpdatedAt = Now;
+            _starting.TryAdd(r.Hash, 0);
+        }
+        await db.SaveChangesAsync(CancellationToken.None);
+        return candidates.Select(h => rows.FirstOrDefault(r => r.Hash == h)).OfType<EngineTorrent>().ToList();
+    }
+
+    /// <summary>Starts claimed rows one by one. A failure frees its slot, so the queue is refilled afterwards.</summary>
+    private async Task StartClaimedAsync(IReadOnlyList<EngineTorrent> claimed)
+    {
+        var failed = false;
+        foreach (var r in claimed)
         {
             // No metadata wait here: the monitor times out a magnet that never resolves and promotes the next one.
-            var outcome = await StartInBackendAsync(r, TorrentPurpose.Keep, null, ct);
-            if (!outcome.Ok)
+            try { failed |= !await StartValidatedAsync(r.Hash); }
+            catch (Exception ex)
             {
-                logger.LogWarning("Queue promotion of {Hash} failed: {Message}", r.Hash, outcome.Message);
-                await MarkErrorAsync(r.Hash, outcome.Message, ct);
+                logger.LogError(ex, "Starting {Hash} failed", r.Hash);
+                await MarkErrorAsync(r.Hash, "The torrent client could not start this transfer.");
+                failed = true;
             }
         }
-        return promoted.Select(r => r.Hash).ToList();
+        if (failed) await PromoteAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Starts a row that was marked downloading, under its hash lock, only if it still is: a pause or delete that
+    /// landed between the queue decision and this start wins instead of being resurrected. False when it failed.
+    /// </summary>
+    private async Task<bool> StartValidatedAsync(string hash)
+    {
+        using (await LockHashAsync(hash, CancellationToken.None))
+        {
+            try
+            {
+                await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
+                var row = await FindAsync(db, hash, CancellationToken.None);
+                if (row is null || row.Status != EngineTorrentStatus.Downloading || IsDownloaded(row)) return true;
+                var outcome = await StartInBackendAsync(row, PurposeOf(row), null, CancellationToken.None);
+                if (outcome.Ok) return true;
+                logger.LogWarning("Starting {Hash} failed: {Message}", hash, outcome.Message);
+                await MarkErrorAsync(hash, outcome.Message);
+                return false;
+            }
+            finally
+            {
+                _starting.TryRemove(hash, out _);
+            }
+        }
     }
 
     /// <summary>Startup: apply the cap to whatever the database says, then start only active + forced kept rows.</summary>
@@ -282,21 +406,18 @@ internal sealed class TorrentEngineService(
             var plan = DownloadQueue.PlanRehydrate(all.Where(r => r.Status == EngineTorrentStatus.Queued || eligible.Contains(r)).Select(ToQueueRow).ToList(), Cap);
             var demote = plan.Demote.ToHashSet();
             foreach (var r in all.Where(r => demote.Contains(r.Hash))) { r.Status = EngineTorrentStatus.Queued; r.UpdatedAt = Now; }
-            var active = plan.Active.ToHashSet();
-            start = all.Where(r => active.Contains(r.Hash)).ToList();
+            start = plan.Active.Select(h => all.First(r => r.Hash == h)).ToList();
             foreach (var r in start) r.Status = EngineTorrentStatus.Downloading;
             await db.SaveChangesAsync(ct);
+            foreach (var r in start) _starting.TryAdd(r.Hash, 0);
         }
         finally
         {
             _queueGate.Release();
         }
         logger.LogInformation("Engine rehydrate: starting {Count} of the kept downloads (cap {Cap})", start.Count, Cap);
-        foreach (var r in start)
-        {
-            var outcome = await StartInBackendAsync(r, TorrentPurpose.Keep, null, ct);
-            if (!outcome.Ok) await MarkErrorAsync(r.Hash, outcome.Message, ct);
-        }
+        // One failure (or shutdown mid-way) must not strand the rest as downloading.
+        await StartClaimedAsync(start);
     }
 
     /// <summary>Port of builtin-engine-lifecycle shouldRehydrateTorrent, restricted to kept downloads.</summary>
@@ -415,124 +536,165 @@ internal sealed class TorrentEngineService(
     public async Task<EngineActionResult> PauseAsync(string infoHash, CancellationToken ct = default)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
-        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        using (await LockHashAsync(hash, ct))
         {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
             var row = await FindAsync(db, hash, ct);
             if (row is null) return new EngineActionResult(false, NotFound);
             if (IsDownloaded(row) || backend.Get(hash)?.State == "complete") return new EngineActionResult(false, DownloadedCannotPause);
-            if (backend.Contains(hash)) await backend.PauseAsync(hash);
             row.Status = EngineTorrentStatus.Paused;
             // A paused item is the owner's decision; it must not jump back ahead of the queue as "forced".
             row.ForcedAt = null;
             row.UpdatedAt = Now;
             await db.SaveChangesAsync(ct);
+            if (backend.Contains(hash)) await backend.PauseAsync(hash);
         }
-        await PromoteAsync(ct);
+        await PromoteAsync(CancellationToken.None);
         return new EngineActionResult(true, "Paused");
     }
 
     public async Task<EngineActionResult> ResumeAsync(string infoHash, CancellationToken ct = default)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
-        EngineTorrent row;
-        await _queueGate.WaitAsync(ct);
-        try
+        EngineActionResult? result = null;
+        List<EngineTorrent> claimed = [];
+        using (await LockHashAsync(hash, ct))
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var found = await FindAsync(db, hash, ct);
-            if (found is null) return new EngineActionResult(false, NotFound);
-            row = found;
-            if (IsDownloaded(row)) return new EngineActionResult(true, "Already downloaded");
-            if (row.Status == EngineTorrentStatus.Downloading && backend.Contains(hash))
+            EngineTorrent? start = null;
+            await _queueGate.WaitAsync(ct);
+            try
             {
-                await backend.ResumeAsync(hash);
-                return new EngineActionResult(true, "Re-announced");
-            }
-            if (row.Status == EngineTorrentStatus.Queued)
-            {
-                var pos = await QueuePositionAsync(db, hash, ct);
-                return new EngineActionResult(true, pos is { } p ? $"Queued — #{p} in line" : "Queued");
-            }
-            var others = (await QueueRowsAsync(db, ct)).Where(r => r.Hash != hash).ToList();
-            if (DownloadQueue.ShouldQueueNewDownload(others, Cap, row.Origin, forced: false))
-            {
-                row.Status = EngineTorrentStatus.Queued;
+                await using var db = await dbFactory.CreateDbContextAsync(ct);
+                var row = await FindAsync(db, hash, ct);
+                if (row is null) return new EngineActionResult(false, NotFound);
+                if (IsDownloaded(row)) return new EngineActionResult(true, "Already downloaded");
+                if (row.Status == EngineTorrentStatus.Downloading && backend.Contains(hash))
+                {
+                    if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, null);
+                    await backend.ResumeAsync(hash);
+                    return new EngineActionResult(true, "Re-announced");
+                }
+                if (row.Status == EngineTorrentStatus.Queued)
+                {
+                    var pos = await QueuePositionAsync(db, hash, ct);
+                    return new EngineActionResult(true, pos is { } p ? $"Queued — #{p} in line" : "Queued");
+                }
+                var others = (await QueueRowsAsync(db, ct)).Where(r => r.Hash != hash).ToList();
                 row.Error = null;
                 row.UpdatedAt = Now;
-                await db.SaveChangesAsync(ct);
-                if (backend.Contains(hash)) await backend.RemoveAsync(hash);
-                var pos = await QueuePositionAsync(db, hash, ct);
-                return new EngineActionResult(true, pos is { } p ? $"Queued — #{p} in line" : "Queued");
+                if (DownloadQueue.ShouldQueueNewDownload(others, Cap, row.Origin, forced: false))
+                {
+                    row.Status = EngineTorrentStatus.Queued;
+                    await db.SaveChangesAsync(ct);
+                    // Join the line; if a slot is free the head of the queue (maybe this row) takes it.
+                    claimed = await ClaimPromotionsAsync(db);
+                    start = claimed.FirstOrDefault(r => r.Hash == hash);
+                    if (start is null)
+                    {
+                        if (backend.Contains(hash)) await backend.RemoveAsync(hash);
+                        var pos = await QueuePositionAsync(db, hash, CancellationToken.None);
+                        result = new EngineActionResult(true, pos is { } p ? $"Queued — #{p} in line" : "Queued");
+                    }
+                    else
+                    {
+                        claimed.Remove(start);
+                    }
+                }
+                else
+                {
+                    row.Status = EngineTorrentStatus.Downloading;
+                    await db.SaveChangesAsync(ct);
+                    _starting.TryAdd(hash, 0);
+                    start = row;
+                }
             }
-            row.Status = EngineTorrentStatus.Downloading;
-            row.Error = null;
-            row.UpdatedAt = Now;
-            await db.SaveChangesAsync(ct);
+            finally
+            {
+                _queueGate.Release();
+            }
+            if (start is not null) result = await StartOrResumeAsync(start, "Resumed");
         }
-        finally
-        {
-            _queueGate.Release();
-        }
-        return await StartOrResumeAsync(row, "Resumed", ct);
+        await StartClaimedAsync(claimed);
+        if (!result!.Ok) await PromoteAsync(CancellationToken.None);
+        return result;
     }
 
     public async Task<EngineActionResult> ForceAsync(string infoHash, CancellationToken ct = default)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
-        EngineTorrent row;
-        await _queueGate.WaitAsync(ct);
+        EngineActionResult result;
+        using (await LockHashAsync(hash, ct))
+        {
+            EngineTorrent row;
+            await _queueGate.WaitAsync(ct);
+            try
+            {
+                await using var db = await dbFactory.CreateDbContextAsync(ct);
+                var found = await FindAsync(db, hash, ct);
+                if (found is null) return new EngineActionResult(false, NotFound);
+                row = found;
+                if (IsDownloaded(row)) return new EngineActionResult(true, "Already downloaded");
+                row.ForcedAt = Now;
+                row.Status = EngineTorrentStatus.Downloading;
+                row.Error = null;
+                row.UpdatedAt = Now;
+                await db.SaveChangesAsync(ct);
+                _starting.TryAdd(hash, 0);
+            }
+            finally
+            {
+                _queueGate.Release();
+            }
+            result = await StartOrResumeAsync(row, "Downloading now");
+        }
+        if (!result.Ok) await PromoteAsync(CancellationToken.None);
+        return result;
+    }
+
+    /// <summary>Caller holds the hash lock and has persisted the row as downloading, so no request token applies.</summary>
+    private async Task<EngineActionResult> StartOrResumeAsync(EngineTorrent row, string okMessage)
+    {
         try
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var found = await FindAsync(db, hash, ct);
-            if (found is null) return new EngineActionResult(false, NotFound);
-            row = found;
-            if (IsDownloaded(row)) return new EngineActionResult(true, "Already downloaded");
-            row.ForcedAt = Now;
-            row.Status = EngineTorrentStatus.Downloading;
-            row.Error = null;
-            row.UpdatedAt = Now;
-            await db.SaveChangesAsync(ct);
+            if (backend.Contains(row.Hash))
+            {
+                // Loaded earlier as a stream (files deselected): a kept download fetches every file.
+                if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(row.Hash, null);
+                await backend.ResumeAsync(row.Hash);
+                return new EngineActionResult(true, okMessage);
+            }
+            var outcome = await StartInBackendAsync(row, PurposeOf(row), null, CancellationToken.None);
+            if (outcome.Ok) return new EngineActionResult(true, okMessage);
+            await MarkErrorAsync(row.Hash, outcome.Message);
+            return new EngineActionResult(false, outcome.Message);
         }
         finally
         {
-            _queueGate.Release();
+            _starting.TryRemove(row.Hash, out _);
         }
-        return await StartOrResumeAsync(row, "Downloading now", ct);
-    }
-
-    private async Task<EngineActionResult> StartOrResumeAsync(EngineTorrent row, string okMessage, CancellationToken ct)
-    {
-        if (backend.Contains(row.Hash))
-        {
-            await backend.ResumeAsync(row.Hash);
-            return new EngineActionResult(true, okMessage);
-        }
-        var outcome = await StartInBackendAsync(row, PurposeOf(row), null, ct);
-        if (outcome.Ok) return new EngineActionResult(true, okMessage);
-        await MarkErrorAsync(row.Hash, outcome.Message, ct);
-        await PromoteAsync(ct);
-        return new EngineActionResult(false, outcome.Message);
     }
 
     public async Task<EngineActionResult> RemoveAsync(string infoHash, bool deleteFiles, CancellationToken ct = default)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
-        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        using (await LockHashAsync(hash, ct))
         {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
             var row = await FindAsync(db, hash, ct);
             if (row is null) return new EngineActionResult(false, NotFound);
             var files = backend.Get(hash)?.Files.Select(f => f.FullPath).ToList()
                 ?? VerifiedFiles(row).Select(f => f.FullPath).Where(p => p is not null).Select(p => p!).ToList();
             if (files.Count == 0 && LoadTorrentFile(hash) is { } meta) files = FilesFromMetadata(meta, row.SavePath);
-            if (backend.Contains(hash)) await backend.RemoveAsync(hash);
-            if (deleteFiles) DeleteReleaseFiles(files, row.SavePath);
-            if (deleteFiles) TryDelete(TorrentFilePath(hash));
             db.EngineTorrents.Remove(row);
             await db.SaveChangesAsync(ct);
+            if (backend.Contains(hash)) await backend.RemoveAsync(hash);
+            _startedAt.TryRemove(hash, out _);
+            lock (_openStreams) _pendingDetach.Remove(hash);
+            if (deleteFiles) DeleteReleaseFiles(files, row.SavePath);
+            if (deleteFiles) TryDelete(TorrentFilePath(hash));
         }
         storage.ResetDirectorySizeCache();
-        await PromoteAsync(ct);
+        await PromoteAsync(CancellationToken.None);
         return new EngineActionResult(true, "Removed");
     }
 
@@ -547,26 +709,76 @@ internal sealed class TorrentEngineService(
     public async Task<Stream> OpenFileStreamAsync(string infoHash, string fileIndexOrPath, CancellationToken ct = default)
     {
         var hash = infoHash.Trim().ToLowerInvariant();
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var row = await FindAsync(db, hash, ct) ?? throw new FileNotFoundException(NotFound);
-        row.LastUsedAt = Now;
-        await db.SaveChangesAsync(ct);
+        int index;
+        using (await LockHashAsync(hash, ct))
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var row = await FindAsync(db, hash, ct) ?? throw new FileNotFoundException(NotFound);
+            row.LastUsedAt = Now;
+            await db.SaveChangesAsync(ct);
 
-        if (!backend.Contains(hash) && IsDownloaded(row))
-        {
-            var files = VerifiedFiles(row);
-            var match = ResolveIndex(fileIndexOrPath, files.Select(f => f.Path).ToList());
-            var path = files[match].FullPath ?? throw new FileNotFoundException("File path not recorded.");
-            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+            if (!backend.Contains(hash) && IsDownloaded(row))
+            {
+                var files = VerifiedFiles(row);
+                var match = ResolveIndex(fileIndexOrPath, files.Select(f => f.Path).ToList());
+                var path = files[match].FullPath ?? throw new FileNotFoundException("File path not recorded.");
+                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+            }
+            if (!backend.Contains(hash))
+            {
+                // The row's own purpose: playing a kept download must not deselect the files it is downloading.
+                var outcome = await StartInBackendAsync(row, PurposeOf(row), TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), ct);
+                if (!outcome.Ok) throw new IOException(outcome.Message);
+            }
+            var live = backend.Get(hash) ?? throw new FileNotFoundException(NotFound);
+            index = ResolveIndex(fileIndexOrPath, live.Files.Select(f => f.Path).ToList());
+            // Counted before the lock is released so a completion in between defers its detach.
+            lock (_openStreams) _openStreams[hash] = _openStreams.GetValueOrDefault(hash) + 1;
         }
-        if (!backend.Contains(hash))
+        try
         {
-            var outcome = await StartInBackendAsync(row, TorrentPurpose.Stream, TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), ct);
-            if (!outcome.Ok) throw new IOException(outcome.Message);
+            var inner = await backend.OpenStreamAsync(hash, index, ct);
+            return new TrackedStream(inner, () => OnStreamClosed(hash));
         }
-        var live = backend.Get(hash) ?? throw new FileNotFoundException(NotFound);
-        var index = ResolveIndex(fileIndexOrPath, live.Files.Select(f => f.Path).ToList());
-        return await backend.OpenStreamAsync(hash, index, ct);
+        catch
+        {
+            OnStreamClosed(hash);
+            throw;
+        }
+    }
+
+    internal int OpenStreamCount(string hash)
+    {
+        lock (_openStreams) return _openStreams.GetValueOrDefault(hash);
+    }
+
+    private void OnStreamClosed(string hash)
+    {
+        bool detach;
+        lock (_openStreams)
+        {
+            var n = _openStreams.GetValueOrDefault(hash) - 1;
+            if (n > 0) _openStreams[hash] = n;
+            else _openStreams.Remove(hash);
+            detach = n <= 0 && _pendingDetach.Contains(hash);
+        }
+        if (detach)
+            _ = DetachDeferredAsync(hash).ContinueWith(t => logger.LogWarning(t.Exception, "Deferred detach of {Hash} failed", hash),
+                TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    /// <summary>A completion that landed while a player was reading; detach now that the last stream closed.</summary>
+    private async Task DetachDeferredAsync(string hash)
+    {
+        using (await LockHashAsync(hash, CancellationToken.None))
+        {
+            lock (_openStreams)
+            {
+                if (_openStreams.GetValueOrDefault(hash) > 0 || !_pendingDetach.Remove(hash)) return;
+            }
+            await backend.RemoveAsync(hash);
+            _startedAt.TryRemove(hash, out _);
+        }
     }
 
     private static int ResolveIndex(string fileIndexOrPath, IReadOnlyList<string> paths)
@@ -581,17 +793,23 @@ internal sealed class TorrentEngineService(
     private static Task<EngineTorrent?> FindAsync(TorrentFlowDbContext db, string hash, CancellationToken ct) =>
         db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
 
-    private async Task MarkErrorAsync(string hash, string message, CancellationToken ct)
+    /// <summary>Always runs to completion: it is the cleanup that releases a slot, so it never takes a request token.</summary>
+    private async Task MarkErrorAsync(string hash, string message)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var row = await FindAsync(db, hash, ct);
-        if (row is null) return;
-        row.Status = EngineTorrentStatus.Error;
-        row.Error = message;
-        row.ForcedAt = null;
-        row.UpdatedAt = Now;
-        await db.SaveChangesAsync(ct);
+        await using (var db = await dbFactory.CreateDbContextAsync(CancellationToken.None))
+        {
+            var row = await FindAsync(db, hash, CancellationToken.None);
+            if (row is not null)
+            {
+                row.Status = EngineTorrentStatus.Error;
+                row.Error = message;
+                row.ForcedAt = null;
+                row.UpdatedAt = Now;
+                await db.SaveChangesAsync(CancellationToken.None);
+            }
+        }
         if (backend.Contains(hash)) await backend.RemoveAsync(hash);
+        _startedAt.TryRemove(hash, out _);
     }
 
     // ---------------------------------------------------------------- monitor
@@ -604,13 +822,29 @@ internal sealed class TorrentEngineService(
     internal async Task TickAsync(CancellationToken ct = default)
     {
         var completed = new List<EngineTorrentCompletedEventArgs>();
+        var detach = new List<string>();
+        var stranded = new List<string>();
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
             foreach (var row in rows)
             {
                 var live = backend.Get(row.Hash);
-                if (live is null) continue;
+                if (live is null)
+                {
+                    // Marked downloading but not in the client (a start that died, a client drop): it holds a slot
+                    // and nothing would ever move it, so restart it.
+                    if (row.Origin == TorrentOrigin.User && row.Status == EngineTorrentStatus.Downloading && !IsDownloaded(row)
+                        && !_starting.ContainsKey(row.Hash))
+                        stranded.Add(row.Hash);
+                    continue;
+                }
+                if (row.Status == EngineTorrentStatus.Parked && IsDownloaded(row))
+                {
+                    // Finalised while a stream was open; the last stream normally detaches it, this is the backstop.
+                    if (OpenStreamCount(row.Hash) == 0) detach.Add(row.Hash);
+                    continue;
+                }
                 if (live.HasMetadata)
                 {
                     row.Name = live.Name;
@@ -618,20 +852,21 @@ internal sealed class TorrentEngineService(
                 }
                 row.Progress = Math.Round(live.Progress, 4);
 
+                var startedAt = _startedAt.TryGetValue(row.Hash, out var t) ? t : row.UpdatedAt;
                 if (live.State == "error")
                 {
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = live.Error ?? "The torrent client reported an error.";
                     row.ForcedAt = null;
-                    await backend.RemoveAsync(row.Hash);
+                    detach.Add(row.Hash);
                 }
                 else if (!live.HasMetadata && row.Status == EngineTorrentStatus.Downloading
-                    && Now - row.UpdatedAt > TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds))
+                    && Now - startedAt > TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds))
                 {
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = "Timed out waiting for torrent metadata (no peers / blocked DHT?). Try another release or check network.";
                     row.ForcedAt = null;
-                    await backend.RemoveAsync(row.Hash);
+                    detach.Add(row.Hash);
                 }
                 else if (live.State == "complete" && live.Files.Count > 0 && live.Files.All(f => f.Selected))
                 {
@@ -644,12 +879,33 @@ internal sealed class TorrentEngineService(
                         row.Status = EngineTorrentStatus.Parked;
                         row.ForcedAt = null;
                         row.Error = null;
-                        await backend.RemoveAsync(row.Hash);
+                        // Detaching under an open stream would cut the player off mid-file.
+                        var deferred = false;
+                        lock (_openStreams)
+                        {
+                            if (_openStreams.GetValueOrDefault(row.Hash) > 0) { _pendingDetach.Add(row.Hash); deferred = true; }
+                        }
+                        if (!deferred) detach.Add(row.Hash);
                         completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
                     }
                 }
             }
-            await db.SaveChangesAsync(ct);
+            // State first, then detach: a crash in between leaves a parked/error row, never a lost transfer.
+            var lost = await SaveTolerantAsync(db);
+            completed.RemoveAll(e => lost.Contains(e.Hash));
+        }
+        foreach (var hash in detach)
+        {
+            try { await backend.RemoveAsync(hash); }
+            catch (Exception ex) { logger.LogWarning(ex, "Detaching {Hash} failed", hash); }
+            _startedAt.TryRemove(hash, out _);
+        }
+        foreach (var hash in stranded)
+        {
+            if (!_starting.TryAdd(hash, 0)) continue;
+            logger.LogWarning("Transfer {Hash} was marked downloading but not loaded; restarting it", hash);
+            try { await StartValidatedAsync(hash); }
+            catch (Exception ex) { logger.LogError(ex, "Restarting {Hash} failed", hash); }
         }
         if (completed.Count > 0) storage.ResetDirectorySizeCache();
         foreach (var e in completed)
@@ -662,14 +918,39 @@ internal sealed class TorrentEngineService(
         await PromoteAsync(ct);
     }
 
-    private async Task PersistSnapshotAsync(BackendSnapshot snap, CancellationToken ct)
+    /// <summary>
+    /// Saves the monitor's batch. A row deleted meanwhile (the user removed it) makes the whole batch fail with a
+    /// concurrency error; drop just those rows and save the rest. Returns the hashes that were dropped.
+    /// </summary>
+    private static async Task<HashSet<string>> SaveTolerantAsync(TorrentFlowDbContext db)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var row = await FindAsync(db, snap.Hash, ct);
+        var lost = new HashSet<string>(StringComparer.Ordinal);
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await db.SaveChangesAsync(CancellationToken.None);
+                return lost;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < 5)
+            {
+                foreach (var entry in ex.Entries)
+                {
+                    if (entry.Entity is EngineTorrent t) lost.Add(t.Hash);
+                    entry.State = EntityState.Detached;
+                }
+            }
+        }
+    }
+
+    private async Task PersistSnapshotAsync(BackendSnapshot snap)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
+        var row = await FindAsync(db, snap.Hash, CancellationToken.None);
         if (row is null) return;
         if (snap.HasMetadata) { row.Name = snap.Name; if (snap.SizeBytes > 0) row.SizeBytes = snap.SizeBytes; }
         row.Progress = Math.Round(snap.Progress, 4);
-        await db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(CancellationToken.None);
     }
 
     // ---------------------------------------------------------------- files
