@@ -33,6 +33,7 @@ export const routes: RouteObject[] = [
   {
     path: "/",
     Component: RootLayout,
+    HydrateFallback: () => null,
     children: [
       {
         errorElement: <RouteBoundary />,

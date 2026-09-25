@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { Outlet, ScrollRestoration } from "react-router";
+import { Outlet, ScrollRestoration, type Location } from "react-router";
 import { Geist, Geist_Mono } from "next/font/google";
 import { RouterRefreshContext } from "next/navigation";
 import { Header } from "@/components/layout/header";
@@ -16,6 +16,12 @@ import "./globals.css";
 Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
+// A fresh document load always has location.key "default"; keying it per load
+// keeps a new visit from restoring the last session's scroll (Next starts at the top).
+const BOOT_KEY = `boot-${Math.random().toString(36).slice(2)}`;
+const scrollKey = (location: Location) =>
+  location.key === "default" ? BOOT_KEY : location.key;
+
 /**
  * The root layout. `<html>`/`<body>`, metadata and viewport live in
  * `web/index.html`; everything inside `<body>` is the same tree as the Next.js
@@ -28,7 +34,7 @@ export default function RootLayout() {
 
   return (
     <RouterRefreshContext.Provider value={refresh}>
-      <ScrollRestoration />
+      <ScrollRestoration getKey={scrollKey} />
       <ServiceWorkerRegistrar />
       <AuthSessionProvider>
         <UiPreferencesProvider>

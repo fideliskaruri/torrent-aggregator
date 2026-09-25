@@ -1,4 +1,4 @@
-import { permanentRedirect } from "next/navigation";
+import { Navigate } from "react-router";
 
 import { DOWNLOADS_HREF } from "@/lib/navigation";
 
@@ -16,5 +16,5 @@ import { DOWNLOADS_HREF } from "@/lib/navigation";
  * which asks every client to keep coming back to the old path forever.
  */
 export default function ClientRedirect() {
-  permanentRedirect(DOWNLOADS_HREF);
+  return <Navigate replace to={DOWNLOADS_HREF} />;
 }

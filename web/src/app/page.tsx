@@ -16,6 +16,7 @@ export default function HomePage() {
   useDocumentTitle(
     "Browse",
     "Everything you can watch right now, and everything you can get.",
+    { absolute: true },
   );
   const [params] = useSearchParams();
   const q = params.get("q")?.trim();
