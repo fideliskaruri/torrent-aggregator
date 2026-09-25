@@ -4,9 +4,11 @@
     <RootNamespace>TorrentFlow.Api</RootNamespace>
     <UserSecretsId>torrentflow-local</UserSecretsId>
     <WebProjectDirectory>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', 'web'))</WebProjectDirectory>
+    <GenerateEmbeddedFilesManifest Condition="'$(PublishSingleFile)' == 'true'">true</GenerateEmbeddedFilesManifest>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
     <ProjectReference Include="..\TorrentFlow.Core\TorrentFlow.Core.csproj" />
     <ProjectReference Include="..\TorrentFlow.Data\TorrentFlow.Data.csproj" />
     <ProjectReference Include="..\TorrentFlow.Search\TorrentFlow.Search.csproj" />
@@ -22,7 +24,10 @@
     <WebBuildInputs Include="$(WebProjectDirectory)**\*"
                     Exclude="$(WebProjectDirectory)node_modules\**;$(WebProjectDirectory)dist\**" />
   </ItemGroup>
-  <Import Project="obj\TorrentFlow.WebAssets.g.props" Condition="Exists('obj\TorrentFlow.WebAssets.g.props')" />
+  <ItemGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <EmbeddedResource Include="$(WebProjectDirectory)dist\**"
+                      Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
   <!-- dotnet test forwards this global property to every project, including API references. -->
   <Target Name="BuildWeb" BeforeTargets="PrepareForBuild"
           Condition="'$(SkipWebBuild)' != 'true' and '$(DesignTimeBuild)' != 'true' and '$(VSTestSessionCorrelationId)' == ''"

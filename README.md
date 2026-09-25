@@ -63,12 +63,28 @@ To distribute a **single executable** that needs neither the .NET SDK/runtime no
 ```
 
 The script builds `web/` with pnpm, then publishes `server/TorrentFlow.Api` as
-`artifacts\exe\TorrentFlow.exe`. Double-click the exe or run it directly.
+`artifacts\exe\TorrentFlow.exe`. Double-click the exe or run it directly:
+
+```powershell
+.\artifacts\exe\TorrentFlow.exe --urls http://127.0.0.1:3000
+```
+
 By default it stores the database and settings in `%LOCALAPPDATA%\TorrentFlow`.
 If a `portable` marker file sits next to the exe, it instead keeps data in `data\`
 beside the exe so the whole folder stays self-contained.
 Pass `--urls http://127.0.0.1:3000` to override the port, or `--no-browser` to suppress the
 automatic browser launch.
+
+To distribute a **single folder** that needs neither the .NET SDK/runtime nor Node/pnpm:
+
+```powershell
+dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
+```
+
+Ship the entire folder and run `.\TorrentFlow.exe --urls http://127.0.0.1:3000` from that
+folder. Use `-r linux-x64`, `-r linux-arm64`, `-r osx-arm64` or `-r osx-x64` with a matching
+output directory for those platforms. The publish can be produced on any OS (e.g. build the Linux
+folder on Windows).
 
 ### Linux and macOS
 
@@ -92,8 +108,8 @@ Run it from a native file system (not a Windows mount such as `/mnt/c` under WSL
 
 ```sh
 cp -r TorrentFlow-linux-x64 ~/torrentflow && cd ~/torrentflow
-chmod +x TorrentFlow.Api
-TorrentFlow__DataDirectory="$HOME/.local/share/torrentflow" ./TorrentFlow.Api --urls http://127.0.0.1:3000
+chmod +x TorrentFlow
+TorrentFlow__DataDirectory="$HOME/.local/share/torrentflow" ./TorrentFlow --urls http://127.0.0.1:3000
 ```
 
 The SQLite database is created and migrated under the data directory on first start; the

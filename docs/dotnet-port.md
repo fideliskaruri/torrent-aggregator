@@ -164,6 +164,16 @@ marker file sits next to the exe, it instead keeps data in `data\` beside the ex
 folder stays self-contained. Pass `--urls http://127.0.0.1:3000` to override the port, or
 `--no-browser` to suppress the automatic browser launch.
 
+## Folder distribution
+
+```powershell
+dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true -o artifacts/publish/win-x64
+```
+
+Ship the entire folder and run `.\TorrentFlow.exe --urls http://127.0.0.1:3000` from that
+folder. Use `linux-x64`, `linux-arm64`, `osx-arm64`, or `osx-x64` with a matching output
+directory for those platforms.
+
 See the root README for data migration and environment configuration.
 
 ## Library module

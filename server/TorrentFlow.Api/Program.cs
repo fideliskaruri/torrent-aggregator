@@ -17,14 +17,16 @@ System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalizat
 System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 
 var builder = WebApplication.CreateBuilder(args);
-var isPublishedExe = IsPublishedExe();
+var isPublishedBundle = IsPublishedBundle();
 
 // Local single-user app: listen on loopback only unless the owner overrides --urls.
 var configuredUrls = builder.Configuration["urls"];
 var aspNetCoreUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
 var defaultUrl = "http://127.0.0.1:3000";
-var useDefaultUrl = isPublishedExe && string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls);
-if (useDefaultUrl)
+if (string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls))
+    builder.WebHost.UseUrls(defaultUrl);
+
+if (isPublishedBundle && string.IsNullOrWhiteSpace(configuredUrls) && string.IsNullOrWhiteSpace(aspNetCoreUrls))
 {
     if (!IsLoopbackPortAvailable(3000))
     {
@@ -32,8 +34,6 @@ if (useDefaultUrl)
         Environment.ExitCode = 1;
         return;
     }
-
-    builder.WebHost.UseUrls(defaultUrl);
 }
 
 var dataDir = ResolveDataDirectory(builder.Configuration, builder.Environment);
@@ -117,7 +117,7 @@ app.MapControllers();
 if (webFiles is not null)
     app.MapFallbackToFile("{**path:regex(^(?!api/|assets/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles });
 
-var launchBrowser = isPublishedExe && !Debugger.IsAttached && !args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase));
+var launchBrowser = isPublishedBundle && !Debugger.IsAttached && !args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase));
 if (launchBrowser)
 {
     var browserUrl = GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl);
@@ -132,7 +132,7 @@ static string ResolveDataDirectory(IConfiguration configuration, IHostEnvironmen
     if (!string.IsNullOrWhiteSpace(configured))
         return Path.GetFullPath(configured);
 
-    if (!IsPublishedExe())
+    if (!IsPublishedBundle())
         return Path.Combine(environment.ContentRootPath, "data");
 
     var exeDirectory = Path.GetDirectoryName(Environment.ProcessPath ?? AppContext.BaseDirectory) ?? AppContext.BaseDirectory;
@@ -164,12 +164,8 @@ static IFileProvider? ResolveWebRootFileProvider(IConfiguration configuration, s
             return new PhysicalFileProvider(Path.GetFullPath(candidate));
     }
 
-    const string manifestResourceName = "TorrentFlow.WebAssets.Manifest.xml";
     var assembly = typeof(Program).Assembly;
-    if (assembly.GetManifestResourceInfo(manifestResourceName) is null)
-        return null;
-
-    var embedded = new ManifestEmbeddedFileProvider(assembly, "wwwroot", manifestResourceName, DateTimeOffset.UtcNow);
+    var embedded = new ManifestEmbeddedFileProvider(assembly, "wwwroot");
     return embedded.GetFileInfo("index.html").Exists ? embedded : null;
 }
 
@@ -193,10 +189,11 @@ static void OpenBrowser(string url)
     }
 }
 
-static bool IsPublishedExe()
+static bool IsPublishedBundle()
 {
-    var processPath = Environment.ProcessPath ?? string.Empty;
-    return string.Equals(Path.GetFileNameWithoutExtension(processPath), "TorrentFlow", StringComparison.OrdinalIgnoreCase);
+#pragma warning disable IL3000
+    return string.IsNullOrEmpty(typeof(Program).Assembly.Location);
+#pragma warning restore IL3000
 }
 
 static bool IsLoopbackPortAvailable(int port)
