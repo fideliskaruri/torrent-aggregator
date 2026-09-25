@@ -106,6 +106,15 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
         Assert.Equal("builtin", settings.GetProperty("clientType").GetString());
         Assert.Equal(JsonValueKind.Null, settings.GetProperty("externalClientType").ValueKind);
 
+        await using (var scope = disabledFactory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>();
+            await using var context = await db.CreateDbContextAsync();
+            var stored = await context.ClientSettings.AsNoTracking().SingleAsync();
+            Assert.Equal("builtin", stored.ClientType);
+            Assert.Equal("qbittorrent", stored.ExternalClientType);
+        }
+
         var switchBad = await http.PutAsync("/api/settings/client", new StringContent("""{"clientType":"qbittorrent"}""", Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.BadRequest, switchBad.StatusCode);
         Assert.Contains("built-in downloader only", (await Read(switchBad)).GetProperty("error").GetString() ?? "");

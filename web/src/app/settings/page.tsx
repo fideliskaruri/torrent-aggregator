@@ -161,7 +161,7 @@ export default function SettingsPage() {
   const [pickerTarget, setPickerTarget] = useState<
     "base" | "savePath" | string | null
   >(null);
-  const [externalClientsEnabled, setExternalClientsEnabled] = useState(true);
+  const [externalClientsEnabled, setExternalClientsEnabled] = useState(false);
   const [setupComplete, setSetupComplete] = useState(false);
   const [persistedPathWarnings, setPersistedPathWarnings] = useState<
     DownloadPathWarning[]

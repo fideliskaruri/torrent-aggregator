@@ -51,7 +51,18 @@ public sealed class ClientSettingsStore(
     public async Task<ClientSetting> EnsureAsync(TorrentFlowDbContext db, CancellationToken ct = default)
     {
         var row = await db.ClientSettings.FirstOrDefaultAsync(s => s.UserId == LocalUser.Id, ct);
-        if (row is not null) return row;
+        if (row is not null)
+        {
+            // Built-in-only builds: settle a stored external selection on builtin, like switchToBuiltin does
+            // (externalClientType is kept), so modules that read the row directly agree with the effective client.
+            if (!ExternalClientsEnabled && row.ClientType is not "builtin")
+            {
+                row.ClientType = "builtin";
+                row.UpdatedAt = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+            }
+            return row;
+        }
         var now = DateTime.UtcNow;
         row = new ClientSetting
         {
