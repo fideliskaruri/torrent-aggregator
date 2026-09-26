@@ -154,3 +154,7 @@ obj/
 server/**/torrentflow.db*
 
 server/**/data/
+server/**/data.migrated-*/
+# Legacy <repo>\data libraries and the backup install.ps1 leaves after moving one into the installed app
+/data/
+/data.migrated-*/

@@ -13,3 +13,7 @@
 *.woff2 binary
 *.mp4 binary
 *.db binary
+
+# cmd.exe misreads LF-only batch files.
+*.cmd text eol=crlf
+*.bat text eol=crlf

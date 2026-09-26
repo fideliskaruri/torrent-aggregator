@@ -2,6 +2,20 @@
 
 **A media-first torrent app for finding, tracking, downloading, and streaming titles.**
 
+## Install on Windows (one command)
+
+From the repository root, in PowerShell:
+
+```powershell
+.\install.ps1
+```
+
+(or double-click `install.cmd`). It checks the prerequisites (.NET 10 SDK, Node.js, pnpm), gets Inno Setup
+for your user if it's missing, and builds the app. It then installs it, or updates the existing install
+after asking, and starts it in the tray. It also offers to move a `.\run.ps1` library into the installed
+app, keeping the old folder as a backup. Add `-Yes` to accept every default. Details:
+[docs/windows-install.md](docs/windows-install.md#install-from-source-one-command).
+
 TorrentFlow turns torrent discovery into a title-first experience: search for a film, series,
 or anime, open its title page, then choose **Play** or **Download**. Torrent details stay behind
 the scenes while the app manages acquisition, playback, local files, and library state.

@@ -10,12 +10,14 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-; Windows version resources are numeric only (1.2.3-beta.1 -> 1.2.3).
+; Windows version resources are numeric only (1.2.3-beta.1+abc1234 -> 1.2.3).
 #ifndef AppNumericVersion
-  #if Pos("-", AppVersion) > 0
-    #define AppNumericVersion Copy(AppVersion, 1, Pos("-", AppVersion) - 1)
-  #else
-    #define AppNumericVersion AppVersion
+  #define AppNumericVersion AppVersion
+  #if Pos("+", AppNumericVersion) > 0
+    #define AppNumericVersion Copy(AppNumericVersion, 1, Pos("+", AppNumericVersion) - 1)
+  #endif
+  #if Pos("-", AppNumericVersion) > 0
+    #define AppNumericVersion Copy(AppNumericVersion, 1, Pos("-", AppNumericVersion) - 1)
   #endif
 #endif
 #ifndef SourceExe

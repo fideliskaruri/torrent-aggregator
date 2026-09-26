@@ -5,7 +5,61 @@ runs as a desktop app on Windows. Everything here applies only to that published
 Windows. `dotnet run`, Docker and Linux builds keep their console and none of these features
 appear.
 
-## Install
+## Install from source (one command)
+
+From the repository root, in PowerShell:
+
+```powershell
+.\install.ps1
+```
+
+You can also double-click `install.cmd`. From a terminal, type `.\install.cmd` with the `.\`: a bare
+`install.cmd` can run a different `install.cmd` found on `PATH`; nvm-windows ships one.
+
+What it does, in order:
+
+1. **Checks prerequisites.** It needs the .NET 10 SDK, Node.js and pnpm. If one is missing, it prints the
+   command that installs it and stops. If Inno Setup is missing, it installs it for your user without
+   prompting (`winget install JRSoftware.InnoSetup --scope user`). If that fails, it installs by copying
+   `TorrentFlow.exe` to `%LOCALAPPDATA%\Programs\TorrentFlow` and creating the same Start-menu shortcut
+   instead.
+2. **Builds** the web UI, the single-file exe and the installer (`scripts\publish-exe.ps1 -Installer`).
+   The version is `<latest v* tag, else 0.0.0>+<git short sha>`, with `.dirty` added for uncommitted
+   changes, so two builds are always distinguishable. A `0.0.0` build never offers GitHub updates.
+3. **Detects an existing install** from the installer's uninstall entry (or the install folder) and asks:
+   `TorrentFlow <old> is installed at <path>. Update to <new>? [Y/n]`, or `Install TorrentFlow <new>? [Y/n]`
+   if there is none. It asks even when the versions match, because rebuilds share a version.
+4. **Offers to move your `run.ps1` library.** `dotnet run` keeps its data in
+   `server\TorrentFlow.Api\data`; `<repo>\data` is checked too.
+   - If the installed app (`%LOCALAPPDATA%\TorrentFlow`) has no library yet, it asks
+     `Move your existing library from <repo data> into the installed app? [Y/n]`.
+   - It stops the `run.ps1` server first, then copies the whole folder: database with `-wal`/`-shm`,
+     engine resume state, settings and the default `downloads` folder.
+   - It checks every file by SHA-256 and opens the copied database read-only. It then rewrites the stored
+     absolute paths that pointed into the old folder, so downloads stay attached.
+   - Finally it renames the old folder to `data.migrated-<timestamp>`. Nothing is deleted.
+   - If **both** libraries exist, nothing is overwritten. It shows both and asks which to keep; the
+     default is the installed one. Keeping the `run.ps1` one first renames the installed library to
+     `TorrentFlow.replaced-<timestamp>`.
+   - Running it again offers nothing once the old folder has been renamed (unless you point `-LegacyDataDir` at a backup). It follows the same rules as
+     the app's own first-run migration: the same target folder, and never overwriting.
+5. **Stops a running TorrentFlow gracefully** (the same clean shutdown as *Quit* in the tray), runs the
+   installer silently over it and relaunches it in the tray. It ends with:
+   `TorrentFlow <version> installed. Open: http://127.0.0.1:3000 (tray icon running)`.
+
+Options:
+
+| Option | Effect |
+| --- | --- |
+| `-Yes` | Accept every default without prompting: install/update, move the library, keep the installed one if both exist, and stop a `run.ps1` server or other TorrentFlow that holds the port. |
+| `-SkipBuild` | Reinstall the previous build in `artifacts\exe`. |
+| `-NoInnoSetup` | Install by copying files instead of running the installer. |
+| `-InstallDir`, `-DataDir`, `-LegacyDataDir` | Override the install folder, the installed app's data folder, or the library to move. |
+
+`TorrentFlow__DataDirectory` and `ASPNETCORE_URLS` are honoured, and the relaunched app inherits them.
+Use them for a throwaway test install that leaves your real library and port 3000 alone. The installer has a single uninstall entry, so a test install with `-InstallDir` takes it over. Uninstall the test copy afterwards and run `.\install.ps1` again to put the entry back on your real install.
+
+## Install a release
 
 Download `TorrentFlow-Setup-<version>.exe` from the
 [latest release](https://github.com/fideliskaruri/torrent-aggregator/releases/latest) and run it.

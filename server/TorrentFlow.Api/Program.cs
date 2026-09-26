@@ -21,6 +21,13 @@ using TorrentFlow.Api;
 System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
 System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 
+// install.ps1 uses the new exe to verify and move a run.ps1 library before installing; these never start the server.
+if (DataAdoption.RunCli(args, Console.Out) is { } cliExitCode)
+{
+    Console.Out.Flush();
+    Environment.Exit(cliExitCode);
+}
+
 var isPublishedBundle = IsPublishedBundle();
 // The published Windows exe is a GUI-subsystem app (no console window): reuse the terminal it was started from, if
 // any, and show fatal errors in a message box instead of a console nobody can see.

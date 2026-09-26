@@ -1,5 +1,5 @@
 param(
-    # Stamped into the exe and the installer, e.g. 1.2.3 (a leading v is dropped).
+    # Stamped into the exe and the installer, e.g. 1.2.3 or 1.2.3+abc1234 (a leading v is dropped).
     [string]$Version = '',
     # Also compile installer\windows\TorrentFlow.iss with Inno Setup (iscc).
     [switch]$Installer
@@ -29,7 +29,13 @@ try {
     }
 
     $versionArgs = @()
-    if ($Version) { $versionArgs = @("-p:Version=$Version") }
+    if ($Version) {
+        # MSBuild's Version must be SemVer without build metadata; the +<sha> part becomes SourceRevisionId, which
+        # the SDK appends to the informational (product) version: 1.2.3+abc1234.
+        $core, $metadata = $Version -split '\+', 2
+        $versionArgs = @("-p:Version=$core")
+        if ($metadata) { $versionArgs += "-p:SourceRevisionId=$metadata" }
+    }
 
     dotnet publish server\TorrentFlow.Api -c Release -r win-x64 --self-contained true `
         -p:PublishSingleFile=true `
