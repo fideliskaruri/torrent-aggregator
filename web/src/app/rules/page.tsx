@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Play, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -124,7 +124,6 @@ export default function RulesPage() {
   const rules = rulesData ?? [];
   const [running, setRunning] = useState(false);
   const [runReviewOpen, setRunReviewOpen] = useState(false);
-  const [runLog, setRunLog] = useState<string | null>(null);
   const [pendingRemove, setPendingRemove] = useState<Rule | null>(null);
   const [removing, setRemoving] = useState(false);
   const [retargeting, setRetargeting] = useState<string | null>(null);
@@ -336,12 +335,10 @@ export default function RulesPage() {
         .join("\n");
       const message =
         "Retarget or delete unsupported legacy rules before running automation.";
-      setRunLog(`${message}\n${blocked}`);
-      toast.warning(message);
+      toast.warning(message, { description: blocked });
       return;
     }
     setRunning(true);
-    setRunLog(null);
     try {
       const res = await fetch("/api/rules/run", { method: "POST" });
       const data = await res.json().catch(() => ({
@@ -355,17 +352,24 @@ export default function RulesPage() {
             `${s.status ? `[${s.status}] ` : ""}${s.title ? s.title + " — " : ""}${s.message}`,
         )
         .join("\n");
-      setRunLog(lines || data.message || "No rules ran");
       if (res.ok && data.ok !== false) {
         if (data.offline) {
-          toast.warning(data.message || "Client offline during rules run");
+          toast.warning(data.message || "Client offline during rules run", {
+            description: lines || undefined,
+          });
         } else {
-          toast.success(data.message || "Rules run complete");
+          toast.success(data.message || "Rules run complete", {
+            description: lines || undefined,
+          });
         }
       } else if (data.offline || res.status === 503) {
-        toast.warning(data.message || "Torrent client offline");
+        toast.warning(data.message || "Torrent client offline", {
+          description: lines || undefined,
+        });
       } else {
-        toast.error(data.message || data.error || "Failed to run rules");
+        toast.error(data.message || data.error || "Failed to run rules", {
+          description: lines || undefined,
+        });
       }
       void load();
     } catch {
@@ -551,16 +555,6 @@ export default function RulesPage() {
           Create rule
         </Button>
       </form>
-
-      {runLog ? (
-        <pre
-          className="surface p-4 text-xs text-[var(--text-secondary)] whitespace-pre-wrap font-mono"
-          role="status"
-          aria-live="polite"
-        >
-          {runLog}
-        </pre>
-      ) : null}
 
       <div className="space-y-2">
         {rules.map((rule) => {

@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { useSession } from "@/components/providers/session-provider";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   ArrowDownToLine,
   ArrowRight,

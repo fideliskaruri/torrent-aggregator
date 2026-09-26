@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { Plus } from "lucide-react";
 import type { RecommendationRail } from "@/lib/recommend";
 import { PosterImage } from "@/components/browse/poster-image";

@@ -1,10 +1,31 @@
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
-function Toaster({ ...props }: ToasterProps) {
+function Toaster({
+  position,
+  visibleToasts = 5,
+  expand = true,
+  closeButton = true,
+  richColors = true,
+  duration = 5000,
+  offset = "calc(1rem + var(--safe-bottom))",
+  mobileOffset = "var(--header-h)",
+  ...props
+}: ToasterProps) {
+  const isMobile = useMediaQuery("(max-width: 639px)");
+
   return (
     <Sonner
       theme="dark"
       className="toaster group"
+      position={isMobile ? "top-center" : position ?? "bottom-right"}
+      visibleToasts={visibleToasts}
+      expand={expand}
+      closeButton={closeButton}
+      richColors={richColors}
+      duration={duration}
+      offset={offset}
+      mobileOffset={mobileOffset}
       toastOptions={{
         classNames: {
           toast:

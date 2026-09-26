@@ -28,7 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ReactNode } from "react";
 import { Download, Loader2, Play, Search } from "lucide-react";
 import { useFeatures } from "@/lib/features";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { PosterImage } from "@/components/browse/poster-image";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { posterTint } from "@/components/browse/poster";
@@ -669,7 +669,9 @@ export function TitleDetail(props: TitleDetailProps) {
           ...prev,
           [key]: { status: "done", report },
         }));
-        toast.success(outcome.value.message);
+        toast.success(outcome.value.message, {
+          description: report.planReason ?? undefined,
+        });
         refetch();
       } catch (err) {
         spentSeasonGrabs.current.delete(key);

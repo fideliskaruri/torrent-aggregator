@@ -2,7 +2,6 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
 import {
   AlertTriangle,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   FolderOpen,
@@ -11,7 +10,6 @@ import {
   Plus,
   Tags,
   Trash2,
-  XCircle,
 } from "lucide-react";
 import { Link } from "react-router";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
@@ -29,6 +27,7 @@ import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import { TfErrorState } from "@/components/tf/error-state";
 import { TfPageHeader } from "@/components/tf/page-header";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { STORAGE_CAP_FOCUS_PARAM } from "@/lib/library/storage-override";
 import {
@@ -163,9 +162,6 @@ export default function SettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadKey, setLoadKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const [pathsExpanded, setPathsExpanded] = useState(false);
@@ -378,7 +374,6 @@ export default function SettingsPage() {
 
   function updateForm(update: (current: ClientForm) => ClientForm) {
     setConnectionOk(false);
-    setMessage(null);
     setForm(update);
   }
 
@@ -446,7 +441,6 @@ export default function SettingsPage() {
   async function save(event: FormEvent, test: boolean) {
     event.preventDefault();
     setSaving(true);
-    setMessage(null);
     try {
       const res = await fetch("/api/settings/client", {
         method: "PUT",
@@ -537,16 +531,17 @@ export default function SettingsPage() {
       invalidateDownloadPrefs();
       if (data.testResult) {
         setConnectionOk(data.testResult.ok);
-        setMessage({ ok: data.testResult.ok, text: data.testResult.message });
+        if (data.testResult.ok) {
+          toast.success(data.testResult.message);
+        } else {
+          toast.error(data.testResult.message);
+        }
       } else {
-        setMessage({ ok: true, text: "Changes saved" });
+        toast.success("Changes saved");
       }
     } catch (error) {
       setConnectionOk(false);
-      setMessage({
-        ok: false,
-        text: error instanceof Error ? error.message : "Could not save changes",
-      });
+      toast.error(error instanceof Error ? error.message : "Could not save changes");
     } finally {
       setSaving(false);
     }
@@ -554,7 +549,7 @@ export default function SettingsPage() {
 
   function discardChanges() {
     setForm(savedForm);
-    setMessage({ ok: true, text: "Unsaved changes discarded" });
+    toast.success("Unsaved changes discarded");
     setConnectionOk(false);
   }
 
@@ -588,7 +583,7 @@ export default function SettingsPage() {
   async function openFolder(folderPath: string, category?: string) {
     const path = folderPath.trim();
     if (!path && !category) {
-      setMessage({ ok: false, text: "Choose a folder first" });
+      toast.error("Choose a folder first");
       return;
     }
     setOpeningPath(path || category || "default");
@@ -606,24 +601,24 @@ export default function SettingsPage() {
         pathOnly?: string;
       };
       if (data.ok) {
-        setMessage({ ok: true, text: data.message || "Folder opened" });
+        toast.success(data.message || "Folder opened");
       } else {
         const shown = data.path || data.pathOnly || path;
         if (shown) {
           await navigator.clipboard.writeText(shown);
-          setMessage({
-            ok: false,
-            text: `${data.message || data.error || "Could not open a window"} — path copied`,
-          });
+          toast.success(
+            `Path copied: ${shown}`,
+            {
+              description:
+                data.message || data.error || "Could not open a window",
+            },
+          );
         } else {
-          setMessage({
-            ok: false,
-            text: data.message || data.error || "Could not open folder",
-          });
+          toast.error(data.message || data.error || "Could not open folder");
         }
       }
     } catch {
-      setMessage({ ok: false, text: "Could not open folder" });
+      toast.error("Could not open folder");
     } finally {
       setOpeningPath(null);
     }
@@ -941,32 +936,7 @@ export default function SettingsPage() {
           </section>
         </div>
 
-        <div
-          className="surface flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center"
-          aria-live="polite"
-        >
-          <div className="min-w-0 flex-1">
-            {message ? (
-              <p
-                role={message.ok ? "status" : "alert"}
-                className={cn(
-                  "flex items-start gap-2 text-sm",
-                  message.ok ? "text-[var(--success)]" : "text-[var(--danger)]",
-                )}
-              >
-                {message.ok ? (
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                ) : (
-                  <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                )}
-                <span>{message.text}</span>
-              </p>
-            ) : (
-              <p className="text-xs text-[var(--text-tertiary)]">
-                {isDirty ? "Review and save your changes." : "Everything is saved."}
-              </p>
-            )}
-          </div>
+        <div className="surface flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center sm:justify-end">
           <div className="flex flex-wrap gap-2">
             {isDirty ? (
               <Button

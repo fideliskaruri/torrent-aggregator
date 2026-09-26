@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
 import { useDownloadSetup } from "@/components/setup/download-setup";
 import {
@@ -36,10 +36,8 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
   const { streaming } = useFeatures();
   const [statuses, setStatuses] = useState<Record<string, ActionStatus>>({});
   const [playing, setPlaying] = useState<NowPlaying | null>(null);
-  useEffect(() => {
-    if (!streaming) setPlaying(null);
-  }, [streaming]);
   const { ensureDownloadSetup } = useDownloadSetup();
+  const activePlaying = streaming ? playing : null;
 
   const rails = useMemo(
     () => payload.rails.filter((rail) => visibleBrowseRail(rail.id, streaming)),
@@ -154,14 +152,14 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
         <MissingRailsNote rails={rails} />
       </div>
 
-      {playing ? (
+      {activePlaying ? (
         <PlayOverlay
-          infoHash={playing.infoHash}
-          title={playing.title}
-          subtitle={playing.subtitle}
-          season={playing.season}
-          episode={playing.episode}
-          resumePositionSec={playing.resumePositionSec}
+          infoHash={activePlaying.infoHash}
+          title={activePlaying.title}
+          subtitle={activePlaying.subtitle}
+          season={activePlaying.season}
+          episode={activePlaying.episode}
+          resumePositionSec={activePlaying.resumePositionSec}
           onClose={() => setPlaying(null)}
         />
       ) : null}

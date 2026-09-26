@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/lib/toast";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -162,15 +163,14 @@ export function RetentionPanel({
   const [saving, setSaving] = useState<RetentionPolicy | null>(null);
   const [sweeping, setSweeping] = useState<"preview" | "delete" | null>(null);
   const [sweepResult, setSweepResult] = useState<SweepResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingOrphanDelete | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [revealing, setRevealing] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
     try {
       const res = await fetch("/api/settings/client");
       const data = (await res.json()) as {
@@ -186,7 +186,7 @@ export function RetentionPanel({
       setPersisted(data.settings?.defaultRetentionPolicyPersisted !== false);
       setUsage(data.settings?.storageUsage ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -200,7 +200,6 @@ export function RetentionPanel({
 
   async function save(next: RetentionPolicy) {
     setSaving(next);
-    setError(null);
     try {
       const res = await fetch("/api/settings/client", {
         method: "PUT",
@@ -217,13 +216,20 @@ export function RetentionPanel({
         message?: string;
         retentionWarning?: string | null;
       };
-      if (!res.ok) throw new Error(data.message || data.error || "Could not save retention setting");
+      if (!res.ok)
+        throw new Error(data.message || data.error || "Could not save retention setting");
       setPolicy(data.settings?.defaultRetentionPolicy ?? next);
       setPersisted(data.settings?.defaultRetentionPolicyPersisted !== false);
       setUsage(data.settings?.storageUsage ?? null);
-      if (data.retentionWarning) setError(data.retentionWarning);
+      if (data.retentionWarning) {
+        toast.success("Retention setting saved", {
+          description: data.retentionWarning,
+        });
+      } else {
+        toast.success("Retention setting saved");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(null);
     }
@@ -239,7 +245,6 @@ export function RetentionPanel({
       return;
     }
     setSweeping(mode);
-    setError(null);
     try {
       const res = await fetch("/api/settings/retention-sweep", {
         method: "POST",
@@ -258,7 +263,7 @@ export function RetentionPanel({
       setSweepResult(data.result);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setSweeping(null);
     }
@@ -276,8 +281,6 @@ export function RetentionPanel({
    */
   async function reveal(target: string, key: string) {
     setRevealing(key);
-    setError(null);
-    setNotice(null);
     try {
       const res = await fetch("/api/settings/open-folder", {
         method: "POST",
@@ -292,19 +295,22 @@ export function RetentionPanel({
         pathOnly?: string;
       };
       if (data.ok) {
-        setNotice(data.message || `Opened ${target}`);
+        toast.success(data.message || `Opened ${target}`);
         return;
       }
       const shown = data.path || data.pathOnly || target;
       try {
         await navigator.clipboard.writeText(shown);
-        setNotice(`Could not open a window here — path copied: ${shown}`);
+        toast.success(`Path copied: ${shown}`, {
+          description:
+            data.message || data.error || "Could not open a window here",
+        });
         return;
       } catch {
-        setError(data.message || data.error || `Could not open ${shown}`);
+        toast.error(data.message || data.error || `Could not open ${shown}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setRevealing(null);
     }
@@ -322,8 +328,6 @@ export function RetentionPanel({
     const target = pendingDelete;
     if (!target) return;
     setDeleting(target.relativePath);
-    setError(null);
-    setNotice(null);
     try {
       const res = await fetch("/api/settings/untracked-files", {
         method: "POST",
@@ -343,11 +347,11 @@ export function RetentionPanel({
       setPendingDelete(null);
       if (data.usage) setUsage(data.usage);
       else await load();
-      setNotice(
+      toast.success(
         `Removed ${target.label} — ${formatBytes(data.deleted?.bytes ?? target.bytes)} freed.`,
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setDeleting(null);
     }
@@ -529,10 +533,11 @@ export function RetentionPanel({
         </>
       )}
 
-      {notice ? (
-        <p className="text-xs leading-relaxed text-[var(--success)]">{notice}</p>
+      {loadError ? (
+        <p role="alert" className="text-xs leading-relaxed text-[var(--danger)]">
+          {loadError}
+        </p>
       ) : null}
-      {error ? <p className="text-xs text-[var(--danger)]">{error}</p> : null}
 
       <AlertDialog
         open={pendingDelete !== null}

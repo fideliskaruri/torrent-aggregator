@@ -70,7 +70,7 @@ export default function RootLayout() {
               </div>
             </footer>
             <MobileNav />
-            <Toaster position="bottom-right" richColors closeButton />
+            <Toaster />
           </KeyboardRoot>
           </DownloadSetupProvider>
         </UiPreferencesProvider>

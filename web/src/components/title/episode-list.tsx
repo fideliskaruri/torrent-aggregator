@@ -307,16 +307,6 @@ export function EpisodeList({
             </div>
           ) : null}
 
-          {showSeasonGrab &&
-          seasonGrabStatus.status === "done" &&
-          seasonGrabStatus.report.planReason ? (
-            <p
-              data-season-plan-reason
-              className="w-full text-[11px] leading-snug text-[var(--text-tertiary)]"
-            >
-              {seasonGrabStatus.report.planReason}
-            </p>
-          ) : null}
         </div>
       ) : (
         <h2 id="title-episodes-heading" className="text-title">Episodes</h2>

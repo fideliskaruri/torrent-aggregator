@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import {
   ChevronRight,
   Download,
