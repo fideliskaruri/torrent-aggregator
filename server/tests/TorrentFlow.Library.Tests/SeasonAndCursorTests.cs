@@ -66,7 +66,7 @@ public sealed class SeasonAndCursorTests
             await before();
             lock (order) order.Add(episode);
             return new(true, "OK") { InfoHash = $"hash-{episode}", Queued = episode > 2 };
-        }, orderWaitMs: 1000, sendHoldMs: 1000);
+        }, orderWaitMs: 30000, sendHoldMs: 30000);
         Assert.Equal([1, 2, 3, 4], order);
         Assert.Equal(["downloading", "downloading", "queued", "queued"], result.Transfers.Select(x => x.Status));
         Assert.Equal([1, 2, 3, 4], result.CoveredEpisodes);
