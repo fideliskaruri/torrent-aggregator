@@ -109,13 +109,24 @@ public sealed class TitleExtrasService(
             var work = await workTask.ConfigureAwait(false);
             var rail = await railTask.ConfigureAwait(false);
             var m = work?.Metadata;
+            // One AniList media id is one season (sequels carry their own id), so a verified episode count is an
+            // honest numbered Season 1 list. Other seasons answer as themselves with no episodes.
+            var series = work?.IsSeries == true;
+            int? animeSeason = series ? (q.Season is >= 1 ? q.Season : 1) : null;
+            var count = series ? work!.EpisodeCount : null;
+            var animeEpisodes = count is { } c && animeSeason == 1
+                ? Enumerable.Range(1, Math.Min(c, EpisodePlaceholderCap)).Select(i => new TitleEpisodeMeta(i, null, null, null, null, null)).ToList()
+                : [];
             return empty with
             {
                 MoreLikeThis = (rail?.Items ?? []).Select(ToSimilarLink).ToList(),
                 Overview = m?.Synopsis, Rating = m?.Rating, RatingSource = m?.Rating is null ? null : "anilist",
                 ReleaseDate = m?.ReleaseDate, Genres = m?.Genres ?? [],
-                SeasonCount = work?.IsSeries == true ? 1 : null,
-                Resolved = m is not null,
+                Season = animeSeason,
+                SeasonCount = count is null ? null : 1,
+                Seasons = count is null ? [] : [1],
+                Episodes = animeEpisodes,
+                Resolved = m is not null && (!series || animeEpisodes.Count > 0),
             };
         }
 

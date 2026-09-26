@@ -641,6 +641,30 @@ public class ExtrasTests
         Assert.True(payload.Resolved);
     }
 
+    [Fact]
+    public async Task AniList_series_extras_offer_numbered_season_one_episodes()
+    {
+        const string media = """{"data":{"Media":{"id":112608,"title":{"romaji":"Slime Taoshite","english":"Killing Slimes"},"format":"TV","episodes":12,"seasonYear":2021}}}""";
+        var f = new FakeHttpFactory(new FakeHandler(r => Task.FromResult(FakeHandler.Json(media))));
+        var time = new ManualTime();
+        var tmdb = new TmdbClient(f, Fixtures.Options(), time);
+        var anilist = new AniListClient(f, time);
+        var keyless = new KeylessClients(f);
+        var service = new TitleExtrasService(tmdb, anilist, keyless, new ArtworkResolver(tmdb, anilist, keyless, Fixtures.Options(), time),
+            new RecommendationService(f, tmdb, null!, time, NullLogger<RecommendationService>.Instance), time, NullLogger<TitleExtrasService>.Instance);
+
+        var payload = await service.GetAsync(new TitleExtrasQuery("killing-slimes", "Killing Slimes", 2021, "anime", null, "anilist", "112608", null, true));
+        Assert.Equal(1, payload.Season);
+        Assert.Equal(new[] { 1 }, payload.Seasons);
+        Assert.Equal(Enumerable.Range(1, 12), payload.Episodes.Select(e => e.Episode));
+        Assert.Null(payload.Episodes[0].Name);
+        Assert.True(payload.Resolved);
+
+        var seasonTwo = await service.GetAsync(new TitleExtrasQuery("killing-slimes", "Killing Slimes", 2021, "anime", 2, "anilist", "112608", null, true));
+        Assert.Equal(2, seasonTwo.Season);
+        Assert.Empty(seasonTwo.Episodes);
+    }
+
     [Theory]
     [InlineData(null, null)]
     [InlineData("  <p> </p> ", null)]
