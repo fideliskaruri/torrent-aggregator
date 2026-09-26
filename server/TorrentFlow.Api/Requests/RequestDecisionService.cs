@@ -38,7 +38,7 @@ public sealed class RequestDecisionService(
     /// <summary>The last grab an approval started; tests await it.</summary>
     internal Task LastGrab { get; private set; } = Task.CompletedTask;
 
-    public async Task<(DecisionOutcome Outcome, string? Status)> ApproveAsync(string id, CancellationToken ct)
+    public async Task<(DecisionOutcome Outcome, string? Status)> ApproveAsync(string id, CancellationToken ct, string? decisionReason = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
@@ -46,7 +46,7 @@ public sealed class RequestDecisionService(
         if (row.Status != MediaRequestStatus.Pending) return (DecisionOutcome.NotPending, row.Status);
         var now = time.GetUtcNow().UtcDateTime;
         row.Status = MediaRequestStatus.Approved;
-        row.DecisionReason = null;
+        row.DecisionReason = string.IsNullOrWhiteSpace(decisionReason) ? null : decisionReason.Trim();
         row.DecidedAt = now;
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);

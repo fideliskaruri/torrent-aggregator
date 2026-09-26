@@ -32,6 +32,8 @@ public partial class TorrentFlowDbContext : DbContext
 
     public virtual DbSet<MediaRequest> MediaRequests { get; set; }
 
+    public virtual DbSet<RequestAutoApproveRule> RequestAutoApproveRules { get; set; }
+
     public virtual DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
 
     public virtual DbSet<RunLock> RunLocks { get; set; }
@@ -602,6 +604,24 @@ public partial class TorrentFlowDbContext : DbContext
             entity.HasOne<AcquisitionTarget>().WithMany()
                 .HasForeignKey(d => d.AcquisitionTargetId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RequestAutoApproveRule>(entity =>
+        {
+            entity.ToTable("RequestAutoApproveRule");
+
+            entity.HasIndex(e => e.Email, "RequestAutoApproveRule_email_key").IsUnique();
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Email).HasColumnName("email");
+            entity.Property(e => e.Mode).HasColumnName("mode");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("DATETIME")
+                .HasColumnName("createdAt");
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("updatedAt");
         });
 
         modelBuilder.Entity<User>(entity =>

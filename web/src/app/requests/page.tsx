@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Check, Inbox, Loader2, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, Inbox, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,24 +20,38 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { useSessionInfo } from "@/lib/session";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import {
+  autoApproveModeLabel,
+  autoApproveRows,
   inboxRows,
+  parseAutoApprove,
   parseOwnerRequests,
   scopeLabel,
   statusLabel,
   statusTone,
+  type AutoApproveMode,
+  type AutoApproveRule,
   type OwnerRequest,
 } from "@/components/requester/requests";
 
 const REASON_MAX = 500;
+const AUTO_MODES: AutoApproveMode[] = ["none", "moviesOnly", "everything"];
 
 /** The owner's request inbox: pending requests to approve or decline, and what was decided. */
 export default function RequestsPage() {
   const session = useSessionInfo();
   const list = useApiQuery("/api/requests", { select: parseOwnerRequests, refreshMs: 30_000 });
+  const auto = useApiQuery("/api/requests/auto-approve", { select: parseAutoApprove, refreshMs: 60_000 });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [declining, setDeclining] = useState<OwnerRequest | null>(null);
   const [reason, setReason] = useState("");
+  const [autoBusy, setAutoBusy] = useState(false);
+  const [draftEmail, setDraftEmail] = useState("");
+  const [extraEmails, setExtraEmails] = useState<string[]>([]);
   const rows = inboxRows(list.data?.requests ?? []);
+  const autoRows = useMemo(
+    () => autoApproveRows(auto.data ?? { rules: [], knownEmails: [] }, extraEmails),
+    [auto.data, extraEmails],
+  );
 
   async function decide(request: OwnerRequest, action: "approve" | "decline", declineReason?: string) {
     setBusyId(request.id);
@@ -61,12 +75,135 @@ export default function RequestsPage() {
     }
   }
 
+  async function saveAutoRules(next: AutoApproveRule[]) {
+    setAutoBusy(true);
+    try {
+      const res = await sessionAwareFetch("/api/requests/auto-approve", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rules: next }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        toast.error(body?.error ?? "Couldn't save auto-approve rules.");
+        return;
+      }
+      toast.success("Auto-approve updated");
+      auto.refetch();
+    } catch (err) {
+      toast.error((err as Error)?.message || "Couldn't save auto-approve rules.");
+    } finally {
+      setAutoBusy(false);
+    }
+  }
+
+  async function setMode(email: string, mode: AutoApproveMode) {
+    const others = autoRows.filter((r) => r.email !== email && r.mode !== "none").map((r) => ({ email: r.email, mode: r.mode }));
+    const next = mode === "none" ? others : [...others, { email, mode }];
+    await saveAutoRules(next);
+  }
+
+  function addEmail() {
+    const email = draftEmail.trim().toLowerCase();
+    if (!email || !email.includes("@")) {
+      toast.error("Enter a valid email.");
+      return;
+    }
+    if (!extraEmails.includes(email) && !autoRows.some((r) => r.email === email)) {
+      setExtraEmails((prev) => [...prev, email]);
+    }
+    setDraftEmail("");
+  }
+
   return (
     <div className="container-app max-w-4xl space-y-5 py-6" data-owner-requests>
       <div className="space-y-1">
         <h1 className="text-xl font-semibold tracking-tight text-[var(--text)]">Requests</h1>
         <p className="text-sm text-[var(--text-secondary)]">What friends asked for. Approving starts the download.</p>
       </div>
+
+      <section className="surface space-y-3 p-3 sm:p-4" data-auto-approve>
+        <div className="space-y-0.5">
+          <h2 className="text-sm font-semibold text-[var(--text)]">Auto-approve</h2>
+          <p className="text-xs text-[var(--text-secondary)]">
+            Skip the inbox for trusted friends. Movies only still asks you about series.
+          </p>
+        </div>
+        {auto.loading && autoRows.length === 0 ? (
+          <div className="skeleton h-12 w-full rounded-md" aria-hidden />
+        ) : auto.error && autoRows.length === 0 ? (
+          <TfErrorState title="Couldn't load auto-approve" message={auto.error} onRetry={auto.refetch} retrying={auto.refreshing} />
+        ) : (
+          <ul className="space-y-2" data-auto-approve-list>
+            {autoRows.length === 0 ? (
+              <li className="text-xs text-[var(--text-tertiary)]">No requesters yet. Add an email below.</li>
+            ) : (
+              autoRows.map((row) => (
+                <li
+                  key={row.email}
+                  className="flex flex-col gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                  data-auto-approve-row={row.email}
+                >
+                  <span className="min-w-0 truncate text-sm text-[var(--text)]" title={row.email}>
+                    {row.email}
+                  </span>
+                  <label className="sr-only" htmlFor={`auto-mode-${row.email}`}>
+                    Auto-approve for {row.email}
+                  </label>
+                  <select
+                    id={`auto-mode-${row.email}`}
+                    value={row.mode}
+                    disabled={autoBusy}
+                    onChange={(e) => void setMode(row.email, e.target.value as AutoApproveMode)}
+                    className="min-h-[44px] w-full shrink-0 rounded-md border border-[var(--border)] bg-[var(--bg-muted)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] sm:w-44 sm:text-sm"
+                    data-auto-approve-mode={row.email}
+                    aria-label={`Auto-approve mode for ${row.email}`}
+                  >
+                    {AUTO_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {autoApproveModeLabel(mode)}
+                      </option>
+                    ))}
+                  </select>
+                </li>
+              ))
+            )}
+          </ul>
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <label htmlFor="auto-approve-add" className="sr-only">
+            Add requester email
+          </label>
+          <input
+            id="auto-approve-add"
+            type="email"
+            value={draftEmail}
+            onChange={(e) => setDraftEmail(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addEmail();
+              }
+            }}
+            placeholder="friend@example.com"
+            className="min-h-[44px] min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] sm:text-sm"
+            data-auto-approve-add-email
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="min-h-[44px]"
+            disabled={autoBusy}
+            onClick={addEmail}
+            aria-label="Add email to auto-approve list"
+            data-auto-approve-add
+          >
+            <Plus aria-hidden="true" />
+            Add email
+          </Button>
+        </div>
+      </section>
 
       {list.loading ? (
         <ul className="space-y-2" aria-busy="true" aria-label="Loading requests">

@@ -63,7 +63,8 @@ public static class RequestEndpoints
         requester.MapGet("/requests", async (HttpContext http, MediaRequestService service) =>
             Results.Json(new { requests = await service.MineAsync(UserIdOf(http), http.RequestAborted) }));
 
-        requester.MapPost("/requests", async (HttpContext http, MediaRequestService service, RateLimiter limiter, Microsoft.Extensions.Options.IOptions<MetadataOptions> metadata) =>
+        requester.MapPost("/requests", async (HttpContext http, MediaRequestService service, RequestAutoApproveService autoApprove,
+            RateLimiter limiter, Microsoft.Extensions.Options.IOptions<MetadataOptions> metadata) =>
         {
             if (!limiter.Allow($"requester-create:{EmailOf(http)}", service.Options.CreatesPerMinute))
                 return Error(429, "You're sending requests too quickly. Wait a minute and try again.", "rate_limited");
@@ -75,10 +76,19 @@ public static class RequestEndpoints
             var (draft, problem) = RequestRules.Validate(fields!.Provider, fields.ProviderId, fields.MediaType, fields.Title, fields.Year,
                 fields.PosterUrl, fields.Scope, fields.Seasons, fields.Note, tmdbImageHost);
             if (problem is not null) return Error(400, problem);
-            var (outcome, created) = await service.CreateAsync(UserIdOf(http), draft!, http.RequestAborted);
+            var userId = UserIdOf(http);
+            var (outcome, created) = await service.CreateAsync(userId, draft!, http.RequestAborted);
+            if (outcome == CreateOutcome.Created && created is not null)
+            {
+                if (await autoApprove.TryAutoApproveAsync(userId, created.Id, draft!.Scope, draft.MediaType, http.RequestAborted))
+                {
+                    var mine = await service.MineAsync(userId, http.RequestAborted);
+                    created = mine.FirstOrDefault(r => r.Id == created.Id) ?? created;
+                }
+                return Results.Json(new { request = created }, statusCode: 201);
+            }
             return outcome switch
             {
-                CreateOutcome.Created => Results.Json(new { request = created }, statusCode: 201),
                 CreateOutcome.InLibrary => Error(409, $"{draft!.Title} is already in the library.", "in_library"),
                 CreateOutcome.Duplicate => Error(409, "You've already asked for this.", "duplicate"),
                 CreateOutcome.TooManyOpen => Error(409, $"You have {service.Options.MaxOpenPerUser} open requests. Wait for some to be handled, or cancel one.", "too_many_open"),
@@ -135,6 +145,26 @@ public static class RequestEndpoints
                 return Error(400, "status must be one of " + string.Join(", ", MediaRequestStatus.All));
             var requests = await service.AllAsync(wanted, http.RequestAborted);
             return Results.Json(new { requests, pendingCount = await service.PendingCountAsync(http.RequestAborted) });
+        });
+
+        app.MapGet("/api/requests/auto-approve", async (HttpContext http, RequestAutoApproveService autoApprove) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (rules, knownEmails) = await autoApprove.GetAsync(http.RequestAborted);
+            return Results.Json(new { rules, knownEmails });
+        });
+
+        app.MapPut("/api/requests/auto-approve", async (HttpContext http, RequestAutoApproveService autoApprove) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (body, readError) = await ReadObjectAsync(http);
+            if (readError is not null) return readError;
+            var (parsed, parseError) = RequestAutoApproveService.ParsePutBody(body);
+            if (parseError is not null) return Error(400, parseError);
+            var (ok, error, rules) = await autoApprove.PutAsync(parsed!, http.RequestAborted);
+            if (!ok) return Error(400, error!);
+            var (_, knownEmails) = await autoApprove.GetAsync(http.RequestAborted);
+            return Results.Json(new { rules, knownEmails });
         });
 
         return app;

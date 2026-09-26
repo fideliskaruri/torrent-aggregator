@@ -220,6 +220,31 @@ test("owner inbox rows: pending first, then approved, then declined; history hid
   assert.equal(requests.parseOwnerRequests({ requests: [row("x", "pending", "2026-01-01")] }).pendingCount, 1);
 });
 
+test("auto-approve: parse rules, drop none, merge known emails, labels", () => {
+  const cfg = requests.parseAutoApprove({
+    rules: [
+      { email: "A@Ex.Com", mode: "moviesOnly" },
+      { email: "skip@ex.com", mode: "none" },
+      { email: "", mode: "everything" },
+      { email: "b@ex.com", mode: "bogus" },
+      { email: "c@ex.com", mode: "everything" },
+    ],
+    knownEmails: ["z@ex.com", "A@Ex.Com", 12, ""],
+  });
+  assert.deepEqual(cfg.rules, [
+    { email: "a@ex.com", mode: "moviesOnly" },
+    { email: "c@ex.com", mode: "everything" },
+  ]);
+  assert.deepEqual(cfg.knownEmails, ["a@ex.com", "c@ex.com", "z@ex.com"]);
+  assert.deepEqual(
+    requests.autoApproveRows(cfg, [" New@Ex.Com ", "a@ex.com"]).map((r) => `${r.email}:${r.mode}`),
+    ["a@ex.com:moviesOnly", "c@ex.com:everything", "new@ex.com:none", "z@ex.com:none"],
+  );
+  assert.equal(requests.autoApproveModeLabel("none"), "Off");
+  assert.equal(requests.autoApproveModeLabel("moviesOnly"), "Movies only");
+  assert.equal(requests.autoApproveModeLabel("everything"), "Everything");
+});
+
 test("requester library: /library and /watchlist show it read-only, unknown routes fall back to search", () => {
   const me = { via: "tunnel", email: "friend@example.com", role: "requester" };
   responses = { "/api/me": me, "/api/requester/library": { titles: [{ key: "dune-2021", title: "Dune", year: 2021, mediaType: "movie", posterUrl: null, filePath: "C:\\x" }] } };

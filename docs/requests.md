@@ -42,6 +42,15 @@ server refuses every owner API for this role anyway.
 
 `pending` and `approved` are **open**.
 
+`RequestAutoApproveRule` (migration `AddRequestAutoApproveRules`):
+
+| Column | Notes |
+| --- | --- |
+| `id` | GUID string |
+| `email` | requester email, stored lowercased; unique |
+| `mode` | `none` (not stored — rows with none are dropped), `moviesOnly` or `everything` |
+| `createdAt`, `updatedAt` | UTC |
+
 ## Requester API
 
 All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester may call these; the owner gets
@@ -66,7 +75,11 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
   - 409 `too_many_open` when the caller already has `MaxOpenPerUser` open requests.
   - 429 `rate_limited` beyond `CreatesPerMinute` creates per minute, keyed by the signed-in email (never by
     IP or `X-Forwarded-For`).
-  - 201 `{ request }` on success, status `pending`.
+  - 201 `{ request }` on success. Status is normally `pending`. When the owner has an auto-approve rule
+    for the requester's email that matches the request (`moviesOnly` for films, `everything` for any
+    scope), the create path runs the same approve + request-lane grab as a manual approval before the
+    response. The returned request then has status `approved`, `decisionReason` `"Auto-approved"`, and
+    `decidedAt` set.
 - `GET /library` — `{ titles }`: `key`, `title`, `year`, `mediaType`, `posterUrl` for works with a downloaded
   target plus fulfilled requests (at most 500 of each). Nothing else.
 - `POST /requests/{id}/cancel` — only the caller's own request; 404 `not_found` otherwise. 409
@@ -83,14 +96,24 @@ Title and season lookups share a `SearchesPerMinute` budget per email (429 `rate
   then grabs in the background through the owner's own grab path (`GrabService`) on the `request` queue lane:
   one release for a film; one exact release per aired episode of the chosen seasons (the whole series is
   every catalog season, at most 30). The hashes are stored; if nothing starts, the request becomes `failed`
-  with a generic reason (the indexer detail stays in the owner's log).
+  with a generic reason (the indexer detail stays in the owner's log). Auto-approve reuses this same path
+  with reason `"Auto-approved"`.
 - `POST /api/requests/{id}/decline` — optional body `{ reason }` (at most 500 characters, shown to the
   requester). Pending only.
+- `GET /api/requests/auto-approve` — owner only. `{ rules, knownEmails }`. Each rule is
+  `{ email, mode }` where `mode` is `moviesOnly` or `everything` (rows with `none` are not stored).
+  `knownEmails` is the lowercased union of emails seen on past requests and current rules, for the inbox UI.
+- `PUT /api/requests/auto-approve` — owner only. Body `{ rules: [{ email, mode }] }` (at most 200 rules).
+  Replaces the full set. Valid modes: `none`, `moviesOnly`, `everything`. `none` (or empty mode) drops that
+  email. Emails are normalized lowercased; invalid email/mode or unknown fields are 400. Returns the same
+  shape as GET.
 - Fulfilment: on the engine's `TorrentCompleted` event (and once at startup), an approved request whose
   grabbed transfers have all completed becomes `fulfilled`.
 - `GET /api/me` includes `pendingRequests` for the owner. The SPA shows it as a badge on the **Requests**
   nav entry (desktop header after the divider; mobile More sheet and the More tab), and the `/requests`
   inbox lists pending, approved and declined requests with **Approve** and **Decline** (toasts on each).
+  An **Auto-approve** section on the same page lists known requester emails, lets the owner set each to
+  Off / Movies only / Everything, and add emails that have not requested yet.
 
 ## Configuration
 
@@ -110,5 +133,7 @@ requester role on or off.
 `server/tests/TorrentFlow.Api.Tests/RequesterTests.cs` (allow-list table from `EndpointDataSource`, path
 tricks, requester JWT flows, search flags and leak checks, duplicate/overlap, in-library, cap, per-email
 rate limit, cancel, validation), `RequestDecisionTests.cs` (approve/decline, request-lane grab seam, fulfilment
-for films and multi-transfer series, safe failure reason, requester library leak checks) and
-`web/tests/requester.test.mjs` (role-aware shell, requester views and library, inbox ordering, badge count).
+for films and multi-transfer series, safe failure reason, requester library leak checks),
+`RequestAutoApproveTests.cs` (rule matching, owner-only CRUD, movies-only vs everything on create, none leaves
+pending) and `web/tests/requester.test.mjs` (role-aware shell, requester views and library, inbox ordering,
+badge count, auto-approve parse/rows/labels).

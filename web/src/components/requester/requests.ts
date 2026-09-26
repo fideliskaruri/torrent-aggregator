@@ -121,6 +121,67 @@ export function pendingBadge(count: number | null | undefined): string | null {
   return count > 99 ? "99+" : String(Math.floor(count));
 }
 
+/** Owner auto-approve mode for one requester email. */
+export type AutoApproveMode = "none" | "moviesOnly" | "everything";
+
+export interface AutoApproveRule {
+  email: string;
+  mode: AutoApproveMode;
+}
+
+export interface AutoApproveConfig {
+  rules: AutoApproveRule[];
+  knownEmails: string[];
+}
+
+const AUTO_MODES: readonly AutoApproveMode[] = ["none", "moviesOnly", "everything"];
+
+function asAutoMode(value: unknown): AutoApproveMode | null {
+  return typeof value === "string" && (AUTO_MODES as readonly string[]).includes(value)
+    ? (value as AutoApproveMode)
+    : null;
+}
+
+export function parseAutoApprove(json: unknown): AutoApproveConfig {
+  const body = (json ?? {}) as { rules?: unknown; knownEmails?: unknown };
+  const rules = (Array.isArray(body.rules) ? body.rules : []).flatMap((row): AutoApproveRule[] => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    const email = str(r.email);
+    const mode = asAutoMode(r.mode);
+    if (!email || !mode || mode === "none") return [];
+    return [{ email: email.toLowerCase(), mode }];
+  });
+  const known = (Array.isArray(body.knownEmails) ? body.knownEmails : [])
+    .flatMap((e) => {
+      const v = str(e);
+      return v ? [v.toLowerCase()] : [];
+    });
+  const emails = [...new Set([...known, ...rules.map((r) => r.email)])].sort((a, b) => a.localeCompare(b));
+  return { rules, knownEmails: emails };
+}
+
+/** Rows the Auto-approve panel shows: every known email plus any draft the owner just typed. */
+export function autoApproveRows(
+  config: AutoApproveConfig,
+  extraEmails: readonly string[] = [],
+): { email: string; mode: AutoApproveMode }[] {
+  const modeByEmail = new Map(config.rules.map((r) => [r.email, r.mode] as const));
+  const emails = [...new Set([...config.knownEmails, ...extraEmails.map((e) => e.trim().toLowerCase()).filter(Boolean)])]
+    .sort((a, b) => a.localeCompare(b));
+  return emails.map((email) => ({ email, mode: modeByEmail.get(email) ?? "none" }));
+}
+
+export function autoApproveModeLabel(mode: AutoApproveMode): string {
+  switch (mode) {
+    case "none":
+      return "Off";
+    case "moviesOnly":
+      return "Movies only";
+    case "everything":
+      return "Everything";
+  }
+}
+
 const STATUSES: readonly RequestStatus[] = [
   "pending",
   "approved",
