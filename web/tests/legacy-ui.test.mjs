@@ -7,17 +7,6 @@ const server = await createServer({
   configFile: false,
   root: process.cwd(),
   resolve: { alias: { "@": path.resolve("src") } },
-  plugins: [{
-    name: "spa-unit-tests",
-    enforce: "pre",
-    transform(code, id) {
-      const file = id.replaceAll("\\", "/");
-      if (file.endsWith("/web/src/app/downloads/season-selection.ts")) {
-        return code.replace("function defaultSeasonKey", "export function defaultSeasonKey");
-      }
-      return null;
-    },
-  }],
   server: { middlewareMode: true, watch: null, hmr: false, ws: false, fs: { allow: [process.cwd()] } },
 });
 after(() => server.close());
