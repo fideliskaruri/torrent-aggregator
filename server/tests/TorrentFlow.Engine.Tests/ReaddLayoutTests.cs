@@ -33,7 +33,7 @@ internal sealed class RealEngineHarness : IAsyncDisposable
         Engine = engine;
     }
 
-    public static async Task<RealEngineHarness> CreateAsync(string root)
+    public static async Task<RealEngineHarness> CreateAsync(string root, int cap = 1)
     {
         var services = new ServiceCollection()
             .AddLogging(b => b.SetMinimumLevel(LogLevel.Warning))
@@ -47,6 +47,7 @@ internal sealed class RealEngineHarness : IAsyncDisposable
         settings.BaseDownloadPath = Path.Combine(root, "downloads");
         settings.MaxStorageBytes = 1L << 40;
         settings.StorageCapConfigured = true;
+        settings.MaxActiveDownloads = cap;
         db.Works.Add(new Work
         {
             Id = "show",
@@ -65,7 +66,7 @@ internal sealed class RealEngineHarness : IAsyncDisposable
             Dht = false,
             PublicTrackers = [],
             MetadataTimeoutSeconds = 5,
-            MaxActiveDownloads = 1,
+            MaxActiveDownloads = cap,
         };
         var backend = new MonoTorrentBackend(Options.Create(options), NullLogger<MonoTorrentBackend>.Instance);
         var storage = new StorageBudget(TimeProvider.System) { FreeBytesProvider = _ => 10L << 40 };

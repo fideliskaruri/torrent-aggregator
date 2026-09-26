@@ -151,6 +151,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
             if (spec.FilePaths is { } paths && manager.HasMetadata) await PointAtLaidOutFilesAsync(manager, paths);
+            else if (spec.FlattenWrapper && manager.HasMetadata) await DropWrapperAsync(manager, spec.SavePath);
             if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);
             await manager.StartAsync();
         }
@@ -173,8 +174,71 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
                 return new BackendAddOutcome(false,
                     "Timed out waiting for torrent metadata (no peers / blocked DHT?). Try another release or check network.");
             }
+            if (spec.FlattenWrapper && spec.FilePaths is null)
+            {
+                await _gate.WaitAsync(CancellationToken.None);
+                try
+                {
+                    if (_managers.TryGetValue(spec.Hash, out var live) && ReferenceEquals(live, manager))
+                    {
+                        await manager.StopAsync();
+                        await DropWrapperAsync(manager, spec.SavePath);
+                        await manager.StartAsync();
+                    }
+                }
+                finally
+                {
+                    _gate.Release();
+                }
+            }
         }
         return new BackendAddOutcome(true, "", Snapshot(manager));
+    }
+
+    /// <summary>
+    /// Downloads a multi-file torrent without its release folder, as the Next.js engine and qBittorrent's NoSubfolder do:
+    /// each file of a stopped manager is pointed at <c>&lt;save path&gt;/&lt;torrent path&gt;</c>. A file stays in the
+    /// release folder when that path is taken — something is on disk there, a parent is a file, or another loaded
+    /// torrent writes there — so two releases never write over each other; the completed layout moves it later.
+    /// Caller holds the gate.
+    /// </summary>
+    private async Task DropWrapperAsync(TorrentManager manager, string savePath)
+    {
+        if (manager.Files.Count == 0) return;
+        var root = Path.GetFullPath(savePath);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var other in _managers.Values)
+            if (!ReferenceEquals(other, manager) && other.HasMetadata)
+                foreach (var f in other.Files) taken.Add(Path.GetFullPath(f.FullPath));
+        foreach (var file in manager.Files)
+        {
+            var target = Path.GetFullPath(Path.Combine(root, file.Path));
+            if (string.Equals(target, Path.GetFullPath(file.FullPath), StringComparison.OrdinalIgnoreCase)) continue;
+            if (!Layout.ContentLayoutPolicy.IsInside(root, target) || !taken.Add(target) || Blocked(root, target)) continue;
+            try { await manager.MoveFileAsync(file, target); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        // A release folder emptied by the move (files left from an earlier attempt) would linger in the season folder.
+        if (manager.Torrent?.Name is { Length: > 0 } name && Path.Combine(root, name) is var wrapper && Directory.Exists(wrapper))
+            DeleteEmptyTree(wrapper);
+    }
+
+    private static void DeleteEmptyTree(string dir)
+    {
+        try
+        {
+            foreach (var sub in Directory.EnumerateDirectories(dir)) DeleteEmptyTree(sub);
+            if (!Directory.EnumerateFileSystemEntries(dir).Any()) Directory.Delete(dir);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static bool Blocked(string root, string target)
+    {
+        if (File.Exists(target) || Directory.Exists(target)) return true;
+        for (var dir = Path.GetDirectoryName(target); dir is not null && dir.Length > root.Length; dir = Path.GetDirectoryName(dir))
+            if (File.Exists(dir)) return true;
+        return false;
     }
 
     /// <summary>

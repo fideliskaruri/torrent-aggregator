@@ -68,7 +68,8 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
     /// out stay put (and keep their names reserved). Safe to run again — that is how Tidy finishes a layout whose
     /// conflict has since gone. <paramref name="validate"/> runs ffprobe first; a re-run of an accepted download skips it.
     /// </summary>
-    public async Task<LayoutResult> FinalizeDetailedAsync(TorrentFlowDbContext db, EngineTorrent row, bool validate, CancellationToken ct)
+    public async Task<LayoutResult> FinalizeDetailedAsync(TorrentFlowDbContext db, EngineTorrent row, bool validate, CancellationToken ct,
+        IReadOnlyList<(string Hash, string FullPath)>? live = null)
     {
         var manifest = TorrentEngineService.VerifiedFiles(row);
         if (manifest.Count == 0 || string.IsNullOrWhiteSpace(row.SavePath)) return LayoutResult.Unchanged;
@@ -88,9 +89,11 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
 
         var files = torrent.Paths.Select((p, i) => new LayoutFile(p, manifest[i].Size)).ToList();
         var owners = await OwnersAsync(db, row, manifest, ct);
+        var writing = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (hash, full) in live ?? []) writing.TryAdd(Key(full), hash.ToLowerInvariant());
         var windows = OperatingSystem.IsWindows();
 
-        var plan = ContentLayoutPlanner.Apply(files, dest, row.Hash, p => ProbeExisting(dest, p, owners), claim: null, logger,
+        var plan = ContentLayoutPlanner.Apply(files, dest, row.Hash, p => ProbeExisting(dest, p, owners, writing), claim: null, logger,
             skipCollision: IsJunk, pinned: torrent.Pinned);
         if (plan is null) return LayoutResult.Unchanged;
 
@@ -109,7 +112,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
             if (torrent.Pinned.ContainsKey(i)) continue;
             var src = manifest[i].FullPath!;
             var dst = Path.Combine(dest, plan.Paths[i].Replace('/', Path.DirectorySeparatorChar));
-            var existing = ProbeExisting(dest, plan.Paths[i], owners);
+            var existing = ProbeExisting(dest, plan.Paths[i], owners, writing);
             var occupied = existing is not null && existing.Owner != self;
             var move = new Move(src, dst, Discard: occupied && IsJunk(plan.Paths[i]), Replace: occupied && !IsJunk(plan.Paths[i]));
             moves.Add(move);
@@ -278,7 +281,8 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
     /// What is already sitting at a path we intend to write to. Walks every ancestor as well as the leaf: a file named
     /// <c>Subs</c> where we want <c>Subs/en.srt</c>, or a junction anywhere along the way, must block the rewrite.
     /// </summary>
-    internal static ExistingFile? ProbeExisting(string dest, string rel, IReadOnlyDictionary<string, string> owners)
+    internal static ExistingFile? ProbeExisting(string dest, string rel, IReadOnlyDictionary<string, string> owners,
+        IReadOnlyDictionary<string, string>? writing = null)
     {
         var parts = ContentLayoutPolicy.Segments(rel);
         var current = dest;
@@ -288,7 +292,9 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
             FileAttributes attrs;
             try
             {
-                if (!File.Exists(current) && !Directory.Exists(current)) return null;
+                if (!File.Exists(current) && !Directory.Exists(current))
+                    return writing is not null && writing.TryGetValue(Key(Path.Combine([current, .. parts.Skip(i + 1)])), out var writer)
+                        ? new ExistingFile(-1, writer) : null;
                 attrs = File.GetAttributes(current);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)

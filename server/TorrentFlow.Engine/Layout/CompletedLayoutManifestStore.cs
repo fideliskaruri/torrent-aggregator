@@ -4,8 +4,11 @@ namespace TorrentFlow.Engine.Layout;
 
 internal sealed class CompletedLayoutManifestStore
 {
-    /// <summary><paramref name="Indexed"/> holds each torrent file's path by file index (null for a discarded file); older entries lack it.</summary>
-    private sealed record Entry(string Hash, string SavePath, string[] Files, string?[]? Indexed = null);
+    /// <summary>
+    /// <paramref name="Indexed"/> holds each torrent file's path by file index (null for a discarded file); older entries
+    /// lack it. <paramref name="Downloading"/> marks paths placed at add time, before every file exists.
+    /// </summary>
+    private sealed record Entry(string Hash, string SavePath, string[] Files, string?[]? Indexed = null, bool Downloading = false);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string _path;
@@ -59,7 +62,21 @@ internal sealed class CompletedLayoutManifestStore
     }
 
     /// <summary>Records where each file of a laid-out torrent lives, by torrent file index (null for a discarded file).</summary>
-    public void Remember(string hash, string? savePath, IReadOnlyList<string?> indexed)
+    public void Remember(string hash, string? savePath, IReadOnlyList<string?> indexed) => Record(hash, savePath, indexed, downloading: false);
+
+    /// <summary>Records where a download writes each file when it does not use its release folder.</summary>
+    public void Place(string hash, string? savePath, IReadOnlyList<string?> indexed) => Record(hash, savePath, indexed, downloading: true);
+
+    /// <summary>The paths recorded by <see cref="Place"/> for a download still in progress, else null.</summary>
+    public string?[]? PlacedPaths(string hash, string? savePath)
+    {
+        if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(savePath)) return null;
+        lock (_gate)
+            return _entries.TryGetValue(Key(hash, savePath), out var entry) && entry.Downloading && entry.Indexed is { Length: > 0 } indexed
+                ? indexed.ToArray() : null;
+    }
+
+    private void Record(string hash, string? savePath, IReadOnlyList<string?> indexed, bool downloading)
     {
         if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(savePath)) return;
         var fullPath = Path.GetFullPath(savePath.Trim());
@@ -68,7 +85,7 @@ internal sealed class CompletedLayoutManifestStore
         if (record.Length == 0) return;
         lock (_gate)
         {
-            _entries[Key(hash, fullPath)] = new Entry(hash.ToLowerInvariant(), fullPath, record, paths);
+            _entries[Key(hash, fullPath)] = new Entry(hash.ToLowerInvariant(), fullPath, record, paths, downloading);
             Save();
         }
     }

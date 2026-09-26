@@ -537,9 +537,13 @@ being an atomic snapshot of Engine's admission decision.
 
 ## Content layout (Engine)
 
-`server/TorrentFlow.Engine/Layout/` ports `content-layout*.ts`. MonoTorrent downloads a multi-file torrent into
-`<save>/<release name>/` (`CreateContainingDirectory`), so releases never overwrite each other mid-download.
-After completion, once the torrent is detached and no stream is open (a `TrackedStream` close runs a deferred
+`server/TorrentFlow.Engine/Layout/` ports `content-layout*.ts`. Like the Next.js engine (depth-0 wrapper always
+dropped), a kept download writes without its release folder: once metadata is known, the stopped manager points
+each file at `<save>/<torrent path>` (`BackendAddSpec.FlattenWrapper`, `MonoTorrentBackend.DropWrapperAsync`), and
+the paths are recorded (`CompletedLayoutManifestStore.Place`) so a restart resumes them. A file stays in
+`<save>/<release name>/` only when its flat path is taken (on disk, or written by another loaded torrent), so
+releases never overwrite each other mid-download. Magnets resumed without a metadata wait keep the release folder
+until completion. After completion, once the torrent is detached and no stream is open (a `TrackedStream` close runs a deferred
 layout), `CompletedLayoutFinalizer`:
 
 1. Optionally validates with ffprobe (`TorrentFlow:Media:FfprobePath`, then `FFPROBE_PATH`, then

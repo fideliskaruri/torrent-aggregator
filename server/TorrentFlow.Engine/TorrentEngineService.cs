@@ -314,11 +314,14 @@ internal sealed class TorrentEngineService(
             return new BackendAddOutcome(false, "No saved source to retry this release.");
         // A laid-out torrent is re-added in its own release folder with each file pointed at where the layout put it, so
         // a file moved aside or kept nested is re-checked in place and a neighbour's file at the flat path is never touched.
-        var indexed = bytes is null ? null : _layoutManifest.IndexedPaths(row.Hash, row.SavePath);
+        var indexed = bytes is null ? null
+            : _layoutManifest.IndexedPaths(row.Hash, row.SavePath) ?? _layoutManifest.PlacedPaths(row.Hash, row.SavePath);
         var reuseFlatLayout = indexed is null && (row.TorrentUrl == DownloadRecoveryService.SeedingMarker
             || _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _));
+        // A kept download writes straight into the save path, without its release folder, wherever that is free.
+        var flatten = layout is not null && indexed is null && !reuseFlatLayout && purpose == TorrentPurpose.Keep;
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
-            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed);
+            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed, flatten);
         var wasLoaded = backend.Contains(row.Hash);
         try
         {
@@ -327,6 +330,9 @@ internal sealed class TorrentEngineService(
             {
                 if (!wasLoaded) _startedAt[row.Hash] = Now;
                 if (backend.GetMetadata(row.Hash) is { } meta) SaveTorrentFile(row.Hash, meta);
+                if (flatten && backend.Get(row.Hash) is { Files.Count: > 0 } placed && row.SavePath is { } save
+                    && placed.Files.Any(f => string.Equals(Path.GetFullPath(f.FullPath), Path.GetFullPath(Path.Combine(save, f.Path)), StringComparison.OrdinalIgnoreCase)))
+                    _layoutManifest.Place(row.Hash, save, placed.Files.OrderBy(f => f.Index).Select(f => (string?)f.FullPath).ToList());
                 // Already live as a stream (files deselected): a kept download wants every file.
                 if (wasLoaded && purpose == TorrentPurpose.Keep) await backend.SetSelectedFilesAsync(row.Hash, null);
             }
@@ -1052,7 +1058,10 @@ internal sealed class TorrentEngineService(
             await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
             var row = await FindAsync(db, hash, CancellationToken.None);
             if (row is null || row.Status != EngineTorrentStatus.Parked || !IsDownloaded(row)) return LayoutResult.Unchanged;
-            var result = await layout.FinalizeDetailedAsync(db, row, validate, CancellationToken.None);
+            // Loaded downloads write without a release folder, so a path they will write to is taken even before it exists.
+            var live = backend.List().Where(s => !string.Equals(s.Hash, hash, StringComparison.OrdinalIgnoreCase))
+                .SelectMany(s => s.Files.Select(f => (s.Hash, f.FullPath))).ToList();
+            var result = await layout.FinalizeDetailedAsync(db, row, validate, CancellationToken.None, live);
             if (result.Outcome == LayoutOutcome.LaidOut)
                 _layoutManifest.Remember(row.Hash, row.SavePath, VerifiedFiles(row).Select(f => f.FullPath).ToList());
             if (result.Outcome != LayoutOutcome.Unchanged) storage.ResetDirectorySizeCache();
