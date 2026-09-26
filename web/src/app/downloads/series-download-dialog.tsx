@@ -485,6 +485,7 @@ function EpisodeCard({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onCopyMagnet(t)}
+              disabled={t.imported}
               data-copy-magnet
               className="min-h-[44px] lg:min-h-0"
             >

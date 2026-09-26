@@ -502,6 +502,14 @@ internal sealed class TorrentEngineService(
     internal async Task RehydrateAsync(CancellationToken ct = default)
     {
         await AttachLimitsAsync(ct);
+        await using (var seedDb = await dbFactory.CreateDbContextAsync(ct))
+        {
+            var seeds = await seedDb.EngineTorrents.Where(r => r.UserId == LocalUser.Id
+                && r.TorrentUrl == DownloadRecoveryService.SeedingMarker && r.Status == "seeding").ToListAsync(ct);
+            foreach (var seed in seeds)
+                if (File.Exists(TorrentFilePath(seed.Hash)))
+                    await RestoreForSeedingAsync(seed.Hash, await File.ReadAllBytesAsync(TorrentFilePath(seed.Hash), ct), ct);
+        }
         List<EngineTorrent> start;
         await _queueGate.WaitAsync(ct);
         try
@@ -529,6 +537,7 @@ internal sealed class TorrentEngineService(
     /// <summary>Port of builtin-engine-lifecycle shouldRehydrateTorrent, restricted to kept downloads.</summary>
     internal static bool ShouldRehydrate(EngineTorrent row)
     {
+        if (row.TorrentUrl == DownloadRecoveryService.SeedingMarker) return false;
         if (row.Origin != TorrentOrigin.User) return false;
         var status = row.Status.ToLowerInvariant();
         if (status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error or EngineTorrentStatus.Parked
@@ -578,6 +587,7 @@ internal sealed class TorrentEngineService(
     /// </summary>
     private EngineTorrentInfo WithMagnet(EngineTorrent row, EngineTorrentInfo info)
     {
+        if (row.TorrentUrl == DownloadRecoveryService.ImportedMarker) return info with { Imported = true };
         var own = PublicTrackers.TrackersOf(row.Magnet);
         var file = TorrentFileTrackers(row.Hash);
         if (own.Count == 0 && file is { } f) own = f.Trackers;
@@ -675,6 +685,32 @@ internal sealed class TorrentEngineService(
     }
 
     // ---------------------------------------------------------------- actions
+
+    internal async Task RestoreForSeedingAsync(string hash, byte[] metadata, CancellationToken ct)
+    {
+        using (await LockHashAsync(hash, ct))
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var row = await FindAsync(db, hash, ct);
+            if (row is null || row.Status != "seeding") return;
+            SaveTorrentFile(hash, metadata);
+            try
+            {
+                var outcome = await backend.AddAsync(new BackendAddSpec(hash, null, metadata, row.SavePath!,
+                    TorrentPurpose.Keep, null, false), ct);
+                if (!outcome.Ok) { row.Status = EngineTorrentStatus.Error; row.Error = outcome.Message; }
+                _startedAt[hash] = Now;
+                WakeMonitor();
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Could not restore {Hash} for seeding", hash);
+                row.Status = EngineTorrentStatus.Error;
+                row.Error = "Could not restart the saved torrent.";
+            }
+            await db.SaveChangesAsync(CancellationToken.None);
+        }
+    }
 
     public async Task<EngineActionResult> PauseAsync(string infoHash, CancellationToken ct = default)
     {
@@ -1087,6 +1123,7 @@ internal sealed class TorrentEngineService(
                 }
                 else if (live.State == "complete" && live.Files.Count > 0 && live.Files.All(f => f.Selected))
                 {
+                    if (row.TorrentUrl == DownloadRecoveryService.SeedingMarker && IsDownloaded(row)) continue;
                     var manifest = BuildManifest(live);
                     if (manifest is not null)
                     {
@@ -1094,9 +1131,14 @@ internal sealed class TorrentEngineService(
                         row.VerifiedBitfield = live.PieceBitfield;
                         row.VerifiedAt = Now;
                         row.Progress = 1;
-                        row.Status = EngineTorrentStatus.Parked;
+                        row.Status = row.TorrentUrl == DownloadRecoveryService.SeedingMarker ? "seeding" : EngineTorrentStatus.Parked;
                         row.ForcedAt = null;
                         row.Error = null;
+                        if (row.TorrentUrl == DownloadRecoveryService.SeedingMarker)
+                        {
+                            completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
+                            continue;
+                        }
                         // Detaching under an open stream would cut the player off mid-file.
                         var deferred = false;
                         lock (_openStreams)

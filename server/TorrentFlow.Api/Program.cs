@@ -11,6 +11,7 @@ using TorrentFlow.Library;
 using TorrentFlow.Media;
 using TorrentFlow.Metadata;
 using TorrentFlow.Search;
+using TorrentFlow.Api;
 
 // Culture-neutral formatting everywhere (numbers in headers, ffmpeg args, logs), whatever the machine locale is.
 System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
@@ -42,9 +43,10 @@ if (isPublishedBundle && string.IsNullOrWhiteSpace(configuredUrls) && string.IsN
     }
 }
 
-var dataDir = ResolveDataDirectory(builder.Configuration, builder.Environment);
-builder.Configuration["TorrentFlow:DataDirectory"] = dataDir;
+var dataDir = DataDirectoryResolver.Resolve(builder.Configuration["TorrentFlow:DataDirectory"],
+    builder.Environment.ContentRootPath, AppContext.BaseDirectory, DataDirectoryResolver.DefaultDirectory(), Console.WriteLine);
 Directory.CreateDirectory(dataDir);
+builder.Configuration["TorrentFlow:DataDirectory"] = dataDir;
 var dbPath = builder.Configuration["TorrentFlow:DatabasePath"] ?? Path.Combine(dataDir, "torrentflow.db");
 builder.Services.AddTorrentFlowData($"Data Source={dbPath}");
 
@@ -68,6 +70,7 @@ builder.Services.AddControllers()
     });
 
 var app = builder.Build();
+app.Logger.LogInformation("TorrentFlow data directory: {DataDirectory}; database: {DatabasePath}", dataDir, dbPath);
 await app.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
 
 // The React SPA (web/) builds into web/dist. Static files run before routing so the history-API fallback
@@ -152,25 +155,6 @@ if (launchBrowser)
 }
 
 app.Run();
-
-static string ResolveDataDirectory(IConfiguration configuration, IHostEnvironment environment)
-{
-    var configured = configuration["TorrentFlow:DataDirectory"];
-    if (!string.IsNullOrWhiteSpace(configured))
-        return Path.GetFullPath(configured);
-
-    if (!IsPublishedBundle())
-        return Path.Combine(environment.ContentRootPath, "data");
-
-    var exeDirectory = Path.GetDirectoryName(Environment.ProcessPath ?? AppContext.BaseDirectory) ?? AppContext.BaseDirectory;
-    if (File.Exists(Path.Combine(exeDirectory, "portable")))
-        return Path.Combine(exeDirectory, "data");
-
-    var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-    return string.IsNullOrWhiteSpace(localAppData)
-        ? Path.Combine(exeDirectory, "data")
-        : Path.Combine(localAppData, "TorrentFlow");
-}
 
 static IFileProvider? ResolveWebRootFileProvider(IConfiguration configuration, string contentRoot)
 {

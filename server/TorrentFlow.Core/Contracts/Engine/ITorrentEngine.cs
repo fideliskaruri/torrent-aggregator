@@ -184,6 +184,8 @@ public sealed record EngineTorrentInfo
     public IReadOnlyList<EngineFileInfo>? Files { get; init; }
     /// <summary>Shareable magnet built server-side: the transfer's own trackers plus the public list (never for private torrents).</summary>
     public string? Magnet { get; init; }
+    /// <summary>A completed local file imported without torrent metadata; it has no shareable magnet.</summary>
+    public bool Imported { get; init; }
     /// <summary>Payload bytes received from peers this session (live transfers only). Not part of the UI shape.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public long? BytesReceived { get; init; }

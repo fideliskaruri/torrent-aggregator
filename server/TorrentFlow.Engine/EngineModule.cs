@@ -21,8 +21,8 @@ public static class EngineModule
             .Bind(configuration.GetSection(EngineOptions.Section))
             .PostConfigure<IHostEnvironment>((o, env) =>
             {
-                if (string.IsNullOrWhiteSpace(o.DataDirectory))
-                    o.DataDirectory = configuration["TorrentFlow:DataDirectory"] ?? Path.Combine(env.ContentRootPath, "data");
+                o.DataDirectory = configuration["TorrentFlow:DataDirectory"]
+                    ?? throw new InvalidOperationException("The host must resolve TorrentFlow:DataDirectory before registering the engine.");
                 // The env var name the TypeScript engine used keeps working for probes and scripts.
                 if (Environment.GetEnvironmentVariable(EngineOptions.MaxActiveEnvVar) is { Length: > 0 } raw)
                     o.MaxActiveDownloads = DownloadQueue.ParseMaxActive(raw);
@@ -53,6 +53,7 @@ public static class EngineModule
         services.AddSingleton<ITorrentBackend>(sp => sp.GetRequiredService<MonoTorrentBackend>());
         services.AddContentLayout(configuration);
         services.AddSingleton<TorrentEngineService>();
+        services.AddSingleton<DownloadRecoveryService>();
         services.AddSingleton<ITorrentEngine>(sp => sp.GetRequiredService<TorrentEngineService>());
         services.AddSingleton<RetentionSweeper>();
         services.AddHostedService<EngineMonitorService>();

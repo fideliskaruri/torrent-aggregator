@@ -70,6 +70,48 @@ web/                          Vite + React SPA (built into web/dist, served by t
   `/api/diagnostics/health` (working set, private bytes, GC heap/committed, threads, handles);
   judge leaks by private bytes and the post-GC heap, not working set (~100 MB of it is shared images).
 
+## Data location and recovery
+
+Both `dotnet run` and the published executable now use the same per-user app data folder:
+Windows `%LOCALAPPDATA%\TorrentFlow`, Linux `$XDG_DATA_HOME/TorrentFlow` (or
+`~/.local/share/TorrentFlow`), and macOS `~/Library/Application Support/TorrentFlow`.
+It contains `torrentflow.db`, engine metadata/resume state, secrets and caches. The host logs
+the resolved directory and passes it to every module. The media download folder is separate.
+
+`TorrentFlow__DataDirectory` / `TorrentFlow:DataDirectory` remains the highest-priority override.
+A `portable` file beside the application DLL/executable instead selects its adjacent `data` directory.
+Use explicit overrides for tests and isolated instances. `TorrentFlow__DatabasePath` still overrides
+only the SQLite file, not other app state.
+
+On first use of the new default, if it has no `torrentflow.db`, the host checks the old
+`<ContentRoot>/data` then `<application directory>/data`. It snapshots SQLite using the online
+backup API (including committed WAL contents; SHM is rebuilt), copies engine/settings state, and
+publishes the database last. A migration lock serializes simultaneous launches. Existing destination
+files are never overwritten; the source is retained. Errors stop startup rather than silently
+opening an empty database. Explicit and portable directories are not automatically migrated.
+
+### My downloads disappeared
+
+1. Open **Downloads → Details** or **Settings → Downloads** and compare the app data folder
+   with your previous installation. “Connected” means the engine responds, not that old records
+   were located. Changing clones used to select a different database, while the UI suggested the
+   same default media folder.
+2. If your old data is in another clone, stop TorrentFlow and launch with
+   `TorrentFlow__DataDirectory` pointing to that old data directory. Back up the **whole** directory;
+   do not copy only an open SQLite database and discard its `-wal`.
+3. If only media files remain, choose and **save** the existing download folder, then click
+   **Import existing downloads** in Settings (also offered on an empty Downloads page).
+   Recovery is repeatable: existing tracked files are skipped. Video files without metadata become
+   completed, kept, non-seeding rows; they use the usual Library, playback and deletion paths.
+   Playback still requires enabling the existing streaming feature.
+4. Matching `.torrent` metadata from `engine/torrents` or `engine/metadata` restores a real torrent
+   against existing files for hash checking and seeding. Fast-resume data alone cannot identify
+   the original files without torrent metadata. Non-media, links, empty files and `.part` files are
+   skipped. Inspect potentially incomplete files before importing: without torrent metadata their
+   original checksum/completeness cannot be proven.
+
+Storage diagnostics and recovery are owner-only and not available over remote access.
+
 ## External torrent clients
 
 `TorrentFlow.Engine/Clients/External` owns qBittorrent Web API v2 and Transmission RPC adapters.

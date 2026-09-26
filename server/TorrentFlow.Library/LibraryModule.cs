@@ -8,6 +8,7 @@ using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Grabs;
 using TorrentFlow.Library.Features.Progress;
 using TorrentFlow.Library.Features.Titles;
+using TorrentFlow.Library.Features.Storage;
 
 namespace TorrentFlow.Library;
 
@@ -22,6 +23,7 @@ public static class LibraryModule
         services.AddSingleton<GrabService>();
         services.AddSingleton<AutomationService>();
         services.AddSingleton<TitleService>();
+        services.AddSingleton<ILibraryDownloadRecovery, LibraryDownloadRecovery>();
         services.TryAddSingleton<ILibraryPlaybackObserver, DefaultPlaybackObserver>();
         services.TryAddSingleton<ILibraryArtworkResolver, DefaultArtworkResolver>();
         services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();

@@ -36,6 +36,7 @@ export interface ClientTorrent {
   transferId: string;
   /** Shareable magnet built by the server (own trackers + public list); absent for external-client rows. */
   magnet?: string | null;
+  imported?: boolean;
 }
 
 /**

@@ -5,6 +5,32 @@ namespace TorrentFlow.Engine.Settings;
 
 internal static class SettingsDiskInventory
 {
+    private static readonly HashSet<string> MediaExtensions = new(StringComparer.OrdinalIgnoreCase)
+        { ".mkv", ".mp4", ".m4v", ".avi", ".mov", ".webm", ".ts", ".m2ts", ".mpg", ".mpeg", ".wmv" };
+
+    internal static IReadOnlyList<FileInfo> MediaFiles(string? root, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return [];
+        var directory = new DirectoryInfo(Path.GetFullPath(root));
+        if (directory.Attributes.HasFlag(FileAttributes.ReparsePoint)) return [];
+        var files = new List<FileInfo>();
+        var examined = 0;
+        void Walk(DirectoryInfo folder, int depth)
+        {
+            if (depth > 12) return;
+            foreach (var entry in folder.EnumerateFileSystemInfos("*", new EnumerationOptions { IgnoreInaccessible = true }))
+            {
+                ct.ThrowIfCancellationRequested();
+                if (++examined > 50_000) throw new IOException("Recovery scan exceeds 50,000 entries. Choose a smaller download folder.");
+                if (entry.Name.StartsWith('.') || entry.Attributes.HasFlag(FileAttributes.ReparsePoint)) continue;
+                if (entry is DirectoryInfo child) Walk(child, depth + 1);
+                else if (entry is FileInfo file && file.Length > 0 && MediaExtensions.Contains(file.Extension)) files.Add(file);
+            }
+        }
+        Walk(directory, 0);
+        return files;
+    }
+
     private sealed record Entry(string RelativePath, string Path, string Name, long Bytes, long ModifiedMs, string Kind);
 
     internal static object Usage(ClientConfig config, IReadOnlyList<EngineTorrent> rows, CancellationToken ct)

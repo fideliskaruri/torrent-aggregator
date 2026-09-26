@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
+import { DownloadRecovery } from "@/components/settings/download-recovery";
 import {
   AlertTriangle,
   ChevronDown,
@@ -682,6 +683,7 @@ export default function SettingsPage() {
                 Choose where files live and how much space TorrentFlow may use.
               </p>
             </div>
+            <DownloadRecovery revision={savedForm.baseDownloadPath} />
 
             {visiblePathWarnings.length ? (
               <div

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures } from "@/lib/features";
+import { DownloadRecovery } from "@/components/settings/download-recovery";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import {
@@ -849,6 +850,7 @@ export default function ClientPage() {
   }
 
   async function copyMagnet(t: ClientTorrent) {
+    if (t.imported) { toast.info("Imported local files have no torrent metadata or magnet link."); return; }
     const magnet = magnetFor(t);
     try {
       await navigator.clipboard.writeText(magnet);
@@ -1048,6 +1050,7 @@ export default function ClientPage() {
                 {!isBuiltin && clientHost ? (
                   <p className="break-all font-mono">{clientHost}</p>
                 ) : null}
+                <DownloadRecovery mode="paths" />
               </div>
             </details>
           </span>
@@ -1362,6 +1365,7 @@ export default function ClientPage() {
             this section is ever flattened.
           */}
           {!torrents.length && !loading ? (
+            <div className="space-y-4">
             <TfEmptyState
               icon={HardDriveDownload}
               title="No downloads yet"
@@ -1373,6 +1377,8 @@ export default function ClientPage() {
               actionLabel="Open search"
               actionHref="/"
             />
+            {isBuiltin && <DownloadRecovery mode="empty" onImported={() => void load()} />}
+            </div>
           ) : (
             <>
             {isBuiltin &&
@@ -2017,6 +2023,7 @@ function FilmRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => onCopyMagnet(t)}
+              disabled={t.imported}
               data-copy-magnet
               className="min-h-[44px] lg:min-h-0"
             >
