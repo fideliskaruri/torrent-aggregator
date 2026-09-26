@@ -26,7 +26,7 @@ import {
 } from "./grouping";
 
 /** First season that is still downloading or short of 100%, else the first season. */
-function defaultSeasonKey<T>(
+export function defaultSeasonKey<T>(
   seasons: readonly SeasonBucket<T>[],
 ): string | null {
   if (!seasons.length) return null;
