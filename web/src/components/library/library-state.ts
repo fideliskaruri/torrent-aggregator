@@ -121,10 +121,7 @@ export function libraryItemState(
 export function automationStateCopy(minutes: number | null): string {
   if (minutes == null) return "Checking schedule…";
   if (minutes <= 0) return "New episodes won't download automatically";
-  if (minutes < 60) return `Checks for new episodes every ${minutes} minutes`;
-  if (minutes === 60) return "Checks for new episodes every hour";
-  const hours = minutes / 60;
-  return `Checks for new episodes every ${hours} hours`;
+  return "Automatic checks follow each title's schedule";
 }
 
 function nextEpisodeLabel(item: LibraryStateItem): string | null {

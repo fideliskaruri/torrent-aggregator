@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
@@ -6,6 +7,7 @@ using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
 using TorrentFlow.Library.Features.Storage;
+using TorrentFlow.Library.Features.Automation;
 
 namespace TorrentFlow.Library.Features.Grabs;
 
@@ -31,7 +33,8 @@ public sealed class RungDiagnostic
     public int Attempted { get; set; }
 }
 
-public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine)
+public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
+    IOptions<AutomationOptions> automationOptions)
 {
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
     {
@@ -112,6 +115,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     /// <summary>Automation's single background search (TS automation runner), with its seeder-wait grace.</summary>
     private async Task<GrabResult> Hunt(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, string query, int? floor, CancellationToken ct)
     {
+        var options = automationOptions.Value;
         // Unknown media type falls back to "all": a library row can be a film as well as a series.
         var category = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
         // Deliberately no seeder floor: a brand-new episode sits at 0 seeders; the wait below owns that decision.
@@ -124,7 +128,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 (input.Year == null || ReleaseSelection.Year(x.Title) == null || ReleaseSelection.Year(x.Title) == input.Year) :
                 ReleaseSelection.ExactEpisode(x, input.Cursor.Value))
             .Where(x => x.Magnet != null || x.TorrentUrl != null || x.InfoHash != null)
-            .OrderByDescending(x => x.Seeders >= 3).ThenByDescending(x => ReleaseSelection.Resolution(x.Title) == floor).ThenByDescending(x => x.Score ?? x.Seeders).ToList();
+            .OrderByDescending(x => x.Seeders >= Math.Max(1, options.MinimumSeeders)).ThenByDescending(x => ReleaseSelection.Resolution(x.Title) == floor).ThenByDescending(x => x.Score ?? x.Seeders).ToList();
         var attempts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? lastError = null;
         foreach (var candidate in candidates)
@@ -144,11 +148,13 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                         return new(false, "Already sent this release") { Query = query, Skipped = true };
                     }
                     var since = watch.SeederWaitSince ?? DateTime.UtcNow;
-                    if (candidate.Seeders < 3 && DateTime.UtcNow - since < TimeSpan.FromHours(6))
+                    if (candidate.Seeders < options.MinimumSeeders && CheckSchedule.WaitingForSeeders(since, DateTime.UtcNow, options))
                     {
-                        var hours = Math.Max(1, Math.Floor(6 - (DateTime.UtcNow - since).TotalHours + .5));
-                        var message = $"Waiting for seeders ({candidate.Seeders} of 3) — grabbing anyway in ~{hours}h if no peers arrive";
+                        var minutes = Math.Max(1, Math.Ceiling(options.SeederWaitTimeoutMinutes - (DateTime.UtcNow - since).TotalMinutes));
+                        var message = $"Waiting for seeders ({candidate.Seeders} of {options.MinimumSeeders}) — grabbing anyway in ~{minutes}m if no peers arrive";
+                        var next = CheckSchedule.Next(DateTime.UtcNow, null, watch.CursorMisses, since, settings.AutomationIntervalMinutes ?? 15, options);
                         await db.WatchListItems.Where(x => x.Id == watch.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.SeederWaitSince, since)
+                            .SetProperty(w => w.NextCheckAt, next.At).SetProperty(w => w.NextCheckReason, next.Reason)
                             .SetProperty(w => w.LastChecked, DateTime.UtcNow), ct);
                         await LogSkip(db, input, query, message, ct);
                         return new(false, message) { Query = query, Skipped = true };
@@ -204,7 +210,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         if (result.Ok && input.Background && input.WatchListItemId != null)
             await db.WatchListItems.Where(x => x.Id == input.WatchListItemId).ExecuteUpdateAsync(x =>
                 x.SetProperty(w => w.LatestReleaseMagnet, candidate.Magnet).SetProperty(w => w.CursorMisses, 0)
-                    .SetProperty(w => w.SeederWaitSince, (DateTime?)null), ct);
+                    .SetProperty(w => w.SeederWaitSince, (DateTime?)null).SetProperty(w => w.NextCheckAt, (DateTime?)null)
+                    .SetProperty(w => w.NextCheckReason, (string?)null), ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         if (!result.Ok)
@@ -253,6 +260,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             .ExecuteUpdateAsync(x => x.SetProperty(w => w.CursorSeason, next.Season).SetProperty(w => w.CursorEpisode, next.Episode)
                 .SetProperty(w => w.LastEpisode, grabbed.Label).SetProperty(w => w.NextEpisodeHint, next.Query(item.Title))
                 .SetProperty(w => w.CursorMisses, 0).SetProperty(w => w.SeederWaitSince, (DateTime?)null)
+                .SetProperty(w => w.NextCheckAt, (DateTime?)null).SetProperty(w => w.NextCheckReason, (string?)null)
                 .SetProperty(w => w.LastChecked, now).SetProperty(w => w.UpdatedAt, now)
                 .SetProperty(w => w.LatestReleaseTitle, title).SetProperty(w => w.LatestReleaseAt, now)
                 .SetProperty(w => w.FromSeason, item.FromSeason ?? grabbed.Season).SetProperty(w => w.FromEpisode, item.FromSeason == null ? grabbed.Episode : item.FromEpisode), ct);

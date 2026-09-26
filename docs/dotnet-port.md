@@ -112,6 +112,47 @@ opening an empty database. Explicit and portable directories are not automatical
 
 Storage diagnostics and recovery are owner-only and not available over remote access.
 
+## Watchlist check scheduling
+
+Monitored watching/planned rows persist `nextCheckAt` and `nextCheckReason`. The automation
+loop checks due items (up to 50 per pass), keeps rules on the configured automation interval,
+and wakes after watchlist edits. The existing automation RunLock also guards subset runs.
+Legacy rows with no due time are initialized on their next pass; disabling the automation
+interval still disables scheduled runs.
+
+Metadata's exact cursor episode air date defers searches before airing and selects 15-minute
+checks during the following 12 hours, without prematurely rolling the season on a miss.
+Date-only provider values mean midnight UTC, an estimate rather than an exact broadcast time.
+Unknown dates (including anime without episode dates) use the existing miss backoff, with the
+configured interval (minimum 15 minutes) as a floor. Existing quality-floor and exact-episode
+selection rules remain unchanged.
+
+Optional `TorrentFlow:Library` configuration (environment prefix `TorrentFlow__Library__`):
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `MinimumSeeders` | `3` | Wait below this floor; `0` disables swarm waiting |
+| `SeederWaitTimeoutMinutes` | `360` | Grace before taking the best available; `0` skips grace |
+| `SeederRecheckMinutes` | `15` | Thin-swarm recheck interval, capped at the remaining grace |
+| `ItemSpacingMilliseconds` | `1000` | Serial spacing between title searches in a pass |
+
+Defaults retain the prior three-seeder/six-hour grace. Wait starts survive restarts and repeated
+checks; changing the episode cursor or quality preference resets obsolete waits. The watchlist
+shows the next check in local time with a quiet “Not aired yet” or “Waiting for seeders” reason.
+Future air dates are revalidated at least daily in case a provider corrects its schedule. Manual
+“Run now” bypasses stored due times but still honors known future air dates and legacy miss backoff.
+With a backlog, additional batches drain at the scheduler's one-minute minimum delay, with serial
+spacing inside each batch. Verify SPA regressions from `web/` with `pnpm typecheck` and `pnpm test`.
+The page refreshes scheduling data quietly every 30 seconds; monitoring/status changes use the
+returned server row immediately, and disabled automation does not display future-check promises.
+
+Scheduling verification (September 26, 2026): Library 149, Metadata 287, Engine 257, Api 72,
+Media 487 tests passed (7 existing Engine/Media integration skips); SPA TypeScript and all 23
+web tests passed. Migration downgrade/upgrade retains existing watchlist rows. Playwright MCP
+against the isolated real host verified all three schedule labels at actual CSS widths
+390/768/1280 without horizontal overflow, and monitoring pause/resume updated API and rendered
+schedule together. Fixtures used legal Blender film titles; no torrent acquisitions were made.
+
 ## External torrent clients
 
 `TorrentFlow.Engine/Clients/External` owns qBittorrent Web API v2 and Transmission RPC adapters.

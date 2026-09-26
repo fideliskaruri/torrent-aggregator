@@ -71,10 +71,13 @@ import {
   type LibraryTab,
 } from "./library-tabs";
 import { activityLine, needsAttention, positionLine } from "./card-state";
+import { CheckSchedule } from "@/components/library/check-schedule";
 import { removeFromLibraryCopy } from "./remove-copy";
 import { canonicalWatchlistPlayerTitle } from "./player-identity";
 
 interface WatchItem {
+  nextCheckAt?: string | null;
+  nextCheckReason?: string | null;
   id: string;
   mediaType: string;
   externalId: string;
@@ -270,7 +273,7 @@ export default function WatchlistPage() {
     loading,
     error,
     refetch: load,
-  } = useApiQuery<{ items?: WatchItem[] }>("/api/watchlist");
+  } = useApiQuery<{ items?: WatchItem[] }>("/api/watchlist", { refreshMs: 30_000 });
   const showLoading = useStableLoading(loading && watchlist == null && !error);
 
   // Adjusting state from a prop/query during render is React's documented
@@ -296,8 +299,9 @@ export default function WatchlistPage() {
       body: JSON.stringify({ id, status: newStatus }),
     });
     if (res.ok) {
+      const data = await res.json();
       setItems((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, status: newStatus } : i)),
+        prev.map((i) => (i.id === id ? { ...i, ...data.item } : i)),
       );
     }
   }
@@ -397,8 +401,9 @@ export default function WatchlistPage() {
       body: JSON.stringify({ id: item.id, monitored: next }),
     });
     if (res.ok) {
+      const data = await res.json();
       setItems((prev) =>
-        prev.map((i) => (i.id === item.id ? { ...i, monitored: next } : i)),
+        prev.map((i) => (i.id === item.id ? { ...i, ...data.item } : i)),
       );
       toast.success(next ? "Now watching" : "Paused");
     } else {
@@ -934,6 +939,8 @@ export default function WatchlistPage() {
                       </p>
                     </div>
                   )}
+
+                  <CheckSchedule {...item} automationEnabled={(autoIntervalMinutes ?? 0) > 0} />
 
                   {/* Primary actions only */}
                   <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-0.5">

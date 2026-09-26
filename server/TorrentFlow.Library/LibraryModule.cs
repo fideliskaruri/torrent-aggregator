@@ -22,6 +22,10 @@ public static class LibraryModule
         services.AddSingleton<ActivityService>();
         services.AddSingleton<GrabService>();
         services.AddSingleton<AutomationService>();
+        services.AddOptions<AutomationOptions>().Bind(configuration.GetSection("TorrentFlow:Library"))
+            .ValidateDataAnnotations().ValidateOnStart();
+        services.AddSingleton<AutomationWake>();
+        services.TryAddSingleton<TorrentFlow.Core.Contracts.Metadata.IAirDateLookup, TorrentFlow.Core.Contracts.Metadata.UnknownAirDateLookup>();
         services.AddSingleton<TitleService>();
         services.AddSingleton<ILibraryDownloadRecovery, LibraryDownloadRecovery>();
         services.TryAddSingleton<ILibraryPlaybackObserver, DefaultPlaybackObserver>();

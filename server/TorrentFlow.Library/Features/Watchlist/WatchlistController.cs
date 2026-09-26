@@ -6,12 +6,13 @@ using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Grabs;
+using TorrentFlow.Library.Features.Automation;
 
 namespace TorrentFlow.Library.Features.Watchlist;
 
 [ApiController, Route("api/watchlist"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> factory,
-    IMetadataResolver metadata, ITorrentSearchService search) : ControllerBase
+    IMetadataResolver metadata, ITorrentSearchService search, AutomationWake wake) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
@@ -63,6 +64,8 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             catch (Exception) when (!ct.IsCancellationRequested) { /* Artwork cannot block adding a title. */ }
         }
         var now = DateTime.UtcNow;
+        var previousCursor = item == null ? null : EpisodeCursor.Resolve(item);
+        var previousResolution = item?.PreferredResolution;
         if (item == null)
         {
             item = new WatchListItem { Id = Ids.New(), UserId = LocalUser.Id, Title = title!, MediaType = type!,
@@ -103,7 +106,15 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             item.NextEpisodeHint = cursor.Value.Query(item.Title);
         }
         item.UpdatedAt = now;
+        item.NextCheckAt = item.Monitored == true && item.Status is "watching" or "planned" ? now : null;
+        item.NextCheckReason = item.NextCheckAt == null ? null : "next check";
+        if (EpisodeCursor.Resolve(item) != previousCursor || item.PreferredResolution != previousResolution)
+        {
+            item.SeederWaitSince = null;
+            item.CursorMisses = 0;
+        }
         await db.SaveChangesAsync(ct);
+        wake.Wake();
         await Promote(db, item, ct);
         return Ok(new { item = LibraryJson.Row(item) });
     }

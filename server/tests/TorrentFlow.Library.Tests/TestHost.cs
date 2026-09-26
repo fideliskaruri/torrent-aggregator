@@ -21,6 +21,7 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
     public FakeSearch Search { get; } = new();
     public FakeArtwork Artwork { get; } = new();
     public FakeAnimeLookup Anime { get; } = new();
+    public FakeAirDates AirDates { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(directory);
@@ -45,7 +46,15 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
             services.AddSingleton<ICatalogLookup, FakeCatalog>();
             services.Replace(ServiceDescriptor.Singleton<ILibraryArtworkResolver>(Artwork));
             services.Replace(ServiceDescriptor.Singleton<ILibraryAnimeLookup>(Anime));
+            services.Replace(ServiceDescriptor.Singleton<IAirDateLookup>(AirDates));
         });
+    }
+
+    public sealed class FakeAirDates : IAirDateLookup
+    {
+        public Func<int, int, DateTime?> Resolve { get; set; } = (_, _) => null;
+        public Task<DateTime?> GetAirDateAsync(string title, string mediaType, string externalId, int season, int episode, CancellationToken ct) =>
+            Task.FromResult(Resolve(season, episode));
     }
     public async Task Seed(Action<TorrentFlowDbContext> seed)
     {

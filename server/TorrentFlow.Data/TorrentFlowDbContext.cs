@@ -650,6 +650,9 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnType("DATETIME")
                 .HasColumnName("lastChecked");
             entity.Property(e => e.LastEpisode).HasColumnName("lastEpisode");
+            entity.Property(e => e.NextCheckAt).HasColumnType("DATETIME").HasColumnName("nextCheckAt");
+            entity.Property(e => e.NextCheckReason).HasColumnName("nextCheckReason");
+            entity.HasIndex(e => new { e.UserId, e.NextCheckAt }, "WatchListItem_userId_nextCheckAt_idx");
             entity.Property(e => e.LatestReleaseAt)
                 .HasColumnType("DATETIME")
                 .HasColumnName("latestReleaseAt");

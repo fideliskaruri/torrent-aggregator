@@ -27,6 +27,10 @@ public partial class WatchListItem
 
     public DateTime LastChecked { get; set; }
 
+    public DateTime? NextCheckAt { get; set; }
+
+    public string? NextCheckReason { get; set; }
+
     public string? LastEpisode { get; set; }
 
     public int? FromSeason { get; set; }
