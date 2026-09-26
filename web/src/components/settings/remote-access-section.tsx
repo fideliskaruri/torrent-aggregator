@@ -15,6 +15,7 @@ import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { sessionAwareFetch } from "@/lib/session-expiry";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 interface RemoteAccessSettings {
@@ -116,9 +117,6 @@ function RemoteAccessPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadKey, setLoadKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
   const [check, setCheck] = useState<RemoteAccessCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -211,7 +209,6 @@ function RemoteAccessPanel() {
     event.preventDefault();
     if (!form || readOnly) return;
     setSaving(true);
-    setMessage(null);
     try {
       const res = await sessionAwareFetch("/api/settings/remote-access", {
         method: "PUT",
@@ -230,14 +227,13 @@ function RemoteAccessPanel() {
       setSettings(body);
       setForm(toForm(body));
       setCheck(null);
-      setMessage({
-        ok: true,
-        text: body.restartRequired
+      toast.success(
+        body.restartRequired
           ? "Saved. Restart TorrentFlow to apply the listener change."
           : "Saved. Changes apply right away.",
-      });
+      );
     } catch (err) {
-      setMessage({ ok: false, text: err instanceof Error ? err.message : "Save failed" });
+      toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
     }
@@ -532,24 +528,6 @@ function RemoteAccessPanel() {
           <p role="alert" className="flex items-start gap-2 text-sm text-[var(--danger)]">
             <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{checkError}</span>
-          </p>
-        ) : null}
-
-        {message ? (
-          <p
-            role={message.ok ? "status" : "alert"}
-            data-remote-access-message
-            className={cn(
-              "flex items-start gap-2 text-sm",
-              message.ok ? "text-[var(--success)]" : "text-[var(--danger)]",
-            )}
-          >
-            {message.ok ? (
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            ) : (
-              <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            )}
-            <span>{message.text}</span>
           </p>
         ) : null}
       </div>
