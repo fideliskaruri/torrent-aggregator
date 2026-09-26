@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Download,
   FolderOpen,
+  FolderTree,
   HardDriveDownload,
   Magnet,
   MoreHorizontal,
@@ -213,6 +214,18 @@ async function loadDownloadEpisodeTitle(payload: {
   }
 }
 
+/** Result of POST /api/client/torrents/tidy (LayoutTidyResult). */
+type TidyResult = {
+  checked: number;
+  tidied: number;
+  filesMoved: number;
+  stillNested: number;
+  skipped: number;
+};
+
+function plural(n: number, word: string) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
 export default function ClientPage() {
   const { streaming } = useFeatures();
   // Rows, error, offline and "was that read authoritative" move together: a
@@ -225,6 +238,7 @@ export default function ClientPage() {
   const [clientType, setClientType] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [openingHash, setOpeningHash] = useState<string | null>(null);
+  const [tidying, setTidying] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -800,6 +814,36 @@ export default function ClientPage() {
     }
   }
 
+  async function tidyFolders() {
+    setTidying(true);
+    try {
+      const res = await fetch("/api/client/torrents/tidy", { method: "POST" });
+      const data = (await res.json().catch(() => null)) as TidyResult | null;
+      if (!res.ok || !data) {
+        toast.error("Could not tidy folders. Try again.");
+        return;
+      }
+      const notes = [
+        data.stillNested > 0
+          ? `${plural(data.stillNested, "video")} kept in a release folder — another download already has that name`
+          : "",
+        data.skipped > 0 ? `${plural(data.skipped, "download")} in use, try again later` : "",
+      ].filter(Boolean);
+      const description = notes.length ? { description: notes.join(". ") } : undefined;
+      if (data.filesMoved === 0) toast.success("Folders are already tidy", description);
+      else
+        toast.success(
+          `Moved ${plural(data.filesMoved, "file")} from ${plural(data.tidied, "download")}`,
+          description,
+        );
+      void load();
+    } catch {
+      toast.error("Network error tidying folders");
+    } finally {
+      setTidying(false);
+    }
+  }
+
   async function openDownloadFolder(t: ClientTorrent) {
     setOpeningHash(t.transferId);
     try {
@@ -1057,6 +1101,20 @@ export default function ClientPage() {
         }
         actions={
           <>
+            {isBuiltin ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={tidying}
+                onClick={() => void tidyFolders()}
+                title="Move finished episodes out of their release folders"
+                data-tidy-folders
+              >
+                <FolderTree className={cn("h-3.5 w-3.5", tidying && "animate-pulse")} />
+                {tidying ? "Tidying…" : "Tidy folders"}
+              </Button>
+            ) : null}
             <Button asChild variant="ghost" size="sm">
               <Link to="/settings?tab=connection">Settings</Link>
             </Button>

@@ -1,6 +1,9 @@
 namespace TorrentFlow.Engine.Client;
 
-/// <summary>What to load into the torrent client. Exactly one of Magnet / TorrentBytes is set.</summary>
+/// <summary>
+/// What to load into the torrent client. Exactly one of Magnet / TorrentBytes is set. <see cref="FilePaths"/>, by torrent
+/// file index, points files that already sit somewhere laid out (a re-add) at those paths; null entries keep the default.
+/// </summary>
 internal sealed record BackendAddSpec(
     string Hash,
     string? Magnet,
@@ -8,7 +11,8 @@ internal sealed record BackendAddSpec(
     string SavePath,
     string Purpose,
     TimeSpan? MetadataTimeout,
-    bool CreateContainingDirectory = true);
+    bool CreateContainingDirectory = true,
+    IReadOnlyList<string?>? FilePaths = null);
 
 internal sealed record BackendFile(int Index, string Path, string FullPath, long Length, bool Selected, double Progress);
 

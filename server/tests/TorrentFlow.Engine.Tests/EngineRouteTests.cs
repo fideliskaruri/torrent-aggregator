@@ -67,6 +67,16 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task TidyReportsWhatItMoved()
+    {
+        var r = await _http.PostAsync("/api/client/torrents/tidy", null);
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var json = await Json(r);
+        foreach (var field in new[] { "checked", "tidied", "filesMoved", "stillNested", "skipped" })
+            Assert.Equal(JsonValueKind.Number, json.GetProperty(field).ValueKind);
+    }
+
+    [Fact]
     public async Task SendValidatesInput()
     {
         var r = await _http.PostAsJsonAsync("/api/torrent/send", new { });

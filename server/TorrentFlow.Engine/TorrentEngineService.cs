@@ -34,7 +34,7 @@ internal sealed class TorrentEngineService(
     CompletedLayoutFinalizer? layout = null,
     CompletedLayoutManifestStore? layoutManifest = null,
     ISmartCategorizer? categorizer = null,
-    DownloadLimits? limits = null) : ITorrentEngine
+    DownloadLimits? limits = null) : ITorrentEngine, ILayoutTidy
 {
     public const string HttpClientName = "TorrentFlow.Engine.TorrentFiles";
     public const string DownloadedCannotPause = "Downloaded files cannot be paused.";
@@ -289,16 +289,18 @@ internal sealed class TorrentEngineService(
         return meta;
     }
 
-    private async Task<BackendAddOutcome> StartInBackendAsync(EngineTorrent row, string purpose, TimeSpan? metadataTimeout, CancellationToken ct,
-        bool reuseExistingLayout = false)
+    private async Task<BackendAddOutcome> StartInBackendAsync(EngineTorrent row, string purpose, TimeSpan? metadataTimeout, CancellationToken ct)
     {
         var bytes = LoadTorrentFile(row.Hash);
         if (bytes is null && string.IsNullOrWhiteSpace(row.Magnet))
             return new BackendAddOutcome(false, "No saved source to retry this release.");
-        reuseExistingLayout = reuseExistingLayout || row.TorrentUrl == DownloadRecoveryService.SeedingMarker
-            || _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
+        // A laid-out torrent is re-added in its own release folder with each file pointed at where the layout put it, so
+        // a file moved aside or kept nested is re-checked in place and a neighbour's file at the flat path is never touched.
+        var indexed = bytes is null ? null : _layoutManifest.IndexedPaths(row.Hash, row.SavePath);
+        var reuseFlatLayout = indexed is null && (row.TorrentUrl == DownloadRecoveryService.SeedingMarker
+            || _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _));
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
-            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseExistingLayout);
+            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed);
         var wasLoaded = backend.Contains(row.Hash);
         try
         {
@@ -991,38 +993,75 @@ internal sealed class TorrentEngineService(
     /// Validates and lays out a parked download. Caller holds the hash lock; runs only once the client has let go of
     /// the files and no reader is open, otherwise it is deferred to the last stream's close.
     /// </summary>
-    private async Task<LayoutOutcome> FinalizeLayoutLockedAsync(string hash)
+    private async Task<LayoutOutcome> FinalizeLayoutLockedAsync(string hash) => (await FinalizeLayoutLockedAsync(hash, validate: true, tidy: false)).Outcome;
+
+    /// <param name="tidy">An owner's re-run over old downloads: an open stream skips the row instead of deferring it.</param>
+    private async Task<LayoutResult> FinalizeLayoutLockedAsync(string hash, bool validate, bool tidy)
     {
-        if (layout is null) return LayoutOutcome.Unchanged;
+        if (layout is null) return LayoutResult.Unchanged;
         lock (_openStreams)
         {
             if (_openStreams.GetValueOrDefault(hash) > 0)
             {
-                _pendingLayout.Add(hash);
-                return LayoutOutcome.Unchanged;
+                if (!tidy) _pendingLayout.Add(hash);
+                return LayoutResult.Unchanged;
             }
         }
-        if (backend.Contains(hash)) return LayoutOutcome.Unchanged;
+        if (backend.Contains(hash)) return LayoutResult.Unchanged;
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
             var row = await FindAsync(db, hash, CancellationToken.None);
-            if (row is null || row.Status != EngineTorrentStatus.Parked || !IsDownloaded(row)) return LayoutOutcome.Unchanged;
-            var outcome = await layout.FinalizeAsync(db, row, CancellationToken.None);
-            if (outcome == LayoutOutcome.LaidOut)
-            {
-                var files = VerifiedFiles(row).Select(f => f.FullPath).Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!).ToList();
-                _layoutManifest.Remember(row.Hash, row.SavePath, files);
-            }
-            if (outcome != LayoutOutcome.Unchanged) storage.ResetDirectorySizeCache();
-            return outcome;
+            if (row is null || row.Status != EngineTorrentStatus.Parked || !IsDownloaded(row)) return LayoutResult.Unchanged;
+            var result = await layout.FinalizeDetailedAsync(db, row, validate, CancellationToken.None);
+            if (result.Outcome == LayoutOutcome.LaidOut)
+                _layoutManifest.Remember(row.Hash, row.SavePath, VerifiedFiles(row).Select(f => f.FullPath).ToList());
+            if (result.Outcome != LayoutOutcome.Unchanged) storage.ResetDirectorySizeCache();
+            return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // A layout tweak must never stop a download from counting as finished.
             logger.LogWarning(ex, "[content-layout] rewrite failed for {Hash}", hash);
-            return LayoutOutcome.Unchanged;
+            return LayoutResult.Unchanged;
         }
+    }
+
+    /// <summary>
+    /// Re-runs the content layout over every finished download, oldest first: files still sitting in a release folder
+    /// move into place (all-or-nothing per torrent). A transfer the client holds or a reader has open is skipped. Media
+    /// was validated when it finished, so it is not re-probed.
+    /// </summary>
+    public async Task<LayoutTidyResult> TidyAsync(CancellationToken ct)
+    {
+        List<string> hashes;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            hashes = await db.EngineTorrents.AsNoTracking()
+                .Where(r => r.UserId == LocalUser.Id && r.Status == EngineTorrentStatus.Parked && r.VerifiedAt != null && r.VerifiedFilesJson != null)
+                .OrderBy(r => r.VerifiedAt).Select(r => r.Hash).ToListAsync(ct);
+        }
+        int tidied = 0, moved = 0, kept = 0, skipped = 0;
+        foreach (var hash in hashes)
+        {
+            ct.ThrowIfCancellationRequested();
+            bool busy;
+            lock (_openStreams) busy = _openStreams.GetValueOrDefault(hash) > 0;
+            if (busy || backend.Contains(hash))
+            {
+                skipped++;
+                continue;
+            }
+            LayoutResult result;
+            using (await LockHashAsync(hash, ct)) result = await FinalizeLayoutLockedAsync(hash, validate: false, tidy: true);
+            if (result.Outcome != LayoutOutcome.LaidOut) continue;
+            tidied++;
+            moved += result.Moved;
+            kept += result.KeptVideos;
+        }
+        logger.LogInformation("[content-layout] tidy: {Tidied} of {Checked} downloads rearranged, {Moved} files moved, {Kept} videos kept in a release folder, {Skipped} busy",
+            tidied, hashes.Count, moved, kept, skipped);
+        return new LayoutTidyResult(hashes.Count, tidied, moved, kept, skipped);
     }
 
     private static int ResolveIndex(string fileIndexOrPath, IReadOnlyList<string> paths)

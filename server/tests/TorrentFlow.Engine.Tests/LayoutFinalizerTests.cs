@@ -69,7 +69,7 @@ public class LayoutFinalizerTests
 
         Assert.True(File.Exists(Path.Combine(dest, "S01E01.mkv")));
         Assert.True(File.Exists(Path.Combine(dest, "S01E02.mkv")));
-        Assert.True(File.Exists(Path.Combine(dest, "Subs", "S01E01.eng.srt")));
+        Assert.True(File.Exists(Path.Combine(dest, "S01E01.eng.srt")), "a subtitle named after its episode sits beside it");
         Assert.False(Directory.Exists(Path.Combine(dest, outer)), "the emptied wrappers are removed");
         var manifest = await ManifestAsync(h, 1);
         Assert.Equal(Path.Combine(dest, "S01E02.mkv"), manifest[1].FullPath);
@@ -116,7 +116,7 @@ public class LayoutFinalizerTests
     }
 
     [Fact]
-    public async Task SecondReleaseInTheSameSeasonKeepsItsFolderWhenAFileBelongsToTheFirst()
+    public async Task SecondReleaseInTheSameSeasonMovesAnExtraTheFirstOwnsAside()
     {
         await using var h = await EngineHarness.CreateAsync();
         var log = new ListLogger<CompletedLayoutFinalizer>();
@@ -126,14 +126,16 @@ public class LayoutFinalizerTests
         await SeedCompletedAsync(h, 2, dest, "Show.S03E02.1080p.WEB", ("Show.S03E02.mkv", 12), ("Screens/s1.png", 4));
 
         Assert.Equal(LayoutOutcome.LaidOut, await FinalizeAsync(h, f, 1));
-        Assert.Equal(LayoutOutcome.Unchanged, await FinalizeAsync(h, f, 2));
+        Assert.Equal(LayoutOutcome.LaidOut, await FinalizeAsync(h, f, 2));
 
         Assert.True(File.Exists(Path.Combine(dest, "Show.S03E01.mkv")));
         Assert.True(File.Exists(Path.Combine(dest, "Screens", "s1.png")));
-        Assert.True(File.Exists(Path.Combine(dest, "Show.S03E02.1080p.WEB", "Show.S03E02.mkv")));
-        Assert.True(File.Exists(Path.Combine(dest, "Show.S03E02.1080p.WEB", "Screens", "s1.png")));
-        Assert.True(log.Has($"[content-layout] keeping the release folder — \"Screens/s1.png\" would collide: it belongs to torrent {EngineHarness.Hash(1)[..8]}"));
-        Assert.Equal(Path.Combine(dest, "Show.S03E02.1080p.WEB", "Show.S03E02.mkv"), (await ManifestAsync(h, 2))[0].FullPath);
+        Assert.True(File.Exists(Path.Combine(dest, "Show.S03E02.mkv")));
+        Assert.True(File.Exists(Path.Combine(dest, "Screens", "Show.S03E02.1080p.WEB", "s1.png")));
+        Assert.False(Directory.Exists(Path.Combine(dest, "Show.S03E02.1080p.WEB")));
+        Assert.True(log.Has($"[content-layout] \"Screens/s1.png\" would collide (it belongs to torrent {EngineHarness.Hash(1)[..8]}); moved it to \"Screens/Show.S03E02.1080p.WEB/s1.png\""));
+        Assert.Equal(Path.Combine(dest, "Show.S03E02.mkv"), (await ManifestAsync(h, 2))[0].FullPath);
+        Assert.Equal(Path.Combine(dest, "Screens", "Show.S03E02.1080p.WEB", "s1.png"), (await ManifestAsync(h, 2))[1].FullPath);
     }
 
     [Fact]
@@ -146,10 +148,11 @@ public class LayoutFinalizerTests
         await File.WriteAllBytesAsync(Path.Combine(dest, "movie.mkv"), new byte[3]);
         await SeedCompletedAsync(h, 1, dest, "X.2024.1080p.WEB", ("movie.mkv", 10), ("movie.nfo", 1));
 
-        Assert.Equal(LayoutOutcome.Unchanged, await FinalizeAsync(h, NewFinalizer(log), 1));
-        Assert.True(log.Has("[content-layout] keeping the release folder — \"movie.mkv\" would collide: a file of a different size is already there"));
+        Assert.Equal(LayoutOutcome.LaidOut, await FinalizeAsync(h, NewFinalizer(log), 1));
+        Assert.True(log.Has("[content-layout] keeping \"movie.mkv\" in its release folder — a file of a different size is already there"));
         Assert.Equal(3, new FileInfo(Path.Combine(dest, "movie.mkv")).Length);
         Assert.True(File.Exists(Path.Combine(dest, "X.2024.1080p.WEB", "movie.mkv")));
+        Assert.True(File.Exists(Path.Combine(dest, "movie.nfo")), "only the colliding video stays nested");
     }
 
     [Fact]
@@ -175,8 +178,10 @@ public class LayoutFinalizerTests
         Directory.CreateDirectory(Path.Combine(dest, "movie.mkv"));
         await SeedCompletedAsync(h, 1, dest, "X.2024.1080p.WEB", ("movie.mkv", 10), ("movie.nfo", 1));
 
-        Assert.Equal(LayoutOutcome.Unchanged, await FinalizeAsync(h, NewFinalizer(log), 1));
-        Assert.True(log.Has("\"movie.mkv\" would collide: a directory is in the way"));
+        Assert.Equal(LayoutOutcome.LaidOut, await FinalizeAsync(h, NewFinalizer(log), 1));
+        Assert.True(log.Has("keeping \"movie.mkv\" in its release folder — a directory is in the way"));
+        Assert.True(File.Exists(Path.Combine(dest, "X.2024.1080p.WEB", "movie.mkv")));
+        Assert.True(Directory.Exists(Path.Combine(dest, "movie.mkv")));
     }
 
     [Fact]
@@ -258,11 +263,17 @@ public class LayoutFinalizerTests
         var dest = Dest(h, "Movies", "X");
         Directory.CreateDirectory(dest);
         await File.WriteAllBytesAsync(Path.Combine(dest, "Subs"), new byte[1]);
-        await SeedCompletedAsync(h, 1, dest, "X.2024.1080p.WEB", ("movie.mkv", 10), ("Subs/en.srt", 1));
+        await File.WriteAllBytesAsync(Path.Combine(dest, "Screens"), new byte[1]);
+        await SeedCompletedAsync(h, 1, dest, "X.2024.1080p.WEB", ("movie.mkv", 10), ("Subs/en.srt", 1), ("Screens/a.png", 1));
 
-        Assert.Equal(LayoutOutcome.Unchanged, await FinalizeAsync(h, NewFinalizer(log), 1));
-        Assert.True(log.Has("\"Subs/en.srt\" would collide: a directory is in the way"));
-        Assert.True(File.Exists(Path.Combine(dest, "X.2024.1080p.WEB", "Subs", "en.srt")));
+        Assert.Equal(LayoutOutcome.LaidOut, await FinalizeAsync(h, NewFinalizer(log), 1));
+        // The one video's subtitle goes beside it, so a file named Subs no longer stands in the way.
+        Assert.True(File.Exists(Path.Combine(dest, "movie.en.srt")));
+        Assert.Equal(1, new FileInfo(Path.Combine(dest, "Subs")).Length);
+        // An extra whose folder is a file, even under its per-release name, stays in the release folder.
+        Assert.True(log.Has("keeping \"Screens/a.png\" in its release folder — a directory is in the way"));
+        Assert.True(File.Exists(Path.Combine(dest, "X.2024.1080p.WEB", "Screens", "a.png")));
+        Assert.True(File.Exists(Path.Combine(dest, "movie.mkv")));
     }
 
     [Fact]
@@ -289,11 +300,21 @@ public class LayoutFinalizerTests
     public void NativeLayoutDetection()
     {
         static ManifestFile M(string p) => new(p, 1, 0, null);
-        Assert.True(CompletedLayoutFinalizer.IsNativeLayout([M("a.mkv")], ["a.mkv"]));
-        Assert.False(CompletedLayoutFinalizer.IsNativeLayout([M("a.mkv")], ["R/a.mkv"]));
-        Assert.True(CompletedLayoutFinalizer.IsNativeLayout([M("a.mkv"), M("s/b.srt")], ["R/a.mkv", "R/s/b.srt"]));
-        Assert.False(CompletedLayoutFinalizer.IsNativeLayout([M("a.mkv"), M("s/b.srt")], ["a.mkv", "s/b.srt"]));
-        Assert.False(CompletedLayoutFinalizer.IsNativeLayout([M("a.mkv"), M("b.mkv")], ["R/a.mkv", "Q/b.mkv"]));
+        Assert.Empty(CompletedLayoutFinalizer.InferTorrentLayout([M("a.mkv")], ["a.mkv"])!.Pinned);
+        Assert.Equal(["R/a.mkv"], CompletedLayoutFinalizer.InferTorrentLayout([M("a.mkv")], ["R/a.mkv"])!.Paths);
+        var both = CompletedLayoutFinalizer.InferTorrentLayout([M("a.mkv"), M("s/b.srt")], ["R/a.mkv", "R/s/b.srt"])!;
+        Assert.Equal(["R/a.mkv", "R/s/b.srt"], both.Paths);
+        Assert.Empty(both.Pinned);
+        // Already unwrapped by an earlier layout: each file sits at its torrent path directly in the save path.
+        var flat = CompletedLayoutFinalizer.InferTorrentLayout([M("a.mkv"), M("s/b.srt")], ["a.mkv", "s/b.srt"])!;
+        Assert.Equal(["a.mkv", "s/b.srt"], flat.Paths);
+        Assert.Empty(flat.Pinned);
+        Assert.Null(CompletedLayoutFinalizer.InferTorrentLayout([M("a.mkv"), M("s/b.srt")], ["x/y/a.mkv", null]));
+        // One file laid out already, one still in the release folder: only the latter may move.
+        var half = CompletedLayoutFinalizer.InferTorrentLayout([M("a.mkv"), M("s/b.srt")], ["R/a.mkv", "s/b.srt"])!;
+        Assert.Equal("s/b.srt", Assert.Single(half.Pinned).Value);
+        var discarded = CompletedLayoutFinalizer.InferTorrentLayout([M("a.mkv"), M("b.txt")], ["R/a.mkv", null])!;
+        Assert.Null(Assert.Single(discarded.Pinned).Value);
     }
 
     // ---- engine integration: completion → layout, deferred behind an open stream

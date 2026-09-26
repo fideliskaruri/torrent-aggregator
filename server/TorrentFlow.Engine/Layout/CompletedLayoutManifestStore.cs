@@ -4,7 +4,8 @@ namespace TorrentFlow.Engine.Layout;
 
 internal sealed class CompletedLayoutManifestStore
 {
-    private sealed record Entry(string Hash, string SavePath, string[] Files);
+    /// <summary><paramref name="Indexed"/> holds each torrent file's path by file index (null for a discarded file); older entries lack it.</summary>
+    private sealed record Entry(string Hash, string SavePath, string[] Files, string?[]? Indexed = null);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string _path;
@@ -57,16 +58,32 @@ internal sealed class CompletedLayoutManifestStore
         }
     }
 
-    public void Remember(string hash, string? savePath, IEnumerable<string> files)
+    /// <summary>Records where each file of a laid-out torrent lives, by torrent file index (null for a discarded file).</summary>
+    public void Remember(string hash, string? savePath, IReadOnlyList<string?> indexed)
     {
         if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(savePath)) return;
         var fullPath = Path.GetFullPath(savePath.Trim());
-        var record = files.Select(f => f?.Trim()).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => Path.GetFullPath(f!)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var paths = indexed.Select(f => string.IsNullOrWhiteSpace(f) ? null : Path.GetFullPath(f.Trim())).ToArray();
+        var record = paths.Where(f => f is not null).Select(f => f!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (record.Length == 0) return;
         lock (_gate)
         {
-            _entries[Key(hash, fullPath)] = new Entry(hash.ToLowerInvariant(), fullPath, record);
+            _entries[Key(hash, fullPath)] = new Entry(hash.ToLowerInvariant(), fullPath, record, paths);
             Save();
+        }
+    }
+
+    /// <summary>
+    /// The recorded per-file paths of a laid-out torrent when every recorded file is still on disk, else null. A re-add
+    /// points the client at these so it re-checks the files where they are instead of downloading them again.
+    /// </summary>
+    public string?[]? IndexedPaths(string hash, string? savePath)
+    {
+        if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(savePath)) return null;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(Key(hash, savePath), out var entry) || entry.Indexed is not { Length: > 0 } indexed) return null;
+            return indexed.All(p => p is null || File.Exists(p)) ? indexed.ToArray() : null;
         }
     }
 
@@ -94,7 +111,8 @@ internal sealed class CompletedLayoutManifestStore
         if (string.IsNullOrWhiteSpace(hash) || string.IsNullOrWhiteSpace(savePath)) return false;
         lock (_gate)
         {
-            if (!_entries.TryGetValue(Key(hash, savePath), out var entry)) return false;
+            // An indexed entry may hold files moved aside or kept nested, so its flat torrent paths can belong to a neighbour.
+            if (!_entries.TryGetValue(Key(hash, savePath), out var entry) || entry.Indexed is not null) return false;
             var existing = new List<string>();
             foreach (var file in entry.Files)
             {

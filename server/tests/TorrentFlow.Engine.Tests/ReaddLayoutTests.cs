@@ -183,4 +183,69 @@ public sealed class ReaddLayoutTests
         Assert.False(Directory.Exists(Path.Combine(downloadRoot, releaseName)));
         Assert.Equal(2, Directory.EnumerateFiles(downloadRoot, "*", SearchOption.AllDirectories).Count());
     }
+
+    private static async Task<(byte[] Bytes, Torrent Torrent, string Hash, string Magnet)> ReleaseAsync(string sourceRoot, string downloadRoot, string name, string video, string fixture, string screen)
+    {
+        var src = Path.Combine(sourceRoot, name);
+        Directory.CreateDirectory(Path.Combine(src, "Screens"));
+        File.Copy(fixture, Path.Combine(src, video), overwrite: true);
+        await File.WriteAllTextAsync(Path.Combine(src, "Screens", "s1.png"), screen);
+        var bytes = (await new TorrentCreator { PieceLength = 64 * 1024 }.CreateAsync(new TorrentFileSource(src))).Encode();
+        var torrent = Torrent.Load(bytes);
+        // Where MonoTorrent would leave a finished download: <save>/<name>/<path>.
+        foreach (var file in torrent.Files)
+        {
+            var target = Path.Combine(downloadRoot, torrent.Name, file.Path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(Path.Combine(src, file.Path.Replace('/', Path.DirectorySeparatorChar)), target, overwrite: true);
+        }
+        var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+        return (bytes, torrent, hash, $"magnet:?xt=urn:btih:{hash}&dn={Uri.EscapeDataString(torrent.Name)}");
+    }
+
+    private static async Task CompleteAndLayOutAsync(RealEngineHarness harness, string name, byte[]? bytes, string hash, string magnet)
+    {
+        var add = await harness.Engine.AddAsync(new EngineAddRequest { Name = name, Magnet = magnet, TorrentBytes = bytes, Purpose = "keep", WorkId = "show" });
+        Assert.True(add.Ok, add.Message);
+        await WaitUntil(() => Task.FromResult(harness.Backend.Get(hash)?.State == "complete"), TimeSpan.FromSeconds(60), $"{name} never completed");
+        await harness.Engine.TickAsync();
+        await WaitUntil(() => Task.FromResult(!harness.Backend.Contains(hash)), TimeSpan.FromSeconds(30), $"{name} was not detached");
+    }
+
+    [Fact]
+    public async Task ReaddingATransferWhoseExtraWasMovedAsideRechecksItInPlaceAndLeavesTheNeighbourAlone()
+    {
+        var fixture = MediaFixture();
+        Assert.NotNull(fixture);
+        var root = EngineHarness.NewRoot();
+        var sourceRoot = Path.Combine(root, "source");
+        var downloadRoot = Path.Combine(root, "downloads");
+        var first = await ReleaseAsync(sourceRoot, downloadRoot, "Show.S01E01.1080p.WEB", "Show.S01E01.mp4", fixture, "first screen");
+        var second = await ReleaseAsync(sourceRoot, downloadRoot, "Show.S01E02.1080p.WEB", "Show.S01E02.mp4", fixture, "second screen!");
+
+        await using var harness = await RealEngineHarness.CreateAsync(root);
+        await CompleteAndLayOutAsync(harness, first.Torrent.Name, first.Bytes, first.Hash, first.Magnet);
+        await CompleteAndLayOutAsync(harness, second.Torrent.Name, second.Bytes, second.Hash, second.Magnet);
+
+        var neighbour = Path.Combine(downloadRoot, "Screens", "s1.png");
+        var movedAside = Path.Combine(downloadRoot, "Screens", "Show.S01E02.1080p.WEB", "s1.png");
+        Assert.True(File.Exists(Path.Combine(downloadRoot, "Show.S01E01.mp4")));
+        Assert.True(File.Exists(Path.Combine(downloadRoot, "Show.S01E02.mp4")));
+        Assert.Equal("first screen", await File.ReadAllTextAsync(neighbour));
+        Assert.Equal("second screen!", await File.ReadAllTextAsync(movedAside));
+        Assert.False(Directory.Exists(Path.Combine(downloadRoot, "Show.S01E02.1080p.WEB")));
+
+        Assert.True((await harness.Engine.RemoveAsync(second.Hash, deleteFiles: false)).Ok);
+        var readd = await harness.Engine.AddAsync(new EngineAddRequest { Name = second.Torrent.Name, Magnet = second.Magnet, Purpose = "keep", WorkId = "show" });
+        Assert.True(readd.Ok, readd.Message);
+        await WaitUntil(() => Task.FromResult(harness.Backend.Get(second.Hash)?.State == "complete"), TimeSpan.FromSeconds(30), "re-add never completed");
+
+        var snap = harness.Backend.Get(second.Hash)!;
+        Assert.Equal(0, snap.BytesReceived ?? 0);
+        Assert.Contains(snap.Files, f => string.Equals(f.FullPath, movedAside, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("first screen", await File.ReadAllTextAsync(neighbour));
+        Assert.Equal("second screen!", await File.ReadAllTextAsync(movedAside));
+        Assert.False(Directory.Exists(Path.Combine(downloadRoot, "Show.S01E02.1080p.WEB")));
+        Assert.Equal(4, Directory.EnumerateFiles(downloadRoot, "*", SearchOption.AllDirectories).Count());
+    }
 }

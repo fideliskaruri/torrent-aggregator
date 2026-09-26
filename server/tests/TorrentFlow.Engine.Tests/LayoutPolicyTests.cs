@@ -34,8 +34,9 @@ public class LayoutPolicyTests
             "D:/downloads/Anime/Solo Leveling/Season 01");
         Assert.NotNull(p);
         Assert.Equal([outer, inner], p.Roots);
-        Assert.Equal(["S01E01.mkv", "S01E02.mkv", "Subs/S01E01.eng.srt"], p.Paths);
-        Assert.Equal("removed 2 wrapper folders", p.Describe());
+        // A subtitle named after its episode sits next to it, where a player finds it.
+        Assert.Equal(["S01E01.mkv", "S01E02.mkv", "S01E01.eng.srt"], p.Paths);
+        Assert.Equal("removed 2 wrapper folders; moved 1 subtitle next to the video", p.Describe());
     }
 
     [Fact]
@@ -44,8 +45,9 @@ public class LayoutPolicyTests
         var p = Plan(["Dune Part Two (2024) [2160p] [4K] [WEB] [5.1] [YTS.MX]/Dune.mp4", "Dune Part Two (2024) [2160p] [4K] [WEB] [5.1] [YTS.MX]/subs/en.srt"],
             "D:/downloads/Movies/Dune Part Two");
         Assert.NotNull(p);
-        Assert.Equal(["Dune.mp4", "subs/en.srt"], p.Paths);
-        Assert.Equal("removed 1 wrapper folder", p.Describe());
+        // The release has one video, so its subs folder is that video's: named after it, beside it.
+        Assert.Equal(["Dune.mp4", "Dune.en.srt"], p.Paths);
+        Assert.Equal("removed 1 wrapper folder; moved 1 subtitle next to the video", p.Describe());
     }
 
     [Fact]
@@ -124,21 +126,38 @@ public class LayoutPolicyTests
     {
         Assert.Null(Plan(["Release/../../etc/passwd", "Release/ok.mkv"]));
         Assert.Null(Plan(["Release/./a.mkv", "Release/b.mkv"]));
-        Assert.Null(Plan(["R/Ep 01: Arrival.mkv", "R/Ep 01 Arrival.mkv"]));
-        Assert.Null(ContentLayoutPlanner.Plan(Files("R/Cover.jpg", "R/cover.jpg"), null, windows: true));
+        // Two videos that collapse onto one name: the first takes it, the second stays in its release folder.
+        var ep = Plan(["R/Ep 01: Arrival.mkv", "R/Ep 01 Arrival.mkv"]);
+        Assert.Equal(["Ep 01: Arrival.mkv", "R/Ep 01 Arrival.mkv"], ep!.Paths);
+        Assert.Equal(1, ep.KeptVideos);
+        // Two extras that collapse on Windows: the second moves to a per-release name.
+        Assert.Equal(["Cover.jpg", "R.cover.jpg"], ContentLayoutPlanner.Plan(Files("R/Cover.jpg", "R/cover.jpg"), null, windows: true)!.Paths);
         Assert.NotNull(ContentLayoutPlanner.Plan(Files("R/Cover.jpg", "R/cover.jpg"), null, windows: false));
         Assert.Equal(ContentLayoutPolicy.PhysicalKey("Dir/Ep 01: Arrival.mkv"), ContentLayoutPolicy.PhysicalKey("Dir/Ep 01 Arrival.mkv"));
         Assert.NotEqual(ContentLayoutPolicy.PhysicalKey("Dir/a.mkv"), ContentLayoutPolicy.PhysicalKey("Dir/b.mkv"));
     }
 
     [Fact]
-    public void AnotherTorrentsFileCancelsTheRewrite()
+    public void AnotherTorrentsExtraMovesAsideInsteadOfCancellingTheRewrite()
     {
         var log = new ListLogger<LayoutPolicyTests>();
         var plan = ContentLayoutPlanner.Apply(Files("Release/episode.mkv", "Release/Screens/s1.png"), "D:/downloads/TV/Show/Season 03", "aaaa",
             Probe(new() { ["Screens/s1.png"] = new ExistingFile(100, "bbbb") }), null, log);
-        Assert.Null(plan);
-        Assert.True(log.Has("[content-layout] keeping the release folder — \"Screens/s1.png\" would collide: it belongs to torrent bbbb"));
+        Assert.Equal(["episode.mkv", "Screens/Release/s1.png"], plan!.Paths);
+        Assert.Equal("removed 1 wrapper folder; moved 1 colliding extra aside", plan.Describe());
+        Assert.True(log.Has("[content-layout] \"Screens/s1.png\" would collide (it belongs to torrent bbbb); moved it to \"Screens/Release/s1.png\""));
+    }
+
+    [Fact]
+    public void AnotherTorrentsVideoKeepsOnlyThatVideoNested()
+    {
+        var log = new ListLogger<LayoutPolicyTests>();
+        var plan = ContentLayoutPlanner.Apply(Files("Release/Show.S03E01.mkv", "Release/Show.S03E01.en.srt", "Release/info.nfo"),
+            "D:/downloads/TV/Show/Season 03", "aaaa", Probe(new() { ["Show.S03E01.mkv"] = new ExistingFile(100, "bbbb") }), null, log);
+        // Its subtitle stays with it; the extra still moves out.
+        Assert.Equal(["Release/Show.S03E01.mkv", "Release/Show.S03E01.en.srt", "info.nfo"], plan!.Paths);
+        Assert.Equal(1, plan.KeptVideos);
+        Assert.True(log.Has("[content-layout] keeping \"Show.S03E01.mkv\" in its release folder — it belongs to torrent bbbb"));
     }
 
     [Fact]
@@ -156,7 +175,7 @@ public class LayoutPolicyTests
         var log = new ListLogger<LayoutPolicyTests>();
         Assert.Null(ContentLayoutPlanner.Apply(Files("Release/movie.mkv"), "D:/downloads/Movies/X", "aaaa",
             Probe(new() { ["movie.mkv"] = new ExistingFile(999, null) }), null, log));
-        Assert.True(log.Has("\"movie.mkv\" would collide: a file of a different size is already there"));
+        Assert.True(log.Has("keeping \"movie.mkv\" in its release folder — a file of a different size is already there"));
         Assert.Equal(["Release"], ContentLayoutPlanner.Apply(Files("Release/movie.mkv"), "D:/downloads/Movies/X", "aaaa",
             Probe(new() { ["movie.mkv"] = new ExistingFile(100, null) }), null, log)!.Roots);
     }
@@ -165,9 +184,11 @@ public class LayoutPolicyTests
     public void ADirectoryInTheWayBlocks()
     {
         var log = new ListLogger<LayoutPolicyTests>();
-        Assert.Null(ContentLayoutPlanner.Apply(Files("Release/Subs"), "D:/downloads/Movies/X", "aaaa",
-            Probe(new() { ["Subs"] = new ExistingFile(100, null, IsDirectory: true) }), null, log));
-        Assert.True(log.Has("would collide: a directory is in the way"));
+        Assert.Null(ContentLayoutPlanner.Apply(Files("Release/movie.mkv"), "D:/downloads/Movies/X", "aaaa",
+            Probe(new() { ["movie.mkv"] = new ExistingFile(100, null, IsDirectory: true) }), null, log));
+        Assert.True(log.Has("keeping \"movie.mkv\" in its release folder — a directory is in the way"));
+        Assert.Equal(["Release.Subs"], ContentLayoutPlanner.Apply(Files("Release/Subs"), "D:/downloads/Movies/X", "aaaa",
+            Probe(new() { ["Subs"] = new ExistingFile(100, null, IsDirectory: true) }), null, log)!.Paths);
     }
 
     [Fact]

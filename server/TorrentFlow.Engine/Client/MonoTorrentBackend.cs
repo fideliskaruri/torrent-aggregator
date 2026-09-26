@@ -118,6 +118,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             await AddPublicTrackersAsync(manager, _options.EffectivePublicTrackers);
             _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
+            if (spec.FilePaths is { } paths && manager.HasMetadata) await PointAtLaidOutFilesAsync(manager, paths);
             if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);
             await manager.StartAsync();
         }
@@ -142,6 +143,25 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             }
         }
         return new BackendAddOutcome(true, "", Snapshot(manager));
+    }
+
+    /// <summary>
+    /// Re-points a stopped manager's files at where an earlier layout put them. MonoTorrent's MoveFileAsync also moves a
+    /// file found at the old path, so a file is only re-pointed when nothing sits at its default path (the release
+    /// folder this torrent owns); a leftover there is simply re-checked in place.
+    /// </summary>
+    private static async Task PointAtLaidOutFilesAsync(TorrentManager manager, IReadOnlyList<string?> paths)
+    {
+        if (paths.Count != manager.Files.Count) return;
+        for (var i = 0; i < paths.Count; i++)
+        {
+            var file = manager.Files[i];
+            if (paths[i] is not { } target || string.Equals(Path.GetFullPath(target), Path.GetFullPath(file.FullPath), StringComparison.OrdinalIgnoreCase)) continue;
+            if (File.Exists(file.FullPath) || Directory.Exists(file.FullPath)) continue;
+            // A file that cannot be re-pointed is downloaded into the release folder again and laid out afterwards.
+            try { await manager.MoveFileAsync(file, target); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     /// <summary>

@@ -475,15 +475,43 @@ layout), `CompletedLayoutFinalizer`:
 1. Optionally validates with ffprobe (`TorrentFlow:Media:FfprobePath`, then `FFPROBE_PATH`, then
    `node_modules/ffprobe-static`, then `PATH`; if none is found, it logs once and skips). When no playable
    video is found, the row becomes an error and the matching acquisition targets become `failed`.
-2. Applies the TypeScript planner decisions and log lines: wrapper removal and `Season NN` renames. A
-   collision (a file another torrent owns, a file of a different size, or a directory in the way) keeps the
-   release folder. Tracker spam (`Torrent Downloaded From….txt`, `RARBG.txt`) never blocks, and a duplicate
-   copy is discarded.
+2. Plans the layout file by file (`ContentLayoutPlanner`). The goal is that every video lands directly in
+   the save path (`TV/<Show>/Season 01/Show.S01E03….mkv`).
+   - Wrapper folders are dropped and multi-season packs get `Season NN` folders, as in the TypeScript planner.
+   - A folder named after the one episode it holds (`Pack/Show.S01E01.x/…`) is hoisted.
+   - A subtitle belongs to a video when it is named after the video, sits in `Subs/<video name>/`, or sits in
+     a `Subs` folder of a release with a single video. It moves beside that video as
+     `<video>.<name>.srt`, so the player picks it up.
+   - An extra (sample, `.nfo`, screenshots, `.txt`) that would collide with a file another release owns, a
+     file of a different size, or a directory is moved aside under the release name, for example
+     `Sample/<release>/sample.mkv` or `<release>.<name>.nfo`. When even that path is taken, the extra stays
+     in its release folder.
+   - Only a video collision keeps a video in its release folder. That applies to that one file only, and it
+     is logged as `keeping "<path>" in its release folder — <reason>`. Two copies of the same episode are
+     never merged, and another torrent's file is never overwritten.
+   - Tracker spam (`Torrent Downloaded From….txt`, `RARBG.txt`) never blocks, and a duplicate copy is
+     discarded.
 3. Records the new paths in `verifiedFilesJson` (`fullPath`) before moving the files. The move is
-   all-or-nothing and rolls back on failure. Other rows' manifests are the ownership record.
+   all-or-nothing and rolls back on failure. Other rows' manifests are the ownership record. The layout
+   works out which files are still where MonoTorrent put them (`InferTorrentLayout`). Files already moved or
+   discarded are pinned, so re-running it is safe.
+4. Remembers each file's final path by torrent file index in `layout-manifest.json`. A re-add of the same
+   torrent loads in its release folder and points each file at its recorded path (`BackendAddSpec.FilePaths`,
+   `TorrentManager.MoveFileAsync` while stopped). The files are re-checked where they are, not downloaded
+   again, and a neighbour's file at the flat path is never touched. This needs the saved `.torrent`; a
+   magnet-only re-add of a laid-out torrent downloads into its release folder again and is laid out afterwards.
+
+**Tidy folders.** Downloads that finished before this layout existed, or before a restart, can still be
+nested. The Downloads page button **Tidy folders** calls `POST /api/client/torrents/tidy`
+(`ILayoutTidy`). It re-runs the layout over every parked, verified download, oldest first. It skips
+transfers the client holds or a reader has open, and it does not re-probe media. It returns
+`{ checked, tidied, filesMoved, stillNested, skipped }` and updates the manifests, so streaming and Open
+folder keep working. Finished downloads are detached from MonoTorrent rather than seeded; a later re-add
+uses the recorded paths.
 
 The smart `TV/<Show>/Season NN` / `Movies/<Title>` save path is chosen by the caller when the download is
-sent. The layout only works inside the row's save path.
+sent. The layout only works inside the row's save path. Transfers handled by an external client
+(qBittorrent / Transmission) are not laid out.
 
 ## Subtitle endpoint
 

@@ -55,6 +55,7 @@ public static class EngineModule
         services.AddSingleton<TorrentEngineService>();
         services.AddSingleton<DownloadRecoveryService>();
         services.AddSingleton<ITorrentEngine>(sp => sp.GetRequiredService<TorrentEngineService>());
+        services.AddSingleton<ILayoutTidy>(sp => sp.GetRequiredService<TorrentEngineService>());
         services.AddSingleton<RetentionSweeper>();
         services.AddHostedService<EngineMonitorService>();
         return services;

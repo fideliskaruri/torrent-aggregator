@@ -19,6 +19,12 @@ internal enum LayoutOutcome
     Invalid,
 }
 
+/// <summary>A layout run: what happened, how many files moved, and how many videos had to stay in their release folder.</summary>
+internal sealed record LayoutResult(LayoutOutcome Outcome, int Moved = 0, int KeptVideos = 0)
+{
+    public static readonly LayoutResult Unchanged = new(LayoutOutcome.Unchanged);
+}
+
 /// <summary>
 /// Finishes a completed download once nothing holds its files: optional ffprobe validation, then the content layout.
 /// The TypeScript engine rewrote paths before the store opened; MonoTorrent downloads a multi-file torrent into its
@@ -54,51 +60,65 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
             && seg.IndexOfAny(['<', '>', ':', '"', '/', '\\', '|', '?', '*']) < 0 && !seg.Any(char.IsControl));
 
     /// <summary>Validates and lays out one parked row. The caller holds the transfer's lock and has detached it.</summary>
-    public async Task<LayoutOutcome> FinalizeAsync(TorrentFlowDbContext db, EngineTorrent row, CancellationToken ct)
+    public async Task<LayoutOutcome> FinalizeAsync(TorrentFlowDbContext db, EngineTorrent row, CancellationToken ct) =>
+        (await FinalizeDetailedAsync(db, row, validate: true, ct)).Outcome;
+
+    /// <summary>
+    /// Lays out one parked row: every file still where MonoTorrent put it moves to its final place; files already laid
+    /// out stay put (and keep their names reserved). Safe to run again — that is how Tidy finishes a layout whose
+    /// conflict has since gone. <paramref name="validate"/> runs ffprobe first; a re-run of an accepted download skips it.
+    /// </summary>
+    public async Task<LayoutResult> FinalizeDetailedAsync(TorrentFlowDbContext db, EngineTorrent row, bool validate, CancellationToken ct)
     {
         var manifest = TorrentEngineService.VerifiedFiles(row);
-        if (manifest.Count == 0 || manifest.Any(f => f.FullPath is null) || string.IsNullOrWhiteSpace(row.SavePath))
-            return LayoutOutcome.Unchanged;
+        if (manifest.Count == 0 || string.IsNullOrWhiteSpace(row.SavePath)) return LayoutResult.Unchanged;
+        var present = manifest.Where(f => f.FullPath is not null).Select(f => f.FullPath!).ToList();
+        if (present.Count == 0) return LayoutResult.Unchanged;
 
-        if (await validator.ValidateAsync(manifest.Select(f => f.FullPath!).ToList(), ct) == MediaVerdict.Invalid)
+        if (validate && await validator.ValidateAsync(present, ct) == MediaVerdict.Invalid)
         {
             await MarkInvalidAsync(db, row, ct);
             logger.LogWarning("[builtin-engine] rejected completed non-media payload {Hash}", row.Hash);
-            return LayoutOutcome.Invalid;
+            return new LayoutResult(LayoutOutcome.Invalid);
         }
 
         var dest = Path.GetFullPath(row.SavePath);
-        var rel = manifest.Select(f => RelativeTo(dest, f.FullPath!)).ToList();
-        if (rel.Any(r => r is null) || !IsNativeLayout(manifest, rel!)) return LayoutOutcome.Unchanged;
+        var rel = manifest.Select(f => f.FullPath is null ? null : RelativeTo(dest, f.FullPath)).ToList();
+        if (InferTorrentLayout(manifest, rel) is not { } torrent) return LayoutResult.Unchanged;
 
-        var files = rel.Select((r, i) => new LayoutFile(r!, manifest[i].Size)).ToList();
+        var files = torrent.Paths.Select((p, i) => new LayoutFile(p, manifest[i].Size)).ToList();
         var owners = await OwnersAsync(db, row, manifest, ct);
         var windows = OperatingSystem.IsWindows();
 
         var plan = ContentLayoutPlanner.Apply(files, dest, row.Hash, p => ProbeExisting(dest, p, owners), claim: null, logger,
-            skipCollision: IsJunk);
-        if (plan is null) return LayoutOutcome.Unchanged;
+            skipCollision: IsJunk, pinned: torrent.Pinned);
+        if (plan is null) return LayoutResult.Unchanged;
 
-        if (windows && plan.Paths.FirstOrDefault(p => !IsValidWindowsPath(p)) is { } bad)
+        if (windows && Enumerable.Range(0, manifest.Count).Where(i => !torrent.Pinned.ContainsKey(i))
+                .Select(i => plan.Paths[i]).FirstOrDefault(p => !IsValidWindowsPath(p)) is { } bad)
         {
             logger.LogWarning("[content-layout] keeping the release folder — \"{Path}\" is not a valid Windows path", bad);
-            return LayoutOutcome.Unchanged;
+            return LayoutResult.Unchanged;
         }
 
         var self = row.Hash.ToLowerInvariant();
         var moves = new List<Move>();
+        var moveOf = new Move?[manifest.Count];
         for (var i = 0; i < manifest.Count; i++)
         {
+            if (torrent.Pinned.ContainsKey(i)) continue;
             var src = manifest[i].FullPath!;
             var dst = Path.Combine(dest, plan.Paths[i].Replace('/', Path.DirectorySeparatorChar));
             var existing = ProbeExisting(dest, plan.Paths[i], owners);
             var occupied = existing is not null && existing.Owner != self;
-            moves.Add(new Move(src, dst, Discard: occupied && IsJunk(plan.Paths[i]), Replace: occupied && !IsJunk(plan.Paths[i])));
+            var move = new Move(src, dst, Discard: occupied && IsJunk(plan.Paths[i]), Replace: occupied && !IsJunk(plan.Paths[i]));
+            moves.Add(move);
+            moveOf[i] = move;
         }
-
+        var moved = moves.Count(m => !PathsEqual(m.Src, m.Dst));
         // Claim before moving: the manifest is the ownership record the next torrent's collision check reads.
         var before = row.VerifiedFilesJson;
-        var after = manifest.Select((f, i) => f with { FullPath = moves[i].Discard ? null : moves[i].Dst }).ToList();
+        var after = manifest.Select((f, i) => moveOf[i] is { } m ? f with { FullPath = m.Discard ? null : m.Dst } : f).ToList();
         row.VerifiedFilesJson = JsonSerializer.Serialize(after, JsonOptions);
         row.UpdatedAt = time.GetUtcNow().UtcDateTime;
         try
@@ -109,7 +129,7 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         {
             row.VerifiedFilesJson = before;
             logger.LogWarning("[content-layout] keeping the release folder — ownership could not be recorded");
-            return LayoutOutcome.Unchanged;
+            return LayoutResult.Unchanged;
         }
 
         try
@@ -122,14 +142,14 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
             logger.LogWarning("[content-layout] rewrite failed {Message}", ex.Message);
             row.VerifiedFilesJson = before;
             await db.SaveChangesAsync(CancellationToken.None);
-            return LayoutOutcome.Unchanged;
+            return LayoutResult.Unchanged;
         }
 
         RemoveEmptyParents(moves.Select(m => m.Src), dest);
         foreach (var junk in moves.Where(m => m.Discard))
             logger.LogInformation("[content-layout] dropped duplicate junk \"{Path}\"", Path.GetRelativePath(dest, junk.Dst));
         logger.LogInformation("[content-layout] {Name} → {Dest}: {What}", string.IsNullOrWhiteSpace(row.Name) ? "torrent" : row.Name, dest, plan.Describe());
-        return LayoutOutcome.LaidOut;
+        return new LayoutResult(LayoutOutcome.LaidOut, moved, plan.KeptVideos);
     }
 
     private sealed record Move(string Src, string Dst, bool Discard, bool Replace);
@@ -184,26 +204,40 @@ internal sealed class CompletedLayoutFinalizer(CompletedMediaValidator validator
         foreach (var m in moves.Where(m => m.Discard && !PathsEqual(m.Src, m.Dst))) TryDelete(m.Src + StageSuffix);
     }
 
+    /// <summary>The torrent's own layout as the planner needs it, and which files have already left it.</summary>
+    /// <param name="Paths">each file at its torrent path, under the release folder when the torrent has one</param>
+    /// <param name="Pinned">files not where MonoTorrent put them (laid out already, moved by hand, or discarded as junk)</param>
+    internal sealed record TorrentLayout(IReadOnlyList<string> Paths, IReadOnlyDictionary<int, string?> Pinned);
+
     /// <summary>
-    /// True when the files are still where MonoTorrent put them: a single file directly in the save path, or every file
-    /// under one release folder at its torrent path. Anything else was already laid out (or moved by hand) and is left.
+    /// Works out, file by file, which are still where MonoTorrent or an earlier layout put them whole: under
+    /// <c>&lt;release&gt;/&lt;torrent path&gt;</c>, or at <c>&lt;torrent path&gt;</c> directly in the save path (a
+    /// single-file torrent, or a release whose wrapper an earlier layout already dropped, such as a season pack whose
+    /// episode folders are still nested). The release folder is the one those files agree on. While any file is still
+    /// in it, that is the frame and files at their flat torrent path count as laid out already. Null when no file is in
+    /// either place.
     /// </summary>
-    internal static bool IsNativeLayout(IReadOnlyList<ManifestFile> manifest, IReadOnlyList<string> rel)
+    internal static TorrentLayout? InferTorrentLayout(IReadOnlyList<ManifestFile> manifest, IReadOnlyList<string?> rel)
     {
         string Norm(string p) => string.Join('/', ContentLayoutPolicy.Segments(p));
-        if (manifest.Count == 1) return Norm(rel[0]) == Norm(manifest[0].Path);
+        var flat = Enumerable.Range(0, manifest.Count).Count(i => rel[i] is { } r && Norm(r) == Norm(manifest[i].Path));
 
-        string? container = null;
+        var candidate = rel.Select((r, i) => (Segs: r is null ? [] : ContentLayoutPolicy.Segments(r), i))
+            .Where(x => x.Segs.Count >= 2 && string.Join('/', x.Segs.Skip(1)) == Norm(manifest[x.i].Path))
+            .GroupBy(x => x.Segs[0], StringComparer.Ordinal)
+            .OrderByDescending(g => g.Count()).Select(g => (Key: g.Key, Count: g.Count())).FirstOrDefault();
+        var container = candidate.Count > 0 ? candidate.Key : null;
+        if (container is null && flat == 0) return null;
+
+        string Native(ManifestFile f) => container is null ? Norm(f.Path) : $"{container}/{Norm(f.Path)}";
+        var pinned = new Dictionary<int, string?>();
         for (var i = 0; i < manifest.Count; i++)
         {
-            var segs = ContentLayoutPolicy.Segments(rel[i]);
-            if (segs.Count < 2 || string.Join('/', segs.Skip(1)) != Norm(manifest[i].Path)) return false;
-            if (container is null) container = segs[0];
-            else if (segs[0] != container) return false;
+            var isNative = rel[i] is { } r && Norm(r) == Native(manifest[i]);
+            if (!isNative) pinned[i] = rel[i] is { } at ? Norm(at) : null;
         }
-        return true;
+        return new TorrentLayout(manifest.Select(Native).ToList(), pinned);
     }
-
     private static string? RelativeTo(string dest, string full)
     {
         var abs = Path.GetFullPath(full);

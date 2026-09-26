@@ -46,7 +46,55 @@ internal static class ContentLayoutPolicy
     private static readonly Regex SeasonMention = new(@"(?:^|[^a-z0-9])s(?:eason)?[\s._-]*(\d{1,3})(?![0-9])", JsI);
     private static readonly Regex TrailingDotsSpaces = new(@"[. ]+$", Js);
 
+    private static readonly Regex EpisodeMarker = new(@"(?:^|[^a-z0-9])s(\d{1,3})[\s._-]*e(\d{1,4})(?![0-9])", JsI);
+    private static readonly Regex CrossEpisodeMarker = new(@"(?:^|[^a-z0-9])(\d{1,2})x(\d{2,3})(?![0-9])", JsI);
+    private static readonly Regex SampleName = new(@"(?:^|[^a-z0-9])sample(?:[^a-z0-9]|$)", JsI);
+    private static readonly Regex ExtrasFolder = new(
+        @"^(?:samples?|extras?|featurettes?|bonus|trailers?|behind[\s._-]*the[\s._-]*scenes|deleted[\s._-]*scenes|interviews?)$", JsI);
+    private static readonly Regex SubsFolder = new(@"^(?:subs?|subtitles?)$", JsI);
+
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mkv", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".ts", ".m2ts", ".mts", ".webm", ".mpg", ".mpeg", ".flv", ".ogv", ".divx", ".rmvb",
+    };
+
+    private static readonly HashSet<string> SubtitleExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup", ".smi",
+    };
+
     private static string Num(string digits) => int.Parse(digits, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The single episode a name identifies (<c>S01E03</c> or <c>1x03</c>), as <c>s1e3</c>. Null when it names none or
+    /// more than one: a folder is only an episode's own folder when there is no doubt which episode.
+    /// </summary>
+    public static string? EpisodeKey(string name)
+    {
+        var keys = EpisodeMarker.Matches(name).Concat(CrossEpisodeMarker.Matches(name))
+            .Select(m => $"s{Num(m.Groups[1].Value)}e{Num(m.Groups[2].Value)}").ToHashSet(StringComparer.Ordinal);
+        return keys.Count == 1 ? keys.First() : null;
+    }
+
+    public static bool IsSubsFolder(string name) => SubsFolder.IsMatch(name);
+
+    public static bool IsSeasonFolder(string name) => SeasonSegment.IsMatch(name);
+
+    /// <summary>
+    /// What a file is for the layout. A video is the content itself; a sample, or anything under an extras folder, is not,
+    /// whatever its extension — it may be moved aside, never given the episode's place.
+    /// </summary>
+    public static LayoutRole Role(IReadOnlyList<string> segments)
+    {
+        var name = segments[^1];
+        var ext = Path.GetExtension(name);
+        if (SubtitleExtensions.Contains(ext)) return LayoutRole.Subtitle;
+        if (!VideoExtensions.Contains(ext)) return LayoutRole.Extra;
+        if (SampleName.IsMatch(Path.GetFileNameWithoutExtension(name))) return LayoutRole.Extra;
+        for (var i = 0; i < segments.Count - 1; i++)
+            if (ExtrasFolder.IsMatch(segments[i])) return LayoutRole.Extra;
+        return LayoutRole.Video;
+    }
 
     public static bool IsProtected(string name) => ProtectedFolder.IsMatch(name);
 
