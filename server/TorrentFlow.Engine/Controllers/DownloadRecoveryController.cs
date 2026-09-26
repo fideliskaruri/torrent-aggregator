@@ -48,4 +48,21 @@ public sealed class DownloadRecoveryController(ClientSettingsStore settings, IOp
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         { return Conflict(new { error = "Could not scan the download folder. Check access and try again." }); }
     }
+
+    [HttpGet("sources")]
+    public async Task<IActionResult> Sources(CancellationToken ct)
+    {
+        if (!OwnerRequest()) return NotFound();
+        Response.Headers.CacheControl = "no-store";
+        return Ok(await HttpContext.RequestServices.GetRequiredService<ExternalDownloadImportService>().DiscoverAsync(ct));
+    }
+
+    [HttpPost("sources")]
+    public async Task<IActionResult> ImportSources([FromBody] ExternalDownloadImportRequest request, CancellationToken ct)
+    {
+        if (!OwnerRequest()) return NotFound();
+        Response.Headers.CacheControl = "no-store";
+        try { return Ok(await HttpContext.RequestServices.GetRequiredService<ExternalDownloadImportService>().ImportAsync(request, ct)); }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+    }
 }

@@ -138,6 +138,14 @@ public sealed class DataDirectoryTests : IDisposable
             Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
             Assert.DoesNotContain(host.Root, await response.Content.ReadAsStringAsync());
         }
+        foreach (var method in new[] { HttpMethod.Get, HttpMethod.Post })
+        {
+            using var request = new HttpRequestMessage(method, "/api/settings/download-recovery/sources");
+            if (method == HttpMethod.Post) request.Content = JsonContent.Create(new { ids = new[] { "fixture" }, acknowledged = true });
+            using var response = await client.SendAsync(request);
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
+            Assert.DoesNotContain(host.Root, await response.Content.ReadAsStringAsync());
+        }
     }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }

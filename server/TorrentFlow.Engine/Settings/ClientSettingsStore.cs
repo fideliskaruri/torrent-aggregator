@@ -99,6 +99,18 @@ public sealed class ClientSettingsStore(
         return EffectiveConfig(ToConfig(row)) with { Password = secrets.Decrypt(row.Password) };
     }
 
+    /// <summary>
+    /// Returns the persisted external selection without applying the deployment feature flag.
+    /// Import discovery uses this read-only path so a built-in-only runtime can still recover
+    /// transfers from a client that was configured before the flag was disabled.
+    /// </summary>
+    public async Task<ClientConfig> GetStoredConnectionConfigAsync(SecretProtector secrets, CancellationToken ct = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var row = await EnsureAsync(db, ct);
+        return ToConfig(row) with { Password = secrets.Decrypt(row.Password) };
+    }
+
     private ClientConfig EffectiveConfig(ClientConfig config) =>
         ExternalClientsEnabled ? config : config with { ClientType = "builtin", ExternalClientType = null };
 

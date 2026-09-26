@@ -37,6 +37,25 @@ internal sealed class ExternalHandler(Func<ExternalRequest, HttpResponseMessage>
 
 public class ExternalClientTests
 {
+    [Theory]
+    [InlineData("qbittorrent")]
+    [InlineData("transmission")]
+    public async Task ImportListingRetainsOriginalMagnetAndNeverChangesTorrentState(string type)
+    {
+        var magnet = EngineHarness.Magnet(97) + "&tr=" + Uri.EscapeDataString("https://private.example/fixture");
+        var row = type == "qbittorrent"
+            ? JsonSerializer.Serialize(new[] { new { hash = EngineHarness.Hash(97), name = "Fixture", progress = 0.1, size = 10, dlspeed = 0, upspeed = 0, state = "downloading", magnet_uri = magnet } })
+            : JsonSerializer.Serialize(new { result = "success", arguments = new { torrents = new[] {
+                new { hashString = EngineHarness.Hash(97), name = "Fixture", percentDone = 0.1, totalSize = 10, rateDownload = 0, rateUpload = 0, status = 4, magnetLink = magnet } } } });
+        using var handler = new ExternalHandler(request => request.Url.EndsWith("/auth/login")
+            ? ExternalHandler.Login() : ExternalHandler.Response(row));
+        using var http = new HttpClient(handler);
+        IExternalTorrentClient client = type == "qbittorrent" ? new QBittorrentClient(http) : new TransmissionClient(http);
+        Assert.Equal(magnet, (await client.ListAsync(Config(type))).Single().Magnet);
+        Assert.All(handler.Requests, r => Assert.True(r.Url.EndsWith("/auth/login") || r.Url.EndsWith("/torrents/info")
+            || r.Body.Contains("\"method\":\"torrent-get\"")));
+    }
+
     internal const string TransmissionRows = """
         {"result":"success","arguments":{"torrents":[
           {"hashString":"abc","name":"Show","percentDone":0.5,"totalSize":1000,"rateDownload":200,"rateUpload":10,

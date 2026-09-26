@@ -145,14 +145,41 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             }
 
             _errors.TryRemove(spec.Hash, out _);
+            if (spec.ForceHashCheck && spec.FilePaths is { Count: > 0 })
+            {
+                try
+                {
+                    if (!manager.HasMetadata) throw new IOException("File mappings require torrent metadata.");
+                    for (var index = 0; index < manager.Files.Count; index++)
+                    {
+                        var file = manager.Files[index];
+                        if (index >= spec.FilePaths.Count || spec.FilePaths[index] is not { } mapped || mapped == file.FullPath) continue;
+                        if (File.Exists(file.FullPath)) throw new IOException("Cannot import a renamed file when both payload names exist.");
+                        if (!File.Exists(mapped)) throw new IOException("The renamed payload disappeared. Scan again before importing.");
+                        // Hold the destination against deletion/rename. MonoTorrent only changes its mapping when
+                        // the original path is absent; it never overwrites this existing destination.
+                        using var hold = new FileStream(mapped, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        await manager.MoveFileAsync(file, mapped);
+                    }
+                }
+                catch
+                {
+                    await Engine.RemoveAsync(manager, RemoveMode.CacheDataOnly);
+                    _metadata.TryRemove(spec.Hash, out _);
+                    throw;
+                }
+            }
             manager.TorrentStateChanged += OnStateChanged;
             await OneTrackerPerTierAsync(manager);
             await AddPublicTrackersAsync(manager, _options.EffectivePublicTrackers);
             _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
-            if (spec.FilePaths is { } paths && manager.HasMetadata) await PointAtLaidOutFilesAsync(manager, paths);
+            if (!spec.ForceHashCheck && spec.FilePaths is { } paths && manager.HasMetadata) await PointAtLaidOutFilesAsync(manager, paths);
             else if (spec.FlattenWrapper && manager.HasMetadata) await DropWrapperAsync(manager, spec.SavePath);
             if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);
+            // Also applies to magnets: MetadataMode re-enters StartAsync after receiving metadata,
+            // and StartingMode must hash before downloading when this flag is cleared.
+            if (spec.ForceHashCheck) await manager.SetNeedsHashCheckAsync();
             await manager.StartAsync();
         }
         finally

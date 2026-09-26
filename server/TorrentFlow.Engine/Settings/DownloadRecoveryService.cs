@@ -22,6 +22,8 @@ internal sealed class DownloadRecoveryService(
 {
     internal const string ImportedMarker = "imported:local";
     internal const string SeedingMarker = "recovered:seed";
+    internal const string ContainingDirectoryMarker = "recovered:client-container";
+    internal static bool IsRecoveredTorrent(string? marker) => marker is SeedingMarker or ContainingDirectoryMarker;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 

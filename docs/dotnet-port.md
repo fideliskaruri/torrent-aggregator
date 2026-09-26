@@ -154,6 +154,43 @@ web tests passed. Migration downgrade/upgrade retains existing watchlist rows. P
 against the isolated real host verified all three schedule labels at actual CSS widths
 390/768/1280 without horizontal overflow, and monitoring pause/resume updated API and rendered
 schedule together. Fixtures used legal Blender film titles; no torrent acquisitions were made.
+## Importing from other clients
+
+Choose **Import from another client** in Settings or on an empty Downloads page. The owner-only
+picker lists discovered transfers grouped by source, with their size, original save path, data
+presence and advisory complete/partial state. Select all or individual torrents and acknowledge
+that the other client is closed, or that you removed the torrent there **without deleting data**.
+Never let two clients write the same payload simultaneously.
+
+Discovery reads the following Windows sources without changing their files or settings:
+
+| Source | Discovery |
+| --- | --- |
+| TorrentFlow Next.js | `dev.db` / `prisma\dev.db` under the content root; `DATABASE_URL` from environment or `.env`; additional roots via `TorrentFlow:Import:LegacyRoots`. The `nextjs-final` app resolves relative file URLs against its project root. |
+| qBittorrent | Saved WebUI connection (list and metadata export) and `%LOCALAPPDATA%\qBittorrent\BT_backup` torrent/fastresume pairs. |
+| Transmission | Saved RPC connection and `%LOCALAPPDATA%\transmission\torrents` / `resume`. |
+| uTorrent / BitTorrent | `%APPDATA%\uTorrent` / `%APPDATA%\BitTorrent`, pairing `resume.dat` entries with adjacent torrent files. |
+| Deluge | `%APPDATA%\deluge\state`, pairing torrent metadata with `torrents.fastresume`; pickle state is never loaded. |
+
+Only found torrents are shown. Unreadable/malformed entries produce warnings rather than losing
+the rest of the scan. Torrent metadata with no recoverable save path is not offered; the importer
+never guesses that a client's backup directory is its download directory. Legacy SQLite is opened
+only from a disposable private snapshot (including WAL), so scanning does not change its SHM.
+For a consistent snapshot, close the old app before scanning.
+
+Selected torrents become built-in transfers, deduplicated by info hash across sources and existing
+rows. Payload files are neither copied nor moved. Existing files are hash-checked: complete torrents
+seed, partial torrents resume, and missing data remains **paused** with a message until you restore
+the files or explicitly resume downloading. Standard partial suffixes (`.!qB`, `.part`, `.!ut`) and
+libtorrent file mappings are retained without renaming the payload. Ambiguous or unsafe layouts
+are refused. Metadata-less entries preserve magnets and trackers; verification waits for metadata.
+
+For isolated fixtures, set `TorrentFlow__Import__ScanRoot` to a private directory containing
+`qBittorrent\BT_backup`, `transmission\torrents`, `transmission\resume`, `uTorrent`, `BitTorrent`,
+`deluge\state`, and `nextjs\dev.db`. This **replaces** native discovery and disables configured APIs
+unless `TorrentFlow__Import__AllowConfiguredApis=true` is explicitly set. Set it to `false` to
+disable API discovery outside fixture mode too. The normal `TorrentFlow__DataDirectory` override
+still controls the new database and private import snapshots.
 
 ## External torrent clients
 

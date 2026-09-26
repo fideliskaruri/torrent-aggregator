@@ -18,6 +18,7 @@ public sealed class HostFactory : WebApplicationFactory<Program>
         File.WriteAllText(Path.Combine(WebRoot, "assets", "app.js"), "export {};");
         File.WriteAllText(Path.Combine(WebRoot, "manifest.webmanifest"), "{}");
         builder.UseSetting("TorrentFlow:DataDirectory", Root);
+        builder.UseSetting("TorrentFlow:Import:ScanRoot", Path.Combine(Root, "client-fixtures"));
         builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
         builder.UseSetting("TorrentFlow:WebRoot", WebRoot);
     }

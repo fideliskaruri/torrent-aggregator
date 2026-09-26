@@ -13,7 +13,8 @@ internal sealed record BackendAddSpec(
     TimeSpan? MetadataTimeout,
     bool CreateContainingDirectory = true,
     IReadOnlyList<string?>? FilePaths = null,
-    bool FlattenWrapper = false);
+    bool FlattenWrapper = false,
+    bool ForceHashCheck = false);
 
 internal sealed record BackendFile(int Index, string Path, string FullPath, long Length, bool Selected, double Progress);
 

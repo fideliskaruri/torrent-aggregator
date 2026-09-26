@@ -314,14 +314,17 @@ internal sealed class TorrentEngineService(
             return new BackendAddOutcome(false, "No saved source to retry this release.");
         // A laid-out torrent is re-added in its own release folder with each file pointed at where the layout put it, so
         // a file moved aside or kept nested is re-checked in place and a neighbour's file at the flat path is never touched.
-        var indexed = bytes is null ? null
+        var recovered = DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl);
+        var recoveredPaths = recovered ? VerifiedFiles(row).Where(f => f.FullPath is not null).ToDictionary(f => f.Path, f => f.FullPath!) : null;
+        var indexed = bytes is null ? null : recovered
+            ? recoveredPaths!.Count == 0 ? null : MonoTorrent.Torrent.Load(bytes).Files.Select(f => recoveredPaths.GetValueOrDefault(f.Path)).ToList()
             : _layoutManifest.IndexedPaths(row.Hash, row.SavePath) ?? _layoutManifest.PlacedPaths(row.Hash, row.SavePath);
-        var reuseFlatLayout = indexed is null && (row.TorrentUrl == DownloadRecoveryService.SeedingMarker
-            || _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _));
+        var reuseFlatLayout = row.TorrentUrl == DownloadRecoveryService.SeedingMarker
+            || !recovered && indexed is null && _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
         // A kept download writes straight into the save path, without its release folder, wherever that is free.
-        var flatten = layout is not null && indexed is null && !reuseFlatLayout && purpose == TorrentPurpose.Keep;
+        var flatten = !recovered && layout is not null && indexed is null && !reuseFlatLayout && purpose == TorrentPurpose.Keep;
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
-            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed, flatten);
+            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed, flatten, recovered);
         var wasLoaded = backend.Contains(row.Hash);
         try
         {
@@ -538,11 +541,16 @@ internal sealed class TorrentEngineService(
         await using (var seedDb = await dbFactory.CreateDbContextAsync(ct))
         {
             var seeds = await seedDb.EngineTorrents.Where(r => r.UserId == LocalUser.Id
-                && r.TorrentUrl == DownloadRecoveryService.SeedingMarker
+                && (r.TorrentUrl == DownloadRecoveryService.SeedingMarker || r.TorrentUrl == DownloadRecoveryService.ContainingDirectoryMarker)
                 && (r.Status == "seeding" || r.Status == EngineTorrentStatus.Downloading)).ToListAsync(ct);
             foreach (var seed in seeds)
-                if (File.Exists(TorrentFilePath(seed.Hash)))
-                    await RestoreForSeedingAsync(seed.Hash, await File.ReadAllBytesAsync(TorrentFilePath(seed.Hash), ct), ct);
+            {
+                using (await LockHashAsync(seed.Hash, ct))
+                {
+                    var outcome = await StartInBackendAsync(seed, TorrentPurpose.Keep, null, ct);
+                    if (!outcome.Ok) await MarkErrorAsync(seed.Hash, outcome.Message);
+                }
+            }
         }
         List<EngineTorrent> start;
         await _queueGate.WaitAsync(ct);
@@ -573,7 +581,7 @@ internal sealed class TorrentEngineService(
     /// <summary>Port of builtin-engine-lifecycle shouldRehydrateTorrent, restricted to kept downloads.</summary>
     internal static bool ShouldRehydrate(EngineTorrent row)
     {
-        if (row.TorrentUrl == DownloadRecoveryService.SeedingMarker) return false;
+        if (DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl)) return false;
         if (row.Origin != TorrentOrigin.User) return false;
         var status = row.Status.ToLowerInvariant();
         if (status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error or EngineTorrentStatus.Parked
@@ -735,6 +743,54 @@ internal sealed class TorrentEngineService(
 
     // ---------------------------------------------------------------- actions
 
+    internal async Task<(bool Imported, bool Paused)> ImportExternalAsync(ExternalDownloadCandidate candidate, CancellationToken ct)
+    {
+        var hash = candidate.Hash.ToLowerInvariant();
+        var sourceHash = candidate.TorrentBytes is { Length: > 0 } metadata
+            ? TorrentSource.HashFromTorrent(metadata) : TorrentSource.HashFromMagnet(candidate.Magnet);
+        if (sourceHash != hash || !Path.IsPathFullyQualified(candidate.SavePath))
+            throw new InvalidDataException("The source has no valid torrent identity or original save path.");
+        for (var directory = new DirectoryInfo(candidate.SavePath); directory is not null; directory = directory.Parent)
+            if (directory.Exists && directory.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                throw new InvalidDataException("The original save path contains a filesystem link.");
+        using (await LockHashAsync(hash, ct))
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            if (await db.EngineTorrents.AnyAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct))
+                return (false, false);
+            if (candidate.TorrentBytes is { Length: > 0 } bytes) SaveTorrentFile(hash, bytes);
+            var missing = !candidate.DataExists;
+            var row = new EngineTorrent
+            {
+                Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, Name = candidate.Name,
+                Magnet = candidate.Magnet, SavePath = candidate.SavePath, SizeBytes = candidate.SizeBytes,
+                TorrentUrl = candidate.CreateContainingDirectory ? DownloadRecoveryService.ContainingDirectoryMarker : DownloadRecoveryService.SeedingMarker,
+                Origin = TorrentOrigin.User, Status = missing ? EngineTorrentStatus.Paused : EngineTorrentStatus.Downloading,
+                Error = missing ? "Original data is missing. Paused; restore the files before resuming, or resume to download again." : null,
+                VerifiedFilesJson = candidate.FilePaths is { Count: > 0 }
+                    ? JsonSerializer.Serialize(candidate.FilePaths.Select(pair =>
+                        new ManifestFile(pair.Key, File.Exists(pair.Value) ? new FileInfo(pair.Value).Length : 0, 0, pair.Value)), JsonOptions)
+                    : null,
+                CreatedAt = Now, UpdatedAt = Now, LastUsedAt = Now,
+            };
+            db.EngineTorrents.Add(row);
+            await db.SaveChangesAsync(ct);
+            if (!missing)
+            {
+                // Once persisted, a disconnected HTTP caller must not leave an orphaned running transfer.
+                var outcome = await StartInBackendAsync(row, TorrentPurpose.Keep, null, CancellationToken.None);
+                if (!outcome.Ok)
+                {
+                    await MarkErrorAsync(hash, outcome.Message);
+                    throw new IOException("The imported torrent could not start. Its error is available in Downloads.");
+                }
+                _startedAt[hash] = Now;
+                WakeMonitor();
+            }
+            return (true, missing);
+        }
+    }
+
     internal async Task<bool> RestoreForSeedingAsync(string hash, byte[] metadata, CancellationToken ct)
     {
         using (await LockHashAsync(hash, ct))
@@ -746,7 +802,7 @@ internal sealed class TorrentEngineService(
             try
             {
                 var outcome = await backend.AddAsync(new BackendAddSpec(hash, null, metadata, row.SavePath!,
-                    TorrentPurpose.Keep, null, false), ct);
+                    TorrentPurpose.Keep, null, false, ForceHashCheck: true), ct);
                 if (!outcome.Ok) { row.Status = EngineTorrentStatus.Error; row.Error = outcome.Message; }
                 else row.Status = "seeding";
                 _startedAt[hash] = Now;
@@ -807,7 +863,8 @@ internal sealed class TorrentEngineService(
                 var found = await FindAsync(db, hash, ct);
                 if (found is null) return new EngineActionResult(false, NotFound);
                 row = found;
-                if (IsDownloaded(row)) return new EngineActionResult(true, "Already downloaded");
+                if (IsDownloaded(row) && !DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
+                    return new EngineActionResult(true, "Already downloaded");
                 if (reannounceIfLive && row.Status == EngineTorrentStatus.Downloading && backend.Get(hash) is { State: not "paused" })
                 {
                     if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, null);
@@ -1215,7 +1272,7 @@ internal sealed class TorrentEngineService(
                 }
                 else if (live.State == "complete" && live.Files.Count > 0 && live.Files.All(f => f.Selected))
                 {
-                    if (row.TorrentUrl == DownloadRecoveryService.SeedingMarker && IsDownloaded(row)) continue;
+                    if (DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl) && IsDownloaded(row)) continue;
                     var manifest = BuildManifest(live);
                     if (manifest is not null)
                     {
@@ -1223,10 +1280,10 @@ internal sealed class TorrentEngineService(
                         row.VerifiedBitfield = live.PieceBitfield;
                         row.VerifiedAt = Now;
                         row.Progress = 1;
-                        row.Status = row.TorrentUrl == DownloadRecoveryService.SeedingMarker ? "seeding" : EngineTorrentStatus.Parked;
+                        row.Status = DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl) ? "seeding" : EngineTorrentStatus.Parked;
                         row.ForcedAt = null;
                         row.Error = null;
-                        if (row.TorrentUrl == DownloadRecoveryService.SeedingMarker)
+                        if (DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl))
                         {
                             completed.Add(new EngineTorrentCompletedEventArgs(row.Hash, row.Name, row.SavePath, row.Origin));
                             continue;

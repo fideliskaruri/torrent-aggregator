@@ -127,8 +127,26 @@ public sealed class QBittorrentClient(HttpClient http) : IExternalTorrentClient
             Eta = Number(t, "eta") is { } eta && eta < 8640000 ? eta : null,
             Peers = (int)((Number(t, "num_seeds") ?? 0) + (Number(t, "num_leechs") ?? 0)),
             Category = Text(t, "category"),
+            Magnet = Text(t, "magnet_uri"),
             SavePath = NonEmpty(Text(t, "save_path")) ?? NonEmpty(Text(t, "content_path")),
         }).ToList();
+    }
+
+    public async Task<byte[]?> ReadTorrentAsync(ClientConfig config, string hash, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(config, "torrents/export?hash=" + Uri.EscapeDataString(hash), null, 12, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null; // Metadata-less magnet.
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var bytes = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        int count;
+        while ((count = await stream.ReadAsync(buffer, ct)) > 0)
+        {
+            if (bytes.Length + count > 32 * 1024 * 1024) throw new IOException("Exported torrent exceeds the metadata limit.");
+            bytes.Write(buffer, 0, count);
+        }
+        return bytes.ToArray();
     }
 
     internal static string? Text(JsonElement e, string key) => e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;

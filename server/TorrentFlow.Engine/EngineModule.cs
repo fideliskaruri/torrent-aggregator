@@ -54,6 +54,15 @@ public static class EngineModule
         services.AddContentLayout(configuration);
         services.AddSingleton<TorrentEngineService>();
         services.AddSingleton<DownloadRecoveryService>();
+        services.AddOptions<ExternalDownloadScanOptions>()
+            .Bind(configuration.GetSection("TorrentFlow:Import"))
+            .PostConfigure<IHostEnvironment>((o, env) =>
+            {
+                o.ContentRoot = env.ContentRootPath;
+                o.SnapshotRoot = Path.Combine(configuration["TorrentFlow:DataDirectory"]!, "import-snapshots");
+            });
+        services.AddSingleton<ExternalDownloadScanner>();
+        services.AddSingleton<ExternalDownloadImportService>();
         services.AddSingleton<ITorrentEngine>(sp => sp.GetRequiredService<TorrentEngineService>());
         services.AddSingleton<ILayoutTidy>(sp => sp.GetRequiredService<TorrentEngineService>());
         services.AddSingleton<RetentionSweeper>();

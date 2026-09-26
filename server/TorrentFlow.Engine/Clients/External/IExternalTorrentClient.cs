@@ -8,6 +8,7 @@ public interface IExternalTorrentClient
     Task<EngineActionResult> TestAsync(ClientConfig config, CancellationToken ct = default);
     Task<EngineActionResult> AddAsync(ClientConfig config, EngineAddRequest request, CancellationToken ct = default);
     Task<IReadOnlyList<EngineTorrentInfo>> ListAsync(ClientConfig config, CancellationToken ct = default);
+    Task<byte[]?> ReadTorrentAsync(ClientConfig config, string hash, CancellationToken ct = default) => Task.FromResult<byte[]?>(null);
     Task<EngineActionResult> ActAsync(ClientConfig config, string action, string hash, bool deleteFiles, CancellationToken ct = default);
 }
 
