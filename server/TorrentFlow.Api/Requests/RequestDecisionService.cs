@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Api.Notifications;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -29,7 +30,8 @@ public sealed class RequestDecisionService(
     IRequestTransfers transfers,
     IHostApplicationLifetime lifetime,
     TimeProvider time,
-    ILogger<RequestDecisionService> logger)
+    ILogger<RequestDecisionService> logger,
+    NotificationService notifications)
 {
     public const int MaxReasonLength = 500;
     /// <summary>What a requester reads when nothing could be started; the indexer detail stays in the owner's log.</summary>
@@ -50,6 +52,7 @@ public sealed class RequestDecisionService(
         row.DecidedAt = now;
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
+        await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestApproved, "Request approved", row.Title, "/requests");
         LastGrab = Task.Run(() => GrabAsync(id, lifetime.ApplicationStopping), CancellationToken.None);
         return (DecisionOutcome.Done, row.Status);
     }
@@ -66,6 +69,8 @@ public sealed class RequestDecisionService(
         row.DecidedAt = now;
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
+        await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestDeclined, "Request declined",
+            row.DecisionReason is { } reasonText ? $"{row.Title}: {reasonText}" : row.Title, "/requests");
         return (DecisionOutcome.Done, row.Status);
     }
 
@@ -96,6 +101,8 @@ public sealed class RequestDecisionService(
             current.Status = MediaRequestStatus.Failed;
             current.DecisionReason = NoDownloadReason;
             await db.SaveChangesAsync(CancellationToken.None);
+            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request could not be downloaded",
+                $"{current.Title}: {NoDownloadReason}", "/requests");
             return;
         }
         current.GrabbedHashes = string.Join(',', outcome.Hashes.Select(h => h.ToLowerInvariant()).Distinct());
@@ -135,7 +142,11 @@ public sealed class RequestDecisionService(
         }
         row.Status = MediaRequestStatus.Fulfilled;
         row.UpdatedAt = time.GetUtcNow().UtcDateTime;
-        await db.SaveChangesAsync(ct);
+        var changed = await db.MediaRequests.Where(r => r.Id == id && r.Status == MediaRequestStatus.Approved)
+            .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, MediaRequestStatus.Fulfilled)
+                .SetProperty(r => r.UpdatedAt, row.UpdatedAt), ct);
+        if (changed == 0) return;
+        await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestFulfilled, "Request fulfilled", row.Title, "/library");
     }
 }
 

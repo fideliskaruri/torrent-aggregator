@@ -170,3 +170,38 @@ self.torrentflowServiceWorker = {
   shouldCache,
   handleNavigate,
 };
+
+function notificationLink(link) {
+  try {
+    const url = new URL(link || "/notifications", self.location.origin);
+    return url.origin === self.location.origin && !url.pathname.startsWith("/api/")
+      ? url.href : new URL("/notifications", self.location.origin).href;
+  } catch {
+    return new URL("/notifications", self.location.origin).href;
+  }
+}
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { /* Show a safe generic notification. */ }
+  if (!payload || typeof payload !== "object") payload = {};
+  event.waitUntil(self.registration.showNotification(payload.title || "TorrentFlow", {
+    body: payload.body || "You have a new notification.",
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: payload.id,
+    data: { link: notificationLink(payload.link) },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const link = notificationLink(event.notification.data?.link);
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find(client => client.url === link);
+    if (existing) return existing.focus();
+    // Do not navigate an existing playback tab away from its video.
+    return self.clients.openWindow(link);
+  })());
+});

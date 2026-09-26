@@ -34,6 +34,10 @@ public partial class TorrentFlowDbContext : DbContext
 
     public virtual DbSet<RequestAutoApproveRule> RequestAutoApproveRules { get; set; }
 
+    public virtual DbSet<Notification> Notifications { get; set; }
+
+    public virtual DbSet<PushSubscription> PushSubscriptions { get; set; }
+
     public virtual DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
 
     public virtual DbSet<RunLock> RunLocks { get; set; }
@@ -622,6 +626,44 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasColumnType("DATETIME")
                 .HasColumnName("updatedAt");
+        });
+
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.ToTable("Notification");
+
+            entity.HasIndex(e => new { e.RecipientUserId, e.CreatedAt }, "Notification_recipientUserId_createdAt_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.RecipientUserId).HasColumnName("recipientUserId");
+            entity.Property(e => e.Kind).HasColumnName("kind");
+            entity.Property(e => e.Title).HasColumnName("title");
+            entity.Property(e => e.Body).HasColumnName("body");
+            entity.Property(e => e.Link).HasColumnName("link");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("createdAt");
+            entity.Property(e => e.ReadAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("readAt");
+        });
+
+        modelBuilder.Entity<PushSubscription>(entity =>
+        {
+            entity.ToTable("PushSubscription");
+
+            entity.HasIndex(e => e.Endpoint, "PushSubscription_endpoint_key").IsUnique();
+
+            entity.HasIndex(e => e.UserId, "PushSubscription_userId_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("userId");
+            entity.Property(e => e.Endpoint).HasColumnName("endpoint");
+            entity.Property(e => e.P256dh).HasColumnName("p256dh");
+            entity.Property(e => e.Auth).HasColumnName("auth");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("createdAt");
         });
 
         modelBuilder.Entity<User>(entity =>

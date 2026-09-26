@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Api.Notifications;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -56,7 +57,8 @@ public sealed class MediaRequestService(
     IDbContextFactory<TorrentFlowDbContext> factory,
     IRequesterCatalog catalog,
     IOptionsMonitor<RequestOptions> options,
-    TimeProvider time)
+    TimeProvider time,
+    NotificationService notifications)
 {
     private const int SearchTake = 20;
     // Duplicate and cap checks read then write; one writer at a time keeps two quick taps from both passing.
@@ -149,6 +151,7 @@ public sealed class MediaRequestService(
             };
             db.MediaRequests.Add(row);
             await db.SaveChangesAsync(ct);
+            await notifications.TryPublishAsync(LocalUser.Id, NotificationKind.RequestNew, "New request", row.Title, "/requests");
             return (CreateOutcome.Created, ToRequester(row));
         }
         finally

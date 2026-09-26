@@ -60,6 +60,15 @@ public interface ITorrentEngine
 
     /// <summary>Raised once per transfer when it completes and its files are verified on disk.</summary>
     event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
+    /// <summary>Raised when a transfer enters a failed state.</summary>
+    event EventHandler<EngineTorrentFailedEventArgs>? TorrentFailed { add { } remove { } }
+}
+
+public sealed class EngineTorrentFailedEventArgs(string hash, string name, string origin) : EventArgs
+{
+    public string Hash { get; } = hash;
+    public string Name { get; } = name;
+    public string Origin { get; } = origin;
 }
 
 public static class TorrentPurpose

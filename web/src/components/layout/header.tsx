@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { Search } from "lucide-react";
+import { NotificationBell } from "@/components/notifications/notification-feed";
 import { cn } from "@/lib/utils";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { openSearchOverlay } from "@/components/search/search-overlay";
@@ -133,6 +134,7 @@ export function Header() {
 
         {/* Desktop actions: search, then list density */}
         <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
+          <NotificationBell />
           {/* Search is a permanent affordance rather than a word in the nav
               row: it is the second thing anyone does here, and on Browse there
               is no input for the `/` shortcut to land on. Full control on

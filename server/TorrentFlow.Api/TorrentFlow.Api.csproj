@@ -16,6 +16,7 @@
     <OutputType Condition="'$(PublishSingleFile)' == 'true' and $(RuntimeIdentifier.StartsWith('win'))">WinExe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Lib.Net.Http.WebPush" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />

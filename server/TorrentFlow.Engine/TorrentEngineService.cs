@@ -61,6 +61,13 @@ internal sealed class TorrentEngineService(
     private readonly HashSet<string> _pendingLayout = new(StringComparer.Ordinal);
 
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
+    public event EventHandler<EngineTorrentFailedEventArgs>? TorrentFailed;
+
+    private void RaiseFailed(EngineTorrentFailedEventArgs args)
+    {
+        try { TorrentFailed?.Invoke(this, args); }
+        catch (Exception ex) { logger.LogError(ex, "TorrentFailed handler failed for {Hash}", args.Hash); }
+    }
 
     private EngineOptions Options => options.CurrentValue;
     /// <summary>The owner's download hours evaluated now (server local time); unrestricted when none are saved.</summary>
@@ -815,6 +822,7 @@ internal sealed class TorrentEngineService(
                 row.Error = "Could not restart the saved torrent.";
             }
             await db.SaveChangesAsync(CancellationToken.None);
+            if (row.Status == EngineTorrentStatus.Error) RaiseFailed(new(row.Hash, row.Name, row.Origin));
             return row.Status == "seeding";
         }
     }
@@ -1119,6 +1127,7 @@ internal sealed class TorrentEngineService(
             var live = backend.List().Where(s => !string.Equals(s.Hash, hash, StringComparison.OrdinalIgnoreCase))
                 .SelectMany(s => s.Files.Select(f => (s.Hash, f.FullPath))).ToList();
             var result = await layout.FinalizeDetailedAsync(db, row, validate, CancellationToken.None, live);
+            if (result.Outcome == LayoutOutcome.Invalid) RaiseFailed(new(row.Hash, row.Name, row.Origin));
             if (result.Outcome == LayoutOutcome.LaidOut)
                 _layoutManifest.Remember(row.Hash, row.SavePath, VerifiedFiles(row).Select(f => f.FullPath).ToList());
             if (result.Outcome != LayoutOutcome.Unchanged) storage.ResetDirectorySizeCache();
@@ -1189,11 +1198,13 @@ internal sealed class TorrentEngineService(
             var row = await FindAsync(db, hash, CancellationToken.None);
             if (row is not null)
             {
+                var wasError = row.Status == EngineTorrentStatus.Error;
                 row.Status = EngineTorrentStatus.Error;
                 row.Error = message;
                 row.ForcedAt = null;
                 row.UpdatedAt = Now;
                 await db.SaveChangesAsync(CancellationToken.None);
+                if (!wasError) RaiseFailed(new(row.Hash, row.Name, row.Origin));
             }
         }
         if (backend.Contains(hash)) await backend.RemoveAsync(hash);
@@ -1215,6 +1226,7 @@ internal sealed class TorrentEngineService(
         if (liveHashes.Count == 0 && Volatile.Read(ref _idleAtWake) == generation) return;
 
         var completed = new List<EngineTorrentCompletedEventArgs>();
+        var failed = new List<EngineTorrentFailedEventArgs>();
         var detach = new List<string>();
         var finalize = new List<string>();
         var stranded = new List<string>();
@@ -1257,6 +1269,7 @@ internal sealed class TorrentEngineService(
                 var startedAt = _startedAt.TryGetValue(row.Hash, out var t) ? t : row.UpdatedAt;
                 if (live.State == "error")
                 {
+                    if (row.Status != EngineTorrentStatus.Error) failed.Add(new(row.Hash, row.Name, row.Origin));
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = live.Error ?? "The torrent client reported an error.";
                     row.ForcedAt = null;
@@ -1267,6 +1280,7 @@ internal sealed class TorrentEngineService(
                 {
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = "Timed out waiting for torrent metadata (no peers / blocked DHT?). Try another release or check network.";
+                    failed.Add(new(row.Hash, row.Name, row.Origin));
                     row.ForcedAt = null;
                     detach.Add(row.Hash);
                 }
@@ -1302,6 +1316,7 @@ internal sealed class TorrentEngineService(
             // State first, then detach: a crash in between leaves a parked/error row, never a lost transfer.
             var lost = await SaveTolerantAsync(db);
             completed.RemoveAll(e => lost.Contains(e.Hash));
+            failed.RemoveAll(e => lost.Contains(e.Hash));
             lostHashes = lost;
         }
         foreach (var hash in detach)
@@ -1327,6 +1342,7 @@ internal sealed class TorrentEngineService(
             catch (Exception ex) { logger.LogError(ex, "Restarting {Hash} failed", hash); }
         }
         if (completed.Count > 0) storage.ResetDirectorySizeCache();
+        foreach (var e in failed) RaiseFailed(e);
         foreach (var e in completed)
         {
             logger.LogInformation("Transfer {Hash} complete; parked {Name}", e.Hash, e.Name);

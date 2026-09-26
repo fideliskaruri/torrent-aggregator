@@ -10,6 +10,7 @@ using TorrentFlow.Api.Desktop;
 using TorrentFlow.Api.RemoteAccess;
 using TorrentFlow.Api.Requests;
 using TorrentFlow.Api.Timeline;
+using TorrentFlow.Api.Notifications;
 using TorrentFlow.Data;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
@@ -140,6 +141,14 @@ builder.Services.AddSingleton<RequesterDirectory>();
 builder.Services.Configure<RequestOptions>(builder.Configuration.GetSection(RequestOptions.SectionName));
 builder.Services.AddSingleton<IRequesterCatalog, RequesterCatalog>();
 builder.Services.AddSingleton<MediaRequestService>();
+var vapidKeyStore = new VapidKeyStore(dataDir);
+_ = vapidKeyStore.Keys;
+builder.Services.AddSingleton(vapidKeyStore);
+builder.Services.AddHttpClient(WebPushSender.HttpClientName, client => client.Timeout = TimeSpan.FromSeconds(15))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<IPushSender, WebPushSender>();
+builder.Services.AddSingleton<NotificationService>();
+builder.Services.AddHostedService<DownloadNotificationWatcher>();
 builder.Services.AddDesktop(
     new DesktopEnvironment(isDesktop, Environment.ProcessPath, DesktopEnvironment.CurrentVersion(), dataDir,
         GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl), background),
@@ -208,6 +217,7 @@ app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<Engine
 app.MapRemoteAccessEndpoints();
 app.MapRequestEndpoints();
 app.MapTimelineEndpoints();
+app.MapNotificationEndpoints();
 app.MapDesktopEndpoints();
 
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.

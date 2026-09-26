@@ -1,4 +1,5 @@
 using TorrentFlow.Api.Requests;
+using TorrentFlow.Api.Notifications;
 using System.Text.Json;
 
 namespace TorrentFlow.Api.RemoteAccess;
@@ -9,12 +10,22 @@ public static class RemoteAccessEndpoints
 
     public static IEndpointRouteBuilder MapRemoteAccessEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/me", async (HttpContext http, MediaRequestService requests, ILoggerFactory loggers) =>
+        app.MapGet("/api/me", async (HttpContext http, MediaRequestService requests, NotificationService notifications, ILoggerFactory loggers) =>
         {
             http.Response.Headers.CacheControl = "no-store";
             var user = http.User;
             var role = RemoteAccessClaims.RoleOf(user);
             int? pendingRequests = null;
+            int? unreadNotifications = null;
+            try
+            {
+                if (NotificationRecipient.Of(http) is { } recipient)
+                    unreadNotifications = await notifications.UnreadCountAsync(recipient, http.RequestAborted);
+            }
+            catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
+            {
+                loggers.CreateLogger("TorrentFlow.Api.Notifications").LogWarning(ex, "Could not count unread notifications");
+            }
             if (role == RemoteAccessClaims.OwnerRole)
             {
                 // The SPA picks its shell from this answer; a failed count must not fail the whole session check.
@@ -30,6 +41,7 @@ public static class RemoteAccessEndpoints
                 via = RemoteAccessClaims.ViaOf(user),
                 email = user.FindFirst(RemoteAccessClaims.Email)?.Value,
                 pendingRequests,
+                unreadNotifications,
             });
         }).AllowRequesters();
 

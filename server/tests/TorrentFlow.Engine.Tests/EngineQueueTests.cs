@@ -277,6 +277,8 @@ public class EngineQueueTests
     public async Task FailurePromotesTheNextItem()
     {
         await using var h = await EngineHarness.CreateAsync(cap: 1);
+        var failures = new List<EngineTorrentFailedEventArgs>();
+        h.Engine.TorrentFailed += (_, e) => failures.Add(e);
         await h.Engine.AddAsync(Keep(1, ep: 1));
         await h.Engine.AddAsync(Keep(2, ep: 2));
         h.Backend.Update(EngineHarness.Hash(1), s => s with { State = "error", Error = "disk full" });
@@ -285,16 +287,24 @@ public class EngineQueueTests
         Assert.Equal("error", failed.Status);
         Assert.Equal("disk full", failed.Error);
         Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        var notification = Assert.Single(failures);
+        Assert.Equal(failed.Hash, notification.Hash);
+        Assert.Equal(TorrentOrigin.User, notification.Origin);
+        await h.Engine.TickAsync();
+        Assert.Single(failures);
     }
 
     [Fact]
     public async Task FailedAddPromotesAndReportsTheMessage()
     {
         await using var h = await EngineHarness.CreateAsync(cap: 1);
+        EngineTorrentFailedEventArgs? failure = null;
+        h.Engine.TorrentFailed += (_, e) => failure = e;
         h.Backend.AddOverride = spec => spec.Hash == EngineHarness.Hash(1) ? new(false, "Timed out waiting for torrent metadata") : null;
         var r = await h.Engine.AddAsync(Keep(1));
         Assert.False(r.Ok);
         Assert.Equal("error", (await h.RowAsync(1)).Status);
+        Assert.Equal(EngineHarness.Hash(1), failure?.Hash);
         Assert.Equal("started", (await h.Engine.AddAsync(Keep(2))).Details!.Action);
     }
 

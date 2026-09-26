@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router";
 import { Inbox, Library, Search } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+import { NotificationBell, NotificationFeed } from "@/components/notifications/notification-feed";
 import { cn } from "@/lib/utils";
 import { MyLibrary } from "./my-library";
 import { MyRequests } from "./my-requests";
@@ -19,7 +20,8 @@ const NAV: { view: RequesterView; href: string; label: string; icon: typeof Sear
  * API for this role anyway.
  */
 export function RequesterShell({ email }: { email: string | null }) {
-  const view = requesterView(useLocation().pathname);
+  const pathname = useLocation().pathname;
+  const view = requesterView(pathname);
 
   return (
     <div data-requester-shell>
@@ -65,6 +67,7 @@ export function RequesterShell({ email }: { email: string | null }) {
               );
             })}
           </nav>
+          <NotificationBell />
           {email ? (
             <span
               className="hidden max-w-[16rem] truncate text-xs text-[var(--text-tertiary)] md:inline"
@@ -78,7 +81,7 @@ export function RequesterShell({ email }: { email: string | null }) {
       </header>
       <main id="main-content" tabIndex={-1} className="app-main">
         <div className="container-app max-w-4xl py-6">
-          {view === "requests" ? <MyRequests /> : view === "library" ? <MyLibrary /> : <RequestSearch />}
+          {pathname === "/notifications" ? <NotificationFeed /> : view === "requests" ? <MyRequests /> : view === "library" ? <MyLibrary /> : <RequestSearch />}
         </div>
       </main>
       <Toaster position="bottom-right" richColors closeButton />

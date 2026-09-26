@@ -40,6 +40,7 @@ public static class RequesterPaths
         if (!IsApiSegment(segments[0])) return true;
         if (segments.Length < 2) return false;
         if (string.Equals(segments[1], RequesterPrefix, StringComparison.OrdinalIgnoreCase)) return true;
+        if (string.Equals(segments[1], "notifications", StringComparison.OrdinalIgnoreCase)) return true;
         return segments.Length == 2 && ExactApi.Any(e => string.Equals(segments[1], e, StringComparison.OrdinalIgnoreCase));
     }
 

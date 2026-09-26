@@ -9,7 +9,7 @@ import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useDisplayPath } from "@/lib/features";
 import { buildInbox } from "./inbox";
-import { MarkNotificationsRead } from "./use-unread";
+import { NotificationFeed } from "@/components/notifications/notification-feed";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
 import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
@@ -385,14 +385,7 @@ export function NotificationsView({ sentOnly }: { sentOnly?: boolean }) {
 }
 
 export default function NotificationsPage() {
-  return (
-    <>
-      {/* Opening the page is what marks it read. There is no per-row read
-          state: the user reads the inbox, not the entries. */}
-      <MarkNotificationsRead />
-      <NotificationsView />
-    </>
-  );
+  return <div className="container-app"><NotificationFeed /></div>;
 }
 
 function ActivitySkeleton({ visible = true }: { visible?: boolean }) {
