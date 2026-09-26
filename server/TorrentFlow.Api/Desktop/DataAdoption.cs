@@ -107,7 +107,7 @@ public static class DataAdoption
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            result = new Result(false, $"moving the library failed: {ex.Message}. The old library was not changed.", TargetBackup: targetBackup);
+            result = new Result(false, FailureMessage(ex.Message, source, target, targetBackup), TargetBackup: targetBackup);
         }
         if (result.Ok || targetBackup is null) return result;
         return RestoreTarget(target, targetBackup)
@@ -130,16 +130,15 @@ public static class DataAdoption
         }
     }
 
-    // Puts the installed library back when a replace failed, but only if nothing else was written to its place.
+    // Puts the installed library back when a replace failed. After a mid-publish undo the target may still
+    // hold empty directories or residual files that came from staging (source is untouched); clear them
+    // so the *.replaced-* backup can move back into place.
     private static bool RestoreTarget(string target, string targetBackup)
     {
         try
         {
             if (Directory.Exists(target))
-            {
-                if (Directory.EnumerateFileSystemEntries(target).Any()) return false;
-                Directory.Delete(target);
-            }
+                Directory.Delete(target, recursive: true);
             Directory.Move(targetBackup, target);
             return true;
         }
@@ -205,20 +204,33 @@ public static class DataAdoption
             if (rewritten > 0) log($"Pointed {rewritten} stored paths at {target}");
 
             // Publish everything, the database last, so an interrupted run leaves no half-adopted library.
-            var dbFiles = new[] { DatabaseFile, DatabaseFile + "-wal", DatabaseFile + "-shm" };
-            foreach (var entry in Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories)
-                         .Where(f => Path.GetDirectoryName(f) != staging
-                                     || !dbFiles.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)))
-                Publish(entry, Path.Combine(target, Path.GetRelativePath(staging, entry)));
-            foreach (var dir in Directory.EnumerateDirectories(staging, "*", SearchOption.AllDirectories))
-                Directory.CreateDirectory(Path.Combine(target, Path.GetRelativePath(staging, dir)));
-            foreach (var suffix in new[] { "-wal", "-shm" })
-                if (File.Exists(stagedDb + suffix)) Publish(stagedDb + suffix, Path.Combine(target, DatabaseFile + suffix));
-            File.Move(stagedDb, Path.Combine(target, DatabaseFile), overwrite: false);
+            // Track moves so a mid-publish failure can undo them (source is still intact; staging holds the rest).
+            var published = new List<string>();
+            try
+            {
+                var dbFiles = new[] { DatabaseFile, DatabaseFile + "-wal", DatabaseFile + "-shm" };
+                foreach (var entry in Directory.EnumerateFiles(staging, "*", SearchOption.AllDirectories)
+                             .Where(f => Path.GetDirectoryName(f) != staging
+                                         || !dbFiles.Contains(Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)))
+                    Publish(entry, Path.Combine(target, Path.GetRelativePath(staging, entry)), published);
+                foreach (var dir in Directory.EnumerateDirectories(staging, "*", SearchOption.AllDirectories))
+                    Directory.CreateDirectory(Path.Combine(target, Path.GetRelativePath(staging, dir)));
+                foreach (var suffix in new[] { "-wal", "-shm" })
+                    if (File.Exists(stagedDb + suffix))
+                        Publish(stagedDb + suffix, Path.Combine(target, DatabaseFile + suffix), published);
+                var targetDb = Path.Combine(target, DatabaseFile);
+                File.Move(stagedDb, targetDb, overwrite: false);
+                published.Add(targetDb);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SqliteException)
+            {
+                UndoPublished(published, target);
+                throw new IOException(ex.Message, ex);
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SqliteException)
         {
-            return new Result(false, $"moving the library failed: {ex.Message}. The old library was not changed.", TargetBackup: targetBackup);
+            return new Result(false, FailureMessage(ex.Message, source, target, targetBackup), TargetBackup: targetBackup);
         }
         finally
         {
@@ -351,12 +363,62 @@ public static class DataAdoption
         new DirectoryInfo(source).EnumerateFileSystemInfos("*", SearchOption.AllDirectories)
             .FirstOrDefault(e => e.Attributes.HasFlag(FileAttributes.ReparsePoint))?.FullName;
 
-    private static void Publish(string staged, string destination)
+    private static void Publish(string staged, string destination, List<string> published)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        if (!File.Exists(destination)) File.Move(staged, destination, overwrite: false);
+        if (!File.Exists(destination))
+        {
+            File.Move(staged, destination, overwrite: false);
+            published.Add(destination);
+        }
         else if (!SameContents(staged, destination))
-            throw new IOException($"{destination} appeared with different contents while copying; nothing was overwritten");
+        {
+            // Only claim nothing was overwritten when this is truly the first publish conflict.
+            var suffix = published.Count == 0
+                ? "nothing was overwritten"
+                : $"{published.Count} file(s) had already been moved into the target and will be rolled back";
+            throw new IOException($"{destination} appeared with different contents while copying; {suffix}");
+        }
+    }
+
+    /// <summary>
+    /// Removes files moved from staging into the target during a failed publish, then prunes empty
+    /// directories left under the target. The source library is untouched; staged leftovers are
+    /// deleted with the staging folder in the caller.
+    /// </summary>
+    private static void UndoPublished(List<string> published, string target)
+    {
+        foreach (var path in published)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        try
+        {
+            foreach (var dir in Directory.EnumerateDirectories(target, "*", SearchOption.AllDirectories)
+                         .Where(d => !IsSkipped(Path.GetRelativePath(target, d)))
+                         .OrderByDescending(d => d.Length))
+            {
+                try
+                {
+                    if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                        Directory.Delete(dir);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static string FailureMessage(string detail, string source, string target, string? targetBackup)
+    {
+        var backup = targetBackup is null
+            ? "no target backup was created"
+            : $"target backup: {targetBackup}";
+        return $"moving the library failed: {detail}. Source left at {source}. Target: {target}. {backup}. The old library was not deleted.";
     }
 
     private static byte[] CopyWithHash(string from, string to)

@@ -185,6 +185,83 @@ public sealed class DataAdoptionTests : IDisposable
         Assert.True(File.Exists(Path.Combine(Source, DataAdoption.DatabaseFile)));
     }
 
+    /// <summary>
+    /// Pre-check sees destination paths under target/downloads as missing when "downloads" is a file,
+    /// so copy into staging succeeds and publish fails mid-way when CreateDirectory cannot replace that file.
+    /// </summary>
+    [Fact]
+    public void AMidPublishFailureRollsBackFreshTargetAndLeavesSource()
+    {
+        SeedLibrary(Source);
+        Directory.CreateDirectory(Target);
+        File.WriteAllText(Path.Combine(Target, "downloads"), "not-a-directory");
+
+        var result = DataAdoption.Adopt(Source, Target, replaceExisting: false, Now);
+
+        Assert.False(result.Ok);
+        Assert.Contains(Source, result.Message);
+        Assert.Contains(Target, result.Message);
+        Assert.Contains("not deleted", result.Message);
+        Assert.True(Directory.Exists(Source));
+        Assert.True(File.Exists(Path.Combine(Source, DataAdoption.DatabaseFile)));
+        Assert.Equal("video", File.ReadAllText(Path.Combine(Source, "downloads", "Old Show", "episode.mkv")));
+        Assert.False(File.Exists(Path.Combine(Target, DataAdoption.DatabaseFile)));
+        Assert.False(File.Exists(Path.Combine(Target, "desktop.json")));
+        Assert.False(Directory.Exists(Path.Combine(Target, "engine")));
+        Assert.Equal("not-a-directory", File.ReadAllText(Path.Combine(Target, "downloads")));
+        Assert.Empty(Directory.EnumerateDirectories(Target, ".migration-*"));
+    }
+
+    [Fact]
+    public void AMidPublishFailureDuringReplaceRestoresInstalledLibrary()
+    {
+        SeedLibrary(Source, "Old Show");
+        SeedLibrary(Target, "Installed Show");
+        SqliteConnection.ClearAllPools();
+
+        // After replace moves the installed library aside, plant a file where publish must create a directory.
+        // Pre-check still passes: destination paths under target/downloads look missing when it is a file.
+        var planter = new Thread(() =>
+        {
+            for (var i = 0; i < 20_000; i++)
+            {
+                try
+                {
+                    if (!Directory.Exists(Target)) { Thread.Sleep(0); continue; }
+                    // Wait until the previous library has been moved out (replace backup exists).
+                    if (!Directory.EnumerateDirectories(Path.GetDirectoryName(Target)!,
+                            Path.GetFileName(Target) + ".replaced-*").Any())
+                    {
+                        Thread.Sleep(0);
+                        continue;
+                    }
+                    var marker = Path.Combine(Target, "downloads");
+                    if (!File.Exists(marker) && !Directory.Exists(marker))
+                        File.WriteAllText(marker, "not-a-directory");
+                    return;
+                }
+                catch (IOException) { Thread.Sleep(0); }
+                catch (UnauthorizedAccessException) { Thread.Sleep(0); }
+            }
+        }) { IsBackground = true };
+        planter.Start();
+
+        var result = DataAdoption.Adopt(Source, Target, replaceExisting: true, Now);
+        planter.Join(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Ok, result.Message);
+        Assert.Contains(Source, result.Message);
+        Assert.Contains(Target, result.Message);
+        Assert.Contains("not deleted", result.Message);
+        Assert.True(File.Exists(Path.Combine(Source, DataAdoption.DatabaseFile)), "source must never be deleted");
+        Assert.Equal("Old Show", ReadRow(Source).Name);
+        Assert.Contains("put back", result.Message);
+        Assert.Null(result.TargetBackup);
+        Assert.Equal("Installed Show", ReadRow(Target).Name);
+        Assert.False(Directory.Exists(Target + ".replaced-20260926-050000"));
+        Assert.False(File.Exists(Path.Combine(Target, "downloads", "Old Show", "episode.mkv")));
+    }
+
     [Fact]
     public void CliReportsCheckResultsThroughItsExitCode()
     {

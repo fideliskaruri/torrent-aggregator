@@ -291,7 +291,7 @@ if ($adopt) {
     if ($adopt -eq 'replace') { $adoptArgs += '--replace-existing' }
     $code = Invoke-Exe $BuiltExe $adoptArgs
     if ($code -ne 0) {
-        Write-Host "    The library was not moved (see above); both libraries are as they were. Continuing with the install." -ForegroundColor Yellow
+        Write-Host "    Library move failed; see details above. Your original library was not deleted. Continuing with the install." -ForegroundColor Yellow
     }
 }
 

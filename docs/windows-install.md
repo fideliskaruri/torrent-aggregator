@@ -52,6 +52,7 @@ Options:
 | Option | Effect |
 | --- | --- |
 | `-Yes` | Accept every default without prompting: install/update, move the library, keep the installed one if both exist, and stop a `run.ps1` server or other TorrentFlow that holds the port. |
+| `-Version` | Version to stamp. Defaults to `<latest v* tag or 0.0.0>+<git short sha>`. |
 | `-SkipBuild` | Reinstall the previous build in `artifacts\exe`. |
 | `-NoInnoSetup` | Install by copying files instead of running the installer. |
 | `-InstallDir`, `-DataDir`, `-LegacyDataDir` | Override the install folder, the installed app's data folder, or the library to move. |
