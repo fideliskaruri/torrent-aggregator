@@ -54,3 +54,49 @@ export function canOfferSeasonGrab(
 export function shouldRunSeasonGrab(status: SeasonGrabStatus): boolean {
   return status.status === "idle" || status.status === "error";
 }
+
+const SEASON_FAILURE_DESCRIPTION_MAX = 160;
+
+/** Season grab failure that keeps a short toast description beside the title. */
+export class SeasonGrabFailureError extends Error {
+  readonly description?: string;
+
+  constructor(message: string, description?: string) {
+    super(message);
+    this.name = "SeasonGrabFailureError";
+    this.description = description;
+  }
+}
+
+/**
+ * Short toast description when a season grab starts nothing.
+ * Prefers the planner's own sentence; otherwise groups distinct per-episode
+ * reasons (e.g. "3 episodes: no release found; 1: rate limited").
+ */
+export function seasonGrabFailureDescription(
+  report: SeasonGrabReport,
+): string | undefined {
+  const plan = report.planReason?.trim();
+  if (plan) return clipSeasonFailureDescription(plan);
+
+  const counts = new Map<string, number>();
+  for (const episode of report.episodes) {
+    const reason = episode.reason?.trim();
+    if (!reason) continue;
+    counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  }
+  if (counts.size === 0) return undefined;
+
+  const parts: string[] = [];
+  for (const [reason, count] of counts) {
+    parts.push(
+      count === 1 ? `1: ${reason}` : `${count} episodes: ${reason}`,
+    );
+  }
+  return clipSeasonFailureDescription(parts.join("; "));
+}
+
+function clipSeasonFailureDescription(text: string): string {
+  if (text.length <= SEASON_FAILURE_DESCRIPTION_MAX) return text;
+  return `${text.slice(0, SEASON_FAILURE_DESCRIPTION_MAX - 1).trimEnd()}…`;
+}

@@ -63,6 +63,8 @@ import {
   type TitleActionStatus,
 } from "./title-actions";
 import {
+  SeasonGrabFailureError,
+  seasonGrabFailureDescription,
   seasonGrabKey,
   shouldRunSeasonGrab,
   type SeasonGrabStatus,
@@ -644,13 +646,18 @@ export function TitleDetail(props: TitleDetailProps) {
             const storage = parseStorageOverrideFacts(body?.storage);
             const message =
               body?.message || `Could not plan season ${targetSeason}`;
+            const description =
+              body?.report != null
+                ? seasonGrabFailureDescription(body.report)
+                : undefined;
             if (storage) throw new StorageLimitError(message, storage);
             if (body?.retryAfterSeconds != null) {
-              throw new Error(
+              throw new SeasonGrabFailureError(
                 `${message} Try again in ${Math.max(1, Math.ceil(body.retryAfterSeconds))} seconds.`,
+                description,
               );
             }
-            throw new Error(message);
+            throw new SeasonGrabFailureError(message, description);
           }
           return body;
         });
@@ -685,11 +692,15 @@ export function TitleDetail(props: TitleDetailProps) {
                 : `Could not plan season ${targetSeason}`,
           },
         }));
-        toast.error(
+        const message =
           err instanceof Error
             ? err.message
-            : `Could not download season ${targetSeason}`,
-        );
+            : `Could not download season ${targetSeason}`;
+        const description =
+          err instanceof SeasonGrabFailureError
+            ? err.description
+            : undefined;
+        toast.error(message, description ? { description } : undefined);
       }
     },
     [

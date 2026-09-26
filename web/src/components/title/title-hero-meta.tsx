@@ -109,7 +109,7 @@ export interface HeroMetaInput {
   seasonCount: number | null | undefined;
   runtimeLabel?: string | null;
   /** Who supplied {@link rating}. See `ratingSource` on `TitleExtrasPayload`. */
-  ratingSource?: "tmdb" | "anilist" | "tvmaze" | "itunes" | null;
+  ratingSource?: "tmdb" | "anilist" | "tvmaze" | "itunes" | "cinemeta" | null;
 }
 
 /**
@@ -117,10 +117,12 @@ export interface HeroMetaInput {
  *
  * Absent means TMDB: that was the only provider when this line was written, so
  * every existing caller keeps its badge. A keyless install is served by AniList,
- * TVmaze or iTunes, and each is credited by name rather than borrowing TMDB's.
+ * TVmaze, iTunes or Cinemeta (IMDb scores), and each is credited by name rather
+ * than borrowing TMDB's. An unknown provider string is printed as-is — never
+ * relabelled TMDB.
  */
 function ratingBadgeLabel(
-  source: HeroMetaInput["ratingSource"],
+  source: HeroMetaInput["ratingSource"] | (string & {}),
 ): string {
   switch (source) {
     case "anilist":
@@ -129,8 +131,16 @@ function ratingBadgeLabel(
       return "TVMAZE";
     case "itunes":
       return "ITUNES";
-    default:
+    case "cinemeta":
+      // Cinemeta scores are IMDb ratings.
+      return "IMDb";
+    case "tmdb":
       return "TMDB";
+    default: {
+      // Unknown provider strings from the wire stay named, never claimed as TMDB.
+      const raw = typeof source === "string" ? source.trim() : "";
+      return raw ? raw.toUpperCase() : "TMDB";
+    }
   }
 }
 

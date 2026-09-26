@@ -311,7 +311,7 @@ export interface TitleExtrasPayload {
    * attribution this codebase refuses elsewhere. Absent means the TMDB path,
    * which is the only source that existed when this field was introduced.
    */
-  ratingSource?: "tmdb" | "anilist" | "tvmaze" | "itunes" | null;
+  ratingSource?: "tmdb" | "anilist" | "tvmaze" | "itunes" | "cinemeta" | null;
   /**
    * Content certification for the US audience, e.g. `"TV-MA"` (series) or
    * `"PG-13"` (film). Falls back to the first available region when TMDB has no
