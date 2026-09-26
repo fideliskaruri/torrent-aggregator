@@ -407,7 +407,7 @@ retain runtime-specific .NET memory metrics rather than inventing Node event-loo
 
 - Downloads at once: Settings saves `maxActiveDownloads` (1 to 20) on `ClientSettings`; null falls
   back to `TorrentFlow:Engine:MaxActiveDownloads` / `TORRENTFLOW_MAX_ACTIVE_DOWNLOADS` (default 2).
-  Raising it starts queued rows immediately; lowering it never stops a running transfer.
+  Raising it starts queued rows immediately; lowering it immediately returns the running tail to the queue (forced rows and open streams keep their slot; progress stays on disk).
 - Resume is an owner override, unlike the Next engine: it starts the transfer now (marked forced,
   like Download now) even when every slot is taken, including a queued row. Nothing is preempted.
 - Download hours (`ClientSettings.downloadWindows`, JSON; Settings → Downloads): weekly rules of

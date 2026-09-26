@@ -433,8 +433,8 @@ internal sealed class TorrentEngineService(
     }
 
     /// <summary>
-    /// Loads the owner's saved downloads-at-once cap and refills slots whenever it changes, so raising it starts
-    /// queued downloads right away. Lowering it never stops a running transfer; the queue just waits longer.
+    /// Loads the owner's saved downloads-at-once cap and applies it the moment it changes: raising it starts queued
+    /// downloads right away, lowering it sends the running tail (never forced rows) back to the queue.
     /// </summary>
     internal async Task AttachLimitsAsync(CancellationToken ct = default)
     {
@@ -450,10 +450,58 @@ internal sealed class TorrentEngineService(
         {
             WakeMonitor();
             _ = ApplyRateLimitsAsync();
-            _ = PromoteAsync(CancellationToken.None).ContinueWith(
-                t => logger.LogWarning(t.Exception, "Refilling the queue after a cap change failed"),
+            _ = ApplyCapChangeAsync().ContinueWith(
+                t => logger.LogWarning(t.Exception, "Applying a cap change to the queue failed"),
                 TaskContinuationOptions.OnlyOnFaulted);
         };
+    }
+
+    private async Task ApplyCapChangeAsync()
+    {
+        await DemoteOverCapAsync();
+        await PromoteAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Returns running downloads over the cap to the queue. Rows are marked queued under the queue gate, then each is
+    /// detached under its own hash lock only if it is still queued (a resume or "Download now" in between wins).
+    /// Files and progress stay on disk, so the transfer picks up where it stopped when its turn comes.
+    /// </summary>
+    internal async Task<IReadOnlyList<string>> DemoteOverCapAsync()
+    {
+        List<string> demoted;
+        await _queueGate.WaitAsync();
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync();
+            var candidates = DownloadQueue.DemotionCandidates(await QueueRowsAsync(db, CancellationToken.None), CapFor(Schedule));
+            lock (_openStreams) candidates.RemoveAll(h => _openStreams.GetValueOrDefault(h) > 0);
+            if (candidates.Count == 0) return [];
+            var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && candidates.Contains(r.Hash)).ToListAsync();
+            foreach (var r in rows)
+            {
+                r.Status = EngineTorrentStatus.Queued;
+                r.UpdatedAt = Now;
+            }
+            await db.SaveChangesAsync();
+            demoted = rows.Select(r => r.Hash).ToList();
+        }
+        finally
+        {
+            _queueGate.Release();
+        }
+        foreach (var hash in demoted)
+        {
+            using (await LockHashAsync(hash, CancellationToken.None))
+            {
+                await using var db = await dbFactory.CreateDbContextAsync();
+                if ((await FindAsync(db, hash, CancellationToken.None))?.Status != EngineTorrentStatus.Queued) continue;
+                if (backend.Contains(hash)) await backend.RemoveAsync(hash);
+                _startedAt.TryRemove(hash, out _);
+            }
+        }
+        logger.LogInformation("Download cap lowered: returned {Count} running downloads to the queue", demoted.Count);
+        return demoted;
     }
 
     /// <summary>Fills free slots from the head of the queue. Runs after complete / pause / delete / fail.</summary>

@@ -136,7 +136,7 @@ public class EngineQueueTests
     }
 
     [Fact]
-    public async Task SavedCapIsLoadedAndLoweringItNeverStopsRunningDownloads()
+    public async Task SavedCapIsLoadedAndLoweringItReturnsTheRunningTailToTheQueue()
     {
         await using var h = await EngineHarness.CreateAsync(cap: 1);
         await using (var db = await h.Db.CreateDbContextAsync())
@@ -151,11 +151,28 @@ public class EngineQueueTests
         Assert.Equal("queued", (await h.RowAsync(3)).Status);
 
         h.Limits.SetMaxActive(1);
-        await Task.Delay(100);
+        for (var i = 0; i < 50 && (await h.RowAsync(2)).Status != "queued"; i++) await Task.Delay(50);
 
         Assert.Equal("downloading", (await h.RowAsync(1)).Status);
-        Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        Assert.Equal("queued", (await h.RowAsync(2)).Status);
+        Assert.False(h.Backend.Contains(EngineHarness.Hash(2)));
         Assert.Equal("queued", (await h.RowAsync(3)).Status);
+    }
+
+    [Fact]
+    public async Task LoweringTheCapNeverStopsAForcedDownload()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 2);
+        await h.Engine.AttachLimitsAsync();
+        for (var i = 1; i <= 2; i++) await h.Engine.AddAsync(Keep(i, ep: i));
+        await h.Engine.ForceAsync(EngineHarness.Hash(2));
+
+        h.Limits.SetMaxActive(1);
+        for (var i = 0; i < 50 && (await h.RowAsync(1)).Status != "queued"; i++) await Task.Delay(50);
+
+        Assert.Equal("queued", (await h.RowAsync(1)).Status);
+        Assert.Equal("downloading", (await h.RowAsync(2)).Status);
+        Assert.True(h.Backend.Contains(EngineHarness.Hash(2)));
     }
 
     [Fact]

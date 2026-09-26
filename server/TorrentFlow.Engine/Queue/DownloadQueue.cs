@@ -131,6 +131,19 @@ public static class DownloadQueue
     }
 
     /// <summary>
+    /// Running downloads that no longer fit after the cap was lowered: forced rows (the owner's "Download now" /
+    /// resume) always keep their slot, the rest keep queue order and the tail goes back to waiting.
+    /// </summary>
+    public static List<string> DemotionCandidates(IReadOnlyCollection<QueueRow> rows, int cap)
+    {
+        var active = rows.Where(IsActiveKept).ToList();
+        if (active.Count <= cap) return [];
+        var keep = Math.Max(0, cap - active.Count(IsForced));
+        return Order(active.Where(r => !IsForced(r)).Select(r => r with { Status = QueuedStatus }))
+            .Skip(keep).Select(r => r.Hash).ToList();
+    }
+
+    /// <summary>
     /// Whether a fresh add (or resume) has to join the queue. Forced adds never do, nor anything that is not a kept
     /// download. When rows are already waiting it queues even if a slot is free, so the caller's promotion pass gives
     /// that slot to the queue head (lowest queueKey in the earliest work) instead of whoever arrived last. Outside the
