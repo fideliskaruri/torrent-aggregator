@@ -19,7 +19,7 @@ import { DownloadLocationFields } from "@/components/settings/download-location-
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RetentionPanel } from "@/components/settings/retention-panel";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
-import { TmdbSettings } from "@/components/settings/tmdb-settings";
+import { SourcesSettings } from "@/components/settings/sources-settings";
 import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1298,7 +1298,7 @@ export default function SettingsPage() {
           </div>
         </SettingsDisclosure>
       </form>
-      <TmdbSettings />
+      <SourcesSettings />
 
       <FolderPicker
         open={pickerOpen}

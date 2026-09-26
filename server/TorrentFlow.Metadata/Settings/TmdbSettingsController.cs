@@ -52,7 +52,7 @@ public sealed class TmdbSettingsController(TmdbSettingsStore store, IHttpClientF
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            using var client = http.CreateClient(TmdbClient.HttpClientName);
+            using var client = http.CreateClient("TorrentFlow.SourceHealth");
             using var request = TmdbClient.BuildRequest(TmdbClient.NormalizeCredential(key), $"{TmdbClient.Base}/configuration", []);
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             var status = response.IsSuccessStatusCode ? "ok" :

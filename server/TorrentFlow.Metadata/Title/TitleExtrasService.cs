@@ -17,7 +17,8 @@ public sealed record TitleEpisodeMeta(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Overview,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? AirDate,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? RuntimeMin,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? StillUrl);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? StillUrl,
+    string? AirStamp = null);
 
 public sealed record TitleSimilar(
     string WorkKey, string Href, string Title,
@@ -63,7 +64,7 @@ public sealed class TitleExtrasService(
     ArtworkResolver artwork,
     RecommendationService recommendations,
     TimeProvider time,
-    ILogger<TitleExtrasService> logger)
+    ILogger<TitleExtrasService> logger, CinemetaClient? cinemeta = null)
 {
     public const int ExtrasTimeoutMs = 4_000;
     public const int EpisodePlaceholderCap = 200;
@@ -119,7 +120,7 @@ public sealed class TitleExtrasService(
         }
 
         TmdbRef? tmdbRef = null;
-        if (q.Provider == "tmdb" && int.TryParse(q.ProviderId, NumberStyles.None, CultureInfo.InvariantCulture, out var tid))
+        if (tmdb.HasKey && q.Provider == "tmdb" && int.TryParse(q.ProviderId, NumberStyles.None, CultureInfo.InvariantCulture, out var tid))
             tmdbRef = new TmdbRef(tid, normalized == "tv" ? "tv" : "movie");
         else if (q.Provider is null && tmdb.ApiKey is not null)
             tmdbRef = await artwork.ResolveTmdbRefAsync(new ArtworkQuery(q.Title, q.Year, q.MediaType), ct).ConfigureAwait(false);
@@ -134,10 +135,21 @@ public sealed class TitleExtrasService(
             ? AnimeRecommendationsAsync(q, ct)
             : Task.FromResult(new List<AniListWork>());
         var result = empty;
+        if (cinemeta is not null && (q.Provider == "cinemeta" || !isSeries))
+        {
+            var metadata = q.Provider == "cinemeta" && q.ProviderId is { } imdb
+                ? await cinemeta.GetByIdAsync(imdb, isSeries ? "tv" : "movie", ct)
+                : (await cinemeta.SearchAsync(q.Title, isSeries ? "tv" : "movie", 5, ct))
+                    .FirstOrDefault(m => ArtworkMatching.MatchTier(q.Title, m.Title) >= ArtworkMatching.MinAccept);
+            if (metadata is not null) result = result with { Overview = metadata.Synopsis, Rating = metadata.Rating,
+                RatingSource = metadata.Rating is null ? null : "cinemeta", ReleaseDate = metadata.ReleaseDate,
+                Genres = metadata.Genres ?? [], Resolved = true };
+        }
         if (isSeries && normalized != "anime")
         {
-            var shows = await keyless.SearchTvmazeAsync(q.Title, 5, ExtrasTimeoutMs, ct).ConfigureAwait(false);
-            var show = shows.FirstOrDefault(s => ArtworkMatching.MatchTier(q.Title, s.Title) >= ArtworkMatching.MinAccept);
+            var show = q.Provider == "tvmaze" && int.TryParse(q.ProviderId, out var showId) ? await keyless.GetTvmazeShowAsync(showId, ct) :
+                (await keyless.SearchTvmazeAsync(q.Title, 5, ExtrasTimeoutMs, ct).ConfigureAwait(false))
+                    .FirstOrDefault(s => ArtworkMatching.MatchTier(q.Title, s.Title) >= ArtworkMatching.MinAccept);
             if (show is not null)
             {
                 var episodes = await keyless.GetTvmazeEpisodesAsync(show.Id, ExtrasTimeoutMs, ct).ConfigureAwait(false);
@@ -152,7 +164,7 @@ public sealed class TitleExtrasService(
                 result = result with
                 {
                     Season = wanted, SeasonCount = seasons.Count == 0 ? null : seasons.Count, Seasons = seasons,
-                    Episodes = episodes.Where(e => e.Season == wanted).Select(e => new TitleEpisodeMeta(e.Episode, e.Name, null, e.AirDate, e.RuntimeMin, e.StillUrl)).ToList(),
+                    Episodes = episodes.Where(e => e.Season == wanted).Select(e => new TitleEpisodeMeta(e.Episode, e.Name, null, e.AirDate, e.RuntimeMin, e.StillUrl, e.AirStamp)).ToList(),
                     Overview = overview, Rating = rating, RatingSource = rating is null ? null : "tvmaze",
                     ReleaseDate = premiered, Genres = genres.Count > 0 ? genres : result.Genres,
                     Resolved = seasons.Count > 0 || overview is not null || rating is not null || genres.Count > 0 || premiered is not null,

@@ -154,9 +154,10 @@ public sealed partial class MetadataResolver : IMetadataResolver
     private readonly ILogger<MetadataResolver>? _logger;
     private readonly BoundedTtlCache<MediaMetadata?> _memory;
     private readonly SingleFlight<MediaMetadata?> _inFlight = new();
+    private readonly Search.WorkSearchService? _workSearch;
 
     public MetadataResolver(TmdbClient tmdb, AniListClient anilist, ArtworkResolver artwork, IDbContextFactory<TorrentFlowDbContext>? db, TimeProvider time,
-        ILogger<MetadataResolver>? logger = null)
+        ILogger<MetadataResolver>? logger = null, Search.WorkSearchService? workSearch = null)
     {
         _tmdb = tmdb;
         _anilist = anilist;
@@ -165,6 +166,7 @@ public sealed partial class MetadataResolver : IMetadataResolver
         _time = time;
         _logger = logger;
         _memory = new(1000, time);
+        _workSearch = workSearch;
     }
 
     public Task<MediaMetadata?> GetAniListByIdAsync(string id, CancellationToken cancellationToken = default) => _anilist.GetByIdAsync(id, cancellationToken);
@@ -186,6 +188,22 @@ public sealed partial class MetadataResolver : IMetadataResolver
         var preferAnime = category == "anime" || AnimeCue().IsMatch(rawTitle);
         MediaMetadata? best = null;
         double bestScore = 0;
+        if (_workSearch is not null)
+        {
+            var scope = category switch { "movie" or "movies" => "movies", "tv" or "series" => "series", "anime" => "anime", _ => "all" };
+            var search = await _workSearch.SearchAsync(scope, cleaned, 5);
+            var found = search.Results.FirstOrDefault();
+            if (found is not null)
+            {
+                var metadata = new MediaMetadata { Source = found.Provider, ExternalId = found.ProviderId ?? found.WorkKey,
+                    Title = found.Title, MediaType = found.MediaType, Year = found.Year, PosterUrl = found.PosterUrl,
+                    Synopsis = found.Overview, Aliases = found.Aliases, ReleaseDate = found.ReleaseDate,
+                    AdditionalProperties = found.ExternalIds is null ? null : new() { ["externalIds"] = JsonSerializer.SerializeToElement(found.ExternalIds) } };
+                _memory.Set(key, metadata, MemoryTtl);
+                return metadata;
+            }
+            return null;
+        }
         foreach (var candidate in MetadataIdentity.TitleCandidates(cleaned))
         {
             var hit = await LookupOnceAsync(candidate, category, preferAnime).ConfigureAwait(false);

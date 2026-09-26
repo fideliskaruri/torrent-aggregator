@@ -228,9 +228,11 @@ public sealed class ArtworkResolver
     private readonly BoundedTtlCache<Resolved> _cache;
     private readonly SingleFlight<Resolved> _inFlight = new();
     private readonly SingleFlight<TmdbRef?> _refInFlight = new();
+    private readonly CinemetaClient? _cinemeta;
+    private readonly Search.WorkSearchService? _search;
 
     public ArtworkResolver(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, IOptions<MetadataOptions> options, TimeProvider time,
-        ILogger<ArtworkResolver>? logger = null)
+        ILogger<ArtworkResolver>? logger = null, CinemetaClient? cinemeta = null, Search.WorkSearchService? search = null)
     {
         _tmdb = tmdb;
         _anilist = anilist;
@@ -238,6 +240,8 @@ public sealed class ArtworkResolver
         _options = options;
         _logger = logger;
         _cache = new(2000, time);
+        _cinemeta = cinemeta;
+        _search = search;
     }
 
     private int TimeoutMs => _options.Value.ArtworkTimeoutMs > 0 ? _options.Value.ArtworkTimeoutMs : 5000;
@@ -373,6 +377,25 @@ public sealed class ArtworkResolver
 
     private async Task<Resolved> LookupAsync(NormalizedArtworkQuery query)
     {
+        if (_search is not null)
+        {
+            var scope = query.MediaType switch { "movie" => "movies", "tv" => "series", "anime" => "anime", _ => "all" };
+            var outcome = await _search.SearchAsync(scope, query.Title, 8);
+            var found = outcome.Results.FirstOrDefault(m => ArtworkMatching.MatchTier(query.Title, m.Title) >= ArtworkMatching.MinAccept &&
+                (query.Year is null || m.Year is null || query.Year == m.Year) && m.PosterUrl is not null);
+            if (found is null) return new(ArtworkResult.None, null, false);
+            string? backdrop = null;
+            if (found.Provider == "cinemeta" && found.ProviderId is not null && _cinemeta is not null)
+                backdrop = (await _cinemeta.GetByIdAsync(found.ProviderId, found.MediaType))?.BackdropUrl;
+            return new(new ArtworkResult(found.PosterUrl, backdrop), null, false);
+        }
+        if (_cinemeta is not null && query.MediaType != "anime")
+        {
+            var candidates = await Guarded(ct => _cinemeta.SearchAsync(query.Title, query.MediaType ?? "movie", 8, ct), new List<TorrentFlow.Core.Contracts.Metadata.MediaMetadata>());
+            var found = candidates.FirstOrDefault(m => ArtworkMatching.MatchTier(query.Title, m.Title) >= ArtworkMatching.MinAccept &&
+                (query.Year is null || m.Year is null || query.Year == m.Year) && m.PosterUrl is not null);
+            if (found is not null) return new(new ArtworkResult(found.PosterUrl, found.BackdropUrl), null, false);
+        }
         foreach (var provider in Chain(query.MediaType))
         {
             var candidates = await Guarded(ct => provider(query, ct), new List<ArtCandidate>()).ConfigureAwait(false);

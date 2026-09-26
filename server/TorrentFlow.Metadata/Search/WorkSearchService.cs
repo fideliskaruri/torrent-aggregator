@@ -3,6 +3,7 @@ using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Caching;
 using TorrentFlow.Metadata.Providers;
 using TorrentFlow.Metadata.Text;
+using TorrentFlow.Core.Sources;
 
 namespace TorrentFlow.Metadata.Search;
 
@@ -24,6 +25,7 @@ public sealed record WorkSearchHit
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? Overview { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? ReleaseDate { get; init; }
     public required string Href { get; init; }
+    public IReadOnlyDictionary<string, string>? ExternalIds { get; init; }
 }
 
 public sealed record WorkSearchOutcome(List<WorkSearchHit> Results, string Query, string DisplayQuery, IReadOnlyList<string> Attempted,
@@ -43,10 +45,13 @@ public sealed class WorkSearchService
     private readonly IReadOnlyDictionary<string, WorkSearchProvider> _providers;
     private readonly bool _cacheEnabled;
     private readonly TmdbClient? _tmdb;
+    private readonly SourceRegistry? _registry;
     private readonly BoundedTtlCache<(WorkSearchOutcome Result, DateTimeOffset FreshUntil)> _cache;
 
-    public WorkSearchService(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, TimeProvider time)
-        : this(DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { _tmdb = tmdb; }
+    public WorkSearchService(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, TimeProvider time,
+        SourceRegistry? registry = null, CinemetaClient? cinemeta = null)
+        : this(registry is not null && cinemeta is not null ? RegistryProviders(registry, tmdb, anilist, keyless, cinemeta) :
+            DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { _tmdb = tmdb; _registry = registry; }
 
     internal WorkSearchService(IReadOnlyDictionary<string, WorkSearchProvider> providers, TimeProvider time, bool cacheEnabled = false)
     {
@@ -90,6 +95,9 @@ public sealed class WorkSearchService
             MediaType = mediaType, TitleMediaType = titleMediaType, IsSeries = isSeries, Format = normalizedFormat,
             PosterUrl = metadata.PosterUrl, Overview = metadata.Synopsis, ReleaseDate = metadata.ReleaseDate,
             Href = $"{basePath}&{TextUtil.BuildQuery(extra)}",
+            ExternalIds = metadata.AdditionalProperties?.TryGetValue("externalIds", out var ids) == true && ids.ValueKind == System.Text.Json.JsonValueKind.Object
+                ? ids.EnumerateObject().Where(p => p.Value.ValueKind is System.Text.Json.JsonValueKind.String or System.Text.Json.JsonValueKind.Number)
+                    .ToDictionary(p => p.Name, p => p.Value.ToString()) : new Dictionary<string, string> { [provider] = metadata.ExternalId },
         };
     }
 
@@ -147,6 +155,7 @@ public sealed class WorkSearchService
                 output.AddRange((await search(variant, timeout).ConfigureAwait(false)).OfType<WorkSearchHit>());
                 if (HasRelevantHit(query, output)) break;
             }
+
             return DedupeProviderHits(output);
         }
 
@@ -165,12 +174,45 @@ public sealed class WorkSearchService
         };
     }
 
+    private static Dictionary<string, WorkSearchProvider> RegistryProviders(SourceRegistry registry, TmdbClient tmdb,
+        AniListClient anilist, KeylessClients keyless, CinemetaClient cinemeta) => Categories.ToDictionary(category => category,
+        category => (WorkSearchProvider)(async (query, limit, ct) =>
+        {
+            var hits = new List<WorkSearchHit>();
+            foreach (var source in registry.Active("metadata", category))
+            {
+                try
+                {
+                    var found = await SourceExecution.RunAsync(source, async token =>
+                    {
+                        var type = category == "series" ? "tv" : "movie";
+                        if (source.Type == "anilist")
+                            return (await anilist.SearchWorksAsync(query, limit, token)).Select(w => HitFromMetadata(w.Metadata, category, w.Format)).OfType<WorkSearchHit>().ToList();
+                        IEnumerable<MediaMetadata> rows = source.Type switch
+                        {
+                            "tmdb" => await tmdb.SearchByTypeAsync(type, query, limit, token),
+                            "tvmaze" => (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token)).Select(KeylessClients.Metadata),
+                            "cinemeta" => await cinemeta.SearchAsync(query, type, limit, token),
+                            "itunes" => (await keyless.SearchItunesAsync(query, limit, source.TimeoutMs, ct: token)).Select(c => new MediaMetadata
+                            { Source = "itunes", MediaType = "movie", ExternalId = c.Id.ToString(), Title = c.Title, Year = c.Year, PosterUrl = c.PosterUrl }),
+                            _ => []
+                        };
+                        return rows.Select(m => HitFromMetadata(m, category)).OfType<WorkSearchHit>().ToList();
+                    }, ct);
+                    hits.AddRange(found);
+                    if (HasRelevantHit(query, hits)) break;
+                }
+                catch (Exception) when (!ct.IsCancellationRequested) { }
+            }
+            return hits;
+        }));
+
     public async Task<WorkSearchOutcome> SearchAsync(string scope, string rawQuery, int limit, CancellationToken ct = default)
     {
         var query = QueryVariants.Canonicalize(rawQuery);
         var display = QueryVariants.Display(rawQuery);
         IReadOnlyList<string> attempted = scope == "all" ? Categories : [scope];
-        var cacheKey = _cacheEnabled ? $"{_tmdb?.CredentialRevision ?? 0}:{scope}:{limit}:{query.ToLowerInvariant()}" : null;
+        var cacheKey = _cacheEnabled ? $"{_registry?.Revision}:{_tmdb?.CredentialRevision ?? 0}:{scope}:{limit}:{query.ToLowerInvariant()}" : null;
         if (cacheKey != null && _cache.TryGet(cacheKey, out var cached) && cached.FreshUntil > _time.GetUtcNow())
             return cached.Result with { Stale = false };
 
@@ -188,9 +230,17 @@ public sealed class WorkSearchService
         var merged = attempted.Count > 1 ? Relevance.InterleaveByProviderRank(byCategory, query) : [.. byCategory[0]];
         var ranked = Relevance.RankTitleHits(merged, query, h => h.Title, h => h.Aliases);
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var externalSeen = new HashSet<string>(StringComparer.Ordinal);
         var results = ranked
             .Where(h => Relevance.BestTier(query, new[] { h.Title }.Concat(h.Aliases)) < 6)
             .Where(h => seen.Add(h.WorkKey))
+            .Where(h =>
+            {
+                var ids = h.ExternalIds?.Select(p => $"{p.Key}:{p.Value}").ToArray() ?? [];
+                if (ids.Any(externalSeen.Contains)) return false;
+                foreach (var id in ids) externalSeen.Add(id);
+                return true;
+            })
             .Take(limit).ToList();
         var outcome = new WorkSearchOutcome(results, query, display, attempted, failed, failed.Count > 0);
         if (cacheKey != null) _cache.Set(cacheKey, (outcome, _time.GetUtcNow() + Fresh), StaleTtl);
@@ -225,12 +275,13 @@ public sealed class SuggestService
 {
     private static readonly string[] Order = ["anilist", "tmdb"];
     private readonly IReadOnlyDictionary<string, SuggestProvider> _providers;
+    private readonly WorkSearchService? _search;
 
-    public SuggestService(AniListClient anilist, TmdbClient tmdb) : this(new Dictionary<string, SuggestProvider>
+    public SuggestService(AniListClient anilist, TmdbClient tmdb, WorkSearchService? search = null) : this(new Dictionary<string, SuggestProvider>
     {
         ["anilist"] = async (q, l, ct) => (await anilist.SearchAsync(q, l, ct).ConfigureAwait(false)).Select(ToSuggestion).ToList(),
         ["tmdb"] = async (q, l, ct) => (await tmdb.SearchAsync(q, l, ct).ConfigureAwait(false)).Select(ToSuggestion).ToList(),
-    }) { }
+    }) { _search = search; }
 
     internal SuggestService(IReadOnlyDictionary<string, SuggestProvider> providers) => _providers = providers;
 
@@ -243,6 +294,13 @@ public sealed class SuggestService
     {
         var query = QueryVariants.Canonicalize(rawQuery);
         var display = QueryVariants.Display(rawQuery);
+        if (_search is not null)
+        {
+            var outcome = await _search.SearchAsync("all", rawQuery, total, ct);
+            return new(outcome.Results.Select(r => new Suggestion { Title = r.Title, Aliases = r.Aliases, MediaType = r.MediaType,
+                PosterUrl = r.PosterUrl, Year = r.Year, Source = r.Provider, ExternalId = r.ProviderId ?? r.WorkKey }).ToList(),
+                query, display, outcome.Failed, outcome.Partial);
+        }
         var settled = await Task.WhenAll(Order.Select(n => WorkSearchService.Settle(_providers[n](query, perProvider, ct)))).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         var failed = Order.Where((_, i) => settled[i].Error != null).ToList();

@@ -96,11 +96,13 @@ budget, 14-second plain search and 10-second detail budgets.
 
 All indexer base URL environment overrides are preserved. Corresponding
 `TorrentFlow:Search:<ENV_NAME>` configuration keys take precedence. EZTV remains
-optional when no TMDB credential is available. Settings → Metadata saves a key in
-the data directory and takes precedence over `TorrentFlow:Metadata:TmdbApiKey` /
-`TMDB_API_KEY`. Metadata and EZTV share the same live provider; saving or removing
-the override takes effect immediately, including cached lookups. Standalone Search
-module deployments retain the legacy Search configuration fallback.
+keyless in the monolith: TVmaze supplies its IMDb lookup. Settings → Sources and
+the `<dataDir>/sources.json` overlay select adapters, enabled state, category scope,
+priority, mirrors and timeouts without restarting. Embedded `sources.default.json`
+provides defaults. Multiple custom `torznab` entries can target Jackett/Prowlarr
+indexers with separate credentials. See [Sources](../../docs/sources.md).
+Standalone Search module deployments retain the legacy TMDB configuration fallback
+when no `IKeylessSeriesLookup` is supplied.
 
 ## Verification
 

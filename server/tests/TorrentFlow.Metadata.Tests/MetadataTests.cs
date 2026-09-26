@@ -494,7 +494,7 @@ public class CatalogTests
         var result = await catalog.RefreshAsync();
         Assert.True(result.Offline);
         Assert.Contains(result.Errors, e => e.Contains("apibay HTTP 503"));
-        Assert.Contains(result.Errors, e => e.Contains("TMDB_API_KEY is not set"));
+        Assert.DoesNotContain(result.Errors, e => e.Contains("TMDB_API_KEY is not set"));
     }
 
     [Fact]
@@ -664,4 +664,3 @@ public class ExtrasTests
         Assert.Equal("PG-13", TitleExtrasService.Certification(json, series: false));
     }
 }
-

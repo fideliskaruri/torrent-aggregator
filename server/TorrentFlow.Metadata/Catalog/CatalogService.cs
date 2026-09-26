@@ -284,7 +284,7 @@ public sealed class CatalogService(
     TimeProvider time,
     ILogger<CatalogService> logger,
     ArtworkResolver? artwork = null,
-    IHostApplicationLifetime? hostLifetime = null) : ICatalogLookup
+    IHostApplicationLifetime? hostLifetime = null, CinemetaClient? cinemeta = null) : ICatalogLookup
 {
     public static readonly TimeSpan CatalogTtl = TimeSpan.FromHours(1);
     public const int ColdStartBudgetMs = 12_000;
@@ -395,9 +395,21 @@ public sealed class CatalogService(
                 : AvailabilityIndex.Empty;
 
             var prepared = new List<(string Source, List<CatalogDraft> Drafts)>();
+            if (cinemeta is not null)
+            {
+                foreach (var (kind, source) in new[] { ("movie", "trending"), ("tv", "popular") })
+                {
+                    var keyless = await cinemeta.CatalogAsync(kind, WorksPerSource, ct);
+                    if (keyless.Count == 0) continue;
+                    prepared.Add((source, keyless.Where(m => !CatalogText.IsSlopTitle(m.Title)).Select(m => new CatalogDraft(
+                        CatalogText.CatalogWorkKey(m.Title, m.Year, m.MediaType), m.Title, m.Year, m.MediaType,
+                        m.PosterUrl, m.BackdropUrl, m.Synopsis, m.Rating, 0, null, CatalogText.ReleaseDateToDate(m.ReleaseDate))).ToList()));
+                    origin[source] = "cinemeta";
+                }
+            }
             foreach (var t in trending)
             {
-                if (t.Titles.Count == 0) continue;
+                if (t.Titles.Count == 0 || prepared.Any(p => p.Source == t.Source)) continue;
                 var drafts = t.Titles.Where(x => !CatalogText.IsSlopTitle(x.Title)).Take(WorksPerSource).Select(x =>
                 {
                     var key = CatalogText.CatalogWorkKey(x.Title, x.Year, x.MediaType);
@@ -554,7 +566,7 @@ public sealed class CatalogService(
 
     private async Task<TrendingResult> FetchTrendingAsync(string kind, string source)
     {
-        if (tmdb.ApiKey is null) return new(kind, source, [], "TMDB_API_KEY is not set");
+        if (tmdb.ApiKey is null) return new(kind, source, [], null);
         var titles = new List<CatalogTitle>();
         string? error = null;
         var pages = await Task.WhenAll(Enumerable.Range(1, TmdbPages).Select(p =>

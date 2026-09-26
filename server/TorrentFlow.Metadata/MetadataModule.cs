@@ -25,8 +25,12 @@ public static class MetadataModule
             .ValidateOnStart();
 
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<TorrentFlow.Core.Sources.SourceRegistry>();
+        services.AddTransient<Providers.SourceRoutingHandler>();
+        services.AddHttpClient("TorrentFlow.SourceHealth", c => c.Timeout = TimeSpan.FromSeconds(15)).RemoveAllLoggers();
         // Per-call timeouts use linked CancellationTokenSources matching the TS AbortSignal.timeout values.
-        services.AddHttpClient(TmdbClient.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan).RemoveAllLoggers();
+        services.AddHttpClient(TmdbClient.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan).RemoveAllLoggers()
+            .AddHttpMessageHandler<Providers.SourceRoutingHandler>();
 
         services.AddSingleton<Settings.TmdbSettingsStore>();
         services.AddSingleton<ITmdbCredentialProvider>(sp => sp.GetRequiredService<Settings.TmdbSettingsStore>());
@@ -34,6 +38,8 @@ public static class MetadataModule
         services.AddSingleton<AniListClient>();
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup, LibraryAnimeLookup>());
         services.AddSingleton<KeylessClients>();
+        services.AddSingleton<IKeylessSeriesLookup>(sp => sp.GetRequiredService<KeylessClients>());
+        services.AddSingleton<CinemetaClient>();
         services.AddSingleton<RateLimiter>();
         services.AddSingleton<WorkSearchService>();
         services.AddSingleton<SuggestService>();

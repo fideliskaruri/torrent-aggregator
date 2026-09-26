@@ -21,15 +21,9 @@ public static class SearchModule
                 PooledConnectionLifetime = TimeSpan.FromMinutes(5)
             });
         services.AddSingleton<IndexerHttp>();
+        services.TryAddSingleton<TorrentFlow.Core.Sources.SourceRegistry>();
+        services.AddSingleton<RegisteredTorrentSources>();
         services.TryAddSingleton<IIndexerBrowserFetcher, BrowserFetcher>();
-        services.AddSingleton<ITorrentSourceAdapter, NyaaAdapter>();
-        services.AddSingleton<ITorrentSourceAdapter, ApiBayAdapter>();
-        services.AddSingleton<ITorrentSourceAdapter, TorrentsCsvAdapter>();
-        services.AddSingleton<ITorrentSourceAdapter, YtsAdapter>();
-        services.AddSingleton<ITorrentSourceAdapter, EztvAdapter>();
-        services.AddSingleton<ITorrentSourceAdapter, X1337Adapter>();
-        services.AddSingleton<ITorrentSourceAdapter, ArchiveAdapter>();
-        services.AddSingleton<ITorrentSourceAdapter, TorznabAdapter>();
         services.AddSingleton<SearchCacheStore>();
         services.TryAddSingleton<ITrackerScraper, TrackerScraper>();
         services.TryAddSingleton<ISearchResultEnricher, NoOpSearchResultEnricher>();

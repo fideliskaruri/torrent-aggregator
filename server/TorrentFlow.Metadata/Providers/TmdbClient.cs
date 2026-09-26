@@ -18,14 +18,6 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
     public const string Base = "https://api.themoviedb.org/3";
     public const string Img = "https://image.tmdb.org/t/p";
 
-    private static readonly HashSet<string> PlaceholderKeys =
-    [
-        "changeme", "change_me", "dummy", "example", "fake", "insert_key_here", "none", "null", "placeholder", "replace_me",
-        "secret", "todo", "undefined", "your_api_key", "your_api_key_here", "your_tmdb_api_key", "yourapikeyhere",
-    ];
-
-    [GeneratedRegex(@"^(.)\1*$", RegexOptions.Singleline)] private static partial Regex RepeatedChar();
-    [GeneratedRegex(@"\byour\b|\bhere\b|^<.*>$|\bkey\s*goes\b", RegexOptions.IgnoreCase)] private static partial Regex ObviousTemplate();
     [GeneratedRegex(@"^(\d{4})-(\d{2})-(\d{2})\b")] private static partial Regex IsoDate();
 
     public static readonly IReadOnlyDictionary<int, string> Genres = new Dictionary<int, string>
@@ -37,23 +29,11 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         [10768] = "War & Politics", [10770] = "TV Movie",
     };
 
-    public static string NormalizeCredential(string? value)
-    {
-        var c = value?.Trim() ?? "";
-        if (c.Length >= 2 && ((c[0] == '"' && c[^1] == '"') || (c[0] == '\'' && c[^1] == '\''))) c = c[1..^1].Trim();
-        return c;
-    }
+    public static string NormalizeCredential(string? value) => TorrentFlow.Core.Sources.TmdbCredentials.Normalize(value);
+    public static bool IsUsableKey(string? value) => TorrentFlow.Core.Sources.TmdbCredentials.IsUsable(value);
 
-    public static bool IsUsableKey(string? value)
-    {
-        var key = NormalizeCredential(value);
-        if (key.Length < 10) return false;
-        if (RepeatedChar().IsMatch(key)) return false;
-        var lower = key.ToLowerInvariant();
-        return !PlaceholderKeys.Contains(lower) && !ObviousTemplate().IsMatch(lower);
-    }
-
-    public string? ApiKey => credentials is not null ? credentials.ApiKey :
+    public string? ApiKey => TorrentFlow.Core.Sources.SourceExecution.Current is { Kind: "metadata", Type: "tmdb", Credential: { } current } && IsUsableKey(current)
+        ? NormalizeCredential(current) : credentials is not null ? credentials.ApiKey :
         IsUsableKey(options.Value.TmdbApiKey) ? NormalizeCredential(options.Value.TmdbApiKey) : null;
     public long CredentialRevision => credentials?.Revision ?? 0;
     public bool HasKey => ApiKey != null;

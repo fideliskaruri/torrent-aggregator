@@ -9,5 +9,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TorrentFlow.Core.Tests" />
+    <EmbeddedResource Include="Sources\sources.default.json" />
   </ItemGroup>
 </Project>

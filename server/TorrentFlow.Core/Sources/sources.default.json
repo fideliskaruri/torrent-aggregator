@@ -1,0 +1,14 @@
+[
+  {"id":"nyaa","kind":"torrent","type":"nyaa","categories":["anime"],"enabled":true,"priority":10,"baseUrl":"https://nyaa.si","mirrors":[],"timeoutMs":12000,"options":{}},
+  {"id":"apibay","kind":"torrent","type":"apibay","categories":["movie","series","anime","music","games","apps","books","other"],"enabled":true,"priority":20,"baseUrl":"https://apibay.org","mirrors":[],"timeoutMs":12000,"options":{}},
+  {"id":"torrentscsv","kind":"torrent","type":"torrentscsv","categories":["movie","series","anime","music","games","apps","books","other"],"enabled":true,"priority":30,"baseUrl":"https://torrents-csv.com/service/search","mirrors":[],"timeoutMs":12000,"options":{}},
+  {"id":"yts","kind":"torrent","type":"yts","categories":["movie"],"enabled":true,"priority":40,"baseUrl":"https://yts.mx/api/v2","mirrors":["https://yts.lt/api/v2","https://movies-api.accel.li/api/v2"],"timeoutMs":15000,"options":{}},
+  {"id":"eztv","kind":"torrent","type":"eztv","categories":["series"],"enabled":true,"priority":50,"baseUrl":"https://eztv.wf/api","mirrors":["https://eztvx.to/api","https://eztv.re/api"],"timeoutMs":15000,"options":{}},
+  {"id":"1337x","kind":"torrent","type":"1337x","categories":["movie","series","anime","music","games","apps","books","other"],"enabled":false,"priority":60,"baseUrl":"https://1337x.to","mirrors":[],"timeoutMs":20000,"options":{}},
+  {"id":"archive","kind":"torrent","type":"archive","categories":["movie","series","anime"],"enabled":false,"priority":70,"baseUrl":"https://archive.org","mirrors":[],"timeoutMs":15000,"options":{}},
+  {"id":"tvmaze","kind":"metadata","type":"tvmaze","categories":["series"],"enabled":true,"priority":10,"baseUrl":"https://api.tvmaze.com","mirrors":[],"timeoutMs":8000,"options":{}},
+  {"id":"anilist","kind":"metadata","type":"anilist","categories":["anime"],"enabled":true,"priority":10,"baseUrl":"https://graphql.anilist.co","mirrors":[],"timeoutMs":10000,"options":{}},
+  {"id":"cinemeta","kind":"metadata","type":"cinemeta","categories":["movie","series"],"enabled":true,"priority":20,"baseUrl":"https://v3-cinemeta.strem.io","mirrors":[],"timeoutMs":8000,"options":{}},
+  {"id":"tmdb","kind":"metadata","type":"tmdb","categories":["movie","series"],"enabled":true,"priority":30,"baseUrl":"https://api.themoviedb.org/3","mirrors":[],"timeoutMs":8000,"options":{}},
+  {"id":"itunes","kind":"metadata","type":"itunes","categories":["movie"],"enabled":false,"priority":40,"baseUrl":"https://itunes.apple.com","mirrors":[],"timeoutMs":5000,"options":{}}
+]

@@ -18,7 +18,8 @@ public sealed class SearchThrottledException(int seconds) : Exception($"Indexers
 public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adapters, SearchCacheStore cache,
     ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
     ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null, ITrackerScraper? scraper = null,
-    TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null) : ITorrentSearchService
+    TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null,
+    TorrentFlow.Core.Sources.SourceRegistry? registry = null, RegisteredTorrentSources? registered = null) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
     private readonly ITorrentSourceAdapter[] all = adapters.ToArray();
@@ -28,7 +29,9 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     private bool Enable1337 => moduleOptions.Value.Setting("ENABLE_1337X") == "1";
     private bool EnableArchive => moduleOptions.Value.Setting("ENABLE_ARCHIVE") == "1";
     private bool TorznabConfigured => !string.IsNullOrWhiteSpace(moduleOptions.Value.Setting("TORZNAB_URL"));
-    public IReadOnlyList<AvailableSource> AvailableSources => [
+    public IReadOnlyList<AvailableSource> AvailableSources => registry is not null
+        ? registry.Snapshot().Where(e => e.Kind == "torrent").Select(e => new AvailableSource(e.Id, e.Id, registry.IsEnabled(e))).ToArray()
+        : [
         new("nyaa", "Nyaa", true), new("apibay", "ThePirateBay", true), new("torrentscsv", "TorrentsCSV", true),
         new("yts", "YTS", true), new("1337x", "1337x", Enable1337), new("archive", "Internet Archive", EnableArchive),
         new("torznab", "Torznab (Jackett/Prowlarr)", TorznabConfigured)];
@@ -47,7 +50,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var target = options.TargetResolution is 480 or 720 or 1080 or 2160 ? options.TargetResolution.Value
             : settings?.PreferredResolution is 480 or 720 or 1080 or 2160 ? settings.PreferredResolution.Value : 1080;
         if (options.Enrich) enricher.Prime(options.Query, options.Category);
-        var key = SearchCacheStore.Key(options, target) + (credentials is null ? "" : $":credentials:{credentials.Revision}");
+        var key = SearchCacheStore.Key(options, target) + (credentials is null ? "" : $":credentials:{credentials.Revision}") + (registry is null ? "" : $":sources:{registry.Revision}");
         var pool = options.SkipCache ? null : await cache.GetAsync(key, token: cancellationToken);
         var cached = pool != null;
         if (pool == null)
@@ -97,7 +100,9 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
             var stale = options.SkipCache ? null : await cache.GetAsync(key, true, token);
             return stale != null ? stale with { Cached = true } : throw new SearchThrottledException(retry);
         }
-        var selected = all.Where(a => options.Sources?.Length > 0 ? options.Sources.Contains(a.Id) : a.Id switch { "1337x" => Enable1337, "archive" => EnableArchive, "torznab" => TorznabConfigured, _ => true }).ToArray();
+        var selected = registered is not null
+            ? registered.For(options.Category).Where(a => options.Sources?.Length is not > 0 || options.Sources.Contains(a.Id)).ToArray()
+            : all.Where(a => options.Sources?.Length > 0 ? options.Sources.Contains(a.Id) : a.Id switch { "1337x" => Enable1337, "archive" => EnableArchive, "torznab" => TorznabConfigured, _ => true }).ToArray();
         // Always cast a wide net: the caller's Limit trims the ranked pool, not what each indexer is asked for.
         var limit = Math.Min(Math.Max(Math.Max(options.Limit ?? 50, options.PageSize), 50), 80);
         var outcomes = await Task.WhenAll(selected.Select(async adapter =>

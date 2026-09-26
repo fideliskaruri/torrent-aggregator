@@ -9,7 +9,7 @@ interface Status {
   hint: string;
 }
 
-export function TmdbSettings() {
+export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boolean; onChanged?: () => void }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [key, setKey] = useState("");
@@ -48,6 +48,7 @@ export function TmdbSettings() {
       } else {
         setStatus(body);
         setKey("");
+        onChanged?.();
         setMessage(action === "save" ? "TMDB key saved. It is active now." : "Saved TMDB key removed.");
       }
     } catch {
@@ -55,10 +56,7 @@ export function TmdbSettings() {
     } finally { setBusy(false); }
   }
 
-  return <SettingsDisclosure id="metadata-settings" title="Metadata"
-    summary="Optional TMDB credentials for movie and series details."
-    open={open} onToggle={() => setOpen(!open)}>
-    <div className="min-w-0 space-y-4" data-tmdb-settings aria-busy={busy}>
+  const content = <div className="min-w-0 space-y-4" data-tmdb-settings aria-busy={busy}>
       <p className="text-sm text-[var(--text-secondary)]">Optional — AniList and keyless sources work without it.</p>
       {!status && busy && <p role="status">Loading TMDB settings…</p>}
       {status && <p className="text-sm text-[var(--text-secondary)]" data-tmdb-status>
@@ -89,6 +87,8 @@ export function TmdbSettings() {
         <p>{error}</p>
         <Button type="button" variant="secondary" className="min-h-[44px]" disabled={busy} onClick={() => void load()}>Retry</Button>
       </div>}
-    </div>
-  </SettingsDisclosure>;
+    </div>;
+  return embedded ? content : <SettingsDisclosure id="metadata-settings" title="Metadata"
+    summary="Optional TMDB credentials for movie and series details."
+    open={open} onToggle={() => setOpen(!open)}>{content}</SettingsDisclosure>;
 }

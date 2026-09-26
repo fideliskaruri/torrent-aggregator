@@ -3,6 +3,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Providers;
+using TorrentFlow.Core.Sources;
+using System.Text.Json.Nodes;
 
 namespace TorrentFlow.Metadata.Settings;
 
@@ -15,9 +17,11 @@ public sealed class TmdbSettingsStore : ITmdbCredentialProvider
     private readonly IOptions<MetadataOptions> options;
     private string? saved;
     private long revision = Random.Shared.NextInt64(1, long.MaxValue / 2);
+    private readonly SourceRegistry? registry;
 
-    public TmdbSettingsStore(IConfiguration configuration, IOptions<MetadataOptions> options)
+    public TmdbSettingsStore(IConfiguration configuration, IOptions<MetadataOptions> options, SourceRegistry? registry = null)
     {
+        this.registry = registry;
         this.options = options;
         path = Path.Combine(configuration["TorrentFlow:DataDirectory"] ?? Path.Combine(AppContext.BaseDirectory, "data"), "tmdb-settings.json");
         if (File.Exists(path))
@@ -32,18 +36,25 @@ public sealed class TmdbSettingsStore : ITmdbCredentialProvider
             }
             catch (JsonException) { }
         }
+        if (registry is not null && saved is not null && registry.Find("tmdb")?.Credential is null)
+        {
+            registry.Update("tmdb", new JsonObject { ["credential"] = saved });
+            File.Delete(path);
+        }
     }
 
     private static string? Valid(string? value) => TmdbClient.IsUsableKey(value) ? TmdbClient.NormalizeCredential(value) : null;
-    public string? ApiKey { get { lock (gate) return saved ?? Valid(options.Value.TmdbApiKey); } }
-    public long Revision { get { lock (gate) return revision; } }
+    public string? ApiKey { get { lock (gate) return registry is not null
+        ? registry.Find("tmdb") is { Enabled: true } source ? Valid(source.Credential) ?? Valid(options.Value.TmdbApiKey) : null
+        : saved ?? Valid(options.Value.TmdbApiKey); } }
+    public long Revision { get { lock (gate) return registry?.Revision ?? revision; } }
 
     public TmdbKeyStatus Status()
     {
         lock (gate)
         {
             var key = ApiKey;
-            return new(key is not null, saved is not null ? "settings" : key is not null ? "environment" : "none",
+            return new(key is not null, (registry is not null ? registry.Find("tmdb")?.Credential : saved) is not null ? "settings" : key is not null ? "environment" : "none",
                 key is null ? "" : $"••••{key[^4..]}");
         }
     }
@@ -57,6 +68,11 @@ public sealed class TmdbSettingsStore : ITmdbCredentialProvider
         lock (gate)
         {
             var normalized = TmdbClient.NormalizeCredential(value);
+            if (registry is not null)
+            {
+                registry.Update("tmdb", new JsonObject { ["credential"] = normalized, ["enabled"] = true });
+                return;
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var pending = path + ".pending";
             try
@@ -74,6 +90,11 @@ public sealed class TmdbSettingsStore : ITmdbCredentialProvider
     {
         lock (gate)
         {
+            if (registry is not null)
+            {
+                registry.Update("tmdb", new JsonObject { ["credential"] = null });
+                return;
+            }
             File.Delete(path);
             saved = null;
             revision++;

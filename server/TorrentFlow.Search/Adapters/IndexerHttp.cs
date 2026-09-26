@@ -43,7 +43,7 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
         return System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
     }
     public static string[] MirrorList(string? configured, params string[] defaults) =>
-        (configured ?? "").Split(',').Concat(defaults)
+        (TorrentFlow.Core.Sources.SourceExecution.Current is { } source ? new[] { source.BaseUrl }.Concat(source.Mirrors) : (configured ?? "").Split(',').Concat(defaults))
         .Select(h => h.Trim().TrimEnd('/')).Where(h => Uri.TryCreate(h, UriKind.Absolute, out var u) && u.Scheme is "https" or "http")
         .Distinct(StringComparer.OrdinalIgnoreCase).Take(20).ToArray();
     public async Task<string> MirrorsAsync(string key, string[] hosts, Func<string, string> url, string agent, CancellationToken token)

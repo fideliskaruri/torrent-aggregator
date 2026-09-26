@@ -142,7 +142,8 @@ public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> c
 }
 
 public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration,
-    TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null) : TorrentAdapter(http, configuration)
+    TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null,
+    TorrentFlow.Core.Contracts.Metadata.IKeylessSeriesLookup? seriesLookup = null) : TorrentAdapter(http, configuration)
 {
     public override string Id => "eztv";
     private readonly object gate = new();
@@ -164,6 +165,8 @@ public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
     }
     private async Task<string?> Imdb(string title, CancellationToken token)
     {
+        if (seriesLookup is not null)
+            return (await seriesLookup.FindImdbIdAsync(title, token).ConfigureAwait(false))?.Replace("tt", "", StringComparison.Ordinal);
         var key = credentials is not null ? credentials.ApiKey : Setting("TMDB_API_KEY");
         var cacheKey = $"{credentials?.Revision ?? 0}:{title}";
         if (string.IsNullOrWhiteSpace(key) || title.Length == 0) return null;

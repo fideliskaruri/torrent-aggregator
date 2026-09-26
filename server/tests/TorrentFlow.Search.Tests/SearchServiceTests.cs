@@ -195,7 +195,8 @@ public sealed class SearchServiceTests
         services.AddLogging();
         services.AddSearchModule(config);
         using var provider = services.BuildServiceProvider();
-        Assert.Equal(8, provider.GetServices<ITorrentSourceAdapter>().Count());
+        Assert.Empty(provider.GetServices<ITorrentSourceAdapter>());
+        Assert.Equal(6, provider.GetRequiredService<RegisteredTorrentSources>().For("all").Count);
         Assert.Equal("https://fixture.invalid", provider.GetRequiredService<IOptions<SearchModuleOptions>>().Value.NyaaBaseUrl);
         Assert.True(provider.GetRequiredService<TorrentSearchService>().AvailableSources.Single(s => s.Id == "1337x").EnabledByDefault);
         Assert.Empty((await provider.GetRequiredService<ITorrentSearchService>().SearchAsync(new() { Query = "" })).Results);
