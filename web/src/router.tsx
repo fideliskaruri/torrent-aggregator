@@ -39,6 +39,7 @@ const routes: RouteObject[] = [
           { path: "watch/*", element: <Navigate to="/" replace /> },
           { path: "title/:workKey", ...page(() => import("@/app/title/[workKey]/page")) },
           { path: "downloads", ...page(() => import("@/app/downloads/page")) },
+          { path: "upcoming", ...page(() => import("@/app/upcoming/page")) },
           { path: "activity", ...page(() => import("@/app/activity/page")) },
           { path: "history", ...page(() => import("@/app/history/page")) },
           { path: "notifications", ...page(() => import("@/app/notifications/page")) },

@@ -1,3 +1,5 @@
+using TorrentFlow.Core.Scheduling;
+
 namespace TorrentFlow.Engine.Queue;
 
 /// <summary>A durable row as the queue sees it (subset of EngineTorrent).</summary>
@@ -123,7 +125,7 @@ public static class DownloadQueue
     /// </summary>
     public static List<string> PromotionCandidates(IReadOnlyCollection<QueueRow> rows, int cap, bool windowOpen = true)
     {
-        if (!windowOpen) return [];
+        if (WaitReasonService.QueueBlocked(windowOpen, ActiveKeptCount(rows), cap)) return [];
         var free = Math.Max(0, cap - ActiveKeptCount(rows));
         return free == 0 ? [] : Order(rows).Take(free).Select(r => r.Hash).ToList();
     }
@@ -138,8 +140,8 @@ public static class DownloadQueue
     {
         if (forced) return false;
         if (origin != QueueableOrigin) return false;
-        if (!windowOpen) return true;
-        return ActiveKeptCount(rows) >= cap || rows.Any(r => IsQueued(r) && r.Origin == QueueableOrigin);
+        return WaitReasonService.QueueBlocked(windowOpen, ActiveKeptCount(rows), cap) ||
+            rows.Any(r => IsQueued(r) && r.Origin == QueueableOrigin);
     }
 
     /// <summary>
@@ -183,10 +185,16 @@ public static class DownloadQueue
     private static string? ReasonFor(QueueRow row, bool windowOpen, int? bestQueuedLane)
     {
         if (!IsQueued(row)) return null;
-        if (!windowOpen) return Core.Contracts.Engine.QueueWaitReason.OutsideWindow;
-        return bestQueuedLane < row.Lane
-            ? Core.Contracts.Engine.QueueWaitReason.LowerLane
-            : Core.Contracts.Engine.QueueWaitReason.QueueFull;
+        var reason = WaitReasonService.Evaluate(new()
+        {
+            Queued = true, WindowOpen = windowOpen, Lane = row.Lane, BestQueuedLane = bestQueuedLane
+        }, DateTime.UtcNow);
+        return reason.Reason switch
+        {
+            WaitReasonKind.OutsideWindow => Core.Contracts.Engine.QueueWaitReason.OutsideWindow,
+            WaitReasonKind.LowerLane => Core.Contracts.Engine.QueueWaitReason.LowerLane,
+            _ => Core.Contracts.Engine.QueueWaitReason.QueueFull,
+        };
     }
 
     /// <summary>

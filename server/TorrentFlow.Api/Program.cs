@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using TorrentFlow.Api.Desktop;
 using TorrentFlow.Api.RemoteAccess;
 using TorrentFlow.Api.Requests;
+using TorrentFlow.Api.Timeline;
 using TorrentFlow.Data;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
@@ -147,6 +148,7 @@ builder.Services.AddSingleton<IRequestGrabber, RequestGrabber>();
 builder.Services.AddSingleton<IRequestTransfers, EngineRequestTransfers>();
 builder.Services.AddSingleton<RequestDecisionService>();
 builder.Services.AddHostedService<RequestFulfillmentWatcher>();
+builder.Services.AddSingleton<TimelineService>();
 
 var app = builder.Build();
 app.Logger.LogInformation("TorrentFlow data directory: {DataDirectory}; database: {DatabasePath}", dataDir, dbPath);
@@ -204,6 +206,7 @@ app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<Engine
 }).AllowRequesters();
 app.MapRemoteAccessEndpoints();
 app.MapRequestEndpoints();
+app.MapTimelineEndpoints();
 app.MapDesktopEndpoints();
 
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.

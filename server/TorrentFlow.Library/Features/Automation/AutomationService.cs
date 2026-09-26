@@ -8,6 +8,7 @@ using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Grabs;
 using TorrentFlow.Library.Features.Watchlist;
+using TorrentFlow.Core.Scheduling;
 
 namespace TorrentFlow.Library.Features.Automation;
 
@@ -126,13 +127,13 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
             foreach (var item in items)
             {
                 var now = DateTime.UtcNow;
-                if (itemIds != null && item.NextCheckAt > now) { deferred++; continue; }
+                if (itemIds != null && WaitReasonService.IsFuture(item.NextCheckAt, now)) { deferred++; continue; }
                 var cursor = EpisodeCursor.Resolve(item);
                 DateTime? airDate = null;
                 try
                 {
                     airDate = await AirDate(item, cursor, ct);
-                    if (airDate > now)
+                    if (WaitReasonService.IsFuture(airDate, now))
                     {
                         await SaveSchedule(db, item, CheckSchedule.Next(now, airDate, item.CursorMisses, null, interval, options.Value), ct);
                         deferred++; continue;

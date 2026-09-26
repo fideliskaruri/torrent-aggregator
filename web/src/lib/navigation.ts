@@ -86,18 +86,25 @@ export const PRIMARY_NAV: readonly NavItem[] = [
 
 /** The owner's inbox of friends' requests. Its entry carries the pending count. */
 export const REQUESTS_HREF = "/requests";
+export const UPCOMING_HREF = "/upcoming";
 
 /**
  * Desktop: after the divider. Mobile: inside the More sheet.
  *
- * Only the requests inbox. It is not a sixth primary destination: most visits
- * are prompted by its pending count, so it lives one step away and badges the
- * More tab instead of narrowing every bottom tab.
+ * Upcoming and the requests inbox live in More rather than adding bottom tabs.
+ * On desktop Upcoming sits beside Downloads.
  */
-export const SECONDARY_NAV: readonly NavItem[] = [{ href: REQUESTS_HREF, label: "Requests" }] as const;
+export const SECONDARY_NAV: readonly NavItem[] = [
+  { href: UPCOMING_HREF, label: "Upcoming" },
+  { href: REQUESTS_HREF, label: "Requests" },
+] as const;
 
 /** Desktop header: the primary path. */
-export const DESKTOP_NAV: readonly NavItem[] = [...PRIMARY_NAV, ...SECONDARY_NAV];
+export const DESKTOP_NAV: readonly NavItem[] = [
+  ...PRIMARY_NAV.flatMap((item) => item.href === DOWNLOADS_HREF
+    ? [item, { href: UPCOMING_HREF, label: "Upcoming" }] : [item]),
+  ...SECONDARY_NAV.filter((item) => item.href !== UPCOMING_HREF),
+];
 
 /**
  * The desktop header's text links, and where the divider sits among them.
@@ -117,6 +124,7 @@ export function desktopNavRow(): {
       (item) => item.href,
     ),
   );
+  primaryHrefs.add(UPCOMING_HREF);
   const dividerIndex = items.findIndex((item) => !primaryHrefs.has(item.href));
   return { items, dividerIndex: dividerIndex === -1 ? items.length : dividerIndex };
 }

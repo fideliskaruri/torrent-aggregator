@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router";
 import {
   Activity,
   Boxes,
+  CalendarClock,
   Circle,
   Clapperboard,
   HardDriveDownload,
@@ -23,6 +24,7 @@ import {
   NOTIFICATIONS_HREF,
   PRIMARY_NAV,
   REQUESTS_HREF,
+  UPCOMING_HREF,
   SECONDARY_NAV,
   SEARCH_HREF,
   navActiveHref,
@@ -42,6 +44,7 @@ const NAV_ICONS: Record<string, typeof Search> = {
   "/rules": Zap,
   "/about": Info,
   [REQUESTS_HREF]: Inbox,
+  [UPCOMING_HREF]: CalendarClock,
 };
 
 /**

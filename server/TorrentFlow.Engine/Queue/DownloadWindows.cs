@@ -88,4 +88,28 @@ public static class DownloadWindows
         var active = windows.FirstOrDefault(w => Covers(w, localNow));
         return new ScheduleState(true, active is not null, active);
     }
+
+    /// <summary>Next opening in UTC; rules use the server's local calendar, including DST transitions.</summary>
+    public static DateTime? NextStart(IReadOnlyList<DownloadWindow> windows, DateTimeOffset now, TimeZoneInfo zone)
+    {
+        if (windows.Count == 0) return null;
+        var local = TimeZoneInfo.ConvertTime(now, zone);
+        DateTime? earliest = null;
+        for (var offset = 0; offset <= 7; offset++)
+        {
+            var day = DateTime.SpecifyKind(local.Date.AddDays(offset), DateTimeKind.Unspecified);
+            foreach (var window in windows.Where(w => w.Days.Contains((int)day.DayOfWeek)))
+            {
+                var start = day.AddHours(window.StartHour);
+                // A skipped hour opens when the local clock first reaches the window.
+                while (zone.IsInvalidTime(start)) start = start.AddMinutes(1);
+                var candidates = zone.IsAmbiguousTime(start)
+                    ? zone.GetAmbiguousTimeOffsets(start).Select(o => new DateTimeOffset(start, o).UtcDateTime)
+                    : [TimeZoneInfo.ConvertTimeToUtc(start, zone)];
+                foreach (var utc in candidates)
+                    if (utc > now.UtcDateTime && (earliest == null || utc < earliest)) earliest = utc;
+            }
+        }
+        return earliest;
+    }
 }
