@@ -3,11 +3,14 @@ import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { openSearchOverlay } from "@/components/search/search-overlay";
+import { pendingBadge } from "@/components/requester/requests";
+import { useSessionInfo } from "@/lib/session";
 import {
   DESKTOP_NAV,
   HEADER_SEARCH_HREF,
   activeNavLabel,
   NOTIFICATIONS_HREF,
+  REQUESTS_HREF,
   desktopNavRow,
   navActive,
   navActiveHref,
@@ -20,6 +23,7 @@ export function Header() {
   const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
   const { items: navRow, dividerIndex } = desktopNavRow();
   const { badge } = useUnreadNotifications();
+  const requestsBadge = pendingBadge(useSessionInfo().pendingRequests);
   const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
 
   // A plain click opens the palette and gives it the durable `/search` URL;
@@ -110,6 +114,15 @@ export function Header() {
                       className="ml-1.5 rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold leading-[16px] text-[var(--bg)]"
                     >
                       {badge}
+                    </span>
+                  ) : null}
+                  {href === REQUESTS_HREF && requestsBadge ? (
+                    <span
+                      data-nav-requests-pending
+                      aria-label={`${requestsBadge} pending`}
+                      className="ml-1.5 rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold leading-[16px] text-[var(--bg)]"
+                    >
+                      {requestsBadge}
                     </span>
                   ) : null}
                 </Link>

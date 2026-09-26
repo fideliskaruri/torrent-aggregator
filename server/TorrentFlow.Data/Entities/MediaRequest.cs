@@ -48,5 +48,8 @@ public partial class MediaRequest
 
     public string? AcquisitionTargetId { get; set; }
 
+    /// <summary>Comma-separated info hashes the approval grabbed; the request is fulfilled once all complete.</summary>
+    public string? GrabbedHashes { get; set; }
+
     public virtual User RequestedBy { get; set; } = null!;
 }

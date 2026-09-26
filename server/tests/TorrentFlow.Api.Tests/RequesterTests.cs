@@ -184,6 +184,7 @@ public sealed class RequesterTests(RequesterHostFactory factory) : IClassFixture
             "GET api/features",
             "GET api/health",
             "GET api/me",
+            "GET api/requester/library",
             "GET api/requester/requests",
             "GET api/requester/seasons",
             "GET api/requester/titles",

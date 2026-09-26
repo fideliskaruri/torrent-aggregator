@@ -589,6 +589,7 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnName("updatedAt");
             entity.Property(e => e.WatchListItemId).HasColumnName("watchListItemId");
             entity.Property(e => e.AcquisitionTargetId).HasColumnName("acquisitionTargetId");
+            entity.Property(e => e.GrabbedHashes).HasColumnName("grabbedHashes");
 
             entity.HasOne(d => d.RequestedBy).WithMany(p => p.MediaRequests)
                 .HasForeignKey(d => d.RequestedByUserId)

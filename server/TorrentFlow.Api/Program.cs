@@ -143,6 +143,10 @@ builder.Services.AddDesktop(
     new DesktopEnvironment(isDesktop, Environment.ProcessPath, DesktopEnvironment.CurrentVersion(), dataDir,
         GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl), background),
     managedToolsDir);
+builder.Services.AddSingleton<IRequestGrabber, RequestGrabber>();
+builder.Services.AddSingleton<IRequestTransfers, EngineRequestTransfers>();
+builder.Services.AddSingleton<RequestDecisionService>();
+builder.Services.AddHostedService<RequestFulfillmentWatcher>();
 
 var app = builder.Build();
 app.Logger.LogInformation("TorrentFlow data directory: {DataDirectory}; database: {DatabasePath}", dataDir, dbPath);

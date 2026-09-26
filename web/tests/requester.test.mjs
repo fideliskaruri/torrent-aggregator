@@ -195,3 +195,43 @@ test("pure request helpers", () => {
   assert.deepEqual(requests.parseSeasons({ seasons: [3, 1, 0, 1, 2.5, 501, "4"] }), [1, 3]);
   assert.equal(requests.requestErrorMessage("duplicate"), "You've already asked for this.");
 });
+
+test("pending badge: nothing at zero or unknown, capped at 99+", () => {
+  assert.equal(requests.pendingBadge(null), null);
+  assert.equal(requests.pendingBadge(undefined), null);
+  assert.equal(requests.pendingBadge(0), null);
+  assert.equal(requests.pendingBadge(-2), null);
+  assert.equal(requests.pendingBadge(Number.NaN), null);
+  assert.equal(requests.pendingBadge(1), "1");
+  assert.equal(requests.pendingBadge(99), "99");
+  assert.equal(requests.pendingBadge(100), "99+");
+});
+
+test("owner inbox rows: pending first, then approved, then declined; history hidden", () => {
+  const row = (id, status, createdAt) => ({ id, title: id, status, scope: "movie", createdAt, requestedBy: "f@x.com" });
+  const parsed = requests.parseOwnerRequests({
+    requests: [row("a", "approved", "2026-01-03"), row("p1", "pending", "2026-01-01"), row("c", "cancelled", "2026-01-05"),
+      row("p2", "pending", "2026-01-04"), row("d", "declined", "2026-01-06"), row("f", "fulfilled", "2026-01-07")],
+    pendingCount: 2,
+  });
+  assert.equal(parsed.pendingCount, 2);
+  assert.equal(parsed.requests[0].requestedBy, "f@x.com");
+  assert.deepEqual(requests.inboxRows(parsed.requests).map((r) => r.id), ["p2", "p1", "a", "d"]);
+  assert.equal(requests.parseOwnerRequests({ requests: [row("x", "pending", "2026-01-01")] }).pendingCount, 1);
+});
+
+test("requester library: /library and /watchlist show it read-only, unknown routes fall back to search", () => {
+  const me = { via: "tunnel", email: "friend@example.com", role: "requester" };
+  responses = { "/api/me": me, "/api/requester/library": { titles: [{ key: "dune-2021", title: "Dune", year: 2021, mediaType: "movie", posterUrl: null, filePath: "C:\\x" }] } };
+  const render2 = (url) => render(
+    createElement(SessionProvider, null, createElement(ShellGate, { owner: createElement("div", null, "OWNER") })), url);
+  for (const url of ["/library", "/watchlist"]) {
+    const html = render2(url);
+    assert.match(html, /data-requester-library-item="dune-2021"/);
+    assert.match(html, /data-requester-nav-item="library"/);
+    assert.doesNotMatch(html, /C:\\|filePath|<video|Play|Open folder/i);
+  }
+  assert.match(render2("/no/such/page"), /data-requester-search/);
+  assert.equal(requests.requesterView("/Library/"), "library");
+  assert.deepEqual(requests.parseLibrary({ titles: [{ key: "k" }, { key: "k2", title: "T" }] }).map((t) => t.key), ["k2"]);
+});

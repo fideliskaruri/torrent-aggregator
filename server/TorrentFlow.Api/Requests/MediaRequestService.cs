@@ -29,6 +29,9 @@ public sealed record OwnerRequest(
 
 public enum CreateOutcome { Created, InLibrary, Duplicate, TooManyOpen }
 
+/// <summary>A library title as a requester sees it: no files, no progress, nothing playable.</summary>
+public sealed record RequesterLibraryTitle(string Key, string Title, int? Year, string MediaType, string? PosterUrl);
+
 /// <summary>The catalog lookups a requester may trigger; a seam so tests never reach TMDB or AniList.</summary>
 public interface IRequesterCatalog
 {
@@ -108,6 +111,20 @@ public sealed class MediaRequestService(
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         return await db.MediaRequests.CountAsync(r => r.Status == MediaRequestStatus.Pending, ct);
+    }
+
+    /// <summary>What a requester may browse: titles that finished downloading. Catalog identity and art only.</summary>
+    public async Task<IReadOnlyList<RequesterLibraryTitle>> LibraryAsync(CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var works = await db.Works.AsNoTracking()
+            .Where(w => db.AcquisitionTargets.Any(t => t.UserId == LocalUser.Id && t.WorkKey == w.WorkKey && t.Status == "downloaded"))
+            .OrderByDescending(w => w.UpdatedAt).Take(500)
+            .Select(w => new RequesterLibraryTitle(w.WorkKey, w.CanonicalTitle, w.Year, w.MediaType, w.PosterUrl)).ToListAsync(ct);
+        var fulfilled = await db.MediaRequests.AsNoTracking().Where(r => r.Status == MediaRequestStatus.Fulfilled)
+            .OrderByDescending(r => r.UpdatedAt).Take(500)
+            .Select(r => new RequesterLibraryTitle(r.WorkKey, r.Title, r.Year, r.MediaType, r.PosterUrl)).ToListAsync(ct);
+        return works.Concat(fulfilled).DistinctBy(t => t.Key).OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     public async Task<(CreateOutcome Outcome, RequesterRequest? Request)> CreateAsync(string userId, RequestDraft draft, CancellationToken ct)

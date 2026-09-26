@@ -84,17 +84,20 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   { href: "/settings", label: "Settings", owns: ["/about"] },
 ] as const;
 
+/** The owner's inbox of friends' requests. Its entry carries the pending count. */
+export const REQUESTS_HREF = "/requests";
+
 /**
  * Desktop: after the divider. Mobile: inside the More sheet.
  *
- * Empty by design. Every destination earned a place in the primary five, so
- * there is nothing left to demote — and an empty More sheet is a signal that
- * the model is honest, not that a section is missing.
+ * Only the requests inbox. It is not a sixth primary destination: most visits
+ * are prompted by its pending count, so it lives one step away and badges the
+ * More tab instead of narrowing every bottom tab.
  */
-export const SECONDARY_NAV: readonly NavItem[] = [] as const;
+export const SECONDARY_NAV: readonly NavItem[] = [{ href: REQUESTS_HREF, label: "Requests" }] as const;
 
 /** Desktop header: the primary path. */
-export const DESKTOP_NAV: readonly NavItem[] = [...PRIMARY_NAV];
+export const DESKTOP_NAV: readonly NavItem[] = [...PRIMARY_NAV, ...SECONDARY_NAV];
 
 /**
  * The desktop header's text links, and where the divider sits among them.

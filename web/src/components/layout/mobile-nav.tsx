@@ -6,6 +6,7 @@ import {
   Circle,
   Clapperboard,
   HardDriveDownload,
+  Inbox,
   Info,
   Library,
   MoreHorizontal,
@@ -21,10 +22,13 @@ import {
   MORE_ACTIVE_PREFIXES,
   NOTIFICATIONS_HREF,
   PRIMARY_NAV,
+  REQUESTS_HREF,
   SECONDARY_NAV,
   SEARCH_HREF,
   navActiveHref,
 } from "@/lib/navigation";
+import { pendingBadge } from "@/components/requester/requests";
+import { useSessionInfo } from "@/lib/session";
 
 /** Icons live here because they are presentation, not part of the nav model. */
 const NAV_ICONS: Record<string, typeof Search> = {
@@ -37,6 +41,7 @@ const NAV_ICONS: Record<string, typeof Search> = {
   "/settings": Settings,
   "/rules": Zap,
   "/about": Info,
+  [REQUESTS_HREF]: Inbox,
 };
 
 /**
@@ -59,6 +64,7 @@ const MORE_ITEMS = SECONDARY_NAV.map((item) => ({
 export function MobileNav() {
   const pathname = useLocation().pathname;
   const { badge } = useUnreadNotifications();
+  const requestsBadge = pendingBadge(useSessionInfo().pendingRequests);
   const [moreOpen, setMoreOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const activeMoreHref = navActiveHref(SECONDARY_NAV, pathname);
@@ -212,6 +218,15 @@ export function MobileNav() {
                           strokeWidth={active ? 2.25 : 1.75}
                         />
                         {label}
+                        {href === REQUESTS_HREF && requestsBadge ? (
+                          <span
+                            data-nav-requests-pending
+                            aria-label={`${requestsBadge} pending`}
+                            className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold leading-[16px] text-[var(--bg)]"
+                          >
+                            {requestsBadge}
+                          </span>
+                        ) : null}
                       </Link>
                     </li>
                   );
@@ -298,7 +313,7 @@ export function MobileNav() {
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen((o) => !o)}
               className={cn(
-                "flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
+                "relative flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
                 moreTabActive
                   ? "text-[var(--accent-text)]"
                   : "text-[var(--text-tertiary)]",
@@ -311,6 +326,15 @@ export function MobileNav() {
                 )}
                 strokeWidth={moreTabActive ? 2.25 : 1.75}
               />
+              {requestsBadge ? (
+                <span
+                  data-nav-more-pending
+                  aria-label={`${requestsBadge} pending requests`}
+                  className="absolute top-1.5 translate-x-3 rounded-full bg-[var(--accent)] px-1 text-[9px] font-semibold leading-[14px] text-[var(--bg)]"
+                >
+                  {requestsBadge}
+                </span>
+              ) : null}
               More
             </button>
           ) : null}

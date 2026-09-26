@@ -1,7 +1,8 @@
 import { Link, useLocation } from "react-router";
-import { Inbox, Search } from "lucide-react";
+import { Inbox, Library, Search } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
+import { MyLibrary } from "./my-library";
 import { MyRequests } from "./my-requests";
 import { RequestSearch } from "./request-search";
 import { requesterView, type RequesterView } from "./requests";
@@ -9,6 +10,7 @@ import { requesterView, type RequesterView } from "./requests";
 const NAV: { view: RequesterView; href: string; label: string; icon: typeof Search }[] = [
   { view: "search", href: "/", label: "Search", icon: Search },
   { view: "requests", href: "/requests", label: "My requests", icon: Inbox },
+  { view: "library", href: "/library", label: "Library", icon: Library },
 ];
 
 /**
@@ -40,7 +42,7 @@ export function RequesterShell({ email }: { email: string | null }) {
             </span>
             <span className="hidden text-sm font-semibold tracking-tight text-[var(--text)] sm:inline">TorrentFlow</span>
           </Link>
-          <nav className="flex min-w-0 flex-1 items-center gap-0.5" aria-label="Main" data-requester-nav>
+          <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" aria-label="Main" data-requester-nav>
             {NAV.map(({ view: target, href, label, icon: Icon }) => {
               const active = target === view;
               return (
@@ -76,7 +78,7 @@ export function RequesterShell({ email }: { email: string | null }) {
       </header>
       <main id="main-content" tabIndex={-1} className="app-main">
         <div className="container-app max-w-4xl py-6">
-          {view === "requests" ? <MyRequests /> : <RequestSearch />}
+          {view === "requests" ? <MyRequests /> : view === "library" ? <MyLibrary /> : <RequestSearch />}
         </div>
       </main>
       <Toaster position="bottom-right" richColors closeButton />

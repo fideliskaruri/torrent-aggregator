@@ -95,7 +95,38 @@ public static class RequestEndpoints
             return Results.Json(new { request });
         });
 
+        requester.MapGet("/library", async (HttpContext http, MediaRequestService service) =>
+            Results.Json(new { titles = await service.LibraryAsync(http.RequestAborted) }));
+
         // Owner only: carries no requester metadata, so the authorization layer refuses requesters.
+        app.MapPost("/api/requests/{id}/approve", async (HttpContext http, RequestDecisionService decisions, string id) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (id.Length > 64) return Error(404, "Request not found.", "not_found");
+            return Decided(await decisions.ApproveAsync(id, http.RequestAborted));
+        });
+
+        app.MapPost("/api/requests/{id}/decline", async (HttpContext http, RequestDecisionService decisions, string id) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (id.Length > 64) return Error(404, "Request not found.", "not_found");
+            string? reason = null;
+            if (http.Request.ContentLength is > 0 || http.Request.ContentType is not null)
+            {
+                var (body, readError) = await ReadObjectAsync(http);
+                if (readError is not null) return readError;
+                foreach (var p in body.EnumerateObject())
+                {
+                    if (p.Name != "reason") return Error(400, $"Unknown field `{(p.Name.Length > 40 ? p.Name[..40] : p.Name)}`");
+                    if (p.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) return Error(400, "reason must be a string");
+                    reason = p.Value.GetString();
+                }
+            }
+            if (reason?.Trim().Length > RequestDecisionService.MaxReasonLength)
+                return Error(400, $"Keep the reason under {RequestDecisionService.MaxReasonLength} characters.");
+            return Decided(await decisions.DeclineAsync(id, reason, http.RequestAborted));
+        });
+
         app.MapGet("/api/requests", async (HttpContext http, MediaRequestService service, string? status) =>
         {
             http.Response.Headers.CacheControl = "no-store";
@@ -110,6 +141,14 @@ public static class RequestEndpoints
     }
 
     private static string UserIdOf(HttpContext http) => RemoteAccessClaims.UserIdOf(http.User)!;
+
+    private static IResult Decided((DecisionOutcome Outcome, string? Status) result) => result.Outcome switch
+    {
+        DecisionOutcome.Done => Results.Json(new { ok = true, status = result.Status }),
+        DecisionOutcome.NotFound => Error(404, "Request not found.", "not_found"),
+        DecisionOutcome.NotPending => Error(409, $"This request is already {result.Status}.", "not_pending"),
+        _ => throw new InvalidOperationException($"Unhandled decision outcome {result.Outcome}"),
+    };
 
     private static string EmailOf(HttpContext http) => http.User.FindFirst(RemoteAccessClaims.Email)?.Value ?? "unknown";
 

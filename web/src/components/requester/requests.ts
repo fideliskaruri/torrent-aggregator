@@ -50,11 +50,75 @@ export interface RequesterRequest {
   updatedAt: string;
 }
 
-export type RequesterView = "search" | "requests";
+export type RequesterView = "search" | "requests" | "library";
 
-/** The requester shell has two views; every other path shows search. */
+/**
+ * The requester shell has three views. `/watchlist` is the owner's library
+ * route, so a shared owner link lands on the requester's library; every other
+ * path shows search.
+ */
 export function requesterView(pathname: string): RequesterView {
-  return pathname.replace(/\/+$/, "").toLowerCase() === "/requests" ? "requests" : "search";
+  const path = pathname.replace(/\/+$/, "").toLowerCase();
+  if (path === "/requests") return "requests";
+  if (path === "/library" || path === "/watchlist") return "library";
+  return "search";
+}
+
+/** One title from `GET /api/requester/library`: identity and art only. */
+export interface RequesterLibraryTitle {
+  key: string;
+  title: string;
+  year: number | null;
+  mediaType: string;
+  posterUrl: string | null;
+}
+
+export function parseLibrary(json: unknown): RequesterLibraryTitle[] {
+  const body = (json ?? {}) as { titles?: unknown };
+  const rows = Array.isArray(body.titles) ? body.titles : [];
+  return rows.flatMap((row): RequesterLibraryTitle[] => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    const key = str(r.key);
+    const title = str(r.title);
+    if (!key || !title) return [];
+    return [{ key, title, year: int(r.year), mediaType: str(r.mediaType) ?? "", posterUrl: str(r.posterUrl) }];
+  });
+}
+
+/** One row of the owner's `GET /api/requests`. */
+export interface OwnerRequest extends RequesterRequest {
+  requestedBy: string;
+}
+
+export function parseOwnerRequests(json: unknown): { requests: OwnerRequest[]; pendingCount: number } {
+  const body = (json ?? {}) as { requests?: unknown; pendingCount?: unknown };
+  const rows = Array.isArray(body.requests) ? body.requests : [];
+  const base = parseRequests({ requests: rows });
+  const byId = new Map(
+    rows.map((row) => {
+      const r = (row ?? {}) as Record<string, unknown>;
+      return [str(r.id) ?? "", str(r.requestedBy) ?? ""] as const;
+    }),
+  );
+  const requests = base.map((r) => ({ ...r, requestedBy: byId.get(r.id) ?? "" }));
+  const pending = int(body.pendingCount);
+  return { requests, pendingCount: pending !== null && pending >= 0 ? pending : requests.filter((r) => r.status === "pending").length };
+}
+
+/** The owner inbox shows what needs a decision and what was decided; cancelled/fulfilled/failed rows are history. */
+export const INBOX_STATUSES: readonly RequestStatus[] = ["pending", "approved", "declined"];
+
+export function inboxRows(requests: readonly OwnerRequest[]): OwnerRequest[] {
+  const rank = (s: RequestStatus) => INBOX_STATUSES.indexOf(s);
+  return requests
+    .filter((r) => rank(r.status) >= 0)
+    .sort((a, b) => rank(a.status) - rank(b.status) || b.createdAt.localeCompare(a.createdAt));
+}
+
+/** The nav badge text for a pending count: nothing at zero or unknown, capped at 99+. */
+export function pendingBadge(count: number | null | undefined): string | null {
+  if (typeof count !== "number" || !Number.isFinite(count) || count <= 0) return null;
+  return count > 99 ? "99+" : String(Math.floor(count));
 }
 
 const STATUSES: readonly RequestStatus[] = [
