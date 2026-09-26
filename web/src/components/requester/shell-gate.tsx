@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { useLocation } from "react-router";
+import { ShareUnavailable } from "@/components/pwa/share-unavailable";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useSessionInfo } from "@/lib/session";
 import { RequesterShell } from "./requester-shell";
@@ -16,7 +18,18 @@ export function isLoopbackHost(hostname: string): boolean {
  */
 export function ShellGate({ owner }: { owner: ReactNode }) {
   const session = useSessionInfo();
-  if (session.role === "requester") return <RequesterShell email={session.email} />;
+  const location = useLocation();
+  if (session.role === "requester") {
+    // Share-target is owner-only; keep requesters out of the download pipeline UI.
+    if (location.pathname === "/share") {
+      return (
+        <div className="container-app max-w-xl py-8 sm:py-12 min-w-0" data-share-page>
+          <ShareUnavailable />
+        </div>
+      );
+    }
+    return <RequesterShell email={session.email} />;
+  }
   const local = typeof window !== "undefined" && isLoopbackHost(window.location.hostname);
   if (local || session.known) return <>{owner}</>;
   if (session.failed) {

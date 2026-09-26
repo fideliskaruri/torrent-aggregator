@@ -5,7 +5,6 @@ import { UpdateBanner } from "@/components/layout/update-banner";
 import { KeyboardRoot } from "@/components/layout/keyboard-root";
 import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { DownloadSetupProvider } from "@/components/setup/download-setup";
-import { ServiceWorkerRegistrar } from "@/components/pwa/service-worker-registrar";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
 import { FeaturesProvider } from "@/lib/features";
@@ -32,7 +31,6 @@ export default function RootLayout() {
   return (
     <>
       <ScrollRestoration getKey={scrollKey} />
-      <ServiceWorkerRegistrar />
       <AuthSessionProvider>
         <SessionProvider>
         <ShellGate owner={

@@ -48,6 +48,7 @@ const routes: RouteObject[] = [
     { path: "requests", ...page(() => import("@/app/requests/page")) },
           { path: "settings", ...page(() => import("@/app/settings/page")) },
           { path: "about", ...page(() => import("@/app/about/page")) },
+          { path: "share", ...page(() => import("@/app/share/page")) },
           { path: "*", Component: NotFoundPage },
         ],
       },

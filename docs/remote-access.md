@@ -168,6 +168,20 @@ Server-side folder launching is also unavailable through the tunnel: `/api/featu
 - The service worker already bypasses `/api/`; navigations are passed to the network, so the Access
   sign-in redirect works unchanged.
 
+## Install as app / share target
+
+TorrentFlow can be installed as a standalone app (PWA) on phones and desktops that support it:
+
+1. Open the site over **https** (or localhost), sign in through Access if remote, then use **About → Install**
+   when the browser offers it, or the browser’s own install control. Production builds register
+   `public/sw.js`, which caches only the app shell (`index.html` and hashed `/assets/*`) and **never**
+   caches `/api/*` or media — it is an install/shell helper, not offline mode.
+2. On Android, the web app manifest declares a **share target** at `GET /share` with `title` / `text` /
+   `url` query params. Sharing a magnet URI into TorrentFlow opens `/share`, extracts the magnet, and
+   starts a download through `/api/torrent/send` for the **owner** only. Requesters see a short
+   “not available” message instead of the add-magnet flow.
+3. Icons and theme colors live in `web/public/manifest.webmanifest` (`display: standalone`).
+
 ## Docker
 
 See [Docker server hosting](docker.md) for Compose, persistent volumes and an optional VPN example.
