@@ -14,3 +14,10 @@ test("TMDB credential controls live within the TMDB source", () => {
   assert.match(panel, /TmdbSettings embedded/);
   assert.match(panel, /type="password"/);
 });
+test("source action feedback uses the shared toast wrapper", () => {
+  assert.match(panel, /import \{ toast \} from "@\/lib\/toast"/);
+  assert.match(panel, /toast\.success\("Source settings saved\."\)/);
+  assert.match(panel, /toast\.success\("Source responded successfully\."\)/);
+  assert.match(panel, /toast\.error\("Source did not respond successfully/);
+  assert.doesNotMatch(panel, /setMessage|setError\("Could not add source/);
+});

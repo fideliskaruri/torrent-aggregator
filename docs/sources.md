@@ -84,8 +84,14 @@ compatibility; prefer the Sources page for new configuration.
 - `PUT /api/settings/sources/{id}`: partial update; new entries must be Torznab.
 - `DELETE /api/settings/sources/{id}`: remove a custom entry.
 - `POST /api/settings/sources/{id}/test`: bounded connectivity test, `ok` or
-  `unavailable`. This checks the configured endpoint, not every search operation.
+  `unavailable`. Torznab requires valid XML with a `caps` root; an HTML login page
+  or API error is a failure even with HTTP 200. This checks the configured endpoint,
+  not every search operation.
 - Existing `/api/settings/tmdb` GET/PUT/DELETE and `/test` remain compatible.
+
+Title links accept `provider` and `providerId` (`externalId` remains a compatibility
+alias) for TVmaze, Cinemeta, iTunes, AniList and TMDB. The same by-ID lookup verifies
+acquisition claims. TVmaze season/episode details work without a TMDB credential.
 
 Mutations reject cross-site and same-site browser writes. These are local-owner
 settings; do not expose an unauthenticated host to untrusted networks.

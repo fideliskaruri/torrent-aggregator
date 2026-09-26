@@ -15,3 +15,9 @@ test("TMDB controls are separate guarded API actions with responsive wrapping", 
   assert.match(panel, /window.confirm/);
   assert.match(panel, /AniList and keyless sources/);
 });
+test("TMDB action feedback uses success and error toasts", () => {
+  assert.match(panel, /import \{ toast \} from "@\/lib\/toast"/);
+  assert.match(panel, /toast\.success\("TMDB connection works\."\)/);
+  assert.match(panel, /toast\.error/);
+  assert.doesNotMatch(panel, /setMessage|setError\(action/);
+});

@@ -153,6 +153,24 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
         if (term.Length == 0) return [];
         var allowed = kinds ?? ["feature-movie"];
         var root = await GetAsync($"{ItunesSearch}?{TextUtil.BuildQuery([("term", term), ("limit", limit.ToString(CultureInfo.InvariantCulture))])}", timeoutMs, ct).ConfigureAwait(false);
+        return MapItunes(root, allowed);
+    }
+
+    public async Task<MediaMetadata?> GetItunesByIdAsync(int id, CancellationToken ct = default)
+    {
+        if (id <= 0) return null;
+        var root = await GetAsync($"https://itunes.apple.com/lookup?id={id.ToString(CultureInfo.InvariantCulture)}", 5000, ct);
+        var hit = MapItunes(root, ["feature-movie", "tv-episode"]).FirstOrDefault(x => x.Id == id);
+        return hit is null ? null : new MediaMetadata
+        {
+            Source = "itunes", ExternalId = id.ToString(CultureInfo.InvariantCulture), Title = hit.Title,
+            MediaType = hit.Kind == "feature-movie" ? "movie" : "tv", Year = hit.Year, PosterUrl = hit.PosterUrl,
+            Synopsis = hit.Description, ReleaseDate = hit.ReleaseDate, Genres = hit.Genre is null ? [] : [hit.Genre]
+        };
+    }
+
+    private static List<ItunesCandidate> MapItunes(JsonElement? root, IReadOnlyCollection<string> allowed)
+    {
         if (root is not { ValueKind: JsonValueKind.Object } obj || !obj.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array) return [];
         var output = new List<ItunesCandidate>();
         foreach (var row in results.EnumerateArray())

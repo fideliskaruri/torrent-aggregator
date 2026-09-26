@@ -219,7 +219,7 @@ export interface TitleLinkParams {
   mediaType?: string | null;
   /** Accepted for caller compatibility; season persistence lives in a cookie. */
   season?: number | null;
-  provider?: "anilist" | "tmdb" | null;
+  provider?: "anilist" | "tmdb" | "tvmaze" | "cinemeta" | "itunes" | null;
   providerId?: string | null;
   sourceType?: "anime" | "movie" | "tv" | null;
   format?: string | null;

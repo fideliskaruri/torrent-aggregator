@@ -155,9 +155,12 @@ public sealed partial class MetadataResolver : IMetadataResolver
     private readonly BoundedTtlCache<MediaMetadata?> _memory;
     private readonly SingleFlight<MediaMetadata?> _inFlight = new();
     private readonly Search.WorkSearchService? _workSearch;
+    private readonly KeylessClients? _keyless;
+    private readonly CinemetaClient? _cinemeta;
 
     public MetadataResolver(TmdbClient tmdb, AniListClient anilist, ArtworkResolver artwork, IDbContextFactory<TorrentFlowDbContext>? db, TimeProvider time,
-        ILogger<MetadataResolver>? logger = null, Search.WorkSearchService? workSearch = null)
+        ILogger<MetadataResolver>? logger = null, Search.WorkSearchService? workSearch = null,
+        KeylessClients? keyless = null, CinemetaClient? cinemeta = null)
     {
         _tmdb = tmdb;
         _anilist = anilist;
@@ -167,12 +170,29 @@ public sealed partial class MetadataResolver : IMetadataResolver
         _logger = logger;
         _memory = new(1000, time);
         _workSearch = workSearch;
+        _keyless = keyless;
+        _cinemeta = cinemeta;
     }
 
     public Task<MediaMetadata?> GetAniListByIdAsync(string id, CancellationToken cancellationToken = default) => _anilist.GetByIdAsync(id, cancellationToken);
 
     public Task<MediaMetadata?> GetTmdbByIdAsync(string mediaType, string id, CancellationToken cancellationToken = default) =>
         mediaType is "movie" or "tv" ? _tmdb.GetByIdAsync(mediaType, id, cancellationToken) : Task.FromResult<MediaMetadata?>(null);
+
+    public async Task<MediaMetadata?> GetByIdAsync(string provider, string mediaType, string id, CancellationToken cancellationToken = default)
+    {
+        if (provider == "anilist") return await GetAniListByIdAsync(id, cancellationToken);
+        if (provider == "tmdb") return await GetTmdbByIdAsync(mediaType, id, cancellationToken);
+        if (provider == "cinemeta" && _cinemeta is not null)
+            return await _cinemeta.GetByIdAsync(id, mediaType, cancellationToken);
+        if (_keyless is not null && int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out var numericId) && numericId > 0)
+        {
+            if (provider == "tvmaze" && await _keyless.GetTvmazeShowAsync(numericId, cancellationToken) is { } show)
+                return KeylessClients.Metadata(show);
+            if (provider == "itunes") return await _keyless.GetItunesByIdAsync(numericId, cancellationToken);
+        }
+        return null;
+    }
 
     public async Task<MediaMetadata?> ResolveMetadataAsync(string rawTitle, string? category, CancellationToken cancellationToken = default)
     {

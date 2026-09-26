@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsDisclosure } from "./settings-disclosure";
 import { TmdbSettings } from "./tmdb-settings";
+import { toast } from "@/lib/toast";
 
 interface Source {
   id: string; kind: "torrent" | "metadata"; type: string; categories: string[];
@@ -21,17 +22,17 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
   const [timeout, setTimeout] = useState(source.timeoutMs);
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   async function act(action: () => Promise<void>) {
-    setBusy(true); setMessage("");
+    setBusy(true);
     try { await action(); }
-    catch { setMessage("Could not update source. Check the values and try again."); }
+    catch { toast.error("Could not update source. Check the values and try again."); }
     finally { setBusy(false); }
   }
   async function test() {
     const response = await fetch(`/api/settings/sources/${source.id}/test`, { method: "POST" });
     const result = await response.json();
-    setMessage(response.ok && result.ok ? "Source responded successfully." : "Source did not respond successfully. Check its URL and try again.");
+    if (response.ok && result.ok) toast.success("Source responded successfully.");
+    else toast.error("Source did not respond successfully. Check its URL and try again.");
   }
   return <article className="min-w-0 space-y-4 rounded-lg border border-[var(--border)] p-4" data-source={source.id} aria-busy={busy}>
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -68,7 +69,7 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
       <Button type="button" disabled={busy} data-source-save className="min-h-[44px]" onClick={() => void act(async () => {
         await update(source.id, { baseUrl: url.trim(), mirrors: mirrors.split("\n").map(v => v.trim()).filter(Boolean),
           categories: categories.split(",").map(v => v.trim()).filter(Boolean), timeoutMs: timeout,
-          ...(credential ? { credential } : {}) }); setCredential(""); setMessage("Source settings saved.");
+          ...(credential ? { credential } : {}) }); setCredential(""); toast.success("Source settings saved.");
       })}>Save source</Button>
       <Button type="button" variant="secondary" disabled={busy} data-source-test className="min-h-[44px]" onClick={() => void act(test)}>Test</Button>
       <Button type="button" variant="ghost" disabled={busy || first} className="min-h-[44px]" aria-label={`Move ${source.id} up`}
@@ -80,7 +81,6 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
     </div>
     {source.type === "tmdb" && <div className="border-t border-[var(--border)] pt-4"><TmdbSettings embedded onChanged={reload} /></div>}
     {busy && <p role="status" className="text-sm">Updating source…</p>}
-    {message && <p role="status" className="text-sm">{message}</p>}
   </article>;
 }
 
@@ -112,6 +112,7 @@ export function SourcesSettings() {
     const response = await fetch(`/api/settings/sources/${id}`, { method: "DELETE" });
     if (!response.ok) throw new Error();
     setSources((await response.json()).sources);
+    toast.success("Source removed.");
   }
   async function move(id: string, delta: number) {
     const source = sources!.find(s => s.id === id)!;
@@ -147,8 +148,8 @@ export function SourcesSettings() {
         <Button type="button" disabled={adding || !newId || !newUrl} className="min-h-[44px]" data-source-add onClick={() => {
           setAdding(true); void update(newId, { kind: "torrent", type: "torznab", baseUrl: newUrl,
             categories: ["movie", "series", "anime"], enabled: true, priority: 50, mirrors: [], timeoutMs: 15000, options: {} })
-            .then(() => { setNewId(""); setNewUrl(""); setError(""); })
-            .catch(() => setError("Could not add source. Use a unique lowercase id and a valid HTTP(S) URL."))
+            .then(() => { setNewId(""); setNewUrl(""); toast.success("Indexer added."); })
+            .catch(() => toast.error("Could not add source. Use a unique lowercase id and a valid HTTP(S) URL."))
             .finally(() => setAdding(false));
         }}>Add indexer</Button>
       </div>

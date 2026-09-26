@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using System.Xml;
+using System.Xml.Linq;
 using Microsoft.AspNetCore.Mvc;
 using TorrentFlow.Core.Sources;
 using TorrentFlow.Metadata.Providers;
@@ -79,10 +81,23 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
                 if (source.Type == "anilist") request.Content = new StringContent("{\"query\":\"{ Page(perPage:1) { media(type:ANIME) { id } } }\"}", System.Text.Encoding.UTF8, "application/json");
                 using var client = http.CreateClient("TorrentFlow.SourceHealth");
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
-                return Ok(new { ok = response.IsSuccessStatusCode, status = response.IsSuccessStatusCode ? "ok" : "unavailable" });
+                var ok = response.IsSuccessStatusCode;
+                if (ok && source.Type == "torznab")
+                {
+                    await response.Content.LoadIntoBufferAsync(1024 * 1024, token);
+                    await using var stream = await response.Content.ReadAsStreamAsync(token);
+                    using var reader = XmlReader.Create(stream, new XmlReaderSettings
+                    {
+                        Async = true, DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null,
+                        MaxCharactersInDocument = 1024 * 1024
+                    });
+                    var caps = await XDocument.LoadAsync(reader, LoadOptions.None, token);
+                    ok = caps.Root?.Name.LocalName == "caps";
+                }
+                return Ok(new { ok, status = ok ? "ok" : "unavailable" });
             }, ct);
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or XmlException)
         { return Ok(new { ok = false, status = "unavailable" }); }
     }
 }

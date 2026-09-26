@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsDisclosure } from "./settings-disclosure";
+import { toast } from "@/lib/toast";
 
 interface Status {
   configured: boolean;
@@ -15,7 +16,6 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
   const load = useCallback(async () => {
     setBusy(true);
     setError("");
@@ -32,8 +32,6 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
   async function update(action: "save" | "test" | "remove") {
     if (action === "remove" && !window.confirm("Remove the saved TMDB key? Any environment key will be used instead.")) return;
     setBusy(true);
-    setError("");
-    setMessage("");
     try {
       const response = await fetch(`/api/settings/tmdb${action === "test" ? "/test" : ""}`, {
         method: action === "save" ? "PUT" : action === "test" ? "POST" : "DELETE",
@@ -43,16 +41,17 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
       const body = await response.json();
       if (!response.ok) throw new Error("Request failed");
       if (action === "test") {
-        setMessage(body.ok ? "TMDB connection works." : body.status === "invalid"
+        if (body.ok) toast.success("TMDB connection works.");
+        else toast.error(body.status === "invalid"
           ? "TMDB rejected this key. Check it and try again." : "TMDB could not be reached. Try again.");
       } else {
         setStatus(body);
         setKey("");
         onChanged?.();
-        setMessage(action === "save" ? "TMDB key saved. It is active now." : "Saved TMDB key removed.");
+        toast.success(action === "save" ? "TMDB key saved. It is active now." : "Saved TMDB key removed.");
       }
     } catch {
-      setError(action === "save" ? "Could not save. Enter a usable TMDB key and try again." : "Could not complete the request. Try again.");
+      toast.error(action === "save" ? "Could not save. Enter a usable TMDB key and try again." : "Could not complete the request. Try again.");
     } finally { setBusy(false); }
   }
 
@@ -82,7 +81,6 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
           className="min-h-[44px]" onClick={() => void update("remove")}>Remove</Button>
       </div>
       {busy && status && <p role="status" className="text-sm">Updating TMDB settings…</p>}
-      {message && <p role="status" className="text-sm">{message}</p>}
       {error && <div role="alert" className="space-y-2 text-sm text-[var(--danger)]">
         <p>{error}</p>
         <Button type="button" variant="secondary" className="min-h-[44px]" disabled={busy} onClick={() => void load()}>Retry</Button>

@@ -20,12 +20,12 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         [FromQuery] string? type, [FromQuery] int? s, [FromQuery] int? remembered, CancellationToken ct)
     {
         var provider = Request.Query["provider"].ToString();
-        var external = Request.Query["externalId"].ToString();
+        var external = Request.Query["providerId"].ToString();
+        if (external.Length == 0) external = Request.Query["externalId"].ToString();
         MediaMetadata? resolved = null;
-        if (provider.Length > 0 && provider is not ("tmdb" or "anilist")) return BadRequest(new { error = "Unsupported title provider" });
+        if (provider.Length > 0 && !IMetadataResolver.SupportsProvider(provider)) return BadRequest(new { error = "Unsupported title provider" });
         if (external.Length > 0)
-            resolved = provider == "anilist" ? await metadata.GetAniListByIdAsync(external, ct) :
-                provider == "tmdb" ? await metadata.GetTmdbByIdAsync(type == "movie" ? "movie" : "tv", external, ct) : null;
+            resolved = await metadata.GetByIdAsync(provider, type == "movie" ? "movie" : "tv", external, ct);
         return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved), ct));
     }
     [HttpGet("progress")]
@@ -66,10 +66,9 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         var externalId = Claim("providerId");
         var sourceType = Claim("sourceType")?.ToLowerInvariant();
         MediaMetadata? verified = null;
-        if (claimedProvider is "anilist" or "tmdb" && externalId != null && sourceType != null && Claim("title") != null)
+        if (claimedProvider != null && IMetadataResolver.SupportsProvider(claimedProvider) && externalId != null && sourceType != null && Claim("title") != null)
         {
-            verified = claimedProvider == "anilist" ? await metadata.GetAniListByIdAsync(externalId, ct) :
-                await metadata.GetTmdbByIdAsync(sourceType == "movie" ? "movie" : "tv", externalId, ct);
+            verified = await metadata.GetByIdAsync(claimedProvider, sourceType == "movie" ? "movie" : "tv", externalId, ct);
             if (verified == null || !ReleaseSelection.MatchesWork(workKey, verified.Title, verified.Year))
                 return BadRequest(new { ok = false, message = "Provider identity does not match this title." });
         }

@@ -3,7 +3,7 @@ namespace TorrentFlow.Core.Contracts.Metadata;
 /// <summary>Catalog metadata for one work (port of TS <c>MediaMetadata</c> in src/lib/torrents/types.ts).</summary>
 public sealed record MediaMetadata
 {
-    /// <summary>"anilist" | "tmdb".</summary>
+    /// <summary>Metadata adapter implementation ID.</summary>
     public required string Source { get; init; }
     /// <summary>"anime" | "movie" | "tv".</summary>
     public required string MediaType { get; init; }
@@ -45,6 +45,16 @@ public interface IMetadataResolver
 
     /// <param name="mediaType">"movie" | "tv".</param>
     Task<MediaMetadata?> GetTmdbByIdAsync(string mediaType, string id, CancellationToken cancellationToken = default);
+
+    static bool SupportsProvider(string provider) => provider is "tmdb" or "anilist" or "tvmaze" or "cinemeta" or "itunes";
+
+    Task<MediaMetadata?> GetByIdAsync(string provider, string mediaType, string id, CancellationToken cancellationToken = default) =>
+        provider switch
+        {
+            "anilist" => GetAniListByIdAsync(id, cancellationToken),
+            "tmdb" => GetTmdbByIdAsync(mediaType, id, cancellationToken),
+            _ => Task.FromResult<MediaMetadata?>(null)
+        };
 }
 
 /// <summary>A catalog row as used by the title page and browse rails.</summary>

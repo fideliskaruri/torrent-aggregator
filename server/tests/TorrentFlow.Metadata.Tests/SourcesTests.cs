@@ -2,6 +2,8 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using TorrentFlow.Core.Sources;
 using TorrentFlow.Metadata.Providers;
 using TorrentFlow.Metadata.Search;
@@ -157,6 +159,34 @@ public sealed class SourcesTests : IDisposable
         Assert.Equal("mirror.test", handler.Requests.Last().RequestUri!.Host);
         registry.Update("cinemeta", new JsonObject { ["enabled"] = false });
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync(CinemetaClient.Base + "/catalog/movie/top.json")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("<caps><server title=\"Indexer\" /></caps>", true)]
+    [InlineData("<html><body>Login</body></html>", false)]
+    [InlineData("<error code=\"100\" description=\"Invalid API key\" />", false)]
+    [InlineData("<caps>", false)]
+    [InlineData("{\"ok\":true}", false)]
+    [InlineData("<!DOCTYPE caps [<!ENTITY test SYSTEM \"file:///private\">]><caps>&test;</caps>", false)]
+    public async Task Torznab_health_requires_caps_xml(string payload, bool expected)
+    {
+        var registry = Registry();
+        registry.Update("test-indexer", JsonNode.Parse("""
+            {"kind":"torrent","type":"torznab","baseUrl":"https://indexer.test/api","categories":["movie"]}
+            """)!.AsObject());
+        using var handler = new FakeHandler(request =>
+        {
+            Assert.Equal("?t=caps", request.RequestUri!.Query);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(payload) });
+        });
+        var controller = new SourcesController(registry, new FakeHttpFactory(handler))
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        var result = Assert.IsType<OkObjectResult>(await controller.Test("test-indexer", CancellationToken.None));
+        var body = JsonSerializer.SerializeToElement(result.Value);
+        Assert.Equal(expected, body.GetProperty("ok").GetBoolean());
+        Assert.Equal(expected ? "ok" : "unavailable", body.GetProperty("status").GetString());
     }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
