@@ -63,4 +63,10 @@ internal interface ITorrentBackend
 
     /// <summary>Verified, file-relative byte ranges (end exclusive) for one live file; empty when unknown.</summary>
     IReadOnlyList<(long Start, long End)> DownloadedRanges(string hash, int fileIndex) => [];
+
+    /// <summary>
+    /// Applies a download-window speed cap (bytes/s; null = no window cap). The client combines it with its own base
+    /// limits (the stricter wins) and restores the base when both are null.
+    /// </summary>
+    Task ApplyRateLimitsAsync(long? maxDownloadRate, long? maxUploadRate) => Task.CompletedTask;
 }

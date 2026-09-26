@@ -79,7 +79,7 @@ import {
   filterDownloadsByTab,
   type DownloadTab,
 } from "./media-filter";
-import { releaseDisplayFacts, sourceTierChip, stateLabel } from "./release-display";
+import { releaseDisplayFacts, sourceTierChip, stateLabel, waitReasonLabel } from "./release-display";
 import { resolveSelectedSeasonKey, seriesGroupByKey } from "./season-selection";
 import {
   applySnapshot,
@@ -1958,6 +1958,14 @@ function FilmRow({
                   {stateLabel(t.state, t.queuePosition)}
                 </Badge>
                 {t.imported && <Badge variant="outline">Imported</Badge>}
+                {waitReasonLabel(t.state, t.waitReason) ? (
+                  <span
+                    className="text-[11px] text-[var(--text-tertiary)]"
+                    data-wait-reason={t.waitReason ?? undefined}
+                  >
+                    {waitReasonLabel(t.state, t.waitReason)}
+                  </span>
+                ) : null}
                 {/*
                   One quality tag at most (resolution). Source tags (WEB-DL),
                   scene/tracker chips, peer counts and the folder path are

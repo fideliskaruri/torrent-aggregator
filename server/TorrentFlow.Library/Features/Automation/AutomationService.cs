@@ -72,7 +72,7 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                         {
                             send = await engine.AddAsync(new() { Magnet = candidate.Magnet, InfoHash = candidate.InfoHash, Name = candidate.Title,
                                 Source = candidate.Source, SearchCategory = rule.Category, Metadata = candidate.Metadata,
-                                Purpose = "keep", ExpectedSizeBytes = candidate.SizeBytes }, ct);
+                                Purpose = "keep", ExpectedSizeBytes = candidate.SizeBytes, Lane = TorrentLane.Automation }, ct);
                             message = EngineAddMessages.Format(send);
                             status = send.Ok ? "sent" : "failed";
                             if (send.Ok)

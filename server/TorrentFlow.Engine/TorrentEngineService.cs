@@ -63,7 +63,14 @@ internal sealed class TorrentEngineService(
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted;
 
     private EngineOptions Options => options.CurrentValue;
-    private int Cap => Math.Max(1, limits?.MaxActiveOverride ?? Options.MaxActiveDownloads);
+    /// <summary>The owner's download hours evaluated now (server local time); unrestricted when none are saved.</summary>
+    private ScheduleState Schedule => limits is null ? ScheduleState.Unrestricted : DownloadWindows.Evaluate(limits.Windows, time.GetLocalNow());
+    /// <summary>An open window's own downloads-at-once wins over the saved cap, which wins over the configured default.</summary>
+    private int CapFor(ScheduleState schedule) =>
+        Math.Max(1, schedule.Active?.MaxActiveDownloads ?? limits?.MaxActiveOverride ?? Options.MaxActiveDownloads);
+    private int Cap => CapFor(Schedule);
+    // The window speed caps last pushed to the client; null until the first tick applies them.
+    private (long? Down, long? Up)? _appliedRates;
     private int _limitsAttached;
     private DateTime Now => time.GetUtcNow().UtcDateTime;
 
@@ -181,13 +188,23 @@ internal sealed class TorrentEngineService(
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var existing = await db.EngineTorrents.FirstOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct);
+        var lane = purpose == TorrentPurpose.Keep ? TorrentLane.Rank(request.Lane) : 0;
 
         if (existing is not null && TorrentOrigin.Rank(origin) > TorrentOrigin.Rank(existing.Origin))
         {
             existing.Origin = origin;
+            // A stream/prewarm row carried no real lane; the keep request that adopts it decides.
+            if (origin == TorrentOrigin.User) existing.Lane = lane;
             existing.UpdatedAt = Now;
             await db.SaveChangesAsync(ct);
             if (origin == TorrentOrigin.User && backend.Contains(hash)) await backend.SetSelectedFilesAsync(hash, null);
+        }
+        else if (existing is not null && purpose == TorrentPurpose.Keep && lane < existing.Lane)
+        {
+            // Lanes only rise: the owner asking for something automation queued moves it up, never the reverse.
+            existing.Lane = lane;
+            existing.UpdatedAt = Now;
+            await db.SaveChangesAsync(ct);
         }
 
         if (backend.Get(hash) is { } live)
@@ -219,9 +236,10 @@ internal sealed class TorrentEngineService(
         }
 
         var rows = await QueueRowsAsync(db, ct);
-        var queued = DownloadQueue.ShouldQueueNewDownload(rows.Where(r => r.Hash != hash).ToList(), Cap, origin, request.Forced);
+        var schedule = Schedule;
+        var queued = DownloadQueue.ShouldQueueNewDownload(rows.Where(r => r.Hash != hash).ToList(), CapFor(schedule), origin, request.Forced, schedule.Open);
 
-        var row = existing ?? new EngineTorrent { Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, CreatedAt = Now, LastUsedAt = Now, Origin = origin };
+        var row = existing ?? new EngineTorrent { Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, CreatedAt = Now, LastUsedAt = Now, Origin = origin, Lane = lane };
         row.Name = FirstNonBlank(request.Name, existing?.Name, hash)!;
         row.Magnet = magnet ?? existing?.Magnet;
         row.TorrentUrl = request.TorrentUrl ?? existing?.TorrentUrl;
@@ -387,7 +405,7 @@ internal sealed class TorrentEngineService(
         (await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id).ToListAsync(ct)).Select(ToQueueRow).ToList();
 
     private static QueueRow ToQueueRow(EngineTorrent r) =>
-        new(r.Hash, r.Status, r.Origin, r.CreatedAt, r.WorkId, r.QueueKey, r.ForcedAt, r.SizeBytes);
+        new(r.Hash, r.Status, r.Origin, r.CreatedAt, r.WorkId, r.QueueKey, r.ForcedAt, r.SizeBytes, r.Lane);
 
     private static async Task<int?> QueuePositionAsync(TorrentFlowDbContext db, string hash, CancellationToken ct) =>
         DownloadQueue.Positions(await QueueRowsAsync(db, ct)).TryGetValue(hash, out var p) ? p : null;
@@ -408,12 +426,14 @@ internal sealed class TorrentEngineService(
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             var saved = await db.ClientSettings.AsNoTracking().Where(s => s.UserId == LocalUser.Id)
-                .Select(s => s.MaxActiveDownloads).FirstOrDefaultAsync(ct);
-            limits.SetMaxActive(saved);
+                .Select(s => new { s.MaxActiveDownloads, s.DownloadWindows }).FirstOrDefaultAsync(ct);
+            limits.SetMaxActive(saved?.MaxActiveDownloads);
+            limits.SetWindows(DownloadWindows.Parse(saved?.DownloadWindows));
         }
         limits.Changed += (_, _) =>
         {
             WakeMonitor();
+            _ = ApplyRateLimitsAsync();
             _ = PromoteAsync(CancellationToken.None).ContinueWith(
                 t => logger.LogWarning(t.Exception, "Refilling the queue after a cap change failed"),
                 TaskContinuationOptions.OnlyOnFaulted);
@@ -444,7 +464,8 @@ internal sealed class TorrentEngineService(
     /// </summary>
     private async Task<List<EngineTorrent>> ClaimPromotionsAsync(TorrentFlowDbContext db)
     {
-        var candidates = DownloadQueue.PromotionCandidates(await QueueRowsAsync(db, CancellationToken.None), Cap);
+        var schedule = Schedule;
+        var candidates = DownloadQueue.PromotionCandidates(await QueueRowsAsync(db, CancellationToken.None), CapFor(schedule), schedule.Open);
         if (candidates.Count == 0) return [];
         var rows = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id && candidates.Contains(r.Hash)).ToListAsync(CancellationToken.None);
         foreach (var r in rows)
@@ -501,7 +522,10 @@ internal sealed class TorrentEngineService(
         }
     }
 
-    /// <summary>Startup: apply the cap to whatever the database says, then start only active + forced kept rows.</summary>
+    /// <summary>
+    /// Startup: apply the cap to whatever the database says, then start only active + forced kept rows. Outside the
+    /// download hours only forced rows start; the rest wait as queued until a window opens.
+    /// </summary>
     internal async Task RehydrateAsync(CancellationToken ct = default)
     {
         await AttachLimitsAsync(ct);
@@ -521,7 +545,9 @@ internal sealed class TorrentEngineService(
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var all = await db.EngineTorrents.Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
             var eligible = all.Where(ShouldRehydrate).ToList();
-            var plan = DownloadQueue.PlanRehydrate(all.Where(r => r.Status == EngineTorrentStatus.Queued || eligible.Contains(r)).Select(ToQueueRow).ToList(), Cap);
+            var schedule = Schedule;
+            var plan = DownloadQueue.PlanRehydrate(all.Where(r => r.Status == EngineTorrentStatus.Queued || eligible.Contains(r)).Select(ToQueueRow).ToList(),
+                CapFor(schedule), schedule.Open);
             var demote = plan.Demote.ToHashSet();
             foreach (var r in all.Where(r => demote.Contains(r.Hash))) { r.Status = EngineTorrentStatus.Queued; r.UpdatedAt = Now; }
             start = plan.Active.Select(h => all.First(r => r.Hash == h)).ToList();
@@ -572,8 +598,8 @@ internal sealed class TorrentEngineService(
         var rows = await db.EngineTorrents.AsNoTracking()
             .Where(r => r.UserId == LocalUser.Id && r.Status != EngineTorrentStatus.Removed)
             .OrderBy(r => r.CreatedAt).ToListAsync(ct);
-        var positions = DownloadQueue.Positions(rows.Select(ToQueueRow));
-        return rows.Select(r => WithMagnet(r, ToInfo(r, backend.Get(r.Hash), positions, includeFiles: false))).ToList();
+        var view = QueueViewOf(rows);
+        return rows.Select(r => WithMagnet(r, ToInfo(r, backend.Get(r.Hash), view, includeFiles: false))).ToList();
     }
 
     public async Task<EngineTorrentInfo?> GetAsync(string infoHash, CancellationToken ct = default)
@@ -582,7 +608,7 @@ internal sealed class TorrentEngineService(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var rows = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
         var row = rows.FirstOrDefault(r => r.Hash == hash);
-        return row is null ? null : WithMagnet(row, ToInfo(row, backend.Get(hash), DownloadQueue.Positions(rows.Select(ToQueueRow)), includeFiles: true));
+        return row is null ? null : WithMagnet(row, ToInfo(row, backend.Get(hash), QueueViewOf(rows), includeFiles: true));
     }
 
     /// <summary>
@@ -622,8 +648,18 @@ internal sealed class TorrentEngineService(
         }
     }
 
-    private static EngineTorrentInfo ToInfo(EngineTorrent row, BackendSnapshot? live, IReadOnlyDictionary<string, int> positions, bool includeFiles)
+    /// <summary>Queue positions and wait reasons for the UI, computed once per read over every row.</summary>
+    private sealed record QueueView(IReadOnlyDictionary<string, int> Positions, IReadOnlyDictionary<string, string> Reasons);
+
+    private QueueView QueueViewOf(IReadOnlyCollection<EngineTorrent> rows)
     {
+        var queueRows = rows.Select(ToQueueRow).ToList();
+        return new QueueView(DownloadQueue.Positions(queueRows), DownloadQueue.WaitReasons(queueRows, Schedule.Open));
+    }
+
+    private static EngineTorrentInfo ToInfo(EngineTorrent row, BackendSnapshot? live, QueueView view, bool includeFiles)
+    {
+        var lane = row.Origin == TorrentOrigin.User ? TorrentLane.FromRank(row.Lane) : null;
         var retention = row.Origin switch
         {
             TorrentOrigin.User => "kept",
@@ -661,6 +697,7 @@ internal sealed class TorrentEngineService(
                 Category = row.Category,
                 SavePath = row.SavePath,
                 RetentionState = retention,
+                Lane = lane,
                 WorkId = row.WorkId,
                 QueueKey = row.QueueKey,
                 Files = includeFiles ? live.Files.Select(f => new EngineFileInfo(f.Index, f.Path, f.Length, f.Selected, f.Progress, f.FullPath)).ToList() : null,
@@ -681,7 +718,9 @@ internal sealed class TorrentEngineService(
             Category = row.Category,
             SavePath = row.SavePath,
             RetentionState = retention,
-            QueuePosition = display == "queued" && positions.TryGetValue(row.Hash, out var p) ? p : null,
+            QueuePosition = display == "queued" && view.Positions.TryGetValue(row.Hash, out var p) ? p : null,
+            Lane = lane,
+            WaitReason = display == "queued" && view.Reasons.TryGetValue(row.Hash, out var why) ? why : null,
             WorkId = row.WorkId,
             QueueKey = row.QueueKey,
             Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, true, IsDownloaded(row) ? 1 : 0, f.FullPath)).ToList() : null,
@@ -1104,6 +1143,7 @@ internal sealed class TorrentEngineService(
     /// </summary>
     internal async Task TickAsync(CancellationToken ct = default)
     {
+        await ApplyRateLimitsAsync();
         var liveHashes = backend.LiveHashes().ToList();
         var generation = Volatile.Read(ref _wakes);
         if (liveHashes.Count == 0 && Volatile.Read(ref _idleAtWake) == generation) return;
@@ -1233,6 +1273,33 @@ internal sealed class TorrentEngineService(
     }
 
     private void WakeMonitor() => Interlocked.Increment(ref _wakes);
+
+    private readonly SemaphoreSlim _rateGate = new(1, 1);
+
+    /// <summary>
+    /// Pushes the active window's speed caps to the client, and the base limits back once it ends. Runs every tick so a
+    /// window boundary takes effect within one monitor interval. A failure is logged and retried on the next tick.
+    /// </summary>
+    internal async Task ApplyRateLimitsAsync()
+    {
+        var active = Schedule.Active;
+        (long? Down, long? Up) desired = (active?.MaxDownloadRate, active?.MaxUploadRate);
+        await _rateGate.WaitAsync();
+        try
+        {
+            if (_appliedRates == desired) return;
+            await backend.ApplyRateLimitsAsync(desired.Down, desired.Up);
+            _appliedRates = desired;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Applying download-window speed limits failed");
+        }
+        finally
+        {
+            _rateGate.Release();
+        }
+    }
 
     /// <summary>
     /// Saves the monitor's batch. A row deleted meanwhile (the user removed it) makes the whole batch fail with a

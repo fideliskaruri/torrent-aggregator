@@ -9,7 +9,8 @@ public sealed record QueueRow(
     string? WorkId = null,
     string? QueueKey = null,
     DateTime? ForcedAt = null,
-    long? SizeBytes = null);
+    long? SizeBytes = null,
+    int Lane = 0);
 
 public sealed record RehydratePlan(IReadOnlyList<string> Active, IReadOnlyList<string> Demote);
 
@@ -21,7 +22,7 @@ public sealed record RehydratePlan(IReadOnlyList<string> Active, IReadOnlyList<s
 /// are rows that are not in the client at all — a paused torrent still owns its wires and cache, so
 /// pausing is not a substitute for never adding.
 ///
-/// Order: within a series by (season, episode) via <see cref="QueueRow.QueueKey"/>; across works by the
+/// Order: by lane first (owner, then request, then automation — <see cref="QueueRow.Lane"/>), then within a series by (season, episode) via <see cref="QueueRow.QueueKey"/>; across works by the
 /// work's earliest enqueue time, so a season grabbed first finishes before a season grabbed later even
 /// when its episodes were enqueued out of order. Pure so the rules are testable without a client or DB.
 ///
@@ -66,11 +67,12 @@ public static class DownloadQueue
 
     public static int ActiveKeptCount(IEnumerable<QueueRow> rows) => rows.Count(IsActiveKept);
 
+    // Per lane, so a work's anchor (its earliest enqueue) only counts rows competing in the same lane.
     private static string GroupKey(QueueRow row) =>
-        string.IsNullOrWhiteSpace(row.WorkId) ? $"hash:{row.Hash}" : $"work:{row.WorkId.Trim()}";
+        (string.IsNullOrWhiteSpace(row.WorkId) ? $"hash:{row.Hash}" : $"work:{row.WorkId.Trim()}") + $"|lane:{row.Lane}";
 
     /// <summary>
-    /// Total order over queued rows: work group by earliest enqueue, then episode position inside the group.
+    /// Total order over queued rows: lane, then work group by earliest enqueue, then episode position inside the group.
     /// Rows without a queueKey (films, one-offs) sort after the numbered ones in their group.
     /// </summary>
     public static List<QueueRow> Order(IEnumerable<QueueRow> rows)
@@ -84,6 +86,7 @@ public static class DownloadQueue
         }
         queued.Sort((a, b) =>
         {
+            if (a.Lane != b.Lane) return a.Lane.CompareTo(b.Lane);
             var ga = GroupKey(a);
             var gb = GroupKey(b);
             if (ga != gb)
@@ -114,9 +117,13 @@ public static class DownloadQueue
         return map;
     }
 
-    /// <summary>Hashes that should start now: the head of the queue, enough to refill free slots.</summary>
-    public static List<string> PromotionCandidates(IReadOnlyCollection<QueueRow> rows, int cap)
+    /// <summary>
+    /// Hashes that should start now: the head of the queue, enough to refill free slots. Nothing starts while the
+    /// owner's download hours are closed.
+    /// </summary>
+    public static List<string> PromotionCandidates(IReadOnlyCollection<QueueRow> rows, int cap, bool windowOpen = true)
     {
+        if (!windowOpen) return [];
         var free = Math.Max(0, cap - ActiveKeptCount(rows));
         return free == 0 ? [] : Order(rows).Take(free).Select(r => r.Hash).ToList();
     }
@@ -124,30 +131,62 @@ public static class DownloadQueue
     /// <summary>
     /// Whether a fresh add (or resume) has to join the queue. Forced adds never do, nor anything that is not a kept
     /// download. When rows are already waiting it queues even if a slot is free, so the caller's promotion pass gives
-    /// that slot to the queue head (lowest queueKey in the earliest work) instead of whoever arrived last.
+    /// that slot to the queue head (lowest queueKey in the earliest work) instead of whoever arrived last. Outside the
+    /// owner's download hours every non-forced kept add waits.
     /// </summary>
-    public static bool ShouldQueueNewDownload(IReadOnlyCollection<QueueRow> rows, int cap, string origin, bool forced)
+    public static bool ShouldQueueNewDownload(IReadOnlyCollection<QueueRow> rows, int cap, string origin, bool forced, bool windowOpen = true)
     {
         if (forced) return false;
         if (origin != QueueableOrigin) return false;
+        if (!windowOpen) return true;
         return ActiveKeptCount(rows) >= cap || rows.Any(r => IsQueued(r) && r.Origin == QueueableOrigin);
     }
 
     /// <summary>
     /// Startup plan. A database written before the queue existed (or by a crash mid-season) can hold a dozen
     /// rows marked downloading; re-adding them all is exactly the RAM blow-up the queue prevents. Forced rows
-    /// always start, the earliest remaining rows fill what is left, everything else is demoted to queued.
+    /// always start, the earliest remaining rows fill what is left, everything else is demoted to queued. Outside the
+    /// download hours only forced rows start.
     /// </summary>
-    public static RehydratePlan PlanRehydrate(IReadOnlyCollection<QueueRow> rows, int cap)
+    public static RehydratePlan PlanRehydrate(IReadOnlyCollection<QueueRow> rows, int cap, bool windowOpen = true)
     {
         var kept = rows.Where(r => r.Origin == QueueableOrigin
             && (string.Equals(r.Status, "downloading", StringComparison.OrdinalIgnoreCase) || IsQueued(r))).ToList();
         var forced = kept.Where(IsForced).ToList();
         var ordered = Order(kept.Where(r => !IsForced(r)).Select(r => r with { Status = QueuedStatus }));
-        var free = Math.Max(0, cap - forced.Count);
+        var free = windowOpen ? Math.Max(0, cap - forced.Count) : 0;
         var active = forced.Select(r => r.Hash).Concat(ordered.Take(free).Select(r => r.Hash)).ToList();
         var activeSet = active.ToHashSet(StringComparer.Ordinal);
         return new RehydratePlan(active, kept.Where(r => !activeSet.Contains(r.Hash)).Select(r => r.Hash).ToList());
+    }
+
+    /// <summary>
+    /// Why a queued row is waiting, most important first: closed download hours, then a higher-priority lane waiting
+    /// ahead of it, otherwise every slot is taken. Null for rows that are not queued.
+    /// </summary>
+    public static string? WaitReason(QueueRow row, IEnumerable<QueueRow> rows, bool windowOpen) =>
+        ReasonFor(row, windowOpen, BestQueuedLane(rows));
+
+    /// <summary><see cref="WaitReason"/> for every queued row at once (one pass over the rows).</summary>
+    public static Dictionary<string, string> WaitReasons(IReadOnlyCollection<QueueRow> rows, bool windowOpen)
+    {
+        var best = BestQueuedLane(rows);
+        var reasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+            if (ReasonFor(row, windowOpen, best) is { } reason) reasons[row.Hash] = reason;
+        return reasons;
+    }
+
+    private static int? BestQueuedLane(IEnumerable<QueueRow> rows) =>
+        rows.Where(r => IsQueued(r) && r.Origin == QueueableOrigin).Select(r => (int?)r.Lane).Min();
+
+    private static string? ReasonFor(QueueRow row, bool windowOpen, int? bestQueuedLane)
+    {
+        if (!IsQueued(row)) return null;
+        if (!windowOpen) return Core.Contracts.Engine.QueueWaitReason.OutsideWindow;
+        return bestQueuedLane < row.Lane
+            ? Core.Contracts.Engine.QueueWaitReason.LowerLane
+            : Core.Contracts.Engine.QueueWaitReason.QueueFull;
     }
 
     /// <summary>

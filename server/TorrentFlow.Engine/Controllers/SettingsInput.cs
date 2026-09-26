@@ -84,6 +84,57 @@ internal static class SettingsInput
                 if (rule.Value.GetString()!.Contains('\0')) return new("pathRules contains an invalid null character", "pathRules");
             }
         }
+        if (body.TryGetProperty("downloadWindows", out var windows) && windows.ValueKind != JsonValueKind.Null
+            && ParseWindows(windows, out _) is { } windowError)
+            return new(windowError, "downloadWindows");
+        return null;
+    }
+
+    /// <summary>
+    /// Strictly reads the settings API's download-window array: whole numbers only, known fields only, at most
+    /// <see cref="Queue.DownloadWindows.MaxWindows"/> rules. Returns the error text, or null with the parsed rules.
+    /// </summary>
+    internal static string? ParseWindows(JsonElement value, out List<Queue.DownloadWindow> parsed)
+    {
+        parsed = [];
+        if (value.ValueKind != JsonValueKind.Array) return "downloadWindows must be an array";
+        if (value.GetArrayLength() > Queue.DownloadWindows.MaxWindows)
+            return $"downloadWindows may contain at most {Queue.DownloadWindows.MaxWindows} rules";
+        string[] known = ["days", "startHour", "endHour", "maxActiveDownloads", "maxDownloadRate", "maxUploadRate"];
+        var index = 0;
+        foreach (var item in value.EnumerateArray())
+        {
+            var at = $"downloadWindows[{index++}]";
+            if (item.ValueKind != JsonValueKind.Object) return $"{at} must be an object";
+            foreach (var p in item.EnumerateObject())
+                if (!known.Contains(p.Name)) return $"{at} has an unknown field {p.Name}";
+            if (!item.TryGetProperty("days", out var days) || days.ValueKind != JsonValueKind.Array)
+                return $"{at}.days must be an array of weekdays";
+            var dayList = new List<int>();
+            foreach (var d in days.EnumerateArray())
+            {
+                if (d.ValueKind != JsonValueKind.Number || !d.TryGetInt32(out var day)) return $"{at}.days must hold whole numbers 0 to 6";
+                dayList.Add(day);
+            }
+            static string? Whole(JsonElement o, string name, bool required, out long? number)
+            {
+                number = null;
+                if (!o.TryGetProperty(name, out var v) || v.ValueKind == JsonValueKind.Null) return required ? $"{name} is required" : null;
+                if (v.ValueKind != JsonValueKind.Number || !v.TryGetInt64(out var n)) return $"{name} must be a whole number";
+                number = n;
+                return null;
+            }
+            long? start = null, end = null, cap = null, down = null, up = null;
+            var fieldError = Whole(item, "startHour", true, out start) ?? Whole(item, "endHour", true, out end)
+                ?? Whole(item, "maxActiveDownloads", false, out cap) ?? Whole(item, "maxDownloadRate", false, out down)
+                ?? Whole(item, "maxUploadRate", false, out up);
+            if (fieldError is not null) return $"{at}.{fieldError}";
+            if (start is < int.MinValue or > int.MaxValue || end is < int.MinValue or > int.MaxValue || cap is < int.MinValue or > int.MaxValue)
+                return $"{at} has an out-of-range hour or downloads-at-once";
+            var window = new Queue.DownloadWindow(dayList, (int)start!.Value, (int)end!.Value, (int?)cap, down, up);
+            if (Queue.DownloadWindows.Validate(window) is { } invalid) return $"{at}: {invalid}";
+            parsed.Add(Queue.DownloadWindows.Normalize(window));
+        }
         return null;
     }
 }

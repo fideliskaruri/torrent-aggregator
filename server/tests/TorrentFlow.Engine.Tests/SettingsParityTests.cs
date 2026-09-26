@@ -35,6 +35,13 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
     [InlineData("""{"maxActiveDownloads":0}""", "maxActiveDownloads", "maxActiveDownloads must be a whole number from 1 to 20")]
     [InlineData("""{"maxActiveDownloads":2.5}""", "maxActiveDownloads", "maxActiveDownloads must be a whole number from 1 to 20")]
     [InlineData("""{"maxActiveDownloads":"3"}""", "maxActiveDownloads", "maxActiveDownloads must be a whole number from 1 to 20")]
+    [InlineData("""{"downloadWindows":{}}""", "downloadWindows", "downloadWindows must be an array")]
+    [InlineData("""{"downloadWindows":[{"days":[1],"startHour":9}]}""", "downloadWindows", "downloadWindows[0].endHour is required")]
+    [InlineData("""{"downloadWindows":[{"days":[1],"startHour":9.5,"endHour":17}]}""", "downloadWindows", "downloadWindows[0].startHour must be a whole number")]
+    [InlineData("""{"downloadWindows":[{"days":[8],"startHour":9,"endHour":17}]}""", "downloadWindows", "downloadWindows[0]: download window days must be 0 (Sunday) to 6 (Saturday)")]
+    [InlineData("""{"downloadWindows":[{"days":[1],"startHour":9,"endHour":9}]}""", "downloadWindows", "downloadWindows[0]: download window startHour and endHour must differ")]
+    [InlineData("""{"downloadWindows":[{"days":[1],"startHour":9,"endHour":17,"maxDownloadRate":0}]}""", "downloadWindows", "downloadWindows[0]: download window maxDownloadRate must be a positive number of bytes per second")]
+    [InlineData("""{"downloadWindows":[{"days":[1],"startHour":9,"endHour":17,"extra":1}]}""", "downloadWindows", "downloadWindows[0] has an unknown field extra")]
     public async Task RejectsMalformedFieldsBeforeMutation(string body, string field, string error)
     {
         var before = await Read(await _http.GetAsync("/api/settings/client"));
@@ -66,6 +73,67 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
         finally
         {
             await _http.PutAsJsonAsync("/api/settings/client", new { maxActiveDownloads = (int?)null });
+        }
+    }
+
+    [Fact]
+    public async Task MoreThanFourteenWindowsAreRejectedAndNothingIsSaved()
+    {
+        var limits = factory.Services.GetRequiredService<TorrentFlow.Engine.Queue.DownloadLimits>();
+        var rules = Enumerable.Range(0, 15).Select(i => new { days = new[] { i % 7 }, startHour = i, endHour = i + 1 }).ToArray();
+        var response = await _http.PutAsJsonAsync("/api/settings/client", new { downloadWindows = rules, maxActiveDownloads = 7 });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var result = await Read(response);
+        Assert.Equal("downloadWindows", result.GetProperty("field").GetString());
+        Assert.Contains("14", result.GetProperty("error").GetString());
+        var after = (await Read(await _http.GetAsync("/api/settings/client"))).GetProperty("settings");
+        Assert.NotEqual(7, after.GetProperty("maxActiveDownloads").GetInt32());
+        Assert.Equal(0, after.GetProperty("downloadWindows").GetArrayLength());
+        Assert.Empty(limits.Windows);
+    }
+
+    [Fact]
+    public async Task DownloadWindowsAreSavedAppliedAndClearable()
+    {
+        var limits = factory.Services.GetRequiredService<TorrentFlow.Engine.Queue.DownloadLimits>();
+        try
+        {
+            var body = new { downloadWindows = new object[]
+            {
+                new { days = new[] { 6, 0 }, startHour = 0, endHour = 24 },
+                new { days = new[] { 1, 2, 3, 4, 5 }, startHour = 22, endHour = 6, maxActiveDownloads = 4, maxDownloadRate = 2_000_000, maxUploadRate = 250_000 },
+            } };
+            var saved = (await Read(await _http.PutAsJsonAsync("/api/settings/client", body))).GetProperty("settings");
+            var windows = saved.GetProperty("downloadWindows");
+            Assert.Equal(2, windows.GetArrayLength());
+            Assert.Equal([0, 6], windows[0].GetProperty("days").EnumerateArray().Select(d => d.GetInt32()));
+            Assert.False(windows[0].TryGetProperty("maxDownloadRate", out var none) && none.ValueKind != JsonValueKind.Null);
+            Assert.Equal(2_000_000, windows[1].GetProperty("maxDownloadRate").GetInt64());
+            Assert.Equal(4, windows[1].GetProperty("maxActiveDownloads").GetInt32());
+            Assert.True(saved.TryGetProperty("downloadWindowOpen", out _));
+            Assert.Equal(2, limits.Windows.Count);
+
+            var read = (await Read(await _http.GetAsync("/api/settings/client"))).GetProperty("settings");
+            Assert.Equal(22, read.GetProperty("downloadWindows")[1].GetProperty("startHour").GetInt32());
+
+            // Saving other settings leaves the schedule alone; an empty list clears it.
+            await _http.PutAsJsonAsync("/api/settings/client", new { verboseDiagnostics = false });
+            Assert.Equal(2, limits.Windows.Count);
+            var cleared = (await Read(await _http.PutAsJsonAsync("/api/settings/client", new { downloadWindows = Array.Empty<object>() }))).GetProperty("settings");
+            Assert.Equal(0, cleared.GetProperty("downloadWindows").GetArrayLength());
+            Assert.True(cleared.GetProperty("downloadWindowOpen").GetBoolean());
+            Assert.Empty(limits.Windows);
+
+            // A rule for a day three days from now cannot be open right now.
+            var otherDay = ((int)DateTimeOffset.Now.DayOfWeek + 3) % 7;
+            var closed = (await Read(await _http.PutAsJsonAsync("/api/settings/client",
+                new { downloadWindows = new[] { new { days = new[] { otherDay }, startHour = 0, endHour = 24 } } }))).GetProperty("settings");
+            Assert.False(closed.GetProperty("downloadWindowOpen").GetBoolean());
+            Assert.False((await Read(await _http.GetAsync("/api/settings/client"))).GetProperty("settings").GetProperty("downloadWindowOpen").GetBoolean());
+        }
+        finally
+        {
+            await _http.PutAsJsonAsync("/api/settings/client", new { downloadWindows = (object?)null });
         }
     }
 

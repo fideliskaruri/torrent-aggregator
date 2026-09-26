@@ -20,6 +20,7 @@ public sealed class SettingsClientController(
     StorageBudget storage,
     ExternalClientRegistry clients,
     DownloadLimits limits,
+    TimeProvider time,
     Microsoft.Extensions.Options.IOptionsMonitor<EngineOptions> engineOptions) : ControllerBase
 {
     internal static readonly int[] SelectableResolutions = [480, 720, 1080, 2160];
@@ -66,6 +67,8 @@ public sealed class SettingsClientController(
             ["maxActiveDownloads"] = s.MaxActiveDownloads is >= DownloadLimits.MinActiveDownloads and <= DownloadLimits.MaxActiveDownloads
                 ? s.MaxActiveDownloads : DefaultMaxActive(),
             ["maxActiveDownloadsDefault"] = DefaultMaxActive(),
+            ["downloadWindows"] = DownloadWindows.Parse(s.DownloadWindows),
+            ["downloadWindowOpen"] = DownloadWindows.Evaluate(DownloadWindows.Parse(s.DownloadWindows), time.GetLocalNow()).Open,
             ["categories"] = config.Categories,
             ["pathRules"] = config.PathRules,
             ["pathWarnings"] = PathWarnings(config),
@@ -222,6 +225,14 @@ public sealed class SettingsClientController(
             row.MaxActiveDownloads = body.IsNull("maxActiveDownloads") ? null : (int)body.Num("maxActiveDownloads")!.Value;
             capChanged = true;
         }
+        List<DownloadWindow>? windows = null;
+        if (body.TryGetProperty("downloadWindows", out var windowsJson))
+        {
+            // Validated up front; null or [] clears the schedule so downloads may start at any time again.
+            if (windowsJson.ValueKind == JsonValueKind.Null) windows = [];
+            else if (SettingsInput.ParseWindows(windowsJson, out windows) is { } windowError) return Bad(windowError);
+            row.DownloadWindows = DownloadWindows.Serialize(windows);
+        }
         if (body.TryGetProperty("categories", out var cats) && cats.ValueKind != JsonValueKind.Null)
         {
             if (cats.ValueKind != JsonValueKind.Array) return Bad("categories must be an array");
@@ -255,6 +266,7 @@ public sealed class SettingsClientController(
         await db.SaveChangesAsync(ct);
         // After the save, so a restart reads the same cap the running queue now uses.
         if (capChanged) limits.SetMaxActive(row.MaxActiveDownloads);
+        if (windows is not null) limits.SetWindows(windows);
 
         object? testResult = null;
         if (body.Bool("test") == true)

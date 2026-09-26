@@ -330,6 +330,24 @@ retain runtime-specific .NET memory metrics rather than inventing Node event-loo
   Raising it starts queued rows immediately; lowering it never stops a running transfer.
 - Resume is an owner override, unlike the Next engine: it starts the transfer now (marked forced,
   like Download now) even when every slot is taken, including a queued row. Nothing is preempted.
+- Download hours (`ClientSettings.downloadWindows`, JSON; Settings → Downloads): weekly rules of
+  days + start/end hour in the server's local time (end ≤ start runs overnight; days are the start
+  day). With no rules nothing changes. With rules, outside every window the queue holds new kept
+  starts (an explicit gate in `ShouldQueueNewDownload`, promotion and rehydrate — never cap = 0);
+  running transfers keep going, a restart outside the window starts only forced rows, and Resume /
+  Download now still start immediately. The engine tick promotes when the window opens. The first
+  matching rule is active; its optional `maxActiveDownloads` beats the saved override, and its
+  optional `maxDownloadRate` / `maxUploadRate` (bytes/s; the UI edits MB/s) are applied with
+  `ClientEngine.UpdateSettingsAsync` on a copy of the live settings (the listen port is never
+  rebuilt). Effective rate = the stricter of the base option and the window cap; the base (download
+  unlimited, `MaxUploadRate`) returns when the window ends. Rates are re-evaluated every tick.
+- Priority lanes: `EngineTorrent.lane` (0 owner, 1 request, 2 automation) is the first queue sort
+  key; a work's group anchor only counts rows in its own lane. `EngineAddRequest.Lane` / send's
+  `lane` default to owner; background grabs and automation rules send automation. A re-add can raise
+  a row's lane but never lowers it. Rows that existed before the lane column start in the owner lane
+  (the migration cannot tell who added them), so the order of an existing queue is unchanged.
+- Each queued row carries one `waitReason` on `/api/client/torrents` — `outside-window`, then
+  `lower-lane` (a better-lane row is waiting too), else `queue-full` — shown on the Downloads row.
 - Speed defaults: 120 peers per torrent, 400 overall, 40 half-open, 32 MB disk cache, UPnP/NAT-PMP
   and local peer discovery on, and the public tracker list added to every non-private torrent.
 - First download on a fresh install: instead of refusing with "finish setup in Settings", the SPA

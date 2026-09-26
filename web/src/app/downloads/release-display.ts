@@ -63,6 +63,18 @@ export function stateLabel(state: string, queuePosition?: number | null) {
   return label;
 }
 
+const WAIT_REASON_LABELS: Record<string, string> = {
+  "outside-window": "Waiting for download hours",
+  "queue-full": "Waiting for a free slot",
+  "lower-lane": "Waiting behind higher-priority downloads",
+};
+
+/** Why a queued built-in row has not started, in English; null when there is nothing to say. */
+export function waitReasonLabel(state: string, waitReason?: string | null): string | null {
+  if (state !== "queued" || !waitReason) return null;
+  return WAIT_REASON_LABELS[waitReason] ?? null;
+}
+
 const CONTAINER_EXT = /\.(mkv|mp4|avi|m4v|mov|ts|webm|wmv|flv|mpg|mpeg)$/i;
 const BRACKET_GROUP = /^\s*(?:\[[^\]]{2,40}\]\s*)+/;
 

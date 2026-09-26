@@ -91,6 +91,7 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
     [InlineData("""{"magnet":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567","savePath":"a/../b"}""", "savePath may not contain null bytes or traversal segments", "savePath")]
     [InlineData("""{"magnet":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567","target":"elsewhere"}""", "target must be one of: primary, external", "target")]
     [InlineData("""{"name":5}""", "name must be a string", "name")]
+    [InlineData("""{"magnet":"magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567","lane":"vip"}""", "lane must be one of: owner, request, automation", "lane")]
     public async Task SendValidationErrorsNameTheField(string body, string error, string field)
     {
         var r = await _http.PostAsync("/api/torrent/send", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
@@ -162,6 +163,8 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.True(b.GetProperty("ok").GetBoolean());
         Assert.Equal("builtin-transfer", b.GetProperty("details").GetProperty("type").GetString());
         Assert.Equal("queued", b.GetProperty("details").GetProperty("action").GetString());
+        var c = await Json(await _http.PostAsJsonAsync("/api/torrent/send", new { magnet = EngineHarness.Magnet(103), queueKey = "s00001e00000", lane = "request" }));
+        Assert.Equal("queued", c.GetProperty("details").GetProperty("action").GetString());
 
         var list = await Json(await _http.GetAsync("/api/client/torrents"));
         Assert.Equal("builtin", list.GetProperty("clientType").GetString());
@@ -170,6 +173,13 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var queued = torrents.Single(t => t.GetProperty("hash").GetString() == EngineHarness.Hash(102));
         Assert.Equal("queued", queued.GetProperty("state").GetString());
         Assert.Equal(1, queued.GetProperty("queuePosition").GetInt32());
+        Assert.Equal("queue-full", queued.GetProperty("waitReason").GetString());
+        Assert.Equal("owner", queued.GetProperty("lane").GetString());
+        // A lower lane sorts behind the owner's pick even with an earlier episode key.
+        var request = torrents.Single(t => t.GetProperty("hash").GetString() == EngineHarness.Hash(103));
+        Assert.Equal("request", request.GetProperty("lane").GetString());
+        Assert.Equal(2, request.GetProperty("queuePosition").GetInt32());
+        Assert.Equal("lower-lane", request.GetProperty("waitReason").GetString());
         foreach (var field in new[] { "name", "progress", "sizeBytes", "dlspeed", "upspeed", "state", "retentionState" })
             Assert.True(queued.TryGetProperty(field, out _), field);
         Assert.Equal("builtin", queued.GetProperty("ownerClientType").GetString());

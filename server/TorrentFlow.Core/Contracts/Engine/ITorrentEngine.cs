@@ -94,6 +94,48 @@ public static class TorrentOrigin
     };
 }
 
+/// <summary>
+/// Priority lanes of the kept-download queue. A queued row in a higher lane starts before any lower-lane row;
+/// nothing running is ever preempted. Persisted as <see cref="Rank"/> (0 = highest).
+/// </summary>
+public static class TorrentLane
+{
+    /// <summary>The owner pressed Download (title page, search, Downloads).</summary>
+    public const string Owner = "owner";
+    /// <summary>Someone asked the owner for it (requests feature).</summary>
+    public const string Request = "request";
+    /// <summary>Watchlist monitoring and auto-rules.</summary>
+    public const string Automation = "automation";
+
+    public static readonly string[] All = [Owner, Request, Automation];
+
+    /// <summary>Queue sort rank; null is the owner, and an unrecognised name sorts last rather than jumping the queue.</summary>
+    public static int Rank(string? lane) => lane?.Trim().ToLowerInvariant() switch
+    {
+        null or Owner => 0,
+        Request => 1,
+        _ => 2,
+    };
+
+    public static string FromRank(int rank) => rank switch
+    {
+        1 => Request,
+        2 => Automation,
+        _ => Owner,
+    };
+}
+
+/// <summary>Why a queued kept download is not transferring yet (one per row, most important first).</summary>
+public static class QueueWaitReason
+{
+    /// <summary>Download hours are configured and none is open now.</summary>
+    public const string OutsideWindow = "outside-window";
+    /// <summary>A higher-priority lane is waiting ahead of this row.</summary>
+    public const string LowerLane = "lower-lane";
+    /// <summary>Every downloads-at-once slot is taken.</summary>
+    public const string QueueFull = "queue-full";
+}
+
 /// <summary>EngineTorrent.status values written by the engine.</summary>
 public static class EngineTorrentStatus
 {
@@ -135,6 +177,8 @@ public sealed record EngineAddRequest
     public bool Forced { get; init; }
     /// <summary>The owner saw an overridable storage refusal (cap/reserve) and chose to proceed. Never bypasses wont-fit or setup.</summary>
     public bool OverrideStorageCap { get; init; }
+    /// <summary>Queue lane (<see cref="TorrentLane"/>); null is the owner's lane. Automation must pass Automation.</summary>
+    public string? Lane { get; init; }
 }
 
 public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? Details = null, string? Hash = null)
@@ -179,6 +223,10 @@ public sealed record EngineTorrentInfo
     /// <summary>kept | stream | prewarm | unknown</summary>
     public string? RetentionState { get; init; }
     public int? QueuePosition { get; init; }
+    /// <summary>owner | request | automation (<see cref="TorrentLane"/>).</summary>
+    public string? Lane { get; init; }
+    /// <summary>Set only while queued: <see cref="QueueWaitReason"/>.</summary>
+    public string? WaitReason { get; init; }
     public string? WorkId { get; init; }
     public string? QueueKey { get; init; }
     public IReadOnlyList<EngineFileInfo>? Files { get; init; }

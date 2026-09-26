@@ -18,6 +18,7 @@ import { DownloadLocationFields } from "@/components/settings/download-location-
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RemoteAccessSection } from "@/components/settings/remote-access-section";
 import { RetentionPanel } from "@/components/settings/retention-panel";
+import { DownloadWindowsPanel } from "@/components/settings/download-windows-panel";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { SourcesSettings } from "@/components/settings/sources-settings";
 import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
@@ -32,6 +33,12 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { STORAGE_CAP_FOCUS_PARAM } from "@/lib/library/storage-override";
+import {
+  toDraft,
+  toWindow,
+  type DownloadWindow,
+  type DownloadWindowDraft,
+} from "@/lib/download-windows";
 import {
   detectUnsafeDownloadPath,
   unsafeDownloadPathMessage,
@@ -55,6 +62,7 @@ export interface ClientForm {
   preferredResolution: number;
   automationIntervalMinutes: number;
   maxActiveDownloads: number;
+  downloadWindows: DownloadWindowDraft[];
   verboseDiagnostics: boolean;
   defaultRetentionPolicy: RetentionPolicy;
   categories: string[];
@@ -115,6 +123,7 @@ const EMPTY_FORM: ClientForm = {
   preferredResolution: 1080,
   automationIntervalMinutes: 0,
   maxActiveDownloads: 2,
+  downloadWindows: [],
   verboseDiagnostics: false,
   defaultRetentionPolicy: "EPHEMERAL",
   categories: [
@@ -179,6 +188,7 @@ export default function SettingsPage() {
     DownloadPathWarning[]
   >([]);
   const [connectionOk, setConnectionOk] = useState(false);
+  const [downloadWindowOpen, setDownloadWindowOpen] = useState<boolean | null>(null);
   const [pendingCapFocus, setPendingCapFocus] = useState(false);
   const capInputRef = useRef<HTMLInputElement | null>(null);
   const legacyTargetRef = useRef<"connection" | "folders" | "categories" | null>(
@@ -247,8 +257,10 @@ export default function SettingsPage() {
           throw new Error(body?.error || `Request failed (${res.status})`);
         }
         const data = (await res.json()) as {
-          settings?: Partial<Omit<ClientForm, "password" | "maxStorageGb">> & {
+          settings?: Partial<Omit<ClientForm, "password" | "maxStorageGb" | "downloadWindows">> & {
             maxStorageGb?: number | null;
+            downloadWindows?: DownloadWindow[];
+            downloadWindowOpen?: boolean;
             setupComplete?: boolean;
             hasPassword?: boolean;
             pathWarnings?: DownloadPathWarning[];
@@ -283,6 +295,7 @@ export default function SettingsPage() {
                 EMPTY_FORM.automationIntervalMinutes,
               maxActiveDownloads:
                 settings.maxActiveDownloads ?? EMPTY_FORM.maxActiveDownloads,
+              downloadWindows: (settings.downloadWindows ?? []).map(toDraft),
               verboseDiagnostics: settings.verboseDiagnostics === true,
               defaultRetentionPolicy:
                 settings.defaultRetentionPolicy ??
@@ -303,6 +316,7 @@ export default function SettingsPage() {
         setExternalClientsEnabled(externalEnabled);
         setSetupComplete(settings?.setupComplete === true);
         setPersistedPathWarnings(settings?.pathWarnings ?? []);
+        setDownloadWindowOpen(settings?.downloadWindowOpen ?? null);
       } catch (error) {
         if (!cancelled) {
           setLoadError(
@@ -444,6 +458,7 @@ export default function SettingsPage() {
     event.preventDefault();
     setSaving(true);
     try {
+      const downloadWindows = form.downloadWindows.map(toWindow);
       const res = await fetch("/api/settings/client", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -467,6 +482,7 @@ export default function SettingsPage() {
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
           maxActiveDownloads: clampMaxActive(form.maxActiveDownloads),
+          downloadWindows,
           defaultRetentionPolicy: streaming ? form.defaultRetentionPolicy : "KEPT",
           categories: form.categories,
           pathRules: form.pathRules,
@@ -484,8 +500,10 @@ export default function SettingsPage() {
       const data = JSON.parse(raw) as {
         error?: string;
         message?: string;
-        settings?: Partial<Omit<ClientForm, "password" | "maxStorageGb">> & {
+        settings?: Partial<Omit<ClientForm, "password" | "maxStorageGb" | "downloadWindows">> & {
           maxStorageGb?: number | null;
+          downloadWindows?: DownloadWindow[];
+          downloadWindowOpen?: boolean;
           setupComplete?: boolean;
           hasPassword?: boolean;
           pathWarnings?: DownloadPathWarning[];
@@ -518,6 +536,9 @@ export default function SettingsPage() {
           settings?.automationIntervalMinutes ?? form.automationIntervalMinutes,
         maxActiveDownloads:
           settings?.maxActiveDownloads ?? form.maxActiveDownloads,
+        downloadWindows: settings?.downloadWindows
+          ? settings.downloadWindows.map(toDraft)
+          : form.downloadWindows,
         verboseDiagnostics:
           settings?.verboseDiagnostics ?? form.verboseDiagnostics,
         defaultRetentionPolicy:
@@ -530,6 +551,7 @@ export default function SettingsPage() {
       setHasPassword(Boolean(settings?.hasPassword ?? hasPassword));
       setSetupComplete(settings?.setupComplete === true);
       setPersistedPathWarnings(settings?.pathWarnings ?? []);
+      setDownloadWindowOpen(settings?.downloadWindowOpen ?? null);
       invalidateDownloadPrefs();
       if (data.testResult) {
         setConnectionOk(data.testResult.ok);
@@ -755,6 +777,18 @@ export default function SettingsPage() {
                 download right away.
               </p>
             </div>
+            <DownloadWindowsPanel
+              windows={form.downloadWindows}
+              onChange={(downloadWindows) =>
+                updateForm((current) => ({ ...current, downloadWindows }))
+              }
+              open={
+                JSON.stringify(form.downloadWindows) ===
+                JSON.stringify(savedForm.downloadWindows)
+                  ? downloadWindowOpen
+                  : null
+              }
+            />
           </section>
 
           <section className="space-y-4 p-4 sm:p-5">

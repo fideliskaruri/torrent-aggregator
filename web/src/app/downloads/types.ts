@@ -7,6 +7,8 @@
  * drifting apart.
  */
 
+export type QueueWaitReason = "outside-window" | "queue-full" | "lower-lane";
+
 export interface ClientTorrent {
   hash: string;
   name: string;
@@ -23,6 +25,10 @@ export interface ClientTorrent {
   retentionState?: "kept" | "stream" | "prewarm" | "unknown";
   /** 1-based place in the built-in download queue; set only while `state` is "queued". */
   queuePosition?: number;
+  /** Why a queued built-in row is waiting (server-computed); absent otherwise. */
+  waitReason?: QueueWaitReason | null;
+  /** Queue priority of a kept built-in download: owner > request > automation. */
+  lane?: "owner" | "request" | "automation" | null;
   workId?: string | null;
   workKey?: string | null;
   workTitle?: string | null;

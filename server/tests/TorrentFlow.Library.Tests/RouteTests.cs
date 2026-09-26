@@ -151,6 +151,7 @@ public sealed class RouteTests
         Assert.Equal("s00001e00002", add.QueueKey);
         Assert.Equal(1000000, add.ExpectedSizeBytes);
         Assert.False(add.Forced);
+        Assert.Equal(TorrentLane.Owner, add.Lane);
         await using var db = await host.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>().CreateDbContextAsync();
         Assert.Equal(3, (await db.WatchListItems.SingleAsync()).CursorEpisode);
         Assert.False(await GrabService.Advance(db, "watch", new(1, 2), "late E2", default));

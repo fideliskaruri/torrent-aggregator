@@ -53,6 +53,9 @@ public partial class EngineTorrent
 
     public DateTime? ForcedAt { get; set; }
 
+    /// <summary>Queue lane rank (TorrentLane.Rank): 0 owner, 1 request, 2 automation. Lower starts first.</summary>
+    public int Lane { get; set; }
+
     public virtual User User { get; set; } = null!;
 
     public virtual Work? Work { get; set; }

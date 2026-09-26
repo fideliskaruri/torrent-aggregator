@@ -69,6 +69,38 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         return port;
     }
 
+    /// <summary>The stricter of two byte/s limits where 0 (or null) means unlimited.</summary>
+    internal static int EffectiveRate(long baseRate, long? windowRate)
+    {
+        var b = baseRate > 0 ? baseRate : long.MaxValue;
+        var w = windowRate is > 0 ? windowRate.Value : long.MaxValue;
+        var min = Math.Min(b, w);
+        return min == long.MaxValue ? 0 : (int)Math.Min(int.MaxValue, min);
+    }
+
+    /// <summary>
+    /// Copies the running settings and changes only the two rate fields: rebuilding from options would re-pick the
+    /// listen port (port 0 resolves to a fresh free port) and rebind DHT.
+    /// </summary>
+    public async Task ApplyRateLimitsAsync(long? maxDownloadRate, long? maxUploadRate)
+    {
+        var download = EffectiveRate(0, maxDownloadRate);
+        var upload = EffectiveRate(_options.MaxUploadRate, maxUploadRate);
+        await _gate.WaitAsync();
+        try
+        {
+            var current = Engine.Settings;
+            if (current.MaximumDownloadRate == download && current.MaximumUploadRate == upload) return;
+            var builder = new EngineSettingsBuilder(current) { MaximumDownloadRate = download, MaximumUploadRate = upload };
+            await Engine.UpdateSettingsAsync(builder.ToSettings());
+            _logger.LogInformation("Engine speed limits now {Down} B/s down, {Up} B/s up (0 = unlimited)", download, upload);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private TorrentSettings TorrentSettingsFor(string purpose, bool createContainingDirectory = true) => new TorrentSettingsBuilder
     {
         MaximumConnections = purpose == Core.Contracts.Engine.TorrentPurpose.Prewarm

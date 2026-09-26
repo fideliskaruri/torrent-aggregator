@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Library.Features.Automation;
 using TorrentFlow.Library.Features.Grabs;
@@ -44,6 +45,7 @@ public sealed class AutomationTests
         host.Search.Respond = o => new() { Query = o.Query, Results = [FakeSearch.Release("Example Show S01E01 1080p", 0)] };
         await host.Services.GetRequiredService<AutomationService>().Run(default);
         Assert.Equal(send ? 1 : 0, host.Engine.Adds.Count);
+        Assert.All(host.Engine.Adds, a => Assert.Equal(TorrentLane.Automation, a.Lane));
         await using var db = await host.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>().CreateDbContextAsync();
         var item = await db.WatchListItems.SingleAsync();
         Assert.Equal(1, item.CursorSeason);
@@ -78,6 +80,7 @@ public sealed class AutomationTests
         Assert.Equal("sent", Assert.Single(await automation.Rules(default)).Status);
         Assert.Equal("skipped", Assert.Single(await automation.Rules(default)).Status);
         Assert.Equal(2, host.Engine.Adds.Count);
+        Assert.All(host.Engine.Adds, a => Assert.Equal(TorrentLane.Automation, a.Lane));
     }
     [Theory]
     [InlineData("Blade Runner 2049 1080p", "Blade Runner 2049")]

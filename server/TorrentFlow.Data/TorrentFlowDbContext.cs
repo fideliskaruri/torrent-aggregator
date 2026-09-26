@@ -228,6 +228,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.AutomationIntervalMinutes).HasColumnName("automationIntervalMinutes");
             entity.Property(e => e.BaseDownloadPath).HasColumnName("baseDownloadPath");
             entity.Property(e => e.MaxActiveDownloads).HasColumnName("maxActiveDownloads");
+            entity.Property(e => e.DownloadWindows).HasColumnName("downloadWindows");
             entity.Property(e => e.Categories).HasColumnName("categories");
             entity.Property(e => e.Category).HasColumnName("category");
             entity.Property(e => e.ClientType)
@@ -341,6 +342,7 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnName("origin");
             entity.Property(e => e.Progress).HasColumnName("progress");
             entity.Property(e => e.QueueKey).HasColumnName("queueKey");
+            entity.Property(e => e.Lane).HasColumnName("lane");
             entity.Property(e => e.SavePath).HasColumnName("savePath");
             entity.Property(e => e.SizeBytes)
                 .HasColumnType("BIGINT")

@@ -30,6 +30,9 @@ public partial class ClientSetting
     /// <summary>Owner's cap on kept downloads transferring at once; null uses the engine default.</summary>
     public int? MaxActiveDownloads { get; set; }
 
+    /// <summary>Weekly download hours as JSON (DownloadWindows); null or empty = downloads any time.</summary>
+    public string? DownloadWindows { get; set; }
+
     public string? Categories { get; set; }
 
     public string? PathRules { get; set; }

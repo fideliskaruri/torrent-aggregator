@@ -69,6 +69,7 @@ import {
   releaseDisplayFacts,
   sourceTierChip,
   stateLabel,
+  waitReasonLabel,
 } from "./release-display";
 import type { Artwork } from "@/lib/metadata/artwork";
 import type { ClientTorrent, TorrentRowAction } from "./types";
@@ -394,6 +395,14 @@ function EpisodeCard({
               {stateLabel(t.state, t.queuePosition)}
             </Badge>
             {t.imported && <Badge variant="outline">Imported</Badge>}
+            {waitReasonLabel(t.state, t.waitReason) ? (
+              <span
+                className="text-[11px] text-[var(--text-tertiary)]"
+                data-wait-reason={t.waitReason ?? undefined}
+              >
+                {waitReasonLabel(t.state, t.waitReason)}
+              </span>
+            ) : null}
             <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
               {formatBytes(t.sizeBytes)}
               {t.peers != null ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : ""}

@@ -28,7 +28,8 @@ public sealed class TorrentSendController(
          ("category", 100), ("savePath", 4096), ("watchListItemId", 128), ("queueKey", 64), ("workId", 128)];
 
     private static readonly (string Field, string[] Allowed)[] EnumFields =
-        [("target", ["primary", "external"]), ("retention", ["stream", "keep"]), ("scope", ["title", "season", "episode"])];
+        [("target", ["primary", "external"]), ("retention", ["stream", "keep"]), ("scope", ["title", "season", "episode"]),
+         ("lane", [TorrentLane.Owner, TorrentLane.Request, TorrentLane.Automation])];
 
     /// <summary>requestFailureResponse: a 400 naming the offending field, as the SPA highlights it.</summary>
     private BadRequestObjectResult Invalid(string error, string field) => BadRequest(new { error, field });
@@ -126,6 +127,8 @@ public sealed class TorrentSendController(
             ExpectedSizeBytes = expected,
             Forced = body.Bool("forced") ?? false,
             OverrideStorageCap = overrideCap,
+            // A manual send is the owner's own pick unless the caller names another lane (requests).
+            Lane = body.Str("lane") ?? TorrentLane.Owner,
         }, ct);
 
         var smart = new { kind = resolved.Smart.Kind, category = resolved.Smart.Category, confidence = resolved.Smart.Confidence };

@@ -29,6 +29,14 @@ internal sealed class NoHttpFactory : IHttpClientFactory
     }
 }
 
+/// <summary>A settable clock whose local time zone is UTC, so download-window tests read the hour they set.</summary>
+internal sealed class ManualClock(DateTimeOffset now) : TimeProvider
+{
+    public DateTimeOffset Now { get; set; } = now;
+    public override DateTimeOffset GetUtcNow() => Now;
+    public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+}
+
 /// <summary>In-memory torrent client: records what the service loads, so queue behaviour is observable.</summary>
 internal sealed class FakeBackend : ITorrentBackend
 {
@@ -68,6 +76,15 @@ internal sealed class FakeBackend : ITorrentBackend
     public Task<Stream> OpenStreamAsync(string hash, int fileIndex, CancellationToken ct) => Task.FromResult<Stream>(new MemoryStream([1, 2, 3]));
     public byte[]? GetMetadata(string hash) => null;
 
+    public readonly List<(long? Down, long? Up)> RateLog = [];
+    public bool FailRates;
+    public Task ApplyRateLimitsAsync(long? maxDownloadRate, long? maxUploadRate)
+    {
+        if (FailRates) throw new InvalidOperationException("engine refused the new rates");
+        lock (RateLog) RateLog.Add((maxDownloadRate, maxUploadRate));
+        return Task.CompletedTask;
+    }
+
     public void Update(string hash, Func<BackendSnapshot, BackendSnapshot> f)
     {
         if (Live.TryGetValue(hash, out var s)) Live[hash] = f(s);
@@ -98,7 +115,7 @@ internal sealed class EngineHarness : IAsyncDisposable
     public TorrentEngineService Engine { get; }
     public Queue.DownloadLimits Limits { get; } = new();
 
-    private EngineHarness(string root, ServiceProvider services, EngineOptions options, Layout.CompletedLayoutFinalizer? layout)
+    private EngineHarness(string root, ServiceProvider services, EngineOptions options, Layout.CompletedLayoutFinalizer? layout, TimeProvider? time)
     {
         Root = root;
         Services = services;
@@ -106,7 +123,7 @@ internal sealed class EngineHarness : IAsyncDisposable
         Db = services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>();
         Storage = new StorageBudget(TimeProvider.System) { FreeBytesProvider = _ => 10L << 40 };
         Engine = new TorrentEngineService(Db, Backend, new StaticOptionsMonitor<EngineOptions>(options), new ClientSettingsStore(Db), Storage,
-            new NoHttpFactory(), TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout, limits: Limits);
+            new NoHttpFactory(), time ?? TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout, limits: Limits);
     }
 
     public static string NewRoot()
@@ -116,7 +133,8 @@ internal sealed class EngineHarness : IAsyncDisposable
         return root;
     }
 
-    public static async Task<EngineHarness> CreateAsync(int cap = 2, long? maxStorageBytes = 1L << 40, Layout.CompletedLayoutFinalizer? layout = null)
+    public static async Task<EngineHarness> CreateAsync(int cap = 2, long? maxStorageBytes = 1L << 40, Layout.CompletedLayoutFinalizer? layout = null,
+        TimeProvider? time = null)
     {
         var root = NewRoot();
         var services = new ServiceCollection()
@@ -125,7 +143,7 @@ internal sealed class EngineHarness : IAsyncDisposable
             .BuildServiceProvider();
         await services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
         var options = new EngineOptions { MaxActiveDownloads = cap, DataDirectory = root, MetadataTimeoutSeconds = 5, Streaming = true };
-        var h = new EngineHarness(root, services, options, layout);
+        var h = new EngineHarness(root, services, options, layout, time);
         await using var db = await h.Db.CreateDbContextAsync();
         var settings = await new ClientSettingsStore(h.Db).EnsureAsync(db);
         settings.BaseDownloadPath = Path.Combine(root, "downloads");

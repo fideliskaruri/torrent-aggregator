@@ -12,7 +12,11 @@ namespace TorrentFlow.Library.Features.Grabs;
 public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cursor = null,
     string? WatchListItemId = null, string? WorkId = null, int? PreferredResolution = null,
     string Retention = "keep", bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
-    bool Background = false, int? Year = null, string? WorkKey = null);
+    bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null)
+{
+    /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
+    public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
+}
 
 /// <summary>What one ladder rung fetched and how much survived each filter (TS RungDiagnostic).</summary>
 public sealed class RungDiagnostic
@@ -178,7 +182,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
                 Metadata = CatalogMetadata(input.MediaType, input.Title),
                 QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
-                OverrideStorageCap = input.OverrideStorageCap }, ct);
+                OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
         }
         catch (Exception error) when (!ct.IsCancellationRequested) { result = new(false, error.Message); }
