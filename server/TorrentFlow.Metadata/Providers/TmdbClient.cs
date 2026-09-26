@@ -11,7 +11,8 @@ namespace TorrentFlow.Metadata.Providers;
 public sealed record TmdbCandidate(int Id, string MediaType, string Title, int? Year, string? PosterUrl, string? BackdropUrl, double Popularity, int VoteCount);
 
 /// <summary>Port of src/lib/metadata/tmdb.ts.</summary>
-public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<MetadataOptions> options, TimeProvider time)
+public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<MetadataOptions> options, TimeProvider time,
+    ITmdbCredentialProvider? credentials = null)
 {
     public const string HttpClientName = "TorrentFlow.Metadata";
     public const string Base = "https://api.themoviedb.org/3";
@@ -52,7 +53,9 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         return !PlaceholderKeys.Contains(lower) && !ObviousTemplate().IsMatch(lower);
     }
 
-    public string? ApiKey => IsUsableKey(options.Value.TmdbApiKey) ? NormalizeCredential(options.Value.TmdbApiKey) : null;
+    public string? ApiKey => credentials is not null ? credentials.ApiKey :
+        IsUsableKey(options.Value.TmdbApiKey) ? NormalizeCredential(options.Value.TmdbApiKey) : null;
+    public long CredentialRevision => credentials?.Revision ?? 0;
     public bool HasKey => ApiKey != null;
 
     private static bool IsV4Token(string value) => value.Length > 80 && value.Split('.').Length == 3;

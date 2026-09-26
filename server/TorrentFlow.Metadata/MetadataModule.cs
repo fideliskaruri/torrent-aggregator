@@ -26,8 +26,10 @@ public static class MetadataModule
 
         services.TryAddSingleton(TimeProvider.System);
         // Per-call timeouts use linked CancellationTokenSources matching the TS AbortSignal.timeout values.
-        services.AddHttpClient(TmdbClient.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan);
+        services.AddHttpClient(TmdbClient.HttpClientName, c => c.Timeout = Timeout.InfiniteTimeSpan).RemoveAllLoggers();
 
+        services.AddSingleton<Settings.TmdbSettingsStore>();
+        services.AddSingleton<ITmdbCredentialProvider>(sp => sp.GetRequiredService<Settings.TmdbSettingsStore>());
         services.AddSingleton<TmdbClient>();
         services.AddSingleton<AniListClient>();
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup, LibraryAnimeLookup>());
@@ -70,4 +72,3 @@ public static class MetadataModule
             o.ArtworkTimeoutMs = (int)v;
     }
 }
-

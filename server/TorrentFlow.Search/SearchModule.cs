@@ -13,7 +13,7 @@ public static class SearchModule
     {
         services.AddOptions<SearchModuleOptions>().Bind(configuration.GetSection("TorrentFlow:Search"))
             .ValidateDataAnnotations().ValidateOnStart();
-        services.AddHttpClient("TorrentFlow.Indexers", client => client.Timeout = TimeSpan.FromSeconds(40))
+        services.AddHttpClient("TorrentFlow.Indexers", client => client.Timeout = TimeSpan.FromSeconds(40)).RemoveAllLoggers()
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
             {
                 AutomaticDecompression = System.Net.DecompressionMethods.All,

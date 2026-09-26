@@ -42,10 +42,11 @@ public sealed class WorkSearchService
     private readonly TimeProvider _time;
     private readonly IReadOnlyDictionary<string, WorkSearchProvider> _providers;
     private readonly bool _cacheEnabled;
+    private readonly TmdbClient? _tmdb;
     private readonly BoundedTtlCache<(WorkSearchOutcome Result, DateTimeOffset FreshUntil)> _cache;
 
     public WorkSearchService(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, TimeProvider time)
-        : this(DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { }
+        : this(DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { _tmdb = tmdb; }
 
     internal WorkSearchService(IReadOnlyDictionary<string, WorkSearchProvider> providers, TimeProvider time, bool cacheEnabled = false)
     {
@@ -169,7 +170,7 @@ public sealed class WorkSearchService
         var query = QueryVariants.Canonicalize(rawQuery);
         var display = QueryVariants.Display(rawQuery);
         IReadOnlyList<string> attempted = scope == "all" ? Categories : [scope];
-        var cacheKey = _cacheEnabled ? $"{scope}:{limit}:{query.ToLowerInvariant()}" : null;
+        var cacheKey = _cacheEnabled ? $"{_tmdb?.CredentialRevision ?? 0}:{scope}:{limit}:{query.ToLowerInvariant()}" : null;
         if (cacheKey != null && _cache.TryGet(cacheKey, out var cached) && cached.FreshUntil > _time.GetUtcNow())
             return cached.Result with { Stale = false };
 

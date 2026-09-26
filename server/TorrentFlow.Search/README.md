@@ -96,7 +96,11 @@ budget, 14-second plain search and 10-second detail budgets.
 
 All indexer base URL environment overrides are preserved. Corresponding
 `TorrentFlow:Search:<ENV_NAME>` configuration keys take precedence. EZTV remains
-optional when `TMDB_API_KEY` is absent.
+optional when no TMDB credential is available. Settings → Metadata saves a key in
+the data directory and takes precedence over `TorrentFlow:Metadata:TmdbApiKey` /
+`TMDB_API_KEY`. Metadata and EZTV share the same live provider; saving or removing
+the override takes effect immediately, including cached lookups. Standalone Search
+module deployments retain the legacy Search configuration fallback.
 
 ## Verification
 

@@ -318,7 +318,7 @@ public sealed class ArtworkResolver
             cancellationToken.ThrowIfCancellationRequested();
             var query = ArtworkMatching.Normalize(q);
             if (query == null) return ArtworkResult.None;
-            var key = ArtworkMatching.CacheKey(query);
+            var key = $"{_tmdb.CredentialRevision}:{ArtworkMatching.CacheKey(query)}";
             if (_cache.TryGet(key, out var cached)) return cached.Artwork;
             var value = await _inFlight.RunAsync(key, async () =>
             {
@@ -342,7 +342,7 @@ public sealed class ArtworkResolver
             cancellationToken.ThrowIfCancellationRequested();
             var query = ArtworkMatching.Normalize(q);
             if (query == null || !_tmdb.HasKey) return null;
-            var key = ArtworkMatching.CacheKey(query);
+            var key = $"{_tmdb.CredentialRevision}:{ArtworkMatching.CacheKey(query)}";
             if (_cache.TryGet(key, out var cached) && cached.RefKnown) return cached.Ref;
             return await _refInFlight.RunAsync(key, async () =>
             {
@@ -396,4 +396,3 @@ public sealed class ArtworkResolver
         return new Resolved(ArtworkResult.None, null, false);
     }
 }
-

@@ -141,7 +141,8 @@ public sealed class YtsAdapter(IndexerHttp http, IOptions<SearchModuleOptions> c
     internal static string? YtsUploaded(JsonElement torrent) => Unix(L(torrent, "date_uploaded_unix")) ?? Date(S(torrent, "date_uploaded"));
 }
 
-public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration) : TorrentAdapter(http, configuration)
+public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> configuration,
+    TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null) : TorrentAdapter(http, configuration)
 {
     public override string Id => "eztv";
     private readonly object gate = new();
@@ -163,20 +164,23 @@ public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
     }
     private async Task<string?> Imdb(string title, CancellationToken token)
     {
-        var key = Setting("TMDB_API_KEY");
+        var key = credentials is not null ? credentials.ApiKey : Setting("TMDB_API_KEY");
+        var cacheKey = $"{credentials?.Revision ?? 0}:{title}";
         if (string.IsNullOrWhiteSpace(key) || title.Length == 0) return null;
-        lock (gate) if (ids.TryGetValue(title, out var cached) && cached.Expires > DateTimeOffset.UtcNow) return cached.Id;
+        lock (gate) if (ids.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTimeOffset.UtcNow) return cached.Id;
         var root = Setting("TMDB_BASE_URL") ?? "https://api.themoviedb.org/3";
+        var bearer = key.Length > 80 && key.Split('.').Length == 3 ? key : null;
+        var keyQuery = bearer is null ? $"api_key={EncodeUriComponent(key)}&" : "";
         string? imdb = null;
         try
         {
-            using var search = JsonDocument.Parse(await Http.GetAsync($"{root}/search/tv?api_key={EncodeUriComponent(key)}&query={EncodeUriComponent(title)}", timeoutMs: 8000, cancellationToken: token));
+            using var search = JsonDocument.Parse(await Http.GetAsync($"{root}/search/tv?{keyQuery}query={EncodeUriComponent(title)}", timeoutMs: 8000, cancellationToken: token, bearerToken: bearer));
             string Normalize(string s) => Replace(s.ToLowerInvariant().Replace("&", "and"), @"[^a-z0-9]+", "");
             var wanted = Normalize(title);
             var show = Rows(search.RootElement, "results").FirstOrDefault(r => Normalize(S(r, "name")) == wanted || Normalize(S(r, "original_name")) == wanted);
             if (show.ValueKind != JsonValueKind.Undefined)
             {
-                using var result = JsonDocument.Parse(await Http.GetAsync($"{root}/tv/{S(show, "id")}/external_ids?api_key={EncodeUriComponent(key)}", timeoutMs: 8000, cancellationToken: token));
+                using var result = JsonDocument.Parse(await Http.GetAsync($"{root}/tv/{S(show, "id")}/external_ids?{keyQuery.TrimEnd('&')}", timeoutMs: 8000, cancellationToken: token, bearerToken: bearer));
                 imdb = Replace(S(result.RootElement, "imdb_id").Trim(), "^tt", "");
                 if (imdb.Length == 0) imdb = null;
             }
@@ -185,7 +189,7 @@ public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
         lock (gate)
         {
             if (ids.Count >= 500) ids.Remove(ids.Keys.First());
-            ids[title] = (imdb, DateTimeOffset.UtcNow.AddDays(1));
+            ids[cacheKey] = (imdb, DateTimeOffset.UtcNow.AddDays(1));
         }
         return imdb;
     }

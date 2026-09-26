@@ -43,6 +43,7 @@ if (isPublishedBundle && string.IsNullOrWhiteSpace(configuredUrls) && string.IsN
 }
 
 var dataDir = ResolveDataDirectory(builder.Configuration, builder.Environment);
+builder.Configuration["TorrentFlow:DataDirectory"] = dataDir;
 Directory.CreateDirectory(dataDir);
 var dbPath = builder.Configuration["TorrentFlow:DatabasePath"] ?? Path.Combine(dataDir, "torrentflow.db");
 builder.Services.AddTorrentFlowData($"Data Source={dbPath}");

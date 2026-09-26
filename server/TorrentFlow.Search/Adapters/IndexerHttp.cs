@@ -9,13 +9,14 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
     private readonly object gate = new();
     private readonly Dictionary<string, DateTimeOffset> failed = [];
     private readonly Dictionary<string, string> preferred = [];
-    public async Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false)
+    public async Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false, string? bearerToken = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(timeoutMs);
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.TryAddWithoutValidation("User-Agent", agent);
         request.Headers.TryAddWithoutValidation("Accept", accept);
+        if (bearerToken is not null) request.Headers.Authorization = new("Bearer", bearerToken);
         if (agent.Contains("Chrome/131"))
         {
             request.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");

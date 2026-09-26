@@ -176,7 +176,7 @@ public sealed partial class MetadataResolver : IMetadataResolver
     {
         var cleaned = TitleCleaning.CleanTorrentTitle(rawTitle);
         if (cleaned.Length == 0) return null;
-        var key = $"{(string.IsNullOrEmpty(category) ? "all" : category)}:{cleaned.ToLowerInvariant()}";
+        var key = $"{_tmdb.CredentialRevision}:{(string.IsNullOrEmpty(category) ? "all" : category)}:{cleaned.ToLowerInvariant()}";
         if (_memory.TryGet(key, out var cached)) return cached;
         return await _inFlight.RunAsync(key, () => ResolveUncachedAsync(rawTitle, cleaned, category, key), cancellationToken).ConfigureAwait(false);
     }

@@ -102,10 +102,27 @@ environment variable of the same name.
 | `apibay` | ThePirateBay | on | JSON; `APIBAY_BASE_URL` |
 | `torrentscsv` | TorrentsCSV | on | JSON; `TORRENTS_CSV_BASE_URL` |
 | `yts` | YTS | on | Movies; mirror list via `YTS_BASE_URL` |
-| `eztv` | EZTV | on (TV) | Needs `TMDB_API_KEY` to resolve the IMDb id |
+| `eztv` | EZTV | on (TV) | Needs a TMDB key (Settings → Metadata, or `TMDB_API_KEY`) to resolve the IMDb id |
 | `1337x` | 1337x | off | `ENABLE_1337X=1`; `X1337_USE_PLAYWRIGHT=1` for the Cloudflare fallback |
 | `archive` | Internet Archive | off | `ENABLE_ARCHIVE=1`; public-domain/CC films, TV, animation (`ArchiveAdapter.cs`) |
 | `torznab` | Torznab (Jackett/Prowlarr) | off until configured | `TORZNAB_URL` + `TORZNAB_API_KEY` (`TorznabAdapter.cs`) |
+
+### Optional TMDB credentials
+
+Settings → Metadata accepts a TMDB API key or read-access token without restarting.
+Save stores the normalized credential in `<dataDir>/tmdb-settings.json`; protect this
+file like any other secret (it is not encrypted). The saved setting takes precedence
+over `TorrentFlow:Metadata:TmdbApiKey`, then the legacy `TMDB_API_KEY` configuration.
+Remove deletes only the saved override and immediately restores that fallback.
+AniList and keyless sources remain available without a key.
+
+`GET /api/settings/tmdb` returns only `configured`, `source` (`settings`,
+`environment`, or `none`) and a masked last-four-character `hint`.
+`PUT` accepts `{ "apiKey": "..." }`; `DELETE` removes the override.
+`POST /api/settings/tmdb/test` checks a supplied key (or the effective saved/config key)
+against TMDB without saving it; results are `ok`, `invalid`, or `unavailable`.
+Mutations use the local-owner same-origin write guard. Test is separate from Save:
+Save validates credential shape, not whether TMDB accepts it.
 
 **Internet Archive.** One `advancedsearch.php` request per search:
 `title:(<query>) AND mediatype:movies` sorted by `downloads desc`, with `fl[]=btih` so the torrent info-hash

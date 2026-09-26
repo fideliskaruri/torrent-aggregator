@@ -159,7 +159,7 @@ public sealed partial class RecommendationService(
     private async Task<List<Recommendation>> FromTmdbAsync(string mediaType, string id, CancellationToken ct)
     {
         if (tmdb.ApiKey is not { } key) return [];
-        var cacheKey = $"{mediaType}:{id}";
+        var cacheKey = $"{tmdb.CredentialRevision}:{mediaType}:{id}";
         if (_tmdbCache.TryGet(cacheKey, out var cached)) return cached;
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);

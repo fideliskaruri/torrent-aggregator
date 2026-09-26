@@ -81,7 +81,7 @@ public sealed class TitleExtrasService(
     {
         var empty = Empty(q.WorkKey, q.Season);
         if (q.Title.Length == 0) return empty;
-        var memoKey = string.Join('\u0000', q.WorkKey, q.Title, q.Year, q.MediaType, q.Season, q.Provider, q.ProviderId);
+        var memoKey = string.Join('\u0000', tmdb.CredentialRevision, q.WorkKey, q.Title, q.Year, q.MediaType, q.Season, q.Provider, q.ProviderId);
         if (_memo.TryGet(memoKey, out var cached)) return cached with { GeneratedAt = Now() };
         try
         {

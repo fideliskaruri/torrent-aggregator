@@ -17,7 +17,8 @@ public sealed class SearchThrottledException(int seconds) : Exception($"Indexers
 
 public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adapters, SearchCacheStore cache,
     ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
-    ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null, ITrackerScraper? scraper = null) : ITorrentSearchService
+    ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null, ITrackerScraper? scraper = null,
+    TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
     private readonly ITorrentSourceAdapter[] all = adapters.ToArray();
@@ -46,7 +47,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var target = options.TargetResolution is 480 or 720 or 1080 or 2160 ? options.TargetResolution.Value
             : settings?.PreferredResolution is 480 or 720 or 1080 or 2160 ? settings.PreferredResolution.Value : 1080;
         if (options.Enrich) enricher.Prime(options.Query, options.Category);
-        var key = SearchCacheStore.Key(options, target);
+        var key = SearchCacheStore.Key(options, target) + (credentials is null ? "" : $":credentials:{credentials.Revision}");
         var pool = options.SkipCache ? null : await cache.GetAsync(key, token: cancellationToken);
         var cached = pool != null;
         if (pool == null)
