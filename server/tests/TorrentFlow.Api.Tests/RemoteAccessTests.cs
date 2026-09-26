@@ -393,6 +393,18 @@ public sealed class RemoteAccessTests(RemoteHostFactory factory) : IClassFixture
     }
 
     [Fact]
+    public async Task DownloadRecoveryIsRefusedThroughTheTunnel()
+    {
+        using var client = factory.Tunnel(factory.Token());
+        foreach (var method in new[] { HttpMethod.Get, HttpMethod.Post })
+        {
+            var response = await client.SendAsync(new HttpRequestMessage(method, "/api/settings/download-recovery"));
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            Assert.Equal("local_only", (await Json(response)).GetProperty("code").GetString());
+        }
+    }
+
+    [Fact]
     public async Task RemoteAccessSettingsCannotBeChangedThroughTheTunnel()
     {
         using var client = factory.Tunnel(factory.Token());

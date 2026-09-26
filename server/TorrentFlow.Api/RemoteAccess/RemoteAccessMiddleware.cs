@@ -25,6 +25,7 @@ public static class RemoteAccessClaims
 public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessStore store, AccessTokenValidator validator, ILogger<RemoteAccessMiddleware> logger)
 {
     private static readonly string[] StreamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];
+    private static readonly string[] LocalOnlyRoutes = ["/api/settings/download-recovery"];
     public const string AuthHeader = "X-TorrentFlow-Auth";
 
     public async Task InvokeAsync(HttpContext context)
@@ -103,8 +104,19 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
 
         context.User = Principal(RemoteAccessClaims.ViaTunnel, result.Email, "CloudflareAccess");
 
-        // Cloudflare's terms and its 100 s proxy timeout rule out video over the tunnel.
         var path = context.Request.Path;
+        // Exposes local data/download paths and imports files: this computer only, never remote.
+        if (LocalOnlyRoutes.Any(r => path.StartsWithSegments(r, StringComparison.OrdinalIgnoreCase)))
+        {
+            await WriteJson(context, StatusCodes.Status403Forbidden, new
+            {
+                error = "This is only available on the computer running TorrentFlow.",
+                code = "local_only",
+            });
+            return;
+        }
+
+        // Cloudflare's terms and its 100 s proxy timeout rule out video over the tunnel.
         if (StreamingRoutes.Any(r => path.StartsWithSegments(r, StringComparison.OrdinalIgnoreCase)))
         {
             await WriteJson(context, StatusCodes.Status404NotFound, new { error = "Streaming isn't available through remote access.", streamingDisabled = true });
