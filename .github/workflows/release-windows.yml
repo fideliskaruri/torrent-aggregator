@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Check out the tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
 
@@ -43,7 +43,7 @@ jobs:
           "prerelease=$([bool]($version -match '-'))".ToLowerInvariant() >> $env:GITHUB_OUTPUT
 
       - name: Use the tested Node runtime
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
@@ -51,7 +51,7 @@ jobs:
         run: corepack enable
 
       - name: Use .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -132,7 +132,7 @@ jobs:
           Get-Content SHA256SUMS.txt
 
       - name: Publish the GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: TorrentFlow ${{ steps.version.outputs.version }}
