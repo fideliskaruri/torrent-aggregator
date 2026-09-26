@@ -130,15 +130,19 @@ public static class DataAdoption
         }
     }
 
-    // Puts the installed library back when a replace failed. After a mid-publish undo the target may still
-    // hold empty directories or residual files that came from staging (source is untouched); clear them
-    // so the *.replaced-* backup can move back into place.
+    // Puts the installed library back when a replace failed. Anything still in the target (files another
+    // process wrote mid-copy) is moved aside to *.failed-* rather than deleted.
     private static bool RestoreTarget(string target, string targetBackup)
     {
         try
         {
             if (Directory.Exists(target))
-                Directory.Delete(target, recursive: true);
+            {
+                if (Directory.EnumerateFileSystemEntries(target).Any())
+                    Directory.Move(target, UniquePath($"{target}.failed-{DateTime.UtcNow:yyyyMMddHHmmss}"));
+                else
+                    Directory.Delete(target);
+            }
             Directory.Move(targetBackup, target);
             return true;
         }
