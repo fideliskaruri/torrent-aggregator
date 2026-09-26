@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - main
-  schedule:
-    - cron: "23 5 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -17,126 +15,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  portable-setup:
+  build-and-test:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Use the tested Node runtime
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
 
-      - name: Enable pnpm
-        run: corepack enable
-
-      - name: Install without a local env file
-        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
-
-      - name: Initialize and recheck setup
-        run: |
-          pnpm run setup
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm run setup
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm run doctor
-
-  quality:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    env:
-      NEXT_TELEMETRY_DISABLED: "1"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Configure isolated CI paths
-        shell: bash
-        run: |
-          echo "DATABASE_URL=file:$RUNNER_TEMP/torrentflow-ci.db" >> "$GITHUB_ENV"
-          echo "DOWNLOAD_DIR=$RUNNER_TEMP/torrentflow-downloads" >> "$GITHUB_ENV"
-
-      - name: Use the tested Node runtime
-        uses: actions/setup-node@v4
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
+          dotnet-version: 10.0.x
 
-      - name: Enable pnpm
-        run: corepack enable
+      - name: Install web dependencies
+        run: pnpm --dir web install --frozen-lockfile
 
-      - name: Install locked dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Type-check web
+        run: pnpm --dir web run typecheck
 
-      - name: Audit production dependencies
-        run: pnpm run audit:prod
+      - name: Test web
+        working-directory: web
+        run: node --test tests/*.test.mjs
 
-      - name: Run ESLint
-        run: pnpm run lint
+      - name: Build web
+        run: pnpm --dir web exec vite build
 
-      - name: Run TypeScript checks
-        run: pnpm run typecheck
+      - name: Build server
+        run: dotnet build TorrentFlow.slnx -c Release -p:SkipWebBuild=true -nologo
 
-      - name: Apply and verify Prisma migrations
-        run: |
-          pnpm run db:migrate:deploy
-          pnpm run db:migrate:status
-
-      - name: Run offline unit tests
-        run: pnpm run test:unit
-
-      - name: Build production app
-        run: pnpm run build
-
-      - name: Install Playwright Chromium
-        run: ./node_modules/.bin/playwright install --with-deps chromium
-
-      - name: Run built-app UI gate
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          server_log="$RUNNER_TEMP/torrentflow-server.log"
-          setsid pnpm run start >"$server_log" 2>&1 &
-          server_pid=$!
-
-          cleanup() {
-            kill -TERM -- "-$server_pid" 2>/dev/null || true
-            for _ in {1..10}; do
-              if ! kill -0 -- "-$server_pid" 2>/dev/null; then
-                break
-              fi
-              sleep 0.2
-            done
-            kill -KILL -- "-$server_pid" 2>/dev/null || true
-            wait "$server_pid" 2>/dev/null || true
-          }
-          trap cleanup EXIT INT TERM
-
-          ready=0
-          for _ in {1..60}; do
-            if ! kill -0 "$server_pid" 2>/dev/null; then
-              cat "$server_log"
-              echo "Built app exited before becoming ready."
-              exit 1
-            fi
-            if curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-
-          if [[ "$ready" -ne 1 ]]; then
-            cat "$server_log"
-            echo "Built app did not become ready within 60 seconds."
-            exit 1
-          fi
-
-          if ! pnpm run test:ui; then
-            cat "$server_log"
-            exit 1
-          fi
+      - name: Test server
+        run: dotnet test TorrentFlow.slnx -c Release --no-build -p:SkipWebBuild=true --nologo
