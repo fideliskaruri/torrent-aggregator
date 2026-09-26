@@ -251,6 +251,33 @@ public sealed class FfmpegLocatorTests : IDisposable
     public void Dispose() => TestPaths.TryDelete(_root);
 
     [Fact]
+    public void ManagedToolsDirectoryComesAfterEnvAndBeforeNodeModules()
+    {
+        var managed = Touch("tools", "ffmpeg", Exe("ffmpeg"));
+        var probe = Touch("tools", "ffmpeg", Exe("ffprobe"));
+        var env = Touch("env", Exe("ffmpeg"));
+        Touch("app", "node_modules", "ffmpeg-static", Exe("ffmpeg"));
+        var project = Path.Combine(_root, "app", "server");
+        Directory.CreateDirectory(project);
+        var options = new MediaOptions { ManagedToolsDirectory = Path.GetDirectoryName(managed) };
+
+        Assert.Equal(env, new FfmpegLocator(options, [project], k => k == "FFMPEG_PATH" ? env : null).ResolveFfmpeg());
+        var locator = new FfmpegLocator(options, [project], _ => null);
+        Assert.Equal(managed, locator.ResolveFfmpeg());
+        Assert.Equal(probe, locator.ResolveFfprobe());
+    }
+
+    [Fact]
+    public void ABinaryDownloadedAfterAMissedLookupIsFoundNextTime()
+    {
+        var dir = Path.Combine(_root, "tools");
+        var locator = new FfmpegLocator(new MediaOptions { ManagedToolsDirectory = dir }, [Path.Combine(_root, "none")], _ => null);
+        Assert.Null(locator.TryResolveFfmpeg());
+        var managed = Touch("tools", Exe("ffmpeg"));
+        Assert.Equal(managed, locator.TryResolveFfmpeg());
+    }
+
+    [Fact]
     public void ConfigBeatsEnvBeatsNodeModulesBeatsPath()
     {
         var configured = Touch("cfg", Exe("ffmpeg"));

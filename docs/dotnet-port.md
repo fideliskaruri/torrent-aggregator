@@ -452,6 +452,10 @@ marker file sits next to the exe, it instead keeps data in `data\` beside the ex
 folder stays self-contained. Pass `--urls http://127.0.0.1:3000` to override the port, or
 `--no-browser` to suppress the automatic browser launch.
 
+On Windows the published exe has no console window: it runs from a tray icon, can start with
+Windows, checks GitHub for updates and can download ffmpeg on demand. `.\scripts\publish-exe.ps1
+-Version 1.2.3 -Installer` also builds the per-user installer. See [windows-install.md](windows-install.md).
+
 ## Folder distribution
 
 ```powershell

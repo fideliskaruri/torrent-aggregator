@@ -8,6 +8,12 @@
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <WebProjectDirectory>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..', 'web'))</WebProjectDirectory>
     <GenerateEmbeddedFilesManifest Condition="'$(PublishSingleFile)' == 'true'">true</GenerateEmbeddedFilesManifest>
+    <!-- Release builds pass -p:Version=<tag>; 0.0.0 marks a local build, which never offers updates. -->
+    <Version Condition="'$(Version)' == ''">0.0.0</Version>
+    <ApplicationIcon>Desktop\TorrentFlow.ico</ApplicationIcon>
+    <!-- The published Windows exe is the desktop app: GUI subsystem, so no console window (it lives in the tray).
+         dotnet run / tests / Linux keep the console app. -->
+    <OutputType Condition="'$(PublishSingleFile)' == 'true' and $(RuntimeIdentifier.StartsWith('win'))">WinExe</OutputType>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />

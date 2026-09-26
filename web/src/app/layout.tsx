@@ -1,6 +1,7 @@
 import { Outlet, ScrollRestoration, type Location } from "react-router";
 import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { UpdateBanner } from "@/components/layout/update-banner";
 import { KeyboardRoot } from "@/components/layout/keyboard-root";
 import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { DownloadSetupProvider } from "@/components/setup/download-setup";
@@ -43,6 +44,7 @@ export default function RootLayout() {
               Skip to main content
             </a>
             <Header />
+            <UpdateBanner />
             <main
               id="main-content"
               tabIndex={-1}

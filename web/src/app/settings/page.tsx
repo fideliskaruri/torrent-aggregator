@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { invalidateDownloadPrefs } from "@/hooks/use-download-prefs";
+import { DesktopSection } from "@/components/settings/desktop-section";
 import { DownloadLocationFields } from "@/components/settings/download-location-fields";
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RemoteAccessSection } from "@/components/settings/remote-access-section";
@@ -1318,6 +1319,8 @@ export default function SettingsPage() {
       <SourcesSettings />
 
       <RemoteAccessSection />
+
+      <DesktopSection />
 
       <FolderPicker
         open={pickerOpen}

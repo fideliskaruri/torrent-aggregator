@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.FileProviders;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TorrentFlow.Api.Desktop;
 using TorrentFlow.Api.RemoteAccess;
 using TorrentFlow.Api.Requests;
 using TorrentFlow.Data;
@@ -20,8 +21,21 @@ using TorrentFlow.Api;
 System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
 System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
 
-var builder = WebApplication.CreateBuilder(args);
 var isPublishedBundle = IsPublishedBundle();
+// The published Windows exe is a GUI-subsystem app (no console window): reuse the terminal it was started from, if
+// any, and show fatal errors in a message box instead of a console nobody can see.
+var isDesktop = isPublishedBundle && OperatingSystem.IsWindows();
+if (isDesktop && OperatingSystem.IsWindows())
+{
+    NativeDialogs.AttachToParentConsole();
+    AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+    {
+        if (OperatingSystem.IsWindows())
+            NativeDialogs.ShowError($"TorrentFlow stopped because of an unexpected error:\n\n{(e.ExceptionObject as Exception)?.Message ?? e.ExceptionObject?.ToString()}");
+    };
+}
+var background = DesktopEnvironment.HasFlag(args, DesktopEnvironment.BackgroundArg);
+var builder = WebApplication.CreateBuilder(DesktopEnvironment.HostArgs(args));
 
 // Local single-user app: listen on loopback only unless the owner overrides --urls.
 var configuredUrls = builder.Configuration["urls"];
@@ -34,7 +48,15 @@ var ownerUrls = !string.IsNullOrWhiteSpace(configuredUrls) ? configuredUrls
 var dataDir = DataDirectoryResolver.Resolve(builder.Configuration["TorrentFlow:DataDirectory"],
     builder.Environment.ContentRootPath, AppContext.BaseDirectory, DataDirectoryResolver.DefaultDirectory(), Console.WriteLine);
 Directory.CreateDirectory(dataDir);
+// Every module reads TorrentFlow:DataDirectory and would otherwise fall back to <content root>/data — the working
+// directory, which is System32 for an autostart launch.
 builder.Configuration["TorrentFlow:DataDirectory"] = dataDir;
+var managedToolsDir = builder.Configuration["TorrentFlow:Media:ManagedToolsDirectory"];
+if (string.IsNullOrWhiteSpace(managedToolsDir))
+{
+    managedToolsDir = Path.Combine(dataDir, "tools", "ffmpeg");
+    builder.Configuration["TorrentFlow:Media:ManagedToolsDirectory"] = managedToolsDir;
+}
 
 // Remote access adds a second listener meant only for cloudflared. It joins the same UseUrls list: calling
 // ConfigureKestrel().Listen() would silently override --urls / ASPNETCORE_URLS.
@@ -62,6 +84,12 @@ if (isPublishedBundle && string.IsNullOrWhiteSpace(configuredUrls) && string.IsN
 {
     if (!IsPortAvailable(IPAddress.Loopback, 3000))
     {
+        // Launching the installed app again (Start menu, desktop shortcut) while it runs in the tray just opens it.
+        if (isDesktop && await IsTorrentFlowRunningAsync(defaultUrl))
+        {
+            if (!background) OpenBrowser(defaultUrl);
+            return;
+        }
         ExitWithMessage("TorrentFlow could not start because http://127.0.0.1:3000 is already in use. Close the other app or launch TorrentFlow with --urls <address>.");
         return;
     }
@@ -104,6 +132,10 @@ builder.Services.AddSingleton<RequesterDirectory>();
 builder.Services.Configure<RequestOptions>(builder.Configuration.GetSection(RequestOptions.SectionName));
 builder.Services.AddSingleton<IRequesterCatalog, RequesterCatalog>();
 builder.Services.AddSingleton<MediaRequestService>();
+builder.Services.AddDesktop(
+    new DesktopEnvironment(isDesktop, Environment.ProcessPath, DesktopEnvironment.CurrentVersion(), dataDir,
+        GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl), background),
+    managedToolsDir);
 
 var app = builder.Build();
 app.Logger.LogInformation("TorrentFlow data directory: {DataDirectory}; database: {DatabasePath}", dataDir, dbPath);
@@ -161,6 +193,7 @@ app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<Engine
 }).AllowRequesters();
 app.MapRemoteAccessEndpoints();
 app.MapRequestEndpoints();
+app.MapDesktopEndpoints();
 
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.
 app.MapGet("/activity", () => Results.Redirect("/notifications", permanent: true, preserveMethod: true));
@@ -202,7 +235,7 @@ app.MapControllers();
 if (webFiles is not null)
     app.MapFallbackToFile("{**path:regex(^(?!api/|assets/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles }).AllowRequesters();
 
-var launchBrowser = isPublishedBundle && !Debugger.IsAttached && !args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase));
+var launchBrowser = isPublishedBundle && !Debugger.IsAttached && !background && !DesktopEnvironment.HasFlag(args, DesktopEnvironment.NoBrowserArg);
 if (launchBrowser)
 {
     var browserUrl = GetBrowserUrl(configuredUrls, aspNetCoreUrls, defaultUrl);
@@ -295,10 +328,30 @@ static bool IsPortAvailable(IPAddress address, int port)
     }
 }
 
+static async Task<bool> IsTorrentFlowRunningAsync(string baseUrl)
+{
+    try
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        using var response = await client.GetAsync(baseUrl.TrimEnd('/') + "/api/health");
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("live", out var live) && live.ValueKind == JsonValueKind.True;
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+    {
+        return false;
+    }
+}
+
 static void ExitWithMessage(string message)
 {
     Console.Error.WriteLine(message);
     Environment.ExitCode = 1;
+    if (IsPublishedBundle() && OperatingSystem.IsWindows())
+    {
+        NativeDialogs.ShowError(message);
+        return;
+    }
     // A double-clicked exe closes its console on exit; keep the message readable.
     if (!Console.IsInputRedirected)
     {

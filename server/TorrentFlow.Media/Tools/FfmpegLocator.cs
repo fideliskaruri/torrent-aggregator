@@ -13,7 +13,7 @@ public sealed class FfmpegBinaryMissingException(string binary, string pkg, stri
 
 /// <summary>
 /// Resolves ffmpeg/ffprobe. Order: config <c>TorrentFlow:Media:FfmpegPath</c>/<c>FfprobePath</c> → env
-/// <c>FFMPEG_PATH</c>/<c>FFPROBE_PATH</c> → the TS app's bundled npm binaries (<c>node_modules/ffmpeg-static</c>,
+/// <c>FFMPEG_PATH</c>/<c>FFPROBE_PATH</c> → <c>TorrentFlow:Media:ManagedToolsDirectory</c> (the desktop app's download) → the TS app's bundled npm binaries (<c>node_modules/ffmpeg-static</c>,
 /// <c>node_modules/ffprobe-static/bin/&lt;platform&gt;/&lt;arch&gt;</c>) found walking up from the content root and
 /// working directory → PATH. Results are cached once found.
 /// </summary>
@@ -72,6 +72,11 @@ public sealed class FfmpegLocator
         {
             if (!File.Exists(fromEnv)) throw new FfmpegBinaryMissingException(binary, pkg, $"{envVar}=\"{fromEnv}\" does not exist on disk");
             return Path.GetFullPath(fromEnv);
+        }
+        if (!string.IsNullOrWhiteSpace(_options.ManagedToolsDirectory))
+        {
+            var managed = Path.Combine(_options.ManagedToolsDirectory, Exe(binary));
+            if (File.Exists(managed)) return Path.GetFullPath(managed);
         }
         var roots = new List<string>();
         if (!string.IsNullOrWhiteSpace(_options.NodeModulesRoot)) roots.Add(_options.NodeModulesRoot);

@@ -23,6 +23,7 @@ internal sealed class SubtitleExtraction(IConfiguration configuration, IHostEnvi
         FfmpegPath = configuration["TorrentFlow:Media:FfmpegPath"],
         FfprobePath = configuration["TorrentFlow:Media:FfprobePath"],
         NodeModulesRoot = configuration["TorrentFlow:Media:NodeModulesRoot"],
+        ManagedToolsDirectory = configuration["TorrentFlow:Media:ManagedToolsDirectory"],
     }, [environment.ContentRootPath, Environment.CurrentDirectory, AppContext.BaseDirectory], Environment.GetEnvironmentVariable);
 
     public const int ExtractTimeoutMs = 45_000;

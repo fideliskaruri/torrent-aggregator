@@ -1,0 +1,145 @@
+name: Release (Windows)
+
+# Tagging vX.Y.Z publishes the single-file TorrentFlow.exe and the per-user installer to a GitHub
+# Release. The in-app updater looks for the TorrentFlow-Setup-*.exe asset on the latest release.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to (re)build, e.g. v1.2.3"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Work out the version
+        id: version
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v', 'V')
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "Tag '$env:RELEASE_TAG' is not vMAJOR.MINOR.PATCH[-prerelease]."
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "prerelease=$([bool]($version -match '-'))".ToLowerInvariant() >> $env:GITHUB_OUTPUT
+
+      - name: Use the tested Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Use .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build the web app
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/*.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run the .NET tests
+        run: |
+          foreach ($project in 'TorrentFlow.Api.Tests', 'TorrentFlow.Engine.Tests', 'TorrentFlow.Library.Tests', 'TorrentFlow.Media.Tests') {
+            dotnet test "server/tests/$project" -c Release -p:SkipWebBuild=true
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Publish the single-file exe
+        run: |
+          dotnet publish server/TorrentFlow.Api -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=false `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -p:SkipWebBuild=true `
+            "-p:Version=${{ steps.version.outputs.version }}" `
+            -o artifacts/exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem artifacts/exe -File | Where-Object Name -ne 'TorrentFlow.exe' | Remove-Item -Force
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build the installer
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = (Get-Command iscc).Source }
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" `
+            "/DSourceExe=$env:GITHUB_WORKSPACE\artifacts\exe\TorrentFlow.exe" `
+            "/O$env:GITHUB_WORKSPACE\artifacts\exe" installer\windows\TorrentFlow.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke-test the exe
+        run: |
+          # Started from a scratch working directory without a data-dir override, every module must use
+          # %LOCALAPPDATA%\TorrentFlow; nothing may land in <cwd>\data (System32\data for an autostart launch).
+          $exe = (Resolve-Path artifacts\exe\TorrentFlow.exe).Path
+          $cwd = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'torrentflow-cwd') -Force
+          $data = Join-Path $env:LOCALAPPDATA 'TorrentFlow'
+          $app = Start-Process $exe -ArgumentList '--urls', 'http://127.0.0.1:3924', '--background' -WorkingDirectory $cwd -PassThru
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+              if ($app.HasExited) { throw "The published exe exited early with code $($app.ExitCode)." }
+              Start-Sleep 1
+              try { $ok = (Invoke-RestMethod http://127.0.0.1:3924/api/health).live -eq $true } catch { }
+            }
+            if (-not $ok) { throw "The published exe did not become healthy." }
+            $version = (Invoke-RestMethod http://127.0.0.1:3924/api/desktop).version
+            if ($version -ne '${{ steps.version.outputs.version }}') { throw "The exe reports version '$version'." }
+            if (Test-Path (Join-Path $cwd 'data')) { throw "The exe wrote state under its working directory." }
+            if (-not (Test-Path (Join-Path $data 'engine'))) { throw "The engine did not use $data." }
+          }
+          finally {
+            Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
+          }
+      - name: Checksums
+        working-directory: artifacts/exe
+        run: |
+          Get-ChildItem *.exe | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" } |
+            Set-Content SHA256SUMS.txt -Encoding ascii
+          Get-Content SHA256SUMS.txt
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: TorrentFlow ${{ steps.version.outputs.version }}
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/exe/TorrentFlow.exe
+            artifacts/exe/TorrentFlow-Setup-${{ steps.version.outputs.version }}.exe
+            artifacts/exe/SHA256SUMS.txt

@@ -76,6 +76,10 @@ beside the exe so the whole folder stays self-contained.
 Pass `--urls http://127.0.0.1:3000` to override the port, or `--no-browser` to suppress the
 automatic browser launch.
 
+Windows users can instead run the per-user installer from the GitHub Releases page (Start-menu
+shortcut, tray icon, optional Start with Windows, in-app updates); see
+[docs/windows-install.md](docs/windows-install.md).
+
 To distribute a **single folder** that needs neither the .NET SDK/runtime nor Node/pnpm:
 
 ```powershell

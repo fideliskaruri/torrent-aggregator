@@ -62,6 +62,37 @@ public class LayoutFfprobeTests
             File.WriteAllBytes(bundled, [0]);
             var nested = Directory.CreateDirectory(Path.Combine(root, "server", "bin")).FullName;
             Assert.Equal(bundled, FfprobeLocator.Find(null, null, [nested]));
+
+            var managedDir = Directory.CreateDirectory(Path.Combine(root, "tools", "ffmpeg")).FullName;
+            var managed = Path.Combine(managedDir, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+            File.WriteAllBytes(managed, [0]);
+            Assert.Equal(managed, FfprobeLocator.Find(null, null, [nested], managedDir));
+            Assert.Equal(env, FfprobeLocator.Find(null, env, [nested], managedDir));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AnFfprobeDownloadedAfterAMissedLookupIsFoundNextTime()
+    {
+        // A machine that already has ffprobe (node_modules, PATH) never misses, so there is nothing to re-look-up.
+        if (FfprobeFactAttribute.Ffprobe is not null || FfprobeLocator.Find(null, null, [AppContext.BaseDirectory, Environment.CurrentDirectory]) is not null) return;
+        var root = EngineHarness.NewRoot();
+        try
+        {
+            var managedDir = Path.Combine(root, "tools", "ffmpeg");
+            var locator = new FfprobeLocator(
+                Microsoft.Extensions.Options.Options.Create(new LayoutMediaOptions { ManagedToolsDirectory = managedDir }),
+                Microsoft.Extensions.Logging.Abstractions.NullLogger<FfprobeLocator>.Instance);
+            Assert.Null(locator.Path);
+
+            Directory.CreateDirectory(managedDir);
+            var managed = Path.Combine(managedDir, OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+            File.WriteAllBytes(managed, [0]);
+            Assert.Equal(managed, locator.Path);
         }
         finally
         {

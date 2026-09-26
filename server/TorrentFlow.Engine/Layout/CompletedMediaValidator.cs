@@ -18,40 +18,61 @@ public sealed class LayoutMediaOptions
 
     /// <summary>Extra roots searched for node_modules/ffprobe-static (the host adds its content root and data directory).</summary>
     public List<string> SearchRoots { get; set; } = [];
+
+    /// <summary>Folder holding ffprobe downloaded by the desktop app; searched after FFPROBE_PATH.</summary>
+    public string? ManagedToolsDirectory { get; set; }
 }
 
 /// <summary>
 /// Finds ffprobe the way the TypeScript app did, plus the obvious fallbacks: TorrentFlow:Media:FfprobePath, then
-/// FFPROBE_PATH, then the ffprobe-static binary under a node_modules folder (cwd, content root and their ancestors),
-/// then PATH. Resolved once, lazily: a missing binary disables validation only, and says so in one info log.
+/// FFPROBE_PATH, then the desktop app's managed tools folder, then the ffprobe-static binary under a node_modules folder
+/// (cwd, content root and their ancestors), then PATH. A found binary is cached; a missing one is looked for again
+/// on the next use (the desktop app can download it while running) and is reported in one info log.
 /// </summary>
 internal sealed class FfprobeLocator
 {
-    private readonly Lazy<string?> _path;
+    private readonly Func<string?> _find;
+    private readonly Lock _gate = new();
+    private string? _found;
+    private bool _reportedMissing;
+    private readonly ILogger? _logger;
 
     public FfprobeLocator(IOptions<LayoutMediaOptions> options, ILogger<FfprobeLocator> logger)
     {
-        _path = new Lazy<string?>(() =>
-        {
-            var found = Find(options.Value.FfprobePath, Environment.GetEnvironmentVariable(LayoutMediaOptions.FfprobeEnvVar),
-                [Environment.CurrentDirectory, AppContext.BaseDirectory, .. options.Value.SearchRoots]);
-            if (found is null)
-                logger.LogInformation("[content-layout] ffprobe not found (TorrentFlow:Media:FfprobePath, FFPROBE_PATH, node_modules/ffprobe-static, PATH); completed downloads are not media-validated");
-            return found;
-        });
+        _logger = logger;
+        _find = () => Find(options.Value.FfprobePath, Environment.GetEnvironmentVariable(LayoutMediaOptions.FfprobeEnvVar),
+            [Environment.CurrentDirectory, AppContext.BaseDirectory, .. options.Value.SearchRoots], options.Value.ManagedToolsDirectory);
     }
 
-    public string? Path => _path.Value;
+    public string? Path
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_found is not null) return _found;
+                _found = _find();
+                if (_found is null && !_reportedMissing)
+                {
+                    _reportedMissing = true;
+                    _logger?.LogInformation("[content-layout] ffprobe not found (TorrentFlow:Media:FfprobePath, FFPROBE_PATH, managed tools folder, node_modules/ffprobe-static, PATH); completed downloads are not media-validated");
+                }
+                return _found;
+            }
+        }
+    }
 
     /// <summary>Test seam: a fixed location (null = no ffprobe).</summary>
-    internal FfprobeLocator(string? path) => _path = new Lazy<string?>(() => path);
+    internal FfprobeLocator(string? path) => _find = () => path;
 
-    internal static string? Find(string? configured, string? env, IEnumerable<string> roots)
+    internal static string? Find(string? configured, string? env, IEnumerable<string> roots, string? managedDirectory = null)
     {
         foreach (var candidate in new[] { configured, env })
             if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate.Trim())) return System.IO.Path.GetFullPath(candidate.Trim());
 
         var exe = OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe";
+        if (!string.IsNullOrWhiteSpace(managedDirectory) && File.Exists(System.IO.Path.Combine(managedDirectory, exe)))
+            return System.IO.Path.GetFullPath(System.IO.Path.Combine(managedDirectory, exe));
         var platform = OperatingSystem.IsWindows() ? "win32" : OperatingSystem.IsMacOS() ? "darwin" : "linux";
         var arch = RuntimeInformation.OSArchitecture switch
         {

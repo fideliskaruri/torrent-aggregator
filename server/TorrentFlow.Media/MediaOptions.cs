@@ -18,6 +18,9 @@ public sealed class MediaOptions
     /// <summary>Extra directory searched for node_modules (the TS app's bundled binaries). Defaults to walking up from the content root.</summary>
     public string? NodeModulesRoot { get; set; }
 
+    /// <summary>Folder holding ffmpeg/ffprobe downloaded by the desktop app (host default &lt;DataDirectory&gt;/tools/ffmpeg). Searched after the env vars.</summary>
+    public string? ManagedToolsDirectory { get; set; }
+
     [Range(1, 32)] public int MaxConcurrentSessions { get; set; } = 4;
 
     [Range(5, 3600)] public int SessionIdleTimeoutSeconds { get; set; } = 120;

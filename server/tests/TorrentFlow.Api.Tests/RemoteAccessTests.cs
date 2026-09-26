@@ -329,6 +329,23 @@ public sealed class RemoteAccessTests(RemoteHostFactory factory) : IClassFixture
     }
 
     [Fact]
+    public async Task DesktopControlsAreLocalOnly()
+    {
+        using var client = factory.Tunnel(factory.Token());
+        using (var status = JsonDocument.Parse(await client.GetStringAsync("/api/desktop")))
+            Assert.False(status.RootElement.GetProperty("editable").GetBoolean());
+        var writes = new Func<Task<HttpResponseMessage>>[]
+        {
+            () => client.PutAsync("/api/desktop/settings", new StringContent("""{"checkForUpdates":false}""", Encoding.UTF8, "application/json")),
+            () => client.PostAsync("/api/desktop/update/check", null),
+            () => client.PostAsync("/api/desktop/update/install", null),
+            () => client.PostAsync("/api/desktop/ffmpeg/download", null),
+        };
+        foreach (var write in writes)
+            Assert.Equal(HttpStatusCode.Forbidden, (await write()).StatusCode);
+    }
+
+    [Fact]
     public async Task StreamingIsRefusedThroughTheTunnel()
     {
         using var client = factory.Tunnel(factory.Token());
