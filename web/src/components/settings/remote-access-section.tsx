@@ -24,6 +24,7 @@ interface RemoteAccessSettings {
   teamDomain: string | null;
   audience: string | null;
   ownerEmails: string[];
+  allowRequesters: boolean;
   restartRequired: boolean;
   running: {
     enabled: boolean;
@@ -53,6 +54,7 @@ interface RemoteAccessForm {
   teamDomain: string;
   audience: string;
   ownerEmails: string;
+  allowRequesters: boolean;
 }
 
 const inputClass = "h-11 scroll-mb-32 text-base sm:text-sm";
@@ -64,6 +66,7 @@ function toForm(settings: RemoteAccessSettings): RemoteAccessForm {
     teamDomain: settings.teamDomain ?? "",
     audience: settings.audience ?? "",
     ownerEmails: settings.ownerEmails.join("\n"),
+    allowRequesters: settings.allowRequesters !== false,
   };
 }
 
@@ -149,6 +152,7 @@ function RemoteAccessPanel() {
     const saved = toForm(settings);
     return (
       saved.enabled !== form.enabled ||
+      saved.allowRequesters !== form.allowRequesters ||
       saved.tunnelPort !== form.tunnelPort ||
       saved.teamDomain.trim() !== form.teamDomain.trim() ||
       saved.audience.trim() !== form.audience.trim() ||
@@ -218,6 +222,7 @@ function RemoteAccessPanel() {
           teamDomain: form.teamDomain.trim() || null,
           audience: form.audience.trim() || null,
           ownerEmails: splitEmails(form.ownerEmails),
+          allowRequesters: form.allowRequesters,
         }),
       });
       if (!res.ok) throw new Error(await readError(res, `Save failed (${res.status})`));
@@ -434,9 +439,36 @@ function RemoteAccessPanel() {
           data-remote-access-owners
         />
         <p id="remote-access-owners-help" className="text-xs text-[var(--text-tertiary)]">
-          One per line. Anyone else who signs in is refused for now.
+          One per line. Everyone else Cloudflare lets in is a requester, or refused if requests are off.
         </p>
       </div>
+
+      <label
+        htmlFor="remote-access-requesters"
+        className={cn(
+          "flex min-h-11 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3",
+          readOnly ? "cursor-not-allowed opacity-70" : "cursor-pointer",
+        )}
+      >
+        <Checkbox
+          id="remote-access-requesters"
+          aria-label="Let friends request titles"
+          checked={form.allowRequesters}
+          disabled={readOnly}
+          onCheckedChange={(checked) =>
+            setForm((current) => current && { ...current, allowRequesters: checked === true })
+          }
+          data-remote-access-requesters
+        />
+        <span className="pt-0.5">
+          <span className="block text-sm font-medium text-[var(--text)]">
+            Let friends request titles
+          </span>
+          <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
+            Other signed-in emails can search titles, ask for them and follow their own requests. Nothing else.
+          </span>
+        </span>
+      </label>
 
       <div className="space-y-3 rounded-lg border border-[var(--border)] p-3" data-remote-access-steps>
         <h3 className="flex items-center gap-2 text-sm font-medium text-[var(--text)]">

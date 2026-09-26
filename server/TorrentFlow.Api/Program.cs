@@ -7,6 +7,7 @@ using Microsoft.Extensions.FileProviders;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TorrentFlow.Api.RemoteAccess;
+using TorrentFlow.Api.Requests;
 using TorrentFlow.Data;
 using TorrentFlow.Engine;
 using TorrentFlow.Library;
@@ -99,6 +100,10 @@ builder.Services.AddHttpClient(HttpAccessKeySource.HttpClientName, c => c.Timeou
 builder.Services.AddSingleton<IAccessKeySource, HttpAccessKeySource>();
 builder.Services.AddSingleton<AccessKeyCache>();
 builder.Services.AddSingleton<AccessTokenValidator>();
+builder.Services.AddSingleton<RequesterDirectory>();
+builder.Services.Configure<RequestOptions>(builder.Configuration.GetSection(RequestOptions.SectionName));
+builder.Services.AddSingleton<IRequesterCatalog, RequesterCatalog>();
+builder.Services.AddSingleton<MediaRequestService>();
 
 var app = builder.Build();
 app.Logger.LogInformation("TorrentFlow data directory: {DataDirectory}; database: {DatabasePath}", dataDir, dbPath);
@@ -121,6 +126,8 @@ if (webFiles is not null)
     app.UseStaticFiles(new StaticFileOptions { FileProvider = webFiles, ContentTypeProvider = types });
 }
 app.UseRouting();
+// Requesters only reach endpoints marked AllowRequesters(); everything else, including new endpoints, is owner-only.
+app.UseMiddleware<RequesterAuthorizationMiddleware>();
 
 // Streaming is off by default (see EngineOptions.Streaming); its routes answer 404 so the SPA can tell it apart.
 string[] streamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];
@@ -141,8 +148,9 @@ app.MapGet("/api/features", (Microsoft.Extensions.Options.IOptionsMonitor<Engine
     http.Response.Headers.CacheControl = "no-store";
     // Streaming routes are refused on the tunnel, so the SPA must hide playback there too.
     return Results.Json(new { streaming = engine.CurrentValue.Streaming && !RemoteAccessClaims.IsTunnel(http) });
-});
+}).AllowRequesters();
 app.MapRemoteAccessEndpoints();
+app.MapRequestEndpoints();
 
 // Renamed pages keep their old bookmarks working with a permanent (308) redirect, as the Next pages did.
 app.MapGet("/activity", () => Results.Redirect("/notifications", permanent: true, preserveMethod: true));
@@ -155,7 +163,7 @@ app.MapGet("/api/health", async (TorrentFlowDbContext db, HttpContext http, Canc
     try
     {
         // The newest required table, not SELECT 1: that succeeds before migrations while the app does not.
-        await db.AcquisitionTargets.Select(t => t.Id).FirstOrDefaultAsync(ct);
+        await db.MediaRequests.Select(t => t.Id).FirstOrDefaultAsync(ct);
         ready = true;
     }
     catch (Exception) when (!ct.IsCancellationRequested)
@@ -175,14 +183,14 @@ app.MapGet("/api/health", async (TorrentFlowDbContext db, HttpContext http, Canc
         build = new { id = typeof(Program).Assembly.GetName().Version?.ToString() ?? "dev" },
         database = new { status = ready ? "up" : "down", latencyMs },
     }, statusCode: ready ? 200 : 503);
-});
+}).AllowRequesters();
 app.MapControllers();
 
 
 // Missing hashed chunks (stale tab after an update, or wrong casing on case-sensitive file systems) must
 // 404 rather than return index.html, which the browser would reject as a script with the wrong MIME type.
 if (webFiles is not null)
-    app.MapFallbackToFile("{**path:regex(^(?!api/|assets/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles });
+    app.MapFallbackToFile("{**path:regex(^(?!api/|assets/).*$)}", "index.html", new StaticFileOptions { FileProvider = webFiles }).AllowRequesters();
 
 var launchBrowser = isPublishedBundle && !Debugger.IsAttached && !args.Any(a => string.Equals(a, "--no-browser", StringComparison.OrdinalIgnoreCase));
 if (launchBrowser)

@@ -16,25 +16,52 @@ import {
   type SessionVia,
 } from "@/lib/session-expiry";
 
+export type SessionRole = "owner" | "requester";
+
 export interface SessionInfo {
-  role: "owner";
+  /** Owner until `/api/me` says otherwise; the server enforces the real boundary. */
+  role: SessionRole;
   /** "tunnel" when this page came through Cloudflare Access; null until known. */
   via: SessionVia | null;
   email: string | null;
+  /** Owner only: requests waiting for a decision. Null for requesters or until known. */
+  pendingRequests: number | null;
+  /** True once `/api/me` has answered successfully. */
+  known: boolean;
+  /** `/api/me` failed before it ever answered, so the role is unknown. */
+  failed: boolean;
+  /** Asks `/api/me` again. */
+  retry: () => void;
 }
+
+export type MeInfo = Pick<SessionInfo, "role" | "via" | "email" | "pendingRequests">;
 
 const SessionContext = createContext<SessionInfo>({
   role: "owner",
   via: null,
   email: null,
+  pendingRequests: null,
+  known: false,
+  failed: false,
+  retry: () => {},
 });
 
-function parseMe(json: unknown): SessionInfo {
-  const body = (json ?? {}) as { via?: unknown; email?: unknown };
+export function parseMe(json: unknown): MeInfo {
+  const body = (json ?? {}) as {
+    via?: unknown;
+    email?: unknown;
+    role?: unknown;
+    pendingRequests?: unknown;
+  };
+  const role: SessionRole = body.role === "requester" ? "requester" : "owner";
   return {
-    role: "owner",
+    role,
     via: body.via === "tunnel" ? "tunnel" : body.via === "local" ? "local" : null,
     email: typeof body.email === "string" ? body.email : null,
+    pendingRequests:
+      role === "owner" && typeof body.pendingRequests === "number" && body.pendingRequests >= 0
+        ? body.pendingRequests
+        : null,
   };
 }
 
@@ -43,13 +70,17 @@ function parseMe(json: unknown): SessionInfo {
  * Cloudflare Access session on a page that is otherwise idle.
  */
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const { data } = useApiQuery<SessionInfo>("/api/me", {
+  const { data, settled, refetch } = useApiQuery<MeInfo>("/api/me", {
     refreshMs: 60_000,
     emptyOnUnauthorized: false,
     select: parseMe,
   });
   const via = data?.via ?? null;
   const email = data?.email ?? null;
+  const role = data?.role ?? "owner";
+  const pendingRequests = data?.pendingRequests ?? null;
+  const known = data != null;
+  const failed = data == null && settled;
 
   useEffect(() => {
     // Sticky: once a page is known to be remote, a failed poll must not demote it to "unknown".
@@ -62,7 +93,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [data]);
 
   return (
-    <SessionContext.Provider value={{ role: "owner", via, email }}>
+    <SessionContext.Provider value={{ role, via, email, pendingRequests, known, failed, retry: refetch }}>
       {children}
       <SessionExpiredPrompt />
     </SessionContext.Provider>

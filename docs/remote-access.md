@@ -38,6 +38,7 @@ configuration section:
 | `TeamDomain` | — | immediately |
 | `Audience` | — | immediately |
 | `OwnerEmails` | — (array, or a comma-separated string from an environment variable) | immediately |
+| `AllowRequesters` | `true` | immediately |
 
 The API reports `restartRequired` when the saved listener settings differ from the running ones.
 A tunnel port equal to the owner port stops startup with an error, and is refused on save.
@@ -51,14 +52,14 @@ reports `listening: false`.
 All responses are JSON with `Cache-Control: no-store`.
 
 - `GET /api/settings/remote-access` returns `enabled`, `tunnelPort`, `tunnelBindAddress`, `teamDomain`,
-  `audience`, `ownerEmails`, `restartRequired`, `running` (`enabled`, `tunnelPort`, `tunnelBindAddress`,
+  `audience`, `ownerEmails`, `allowRequesters`, `restartRequired`, `running` (`enabled`, `tunnelPort`, `tunnelBindAddress`,
   `listening`, `tunnelUrl` of the running listener), `ownerPorts`, `editable` (false through the tunnel),
   `via` (`local`/`tunnel`) and `warnings` (problems found loading the settings; cleared by a successful save).
 - `PUT /api/settings/remote-access` (local listener only; 403 through the tunnel) takes a JSON object with
   any of `enabled` (boolean), `tunnelPort` (1024–65535, not an owner port), `tunnelBindAddress` (an IP
   address), `teamDomain` (`team`, `team.cloudflareaccess.com` or its URL; `null`/empty clears it),
-  `audience` (the AUD tag; `null`/empty clears it) and `ownerEmails` (an array of email strings, at most
-  50). Omitted fields keep their value. `Content-Type` must be JSON (415 otherwise); the body is limited to
+  `audience` (the AUD tag; `null`/empty clears it), `ownerEmails` (an array of email strings, at most
+  50) and `allowRequesters` (boolean). Omitted fields keep their value. `Content-Type` must be JSON (415 otherwise); the body is limited to
   16 KB (413) and read with a bounded buffer. Unknown fields, wrong types, non-string emails and invalid
   values give a 400 with an `error` message and nothing is written. `enabled: true` requires the team
   domain, AUD tag and at least one owner email. A failure writing the file gives a 500 with a readable
@@ -86,8 +87,9 @@ All responses are JSON with `Cache-Control: no-store`.
 - A 401 that signing in again cannot fix (remote access turned off, team/AUD/owners missing, signing keys
   unreachable) carries `X-TorrentFlow-Auth: misconfigured`; a missing, expired or invalid token carries
   `X-TorrentFlow-Auth: required`. The SPA only treats `required` as an expired session.
-- A signed-in email that is not an owner gets 403 "not enabled yet". The log line masks the email
-  (`j***@example.com`). Requester/friend access is future work.
+- A signed-in email that is not an owner is a **requester** (see [Requesters](#requesters)). With
+  `AllowRequesters` off it gets 403 "not enabled yet" instead. The log line masks the email
+  (`j***@example.com`).
 - Remote access settings can only be changed from the local listener; through the tunnel they are
   read-only (403 on PUT), so a stolen remote session cannot widen who gets in.
 - `UnsafeMethodGuardMiddleware` refuses POST/PUT/PATCH/DELETE with `Sec-Fetch-Site: cross-site`, or
@@ -97,8 +99,40 @@ All responses are JSON with `Cache-Control: no-store`.
   cloudflared to forward the public `Host` unchanged**: do not set an `httpHostHeader` override on the
   tunnel's public hostname, or every same-site write through the tunnel is refused. The per-module guards
   stay in place.
-- Every admitted request carries a `ClaimsPrincipal` (`email`, `tf:role`, `tf:via`), so later per-user
-  policies can build on it without redoing trust. `GET /api/me` returns `{ role, via, email }`.
+- Every admitted request carries a `ClaimsPrincipal` (`email`, `tf:role`, `tf:via`, and `tf:uid` for
+  requesters). `GET /api/me` returns `{ role, via, email, pendingRequests }`: `role` is `owner` or
+  `requester`; `pendingRequests` is the number of requests waiting for a decision, for the owner only
+  (`null` for requesters).
+
+## Requesters
+
+Friends outside the home sign in through the same Cloudflare Access application. Who may sign in is
+managed only in Cloudflare (the Access policy); TorrentFlow has no user management. Any email that passes
+Access and is not in `OwnerEmails` becomes a requester while `AllowRequesters` is on (the default).
+
+- On first sight a `User` row is created for the lowercase email; request rows point at it. Owner data
+  keeps using the local user and is never shared with requesters.
+- A requester reaches **only** this allow-list: `/api/requester/*`, `/api/me`, `/api/health`,
+  `/api/features`, static assets and the SPA fallback (`index.html`). Everything else, on any method,
+  gets 403 `{ code: "requester_forbidden" }`: library, browse, indexer search, downloads, streaming,
+  settings, the owner's `/api/requests` list, deletion.
+- Enforcement is two layers. `RemoteAccessMiddleware` checks the path before static files and routing
+  (so a requester cannot reach an `/api` path that routes nowhere, and odd spellings such as `/API`,
+  `//api`, `/api.` or `/%61pi` are treated as `/api`). After routing,
+  `RequesterAuthorizationMiddleware` requires the matched endpoint to carry `AllowRequesters()`
+  metadata. **New endpoints are therefore owner-only by default**; a test builds the full list from
+  `EndpointDataSource` and asserts that every endpoint except the allow-list answers 403 to a requester.
+- Requester endpoints refuse the owner (403 `requester_only`); they only ever touch the caller's own rows.
+- The SPA reads `role` from `/api/me` and renders a trimmed shell for requesters (title search with
+  Request buttons, My requests). Owner navigation and pages are never mounted for them. On a non-loopback
+  host the SPA waits for `/api/me` before choosing a shell, and offers a retry if it fails. This is presentation only; the server
+  enforces the boundary.
+- Turning `AllowRequesters` off applies immediately and restores the 403 "not enabled yet" answer.
+  **Upgrading turns requesters on** (a settings file without the key uses the default `true`). If your
+  Access policy admits more people than you want asking for titles (for example a whole email domain),
+  narrow the policy or turn requesters off in Settings.
+
+See [requests.md](requests.md) for the request API and its rules.
 
 ## Misrouted tunnel (421)
 
@@ -115,7 +149,7 @@ access is off. Fix it by changing the tunnel's service to that URL
 `streamingDisabled: true` on the tunnel listener, and `/api/features` reports `streaming: false` there, so
 the SPA hides playback. Cloudflare's service terms restrict serving video and other large media through
 its proxy (they point to Stream, Images or R2 instead), and its 100 s proxy timeout breaks long-lived
-media responses. Browse, search, downloads, library and settings all work remotely.
+media responses. Browse, search, downloads, library and settings all work remotely for owners.
 
 ## Browser details
 
@@ -144,4 +178,6 @@ anything that can reach the owner port is treated as the owner.
 TestServer. TestServer has no real `LocalPort`, so an `IStartupFilter` sets it from a test-only header,
 and an in-memory RSA key replaces the Cloudflare key source. The production build has no such backdoor.
 One test starts real Kestrel on two ephemeral loopback ports (owner and tunnel) and checks the split over
-real sockets. `web/tests/session-expiry.test.mjs` covers the SPA's expiry detection.
+real sockets. `RequesterTests.cs` covers the requester role, the allow-list table and the request rules.
+`web/tests/session-expiry.test.mjs` covers the SPA's expiry detection and `web/tests/requester.test.mjs`
+the role-aware shell.

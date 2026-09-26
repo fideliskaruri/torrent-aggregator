@@ -9,6 +9,7 @@ import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
 import { FeaturesProvider } from "@/lib/features";
 import { SessionProvider } from "@/lib/session";
+import { ShellGate } from "@/components/requester/shell-gate";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./fonts.css";
@@ -23,7 +24,8 @@ const scrollKey = (location: Location) =>
 /**
  * The root layout. `<html>`/`<body>`, metadata and viewport live in
  * `web/index.html`; everything inside `<body>` is the same tree as the Next.js
- * layout, with the page rendered through the router outlet.
+ * layout, with the page rendered through the router outlet. Requesters get the
+ * trimmed requester shell instead (see ShellGate); owner pages never mount for them.
  */
 export default function RootLayout() {
   return (
@@ -32,6 +34,7 @@ export default function RootLayout() {
       <ServiceWorkerRegistrar />
       <AuthSessionProvider>
         <SessionProvider>
+        <ShellGate owner={
         <FeaturesProvider>
         <UiPreferencesProvider>
           <DownloadSetupProvider>
@@ -77,6 +80,7 @@ export default function RootLayout() {
           </DownloadSetupProvider>
         </UiPreferencesProvider>
         </FeaturesProvider>
+        } />
         </SessionProvider>
       </AuthSessionProvider>
     </>

@@ -227,6 +227,8 @@ Opt-in owner access from a phone or away from home through Cloudflare Tunnel + A
 (default `127.0.0.1:3940`) meant only for `cloudflared`, where every request needs a valid Access token for
 an owner email. The local listener stays the trusted owner and refuses Cloudflare-proxied requests (421).
 Streaming is off on the tunnel. See [remote-access.md](remote-access.md) for setup and the security model.
+Other signed-in emails are requesters: they can only search titles and request them (see
+[requests.md](requests.md)).
 
 ## Build and test
 

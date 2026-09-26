@@ -8,6 +8,9 @@ public static class RemoteAccessClaims
     public const string Role = "tf:role";
     public const string Via = "tf:via";
     public const string OwnerRole = "owner";
+    public const string RequesterRole = "requester";
+    /// <summary>The requester's <c>User.Id</c>; owners have none and keep <c>LocalUser.Id</c>.</summary>
+    public const string UserId = "tf:uid";
     public const string ViaLocal = "local";
     public const string ViaTunnel = "tunnel";
     public const string TokenHeader = "Cf-Access-Jwt-Assertion";
@@ -15,6 +18,12 @@ public static class RemoteAccessClaims
     public static string ViaOf(ClaimsPrincipal user) => user.FindFirst(Via)?.Value ?? ViaLocal;
 
     public static bool IsTunnel(HttpContext context) => ViaOf(context.User) == ViaTunnel;
+
+    public static string RoleOf(ClaimsPrincipal user) => user.FindFirst(Role)?.Value ?? OwnerRole;
+
+    public static bool IsRequester(ClaimsPrincipal user) => RoleOf(user) == RequesterRole;
+
+    public static string? UserIdOf(ClaimsPrincipal user) => user.FindFirst(UserId)?.Value;
 }
 
 /// <summary>
@@ -22,7 +31,7 @@ public static class RemoteAccessClaims
 /// valid Cloudflare Access token from an owner email; everything else is the trusted local listener. Runs before
 /// static files, the SPA fallback and every endpoint.
 /// </summary>
-public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessStore store, AccessTokenValidator validator, ILogger<RemoteAccessMiddleware> logger)
+public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessStore store, AccessTokenValidator validator, RequesterDirectory requesters, ILogger<RemoteAccessMiddleware> logger)
 {
     private static readonly string[] StreamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];
     private static readonly string[] LocalOnlyRoutes = ["/api/settings/download-recovery"];
@@ -93,12 +102,26 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
         }
         if (!options.IsOwner(result.Email!))
         {
-            logger.LogInformation("Refused a signed-in non-owner ({Email}) on the tunnel.", MaskEmail(result.Email!));
-            await WriteJson(context, StatusCodes.Status403Forbidden, new
+            if (!options.AllowRequesters)
             {
-                error = "Your account is signed in, but access for people other than the owner is not enabled yet.",
-                code = "remote_access_not_enabled",
-            });
+                logger.LogInformation("Refused a signed-in non-owner ({Email}) on the tunnel.", MaskEmail(result.Email!));
+                await WriteJson(context, StatusCodes.Status403Forbidden, new
+                {
+                    error = "Your account is signed in, but access for people other than the owner is not enabled yet.",
+                    code = "remote_access_not_enabled",
+                });
+                return;
+            }
+            // Checked before anything touches the database, so a requester probing owner routes costs nothing.
+            if (!RequesterPaths.IsAllowed(context.Request.Path))
+            {
+                logger.LogInformation("Refused a requester ({Email}) request to {Path}.", MaskEmail(result.Email!), context.Request.Path);
+                await WriteRequesterForbidden(context);
+                return;
+            }
+            var userId = await requesters.GetOrCreateUserIdAsync(result.Email!, context.RequestAborted);
+            context.User = Principal(RemoteAccessClaims.ViaTunnel, result.Email!.Trim().ToLowerInvariant(), "CloudflareAccess", RemoteAccessClaims.RequesterRole, userId);
+            await next(context);
             return;
         }
 
@@ -138,14 +161,22 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
         || headers.ContainsKey(RemoteAccessClaims.TokenHeader)
         || headers["Cdn-Loop"].Any(v => v?.Contains("cloudflare", StringComparison.OrdinalIgnoreCase) == true);
 
-    private static ClaimsPrincipal Principal(string via, string? email, string authenticationType)
+    internal static Task WriteRequesterForbidden(HttpContext context) =>
+        WriteJson(context, StatusCodes.Status403Forbidden, new
+        {
+            error = "This part of TorrentFlow is only available to its owner.",
+            code = "requester_forbidden",
+        });
+
+    private static ClaimsPrincipal Principal(string via, string? email, string authenticationType, string role = RemoteAccessClaims.OwnerRole, string? userId = null)
     {
         var claims = new List<Claim>
         {
-            new(RemoteAccessClaims.Role, RemoteAccessClaims.OwnerRole),
+            new(RemoteAccessClaims.Role, role),
             new(RemoteAccessClaims.Via, via),
         };
         if (email is not null) claims.Add(new Claim(RemoteAccessClaims.Email, email));
+        if (userId is not null) claims.Add(new Claim(RemoteAccessClaims.UserId, userId));
         return new ClaimsPrincipal(new ClaimsIdentity(claims, authenticationType, RemoteAccessClaims.Email, RemoteAccessClaims.Role));
     }
 

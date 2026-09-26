@@ -87,6 +87,7 @@ public sealed class RemoteAccessStore
                 next.TeamDomain,
                 next.Audience,
                 next.OwnerEmails,
+                next.AllowRequesters,
             };
             try
             {
@@ -111,6 +112,7 @@ public sealed class RemoteAccessStore
     private static RemoteAccessOptions Apply(RemoteAccessOptions options, ISource source, string origin, List<string> warnings)
     {
         if (source.Bool("enabled") is { } enabled) options = options with { Enabled = enabled };
+        if (source.Bool("allowRequesters") is { } allowRequesters) options = options with { AllowRequesters = allowRequesters };
         if (source.Has("tunnelPort"))
         {
             if (source.Int("tunnelPort") is { } port and >= RemoteAccessRules.MinPort and <= RemoteAccessRules.MaxPort)

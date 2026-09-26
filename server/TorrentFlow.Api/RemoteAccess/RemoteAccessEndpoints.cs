@@ -1,3 +1,4 @@
+using TorrentFlow.Api.Requests;
 using System.Text.Json;
 
 namespace TorrentFlow.Api.RemoteAccess;
@@ -8,17 +9,29 @@ public static class RemoteAccessEndpoints
 
     public static IEndpointRouteBuilder MapRemoteAccessEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/me", (HttpContext http) =>
+        app.MapGet("/api/me", async (HttpContext http, MediaRequestService requests, ILoggerFactory loggers) =>
         {
             http.Response.Headers.CacheControl = "no-store";
             var user = http.User;
+            var role = RemoteAccessClaims.RoleOf(user);
+            int? pendingRequests = null;
+            if (role == RemoteAccessClaims.OwnerRole)
+            {
+                // The SPA picks its shell from this answer; a failed count must not fail the whole session check.
+                try { pendingRequests = await requests.PendingCountAsync(http.RequestAborted); }
+                catch (Exception ex) when (!http.RequestAborted.IsCancellationRequested)
+                {
+                    loggers.CreateLogger("TorrentFlow.Api.RemoteAccess").LogWarning(ex, "Could not count pending requests for /api/me");
+                }
+            }
             return Results.Json(new
             {
-                role = user.FindFirst(RemoteAccessClaims.Role)?.Value ?? RemoteAccessClaims.OwnerRole,
+                role,
                 via = RemoteAccessClaims.ViaOf(user),
                 email = user.FindFirst(RemoteAccessClaims.Email)?.Value,
+                pendingRequests,
             });
-        });
+        }).AllowRequesters();
 
         app.MapGet("/api/settings/remote-access", (HttpContext http, RemoteAccessStore store) =>
         {
@@ -126,6 +139,7 @@ public static class RemoteAccessEndpoints
             teamDomain = current.TeamDomain,
             audience = current.Audience,
             ownerEmails = current.OwnerEmails,
+            allowRequesters = current.AllowRequesters,
             restartRequired = store.RestartRequired,
             running = new
             {
@@ -154,6 +168,10 @@ public static class RemoteAccessEndpoints
                 case "enabled":
                     if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return (null, "enabled must be a boolean");
                     next = next with { Enabled = value.GetBoolean() };
+                    break;
+                case "allowRequesters":
+                    if (value.ValueKind is not (JsonValueKind.True or JsonValueKind.False)) return (null, "allowRequesters must be a boolean");
+                    next = next with { AllowRequesters = value.GetBoolean() };
                     break;
                 case "tunnelPort":
                     if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var port)) return (null, "tunnelPort must be an integer");

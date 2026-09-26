@@ -24,6 +24,6 @@ Only `{ "streaming": true }` enables playback; loading, missing flags and errors
 Disabled streaming leaves search, kept downloads and Library automation available, hides
 players and streaming-only settings, and redirects old `/watch/*` URLs home.
 
-From `web/`, run `node --test tests\features.test.mjs tests\legacy-ui.test.mjs` for feature-gate
+From `web/`, run `node --test tests/*.test.mjs` for feature-gate, session-expiry and requester-shell
 regressions and the existing library-add/season-selection suites against the SPA modules.
 The tests reuse Vite and Node's test runner; no extra test dependencies are needed.

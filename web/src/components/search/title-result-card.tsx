@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { TitleResult } from "./group-titles";
 import { cn } from "@/lib/utils";
@@ -9,6 +10,11 @@ interface TitleResultCardProps {
   searchCategory?: string;
   /** The top-ranked work renders larger, as the answer to the query. */
   featured?: boolean;
+  /**
+   * Controls under the text (e.g. the requester's Request button). Only rendered
+   * on cards without an href: a button must never sit inside the card link.
+   */
+  actions?: ReactNode;
 }
 
 /**
@@ -21,6 +27,7 @@ interface TitleResultCardProps {
 export function TitleResultCard({
   title,
   featured = false,
+  actions,
 }: TitleResultCardProps) {
   const typeLabel = mediaTypeLabel(
     title.mediaType,
@@ -94,6 +101,11 @@ export function TitleResultCard({
           <p className="line-clamp-2 text-[12px] leading-snug text-[var(--text-tertiary)]">
             {title.overview}
           </p>
+        ) : null}
+        {actions && !title.href ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2" data-title-card-actions>
+            {actions}
+          </div>
         ) : null}
       </div>
     </div>

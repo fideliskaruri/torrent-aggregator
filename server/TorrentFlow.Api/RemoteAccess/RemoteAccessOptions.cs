@@ -23,6 +23,8 @@ public sealed record RemoteAccessOptions
     public string? Audience { get; init; }
     /// <summary>Lowercase, de-duplicated.</summary>
     public IReadOnlyList<string> OwnerEmails { get; init; } = [];
+    /// <summary>Signed-in emails that are not owners may search and request titles (and nothing else).</summary>
+    public bool AllowRequesters { get; init; } = true;
 
     public string? Issuer => string.IsNullOrEmpty(TeamDomain) ? null : $"https://{TeamDomain}.cloudflareaccess.com";
 

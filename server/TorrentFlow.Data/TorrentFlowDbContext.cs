@@ -30,6 +30,8 @@ public partial class TorrentFlowDbContext : DbContext
 
     public virtual DbSet<MediaProbe> MediaProbes { get; set; }
 
+    public virtual DbSet<MediaRequest> MediaRequests { get; set; }
+
     public virtual DbSet<PlaybackProgress> PlaybackProgresses { get; set; }
 
     public virtual DbSet<RunLock> RunLocks { get; set; }
@@ -545,6 +547,58 @@ public partial class TorrentFlowDbContext : DbContext
                 .HasColumnType("DATETIME")
                 .HasColumnName("updatedAt");
             entity.Property(e => e.Verdict).HasColumnName("verdict");
+        });
+
+        modelBuilder.Entity<MediaRequest>(entity =>
+        {
+            entity.ToTable("MediaRequest");
+
+            entity.HasIndex(e => new { e.RequestedByUserId, e.Status }, "MediaRequest_requestedByUserId_status_idx");
+
+            entity.HasIndex(e => new { e.Status, e.CreatedAt }, "MediaRequest_status_createdAt_idx");
+
+            entity.HasIndex(e => e.WorkKey, "MediaRequest_workKey_idx");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.RequestedByUserId).HasColumnName("requestedByUserId");
+            entity.Property(e => e.Provider).HasColumnName("provider");
+            entity.Property(e => e.ProviderId).HasColumnName("providerId");
+            entity.Property(e => e.WorkKey).HasColumnName("workKey");
+            entity.Property(e => e.MediaType).HasColumnName("mediaType");
+            entity.Property(e => e.Title).HasColumnName("title");
+            entity.Property(e => e.Year).HasColumnName("year");
+            entity.Property(e => e.PosterUrl).HasColumnName("posterUrl");
+            entity.Property(e => e.Scope).HasColumnName("scope");
+            entity.Property(e => e.Seasons).HasColumnName("seasons");
+            entity.Property(e => e.Note).HasColumnName("note");
+            entity.Property(e => e.Status)
+                .HasDefaultValue("pending")
+                .HasColumnName("status");
+            entity.Property(e => e.DecisionReason).HasColumnName("decisionReason");
+            entity.Property(e => e.DecidedAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("decidedAt");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("DATETIME")
+                .HasColumnName("createdAt");
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnType("DATETIME")
+                .HasColumnName("updatedAt");
+            entity.Property(e => e.WatchListItemId).HasColumnName("watchListItemId");
+            entity.Property(e => e.AcquisitionTargetId).HasColumnName("acquisitionTargetId");
+
+            entity.HasOne(d => d.RequestedBy).WithMany(p => p.MediaRequests)
+                .HasForeignKey(d => d.RequestedByUserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<WatchListItem>().WithMany()
+                .HasForeignKey(d => d.WatchListItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne<AcquisitionTarget>().WithMany()
+                .HasForeignKey(d => d.AcquisitionTargetId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<User>(entity =>

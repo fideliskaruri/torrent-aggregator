@@ -263,9 +263,10 @@ public sealed class RemoteAccessTests(RemoteHostFactory factory) : IClassFixture
     }
 
     [Fact]
-    public async Task OtherSignedInEmailsAreNotEnabledYet()
+    public async Task OtherSignedInEmailsAreNotEnabledYetWhenRequestersAreOff()
     {
-        using var client = factory.Tunnel(factory.Token(email: "friend@example.com"));
+        using var off = new RemoteAccessIsolatedTests.RequestersOffFactory();
+        using var client = off.Tunnel(off.Token(email: "friend@example.com"));
         foreach (var path in new[] { "/api/me", "/" })
         {
             var response = await client.GetAsync(path);
@@ -460,6 +461,31 @@ public sealed class RemoteAccessTests(RemoteHostFactory factory) : IClassFixture
 public sealed class RemoteAccessIsolatedTests
 {
     [Fact]
+    public async Task TurningRequestersOffAndOnFromSettingsAppliesImmediatelyAndPersists()
+    {
+        using var factory = new RemoteHostFactory();
+        using var client = factory.Local();
+        Assert.True((await Json(await client.GetAsync("/api/settings/remote-access"))).GetProperty("allowRequesters").GetBoolean());
+
+        var off = await client.PutAsJsonAsync("/api/settings/remote-access", new { allowRequesters = false });
+        Assert.Equal(HttpStatusCode.OK, off.StatusCode);
+        Assert.False((await Json(off)).GetProperty("allowRequesters").GetBoolean());
+        using (var saved = JsonDocument.Parse(File.ReadAllText(Path.Combine(factory.Root, RemoteAccessStore.FileName))))
+            Assert.False(saved.RootElement.GetProperty("allowRequesters").GetBoolean());
+        using (var friend = factory.Tunnel(factory.Token(email: "friend@example.com")))
+        {
+            var refused = await friend.GetAsync("/api/me");
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+            Assert.Equal("remote_access_not_enabled", (await Json(refused)).GetProperty("code").GetString());
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync("/api/settings/remote-access", new { allowRequesters = true })).StatusCode);
+        using (var friend = factory.Tunnel(factory.Token(email: "friend@example.com")))
+            Assert.Equal("requester", (await Json(await friend.GetAsync("/api/me"))).GetProperty("role").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsync("/api/settings/remote-access",
+            new StringContent("{\"allowRequesters\":\"yes\"}", Encoding.UTF8, "application/json"))).StatusCode);
+    }
+    [Fact]
     public async Task SavingFromTheLocalListenerWritesTheFileAndReportsRestartOnlyForListenerFields()
     {
         using var factory = new RemoteHostFactory();
@@ -487,7 +513,11 @@ public sealed class RemoteAccessIsolatedTests
         using (var tunnel = factory.Tunnel(factory.Token(email: "second@example.com", issuer: newIssuer, audience: ["fedcba9876543210fedcba9876543210"])))
             Assert.Equal(HttpStatusCode.OK, (await tunnel.GetAsync("/api/me")).StatusCode);
         using (var tunnel = factory.Tunnel(factory.Token(email: "owner@example.com", issuer: newIssuer, audience: ["fedcba9876543210fedcba9876543210"])))
-            Assert.Equal(HttpStatusCode.Forbidden, (await tunnel.GetAsync("/api/me")).StatusCode);
+        {
+            // The removed owner is now just a requester: no owner endpoints.
+            Assert.Equal("requester", (await Json(await tunnel.GetAsync("/api/me"))).GetProperty("role").GetString());
+            Assert.Equal(HttpStatusCode.Forbidden, (await tunnel.GetAsync("/api/settings/remote-access")).StatusCode);
+        }
 
         var port = await client.PutAsJsonAsync("/api/settings/remote-access", new { tunnelPort = 3950 });
         Assert.Equal(HttpStatusCode.OK, port.StatusCode);
@@ -785,6 +815,14 @@ public sealed class RemoteAccessIsolatedTests
         {
             ["urls"] = "http://127.0.0.1:3942",
             ["TorrentFlow:RemoteAccess:TunnelPort"] = "3942",
+        };
+    }
+
+    internal sealed class RequestersOffFactory : RemoteHostFactory
+    {
+        protected override IDictionary<string, string?> Settings => new Dictionary<string, string?>(base.Settings)
+        {
+            ["TorrentFlow:RemoteAccess:AllowRequesters"] = "false",
         };
     }
 
