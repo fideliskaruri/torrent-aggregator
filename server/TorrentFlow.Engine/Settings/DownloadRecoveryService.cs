@@ -13,7 +13,7 @@ using TorrentFlow.Engine.Controllers;
 
 namespace TorrentFlow.Engine.Settings;
 
-public sealed record DownloadRecoveryResult(int Imported, int RestoredTorrents, int Skipped);
+public sealed record DownloadRecoveryResult(int Imported, int RestoredTorrents, int Skipped, int FailedTorrents = 0);
 
 internal sealed class DownloadRecoveryService(
     IDbContextFactory<TorrentFlowDbContext> factory, ClientSettingsStore settings,
@@ -55,6 +55,7 @@ internal sealed class DownloadRecoveryService(
             var imported = 0;
             var restored = 0;
             var restoredFiles = 0;
+            var failedTorrents = 0;
             // Both explicitly-added torrents and MonoTorrent's cached magnet metadata are recoverable.
             foreach (var folder in new[] { "torrents", "metadata" })
             {
@@ -87,8 +88,8 @@ internal sealed class DownloadRecoveryService(
                         rows.Add(row);
                         foreach (var path in match.Value.Paths) tracked.Add(path);
                         restoredFiles += available.RemoveAll(f => tracked.Contains(f.FullName));
-                        await engine.RestoreForSeedingAsync(row.Hash, bytes, ct);
-                        restored++;
+                        if (await engine.RestoreForSeedingAsync(row.Hash, bytes, ct)) restored++;
+                        else failedTorrents++;
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TorrentException or FormatException or ArgumentException)
                     {
@@ -129,7 +130,7 @@ internal sealed class DownloadRecoveryService(
                     .Select(r => r.Hash).ToListAsync(ct);
                 await library.RegisterAsync(recovered, ct);
             }
-            return new(imported, restored, files.Count - imported - restoredFiles);
+            return new(imported, restored, files.Count - imported - restoredFiles, failedTorrents);
         }
         finally { _gate.Release(); }
     }

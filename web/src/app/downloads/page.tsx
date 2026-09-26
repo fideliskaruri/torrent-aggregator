@@ -1899,6 +1899,7 @@ function FilmRow({
                 >
                   {stateLabel(t.state, t.queuePosition)}
                 </Badge>
+                {t.imported && <Badge variant="outline">Imported</Badge>}
                 {/*
                   One quality tag at most (resolution). Source tags (WEB-DL),
                   scene/tracker chips, peer counts and the folder path are

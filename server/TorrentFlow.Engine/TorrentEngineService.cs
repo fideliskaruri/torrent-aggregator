@@ -295,7 +295,8 @@ internal sealed class TorrentEngineService(
         var bytes = LoadTorrentFile(row.Hash);
         if (bytes is null && string.IsNullOrWhiteSpace(row.Magnet))
             return new BackendAddOutcome(false, "No saved source to retry this release.");
-        reuseExistingLayout = reuseExistingLayout || _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
+        reuseExistingLayout = reuseExistingLayout || row.TorrentUrl == DownloadRecoveryService.SeedingMarker
+            || _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
             row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseExistingLayout);
         var wasLoaded = backend.Contains(row.Hash);
@@ -505,7 +506,8 @@ internal sealed class TorrentEngineService(
         await using (var seedDb = await dbFactory.CreateDbContextAsync(ct))
         {
             var seeds = await seedDb.EngineTorrents.Where(r => r.UserId == LocalUser.Id
-                && r.TorrentUrl == DownloadRecoveryService.SeedingMarker && r.Status == "seeding").ToListAsync(ct);
+                && r.TorrentUrl == DownloadRecoveryService.SeedingMarker
+                && (r.Status == "seeding" || r.Status == EngineTorrentStatus.Downloading)).ToListAsync(ct);
             foreach (var seed in seeds)
                 if (File.Exists(TorrentFilePath(seed.Hash)))
                     await RestoreForSeedingAsync(seed.Hash, await File.ReadAllBytesAsync(TorrentFilePath(seed.Hash), ct), ct);
@@ -686,19 +688,20 @@ internal sealed class TorrentEngineService(
 
     // ---------------------------------------------------------------- actions
 
-    internal async Task RestoreForSeedingAsync(string hash, byte[] metadata, CancellationToken ct)
+    internal async Task<bool> RestoreForSeedingAsync(string hash, byte[] metadata, CancellationToken ct)
     {
         using (await LockHashAsync(hash, ct))
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var row = await FindAsync(db, hash, ct);
-            if (row is null || row.Status != "seeding") return;
+            if (row is null || row.Status is not ("seeding" or EngineTorrentStatus.Downloading)) return false;
             SaveTorrentFile(hash, metadata);
             try
             {
                 var outcome = await backend.AddAsync(new BackendAddSpec(hash, null, metadata, row.SavePath!,
                     TorrentPurpose.Keep, null, false), ct);
                 if (!outcome.Ok) { row.Status = EngineTorrentStatus.Error; row.Error = outcome.Message; }
+                else row.Status = "seeding";
                 _startedAt[hash] = Now;
                 WakeMonitor();
             }
@@ -709,6 +712,7 @@ internal sealed class TorrentEngineService(
                 row.Error = "Could not restart the saved torrent.";
             }
             await db.SaveChangesAsync(CancellationToken.None);
+            return row.Status == "seeding";
         }
     }
 

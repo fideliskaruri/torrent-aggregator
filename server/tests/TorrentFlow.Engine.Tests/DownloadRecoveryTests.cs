@@ -98,6 +98,29 @@ public sealed class DownloadRecoveryTests
         Assert.Equal(0, (await Service(h).ImportAsync(default)).Imported);
     }
 
+    [Fact]
+    public async Task FailedTorrentRestoreIsNotReportedAsSuccessfulImport()
+    {
+        await using var h = await EngineHarness.CreateAsync();
+        var folder = Path.Combine(h.Root, "downloads");
+        Directory.CreateDirectory(folder);
+        var file = Path.Combine(folder, "film.mkv");
+        await File.WriteAllBytesAsync(file, new byte[1000]);
+        var bytes = (await new TorrentCreator { PieceLength = 32 * 1024 }.CreateAsync(new TorrentFileSource(file))).Encode();
+        Directory.CreateDirectory(Path.Combine(h.Options.EngineDirectory, "torrents"));
+        await File.WriteAllBytesAsync(Path.Combine(h.Options.EngineDirectory, "torrents", "saved.torrent"), bytes);
+        h.Backend.AddOverride = _ => new BackendAddOutcome(false, "Backend unavailable");
+
+        var result = await Service(h).ImportAsync(default);
+
+        Assert.Equal(0, result.Imported);
+        Assert.Equal(0, result.RestoredTorrents);
+        Assert.Equal(1, result.FailedTorrents);
+        Assert.Equal("error", (await h.RowsAsync()).Single().Status);
+        Assert.Equal(0, (await Service(h).ImportAsync(default)).Imported);
+        Assert.True(File.Exists(file));
+    }
+
     [Theory]
     [InlineData("127.0.0.1", false, true)]
     [InlineData("::1", false, true)]
@@ -109,5 +132,60 @@ public sealed class DownloadRecoveryTests
         context.Connection.RemoteIpAddress = IPAddress.Parse(address);
         if (forwarded) context.Request.Headers["X-Forwarded-For"] = "192.0.2.5";
         Assert.Equal(allowed, DownloadRecoveryController.IsOwner(context));
+    }
+
+    [Fact]
+    public void DedicatedTunnelListenerIsDeniedEvenWithoutForwardedHeaders()
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Loopback;
+        context.Connection.LocalPort = 4929;
+        Assert.False(DownloadRecoveryController.IsOwner(context, "http://127.0.0.1:3929"));
+        context.Connection.LocalPort = 3929;
+        Assert.True(DownloadRecoveryController.IsOwner(context, "http://127.0.0.1:3929"));
+    }
+
+    [Fact]
+    public async Task RealBackendHashChecksExistingFileAndSeedsWithoutDownloading()
+    {
+        await using var h = await EngineHarness.CreateAsync();
+        var folder = Path.Combine(h.Root, "downloads");
+        Directory.CreateDirectory(folder);
+        var file = Path.Combine(folder, "Recovered Film.mkv");
+        var payload = new byte[128 * 1024];
+        new Random(17).NextBytes(payload);
+        await File.WriteAllBytesAsync(file, payload);
+        var bytes = (await new TorrentCreator { PieceLength = 32 * 1024 }.CreateAsync(new TorrentFileSource(file))).Encode();
+        Directory.CreateDirectory(Path.Combine(h.Options.EngineDirectory, "metadata"));
+        await File.WriteAllBytesAsync(Path.Combine(h.Options.EngineDirectory, "metadata", "cached.torrent"), bytes);
+        h.Options.Dht = false;
+        h.Options.PublicTrackers = [];
+        h.Options.Streaming = false;
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        h.Options.ListenPort = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        await using var backend = new MonoTorrentBackend(Options.Create(h.Options), NullLogger<MonoTorrentBackend>.Instance);
+        var engine = new TorrentEngineService(h.Db, backend, new StaticOptionsMonitor<EngineOptions>(h.Options),
+            new ClientSettingsStore(h.Db), h.Storage, new NoHttpFactory(), TimeProvider.System, NullLogger<TorrentEngineService>.Instance);
+        var service = new DownloadRecoveryService(h.Db, new ClientSettingsStore(h.Db), Options.Create(h.Options), engine,
+            NullLogger<DownloadRecoveryService>.Instance);
+        Assert.Equal(1, (await service.ImportAsync(default)).RestoredTorrents);
+        var hash = (await h.RowsAsync()).Single().Hash;
+        async Task WaitComplete()
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            while (backend.Get(hash)?.State != "complete") await Task.Delay(100, timeout.Token);
+            await engine.TickAsync();
+        }
+        await WaitComplete();
+        Assert.Equal(0, backend.Get(hash)!.BytesReceived);
+        Assert.Equal(payload, await File.ReadAllBytesAsync(file));
+        Assert.Equal("seeding", (await h.RowsAsync()).Single().Status);
+        await backend.RemoveAsync(hash);
+        await engine.RehydrateAsync();
+        await WaitComplete();
+        Assert.Equal(0, (await service.ImportAsync(default)).Imported);
+        Assert.Equal(1, (await engine.ListAsync()).Single().Progress);
     }
 }

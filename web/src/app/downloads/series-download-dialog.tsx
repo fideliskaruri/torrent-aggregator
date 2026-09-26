@@ -393,6 +393,7 @@ function EpisodeCard({
               {done ? <Check className="h-3 w-3" aria-hidden /> : null}
               {stateLabel(t.state, t.queuePosition)}
             </Badge>
+            {t.imported && <Badge variant="outline">Imported</Badge>}
             <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
               {formatBytes(t.sizeBytes)}
               {t.peers != null ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : ""}

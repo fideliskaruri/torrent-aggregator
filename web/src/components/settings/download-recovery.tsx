@@ -34,9 +34,11 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     setBusy(true);
     try {
       const response = await fetch("/api/settings/download-recovery", { method: "POST" });
-      const result = await response.json() as { imported?: number; restoredTorrents?: number; error?: string };
+      const result = await response.json() as { imported?: number; restoredTorrents?: number; failedTorrents?: number; error?: string };
       if (!response.ok) throw new Error(result.error || "Import failed");
-      toast.success(`Imported ${result.imported ?? 0} local files; restored ${result.restoredTorrents ?? 0} torrents. Existing downloads were left unchanged.`);
+      const message = `Imported ${result.imported ?? 0} local files; restored ${result.restoredTorrents ?? 0} torrents.`;
+      if (result.failedTorrents) toast.warning(`${message} ${result.failedTorrents} torrents could not start; check their error in Downloads.`);
+      else toast.success(`${message} Existing downloads were left unchanged.`);
       onImported?.();
       setRetry((value) => value + 1);
     } catch (cause) {
