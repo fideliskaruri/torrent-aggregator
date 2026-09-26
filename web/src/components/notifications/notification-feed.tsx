@@ -6,6 +6,10 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import { formatRelativeTime } from "@/lib/utils";
+import { withTimeout } from "@/lib/with-timeout";
+
+const PUSH_ENABLE_TIMEOUT_MS = 15_000;
+const PUSH_ENABLE_FAIL = "Couldn't enable push — check browser notification permission";
 
 export const NOTIFICATIONS_CHANGED = "tf:notifications-read";
 
@@ -110,38 +114,46 @@ function PushToggle() {
     setBusy(true);
     setError(null);
     try {
-      if (!enabled && await Notification.requestPermission() !== "granted")
-        throw new Error("Notifications are blocked. Allow them in your browser's site settings, then try again.");
-      await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-      const registration = await Promise.race([
-        navigator.serviceWorker.ready,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Service worker is not ready. Reload and try again.")), 10_000)),
-      ]);
-      const existing = await registration.pushManager.getSubscription();
       if (enabled) {
+        await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        const registration = await withTimeout(
+          navigator.serviceWorker.ready,
+          10_000,
+          "Service worker is not ready. Reload and try again.",
+        );
+        const existing = await registration.pushManager.getSubscription();
         if (existing) {
           await mutate("push/subscription", "DELETE", { endpoint: existing.endpoint });
           if (!await existing.unsubscribe()) throw new Error("Browser could not disable push. Try again.");
         }
         setEnabled(false);
       } else {
-        const response = await sessionAwareFetch("/api/notifications/push/public-key", { cache: "no-store" });
-        if (!response.ok) throw new Error("Could not load push settings. Try again.");
-        const { publicKey } = await response.json() as { publicKey: string };
-        const key = publicKey.replace(/-/g, "+").replace(/_/g, "/");
-        const bytes = Uint8Array.from(atob(key.padEnd(Math.ceil(key.length / 4) * 4, "=")), c => c.charCodeAt(0));
-        const subscription = existing ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
-        const json = subscription.toJSON();
-        try {
-          await mutate("push/subscription", "POST", { endpoint: subscription.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth });
-        } catch (e) {
-          if (!existing) await subscription.unsubscribe();
-          throw e;
-        }
+        await withTimeout(enablePush(), PUSH_ENABLE_TIMEOUT_MS, PUSH_ENABLE_FAIL);
         setEnabled(true);
       }
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
+  }
+
+  async function enablePush() {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") throw new Error(PUSH_ENABLE_FAIL);
+    await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+    const registration = await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    const response = await sessionAwareFetch("/api/notifications/push/public-key", { cache: "no-store" });
+    if (!response.ok) throw new Error("Could not load push settings. Try again.");
+    const { publicKey } = await response.json() as { publicKey: string };
+    const key = publicKey.replace(/-/g, "+").replace(/_/g, "/");
+    const bytes = Uint8Array.from(atob(key.padEnd(Math.ceil(key.length / 4) * 4, "=")), c => c.charCodeAt(0));
+    const subscription = existing ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+    const json = subscription.toJSON();
+    try {
+      await mutate("push/subscription", "POST", { endpoint: subscription.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth });
+    } catch (e) {
+      if (!existing) await subscription.unsubscribe();
+      throw e;
+    }
   }
   return <div className="space-y-2 rounded-lg border border-[var(--border)] p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
