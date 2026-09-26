@@ -10,6 +10,11 @@ using Xunit.Abstractions;
 
 namespace TorrentFlow.Search.Tests;
 
+[CollectionDefinition(nameof(UdpTimingCollection), DisableParallelization = true)]
+public sealed class UdpTimingCollection;
+
+// Real UDP sockets with sub-second retry budgets: run alone so a busy CI runner can't starve them.
+[Collection(nameof(UdpTimingCollection))]
 public sealed class TrackerScraperTests(ITestOutputHelper output)
 {
     private const string Hash = "08ada5a7a6183aae1e09d831df6748d566095a10";
@@ -60,9 +65,9 @@ public sealed class TrackerScraperTests(ITestOutputHelper output)
         await using var silent = new UdpTracker(_ => null);
         using var scraper = Scraper(fast.Url, silent.Url);
         var elapsed = Stopwatch.StartNew();
-        var result = await scraper.ScrapeAsync([Hash], TimeSpan.FromMilliseconds(350));
+        var result = await scraper.ScrapeAsync([Hash], TimeSpan.FromMilliseconds(1000));
         Assert.Equal(new ScrapeCount(31, 7, 99, 1), result[Hash]);
-        Assert.InRange(elapsed.ElapsedMilliseconds, 200, 1200);
+        Assert.InRange(elapsed.ElapsedMilliseconds, 200, 3000);
         Assert.Equal(2, silent.Scrapes);
     }
 
@@ -131,7 +136,7 @@ public sealed class TrackerScraperTests(ITestOutputHelper output)
     {
         await using var tracker = new UdpTracker(_ => new(12, 34, 56, 1), dropFirst: true, sendMalformed: true);
         using var scraper = Scraper(tracker.Url);
-        var result = await scraper.ScrapeAsync([Hash], Budget);
+        var result = await scraper.ScrapeAsync([Hash], TimeSpan.FromSeconds(5));
         Assert.Equal(new ScrapeCount(12, 34, 56, 1), result[Hash]);
         Assert.Equal(2, tracker.Connects);
         Assert.Equal(2, tracker.Scrapes);

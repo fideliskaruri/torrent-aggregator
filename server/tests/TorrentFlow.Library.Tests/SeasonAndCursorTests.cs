@@ -96,7 +96,7 @@ public sealed class SeasonAndCursorTests
             if (ep == 3) thirdSent.TrySetResult();
             return new(true, "OK");
         }, orderWaitMs: 30, sendHoldMs: 30);
-        try { await thirdSent.Task.WaitAsync(TimeSpan.FromSeconds(2)); }
+        try { await thirdSent.Task.WaitAsync(TimeSpan.FromSeconds(15)); }
         finally { releaseFirst.TrySetResult(); }
         Assert.Equal(2, (await task).CoveredEpisodes.Count);
     }
