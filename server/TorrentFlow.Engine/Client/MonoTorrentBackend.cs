@@ -171,7 +171,8 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             }
             manager.TorrentStateChanged += OnStateChanged;
             await OneTrackerPerTierAsync(manager);
-            await AddPublicTrackersAsync(manager, _options.EffectivePublicTrackers);
+            if (!spec.ForceHashCheck || manager.HasMetadata)
+                await AddPublicTrackersAsync(manager, _options.EffectivePublicTrackers);
             _purposes[spec.Hash] = spec.Purpose;
             _managers[spec.Hash] = manager;
             if (!spec.ForceHashCheck && spec.FilePaths is { } paths && manager.HasMetadata) await PointAtLaidOutFilesAsync(manager, paths);

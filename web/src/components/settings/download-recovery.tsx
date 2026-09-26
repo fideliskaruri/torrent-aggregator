@@ -55,7 +55,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     setError(false);
     void fetch("/api/settings/download-recovery", { signal: abort.signal, cache: "no-store" })
       .then(async (response) => {
-        if (response.status === 404) { setInfo(null); return; } // Owner-only, hidden on remote access.
+        if (response.status === 404 || response.status === 403) { setInfo(null); return; } // Owner-only, hidden on remote access.
         if (!response.ok) throw new Error("Could not inspect download storage");
         setInfo(await response.json() as RecoveryInfo);
       }).catch(() => { if (!abort.signal.aborted) setError(true); });
@@ -66,7 +66,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     setSourceState("loading");
     try {
       const response = await fetch("/api/settings/download-recovery/sources", { cache: "no-store" });
-      if (response.status === 404) {
+      if (response.status === 404 || response.status === 403) {
         setInfo(null);
         setSourceScan(null);
         setSelectedIds(new Set());

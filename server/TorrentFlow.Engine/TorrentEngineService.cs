@@ -316,7 +316,7 @@ internal sealed class TorrentEngineService(
         // a file moved aside or kept nested is re-checked in place and a neighbour's file at the flat path is never touched.
         var recovered = DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl);
         var recoveredPaths = recovered ? VerifiedFiles(row).Where(f => f.FullPath is not null).ToDictionary(f => f.Path, f => f.FullPath!) : null;
-        var indexed = bytes is null ? null : recovered
+        IReadOnlyList<string?>? indexed = bytes is null ? null : recovered
             ? recoveredPaths!.Count == 0 ? null : MonoTorrent.Torrent.Load(bytes).Files.Select(f => recoveredPaths.GetValueOrDefault(f.Path)).ToList()
             : _layoutManifest.IndexedPaths(row.Hash, row.SavePath) ?? _layoutManifest.PlacedPaths(row.Hash, row.SavePath);
         var reuseFlatLayout = row.TorrentUrl == DownloadRecoveryService.SeedingMarker

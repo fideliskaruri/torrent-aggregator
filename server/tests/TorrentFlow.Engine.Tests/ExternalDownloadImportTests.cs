@@ -24,7 +24,7 @@ public sealed class ExternalDownloadImportTests
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         while (seed.Get(candidate.Hash)?.State != "complete") await Task.Delay(100, timeout.Token);
         h.Options.Dht = false;
-        h.Options.PublicTrackers = [];
+        h.Options.PublicTrackers = ["https://must-not-contact.invalid/announce"];
         h.Options.Streaming = false;
         h.Options.LocalPeerDiscovery = false;
         h.Options.ListenPort = 0;
@@ -35,6 +35,7 @@ public sealed class ExternalDownloadImportTests
         await engine.ImportExternalAsync(candidate with { TorrentBytes = null, Magnet = magnet }, default);
         var manager = backend.Engine.Torrents.Single();
         Assert.False(manager.HashChecked);
+        Assert.Empty(manager.TrackerManager.Tiers);
         await manager.AddPeerAsync(new MonoTorrent.PeerInfo(new Uri($"ipv4://127.0.0.1:{port}")));
         while (backend.Get(candidate.Hash)?.State != "complete") await Task.Delay(100, timeout.Token);
         Assert.True(manager.HashChecked);

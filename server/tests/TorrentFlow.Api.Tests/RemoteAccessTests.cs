@@ -95,6 +95,7 @@ public class RemoteHostFactory : WebApplicationFactory<Program>
         File.WriteAllText(Path.Combine(WebRoot, "assets", "app.js"), "export {};");
         File.WriteAllText(Path.Combine(WebRoot, "manifest.webmanifest"), "{}");
         builder.UseSetting("TorrentFlow:DataDirectory", Root);
+        builder.UseSetting("TorrentFlow:Import:ScanRoot", Path.Combine(Root, "client-fixtures"));
         builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
         builder.UseSetting("TorrentFlow:WebRoot", WebRoot);
         foreach (var (key, value) in Settings) builder.UseSetting(key, value);
@@ -158,6 +159,23 @@ public class RemoteHostFactory : WebApplicationFactory<Program>
 
 public sealed class RemoteAccessTests(RemoteHostFactory factory) : IClassFixture<RemoteHostFactory>
 {
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    public async Task AuthenticatedTunnelOwnerCannotScanOrImportOtherClients(string method)
+    {
+        using var client = factory.Tunnel(factory.Token());
+        using var request = new HttpRequestMessage(new HttpMethod(method), "/api/settings/download-recovery/sources");
+        if (method == "POST") request.Content = JsonContent.Create(new { ids = new[] { "fixture" }, acknowledged = true });
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.Contains("local_only", text);
+        Assert.DoesNotContain(factory.Root, text);
+        Assert.DoesNotContain("savePath", text);
+        Assert.DoesNotContain("candidates", text);
+    }
+
     private static async Task<JsonElement> Json(HttpResponseMessage response)
     {
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
