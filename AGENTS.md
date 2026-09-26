@@ -16,19 +16,19 @@ UI change so the owner doesn't have to describe each detail. Every UI change MUS
 ## Pages (13)
 | # | Route | File |
 |---|-------|------|
-| 1 | `/` (home) | `src/app/page.tsx` |
-| 2 | `/search` | `src/app/search/page.tsx` |
-| 3 | `/everything` | `src/app/everything/page.tsx` |
-| 4 | `/watchlist` | `src/app/watchlist/page.tsx` |
-| 5 | `/title/[workKey]` | `src/app/title/[workKey]/page.tsx` |
-| 6 | `/downloads` | `src/app/downloads/page.tsx` |
-| 7 | `/activity` | `src/app/activity/page.tsx` |
-| 8 | `/history` | `src/app/history/page.tsx` |
-| 9 | `/notifications` | `src/app/notifications/page.tsx` |
-| 10 | `/client` | `src/app/client/page.tsx` |
-| 11 | `/rules` | `src/app/rules/page.tsx` |
-| 12 | `/settings` | `src/app/settings/page.tsx` |
-| 13 | `/about` | `src/app/about/page.tsx` |
+| 1 | `/` (home) | `web/src/app/page.tsx` |
+| 2 | `/search` | `web/src/app/search/page.tsx` |
+| 3 | `/everything` | `web/src/app/everything/page.tsx` |
+| 4 | `/watchlist` | `web/src/app/watchlist/page.tsx` |
+| 5 | `/title/[workKey]` | `web/src/app/title/[workKey]/page.tsx` |
+| 6 | `/downloads` | `web/src/app/downloads/page.tsx` |
+| 7 | `/activity` | `web/src/app/activity/page.tsx` |
+| 8 | `/history` | `web/src/app/history/page.tsx` |
+| 9 | `/notifications` | `web/src/app/notifications/page.tsx` |
+| 10 | `/client` | `web/src/app/client/page.tsx` |
+| 11 | `/rules` | `web/src/app/rules/page.tsx` |
+| 12 | `/settings` | `web/src/app/settings/page.tsx` |
+| 13 | `/about` | `web/src/app/about/page.tsx` |
 
 ## Per-page owner expectations (owner''s words — filled in as we go)
 - **1. Home (`/`):** _TBD_
@@ -39,7 +39,7 @@ UI change so the owner doesn't have to describe each detail. Every UI change MUS
   **A selected download quality is a hard minimum, not a fallback preference:** lower and unknown resolutions are ineligible; a higher resolution may be used when no exact-quality release exists. Monitored automation must keep the episode cursor pinned when only sub-floor releases exist.
 - **6. Downloads (`/downloads`):** Owner's explicit spec: press **Download** on a season or single episode → **start immediately** (auto-pick one exact torrent per episode; do not acquire season packs). **Delete** = gone immediately, no caching/lingering after the confirm dialog. **No banner** ("Active Now" band removed).
   **Series detail is a scrollable dialog, not an inline accordion** (this supersedes any earlier "expand a show → Season N → episode cards inline" wording — BUG-004 is the owner naming that shallow rearrangement for what it was; do not revert to it). The main page stays compact: one `SeriesOverviewRow` per work — poster/title, honest combined state/progress/counts/size, a selection checkbox, an explicit **Details** button (`data-group-details`) that opens the dialog, and an overflow for whole-series pause/resume/delete. Films keep their own direct row + Play button (never routed through the dialog).
-  Clicking **Details** opens `SeriesDownloadDialog` (`src/app/downloads/series-download-dialog.tsx`), built on the general-purpose Radix Dialog primitive (`src/components/ui/dialog.tsx` — distinct from `alert-dialog.tsx`, which stays reserved for yes/no destructive confirms). Layout: full-height sheet on mobile, centered/capped on desktop (`max-h-90dvh`). Header = poster/title/aggregate progress-counts-size-speed + close + whole-series overflow. Immediately below, a **shrink-0 horizontally-scrollable season rail** (`data-season-rail`, `role="tablist"`, one `role="tab"` per season with arrow-key/Home/End navigation, a percent readout and a thin truthful per-season progress fill) — this rail is the redesign's signature. Only the body below it (`data-season-panel`) scrolls vertically; nothing in the ancestor chain sets `overflow-x: hidden` (breaks the rail's scroll + any sticky header). Episode/release cards (`data-episode-card`) render one column below `md`, two at `md+`: identity, one quality chip + source, state badge, exact percent + progress bar, size, live speed/ETA/peers, a completed check, a Play button gated to built-in + `canStreamTransfer`, and an overflow (copy stream URL, open folder, pause/resume, delete, raw release/path details) — plus a modal-scoped selected-action bar when episodes are multi-selected.
+  Clicking **Details** opens `SeriesDownloadDialog` (`web/src/app/downloads/series-download-dialog.tsx`), built on the general-purpose Radix Dialog primitive (`web/src/components/ui/dialog.tsx` — distinct from `alert-dialog.tsx`, which stays reserved for yes/no destructive confirms). Layout: full-height sheet on mobile, centered/capped on desktop (`max-h-90dvh`). Header = poster/title/aggregate progress-counts-size-speed + close + whole-series overflow. Immediately below, a **shrink-0 horizontally-scrollable season rail** (`data-season-rail`, `role="tablist"`, one `role="tab"` per season with arrow-key/Home/End navigation, a percent readout and a thin truthful per-season progress fill) — this rail is the redesign's signature. Only the body below it (`data-season-panel`) scrolls vertically; nothing in the ancestor chain sets `overflow-x: hidden` (breaks the rail's scroll + any sticky header). Episode/release cards (`data-episode-card`) render one column below `md`, two at `md+`: identity, one quality chip + source, state badge, exact percent + progress bar, size, live speed/ETA/peers, a completed check, a Play button gated to built-in + `canStreamTransfer`, and an overflow (copy stream URL, open folder, pause/resume, delete, raw release/path details) — plus a modal-scoped selected-action bar when episodes are multi-selected.
   **Data contract:** the dialog always derives from every download row for that work (excluding stream/prewarm), independent of the page's search/status/media-tab filters — narrowing those filters must never hide a season/episode from an already-open dialog. Default season = the first actively-downloading/incomplete season, else the first ordered season; an already-picked season survives every 5s poll. If the group disappears (deleted / filtered to nothing), the dialog closes itself and announces it.
   **Never two focus traps:** `PlayOverlay` is a hand-rolled trap, not Radix — the series dialog unmounts while a video is playing and remounts on the same series/season when playback closes. See `season-selection.ts` for the pure default/poll-stability helpers and `page-source.test.ts` / `season-selection.test.ts` for the tests guarding this contract.
 - **7. Activity (`/activity`):** _TBD_

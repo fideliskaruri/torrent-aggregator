@@ -1,3 +1,6 @@
+> **HISTORICAL (Next.js era).** The live app is ASP.NET Core under `server/` + Vite React under `web/`.
+> The Next.js tree lived at repo root `src/` and is preserved only at git tag `nextjs-final`.
+> Prefer `README.md`, `docs/design-system.md`, and the `server/` / `web/` trees for current behaviour.
 # TorrentFlow — Build State & Autonomous Agent Operating Manual
 
 > **Audience:** an autonomous coding agent that will run unattended (overnight) on this repo.

@@ -21,7 +21,7 @@
 
 ## 2. Tokens (use these — do NOT hardcode hex/px)
 
-All defined in `src/app/globals.css` `:root`. Reference via `var(--…)` or the Tailwind theme aliases.
+All defined in `web/src/app/globals.css` `:root`. Reference via `var(--…)` or the Tailwind theme aliases.
 
 ### Color
 | Purpose | Token |

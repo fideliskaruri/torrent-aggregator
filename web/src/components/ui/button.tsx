@@ -21,11 +21,11 @@ const buttonVariants = cva(
         link: "text-[var(--accent-text)] underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-3.5 py-2 min-h-[44px] lg:min-h-0",
-        sm: "h-8 rounded-md px-2.5 text-xs min-h-[44px] lg:min-h-0",
-        lg: "h-11 rounded-lg px-5 text-sm",
-        icon: "h-8 w-8 min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0",
-        "icon-sm": "h-7 w-7 min-h-[44px] min-w-[44px] lg:min-h-0 lg:min-w-0",
+        default: "h-9 px-3.5 py-2 min-h-[44px]",
+        sm: "h-8 rounded-md px-2.5 text-xs min-h-[44px]",
+        lg: "h-11 rounded-lg px-5 text-sm min-h-[44px]",
+        icon: "h-8 w-8 min-h-[44px] min-w-[44px]",
+        "icon-sm": "h-7 w-7 min-h-[44px] min-w-[44px]",
       },
     },
     defaultVariants: {

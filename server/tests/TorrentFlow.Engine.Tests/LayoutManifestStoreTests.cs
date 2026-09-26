@@ -32,7 +32,12 @@ public sealed class LayoutManifestStoreTests : IDisposable
         var store = new CompletedLayoutManifestStore(ManifestPath);
         store.Remember("ABC", _root, [video, null, sample]);
 
-        Assert.Equal([video, null, sample], new CompletedLayoutManifestStore(ManifestPath).IndexedPaths("abc", _root));
+        var indexed = new CompletedLayoutManifestStore(ManifestPath).IndexedPaths("abc", _root);
+        Assert.NotNull(indexed);
+        Assert.Equal(3, indexed.Length);
+        Assert.Equal(video, indexed[0]);
+        Assert.Null(indexed[1]);
+        Assert.Equal(sample, indexed[2]);
         Assert.False(store.CanReuseFlatLayout("abc", _root, out _));
 
         File.Delete(sample);

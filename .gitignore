@@ -1,7 +1,6 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
 /node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -10,27 +9,35 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
+# testing / QA
 /coverage
 /playwright-report/
 /test-results/
+qa-screens/
+qa-shots/
+/tmp-test-downloads
+/downloads
 
-# next.js
-/.next/
-/out/
-
-# production
+# build output
 /build
+/out
+web/dist/
 
 # misc
 .DS_Store
 *.pem
+Thumbs.db
+Desktop.ini
 
-# debug
+# debug logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
+run.log
+dev-server.log
+prod-server.log
 
 # npm registry config (may contain private feed credentials)
 .npmrc
@@ -43,106 +50,35 @@ yarn-error.log*
 .env.production.local
 !.env.example
 
-# database
+# database / sqlite
 *.db
 *.db-journal
-/prisma/dev.db
-/dev.db
-
-# vercel
-.vercel
+*.db-shm
+*.db-wal
+dev.db.bak-*
+dev.db.postclean-*
 
 # typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# local download / test artifacts
-/downloads
-/tmp-test-downloads
-/qa-shots
-tmp-home.html
 *.tsbuildinfo
 
 # agent / session scratch
 .grok/
 .claude/
-# Throwaway probe scripts. They are excluded from tsconfig too: a scratch file
-# must never be able to break `npm run build` for everyone else.
-scripts/_*
 .qabak/
-qa-*.log
-
-# OS
-Thumbs.db
-Desktop.ini
+.agents/
+_bmad/
+_bmad-output/
+skills-lock.json
 
 # Auto-generated credential encryption key
 .torrentflow.key
 
 # Local runtime state
 /.torrentflow/
-
-# QA artifacts
-qa-screens/
-dev-server.log
-prod-server.log
-
-# Layout ownership manifest (which torrent owns which file on disk)
 .torrentflow-layout.json
-
-# Scratch request bodies for manual API pokes
-switch.json
-
-# local run logs
-run.log
-fix-server.log
-
-# Playback transcode/remux session temp files
 .sessions/
-
-# Generated media fixtures for the playback e2e harness
 .media-e2e/
-
-# Test-harness artefacts (regenerated every run; never committed)
 /.e2e-instant-play/
-/instant-*.log
-/qa-*.log
-/prod-server.log
-
-# Database snapshots. `*.db` above does NOT match these — the timestamp suffix
-# means the filename no longer ends in `.db` — so without this they show up as
-# untracked and a careless `git add .` would commit the user's real library,
-# watch positions and download history. Never commit these.
-dev.db.bak-*
-dev.db.postclean-*
-*.db-shm
-*.db-wal
-
-# Probe / sweep scratch output
-/.next-probe/
-/.next-scratch/
-# The verification gate's isolated build output. Note that /.next/ above does
-# NOT match this - same trap as *.db failing to match dev.db.bak-<timestamp>.
-/.next-gate/
-# The verification/proof build output written by the probe scripts.
-/.next-proof/
-/.next-parity/
-/scripts/parity/reports/
-# Previous production build, kept by promote.mjs so a bad promotion is undoable.
-/.next-rollback/
-/ui-sweep/
-/prod-3000*.log
-/loader-continuity.png
-/next-control.png
-/scripts/probes/player-owned-artifacts/
-
-# Autopilot arming state is per-machine, not project configuration.
-docs/.autopilot.json
-
-# The plan database is the one .db that IS project state, not local scratch.
-# It is the record of what has actually been verified; losing it means the
-# next session starts guessing again, which is the failure it exists to stop.
-!docs/plan.db
 
 # .NET
 artifacts/publish/
@@ -152,9 +88,12 @@ obj/
 *.user
 .vs/
 server/**/torrentflow.db*
-
 server/**/data/
 server/**/data.migrated-*/
-# Legacy <repo>\data libraries and the backup install.ps1 leaves after moving one into the installed app
+
+# Legacy <repo>\data libraries and the backup install.ps1 leaves after moving one
 /data/
 /data.migrated-*/
+
+# Autopilot arming state is per-machine, not project configuration.
+docs/.autopilot.json

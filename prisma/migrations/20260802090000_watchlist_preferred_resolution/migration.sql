@@ -1,1 +1,0 @@
-ALTER TABLE "WatchListItem" ADD COLUMN "preferredResolution" INTEGER;
