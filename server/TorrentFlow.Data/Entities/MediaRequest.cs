@@ -9,7 +9,7 @@ public partial class MediaRequest
 
     public string RequestedByUserId { get; set; } = null!;
 
-    /// <summary>tmdb | anilist | tvmaze | itunes.</summary>
+    /// <summary>tmdb | anilist | tvmaze | cinemeta | itunes.</summary>
     public string Provider { get; set; } = null!;
 
     public string? ProviderId { get; set; }

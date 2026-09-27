@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Api.Requests;
@@ -54,11 +55,12 @@ public static partial class RequestRules
     public const int MaxNoteLength = 500;
     public const int MaxSeasons = 100;
     public const int MaxSeasonNumber = 500;
-    public static readonly string[] Providers = ["tmdb", "anilist", "tvmaze", "itunes"];
+    /// <summary>Same catalog sources as <see cref="IMetadataResolver.SupportsProvider"/> — keep one list in Core.</summary>
+    public static readonly string[] Providers = IMetadataResolver.Providers;
     public static readonly string[] MediaTypes = ["movie", "tv", "anime"];
 
-    private static readonly string[] PosterHosts = ["image.tmdb.org", "s4.anilist.co", "static.tvmaze.com"];
-    private static readonly string[] PosterHostSuffixes = [".anilist.co", ".tvmaze.com", ".mzstatic.com"];
+    private static readonly string[] PosterHosts = ["image.tmdb.org", "s4.anilist.co", "static.tvmaze.com", "images.metahub.space"];
+    private static readonly string[] PosterHostSuffixes = [".anilist.co", ".tvmaze.com", ".mzstatic.com", ".metahub.space"];
 
     /// <summary>Only https artwork from the catalogs the search uses; anything else is dropped so the owner's inbox never loads an arbitrary URL.</summary>
     public static string? SafePosterUrl(string? raw, string? extraHost = null)
@@ -98,9 +100,11 @@ public static partial class RequestRules
         string? scope, IReadOnlyList<int>? seasons, string? note, string? extraPosterHost = null)
     {
         provider = provider?.Trim().ToLowerInvariant();
-        if (provider is null || !Providers.Contains(provider)) return (null, "provider must be one of tmdb, anilist, tvmaze, itunes");
+        if (provider is null || !Providers.Contains(provider))
+            return (null, "provider must be one of " + string.Join(", ", Providers));
         providerId = string.IsNullOrWhiteSpace(providerId) ? null : providerId.Trim();
-        if (providerId is not null && !ProviderIdPattern().IsMatch(providerId)) return (null, "providerId must be a catalog number");
+        if (providerId is not null && !IsValidProviderId(provider, providerId))
+            return (null, provider == "cinemeta" ? "providerId must be an IMDb id (tt…)" : "providerId must be a catalog number");
         mediaType = mediaType?.Trim().ToLowerInvariant();
         if (mediaType is null || !MediaTypes.Contains(mediaType)) return (null, "mediaType must be movie, tv or anime");
         title = title is null ? null : ControlChars().Replace(title, " ").Trim();
@@ -130,8 +134,15 @@ public static partial class RequestRules
         return (new RequestDraft(provider, providerId, workKey, mediaType, title, year, SafePosterUrl(posterUrl, extraPosterHost), scope, list, note), null);
     }
 
+    /// <summary>Cinemeta keys works by IMDb id; every other catalog uses a plain number.</summary>
+    public static bool IsValidProviderId(string provider, string providerId) =>
+        provider == "cinemeta" ? CinemetaIdPattern().IsMatch(providerId) : CatalogNumberPattern().IsMatch(providerId);
+
+    [GeneratedRegex("^tt[0-9]{1,10}$")]
+    private static partial Regex CinemetaIdPattern();
+
     [GeneratedRegex("^[0-9]{1,12}$")]
-    private static partial Regex ProviderIdPattern();
+    private static partial Regex CatalogNumberPattern();
 
     [GeneratedRegex(@"[\p{Cc}\u200B\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]+")]
     private static partial Regex ControlChars();

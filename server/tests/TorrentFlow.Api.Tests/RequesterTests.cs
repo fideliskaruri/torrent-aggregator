@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using TorrentFlow.Api.RemoteAccess;
 using TorrentFlow.Api.Requests;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Metadata.Search;
@@ -516,6 +517,7 @@ public sealed class RequesterTests(RequesterHostFactory factory) : IClassFixture
     [InlineData("https://image.tmdb.org/t/p/w342/a.jpg", true)]
     [InlineData("https://s4.anilist.co/file/a.png", true)]
     [InlineData("https://is1-ssl.mzstatic.com/image/a.jpg", true)]
+    [InlineData("https://images.metahub.space/poster/small/tt0145487/img", true)]
     [InlineData("http://image.tmdb.org/t/p/w342/a.jpg", false)]
     [InlineData("https://image.tmdb.org.evil.net/a.jpg", false)]
     [InlineData("https://user@image.tmdb.org/a.jpg", false)]
@@ -523,6 +525,57 @@ public sealed class RequesterTests(RequesterHostFactory factory) : IClassFixture
     [InlineData("javascript:alert(1)", false)]
     public void PosterHostsAreAllowListed(string url, bool kept) =>
         Assert.Equal(kept, RequestRules.SafePosterUrl(url) is not null);
+
+    [Theory]
+    [InlineData("cinemeta", "tt0145487", true)]
+    [InlineData("cinemeta", "tt1", true)]
+    [InlineData("cinemeta", "0145487", false)]
+    [InlineData("cinemeta", "tt", false)]
+    [InlineData("cinemeta", "ttabcdefgh", false)]
+    [InlineData("tmdb", "438631", true)]
+    [InlineData("tmdb", "tt0145487", false)]
+    [InlineData("anilist", "154587", true)]
+    [InlineData("itunes", "123", true)]
+    public void ProviderIdsMatchEachCatalog(string provider, string id, bool ok) =>
+        Assert.Equal(ok, RequestRules.IsValidProviderId(provider, id));
+
+    [Fact]
+    public void CinemetaIsARequestProviderAlignedWithMetadata()
+    {
+        Assert.Contains("cinemeta", RequestRules.Providers);
+        Assert.Equal(IMetadataResolver.Providers, RequestRules.Providers);
+        var (draft, error) = RequestRules.Validate(
+            "cinemeta", "tt0145487", "movie", "Spider-Man", 2002,
+            "https://images.metahub.space/poster/small/tt0145487/img",
+            "movie", null, null);
+        Assert.Null(error);
+        Assert.NotNull(draft);
+        Assert.Equal("cinemeta", draft!.Provider);
+        Assert.Equal("tt0145487", draft.ProviderId);
+        Assert.Equal("https://images.metahub.space/poster/small/tt0145487/img", draft.PosterUrl);
+    }
+
+    [Fact]
+    public async Task ACinemetaImdbTitleCanBeRequested()
+    {
+        using var client = factory.Requester(Email("cinemeta"));
+        var response = await Create(client, new
+        {
+            provider = "cinemeta",
+            providerId = "tt0145487",
+            mediaType = "movie",
+            title = "Spider-Man",
+            year = 2002,
+            scope = "movie",
+            posterUrl = "https://images.metahub.space/poster/small/tt0145487/img",
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var request = (await Json(response)).GetProperty("request");
+        Assert.Equal("cinemeta", request.GetProperty("provider").GetString());
+        Assert.Equal("tt0145487", request.GetProperty("providerId").GetString());
+        Assert.Equal("https://images.metahub.space/poster/small/tt0145487/img", request.GetProperty("posterUrl").GetString());
+        Assert.Equal("pending", request.GetProperty("status").GetString());
+    }
 
     private static string Methods(RouteEndpoint e) =>
         e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods is { Count: > 0 } m ? string.Join(",", m) : "*";

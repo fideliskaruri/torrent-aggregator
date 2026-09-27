@@ -120,6 +120,40 @@ public sealed class RequestDecisionTests(DecisionHostFactory factory) : IClassFi
     }
 
     [Fact]
+    public async Task ApprovingACinemetaRequestGrabsWithTheImdbIdentity()
+    {
+        var body = new
+        {
+            provider = "cinemeta",
+            providerId = "tt0145487",
+            mediaType = "movie",
+            title = "Spider-Man",
+            year = 2002,
+            scope = "movie",
+            posterUrl = "https://images.metahub.space/poster/small/tt0145487/img",
+        };
+        var (friend, id) = await RequestAsync("Spider-Man", "tt0145487", body);
+        using (friend)
+        using (var owner = factory.Local())
+        {
+            Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync($"/api/requests/{id}/approve", null)).StatusCode);
+            await GrabDone();
+
+            var grabbed = Assert.Single(factory.Grabber.Grabbed, r => r.Id == id);
+            Assert.Equal("cinemeta", grabbed.Provider);
+            Assert.Equal("tt0145487", grabbed.ProviderId);
+            Assert.Equal(MediaRequestStatus.Approved, (await RowAsync(id)).Status);
+            Assert.False(string.IsNullOrEmpty((await RowAsync(id)).GrabbedHashes));
+
+            var inbox = await Json(await owner.GetAsync("/api/requests?status=approved"));
+            var row = inbox.GetProperty("requests").EnumerateArray().Single(r => r.GetProperty("id").GetString() == id);
+            Assert.Equal("cinemeta", row.GetProperty("provider").GetString());
+            Assert.Equal("tt0145487", row.GetProperty("providerId").GetString());
+            Assert.Equal("https://images.metahub.space/poster/small/tt0145487/img", row.GetProperty("posterUrl").GetString());
+        }
+    }
+
+    [Fact]
     public async Task ASeriesFulfillsOnlyWhenEveryGrabbedTransferCompletes()
     {
         factory.Grabber.Outcome = r => r.Scope == MediaRequestScope.Movie ? new([$"{r.Id.ToLowerInvariant()}aa"], null)

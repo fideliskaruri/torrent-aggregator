@@ -31,6 +31,10 @@ export type RequestStatus =
 
 export type RequestScope = "movie" | "seasons" | "series";
 
+/** Catalog sources `POST /api/requester/requests` accepts — keep with server `IMetadataResolver.Providers`. */
+export const REQUEST_PROVIDERS = ["tmdb", "anilist", "tvmaze", "cinemeta", "itunes"] as const;
+export type RequestProvider = (typeof REQUEST_PROVIDERS)[number];
+
 /** One of my requests from `GET /api/requester/requests`. */
 export interface RequesterRequest {
   id: string;

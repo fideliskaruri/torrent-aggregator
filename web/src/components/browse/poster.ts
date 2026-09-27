@@ -18,14 +18,15 @@ const OPTIMIZED_IMAGE_HOSTS = new Set([
   "image.tmdb.org",
   "s4.anilist.co",
   "static.tvmaze.com",
+  "images.metahub.space",
 ]);
 
 /**
  * iTunes artwork is served from `is1-ssl` … `is5-ssl.mzstatic.com`, and which
  * shard serves a given asset is not stable, so this is matched by suffix
- * rather than enumerated.
+ * rather than enumerated. Cinemeta posters use `*.metahub.space`.
  */
-const OPTIMIZED_HOST_SUFFIXES = [".mzstatic.com"];
+const OPTIMIZED_HOST_SUFFIXES = [".mzstatic.com", ".metahub.space"];
 
 export function isOptimizableImageUrl(url: string | null | undefined): boolean {
   if (!url) return false;

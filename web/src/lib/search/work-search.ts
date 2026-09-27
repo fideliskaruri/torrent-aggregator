@@ -8,7 +8,8 @@ type WorkSearchCategory = (typeof WORK_SEARCH_CATEGORIES)[number];
  * "all".
  */
 export type WorkSearchScope = WorkSearchCategory | "all";
-type WorkSearchProvider = "tmdb" | "anilist" | "itunes" | "tvmaze";
+/** Keep aligned with server `IMetadataResolver.Providers`. */
+type WorkSearchProvider = "tmdb" | "anilist" | "itunes" | "tvmaze" | "cinemeta";
 type WorkSearchMediaType = "movie" | "tv" | "anime";
 
 export interface WorkSearchHit {

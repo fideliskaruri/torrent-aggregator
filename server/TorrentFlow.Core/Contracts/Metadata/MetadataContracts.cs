@@ -46,7 +46,11 @@ public interface IMetadataResolver
     /// <param name="mediaType">"movie" | "tv".</param>
     Task<MediaMetadata?> GetTmdbByIdAsync(string mediaType, string id, CancellationToken cancellationToken = default);
 
-    static bool SupportsProvider(string provider) => provider is "tmdb" or "anilist" or "tvmaze" or "cinemeta" or "itunes";
+    /// <summary>Catalog sources the product accepts for title identity (search, title page, requests).</summary>
+    public static readonly string[] Providers = ["tmdb", "anilist", "tvmaze", "cinemeta", "itunes"];
+
+    static bool SupportsProvider(string provider) =>
+        provider is "tmdb" or "anilist" or "tvmaze" or "cinemeta" or "itunes";
 
     Task<MediaMetadata?> GetByIdAsync(string provider, string mediaType, string id, CancellationToken cancellationToken = default) =>
         provider switch
