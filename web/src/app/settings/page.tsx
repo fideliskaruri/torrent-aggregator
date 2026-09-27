@@ -685,10 +685,10 @@ export default function SettingsPage() {
       {!setupComplete ? (
         <div
           role="status"
-          className="flex items-start gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+          className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
         >
           <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" />
-          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--text-secondary)] break-words whitespace-normal">
             Choose a download folder and a space limit before saving your first
             download.
           </p>

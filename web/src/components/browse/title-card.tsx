@@ -249,10 +249,10 @@ export function TitleCard({
   );
 
   const caption = (
-    <div className="mt-2 min-w-0">
+    <div className="mt-2 min-w-0 min-h-[2.75rem]">
       <p
         title={item.title}
-        className="line-clamp-2 text-[12px] font-medium leading-snug text-[var(--text)]"
+        className="line-clamp-2 text-[12px] font-medium leading-snug text-[var(--text)] break-words"
       >
         {title}
       </p>
@@ -269,6 +269,8 @@ export function TitleCard({
       className={cn("relative shrink-0 snap-start", CARD_WIDTH)}
       data-unreleased={unreleased ? "true" : undefined}
     >
+      {/* Whole card (poster + caption) is one ≥44px target. The action chip is a
+          sibling overlay so we never nest a button inside the link. */}
       <div className="group relative">
         {titleHref ? (
           <Link
@@ -277,9 +279,10 @@ export function TitleCard({
             data-card-target="title"
             aria-label={linkName}
             aria-describedby={describedBy}
-            className={controlClass}
+            className={cn(controlClass, "block min-h-[44px]")}
           >
             {surface}
+            {caption}
           </Link>
         ) : (
           <button
@@ -297,14 +300,21 @@ export function TitleCard({
             }}
             className={cn(
               controlClass,
+              "min-h-[44px]",
               (blocked || unreleased) && "cursor-default",
             )}
           >
             {surface}
+            {caption}
           </button>
         )}
 
-        {actionRow}
+        {/* Poster-height overlay so the action chip stays on the art, not the caption. */}
+        {actionRow ? (
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-[3]">
+            <div className="relative aspect-[2/3] w-full">{actionRow}</div>
+          </div>
+        ) : null}
 
         {fallbackSearch ? (
           <Link
@@ -322,24 +332,7 @@ export function TitleCard({
         ) : null}
       </div>
 
-      {/* The caption is part of the click target, not decoration under it.
-          `tabIndex={-1}` because it is the *same* destination as the poster
-          link: two tab stops with one accessible name is noise for a keyboard
-          user, and the rail's arrow-key run counts `[data-rail-card]` only. */}
-      {titleHref ? (
-        <Link
-          to={titleHref}
-          tabIndex={-1}
-          data-dense-ui
-          className="block rounded-[6px] outline-none"
-        >
-          {caption}
-        </Link>
-      ) : (
-        caption
-      )}
-
-      {/* Outside the caption link on purpose: `aria-describedby` has to point
+      {/* Outside the card link on purpose: `aria-describedby` has to point
           at something a screen reader will reach on its own. */}
       {unreleased ? (
         <p id={describedBy} className="sr-only">

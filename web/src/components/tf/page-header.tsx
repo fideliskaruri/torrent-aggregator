@@ -16,23 +16,23 @@ export function TfPageHeader({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-end justify-between gap-3 sm:gap-4",
+        "flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4",
         className,
       )}
     >
-      <div className="min-w-0 space-y-1">
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-[var(--text)]">
+      <div className="min-w-0 w-full flex-1 space-y-1">
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-[var(--text)] text-balance">
           {title}
         </h1>
         {description ? (
-          <div className="text-[13px] text-[var(--text-tertiary)]">
+          <div className="max-w-prose text-[13px] leading-relaxed text-[var(--text-tertiary)] break-words whitespace-normal">
             {description}
           </div>
         ) : null}
         {meta ? <div className="pt-1">{meta}</div> : null}
       </div>
       {actions ? (
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
           {actions}
         </div>
       ) : null}

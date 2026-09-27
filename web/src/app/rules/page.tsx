@@ -508,7 +508,7 @@ export default function RulesPage() {
           >
             <div
               id="rule-sources"
-              className="flex flex-wrap gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2"
+              className="flex min-w-0 flex-wrap gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2"
             >
               {RULE_SOURCE_OPTIONS.map((source) => {
                 const active = form.sources.includes(source.value);
@@ -517,8 +517,9 @@ export default function RulesPage() {
                     key={source.value}
                     type="button"
                     aria-pressed={active}
+                    title={source.label}
                     onClick={() => toggleSource(source.value)}
-                    className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-2.5 py-1 text-xs ring-1 transition-colors lg:min-h-0 lg:min-w-0 ${
+                    className={`inline-flex max-w-full items-center justify-center min-h-[44px] rounded-full px-2.5 py-1.5 text-xs leading-snug whitespace-normal break-words text-center ring-1 transition-colors lg:min-h-0 ${
                       active
                         ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                         : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
@@ -619,8 +620,9 @@ export default function RulesPage() {
                               key={source.value}
                               type="button"
                               aria-pressed={active}
+                              title={source.label}
                               onClick={() => toggleRuleFilterSource(rule, source.value)}
-                              className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-2.5 py-1 text-xs ring-1 transition-colors lg:min-h-0 lg:min-w-0 ${
+                              className={`inline-flex max-w-full items-center justify-center min-h-[44px] rounded-full px-2.5 py-1.5 text-xs leading-snug whitespace-normal break-words text-center ring-1 transition-colors lg:min-h-0 ${
                                 active
                                   ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                                   : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"

@@ -475,7 +475,7 @@ export function SearchOverlay() {
           <div
             role="tablist"
             aria-label="Search category"
-            className="mt-2.5 grid grid-cols-4 gap-1.5"
+            className="-mx-3 mt-2.5 flex gap-1.5 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:px-0"
           >
             {SEARCH_SCOPES.map((s, index) => {
               const active = s.id === scopeId;
@@ -495,7 +495,7 @@ export function SearchOverlay() {
                   onClick={() => onScopeChange(s.id as WorkSearchScope)}
                   onKeyDown={(event) => onCategoryKeyDown(event, index)}
                   className={cn(
-                    "min-h-11 touch-manipulation rounded-full border px-2 text-[13px] transition-colors duration-200 ease-out motion-reduce:transition-none sm:min-h-8 sm:px-3",
+                    "min-h-11 shrink-0 touch-manipulation whitespace-nowrap rounded-full border px-3 text-[13px] transition-colors duration-200 ease-out motion-reduce:transition-none sm:min-h-8 sm:px-3",
                     active
                       ? "border-[var(--accent)] bg-[var(--accent-dim)] font-medium text-[var(--text)]"
                       : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",

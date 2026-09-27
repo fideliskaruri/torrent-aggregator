@@ -109,7 +109,8 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
               to={titleHref}
               id="browse-hero-title"
               title={item.title}
-              className="text-display mt-2 line-clamp-2 outline-none transition-colors hover:text-[var(--accent-text)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-[4px]"
+              aria-label={item.title}
+              className="text-display mt-2 line-clamp-2 text-balance break-words outline-none transition-colors hover:text-[var(--accent-text)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-[4px]"
             >
               {title}
             </Link>
@@ -117,7 +118,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             <h1
               id="browse-hero-title"
               title={item.title}
-              className="text-display mt-2 line-clamp-2"
+              className="text-display mt-2 line-clamp-2 text-balance break-words"
             >
               {title}
             </h1>

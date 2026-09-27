@@ -31,42 +31,51 @@ export function DownloadLocationFields({
   const limitId = `${idPrefix}storage-limit`;
   return (
     <>
-      <div className="space-y-1.5">
+      <div className="min-w-0 space-y-1.5">
         <label
           htmlFor={folderId}
           className="text-xs font-medium text-[var(--text-secondary)]"
         >
           Download folder
         </label>
-        <div className="flex min-w-0 gap-2">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             id={folderId}
             value={folder}
             onChange={(event) => onFolderChange(event.target.value)}
-            className="h-11 min-w-0 scroll-mb-32 font-mono text-base sm:text-sm"
+            className="h-11 w-full min-w-0 scroll-mb-32 font-mono text-base sm:text-sm"
             placeholder="Choose a folder or enter its path"
             autoComplete="off"
+            title={folder || undefined}
           />
           <Button
             type="button"
             variant="secondary"
-            className="h-11 shrink-0"
+            className="h-11 w-full shrink-0 sm:w-auto"
             onClick={onBrowse}
           >
             <FolderOpen />
             Browse
           </Button>
         </div>
+        {folder.trim() ? (
+          <p
+            className="break-all font-mono text-[11px] leading-relaxed text-[var(--text-tertiary)]"
+            data-download-folder-path
+          >
+            {folder}
+          </p>
+        ) : null}
       </div>
 
-      <div className="space-y-1.5">
+      <div className="min-w-0 space-y-1.5">
         <label
           htmlFor={limitId}
           className="text-xs font-medium text-[var(--text-secondary)]"
         >
           Space limit
         </label>
-        <div className="flex max-w-[14rem] items-center gap-2">
+        <div className="flex min-w-0 flex-col gap-2 sm:max-w-[14rem] sm:flex-row sm:items-center">
           <Input
             ref={spaceInputRef}
             id={limitId}
@@ -76,14 +85,14 @@ export function DownloadLocationFields({
             inputMode="decimal"
             value={spaceGb}
             onChange={(event) => onSpaceGbChange(event.target.value)}
-            className="h-11 scroll-mb-32 text-base sm:text-sm"
+            className="h-11 w-full min-w-0 scroll-mb-32 text-base sm:text-sm"
             aria-describedby={`${limitId}-help`}
           />
-          <span className="text-sm text-[var(--text-secondary)]">GB</span>
+          <span className="shrink-0 text-sm text-[var(--text-secondary)]">GB</span>
         </div>
         <p
           id={`${limitId}-help`}
-          className="text-xs leading-relaxed text-[var(--text-tertiary)]"
+          className="text-xs leading-relaxed text-[var(--text-tertiary)] break-words"
         >
           Downloads pause before going beyond this amount.
         </p>

@@ -65,7 +65,7 @@ export function TitleResultCard({
           ) : null}
           <h2
             className={cn(
-              "font-medium leading-snug text-[var(--text)]",
+              "font-medium leading-snug text-[var(--text)] break-words",
               featured
                 ? "text-base line-clamp-2 sm:text-lg"
                 : "text-sm line-clamp-2",
@@ -98,7 +98,7 @@ export function TitleResultCard({
           </div>
         </div>
         {title.overview ? (
-          <p className="line-clamp-2 text-[12px] leading-snug text-[var(--text-tertiary)]">
+          <p className="hidden line-clamp-2 text-[12px] leading-snug text-[var(--text-tertiary)] sm:block">
             {title.overview}
           </p>
         ) : null}
