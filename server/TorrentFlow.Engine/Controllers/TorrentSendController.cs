@@ -92,7 +92,7 @@ public sealed class TorrentSendController(
                 return BadRequest(new { ok = false, message = "Episode and season acquisitions must use their scoped title endpoint." });
             return await RetentionOnlyAsync(infoHash, retention!, ct);
         }
-        if (!hasSource) return BadRequest(new { error = "magnet or torrentUrl is required (or infoHash with retention)" });
+        if (!hasSource) return Invalid("magnet or torrentUrl is required (or infoHash with retention)", "magnet");
 
         var resolved = await SmartTargetAsync(body, config, ct);
         var purpose = retention == "stream" ? TorrentPurpose.Stream : TorrentPurpose.Keep;
@@ -159,7 +159,7 @@ public sealed class TorrentSendController(
                 var state = existing?.Origin switch { TorrentOrigin.User => "kept", TorrentOrigin.Stream => "stream", TorrentOrigin.Prewarm => "prewarm", _ => "unknown" };
                 return Ok(new { ok = true, message = retention == "keep" ? "Kept in your library." : "Marked stream-only.", clientType = config.ClientType, sendTarget = target, retentionState = state });
             }
-            return BadRequest(new { error = "magnet or torrentUrl is required (or infoHash with retention)" });
+            return Invalid("magnet or torrentUrl is required (or infoHash with retention)", "magnet");
         }
         var resolved = await SmartTargetAsync(body, config, ct);
         var hash = infoHash ?? (magnet is null ? null : TorrentSource.HashFromMagnet(magnet));

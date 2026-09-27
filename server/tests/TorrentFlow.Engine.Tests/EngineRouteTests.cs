@@ -81,10 +81,14 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
     {
         var r = await _http.PostAsJsonAsync("/api/torrent/send", new { });
         Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
-        Assert.False((await Json(r)).TryGetProperty("ok", out var ok) && ok.GetBoolean());
+        var json = await Json(r);
+        Assert.False(json.TryGetProperty("ok", out var ok) && ok.GetBoolean());
+        Assert.Equal("magnet", json.GetProperty("field").GetString());
+        Assert.Equal("magnet or torrentUrl is required (or infoHash with retention)", json.GetProperty("error").GetString());
     }
 
     [Theory]
+    [InlineData("""{}""", "magnet or torrentUrl is required (or infoHash with retention)", "magnet")]
     [InlineData("""{"magnet":"magnet:?dn=no-hash"}""", "magnet must contain a valid BitTorrent info hash", "magnet")]
     [InlineData("""{"infoHash":"xyz"}""", "infoHash must be a 40-character hex or 32-character base32 hash", "infoHash")]
     [InlineData("""{"torrentUrl":"ftp://x/y.torrent"}""", "torrentUrl must use http or https", "torrentUrl")]
