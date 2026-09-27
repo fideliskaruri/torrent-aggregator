@@ -288,10 +288,7 @@ internal sealed partial class TorrentEngineService(
         var client = httpFactory.CreateClient(HttpClientName);
         using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength is > 20 * 1024 * 1024) throw new InvalidDataException(".torrent too large");
-        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-        if (bytes.Length == 0 || bytes[0] != (byte)'d') throw new InvalidDataException("Not a .torrent file");
-        return bytes;
+        return await TorrentHttpLimits.ReadMetadataAsync(response.Content, ct);
     }
 
     private string TorrentFilePath(string hash) => Path.Combine(Options.EngineDirectory, "torrents", hash + ".torrent");

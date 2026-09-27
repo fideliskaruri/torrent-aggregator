@@ -15,7 +15,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | "Find another release": Downloads dialog UI | req-unify-opus (Opus 5.5) | Waiting on API |
 | Request dialog: plain-language errors; requests pages on a phone | req-unify-opus (Opus 5.5) | Running |
 | Server QA bugs: keyless title details, Torznab test accepts HTML, Advanced JSON error, Ready to Play rail, send error field, flaky CI test | qa-server (grok-4.5) | Running |
-| Engine bugs: verified bitfield, smart save paths, unwritable save path, season starts one at a time, 2.2 GB RAM | qa-engine (Astra, server only) | Running |
+| Engine RAM: reported 2.2 GB season workload | qa-engine (Astra, server only) | Exact workload still needs reproduction; bounded HTTP buffering and documented/shared-cache regression added |
 | Search takes 5–16 s | qa-search-perf (Astra, server only) | Running |
 | UI QA bugs: source controls under 44px on desktop, queued "Download now", send field errors, Advanced JSON crash, offline and expired sign-in banners, sweep of the other pages | qa-ui (Opus 5.5) | Running |
 
@@ -31,6 +31,11 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - pnpm wire encryption patch: obsolete, since the Next.js tree was removed (5824ed5).
 
 ## Done recently
+
+- Engine QA: DL-1 verified already fixed in e2cfde7; DL-3 verified already ported in ea1f829.
+- DL-5: save-path write probe before admission; real API returns 400 / `savePath` with no transfer.
+- Season starts: removed send barriers, shared fanout with approved requests, metadata waits moved to monitor.
+- Engine memory: bounded webseed and metadata HTTP buffers; four generated multi-file torrents stayed near 41 MiB private including the test seeder. See `dotnet-port.md`; this does not close the original 2.2 GB report.
 
 - Cinemeta movies can be requested (360f484).
 - Local remote-access simulator: 3938 is the owner, 3939 is a requester (dd72e8b, see docs/remote-access.md).

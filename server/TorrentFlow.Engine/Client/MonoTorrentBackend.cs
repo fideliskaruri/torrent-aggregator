@@ -28,7 +28,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         _logger = logger;
         _options = options.Value;
         Directory.CreateDirectory(_options.EngineDirectory);
-        Engine = new ClientEngine(BuildSettings(_options));
+        Engine = new ClientEngine(BuildSettings(_options),
+            Factories.Default.WithHttpClientCreator(family =>
+                TorrentHttpLimits.Configure(Factories.Default.CreateHttpClient(family), _options.MaxWebSeedResponseBytes)));
     }
 
     public ClientEngine Engine { get; }
@@ -42,6 +44,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             MaximumConnections = o.MaxConnections,
             MaximumHalfOpenConnections = o.MaxHalfOpenConnections,
             DiskCacheBytes = (int)Math.Min(int.MaxValue, o.DiskCacheBytes),
+            DiskCachePolicy = MonoTorrent.PieceWriter.CachePolicy.WritesOnly,
             MaximumOpenFiles = o.MaxOpenFiles,
             MaximumUploadRate = (int)Math.Min(int.MaxValue, o.MaxUploadRate),
             AllowPortForwarding = o.PortForwarding,

@@ -95,6 +95,42 @@ web/                          Vite + React SPA (built into web/dist, served by t
   `/api/diagnostics/health` (working set, private bytes, GC heap/committed, threads, handles);
   judge leaks by private bytes and the post-GC heap, not working set (~100 MB of it is shared images).
 
+### Built-in engine memory budgets
+
+One singleton `MonoTorrentBackend` owns one `ClientEngine` and one disk cache, **not a cache per
+torrent or per file**. Defaults under `TorrentFlow:Engine`:
+
+| Setting | Default | Budget |
+| --- | --- | --- |
+| `DiskCacheBytes` | 33,554,432 (32 MiB) | Shared write-only disk cache; 2,048 16-KiB blocks across all torrents |
+| `MaxOpenFiles` | 40 | Shared open-file cap |
+| `MaxConnections` / `MaxConnectionsPerTorrent` | 400 / 120 | Global and per-torrent peer caps |
+| `MaxActiveDownloads` | 2 | Kept torrents loaded at once; queued rows own no client cache |
+| `MaxWebSeedResponseBytes` | 33,554,432 (32 MiB) | Per-response HTTP buffering limit, separate from the disk cache |
+
+MonoTorrent 3.0.2's `HttpPeerConnection` uses buffering `HttpClient.SendAsync` for webseeds.
+Its default HTTP limit is nearly 2 GiB: a server ignoring `Range` can therefore buffer a whole
+video before the piece reader sees it. The engine's HTTP factory now caps this at 32 MiB, including
+chunked responses. Large webseed responses fail instead of exhausting memory; ordinary 2-MiB
+webseed blocks still work. Torrents using pieces larger than this limit may require raising
+`MaxWebSeedResponseBytes` (up to 256 MiB) or another peer source. Downloaded `.torrent` metadata
+is separately limited to 20 MiB even when `Content-Length` is absent.
+
+September 27, 2026 (UTC) verification: four generated multi-file torrents (32 MiB total, 16 files)
+completed over a legal local loopback swarm; test-process private memory including the seeder
+went from 41,926,656 to a sampled peak of 43,044,864 bytes. Shared cache use stayed within 32 MiB.
+A generated 64-MiB HTTP response allocated 79,770,944 bytes with the original client and
+349,760 bytes with the bounded client (known length rejected before reading); unknown-length
+2-GiB synthetic responses stopped after at most 32 MiB. These are isolated synthetic measurements,
+not a reproduction of the reported 2.2-GB season workload. The cache was already bounded before
+this change; the HTTP buffering path is a confirmed additional risk, not proof of that report's
+root cause. Reproduce with the same torrents/settings before claiming the reported spike resolved.
+The regression tests are `TorrentHttpLimitsTests` and
+`LoopbackSwarmTests.MultipleMultiFileDownloadsShareOneBoundedDiskCache`.
+An isolated real host on port 3925 reported workstation GC, 44,806,144 private bytes and
+21,299,200 GC-committed bytes at idle; `dotnet-counters` captured its `System.Runtime` counters.
+These settings are component budgets, not a process-wide memory ceiling.
+
 ## Data location and recovery
 
 Both `dotnet run` and the published executable now use the same per-user app data folder:

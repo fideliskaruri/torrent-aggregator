@@ -28,6 +28,10 @@ public sealed class EngineOptions
     /// <summary>MonoTorrent write/read cache, shared by all live torrents. Too small and writes throttle a fast line.</summary>
     [Range(0, 1L << 30)] public long DiskCacheBytes { get; set; } = 32 * 1024 * 1024;
 
+    /// <summary>Maximum buffered webseed HTTP response; independent of the shared disk cache.</summary>
+    [Range(2 * 1024 * 1024, 256 * 1024 * 1024)]
+    public int MaxWebSeedResponseBytes { get; set; } = Client.TorrentHttpLimits.MaxBufferedResponseBytes;
+
     [Range(1, 1000)] public int MaxOpenFiles { get; set; } = 40;
 
     /// <summary>

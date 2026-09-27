@@ -6,11 +6,12 @@ using MonoTorrent;
 using MonoTorrent.Client;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Engine.Client;
+using Xunit.Abstractions;
 
 namespace TorrentFlow.Engine.Tests;
 
 /// <summary>A real MonoTorrent seeder on 127.0.0.1 and the engine backend as leecher: no internet, no trackers, no DHT.</summary>
-public class LoopbackSwarmTests : IAsyncLifetime
+public class LoopbackSwarmTests(ITestOutputHelper output) : IAsyncLifetime
 {
     private const int FileSize = 3 * 1024 * 1024 + 12345;
     private string _root = null!;
@@ -85,6 +86,50 @@ public class LoopbackSwarmTests : IAsyncLifetime
             if (DateTime.UtcNow > end) throw new TimeoutException(message);
             await Task.Delay(100);
         }
+    }
+
+    [Fact]
+    public async Task MultipleMultiFileDownloadsShareOneBoundedDiskCache()
+    {
+        await using var backend = Leecher("multi-file");
+        var hashes = new List<string>();
+        var block = new byte[2 * 1024 * 1024];
+        for (var episode = 1; episode <= 4; episode++)
+        {
+            var source = Path.Combine(_root, $"synthetic-episode-{episode}");
+            Directory.CreateDirectory(source);
+            for (var file = 0; file < 4; file++)
+            {
+                new Random(episode * 10 + file).NextBytes(block);
+                await File.WriteAllBytesAsync(Path.Combine(source, $"generated-{file}.bin"), block);
+            }
+            var bytes = (await new TorrentCreator { PieceLength = 64 * 1024 }.CreateAsync(new TorrentFileSource(source))).Encode();
+            var torrent = Torrent.Load(bytes);
+            var seed = await _seeder.AddAsync(torrent, source, new TorrentSettingsBuilder { CreateContainingDirectory = false }.ToSettings());
+            await seed.HashCheckAsync(autoStart: true);
+            await WaitUntil(() => seed.State == TorrentState.Seeding, TimeSpan.FromSeconds(30), "multi-file seed did not start");
+            var hash = torrent.InfoHashes.V1OrV2.ToHex().ToLowerInvariant();
+            hashes.Add(hash);
+            Assert.True((await backend.AddAsync(new(hash, null, bytes, Path.Combine(_root, "multi-downloads"),
+                TorrentPurpose.Keep, null), default)).Ok);
+        }
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
+        process.Refresh();
+        var beforePrivate = process.PrivateMemorySize64;
+        long peakPrivate = beforePrivate, peakCache = 0;
+        foreach (var hash in hashes) await backend.AddPeerAsync(hash, _seederEndPoint);
+        await WaitUntil(() =>
+        {
+            process.Refresh();
+            peakPrivate = Math.Max(peakPrivate, process.PrivateMemorySize64);
+            peakCache = Math.Max(peakCache, backend.Engine.DiskManager.CacheBytesUsed);
+            return hashes.All(hash => backend.Get(hash)?.State == "complete");
+        }, TimeSpan.FromSeconds(60), "concurrent multi-file downloads did not finish");
+        Assert.Equal(4, backend.Engine.Torrents.Count);
+        Assert.InRange(peakCache, 0, backend.Engine.Settings.DiskCacheBytes);
+        output.WriteLine($"Four generated multi-file torrents (32 MiB payload, 16 files): private before={beforePrivate}, " +
+            $"peak={peakPrivate}, shared cache peak={peakCache}, budget={backend.Engine.Settings.DiskCacheBytes} bytes. Includes loopback seeder.");
+        foreach (var hash in hashes) await backend.RemoveAsync(hash);
     }
 
     [Fact]
