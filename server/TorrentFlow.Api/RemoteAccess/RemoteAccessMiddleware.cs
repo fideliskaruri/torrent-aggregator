@@ -113,9 +113,9 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
                 return;
             }
             // Checked before anything touches the database, so a requester probing owner routes costs nothing.
-            if (!RequesterPaths.IsAllowed(context.Request.Path))
+            if (!RequesterPaths.IsAllowed(context.Request.Method, context.Request.Path))
             {
-                logger.LogInformation("Refused a requester ({Email}) request to {Path}.", MaskEmail(result.Email!), context.Request.Path);
+                logger.LogInformation("Refused a requester ({Email}) {Method} {Path}.", MaskEmail(result.Email!), context.Request.Method, context.Request.Path);
                 await WriteRequesterForbidden(context);
                 return;
             }

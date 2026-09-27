@@ -7,5 +7,6 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TorrentFlow.Metadata.Tests" />
+    <InternalsVisibleTo Include="TorrentFlow.Api.Tests" />
   </ItemGroup>
 </Project>

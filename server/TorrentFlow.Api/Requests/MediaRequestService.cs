@@ -15,6 +15,9 @@ public sealed record RequesterTitle(
     string Provider, string? ProviderId, string? PosterUrl, string? Overview, string? ReleaseDate,
     bool InLibrary, string? RequestStatus, string? RequestId);
 
+/// <summary>Own-request + library flags for a catalog hit; never other users' requests.</summary>
+public sealed record CatalogRequestState(bool InLibrary, string? RequestStatus, string? RequestId);
+
 /// <summary>A requester's own request.</summary>
 public sealed record RequesterRequest(
     string Id, string Title, int? Year, string MediaType, string Provider, string? ProviderId, string? PosterUrl,
@@ -74,13 +77,37 @@ public sealed class MediaRequestService(
         var open = await OpenRequestsAsync(db, userId, ct);
         var results = outcome.Results.Select(hit =>
         {
-            var identity = RequestRules.Identity(hit.Provider, hit.ProviderId, hit.MediaType, hit.WorkKey);
-            var request = open.FirstOrDefault(r => r.Identity == identity);
+            var state = StateFor(library, open, hit.WorkKey, hit.MediaType, hit.ProviderId, hit.Provider);
             return new RequesterTitle(hit.WorkKey, hit.Title, hit.Year, hit.MediaType, hit.IsSeries, hit.Format, hit.Category,
                 hit.Provider, hit.ProviderId, hit.PosterUrl, hit.Overview, hit.ReleaseDate,
-                library.Contains(hit.WorkKey, hit.MediaType, hit.ProviderId), request?.Row.Status, request?.Row.Id);
+                state.InLibrary, state.RequestStatus, state.RequestId);
         }).ToList();
         return (results, outcome.Partial);
+    }
+
+    /// <summary>
+    /// Same library + open-request flags the requester title search uses, for shared catalog endpoints
+    /// (<c>/api/search/titles</c>, <c>/api/title/{workKey}</c>). Scoped to <paramref name="userId"/> only.
+    /// </summary>
+    public async Task<IReadOnlyList<CatalogRequestState>> AnnotateCatalogAsync(
+        string userId,
+        IReadOnlyList<(string WorkKey, string MediaType, string? ProviderId, string Provider)> items,
+        CancellationToken ct)
+    {
+        if (items.Count == 0) return [];
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var library = await LibraryIndex.LoadAsync(db, ct);
+        var open = await OpenRequestsAsync(db, userId, ct);
+        return items.Select(i => StateFor(library, open, i.WorkKey, i.MediaType, i.ProviderId, i.Provider)).ToList();
+    }
+
+    private static CatalogRequestState StateFor(LibraryIndex library, List<OpenRequest> open, string workKey, string mediaType, string? providerId, string provider)
+    {
+        var identity = RequestRules.Identity(provider, providerId, mediaType, workKey);
+        // Prefer catalog identity; fall back to work key so title pages without provider ids still see the caller's request.
+        var request = open.FirstOrDefault(r => r.Identity == identity)
+            ?? open.FirstOrDefault(r => string.Equals(r.Row.WorkKey, workKey, StringComparison.OrdinalIgnoreCase));
+        return new CatalogRequestState(library.Contains(workKey, mediaType, providerId), request?.Row.Status, request?.Row.Id);
     }
 
     public async Task<IReadOnlyList<int>> SeasonsAsync(RequestDraft work, CancellationToken ct)

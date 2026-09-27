@@ -25,29 +25,17 @@ public static class RequesterAccessExtensions
 /// <summary>The requester allow-list checked before routing, so no <c>/api</c> path is ever resolved for a requester unless listed.</summary>
 public static class RequesterPaths
 {
-    private static readonly string[] ExactApi = ["me", "health", "features"];
     public const string RequesterPrefix = "requester";
 
-    /// <summary>
-    /// Anything outside <c>/api</c> is a static asset or the SPA fallback (both public shell files); inside it,
-    /// only <c>/api/me</c>, <c>/api/health</c>, <c>/api/features</c> and <c>/api/requester/**</c>. Empty segments
-    /// are ignored so <c>//api/x</c> cannot slip past, and casing never matters.
-    /// </summary>
-    public static bool IsAllowed(PathString path)
-    {
-        var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0) return true;
-        if (!IsApiSegment(segments[0])) return true;
-        if (segments.Length < 2) return false;
-        if (string.Equals(segments[1], RequesterPrefix, StringComparison.OrdinalIgnoreCase)) return true;
-        if (string.Equals(segments[1], "notifications", StringComparison.OrdinalIgnoreCase)) return true;
-        return segments.Length == 2 && ExactApi.Any(e => string.Equals(segments[1], e, StringComparison.OrdinalIgnoreCase));
-    }
+    /// <summary>Path-only overload (GET). Prefer <see cref="IsAllowed(string, PathString)"/> when the method is known.</summary>
+    public static bool IsAllowed(PathString path) => IsAllowed(HttpMethods.Get, path);
 
-    // "api" with trailing dots/spaces is treated as api too; Windows-style trimming must not create a bypass.
-    private static bool IsApiSegment(string segment) =>
-        string.Equals(segment.TrimEnd('.', ' '), "api", StringComparison.OrdinalIgnoreCase)
-        || segment.Contains('%') || segment.Contains('\\');
+    /// <summary>
+    /// Anything outside <c>/api</c> is a static asset or the SPA fallback; inside it, only method+path pairs from
+    /// <see cref="RequesterAllowList"/>. Empty segments are ignored so <c>//api/x</c> cannot slip past, and casing
+    /// never matters. Wrong methods on an otherwise-listed path are refused here.
+    /// </summary>
+    public static bool IsAllowed(string method, PathString path) => RequesterAllowList.IsAllowed(method, path);
 }
 
 /// <summary>

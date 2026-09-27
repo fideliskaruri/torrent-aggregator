@@ -119,7 +119,7 @@ builder.Services
     .AddLibraryModule(builder.Configuration)
     .AddMediaModule(builder.Configuration);
 
-builder.Services.AddControllers()
+builder.Services.AddControllers(options => options.Conventions.Add(new RequesterAllowConvention()))
     .AddApplicationPart(typeof(SearchModule).Assembly)
     .AddApplicationPart(typeof(MetadataModule).Assembly)
     .AddApplicationPart(typeof(EngineModule).Assembly)
@@ -186,8 +186,10 @@ if (webFiles is not null)
     app.UseStaticFiles(new StaticFileOptions { FileProvider = webFiles, ContentTypeProvider = types });
 }
 app.UseRouting();
-// Requesters only reach endpoints marked AllowRequesters(); everything else, including new endpoints, is owner-only.
+// Requesters only reach endpoints marked AllowRequesters() or matched by RequesterAllowConvention; new endpoints stay owner-only.
 app.UseMiddleware<RequesterAuthorizationMiddleware>();
+// Strip owner-only fields and attach the caller's request state on shared catalog reads.
+app.UseMiddleware<RequesterCatalogProjectionMiddleware>();
 
 // Streaming is off by default (see EngineOptions.Streaming); its routes answer 404 so the SPA can tell it apart.
 string[] streamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];

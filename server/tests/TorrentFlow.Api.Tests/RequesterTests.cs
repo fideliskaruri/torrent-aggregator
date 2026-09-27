@@ -67,6 +67,16 @@ public class RequesterHostFactory : RemoteHostFactory
         {
             services.RemoveAll<IRequesterCatalog>();
             services.AddSingleton<IRequesterCatalog>(Catalog);
+            // Shared /api/search/titles uses WorkSearchService directly — feed it the same canned hits.
+            services.RemoveAll<WorkSearchService>();
+            services.AddSingleton(_ =>
+            {
+                WorkSearchProvider provider = (q, take, ct) => Catalog.Fail
+                    ? Task.FromException<List<WorkSearchHit>>(new HttpRequestException(@"simulated catalog outage with a secret path C:\data"))
+                    : Task.FromResult(Catalog.Hits.Take(take).ToList());
+                var providers = WorkSearchService.Categories.ToDictionary(c => c, _ => provider, StringComparer.Ordinal);
+                return new WorkSearchService(providers, TimeProvider.System, cacheEnabled: false);
+            });
         });
     }
 
@@ -206,6 +216,14 @@ public sealed class RequesterTests(RequesterHostFactory factory) : IClassFixture
             "GET api/requester/titles",
             "POST api/requester/requests",
             "POST api/requester/requests/{id}/cancel",
+            // Shared catalog reads (RequesterAllowConvention on controllers)
+            "GET api/browse",
+            "GET api/recommendations",
+            "GET api/search/titles",
+            "GET api/suggest",
+            "GET api/title/{workKey}",
+            "GET api/title/{workKey}/extras",
+            "POST api/artwork",
         }.Order(StringComparer.Ordinal), allowed);
 
         using var client = factory.Requester(Email("table"));
@@ -241,7 +259,7 @@ public sealed class RequesterTests(RequesterHostFactory factory) : IClassFixture
     [InlineData("/api/requests")]
     [InlineData("/api/watchlist")]
     [InlineData("/api/search?q=dune")]
-    [InlineData("/api/search/titles?q=dune")]
+    [InlineData("/api/title/abc/progress")]
     [InlineData("/api/stream/abc")]
     [InlineData("/api./watchlist")]
     [InlineData("/%61pi/watchlist")]
@@ -261,11 +279,189 @@ public sealed class RequesterTests(RequesterHostFactory factory) : IClassFixture
         Assert.True(RequesterPaths.IsAllowed(new PathString("/assets/app.js")));
         Assert.True(RequesterPaths.IsAllowed(new PathString("/api/me")));
         Assert.True(RequesterPaths.IsAllowed(new PathString("/API/Requester/titles")));
+        Assert.True(RequesterPaths.IsAllowed("GET", new PathString("/api/search/titles")));
+        Assert.True(RequesterPaths.IsAllowed("GET", new PathString("/api/title/dune-2021")));
+        Assert.True(RequesterPaths.IsAllowed("GET", new PathString("/api/title/dune-2021/extras")));
+        Assert.True(RequesterPaths.IsAllowed("GET", new PathString("/api/browse")));
+        Assert.True(RequesterPaths.IsAllowed("GET", new PathString("/api/recommendations")));
+        Assert.True(RequesterPaths.IsAllowed("GET", new PathString("/api/suggest")));
+        Assert.True(RequesterPaths.IsAllowed("POST", new PathString("/api/artwork")));
+        Assert.False(RequesterPaths.IsAllowed("POST", new PathString("/api/search/titles")));
+        Assert.False(RequesterPaths.IsAllowed("DELETE", new PathString("/api/title/x")));
+        Assert.False(RequesterPaths.IsAllowed("GET", new PathString("/api/title/x/progress")));
         Assert.False(RequesterPaths.IsAllowed(new PathString("/api/me/x")));
         Assert.False(RequesterPaths.IsAllowed(new PathString("/api/requests")));
         Assert.False(RequesterPaths.IsAllowed(new PathString("/api/requesters")));
         Assert.False(RequesterPaths.IsAllowed(new PathString("//api/watchlist")));
         Assert.False(RequesterPaths.IsAllowed(new PathString("/api%2Fwatchlist")));
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/client/torrents")]
+    [InlineData("GET", "/api/settings/client")]
+    [InlineData("POST", "/api/torrent/send")]
+    [InlineData("GET", "/api/title/dune-2021/progress")]
+    [InlineData("GET", "/api/watchlist")]
+    [InlineData("GET", "/api/requests")]
+    [InlineData("GET", "/api/stream/abc")]
+    [InlineData("POST", "/api/search/titles")]
+    [InlineData("DELETE", "/api/title/x")]
+    public async Task OwnerOnlySurfacesStay403ForRequesters(string method, string path)
+    {
+        using var client = factory.Requester(Email("owner-only"));
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        if (method is "POST" or "PUT" or "PATCH") request.Content = JsonContent.Create(new { q = "dune" });
+        var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal("requester_forbidden", (await Json(response)).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task CatalogReadsAreSafeAndAnnotatedForRequesters()
+    {
+        var workKey = "dune-2021";
+        var email = Email("catalog");
+        using var client = factory.Requester(email);
+        // Create the open request first (Create refuses titles already in the library), then seed owner engine rows.
+        // Unique provider id so parallel/shared-fixture tests never collide on Dune's 438631.
+        const string providerId = "910438631";
+        var created = await Create(client, Movie("Catalog Dune", 2021, providerId));
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var createdBody = await Json(created);
+        var requestId = createdBody.GetProperty("request").GetProperty("id").GetString()!;
+        Assert.Equal("pending", createdBody.GetProperty("request").GetProperty("status").GetString());
+
+        // Point the canned catalog hit at this request's identity (restore defaults afterwards — shared fixture).
+        var previousHits = factory.Catalog.Hits.ToList();
+        factory.Catalog.Hits.Clear();
+        factory.Catalog.Hits.Add(FakeCatalog.Hit("Catalog Dune", 2021, "movies", providerId, series: false));
+        factory.Catalog.Hits.Add(FakeCatalog.Hit("Severance", 2022, "series", "95396", series: true));
+        try
+        {
+        await factory.SeedOwnerLibraryAsync(db =>
+        {
+            if (!db.Works.Any(w => w.WorkKey == workKey))
+            {
+                db.Works.Add(new Work
+                {
+                    Id = Ids.New(), WorkKey = workKey, CanonicalTitle = "Dune", MediaType = "movie", Year = 2021,
+                    PosterUrl = "https://image.tmdb.org/t/p/w342/p.jpg", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+                });
+            }
+            db.AcquisitionTargets.Add(new AcquisitionTarget
+            {
+                Id = Ids.New(), UserId = LocalUser.Id, TargetKey = $"{workKey}:title:{Guid.NewGuid():N}", WorkKey = workKey, Scope = "title",
+                Status = "downloaded", Progress = 1, InfoHash = "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+                FilePath = @"D:\Media\Dune.2021.mkv", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            });
+            db.EngineTorrents.Add(new EngineTorrent
+            {
+                Id = Ids.New(), UserId = LocalUser.Id, Hash = "ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+                Name = "Dune.2021.1080p", Status = "seeding", Progress = 1, SavePath = @"D:\Media",
+                Magnet = "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01",
+                Origin = "download", LastUsedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            });
+            db.WatchListItems.Add(new WatchListItem
+            {
+                Id = Ids.New(), UserId = LocalUser.Id, MediaType = "movie", ExternalId = providerId, Title = "Catalog Dune",
+                Status = "watching", MonitorMode = "none", LatestReleaseMagnet = "magnet:?xt=urn:btih:secret",
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow, LastChecked = DateTime.UtcNow,
+            });
+        });
+
+        using var owner = factory.Local();
+        var ownerTitle = await owner.GetAsync($"/api/title/{workKey}?t=Dune&y=2021&type=movie");
+        Assert.Equal(HttpStatusCode.OK, ownerTitle.StatusCode);
+        var ownerText = await ownerTitle.Content.ReadAsStringAsync();
+        Assert.Contains("infoHash", ownerText, StringComparison.OrdinalIgnoreCase);
+        Assert.True(
+            ownerText.Contains("filePath", StringComparison.OrdinalIgnoreCase)
+            || ownerText.Contains(@"D:\Media", StringComparison.OrdinalIgnoreCase)
+            || ownerText.Contains("ABCDEF", StringComparison.OrdinalIgnoreCase),
+            "owner title payload should still carry engine/path fields");
+        // Owner shape stays free of requester-only annotation fields.
+        Assert.DoesNotContain("\"requestStatus\"", ownerText, StringComparison.OrdinalIgnoreCase);
+
+        async Task AssertClean(HttpResponseMessage response)
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            AssertNoOwnerLeaks(await response.Content.ReadAsStringAsync());
+        }
+
+        var control = await Json(await client.GetAsync("/api/requester/titles?q=catalog"));
+        var controlDune = control.GetProperty("results").EnumerateArray().First(r => r.GetProperty("title").GetString() == "Catalog Dune");
+        Assert.Equal("pending", controlDune.GetProperty("requestStatus").GetString());
+
+        var search = await client.GetAsync("/api/search/titles?q=catalog");
+        await AssertClean(search);
+        var searchBody = await Json(search);
+        var dune = searchBody.GetProperty("results").EnumerateArray().First(r => r.GetProperty("title").GetString() == "Catalog Dune");
+        Assert.Equal(providerId, dune.GetProperty("providerId").GetString());
+        Assert.Equal("pending", dune.GetProperty("requestStatus").GetString());
+        Assert.Equal(requestId, dune.GetProperty("requestId").GetString());
+        Assert.True(dune.GetProperty("inLibrary").GetBoolean());
+
+        // Title detail uses the classic Dune work key (owner engine rows) but the caller's request is matched by providerId.
+        var title = await client.GetAsync($"/api/title/{workKey}?t=Dune&y=2021&type=movie&provider=tmdb&providerId={providerId}");
+        await AssertClean(title);
+        var titleBody = await Json(title);
+        Assert.Equal("pending", titleBody.GetProperty("requestStatus").GetString());
+        Assert.Equal(requestId, titleBody.GetProperty("requestId").GetString());
+        Assert.True(titleBody.GetProperty("inLibrary").GetBoolean());
+        Assert.False(titleBody.TryGetProperty("infoHash", out _));
+        Assert.False(titleBody.TryGetProperty("resume", out _));
+        Assert.False(titleBody.TryGetProperty("transfer", out _));
+
+        await AssertClean(await client.GetAsync($"/api/title/{workKey}/extras?t=Dune&y=2021&type=movie"));
+        await AssertClean(await client.GetAsync("/api/browse"));
+        await AssertClean(await client.GetAsync("/api/recommendations"));
+        await AssertClean(await client.GetAsync("/api/suggest?q=du"));
+        }
+        finally
+        {
+            factory.Catalog.Hits.Clear();
+            factory.Catalog.Hits.AddRange(previousHits);
+        }
+    }
+
+    private static void AssertNoOwnerLeaks(string text)
+    {
+        using var doc = JsonDocument.Parse(text);
+        AssertNoOwnerLeaks(doc.RootElement);
+    }
+
+    private static void AssertNoOwnerLeaks(JsonElement el)
+    {
+        switch (el.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var p in el.EnumerateObject())
+                {
+                    Assert.False(IsForbiddenProperty(p.Name), $"forbidden property '{p.Name}'");
+                    AssertNoOwnerLeaks(p.Value);
+                }
+                break;
+            case JsonValueKind.Array:
+                foreach (var i in el.EnumerateArray()) AssertNoOwnerLeaks(i);
+                break;
+            case JsonValueKind.String:
+                var s = el.GetString() ?? "";
+                Assert.False(s.StartsWith("magnet:", StringComparison.OrdinalIgnoreCase), "magnet URI leaked");
+                Assert.False(s.Length > 3 && s[1] == ':' && s[2] == '\\', $"windows path leaked: {s}");
+                Assert.False(s.StartsWith('/') && (s.Contains(".mkv", StringComparison.OrdinalIgnoreCase) || s.Contains("/Media/", StringComparison.Ordinal)), $"unix path leaked: {s}");
+                break;
+        }
+    }
+
+    private static bool IsForbiddenProperty(string name)
+    {
+        string[] banned =
+        [
+            "magnet", "magneturi", "infohash", "hash", "path", "filepath", "savepath", "folder",
+            "releases", "torrents", "streamurl", "progress",
+        ];
+        return banned.Any(b => string.Equals(b, name, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
