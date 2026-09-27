@@ -2,6 +2,9 @@
 
 > Global behavior rules (phased flow, don''t over-act on questions, examples aren''t the whole spec, MCP verification, owner overrides harness) live in the owner''s global `~/.copilot/copilot-instructions.md` and apply to EVERY repo. This file holds only TorrentFlow-specific rules.
 
+## Owner rules and todo list (READ FIRST)
+**`docs/rules.md`** holds the owner's standing rules (one UI for all roles, contrast, mobile, models). **`docs/todo-list.md`** is the live work list. Follow the rules; keep the list current.
+
 ## Design (READ BEFORE ANY UI WORK)
 **`docs/design-system.md`** is the source of truth for UI decisions — tokens, component patterns,
 responsive rules, and the **UI Definition of Done checklist ("the 100 things")**. Apply it to every
