@@ -6,8 +6,6 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
-| Accept Cinemeta movies in requests (fixes "provider must be one of tmdb, anilist, tvmaze, itunes") | req-provider-fix (grok-4.5) | Running |
-| Local remote-access simulator (fake Cloudflare sign-in as owner or requester) | req-sim (grok-4.5) | Running |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
@@ -22,6 +20,9 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - "Find another release" on title pages, after the unified UI lands.
 - Auto-swap: notice an unhealthy torrent and switch releases automatically, reusing the swap service.
 - Flaky test CI-FLAKE-001 (`SettingsParityTests.BuiltinListDoesNotAdvertiseAnExternalHost`).
+- Check the Requests inbox and "My requests" on a phone.
+- Request dialog errors: plain language instead of server wording.
+- Installed phone app: behaviour on a lost connection and when the Cloudflare sign-in expires.
 
 ## Backlog (needs re-check, may already be fixed)
 
@@ -33,6 +34,9 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - pnpm wire encryption patch doesn't apply on clean installs.
 
 ## Done recently
+
+- Cinemeta movies can be requested (360f484).
+- Local remote-access simulator: 3938 is the owner, 3939 is a requester (dd72e8b, see docs/remote-access.md).
 
 - Mobile fixes, 22 of 23 verified by QA.
 - AniList anime episode lists.
