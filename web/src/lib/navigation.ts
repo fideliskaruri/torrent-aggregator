@@ -10,8 +10,10 @@
  *  - `/` is Browse: the catalog of what you can watch right now. It answers
  *    "here is what you can play", where the old search-box landing asked
  *    "what do you want?" and left a new install staring at an empty page.
- *  - Five destinations, and no sixth: Browse, Library, Downloads,
- *    Notifications, Settings. Mobile's bottom bar mirrors them exactly.
+ *  - Desktop keeps five primary destinations: Browse, Library, Downloads,
+ *    Notifications, Settings. Mobile's bottom bar is five *slots*: Browse,
+ *    Library, Downloads, Alerts, More — Settings lives in the More sheet so
+ *    labels fit a 390px phone without ellipsis.
  *  - Search is global rather than a destination. It is not a place you go and
  *    come back from; it is something you do from wherever you are. The desktop
  *    header draws it as a permanent box, and mobile opens it full-screen.
@@ -27,6 +29,7 @@
  *  - **Activity → Notifications.** Activity was a wall of everything that had
  *    happened. Notifications is a quiet inbox: completed downloads and
  *    terminal failures, with an unread count. The name change is the promise.
+ *    Mobile shortens the tab label to **Alerts** so five slots stay readable.
  *
  * Rules is deliberately absent from every list. Its replacement — the
  * per-title Add to Library flow — does not exist yet, so `/rules` remains
@@ -70,11 +73,10 @@ export const DOWNLOADS_HREF = "/downloads";
 export const NOTIFICATIONS_HREF = "/notifications";
 
 /**
- * Always visible on desktop, and the bottom tab bar on mobile.
+ * Desktop primary destinations (and the product spine).
  *
- * Exactly five. Adding a sixth is a product decision, not a layout tweak: the
- * bar is thumb-width on a 375px phone and a sixth entry makes every target
- * narrower than the 44px minimum.
+ * Exactly five. Adding a sixth is a product decision, not a layout tweak.
+ * Mobile does **not** mirror this list 1:1 — see {@link MOBILE_PRIMARY_NAV}.
  */
 export const PRIMARY_NAV: readonly NavItem[] = [
   { href: "/", label: "Browse" },
@@ -84,25 +86,52 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   { href: "/settings", label: "Settings", owns: ["/about"] },
 ] as const;
 
+/**
+ * Mobile bottom-tab destinations (More is rendered separately).
+ *
+ * Four tabs + More = five slots. "Alerts" is the short label for Notifications
+ * so the word never ellipsizes at 390px. Settings is not a tab — it lives in
+ * {@link MOBILE_MORE_NAV}. History still lights the Alerts tab via `owns`.
+ */
+export const MOBILE_PRIMARY_NAV: readonly NavItem[] = [
+  { href: "/", label: "Browse" },
+  { href: "/watchlist", label: "Library" },
+  { href: DOWNLOADS_HREF, label: "Downloads", owns: ["/client"] },
+  { href: NOTIFICATIONS_HREF, label: "Alerts", owns: ["/activity", "/history"] },
+] as const;
+
 /** The owner's inbox of friends' requests. Its entry carries the pending count. */
 export const REQUESTS_HREF = "/requests";
 export const UPCOMING_HREF = "/upcoming";
+export const SETTINGS_HREF = "/settings";
 
 /**
- * Desktop: after the divider. Mobile: inside the More sheet.
+ * Desktop: after the divider. Mobile More base (Upcoming + Requests).
  *
- * Upcoming and the requests inbox live in More rather than adding bottom tabs.
- * On desktop Upcoming sits beside Downloads.
+ * Settings is appended for mobile only via {@link MOBILE_MORE_NAV} so desktop
+ * keeps Settings in the primary row.
  */
 export const SECONDARY_NAV: readonly NavItem[] = [
   { href: UPCOMING_HREF, label: "Upcoming" },
   { href: REQUESTS_HREF, label: "Requests" },
 ] as const;
 
+/**
+ * Mobile More sheet: secondary destinations plus Settings (and About is
+ * reached from Settings; More lights for `/about` via {@link MORE_ACTIVE_PREFIXES}).
+ */
+export const MOBILE_MORE_NAV: readonly NavItem[] = [
+  ...SECONDARY_NAV,
+  { href: SETTINGS_HREF, label: "Settings", owns: ["/about"] },
+] as const;
+
 /** Desktop header: the primary path. */
 export const DESKTOP_NAV: readonly NavItem[] = [
-  ...PRIMARY_NAV.flatMap((item) => item.href === DOWNLOADS_HREF
-    ? [item, { href: UPCOMING_HREF, label: "Upcoming" }] : [item]),
+  ...PRIMARY_NAV.flatMap((item) =>
+    item.href === DOWNLOADS_HREF
+      ? [item, { href: UPCOMING_HREF, label: "Upcoming" }]
+      : [item],
+  ),
   ...SECONDARY_NAV.filter((item) => item.href !== UPCOMING_HREF),
 ];
 
@@ -131,7 +160,8 @@ export function desktopNavRow(): {
 
 /** Routes that light the mobile More tab when the sheet is closed. */
 export const MORE_ACTIVE_PREFIXES: readonly string[] = [
-  ...SECONDARY_NAV.map((item) => item.href),
+  ...MOBILE_MORE_NAV.map((item) => item.href),
+  "/about",
 ];
 
 /**
@@ -183,12 +213,37 @@ export function navActiveHref(
   return null;
 }
 
-/** The label of the entry representing `pathname`, for the mobile title bar. */
-export function activeNavLabel(pathname: string): string | null {
-  for (const item of [...PRIMARY_NAV, ...SECONDARY_NAV]) {
-    if (navItemActive(pathname, item)) return item.label;
-  }
-  if (navActive(pathname, SEARCH_HREF)) return "Search";
+/**
+ * Header / wayfinding title for the current path.
+ *
+ * Derived purely from the route (not from which nav item "owns" it). Nav `owns`
+ * is for highlighting tabs; the chrome title must name the actual page — e.g.
+ * `/about` is "About", not "Settings"; `/history` is "Download log".
+ *
+ * Title/media hero pages intentionally return null so the header stays quiet.
+ * Keep in sync with every leaf in `router.tsx`.
+ */
+export function titleForRoute(pathname: string): string | null {
+  if (pathname === "/") return "Browse";
+  if (navActive(pathname, "/title")) return null;
   if (navActive(pathname, HISTORY_HREF)) return "Download log";
+  if (navActive(pathname, "/about")) return "About";
+  if (navActive(pathname, "/share")) return "Share";
+  if (navActive(pathname, "/rules")) return "Rules";
+  if (navActive(pathname, SEARCH_HREF)) return "Search";
+  if (navActive(pathname, EVERYTHING_HREF)) return "Search";
+  if (navActive(pathname, "/client")) return "Downloads";
+  if (navActive(pathname, DOWNLOADS_HREF)) return "Downloads";
+  if (navActive(pathname, "/activity")) return "Notifications";
+  if (navActive(pathname, NOTIFICATIONS_HREF)) return "Notifications";
+  if (navActive(pathname, "/watchlist")) return "Library";
+  if (navActive(pathname, UPCOMING_HREF)) return "Upcoming";
+  if (navActive(pathname, REQUESTS_HREF)) return "Requests";
+  if (navActive(pathname, SETTINGS_HREF)) return "Settings";
   return null;
+}
+
+/** @deprecated Prefer {@link titleForRoute} — kept as the prior public name. */
+export function activeNavLabel(pathname: string): string | null {
+  return titleForRoute(pathname);
 }

@@ -63,3 +63,33 @@ test("Upcoming sits beside Downloads on desktop and inside mobile More", () => {
   assert.equal(nav.activeNavLabel("/upcoming"), "Upcoming");
   assert.ok(nav.MORE_ACTIVE_PREFIXES.includes("/upcoming"));
 });
+
+test("mobile bottom bar is five slots: four tabs + More; Settings in More", () => {
+  assert.deepEqual(
+    nav.MOBILE_PRIMARY_NAV.map((item) => [item.href, item.label]),
+    [
+      ["/", "Browse"],
+      ["/watchlist", "Library"],
+      ["/downloads", "Downloads"],
+      ["/notifications", "Alerts"],
+    ],
+  );
+  assert.ok(!nav.MOBILE_PRIMARY_NAV.some((item) => item.href === "/settings"));
+  assert.ok(nav.MOBILE_MORE_NAV.some((item) => item.href === "/settings"));
+  assert.ok(nav.MOBILE_MORE_NAV.some((item) => item.href === "/upcoming"));
+  assert.ok(nav.MOBILE_MORE_NAV.some((item) => item.href === "/requests"));
+  assert.ok(nav.PRIMARY_NAV.some((item) => item.href === "/settings"));
+  assert.ok(nav.MORE_ACTIVE_PREFIXES.includes("/settings"));
+  assert.ok(nav.MORE_ACTIVE_PREFIXES.includes("/about"));
+});
+
+test("header titles follow the route, not nav owns bleed", () => {
+  assert.equal(nav.titleForRoute("/about"), "About");
+  assert.equal(nav.titleForRoute("/history"), "Download log");
+  assert.equal(nav.titleForRoute("/share"), "Share");
+  assert.equal(nav.titleForRoute("/rules"), "Rules");
+  assert.equal(nav.titleForRoute("/notifications"), "Notifications");
+  assert.equal(nav.titleForRoute("/settings"), "Settings");
+  assert.equal(nav.titleForRoute("/title/tmdb-tv-123"), null);
+  assert.equal(nav.activeNavLabel("/about"), "About");
+});

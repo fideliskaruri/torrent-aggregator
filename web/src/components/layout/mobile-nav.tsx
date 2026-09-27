@@ -20,12 +20,11 @@ import { cn } from "@/lib/utils";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import {
   EVERYTHING_HREF,
+  MOBILE_MORE_NAV,
+  MOBILE_PRIMARY_NAV,
   MORE_ACTIVE_PREFIXES,
   NOTIFICATIONS_HREF,
-  PRIMARY_NAV,
   REQUESTS_HREF,
-  UPCOMING_HREF,
-  SECONDARY_NAV,
   SEARCH_HREF,
   navActiveHref,
 } from "@/lib/navigation";
@@ -44,7 +43,7 @@ const NAV_ICONS: Record<string, typeof Search> = {
   "/rules": Zap,
   "/about": Info,
   [REQUESTS_HREF]: Inbox,
-  [UPCOMING_HREF]: CalendarClock,
+  "/upcoming": CalendarClock,
 };
 
 /**
@@ -54,12 +53,12 @@ const NAV_ICONS: Record<string, typeof Search> = {
  */
 const NAV_ICON_FALLBACK = Circle;
 
-const PRIMARY_TABS = PRIMARY_NAV.map((item) => ({
+const PRIMARY_TABS = MOBILE_PRIMARY_NAV.map((item) => ({
   ...item,
   icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK,
 }));
 
-const MORE_ITEMS = SECONDARY_NAV.map((item) => ({
+const MORE_ITEMS = MOBILE_MORE_NAV.map((item) => ({
   ...item,
   icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK,
 }));
@@ -70,7 +69,8 @@ export function MobileNav() {
   const requestsBadge = pendingBadge(useSessionInfo().pendingRequests);
   const [moreOpen, setMoreOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const activeMoreHref = navActiveHref(SECONDARY_NAV, pathname);
+  const activePrimaryHref = navActiveHref(MOBILE_PRIMARY_NAV, pathname);
+  const activeMoreHref = navActiveHref(MOBILE_MORE_NAV, pathname);
 
   useEffect(() => {
     // The current route is external navigation state; closing the sheet on route changes belongs in an effect.
@@ -250,12 +250,8 @@ export function MobileNav() {
         data-mobile-nav
         aria-label="Primary"
       >
-        {/* One column per primary tab, plus More only when there is anything
-            in it. Driven by the nav model so adding an entry cannot leave a tab
-            hanging off the edge — and so an empty More sheet does not cost
-            every other tab a sixth of the bar. At 390px that is 78px per tab
-            instead of 65px, which is what decides whether "Notifications"
-            renders or truncates to a half-word. */}
+        {/* Five slots max: four primary tabs + More. Driven by MOBILE_PRIMARY_NAV
+            so Settings cannot sneak back into the bar and crush labels. */}
         <div
           className="grid h-[var(--mobile-nav-h)]"
           style={{
@@ -265,18 +261,15 @@ export function MobileNav() {
           }}
         >
           {PRIMARY_TABS.map(({ href, label, icon: Icon }) => {
-            // Browse (`/`) is the catalog — active for exact `/` only
-            const active =
-              href === "/"
-                ? pathname === "/"
-                : pathname === href || pathname.startsWith(`${href}/`);
+            const active = href === activePrimaryHref;
             return (
               <Link
                 key={href}
                 to={href}
+                aria-label={label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors",
+                  "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] leading-tight font-medium transition-colors",
                   // The bar is fixed to the bottom edge and the tabs run
                   // edge-to-edge, so an outer ring is clipped by the viewport on
                   // every side. An inset ring is always fully visible.
@@ -287,23 +280,21 @@ export function MobileNav() {
                 )}
               >
                 <Icon
-                  className={cn("h-5 w-5", active && "text-[var(--accent)]")}
+                  className={cn("h-5 w-5 shrink-0", active && "text-[var(--accent)]")}
                   strokeWidth={active ? 2.25 : 1.75}
                 />
-                {/* The count rides the icon rather than the label: at 78px a
-                    tab has room for "Notifications" or for "Notifications 3",
-                    not both, and truncating the word to fit a number is the
-                    wrong trade. */}
+                {/* Badge rides the icon so the label keeps its full width. */}
                 {href === NOTIFICATIONS_HREF && badge ? (
                   <span
                     data-nav-unread
                     aria-label={`${badge} unread`}
-                    className="absolute translate-x-3 -translate-y-2 rounded-full bg-[var(--accent)] px-1 text-[9px] font-semibold leading-[14px] text-[var(--bg)]"
+                    className="absolute top-1 translate-x-3 rounded-full bg-[var(--accent)] px-1 text-[9px] font-semibold leading-[14px] text-[var(--bg)]"
                   >
                     {badge}
                   </span>
                 ) : null}
-                <span className="max-w-full truncate px-0.5">{label}</span>
+                {/* No truncate: five slots leave room for full short labels. */}
+                <span className="max-w-full whitespace-nowrap px-0.5">{label}</span>
               </Link>
             );
           })}
@@ -312,11 +303,12 @@ export function MobileNav() {
             <button
               type="button"
               data-mobile-more
+              aria-label="More"
               aria-haspopup="dialog"
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen((o) => !o)}
               className={cn(
-                "relative flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
+                "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] leading-tight font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
                 moreTabActive
                   ? "text-[var(--accent-text)]"
                   : "text-[var(--text-tertiary)]",
@@ -324,7 +316,7 @@ export function MobileNav() {
             >
               <MoreHorizontal
                 className={cn(
-                  "h-5 w-5",
+                  "h-5 w-5 shrink-0",
                   moreTabActive && "text-[var(--accent)]",
                 )}
                 strokeWidth={moreTabActive ? 2.25 : 1.75}
@@ -338,7 +330,7 @@ export function MobileNav() {
                   {requestsBadge}
                 </span>
               ) : null}
-              More
+              <span className="whitespace-nowrap">More</span>
             </button>
           ) : null}
         </div>

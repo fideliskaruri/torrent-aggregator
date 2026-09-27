@@ -49,6 +49,7 @@
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
   --header-h: 3.5rem;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* 56px bar: 44px tap + icon/label stack; safe-area is added separately. */
   --mobile-nav-h: 3.5rem;
 }
 

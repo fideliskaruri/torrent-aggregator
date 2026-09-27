@@ -9,7 +9,7 @@ import { useSessionInfo } from "@/lib/session";
 import {
   DESKTOP_NAV,
   HEADER_SEARCH_HREF,
-  activeNavLabel,
+  titleForRoute,
   NOTIFICATIONS_HREF,
   REQUESTS_HREF,
   desktopNavRow,
@@ -20,7 +20,8 @@ import {
 
 export function Header() {
   const pathname = useLocation().pathname;
-  const pageTitle = activeNavLabel(pathname);
+  // Synchronous with the route — never derived from a previous page's owns map.
+  const pageTitle = titleForRoute(pathname);
   const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
   const { items: navRow, dividerIndex } = desktopNavRow();
   const { badge } = useUnreadNotifications();
@@ -41,7 +42,9 @@ export function Header() {
       <div className="container-app flex h-14 items-center gap-3 sm:gap-4">
         <Link
           to="/"
-          className="flex min-h-[44px] items-center gap-2 shrink-0 min-w-0 lg:min-h-0"
+          aria-label="TorrentFlow home"
+          data-brand-home
+          className="flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center gap-2 shrink-0 rounded-md lg:h-auto lg:w-auto lg:min-h-0 lg:min-w-0 lg:justify-start"
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--primary-foreground)]">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -60,14 +63,18 @@ export function Header() {
         </Link>
 
         {/* Mobile: name the current page — the bottom tab bar is the only other
-            cue, and its labels are small. */}
+            cue, and its labels are small. Title comes from titleForRoute so it
+            always matches the URL on this render (no lag / owns bleed). */}
         {pageTitle ? (
           <>
             <span
               className="md:hidden h-4 w-px shrink-0 bg-[var(--border)]"
               aria-hidden
             />
-            <span className="md:hidden text-[13px] font-medium text-[var(--text-secondary)] truncate">
+            <span
+              data-header-page-title
+              className="md:hidden text-[13px] font-medium text-[var(--text-secondary)] truncate"
+            >
               {pageTitle}
             </span>
           </>
