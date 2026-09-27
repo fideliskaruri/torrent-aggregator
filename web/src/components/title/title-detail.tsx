@@ -1095,7 +1095,7 @@ function TitleContent({
   const downloadLabelTarget = title;
 
   return (
-    <article aria-labelledby="title-heading" className="flex grow flex-col">
+    <article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col pb-[calc(var(--mobile-nav-h)+env(safe-area-inset-bottom)+1rem)] md:pb-0">
       <header
         data-title-hero
         className="relative isolate flex flex-col justify-end overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]"
@@ -1152,14 +1152,14 @@ function TitleContent({
               collapsing into a strip. */}
           <div
             className={cn(
-              "grid grid-cols-[104px_minmax(0,1fr)] items-end gap-x-4 gap-y-5 py-5 sm:grid-cols-[120px_minmax(0,1fr)] sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-x-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-10",
+              "grid grid-cols-1 items-end gap-x-4 gap-y-5 py-5 sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-x-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-10",
               payload.isSeries
                 ? "min-h-0 md:min-h-[18rem] lg:min-h-[20rem]"
                 : "min-h-0 md:min-h-[21rem] lg:min-h-[24rem]",
             )}
           >
-            {/* The poster is a mark, not a caption: the title is printed
-                beside it, so the no-artwork tile carries no words of its own. */}
+            {/* On phones the poster, identity and actions stack so artwork
+                never takes width away from the title or primary labels. */}
             <div className="w-[104px] shrink-0 self-end sm:w-[120px] md:row-span-2 md:w-[168px] lg:w-[196px]">
               <div
                 className={cn(
@@ -1180,7 +1180,7 @@ function TitleContent({
               <h1
                 id="title-heading"
                 title={payload.title}
-                className="text-[clamp(1.75rem,7vw,2.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-[var(--text)] md:text-display"
+                className="break-words text-[clamp(1.75rem,7vw,2.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-[var(--text)] md:text-display"
               >
                 {title}
               </h1>
@@ -1212,7 +1212,7 @@ function TitleContent({
                   behaviour of each is untouched — only their position moved above
                   the synopsis. */}
               <div
-                className="mt-4 grid grid-cols-1 gap-2 sm:mt-5 sm:flex sm:flex-wrap sm:items-center"
+                className="mt-4 grid w-full min-w-0 grid-cols-1 gap-2 md:mt-5 md:flex md:flex-wrap md:items-center"
                 data-title-acquire
               >
                 {/* A gated (unreleased) title offers no Play/Download at all —
@@ -1246,7 +1246,7 @@ function TitleContent({
                       "stream",
                     );
                   }}
-                  className="relative w-full min-w-0 sm:w-auto sm:min-w-[9rem]"
+                  className="relative w-full min-w-0 md:w-auto md:min-w-[9rem]"
                 >
                   <ButtonBody
                     pending={
@@ -1292,7 +1292,7 @@ function TitleContent({
                         );
                       }
                     }}
-                    className="relative w-full min-w-0 sm:w-auto sm:min-w-[8rem]"
+                    className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
                   >
                     <ButtonBody
                       pending={downloadStatus === "pending"}
@@ -1317,7 +1317,7 @@ function TitleContent({
             {/* The two-column band under the actions. It spans the full phone
                 width so synopsis/meta never get squeezed beside the compact
                 poster, then returns to the desktop content column at md+. */}
-            <div className="col-span-2 flex flex-col gap-4 md:col-span-1 md:col-start-2 md:flex-row md:gap-8">
+            <div className="min-w-0 flex flex-col gap-4 md:col-start-2 md:flex-row md:gap-8">
                 <div className="min-w-0 flex-1 md:max-w-2xl">
                   {payload.overview ?? extras?.overview ? (
                     <p
@@ -1378,7 +1378,7 @@ function TitleContent({
         }}
       />
 
-      <div className="container-app space-y-7 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] md:space-y-10 md:py-8 md:pb-8">
+      <div className="container-app space-y-7 py-6 md:space-y-10 md:py-8">
         {payload.isSeries ? (
           <EpisodeList
             seasons={seasons}
@@ -1602,16 +1602,16 @@ function TitleDetailSkeleton() {
     <div aria-hidden>
       <div className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">
         <div className="container-app">
-          <div className="grid grid-cols-[104px_minmax(0,1fr)] items-end gap-4 py-5 sm:grid-cols-[120px_minmax(0,1fr)] sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-12">
+          <div className="grid grid-cols-1 items-end gap-4 py-5 sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-12">
             <div className="w-[104px] shrink-0 sm:w-[120px] md:w-[168px] lg:w-[196px]">
               <div className="skeleton aspect-[2/3] w-full rounded-[var(--radius)]" />
             </div>
             <div className="min-w-0 max-w-2xl flex-1">
               <div className="skeleton h-9 w-3/4 rounded" />
               <div className="skeleton mt-3 h-3 w-40 rounded" />
-              <div className="skeleton mt-5 h-11 w-full rounded-[var(--radius)] sm:w-44" />
+              <div className="skeleton mt-5 h-11 w-full rounded-[var(--radius)] md:w-44" />
             </div>
-            <div className="col-span-2 space-y-2 md:col-start-2 md:col-span-1">
+            <div className="space-y-2 md:col-start-2">
               <div className="skeleton h-3 w-full max-w-md rounded" />
               <div className="skeleton h-3 w-4/5 max-w-md rounded" />
             </div>

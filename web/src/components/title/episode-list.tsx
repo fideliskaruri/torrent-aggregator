@@ -476,7 +476,7 @@ function EpisodeSkeletonStrip({
             )}
             data-episode-skeleton
           >
-            <span className="skeleton block h-24 w-[128px] shrink-0 sm:aspect-video sm:h-auto sm:w-full" />
+            <span className="skeleton block h-24 w-16 shrink-0 sm:aspect-video sm:h-auto sm:w-full" />
             <span className="min-w-0 flex-1 p-3">
               <span className="skeleton block h-3.5 w-3/4 rounded" />
               <span className="skeleton mt-2 block h-2.5 w-full rounded" />
@@ -592,7 +592,7 @@ function EpisodeCardImpl({
   const still = (
     <span
       data-episode-still
-      className="relative block h-24 w-[128px] shrink-0 overflow-hidden bg-[var(--bg-muted)] sm:aspect-video sm:h-auto sm:w-full"
+      className="relative block h-24 w-16 shrink-0 overflow-hidden bg-[var(--bg-muted)] sm:aspect-video sm:h-auto sm:w-full"
     >
       {meta?.stillUrl ? (
         <EpisodeStillImage src={meta.stillUrl} title={meta.name ?? episode.label} />
@@ -625,15 +625,16 @@ function EpisodeCardImpl({
     .join(" · ");
 
   const caption = (
-    <span className="min-w-0 flex-1 p-3 pr-14 sm:block sm:p-3">
+    <span className={cn("min-w-0 flex-1 p-3 sm:block sm:p-3", !unaired && "pb-14 sm:pb-3")}>
       <span
         data-episode-name
-        className="block truncate text-[13px] font-medium text-[var(--text)]"
+        title={codeAndTitle}
+        className="line-clamp-2 break-words text-[13px] font-medium text-[var(--text)] sm:block sm:truncate"
       >
         {codeAndTitle}
       </span>
       {mobileMeta ? (
-        <span className="mt-1 block truncate text-[11px] text-[var(--text-tertiary)] sm:hidden">
+        <span className="mt-1 block break-words text-[12px] leading-relaxed text-[var(--text-tertiary)] sm:hidden">
           {mobileMeta}
         </span>
       ) : null}
@@ -824,7 +825,7 @@ const EpisodeStillImage = memo(function EpisodeStillImage({
     <PosterImage
       src={src}
       title={title}
-      sizes="(min-width: 640px) 300px, 128px"
+      sizes="(min-width: 640px) 300px, 64px"
       variant="plain"
       className="object-cover"
     />
