@@ -1135,42 +1135,6 @@ namespace TorrentFlow.Data.Migrations
                     b.ToTable("PlaybackProgress", (string)null);
                 });
 
-            modelBuilder.Entity("TorrentFlow.Data.Entities.RequestAutoApproveRule", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("id");
-
-                    b.Property<string>("CreatedAt")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("createdAt")
-                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("email");
-
-                    b.Property<string>("Mode")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("mode");
-
-                    b.Property<string>("UpdatedAt")
-                        .IsRequired()
-                        .HasColumnType("DATETIME")
-                        .HasColumnName("updatedAt");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex(new[] { "Email" }, "RequestAutoApproveRule_email_key")
-                        .IsUnique();
-
-                    b.ToTable("RequestAutoApproveRule", (string)null);
-                });
-
             modelBuilder.Entity("TorrentFlow.Data.Entities.PushSubscription", b =>
                 {
                     b.Property<string>("Id")
@@ -1210,6 +1174,65 @@ namespace TorrentFlow.Data.Migrations
                     b.HasIndex(new[] { "UserId" }, "PushSubscription_userId_idx");
 
                     b.ToTable("PushSubscription", (string)null);
+                });
+
+            modelBuilder.Entity("TorrentFlow.Data.Entities.ReleaseAttempt", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorkKey")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Hash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TriedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "WorkKey", "Scope", "Hash");
+
+                    b.ToTable("ReleaseAttempt", (string)null);
+                });
+
+            modelBuilder.Entity("TorrentFlow.Data.Entities.RequestAutoApproveRule", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("createdAt")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("email");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("UpdatedAt")
+                        .IsRequired()
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("updatedAt");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex(new[] { "Email" }, "RequestAutoApproveRule_email_key")
+                        .IsUnique();
+
+                    b.ToTable("RequestAutoApproveRule", (string)null);
                 });
 
             modelBuilder.Entity("TorrentFlow.Data.Entities.RunLock", b =>

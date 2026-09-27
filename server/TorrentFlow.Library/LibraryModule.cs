@@ -21,6 +21,8 @@ public static class LibraryModule
         services.Configure<Microsoft.AspNetCore.Mvc.JsonOptions>(options => options.JsonSerializerOptions.Converters.Add(new LibraryDateConverter()));
         services.AddSingleton<ActivityService>();
         services.AddSingleton<GrabService>();
+        services.AddMemoryCache();
+        services.AddSingleton<ReleaseSwapService>();
         services.AddSingleton<AutomationService>();
         services.AddOptions<AutomationOptions>().Bind(configuration.GetSection("TorrentFlow:Library"))
             .ValidateDataAnnotations().ValidateOnStart();

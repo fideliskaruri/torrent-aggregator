@@ -33,6 +33,7 @@ internal sealed record BackendSnapshot(
     IReadOnlyList<BackendFile> Files,
     string? Error)
 {
+    public int? Seeders { get; init; }
     /// <summary>Payload bytes received from peers since the transfer was loaded.</summary>
     public long? BytesReceived { get; init; }
 

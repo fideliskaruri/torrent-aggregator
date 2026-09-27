@@ -108,6 +108,15 @@ public sealed class RequesterTests(RequesterHostFactory factory) : IClassFixture
     private static Task<HttpResponseMessage> Create(HttpClient client, object body) => client.PostAsJsonAsync("/api/requester/requests", body);
 
     [Fact]
+    public async Task ReleaseAlternativesAndSwapRemainOwnerOnly()
+    {
+        using var client = factory.Requester(Email("swap-denied"));
+        const string path = "/api/client/torrents/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/alternatives";
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync(path, new { token = "invalid" })).StatusCode);
+    }
+
+    [Fact]
     public async Task ASignedInFriendBecomesARequesterWithOneUserRow()
     {
         var email = Email("Friend").ToUpperInvariant();

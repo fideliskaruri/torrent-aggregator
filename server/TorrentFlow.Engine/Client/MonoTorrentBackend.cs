@@ -491,7 +491,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             m.SavePath,
             files,
             err)
-        { BytesReceived = m.Monitor.DataBytesReceived, PieceBitfield = complete ? PieceBitfieldOf(m) : null };
+        { Seeders = m.Peers.Seeds, BytesReceived = m.Monitor.DataBytesReceived, PieceBitfield = complete ? PieceBitfieldOf(m) : null };
     }
 
     /// <summary>TS bitfieldBase64: one bit per piece, most significant bit first.</summary>

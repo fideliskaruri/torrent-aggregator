@@ -26,6 +26,8 @@ public partial class TorrentFlowDbContext : DbContext
 
     public virtual DbSet<EngineTorrent> EngineTorrents { get; set; }
 
+    public DbSet<ReleaseAttempt> ReleaseAttempts { get; set; }
+
     public virtual DbSet<GrabJob> GrabJobs { get; set; }
 
     public virtual DbSet<MediaProbe> MediaProbes { get; set; }
@@ -54,6 +56,12 @@ public partial class TorrentFlowDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ReleaseAttempt>(entity =>
+        {
+            entity.ToTable("ReleaseAttempt");
+            entity.HasKey(e => new { e.UserId, e.WorkKey, e.Scope, e.Hash });
+        });
+
         modelBuilder.Entity<AcquisitionTarget>(entity =>
         {
             entity.ToTable("AcquisitionTarget");

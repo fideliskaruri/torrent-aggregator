@@ -20,7 +20,30 @@ modeled on CoCo Artifacts: one ASP.NET Core host that serves the JSON API and th
   `VSTestSessionCorrelationId` skips the web target during `dotnet test`; standalone test-project
   builds pass `SkipWebBuild=true` through references. Tests need no Node/pnpm installation.
 
-## Layout
+## Manual release replacement
+
+Downloads offers **Find another release** on incomplete built-in movie and episode rows. The dialog
+shows connected seeders/peers, speed and observed stall duration, then alternatives in the existing
+search rank order. Selecting **Use this one** explicitly replaces that release and deletes only its
+recorded incomplete payload and partial-file siblings—not shared folders, unrelated or completed files.
+When no live bitfield remains, full-length files are conservatively preserved because their completion
+cannot be disproved; the swap never guesses folder ownership.
+
+- `GET /api/client/torrents/{hash}/alternatives` searches the same work and episode/season scope,
+  retains the current/acquisition quality floor, and excludes current, loaded and previously tried hashes.
+- `POST /api/client/torrents/{hash}/alternatives` accepts `{ "token": "..." }`, an opaque selection
+  from GET valid for ten minutes. Stale, foreign and already-tried selections are rejected.
+- Both routes use the host's default owner-only requester middleware; they are not requester-enabled.
+- The engine transaction transfers work/queue/category/path/lane/forced state and updates acquisition,
+  grab, watchlist and request hash links. Paused rows remain paused; queued rows retain their enqueue
+  timestamp and episode position. Hash locks are ordered under the remove gate, then the queue gate.
+- `ReleaseAttempt` persists per-owner/work/scope hashes across restarts and subsequent swaps.
+- Future automatic recovery can call `ReleaseSwapService.Alternatives` and `Swap`; no second ranking
+  or deletion implementation is needed. `TransferHealthTracker` is sampled by the engine monitor and
+  reports session-observed stalls (reset after restart), not an invented historical duration. Automatic
+  decisions, thresholds, cooldowns and consent are deliberately not enabled.
+
+## Project layout
 
 ```text
 TorrentFlow.slnx

@@ -22,7 +22,7 @@ namespace TorrentFlow.Engine;
 /// open) are serialised by a per-hash lock, and every deferred start re-reads the row first, so a pause or delete
 /// that lands between a queue decision and the client start wins instead of being resurrected.
 /// </summary>
-internal sealed class TorrentEngineService(
+internal sealed partial class TorrentEngineService(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
     ITorrentBackend backend,
     IOptionsMonitor<EngineOptions> options,
@@ -41,6 +41,7 @@ internal sealed class TorrentEngineService(
     public const string NotFound = "Torrent not found in engine.";
 
     private readonly SemaphoreSlim _queueGate = new(1, 1);
+    private readonly TransferHealthTracker _health = new();
     // Lock order: a hash lock is always taken before _queueGate, and never while holding another hash lock, except by
     // RemoveManyAsync, which holds _removeGate and takes its hashes in ordinal order.
     private readonly SemaphoreSlim _removeGate = new(1, 1);
@@ -498,6 +499,7 @@ internal sealed class TorrentEngineService(
                 if ((await FindAsync(db, hash, CancellationToken.None))?.Status != EngineTorrentStatus.Queued) continue;
                 if (backend.Contains(hash)) await backend.RemoveAsync(hash);
                 _startedAt.TryRemove(hash, out _);
+                _health.Forget(hash);
             }
         }
         logger.LogInformation("Download cap lowered: returned {Count} running downloads to the queue", demoted.Count);
@@ -686,6 +688,7 @@ internal sealed class TorrentEngineService(
     /// </summary>
     private EngineTorrentInfo WithMagnet(EngineTorrent row, EngineTorrentInfo info)
     {
+        info = info with { Health = _health.Observe(info, Now) };
         if (row.TorrentUrl == DownloadRecoveryService.ImportedMarker) return info with { Imported = true };
         var own = PublicTrackers.TrackersOf(row.Magnet);
         var file = TorrentFileTrackers(row.Hash);
@@ -761,6 +764,7 @@ internal sealed class TorrentEngineService(
                 State = state,
                 Eta = eta,
                 Peers = live.Peers,
+                Seeders = live.Seeders,
                 Error = live.Error ?? row.Error,
                 Playable = state == "downloaded" ? true : null,
                 Category = row.Category,
@@ -1292,6 +1296,9 @@ internal sealed class TorrentEngineService(
             foreach (var row in rows)
             {
                 var live = backend.Get(row.Hash);
+                _health.Observe(new EngineTorrentInfo { Hash = row.Hash, Name = row.Name,
+                    State = live?.State ?? PersistedDisplayState(row), Progress = live?.Progress ?? row.Progress,
+                    Peers = live?.Peers, Seeders = live?.Seeders, Dlspeed = live?.DownloadRate ?? 0 }, Now);
                 if (live is null)
                 {
                     // Marked downloading but not in the client (a start that died, a client drop): it holds a slot

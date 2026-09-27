@@ -13,6 +13,9 @@ public interface ITorrentEngine
     /// </summary>
     Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default);
 
+    Task<EngineAddResult> SwapAsync(string hash, EngineReleaseSwap request, CancellationToken ct = default) =>
+        Task.FromResult(new EngineAddResult(false, "Release swapping is not supported by this engine."));
+
     Task<IReadOnlyList<EngineTorrentInfo>> ListAsync(CancellationToken ct = default);
 
     Task<EngineTorrentInfo?> GetAsync(string infoHash, CancellationToken ct = default);
@@ -190,6 +193,9 @@ public sealed record EngineAddRequest
     public string? Lane { get; init; }
 }
 
+public sealed record EngineReleaseSwap(string WorkKey, string Scope, string Hash, string Name, string? Magnet,
+    long? SizeBytes, string? Source = null);
+
 public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? Details = null, string? Hash = null)
 {
     /// <summary>Set when a storage limit refused the add: setup | inventory | cap | reserve | wont-fit.</summary>
@@ -225,6 +231,8 @@ public sealed record EngineTorrentInfo
     public required string State { get; init; }
     public long? Eta { get; init; }
     public int? Peers { get; init; }
+    public int? Seeders { get; init; }
+    public TransferHealth? Health { get; init; }
     public string? Error { get; init; }
     public bool? Playable { get; init; }
     public string? Category { get; init; }
