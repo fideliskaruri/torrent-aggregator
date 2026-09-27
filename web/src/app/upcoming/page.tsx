@@ -24,8 +24,10 @@ export default function UpcomingPage() {
           <p className="text-sm text-[var(--text-secondary)]">Next checks, expected air times, and downloads waiting their turn.</p>
           <p className="text-xs text-[var(--text-tertiary)]">Times are shown in your local timezone. Queue times are not completion estimates.</p>
         </div>
-        <Button asChild variant="ghost" className="min-h-[44px]">
-          <Link to="/downloads" aria-label="Open Downloads" data-upcoming-downloads>Downloads</Link>
+        <Button asChild variant="secondary" className="min-h-[44px]">
+          <Link to="/downloads" aria-label="Open Downloads" data-upcoming-downloads>
+            Downloads
+          </Link>
         </Button>
       </div>
 

@@ -621,57 +621,56 @@ export default function WatchlistPage() {
   const counts = tabCounts(items);
 
   return (
-    <div className="container-app py-6 pb-24 sm:py-8 space-y-5 min-w-0">
+    <div className="container-app space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] min-w-0 sm:py-8 sm:pb-8">
       <TfPageHeader
         title="Library"
         description={libraryPageSummary(items)}
         actions={
-          <div className="flex flex-col items-start gap-1 sm:items-end">
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => setAutomationReviewOpen(true)}
-              disabled={runningAuto || !items.length}
-              aria-describedby={automationStateId}
-            >
-              {runningAuto ? (
-                <LoadingGlyph className="h-3.5 w-3.5" />
-              ) : (
-                <Radar className="h-3.5 w-3.5" />
-              )}
-              Run automation
-            </Button>
-            <p
-              id={automationStateId}
-              data-dense-ui
-                          className="max-w-[16rem] text-left text-[12px] leading-snug text-[var(--text-tertiary)] sm:text-right"
-            >
-              Checks monitored titles and may download matching releases.{" "}
-              {automationStateCopy(autoIntervalMinutes)}
-              {autoIntervalMinutes === 0 ? (
-                <>
-                  {". "}
-                  {/*
-                    A real tap target, not inline text. WCAG exempts links
-                    inside a sentence from the target-size rule, but this is the
-                    only control that turns automation on, and at 16px on a
-                    phone it was the hardest thing on the page to hit. The
-                    inline-block plus vertical padding gives it a 44px box on
-                    touch without breaking the sentence flow, and collapses on
-                    pointer devices where a mouse makes the box unnecessary.
-                  */}
-                  <Link
-                    to="/settings"
-                    className="inline-flex min-h-[44px] items-center whitespace-nowrap py-2 align-middle text-[var(--accent-text)] underline underline-offset-2 lg:min-h-0 lg:py-0"
-                  >
-                    Turn on automatic checks
-                  </Link>
-                </>
-              ) : null}
-            </p>
-          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setAutomationReviewOpen(true)}
+            disabled={runningAuto || !items.length}
+            aria-describedby={automationStateId}
+          >
+            {runningAuto ? (
+              <LoadingGlyph className="h-3.5 w-3.5" />
+            ) : (
+              <Radar className="h-3.5 w-3.5" />
+            )}
+            Run automation
+          </Button>
         }
       />
+
+      <p
+        id={automationStateId}
+        data-dense-ui
+        className="max-w-xl text-sm leading-relaxed text-[var(--text-tertiary)]"
+      >
+        Checks monitored titles and may download matching releases.{" "}
+        {automationStateCopy(autoIntervalMinutes)}
+        {autoIntervalMinutes === 0 ? (
+          <>
+            {". "}
+            {/*
+              A real tap target, not inline text. WCAG exempts links
+              inside a sentence from the target-size rule, but this is the
+              only control that turns automation on, and at 16px on a
+              phone it was the hardest thing on the page to hit. The
+              inline-block plus vertical padding gives it a 44px box on
+              touch without breaking the sentence flow, and collapses on
+              pointer devices where a mouse makes the box unnecessary.
+            */}
+            <Link
+              to="/settings"
+              className="inline-flex min-h-[44px] items-center whitespace-nowrap py-2 align-middle text-[var(--accent-text)] underline underline-offset-2 lg:min-h-0 lg:py-0"
+            >
+              Turn on automatic checks
+            </Link>
+          </>
+        ) : null}
+      </p>
 
       {lastAuto ? (
         <div className="surface px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
@@ -704,7 +703,7 @@ export default function WatchlistPage() {
           it was never the question people arrive with. You open the Library to
           find a film or to find a show. */}
       <div
-        className="flex flex-wrap items-center gap-1"
+        className="flex flex-wrap items-center gap-1.5 pt-1"
         role="tablist"
         aria-label="Library"
         data-library-tabs
@@ -942,8 +941,8 @@ export default function WatchlistPage() {
 
                   <CheckSchedule {...item} automationEnabled={(autoIntervalMinutes ?? 0) > 0} />
 
-                  {/* Primary actions only */}
-                  <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-0.5">
+                  {/* Primary actions only — extra bottom pad keeps them above mobile nav */}
+                  <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2 pb-1">
                     {isSeries && nextLabel ? (
                       <Button
                         type="button"
@@ -1327,7 +1326,7 @@ function LibrarySkeleton({ visible = true }: { visible?: boolean }) {
     <PageSkeletonFrame
       aria-label="Loading library"
       className={cn(
-        "container-app py-6 pb-24 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
+        "container-app space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] min-w-0 transition-opacity duration-150 sm:py-8 sm:pb-8",
         !visible && "opacity-0",
       )}
     >

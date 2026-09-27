@@ -1101,34 +1101,53 @@ export default function ClientPage() {
           </span>
         }
         actions={
-          <>
-            {isBuiltin ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={tidying}
-                onClick={() => void tidyFolders()}
-                title="Move finished episodes out of their release folders"
-                data-tidy-folders
-              >
-                <FolderTree className={cn("h-3.5 w-3.5", tidying && "animate-pulse")} />
-                {tidying ? "Tidying…" : "Tidy folders"}
-              </Button>
-            ) : null}
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/settings?tab=connection">Settings</Link>
-            </Button>
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <Button
               type="button"
               variant="secondary"
               size="sm"
+              className="min-h-[44px]"
               onClick={() => void load()}
+              aria-label="Refresh downloads"
+              data-downloads-refresh
             >
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
               Refresh
             </Button>
-          </>
+            {/* Secondary actions live in overflow on phone so the toolbar
+                stays ≥44px and doesn't cram three labeled buttons at 390. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-[44px] min-w-[44px]"
+                  aria-label="More download actions"
+                  data-downloads-more
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                  <span className="sm:inline">More</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[12rem]">
+                {isBuiltin ? (
+                  <DropdownMenuItem
+                    disabled={tidying}
+                    className="min-h-[44px]"
+                    onClick={() => void tidyFolders()}
+                    data-tidy-folders
+                  >
+                    <FolderTree className={cn("h-3.5 w-3.5", tidying && "animate-pulse")} />
+                    {tidying ? "Tidying…" : "Tidy folders"}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem asChild className="min-h-[44px]">
+                  <Link to="/settings?tab=connection">Settings</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         }
       />
 

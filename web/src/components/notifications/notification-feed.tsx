@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { Link } from "react-router";
 import { Button } from "@/components/ui/button";
+import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
@@ -69,8 +70,8 @@ export function NotificationFeed() {
       <PushToggle />
       {actionError && <p role="alert" className="text-sm text-[var(--danger)]">{actionError}</p>}
       {error ? <div role="alert"><p>{error}</p><Button variant="outline" onClick={refetch} aria-label="Retry notifications" data-notifications-retry>Retry</Button></div>
-        : loading && !data ? <p role="status">Loading notifications…</p>
-        : data && !data.items.length ? <div className="space-y-3 rounded-lg border border-[var(--border)] p-6">
+        : loading && !data ? <NotificationFeedSkeleton />
+        : data && !data.items.length ? <div className="space-y-3 rounded-lg border border-[var(--border)] p-6" data-notifications-empty>
           <p>You&apos;re all caught up. New requests and download updates will appear here.</p><Link to="/" className="underline">Back to browse</Link>
         </div> : (
           <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]">
@@ -90,6 +91,28 @@ export function NotificationFeed() {
         )}
       {data && data.items.length === 100 && <p className="text-xs text-[var(--text-tertiary)]">Showing the latest 100 notifications. Mark all read also clears older unread entries.</p>}
     </section>
+  );
+}
+
+function NotificationFeedSkeleton() {
+  return (
+    <PageSkeletonFrame
+      aria-label="Loading notifications"
+      className="space-y-2"
+    >
+      <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]">
+        {Array.from({ length: 6 }, (_, i) => (
+          <li key={i} className="flex items-start gap-3 p-4" aria-hidden>
+            <div className="min-w-0 flex-1 space-y-2">
+              <SkeletonBlock className="h-4 w-3/5" />
+              <SkeletonBlock className="h-3 w-4/5" />
+              <SkeletonBlock className="h-3 w-1/3" />
+            </div>
+            <SkeletonBlock className="h-11 w-20 shrink-0 rounded-md" />
+          </li>
+        ))}
+      </ul>
+    </PageSkeletonFrame>
   );
 }
 

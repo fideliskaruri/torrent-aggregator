@@ -116,10 +116,12 @@ export default function RequestsPage() {
   }
 
   return (
-    <div className="container-app max-w-4xl space-y-5 py-6" data-owner-requests>
-      <div className="space-y-1">
+    <div className="container-app max-w-4xl space-y-6 py-6" data-owner-requests>
+      <div className="space-y-2">
         <h1 className="text-xl font-semibold tracking-tight text-[var(--text)]">Requests</h1>
-        <p className="text-sm text-[var(--text-secondary)]">What friends asked for. Approving starts the download.</p>
+        <p className="max-w-prose text-sm leading-relaxed text-[var(--text-secondary)]">
+          What friends asked for. Approving starts the download.
+        </p>
       </div>
 
       <section className="surface space-y-3 p-3 sm:p-4" data-auto-approve>
