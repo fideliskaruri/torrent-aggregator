@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using TorrentFlow.Engine.Clients.External;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -359,8 +360,33 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
     [Fact]
     public async Task BuiltinListDoesNotAdvertiseAnExternalHost()
     {
-        await _http.PutAsJsonAsync("/api/settings/client", new { clientType = "builtin" });
-        var result = await Read(await _http.GetAsync("/api/client/torrents"));
+        // Own host: the shared fixture's client settings/DB are mutated by sibling tests in this class
+        // (and by WithWebHostBuilder derivatives that reuse the same data directory), so a concurrent
+        // external-client configuration can make /api/client/torrents throw and return a non-JSON body.
+        using var isolated = factory.WithWebHostBuilder(builder =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "tf-builtin-host-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            builder.UseSetting("TorrentFlow:DataDirectory", root);
+            builder.UseSetting("TorrentFlow:Engine:RefreshTrackers", "false");
+            builder.UseSetting("TorrentFlow:Engine:Streaming", "true");
+            builder.UseSetting("TorrentFlow:ExternalClients:Enabled", "true");
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<TorrentFlow.Engine.Client.ITorrentBackend>();
+                services.AddSingleton<TorrentFlow.Engine.Client.ITorrentBackend>(factory.Backend);
+            });
+        });
+        using var http = isolated.CreateClient();
+        var put = await http.PutAsJsonAsync("/api/settings/client", new { clientType = "builtin" });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        using var response = await http.GetAsync("/api/client/torrents");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.StartsWith("{", body);
+        var result = JsonDocument.Parse(body).RootElement;
+        Assert.Equal("builtin", result.GetProperty("clientType").GetString());
         Assert.Equal("", result.GetProperty("host").GetString());
     }
 
