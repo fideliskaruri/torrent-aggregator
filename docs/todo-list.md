@@ -13,25 +13,22 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | MOB2-002: first episode row under the bottom nav at the fold | req-unify-opus (Opus 5.5) | Running |
 | "Find another release": server API | swap-release (Astra, server only) | Running |
 | "Find another release": Downloads dialog UI | req-unify-opus (Opus 5.5) | Waiting on API |
+| Request dialog: plain-language errors; requests pages on a phone | req-unify-opus (Opus 5.5) | Running |
+| Server QA bugs: keyless title details, Torznab test accepts HTML, Advanced JSON error, Ready to Play rail, send error field, flaky CI test | qa-server (grok-4.5) | Running |
+| Engine bugs: verified bitfield, smart save paths, unwritable save path, season starts one at a time, 2.2 GB RAM | qa-engine (Astra, server only) | Running |
+| Search takes 5–16 s | qa-search-perf (Astra, server only) | Running |
+| UI QA bugs: source controls under 44px on desktop, queued "Download now", send field errors, Advanced JSON crash, offline and expired sign-in banners, sweep of the other pages | qa-ui (Opus 5.5) | Running |
 
 ## Next
 
 - QA pass: owner vs requester vs preview, on phone and desktop, using the simulator.
 - "Find another release" on title pages, after the unified UI lands.
 - Auto-swap: notice an unhealthy torrent and switch releases automatically, reusing the swap service.
-- Flaky test CI-FLAKE-001 (`SettingsParityTests.BuiltinListDoesNotAdvertiseAnExternalHost`).
-- Check the Requests inbox and "My requests" on a phone.
-- Request dialog errors: plain language instead of server wording.
-- Installed phone app: behaviour on a lost connection and when the Cloudflare sign-in expires.
+- Frontend code audit: one grok agent per area (shell, title, downloads and library, settings and requests), after the unified UI lands.
 
-## Backlog (needs re-check, may already be fixed)
+## Closed
 
-- Engine RAM about 2.2 GB during a season download; season episodes start one at a time.
-- `/api/search` slow (5–16 s) because of enrichment.
-- Queued download has no force control; advanced availability panel missing its API.
-- Downloads: verified bitfield never written, Ready to Play rail missing completed items, smart save paths, send validation field, unwritable save path error row.
-- Sources: keyless results can't open title details, source controls under 44px at desktop, Torznab test accepts HTML.
-- pnpm wire encryption patch doesn't apply on clean installs.
+- pnpm wire encryption patch: obsolete, since the Next.js tree was removed (5824ed5).
 
 ## Done recently
 
