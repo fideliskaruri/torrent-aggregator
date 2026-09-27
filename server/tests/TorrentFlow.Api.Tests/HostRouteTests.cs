@@ -67,12 +67,15 @@ public sealed class HostRouteTests(HostFactory factory) : IClassFixture<HostFact
         using var features = JsonDocument.Parse(await Client().GetStringAsync("/api/features"));
         Assert.False(features.RootElement.GetProperty("streaming").GetBoolean());
 
-        foreach (var path in new[] { "/api/stream/abc", "/api/playback/status", "/api/prewarm", "/api/subtitles/abc" })
+        foreach (var path in new[] { "/api/stream/abc", "/api/playback/status", "/api/prewarm", "/api/prewarm/swarm-probe", "/api/subtitles/abc" })
         {
             var response = await Client().GetAsync(path);
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            var body = await response.Content.ReadAsStringAsync();
+            Assert.False(string.IsNullOrWhiteSpace(body), path + " must return a JSON body");
+            using var doc = JsonDocument.Parse(body);
             Assert.True(doc.RootElement.GetProperty("streamingDisabled").GetBoolean());
+            Assert.Equal("Streaming is turned off.", doc.RootElement.GetProperty("error").GetString());
         }
     }
 
