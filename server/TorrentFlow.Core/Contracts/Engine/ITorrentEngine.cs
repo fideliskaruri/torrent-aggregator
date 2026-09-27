@@ -198,6 +198,7 @@ public sealed record EngineReleaseSwap(string WorkKey, string Scope, string Hash
 
 public sealed record EngineAddResult(bool Ok, string Message, EngineAddDetails? Details = null, string? Hash = null)
 {
+    public string? InvalidField { get; init; }
     /// <summary>Set when a storage limit refused the add: setup | inventory | cap | reserve | wont-fit.</summary>
     public string? StorageLimit { get; init; }
 }

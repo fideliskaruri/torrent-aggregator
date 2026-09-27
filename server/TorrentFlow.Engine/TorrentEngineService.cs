@@ -129,17 +129,12 @@ internal sealed partial class TorrentEngineService(
         }
         if (hash is null) return new EngineAddResult(false, "No magnet or torrent URL provided.");
         if (!string.IsNullOrEmpty(magnet)) magnet = TorrentSource.WidenTrackers(magnet, Options.EffectivePublicTrackers);
-        if (bytes is not null) SaveTorrentFile(hash, bytes);
-
         var config = await settings.GetConfigAsync(ct);
         var target = ResolveTarget(config, request);
         var savePath = target.SavePath ?? Path.Combine(Options.DataDirectory, "downloads");
-        // builtin-engine addTorrent mkdirs the destination before any row exists: an unusable path fails cleanly.
-        try { Directory.CreateDirectory(savePath); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
-        {
-            return new EngineAddResult(false, ex.Message);
-        }
+        if (DownloadDirectory.Prepare(savePath) is { } pathError)
+            return new EngineAddResult(false, pathError) { InvalidField = "savePath" };
+        if (bytes is not null) SaveTorrentFile(hash, bytes);
 
         Admission admission;
         EngineAddResult result;

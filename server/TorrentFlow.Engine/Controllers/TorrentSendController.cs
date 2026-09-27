@@ -132,6 +132,8 @@ public sealed class TorrentSendController(
         }, ct);
 
         var smart = new { kind = resolved.Smart.Kind, category = resolved.Smart.Category, confidence = resolved.Smart.Confidence };
+        if (!result.Ok && result.InvalidField is { } invalidField)
+            return Invalid(result.Message, invalidField);
         if (!result.Ok)
             return StatusCode(502, new { ok = false, message = result.Message, offline = false, code = result.StorageLimit is null ? "SEND_FAILED" : "STORAGE_LIMIT",
                 clientType = "builtin", sendTarget = target, target = targetJson, smart });

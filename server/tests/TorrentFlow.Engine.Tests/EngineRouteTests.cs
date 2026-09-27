@@ -115,10 +115,10 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         var r = await _http.PostAsJsonAsync("/api/torrent/send", new { magnet = EngineHarness.Magnet(9101), savePath = Path.Combine(file, "Movies") });
 
-        Assert.Equal(HttpStatusCode.BadGateway, r.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
         var json = await Json(r);
-        Assert.False(json.GetProperty("ok").GetBoolean());
-        Assert.False(string.IsNullOrWhiteSpace(json.GetProperty("message").GetString()));
+        Assert.Equal("savePath", json.GetProperty("field").GetString());
+        Assert.Contains("Cannot write to the download folder", json.GetProperty("error").GetString());
         var list = await _http.GetStringAsync("/api/client/torrents");
         Assert.DoesNotContain(hash, list);
     }

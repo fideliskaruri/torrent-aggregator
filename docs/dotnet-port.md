@@ -217,6 +217,11 @@ still controls the new database and private import snapshots.
 
 ## External torrent clients
 
+Built-in sends create the resolved download directory and perform a disposable write/flush probe
+before queue admission. An unusable directory returns HTTP 400 with `field: "savePath"` and does
+not create a transfer row, including when the active queue is full. External-client destinations
+are interpreted on the remote client and are not probed on the TorrentFlow host.
+
 `TorrentFlow.Engine/Clients/External` owns qBittorrent Web API v2 and Transmission RPC adapters.
 `AddExternalClients` registers typed HTTP clients with explicit timeouts. Cookie handling and redirects
 are disabled on pooled handlers: qBittorrent logs in per operation and retries an expired SID once;
