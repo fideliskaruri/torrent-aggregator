@@ -154,7 +154,9 @@ internal sealed partial class TorrentEngineService(
                 // The row is persisted as downloading: the request token must not strand it half-started.
                 try
                 {
-                    var outcome = await StartInBackendAsync(row, purpose, TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), CancellationToken.None);
+                    // Kept downloads are admitted immediately; the monitor owns their metadata deadline.
+                    var outcome = await StartInBackendAsync(row, purpose,
+                        purpose == TorrentPurpose.Keep ? null : TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds), CancellationToken.None);
                     if (!outcome.Ok)
                     {
                         await MarkErrorAsync(hash, outcome.Message);

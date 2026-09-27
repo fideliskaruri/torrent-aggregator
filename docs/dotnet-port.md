@@ -164,6 +164,13 @@ Optional `TorrentFlow:Library` configuration (environment prefix `TorrentFlow__L
 Defaults retain the prior three-seeder/six-hour grace. Wait starts survive restarts and repeated
 checks; changing the episode cursor or quality preference resets obsolete waits. The watchlist
 shows the next check in local time with a quiet “Not aired yet” or “Waiting for seeders” reason.
+
+Explicit season downloads and approved season requests share a four-worker search/send fanout.
+Ready episodes no longer wait for earlier episodes' searches or metadata before admission.
+The engine enforces the saved download cap atomically, orders queued episodes by their episode
+keys, and monitors metadata deadlines after accepting kept downloads. Result lists remain in
+episode order even when searches finish out of order; only download admission, not whole grabs,
+is serialized.
 Future air dates are revalidated at least daily in case a provider corrects its schedule. Manual
 “Run now” bypasses stored due times but still honors known future air dates and legacy miss backoff.
 With a backlog, additional batches drain at the scheduler's one-minute minimum delay, with serial

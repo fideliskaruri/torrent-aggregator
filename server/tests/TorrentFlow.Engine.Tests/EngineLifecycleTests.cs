@@ -18,6 +18,32 @@ public class EngineLifecycleTests
 
     private static string H(int n) => EngineHarness.Hash(n);
 
+    [Fact]
+    public async Task SeasonStartsFillTheCapWhileEarlierStartsAreStillInFlight()
+    {
+        await using var h = await EngineHarness.CreateAsync(cap: 3);
+        var allStarting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        h.Backend.BeforeAdd = async spec =>
+        {
+            Assert.Null(spec.MetadataTimeout);
+            if (Interlocked.Increment(ref starts) == 3) allStarting.TrySetResult();
+            await release.Task;
+        };
+        var first = Enumerable.Range(1, 3).Select(ep => h.Engine.AddAsync(Keep(ep, ep))).ToArray();
+        try
+        {
+            await allStarting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var fourth = await h.Engine.AddAsync(Keep(4, 4));
+            Assert.Equal(EngineAddDetails.Queued, fourth.Details?.Action);
+            Assert.Equal(3, (await h.RowsAsync()).Count(r => r.Status == "downloading"));
+        }
+        finally { release.TrySetResult(); }
+        Assert.All(await Task.WhenAll(first), result => Assert.True(result.Ok));
+        Assert.Equal(3, h.Backend.Live.Count);
+    }
+
     /// <summary>Holds the backend add of one hash until released, and reports when it got there.</summary>
     private sealed class StartGate
     {

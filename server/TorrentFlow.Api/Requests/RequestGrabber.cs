@@ -43,11 +43,12 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
         foreach (var season in seasons)
         {
             var payload = await Extras(request, season, ct);
-            foreach (var episode in payload.Episodes.Where(e => Aired(e.AirDate, today)).Select(e => e.Episode).Distinct().Order())
+            var result = await SeasonFanout.Run(payload.Episodes.Where(e => Aired(e.AirDate, today)).Select(e => e.Episode),
+                (episode, before) => grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct, before), ct);
+            foreach (var transfer in result.Transfers)
             {
-                var result = await grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct);
-                if (result.Ok && result.InfoHash is { } hash) { if (!hashes.Contains(hash)) hashes.Add(hash); }
-                else lastProblem = result.Message;
+                if (transfer.InfoHash is { } hash) { if (!hashes.Contains(hash)) hashes.Add(hash); }
+                else lastProblem = transfer.Error;
             }
         }
         return hashes.Count > 0 ? new(hashes, null) : new([], lastProblem ?? "No aired episodes were found for those seasons.");

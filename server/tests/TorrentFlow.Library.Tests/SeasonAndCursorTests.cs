@@ -57,7 +57,7 @@ public sealed class SeasonAndCursorTests
         Assert.False(AutomationService.MatchesCategory(release, "movies"));
     }
     [Fact]
-    public async Task FanoutKeepsSendsOrderedAndQueuedHonest()
+    public async Task FanoutKeepsResultsOrderedAndQueuedHonestWithoutSerializingSends()
     {
         var order = new List<int>();
         var result = await SeasonFanout.Run([4, 1, 3, 2, 2], async (episode, before) =>
@@ -66,8 +66,9 @@ public sealed class SeasonAndCursorTests
             await before();
             lock (order) order.Add(episode);
             return new(true, "OK") { InfoHash = $"hash-{episode}", Queued = episode > 2 };
-        }, orderWaitMs: 30000, sendHoldMs: 30000);
-        Assert.Equal([1, 2, 3, 4], order);
+        });
+        Assert.Equal([1, 2, 3, 4], order.Order());
+        Assert.Equal([1, 2, 3, 4], result.Transfers.Select(x => x.Episode));
         Assert.Equal(["downloading", "downloading", "queued", "queued"], result.Transfers.Select(x => x.Status));
         Assert.Equal([1, 2, 3, 4], result.CoveredEpisodes);
     }
@@ -79,7 +80,7 @@ public sealed class SeasonAndCursorTests
             if (ep == 2) throw new InvalidOperationException("provider refused episode 2");
             await before();
             return new(true, "OK") { InfoHash = $"hash-{ep}" };
-        }, orderWaitMs: 500, sendHoldMs: 500);
+        });
         Assert.Equal([1, 3], result.CoveredEpisodes);
         Assert.Equal("provider refused episode 2", result.Transfers[1].Error);
         Assert.Null(result.Transfers[1].InfoHash);
@@ -95,7 +96,7 @@ public sealed class SeasonAndCursorTests
             await before();
             if (ep == 3) thirdSent.TrySetResult();
             return new(true, "OK");
-        }, orderWaitMs: 30, sendHoldMs: 30);
+        });
         try { await thirdSent.Task.WaitAsync(TimeSpan.FromSeconds(15)); }
         finally { releaseFirst.TrySetResult(); }
         Assert.Equal(2, (await task).CoveredEpisodes.Count);
@@ -114,5 +115,23 @@ public sealed class SeasonAndCursorTests
             return new(true, "OK");
         });
         Assert.Equal(4, peak);
+    }
+
+    [Fact]
+    public async Task AllReadyEpisodesSendBeforeTheFirstSendFinishes()
+    {
+        var allSending = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sending = 0;
+        var task = SeasonFanout.Run([1, 2, 3, 4], async (episode, before) =>
+        {
+            await before();
+            if (Interlocked.Increment(ref sending) == 4) allSending.TrySetResult();
+            await release.Task;
+            return new(true, "started") { InfoHash = $"hash-{episode}" };
+        });
+        try { await allSending.Task.WaitAsync(TimeSpan.FromSeconds(3)); }
+        finally { release.TrySetResult(); }
+        Assert.Equal(4, (await task).CoveredEpisodes.Count);
     }
 }
