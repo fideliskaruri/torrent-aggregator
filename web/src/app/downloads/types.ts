@@ -49,7 +49,7 @@ export interface ClientTorrent {
  * A one-row action on a transfer. `force` is "Download now": it starts a row
  * waiting in the built-in engine's queue past the active-download cap.
  */
-export type TorrentRowAction = "pause" | "resume" | "force" | "swap";
+export type TorrentRowAction = "pause" | "resume" | "force";
 
 /**
  * A stream (or prewarm) torrent is an ephemeral playback cache — the engine

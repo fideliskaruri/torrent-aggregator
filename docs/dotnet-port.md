@@ -22,9 +22,10 @@ modeled on CoCo Artifacts: one ASP.NET Core host that serves the JSON API and th
 
 ## Manual release replacement
 
-Downloads offers **Find another release** on incomplete built-in movie and episode rows. The dialog
-shows connected seeders/peers, speed and observed stall duration, then alternatives in the existing
-search rank order. Selecting **Use this one** explicitly replaces that release and deletes only its
+The server supports **Find another release** for incomplete built-in movie and episode rows.
+The Downloads dialog is a separate UI-specialist task; this implementation provides its API only.
+The API returns connected seeders/peers, speed and observed stall duration, then alternatives in the existing
+search rank order. An explicit swap request replaces that release and deletes only its
 recorded incomplete payload and partial-file siblings—not shared folders, unrelated or completed files.
 When no live bitfield remains, full-length files are conservatively preserved because their completion
 cannot be disproved; the swap never guesses folder ownership.
@@ -42,6 +43,86 @@ cannot be disproved; the swap never guesses folder ownership.
   or deletion implementation is needed. `TransferHealthTracker` is sampled by the engine monitor and
   reports session-observed stalls (reset after restart), not an invented historical duration. Automatic
   decisions, thresholds, cooldowns and consent are deliberately not enabled.
+
+### UI integration contract
+
+Both routes require owner access under the existing host middleware. Requesters receive HTTP 403.
+`hash` is the current engine torrent's lowercase info hash, not its `transferId`.
+JSON is camelCase; nullable properties are **omitted**, not serialized as `null`.
+Examples below are illustrative; obtain a fresh token from GET instead of copying one.
+
+**GET `/api/client/torrents/{hash}/alternatives`** has no body or required query parameters.
+HTTP 200:
+
+```json
+{
+  "health": {
+    "connectedSeeders": 1,
+    "connectedPeers": 3,
+    "downloadBytesPerSecond": 0,
+    "stalledForSeconds": 120,
+    "state": "stalledDL"
+  },
+  "alternatives": [
+    {
+      "token": "2439b06f437f491cb2b3f809fe088c00",
+      "hash": "0012284189aaef2511fcd7ab2eab6ed1a802edd1",
+      "title": "Night.of.the.Living.Dead.1968.REMASTERED.REPACK.720p.BluRay.999M",
+      "seeders": 10,
+      "peers": 1,
+      "sizeBytes": 1048105953,
+      "quality": 720,
+      "source": "apibay",
+      "why": "More advertised seeders than current connected peers"
+    }
+  ]
+}
+```
+
+`health.connectedSeeders` and `health.connectedPeers` are optional integer connected counts.
+`downloadBytesPerSecond` and `stalledForSeconds` are nonnegative integer measurements; stalled duration
+is observed in this server session, not the torrent's total age. `state` is the existing engine display
+state (for example `metaDL`, `stalledDL`, `downloading`, `paused`, `queued`, `checkingDL`, or `error`).
+Candidate `seeders` and `peers` are integer indexer/scrape counts; **candidate `peers` means leechers,
+not connected peers**. `sizeBytes` (integer bytes) and `quality` (integer resolution, e.g. 720) are
+optional. All other candidate properties are strings. Preserve the array's rank order.
+An empty result is HTTP 200 with `"alternatives": []`; it is not an error.
+Missing/completed/unsupported downloads and all-source outages return HTTP 409:
+
+```json
+{ "message": "Download no longer exists." }
+```
+
+**POST `/api/client/torrents/{hash}/alternatives`**, `Content-Type: application/json`:
+
+```json
+{ "token": "2439b06f437f491cb2b3f809fe088c00" }
+```
+
+The token is bound to this current hash, expires after ten minutes, and is lost on server restart.
+Do not POST arbitrary magnets or candidates. HTTP 200:
+
+```json
+{
+  "ok": true,
+  "message": "Using the new release. Safely identified partial files were removed.",
+  "hash": "0012284189aaef2511fcd7ab2eab6ed1a802edd1"
+}
+```
+
+Refresh the downloads list after success. Admission does not promise a healthy swarm or immediate
+transfer: paused replacements remain paused, queued replacements obey the queue and download window.
+Expected refusals return HTTP 409:
+
+```json
+{ "ok": false, "message": "This selection expired. Find releases again." }
+```
+
+Storage refusals additionally include `"storageLimit"` (`setup`, `inventory`, `cap`, `reserve`, or
+`wont-fit`). GET again after an expired selection. Malformed JSON or missing `token` returns standard
+HTTP 400 validation ProblemDetails. Other transport/server failures must remain errors in the UI,
+not an empty alternatives list. The successful swap currently omits nullable `details` and
+`storageLimit`; failure responses also omit nullable `hash`.
 
 ## Project layout
 

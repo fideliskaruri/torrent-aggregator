@@ -104,6 +104,13 @@ public sealed class FakeEngine : ITorrentEngine
     public List<EngineAddRequest> Adds { get; } = [];
     public List<string> Removed { get; } = [];
     public EngineAddResult Result { get; set; } = new(true, "Started", new("started", 0, 0), new string('a', 40));
+    public List<(string Hash, EngineReleaseSwap Request)> Swaps { get; } = [];
+    public EngineAddResult SwapResult { get; set; } = new(true, "Using the new release.", Hash: new string('b', 40));
+    public Task<EngineAddResult> SwapAsync(string hash, EngineReleaseSwap request, CancellationToken ct = default)
+    {
+        Swaps.Add((hash, request));
+        return Task.FromResult(SwapResult);
+    }
     public event EventHandler<EngineTorrentCompletedEventArgs>? TorrentCompleted { add { } remove { } }
     public Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default)
     {

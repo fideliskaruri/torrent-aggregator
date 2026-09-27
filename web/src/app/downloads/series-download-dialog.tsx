@@ -532,11 +532,6 @@ function EpisodeCard({
                 Download now
               </DropdownMenuItem>
             ) : null}
-            {t.ownerClientType === "builtin" && !t.imported && t.progress < .9999 ? (
-              <DropdownMenuItem onClick={() => onAction("swap", t)} className="min-h-[44px]" data-find-release>
-                Find another release
-              </DropdownMenuItem>
-            ) : null}
             <DropdownMenuItem
               onClick={() => onAction("pause", t)}
               className="min-h-[44px] lg:min-h-0"

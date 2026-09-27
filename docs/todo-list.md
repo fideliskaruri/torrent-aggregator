@@ -11,8 +11,8 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
 | MOB2-001: mobile nav label 11px, needs 12px or more | req-unify-opus (Opus 5.5) | Running |
 | MOB2-002: first episode row under the bottom nav at the fold | req-unify-opus (Opus 5.5) | Running |
-| "Find another release": server API | swap-release (Astra, server only) | Running |
-| "Find another release": Downloads dialog UI | req-unify-opus (Opus 5.5) | Waiting on API |
+| "Find another release": server API | swap-release (Astra, server only) | Landed; API contract in docs/dotnet-port.md |
+| "Find another release": Downloads dialog UI | req-unify-opus (Opus 5.5) | API ready; UI owned by specialist |
 | Request dialog: plain-language errors; requests pages on a phone | req-unify-opus (Opus 5.5) | Running |
 | Server QA bugs: keyless title details, Torznab test accepts HTML, Advanced JSON error, Ready to Play rail, send error field, flaky CI test | qa-server (grok-4.5) | Running |
 | Engine RAM: reported 2.2 GB season workload | qa-engine (Astra, server only) | Exact workload still needs reproduction; bounded HTTP buffering and documented/shared-cache regression added |
