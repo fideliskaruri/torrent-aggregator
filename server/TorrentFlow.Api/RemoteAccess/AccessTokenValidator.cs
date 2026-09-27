@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
@@ -22,11 +25,67 @@ public sealed class HttpAccessKeySource(IHttpClientFactory httpClientFactory) : 
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException($"Cloudflare Access certs answered {(int)response.StatusCode}.", null, response.StatusCode);
         var json = await response.Content.ReadAsStringAsync(ct);
+        return ParseRsaSigningKeys(json, "Cloudflare Access returned no RSA signing keys.");
+    }
+
+    internal static IReadOnlyList<SecurityKey> ParseRsaSigningKeys(string json, string emptyMessage)
+    {
         var keys = new JsonWebKeySet(json).GetSigningKeys()
             .Where(k => k is not JsonWebKey jwk || string.Equals(jwk.Kty, "RSA", StringComparison.Ordinal))
             .ToList();
-        if (keys.Count == 0) throw new InvalidOperationException("Cloudflare Access returned no RSA signing keys.");
+        if (keys.Count == 0) throw new InvalidOperationException(emptyMessage);
         return keys;
+    }
+}
+
+/// <summary>
+/// Reads a local JWKS file for Development-only remote-access simulation.
+/// Path comes from <c>TorrentFlow:RemoteAccess:DevJwksPath</c>.
+/// </summary>
+public sealed class FileAccessKeySource(string path) : IAccessKeySource
+{
+    public string Path { get; } = path;
+
+    public Task<IReadOnlyList<SecurityKey>> FetchSigningKeysAsync(string teamDomain, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var json = File.ReadAllText(Path);
+        return Task.FromResult(HttpAccessKeySource.ParseRsaSigningKeys(json, $"Dev JWKS at '{Path}' has no RSA signing keys."));
+    }
+}
+
+/// <summary>
+/// Honors <c>TorrentFlow:RemoteAccess:DevJwksPath</c> only when <see cref="IHostEnvironment.IsDevelopment"/>;
+/// otherwise falls through to the inner (Cloudflare) source and logs a one-shot warning.
+/// </summary>
+public sealed class DevelopmentAwareAccessKeySource(
+    IAccessKeySource inner,
+    IHostEnvironment environment,
+    IConfiguration configuration,
+    ILogger<DevelopmentAwareAccessKeySource> logger) : IAccessKeySource
+{
+    public const string DevJwksPathKey = "TorrentFlow:RemoteAccess:DevJwksPath";
+
+    private int _warnedNonDev;
+
+    public Task<IReadOnlyList<SecurityKey>> FetchSigningKeysAsync(string teamDomain, CancellationToken ct)
+    {
+        var path = configuration[DevJwksPathKey];
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            if (environment.IsDevelopment())
+                return new FileAccessKeySource(path.Trim()).FetchSigningKeysAsync(teamDomain, ct);
+
+            if (Interlocked.Exchange(ref _warnedNonDev, 1) == 0)
+            {
+                logger.LogWarning(
+                    "{Key} is set but ignored because the environment is {Environment} (Development only).",
+                    DevJwksPathKey,
+                    environment.EnvironmentName);
+            }
+        }
+
+        return inner.FetchSigningKeysAsync(teamDomain, ct);
     }
 }
 

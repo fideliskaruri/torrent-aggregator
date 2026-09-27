@@ -134,7 +134,12 @@ builder.Services.AddControllers()
 builder.Services.AddSingleton(remoteAccess);
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddHttpClient(HttpAccessKeySource.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10));
-builder.Services.AddSingleton<IAccessKeySource, HttpAccessKeySource>();
+builder.Services.AddSingleton<HttpAccessKeySource>();
+builder.Services.AddSingleton<IAccessKeySource>(sp => new DevelopmentAwareAccessKeySource(
+    sp.GetRequiredService<HttpAccessKeySource>(),
+    sp.GetRequiredService<IHostEnvironment>(),
+    sp.GetRequiredService<IConfiguration>(),
+    sp.GetRequiredService<ILogger<DevelopmentAwareAccessKeySource>>()));
 builder.Services.AddSingleton<AccessKeyCache>();
 builder.Services.AddSingleton<AccessTokenValidator>();
 builder.Services.AddSingleton<RequesterDirectory>();

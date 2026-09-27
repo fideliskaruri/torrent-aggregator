@@ -193,6 +193,68 @@ The connector is trusted: a shared Docker network does not filter ports, and any
 reach the owner port without Cloudflare headers is treated as the owner. Do not attach untrusted
 containers or publish the tunnel port. Start cloudflared explicitly with the `remote` profile.
 
+## Testing locally with the simulator
+
+Developers and QA agents can exercise the **exact** tunnel path (token check, owner vs requester shell)
+without Cloudflare. The server keeps validating `Cf-Access-Jwt-Assertion` the same way; only the signing
+key source is swapped in Development.
+
+1. Pick a throwaway data directory (never `%LOCALAPPDATA%\TorrentFlow` or `C:\Torrents`):
+
+   ```powershell
+   $data = "D:\code\memtest\sim-data"
+   New-Item -ItemType Directory -Force -Path $data | Out-Null
+   ```
+
+2. Start the simulator first so it writes JWKS + `remote-access.json`:
+
+   ```powershell
+   node scripts/dev/remote-sim.mjs --data-dir $data
+   ```
+
+   It listens on loopback only:
+
+   | Port | Role | Email |
+   | --- | --- | --- |
+   | `3938` | owner | `owner@sim.test` |
+   | `3939` | requester | `requester@sim.test` |
+
+   Both proxies forward to the tunnel listener (`127.0.0.1:3940` by default) and inject a freshly signed
+   `Cf-Access-Jwt-Assertion`. WebSocket upgrades are proxied. Single-role mode:
+   `node scripts/dev/remote-sim.mjs --data-dir $data --as someone@sim.test --port 3939`.
+
+3. Run the API in Development with the same data dir and the JWKS path the script printed:
+
+   ```powershell
+   $env:ASPNETCORE_ENVIRONMENT = "Development"
+   $env:ASPNETCORE_URLS = "http://127.0.0.1:3921"
+   $env:TorrentFlow__DataDirectory = $data
+   $env:TorrentFlow__Library__DisableScheduler = "true"
+   $env:TorrentFlow__RemoteAccess__DevJwksPath = "$data\dev-jwks.json"
+   # optional if remote-access.json is not used yet:
+   # $env:TorrentFlow__RemoteAccess__Enabled = "true"
+   # $env:TorrentFlow__RemoteAccess__TeamDomain = "sim"
+   # $env:TorrentFlow__RemoteAccess__Audience = "sim-audience"
+   # $env:TorrentFlow__RemoteAccess__OwnerEmails__0 = "owner@sim.test"
+   dotnet run --project server/TorrentFlow.Api -p:SkipWebBuild=true --no-launch-profile
+   ```
+
+   `TorrentFlow:RemoteAccess:DevJwksPath` is **Development-only**. Outside Development it is ignored and a
+   warning is logged; production always fetches
+   `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. Issuer/audience checks still use the
+   configured team domain (`https://sim.cloudflareaccess.com` for the simulator).
+
+4. Browse (or curl) the role you want:
+
+   ```powershell
+   curl.exe -s http://127.0.0.1:3939/api/me   # requester
+   curl.exe -s http://127.0.0.1:3938/api/me   # owner
+   curl.exe -s -o NUL -w "%{http_code}" http://127.0.0.1:3940/api/me   # 401 without a token
+   ```
+
+   Open `http://127.0.0.1:3939` in a browser for the requester SPA shell, or `:3938` for the owner shell
+   through the tunnel (streaming stays off on the tunnel path, same as real Cloudflare).
+
 ## Tests
 
 `server/tests/TorrentFlow.Api.Tests/RemoteAccessTests.cs` covers every row of the plan's I/O matrix with a
@@ -200,5 +262,6 @@ TestServer. TestServer has no real `LocalPort`, so an `IStartupFilter` sets it f
 and an in-memory RSA key replaces the Cloudflare key source. The production build has no such backdoor.
 One test starts real Kestrel on two ephemeral loopback ports (owner and tunnel) and checks the split over
 real sockets. `RequesterTests.cs` covers the requester role, the allow-list table and the request rules.
+`DevJwksPathTests.cs` asserts the Development-only JWKS file override is ignored outside Development.
 `web/tests/session-expiry.test.mjs` covers the SPA's expiry detection and `web/tests/requester.test.mjs`
 the role-aware shell.
