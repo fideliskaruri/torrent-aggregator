@@ -82,22 +82,38 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
                 using var client = http.CreateClient("TorrentFlow.SourceHealth");
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
                 var ok = response.IsSuccessStatusCode;
+                string? message = null;
                 if (ok && source.Type == "torznab")
                 {
                     await response.Content.LoadIntoBufferAsync(1024 * 1024, token);
                     await using var stream = await response.Content.ReadAsStreamAsync(token);
-                    using var reader = XmlReader.Create(stream, new XmlReaderSettings
+                    try
                     {
-                        Async = true, DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null,
-                        MaxCharactersInDocument = 1024 * 1024
-                    });
-                    var caps = await XDocument.LoadAsync(reader, LoadOptions.None, token);
-                    ok = caps.Root?.Name.LocalName == "caps";
+                        using var reader = XmlReader.Create(stream, new XmlReaderSettings
+                        {
+                            Async = true, DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null,
+                            MaxCharactersInDocument = 1024 * 1024
+                        });
+                        var caps = await XDocument.LoadAsync(reader, LoadOptions.None, token);
+                        ok = caps.Root?.Name.LocalName == "caps";
+                    }
+                    catch (XmlException)
+                    {
+                        ok = false;
+                    }
+                    if (!ok)
+                        message = "That address answered, but not as a Torznab indexer.";
                 }
-                return Ok(new { ok, status = ok ? "ok" : "unavailable" });
+                return Ok(new { ok, status = ok ? "ok" : "unavailable", message });
             }, ct);
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or XmlException)
-        { return Ok(new { ok = false, status = "unavailable" }); }
+        {
+            // XmlException here is only reached when the response body could not be read as Torznab caps.
+            var message = source.Type == "torznab" && e is XmlException
+                ? "That address answered, but not as a Torznab indexer."
+                : null;
+            return Ok(new { ok = false, status = "unavailable", message });
+        }
     }
 }

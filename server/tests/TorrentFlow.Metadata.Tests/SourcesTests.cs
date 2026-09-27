@@ -187,6 +187,10 @@ public sealed class SourcesTests : IDisposable
         var body = JsonSerializer.SerializeToElement(result.Value);
         Assert.Equal(expected, body.GetProperty("ok").GetBoolean());
         Assert.Equal(expected ? "ok" : "unavailable", body.GetProperty("status").GetString());
+        if (expected)
+            Assert.True(!body.TryGetProperty("message", out var okMsg) || okMsg.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined);
+        else
+            Assert.Equal("That address answered, but not as a Torznab indexer.", body.GetProperty("message").GetString());
     }
 
     public void Dispose() { if (Directory.Exists(root)) Directory.Delete(root, true); }
