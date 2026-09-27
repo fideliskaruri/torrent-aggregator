@@ -38,7 +38,7 @@ Task<SearchResponse> ITorrentSearchService.SearchAsync(
     SearchOptions options, CancellationToken cancellationToken = default);
 
 Task<IReadOnlyList<TorrentResult>> ISearchResultEnricher.EnrichAsync(
-    string query, IReadOnlyList<TorrentResult> results,
+    string query, string? category, IReadOnlyList<TorrentResult> results,
     CancellationToken cancellationToken = default);
 
 Task<SwarmLiveState> ISwarmProbeEngine.FindLiveAsync(
@@ -82,6 +82,52 @@ Probe sessions must be isolated from real downloads and dispose their own data.
   network/403/429/5xx/unproven-404 failures and HTML challenges fail over.
 - All persistence uses the shared EF context factory and original table schema.
   There are no schema changes or new package dependencies.
+- With the Metadata module registered, only the first page's first 20 rows are
+  enriched. Query and up to six distinct release lookups run together within
+  one 450 ms budget (500 ms outer safety deadline); completed identity-compatible
+  answers survive slower lookups. Unfinished metadata is optional, not a failed
+  search. Pagination, totals, magnets and all response fields stay unchanged.
+- Resolver work shares four process-wide lookup slots, including priming and
+  work finishing after an HTTP waiter leaves. Queue waits are bounded to 450 ms.
+  Existing provider timeouts bound active requests; slots stay held until those
+  requests actually finish. Identical normalized title/year/category lookups
+  share a flight and the bounded 1,000-entry cache (30-minute hits, three-minute
+  definitive misses). Bracketed years remain part of the identity. Late answers
+  warm the cache for subsequent searches.
+- Structured timing logs separate indexer fan-out, tracker scrape, cached-pool
+  loading and metadata enrichment. Slow indexers still have their own deadline;
+  the metadata budget is not a whole-search timeout.
+
+### Enrichment latency regression (September 28, 2026)
+
+Live API on `127.0.0.1:3926`, isolated data at
+`D:\code\memtest\search-perf-data`, library scheduler disabled. For each query,
+`enrich=0` first warmed the indexer pool, then the default enriched request
+measured cold metadata. The API was restarted between baseline and changed code.
+These are client wall-clock milliseconds, not a synthetic delay benchmark.
+
+| Query | Before | After | Results (both) |
+|---|---:|---:|---:|
+| big buck bunny | 7,029 | 555 | 23 |
+| night of the living dead | 5,113 | 474 | 64 |
+| sintel | 8,691 | 468 | 40 |
+
+The three-query median fell from **7,029 ms to 474 ms**. Later enriched
+`refresh=1` requests (warm upstreams/metadata, re-fetching indexers) took
+446 / 946 / 929 ms, median 929 ms. Cold indexer-only requests still varied:
+1,763 / 2,474 / 3,228 ms after the change; this fix does not promise sub-2.5 s
+responses when indexers themselves are slow.
+
+Root cause: enrichment awaited the query's entire catalog-provider ladder before
+starting release lookups, then awaited the slowest release ladder with no
+interactive deadline. Existing single-flight caching helped repeat requests but
+did not bound a cold miss; the WorkSearch resolver path also did not cache misses.
+
+Run `dotnet test TorrentFlow.slnx -p:SkipWebBuild=true` from the repository root
+(`dotnet test server` cannot discover the solution because it lives at the root).
+Regression tests cover timeout, caller cancellation, partial metadata, concurrency
+after timeout, normalized single-flight/cache hits, year separation, miss expiry,
+release/row caps and pagination without later-page enrichment.
 
 ## Optional browser configuration
 
@@ -134,9 +180,8 @@ Port 3000 and the main repository were never touched.
 
 ### Integration boundaries / unverified paths
 
-- Metadata enrichment intentionally remains the requested no-op. The reference
-  emits an extra optional `metadata` property for enriched rows; full metadata
-  and artwork parity requires the Metadata module's implementation.
+- Standalone Search has a no-op enricher. The API host registers the Metadata
+  module's bounded, best-effort implementation described above.
 - Real swarm attachment requires the Engine implementation of `ISwarmProbeEngine`.
   Classification, persistence, expiry and safe lifecycle behavior are tested with
   fakes; no live swarm or torrent download was used for verification.

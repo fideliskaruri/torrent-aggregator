@@ -7,6 +7,7 @@ namespace TorrentFlow.Metadata.Enrichment;
 /// <summary>Attaches catalog metadata to search results (port of enrichResultsWithMetadata's call site in the aggregator).</summary>
 internal sealed class SearchResultEnricher(IMetadataResolver resolver, ILogger<SearchResultEnricher> logger) : ISearchResultEnricher
 {
+    internal const int MaxEnrichedResults = 20;
     public void Prime(string query, string? category)
     {
         // The resolver coalesces identical in-flight lookups and memoizes answers, so starting the query's own
@@ -20,11 +21,21 @@ internal sealed class SearchResultEnricher(IMetadataResolver resolver, ILogger<S
         CancellationToken cancellationToken = default)
     {
         if (results.Count == 0) return results;
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(MetadataResolver.EnrichmentBudgetMs + 50);
         IReadOnlyList<MediaMetadata?> metadata;
         try
         {
-            metadata = await resolver.EnrichAsync(results.Select(r => new MetadataEnrichmentInput(r.Title)).ToArray(), query, category,
-                cancellationToken: cancellationToken);
+            var work = resolver.EnrichAsync(results.Take(MaxEnrichedResults).Select(r => new MetadataEnrichmentInput(r.Title)).ToArray(), query, category,
+                cancellationToken: budget.Token);
+            _ = work.ContinueWith(t => logger.LogDebug(t.Exception, "Late metadata enrichment failed"),
+                CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            metadata = await work.WaitAsync(budget.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogDebug("Search metadata exceeded its interactive budget");
+            return results;
         }
         catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {

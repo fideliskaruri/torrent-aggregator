@@ -46,6 +46,37 @@ internal sealed class FakeAdapter(string id, Func<Task<IReadOnlyList<TorrentResu
 
 public sealed class SearchServiceTests
 {
+    private sealed class CountingEnricher : ISearchResultEnricher
+    {
+        public int Primes;
+        public int Enrichments;
+        public void Prime(string query, string? category) => Primes++;
+        public Task<IReadOnlyList<TorrentResult>> EnrichAsync(string query, string? category, IReadOnlyList<TorrentResult> results, CancellationToken cancellationToken = default)
+        {
+            Enrichments++;
+            return Task.FromResult(results);
+        }
+    }
+
+    [Fact]
+    public async Task Only_first_page_enriches_without_changing_pagination()
+    {
+        using var h = new SearchHarness();
+        var adapter = new FakeAdapter("nyaa", () => Task.FromResult<IReadOnlyList<TorrentResult>>(
+            Enumerable.Range(0, 40).Select(i => Result(i.ToString())).ToArray()));
+        var enricher = new CountingEnricher();
+        var service = new TorrentSearchService([adapter], h.Cache, enricher, h, Options.Create(new SearchModuleOptions()),
+            NullLogger<TorrentSearchService>.Instance);
+        var first = await service.SearchAsync(new() { Query = "Movie", PageSize = 20 });
+        var second = await service.SearchAsync(new() { Query = "Movie", PageSize = 20, Page = 2 });
+        Assert.Equal(1, enricher.Primes);
+        Assert.Equal(1, enricher.Enrichments);
+        Assert.Equal(40, second.TotalCount);
+        Assert.Equal(20, second.Results.Count);
+        Assert.Equal(2, second.Page);
+        Assert.Empty(first.Results.Select(r => r.Id).Intersect(second.Results.Select(r => r.Id)));
+    }
+
     private static TorrentResult Result(string id = "a") => new() { Id = id, Title = $"Movie {id} 1080p", SizeBytes = 1000000000, Seeders = 30, Source = "nyaa", SourceUrl = "https://example.test" };
     [Fact]
     public async Task Identical_concurrent_searches_are_single_flight()

@@ -140,11 +140,14 @@ public static partial class MetadataIdentity
 /// <summary>Port of resolveMetadata / enrichResultsWithMetadata (search-latency version) plus CachedMetadata persistence (cache.ts).</summary>
 public sealed partial class MetadataResolver : IMetadataResolver
 {
+    public const int EnrichmentBudgetMs = 450;
+    public const int MaxConcurrentLookups = 4;
     private static readonly TimeSpan MemoryTtl = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan MissTtl = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan DbTtl = TimeSpan.FromDays(7);
 
     [GeneratedRegex(@"\b(anime|subbed|dubbed|bd\s*box|ova|ona)\b", RegexOptions.IgnoreCase)] private static partial Regex AnimeCue();
+    [GeneratedRegex(@"\b((?:19|20)\d{2})\b")] private static partial Regex ReleaseYear();
 
     private readonly TmdbClient _tmdb;
     private readonly AniListClient _anilist;
@@ -154,6 +157,7 @@ public sealed partial class MetadataResolver : IMetadataResolver
     private readonly ILogger<MetadataResolver>? _logger;
     private readonly BoundedTtlCache<MediaMetadata?> _memory;
     private readonly SingleFlight<MediaMetadata?> _inFlight = new();
+    private readonly SemaphoreSlim _lookupSlots = new(MaxConcurrentLookups);
     private readonly Search.WorkSearchService? _workSearch;
     private readonly KeylessClients? _keyless;
     private readonly CinemetaClient? _cinemeta;
@@ -196,11 +200,27 @@ public sealed partial class MetadataResolver : IMetadataResolver
 
     public async Task<MediaMetadata?> ResolveMetadataAsync(string rawTitle, string? category, CancellationToken cancellationToken = default)
     {
-        var cleaned = TitleCleaning.CleanTorrentTitle(rawTitle);
+        cancellationToken.ThrowIfCancellationRequested();
+        var cleaned = LookupTitle(rawTitle);
         if (cleaned.Length == 0) return null;
-        var key = $"{_tmdb.CredentialRevision}:{(string.IsNullOrEmpty(category) ? "all" : category)}:{cleaned.ToLowerInvariant()}";
+        var key = $"{_tmdb.CredentialRevision}:{(string.IsNullOrEmpty(category) ? "all" : category)}:{AnimeCue().IsMatch(rawTitle)}:{cleaned}";
         if (_memory.TryGet(key, out var cached)) return cached;
-        return await _inFlight.RunAsync(key, () => ResolveUncachedAsync(rawTitle, cleaned, category, key), cancellationToken).ConfigureAwait(false);
+        return await _inFlight.RunAsync(key, async () =>
+        {
+            // Hold the slot until the shared operation really finishes, even after an HTTP waiter times out.
+            if (!await _lookupSlots.WaitAsync(TimeSpan.FromMilliseconds(EnrichmentBudgetMs)).ConfigureAwait(false)) return null;
+            try { return await ResolveUncachedAsync(rawTitle, cleaned, category, key).ConfigureAwait(false); }
+            finally { _lookupSlots.Release(); }
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static string LookupTitle(string rawTitle)
+    {
+        var cleaned = TitleCleaning.CleanTorrentTitle(rawTitle).ToLowerInvariant();
+        // Cleaning removes bracketed years: keep remakes in distinct cache / single-flight entries.
+        var retainedYears = ReleaseYear().Matches(cleaned).Select(m => m.Value).ToHashSet(StringComparer.Ordinal);
+        var missingYears = ReleaseYear().Matches(rawTitle).Select(m => m.Value).Where(retainedYears.Add);
+        return string.Join(' ', new[] { cleaned }.Concat(missingYears)).Trim();
     }
 
     private async Task<MediaMetadata?> ResolveUncachedAsync(string rawTitle, string cleaned, string? category, string key)
@@ -222,6 +242,7 @@ public sealed partial class MetadataResolver : IMetadataResolver
                 _memory.Set(key, metadata, MemoryTtl);
                 return metadata;
             }
+            if (!search.Partial) _memory.Set(key, null, MissTtl);
             return null;
         }
         foreach (var candidate in MetadataIdentity.TitleCandidates(cleaned))
@@ -290,20 +311,33 @@ public sealed partial class MetadataResolver : IMetadataResolver
         MediaMetadata? primary = null, CancellationToken cancellationToken = default)
     {
         if (inputs.Count == 0) return [];
-        primary ??= await ResolveMetadataAsync(query, category, cancellationToken).ConfigureAwait(false);
-        var uniqueTitles = inputs.Take(16).Select(r => TitleCleaning.CleanTorrentTitle(r.Title)).Where(t => t.Length > 0).Distinct(StringComparer.Ordinal).Take(6).ToList();
-        var titleMeta = new Dictionary<string, MediaMetadata?>(StringComparer.Ordinal);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(EnrichmentBudgetMs);
+        async Task<MediaMetadata?> Lookup(string title)
+        {
+            try { return await ResolveMetadataAsync(title, category, budget.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return null; }
+            catch (Exception e) when (!cancellationToken.IsCancellationRequested)
+            {
+                _logger?.LogDebug(e, "Optional search metadata lookup failed");
+                return null;
+            }
+        }
+        // Query and release lookups share a single wall-clock budget, not two sequential provider ladders.
+        var primaryTask = primary is null ? Lookup(query) : Task.FromResult<MediaMetadata?>(primary);
+        var uniqueTitles = inputs.Take(16).Select(r => r.Title).DistinctBy(LookupTitle).Take(6).ToList();
         var resolved = await Task.WhenAll(uniqueTitles.Select(async t =>
         {
-            var meta = await ResolveMetadataAsync(t, category, cancellationToken).ConfigureAwait(false);
-            if (meta == null && primary != null && MetadataIdentity.Compatible(t, primary, query, category)) meta = primary;
-            return (t, meta);
+            var meta = await Lookup(t).ConfigureAwait(false);
+            return (Title: LookupTitle(t), Metadata: meta);
         })).ConfigureAwait(false);
-        foreach (var (t, meta) in resolved) titleMeta[t] = meta;
+        primary = await primaryTask.ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        var titleMeta = resolved.ToDictionary(r => r.Title, r => r.Metadata, StringComparer.Ordinal);
 
         return inputs.Select(r =>
         {
-            var meta = titleMeta.GetValueOrDefault(TitleCleaning.CleanTorrentTitle(r.Title));
+            var meta = titleMeta.GetValueOrDefault(LookupTitle(r.Title));
             if (meta != null && !MetadataIdentity.Compatible(r.Title, meta, query, category)) meta = null;
             if (meta == null && primary != null && MetadataIdentity.Compatible(r.Title, primary, query, category)) meta = primary;
             return meta;

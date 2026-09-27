@@ -49,7 +49,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         catch (Exception e) when (!cancellationToken.IsCancellationRequested) { logger.LogWarning(e, "Search settings unavailable; using defaults"); }
         var target = options.TargetResolution is 480 or 720 or 1080 or 2160 ? options.TargetResolution.Value
             : settings?.PreferredResolution is 480 or 720 or 1080 or 2160 ? settings.PreferredResolution.Value : 1080;
-        if (options.Enrich) enricher.Prime(options.Query, options.Category);
+        if (options.Enrich && options.Page <= 1) enricher.Prime(options.Query, options.Category);
         var key = SearchCacheStore.Key(options, target) + (credentials is null ? "" : $":credentials:{credentials.Revision}") + (registry is null ? "" : $":sources:{registry.Revision}");
         var pool = options.SkipCache ? null : await cache.GetAsync(key, token: cancellationToken);
         var cached = pool != null;
@@ -80,7 +80,10 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var totalPages = (int)Math.Ceiling(pool.Results.Count / (double)options.PageSize);
         var page = totalPages == 0 ? 1 : Math.Clamp(options.Page, 1, totalPages);
         IReadOnlyList<TorrentResult> results = pool.Results.Skip((page - 1) * options.PageSize).Take(options.PageSize).ToArray();
-        if (options.Enrich && results.Count > 0) results = await enricher.EnrichAsync(options.Query, options.Category, results, cancellationToken);
+        var enrichmentStart = watch.ElapsedMilliseconds;
+        if (options.Enrich && options.Page <= 1 && results.Count > 0) results = await enricher.EnrichAsync(options.Query, options.Category, results, cancellationToken);
+        logger.LogInformation("Torrent search: pool {PoolMs}ms, enrichment {EnrichmentMs}ms, cached {Cached}, results {Count}",
+            enrichmentStart, watch.ElapsedMilliseconds - enrichmentStart, cached, results.Count);
         var routing = options.Routing is { } prefs ? new ClientSetting
         {
             Categories = prefs.Categories == null ? null : System.Text.Json.JsonSerializer.Serialize(prefs.Categories),
@@ -105,6 +108,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
             : all.Where(a => options.Sources?.Length > 0 ? options.Sources.Contains(a.Id) : a.Id switch { "1337x" => Enable1337, "archive" => EnableArchive, "torznab" => TorznabConfigured, _ => true }).ToArray();
         // Always cast a wide net: the caller's Limit trims the ranked pool, not what each indexer is asked for.
         var limit = Math.Min(Math.Max(Math.Max(options.Limit ?? 50, options.PageSize), 50), 80);
+        var stageWatch = Stopwatch.StartNew();
         var outcomes = await Task.WhenAll(selected.Select(async adapter =>
         {
             var work = RunAdapterAsync(adapter, options with { Limit = limit }, token);
@@ -127,7 +131,10 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
                 return (Results: (IReadOnlyList<TorrentResult>)Array.Empty<TorrentResult>(), Status: new SourceStatus(adapter.Id, 0, e.Message), Truncated: false);
             }
         }));
+        var indexerMs = stageWatch.ElapsedMilliseconds;
         var deduped = await WithLiveSwarmsAsync(ReleaseRanking.Dedupe(outcomes.SelectMany(o => o.Results)), options, target, token);
+        logger.LogInformation("Torrent search fan-out: indexers {IndexerMs}ms, tracker scrape {ScrapeMs}ms",
+            indexerMs, stageWatch.ElapsedMilliseconds - indexerMs);
         var filtered = TorrentFilters.Apply(deduped, options.Filters ?? new());
         IReadOnlyList<TorrentResult> ranked = ReleaseRanking.Rank(filtered.Select(r => DownloadRouting.Attach(r, options.Category)), options.Query, target, options.Category)
             .Select(WithPublicTrackers).ToArray();
