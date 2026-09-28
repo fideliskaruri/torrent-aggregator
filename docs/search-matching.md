@@ -12,6 +12,8 @@
 
 Follow-up FQ-REQ-001: AniList placeholders now carry explicit `HasAired` evidence from FINISHED episode totals or `nextAiringEpisode - 1`. Requests accept those null-dated aired episodes, but not future/unknown schedules; western missing dates remain conservative.
 
+Follow-up FQ-REQ-002: request-lane acquisitions try a quality-specific query first and prefer the closest eligible resolution, non-remux, then smaller known size among candidates returned. Higher quality remains allowed when the preference is unavailable; lower quality and episode packs remain excluded. This is not an arbitrary size cap or a guarantee across unseen indexer pages. The QA evidence was 13 large singles totaling ~88 GB, not an admitted season pack.
+
 | Coverage | Result |
 |---|---|
 | Every Frieren S1 absolute episode 1–28; One Piece 1100/1180 | Table-driven exact-episode checks; neighboring episodes rejected |

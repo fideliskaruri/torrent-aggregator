@@ -115,7 +115,8 @@ public static class EpisodeLadder
 
     /// <summary>Port of <c>buildEpisodeRungs</c>, in relaxation order.</summary>
     public static IReadOnlyList<LadderRung> BuildEpisodeRungs(string title, EpisodeCursor cursor, string? mediaType,
-        IReadOnlyList<string>? extraTitles = null, int? minimumResolution = null, AnimeEpisodeMapping? mapping = null)
+        IReadOnlyList<string>? extraTitles = null, int? minimumResolution = null, AnimeEpisodeMapping? mapping = null,
+        bool preferRequestedQuality = false)
     {
         var (season, episode) = (cursor.Season, cursor.Episode);
         var titles = SearchTitleVariants(title);
@@ -164,6 +165,8 @@ public static class EpisodeLadder
             if (t != null && season == 1 && minimumResolution == null) Push("absolute", $"{Absolute(t)} 1080p", cat, absFilters);
         }
 
+        if (preferRequestedQuality && minimumResolution is { } preferred)
+            Push("preferred-quality", $"{cursor.Query(primaryTitle)} {preferred}p", primaryCat, epFilters);
         Exact(primaryTitle, primaryCat);
         if (mapping != null && season == 1)
         {

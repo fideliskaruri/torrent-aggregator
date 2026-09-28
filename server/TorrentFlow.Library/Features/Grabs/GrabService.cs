@@ -82,7 +82,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     private async Task<GrabResult> Episode(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, EpisodeCursor cursor,
         string query, int? floor, Func<Task>? beforeSend, CancellationToken ct)
     {
-        var rungs = EpisodeLadder.BuildEpisodeRungs(input.Title, cursor, input.MediaType, input.Aliases, floor, input.EpisodeMapping);
+        var rungs = EpisodeLadder.BuildEpisodeRungs(input.Title, cursor, input.MediaType, input.Aliases, floor, input.EpisodeMapping,
+            preferRequestedQuality: input.QueueLane == TorrentLane.Request);
         var accepted = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToList();
         var memo = new Dictionary<string, SearchResponse>(StringComparer.Ordinal);
         var attempted = new HashSet<string>(StringComparer.Ordinal);
@@ -112,6 +113,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             searchFailed |= raw.Sources.Any(s => s.Error != null);
             var work = raw.Results.Where(x => EpisodeLadder.ReleaseMatchesWork(x, accepted)).ToList();
             var quality = floor == null ? work : work.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor)).ToList();
+            if (input.QueueLane == TorrentLane.Request && floor != null)
+                quality = PreferRequestedQuality(quality, floor.Value).ToList();
             var rungCandidates = new Dictionary<string, CandidateRejection>(StringComparer.Ordinal);
             foreach (var row in raw.RejectedResults.Concat(raw.Results.Select(r => new SearchRejectedResult(r, ""))))
             {
@@ -164,7 +167,9 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var response = await search.SearchAsync(new() { Query = title, Category = category, Limit = 20, TargetResolution = floor ?? input.PreferredResolution,
             Enrich = false, SkipCache = true, Background = false, Filters = new() { HasMagnet = true, MinSeeders = 1 } }, ct);
         var key = input.WorkKey ?? ReleaseNames.WorkKeyFor(title, input.Year);
-        var candidate = FilmSelection.Select(response.Results, key, floor);
+        var releases = input.QueueLane == TorrentLane.Request && floor != null
+            ? PreferRequestedQuality(response.Results, floor.Value).ToArray() : response.Results;
+        var candidate = FilmSelection.Select(releases, key, floor);
         if (candidate == null)
         {
             var message = FilmSelection.NoMatchMessage(title, floor, response.Results.Count, response.Sources, FilmSelection.Summarize(response.Results, key, floor));
@@ -349,6 +354,15 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             Message = message, Kind = input.Background ? "library" : "ondemand", ExternalId = input.WatchListItemId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
         await db.SaveChangesAsync(ct);
     }
+
+    private static IOrderedEnumerable<TorrentResult> PreferRequestedQuality(IEnumerable<TorrentResult> releases, int floor) =>
+        releases.OrderBy(r => r.Seeders > 0 ? 0 : 1)
+            .ThenBy(r => ReleaseSelection.Resolution(r.Title) is { } resolution ? Math.Abs(resolution - floor) : int.MaxValue)
+            .ThenBy(r => System.Text.RegularExpressions.Regex.IsMatch(r.Title, @"\bremux\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+                TimeSpan.FromSeconds(1)) ? 1 : 0)
+            .ThenBy(r => r.SizeBytes is > 0 ? r.SizeBytes : long.MaxValue)
+            .ThenByDescending(r => r.Seeders);
 
     internal static async Task<bool> Advance(TorrentFlowDbContext db, string id, EpisodeCursor grabbed, string title, CancellationToken ct)
     {
