@@ -14,7 +14,7 @@ const { seasonGrabFailureDescription } = await server.ssrLoadModule(
   "/src/components/title/season-grab-state.ts",
 );
 
-test("season failure description prefers planReason", () => {
+test("season failure description prefers episode reasons over planReason", () => {
   const text = seasonGrabFailureDescription({
     season: 1,
     totalEpisodes: 2,
@@ -27,7 +27,7 @@ test("season failure description prefers planReason", () => {
       { episode: 2, status: "missing", reason: "rate limited" },
     ],
   });
-  assert.equal(text, "Planner said no releases matched the floor.");
+  assert.equal(text, "1 episode: no release found. 1 episode: rate limited.");
 });
 
 test("season failure description summarizes distinct episode reasons", () => {
@@ -44,11 +44,11 @@ test("season failure description summarizes distinct episode reasons", () => {
       { episode: 4, status: "missing", reason: "rate limited" },
     ],
   });
-  assert.equal(text, "3 episodes: no release found; 1: rate limited");
+  assert.equal(text, "3 episodes: no release found. 1 episode: rate limited.");
 });
 
-test("season failure description caps length near 160 chars", () => {
-  const long = "x".repeat(200);
+test("season failure description caps length near 200 chars", () => {
+  const long = "x".repeat(300);
   const text = seasonGrabFailureDescription({
     season: 1,
     totalEpisodes: 1,
@@ -59,7 +59,7 @@ test("season failure description caps length near 160 chars", () => {
     episodes: [],
   });
   assert.ok(text);
-  assert.ok(text.length <= 160);
+  assert.ok(text.length <= 200);
   assert.equal(text.endsWith("…"), true);
 });
 

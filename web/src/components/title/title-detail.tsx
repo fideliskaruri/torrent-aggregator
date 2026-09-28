@@ -71,10 +71,13 @@ import {
   SeasonGrabFailureError,
   seasonGrabFailureDescription,
   seasonGrabKey,
+  seasonGrabRetryEpisodes,
+  shouldRetrySeasonGrab,
   shouldRunSeasonGrab,
+  type SeasonGrabReport,
   type SeasonGrabStatus,
 } from "./season-grab-state";
-import { postTitleAction } from "./title-action-request";
+import { postTitleAction, rethrowAcquisitionFetchError } from "./title-action-request";
 import {
   isValidSeason,
   nextRememberedSeasonCookieValue,
@@ -140,6 +143,10 @@ type PlayTarget = {
 
 const PRIMARY_KEY = "primary";
 const DOWNLOAD_KEY = "download";
+/** Keeps a toast's Retry a 44px touch target on phones. */
+const RETRY_TOAST_CLASSNAMES = {
+  actionButton: "max-sm:min-h-11 max-sm:px-4!",
+} as const;
 
 /**
  * Renders a button's icon + label with the pending spinner **overlaid** rather
@@ -199,6 +206,9 @@ export function TitleDetail(props: TitleDetailProps) {
   const cap = useStorageCapOverride();
   const spentRemoteActions = useRef(new Set<string>());
   const spentSeasonGrabs = useRef(new Set<string>());
+  // Season requests still waiting on the server; a toast Retry may pass a
+  // spent (partially started) season but never one of these.
+  const inFlightSeasonGrabs = useRef(new Set<string>());
   // Recovery timers: if a streaming grab stays in "done" for 90 s without the
   // episode becoming playable, re-enable the row so the user has a path to
   // retry. This fixes the class of stuck state where the API responded but the
@@ -595,20 +605,64 @@ export function TitleDetail(props: TitleDetailProps) {
     [seasonStatuses],
   );
 
+  // A toast's Retry fires long after the render that raised it; these refs
+  // let it reach the current season state and the viewer's current rights.
+  const runSeasonGrabRef = useRef<typeof runSeasonGrab | null>(null);
+  const canDownloadRef = useRef(caps.canDownload);
+  canDownloadRef.current = caps.canDownload;
+
   const runSeasonGrab = useCallback(
     async (
       targetSeason: number,
       episodes: number[],
       retention: TitleRetention,
       resolution?: number,
+      options?: { retry?: boolean },
     ) => {
       const key = seasonGrabKey(targetSeason, retention);
       const current = seasonStatusFor(targetSeason, retention);
-      if (!shouldRunSeasonGrab(current)) return;
-      if (spentSeasonGrabs.current.has(key)) return;
+      const retry = options?.retry === true;
+      if (retry ? !shouldRetrySeasonGrab(current) : !shouldRunSeasonGrab(current)) return;
+      if (retry && !canDownloadRef.current) return;
+      if (episodes.length === 0) return;
+      if (inFlightSeasonGrabs.current.has(key)) return;
+      if (!retry && spentSeasonGrabs.current.has(key)) return;
+
+      const toastId = `season-grab:${props.workKey}:${key}`;
+      // Retry resends only the episodes the report lists as missing, with the
+      // same season, quality and title identity as the original click.
+      const retryAction = (report: SeasonGrabReport | null | undefined) => {
+        if (!canDownloadRef.current) return undefined;
+        const missing = seasonGrabRetryEpisodes(report, episodes);
+        if (!missing) return undefined;
+        return {
+          label: "Retry",
+          onClick: (event: { preventDefault: () => void }) => {
+            // Sonner would dismiss this toast, and with it the result toast
+            // that reuses its id; runSeasonGrab shows progress in place instead.
+            event.preventDefault();
+            void runSeasonGrabRef.current?.(
+              targetSeason,
+              missing,
+              retention,
+              resolution,
+              { retry: true },
+            );
+          },
+        };
+      };
 
       spentSeasonGrabs.current.add(key);
+      inFlightSeasonGrabs.current.add(key);
       setSeasonStatuses((prev) => ({ ...prev, [key]: { status: "pending" } }));
+      if (retry) {
+        toast.loading(
+          episodes.length === 1
+            ? `Retrying episode ${episodes[0]}…`
+            : `Retrying ${episodes.length} episodes…`,
+          { id: toastId, description: undefined, action: undefined, duration: Infinity },
+        );
+      }
       try {
         // A season is "complete" when every TMDB episode has an air date that
         // is today or in the past.  Only computed when the extras for this
@@ -624,7 +678,6 @@ export function TitleDetail(props: TitleDetailProps) {
           const res = await fetch(`/api/title/${encodeURIComponent(props.workKey)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(30_000),
             body: JSON.stringify({
               scope: "season",
               season: targetSeason,
@@ -643,7 +696,7 @@ export function TitleDetail(props: TitleDetailProps) {
                 : {}),
               ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
             }),
-          });
+          }).catch(rethrowAcquisitionFetchError);
           const body = (await res.json().catch(() => null)) as
             | TitleSeasonGrabResponse
             | null;
@@ -653,19 +706,20 @@ export function TitleDetail(props: TitleDetailProps) {
             // open the "download anyway" path for a hard stop (wont-fit/setup).
             const storage = parseStorageOverrideFacts(body?.storage);
             const message =
-              body?.message || `Could not plan season ${targetSeason}`;
+              body?.message || `Could not download season ${targetSeason}`;
             const description =
               body?.report != null
-                ? seasonGrabFailureDescription(body.report)
+                ? seasonGrabFailureDescription(body.report, message)
                 : undefined;
             if (storage) throw new StorageLimitError(message, storage);
             if (body?.retryAfterSeconds != null) {
               throw new SeasonGrabFailureError(
                 `${message} Try again in ${Math.max(1, Math.ceil(body.retryAfterSeconds))} seconds.`,
                 description,
+                body?.report,
               );
             }
-            throw new SeasonGrabFailureError(message, description);
+            throw new SeasonGrabFailureError(message, description, body?.report);
           }
           return body;
         });
@@ -676,6 +730,7 @@ export function TitleDetail(props: TitleDetailProps) {
             ...prev,
             [key]: { status: "idle" },
           }));
+          if (retry) toast.dismiss(toastId);
           return;
         }
 
@@ -684,8 +739,20 @@ export function TitleDetail(props: TitleDetailProps) {
           ...prev,
           [key]: { status: "done", report },
         }));
+        // A partial start names why the rest did not start and offers a Retry
+        // for just those episodes.
+        const partialRetry = retryAction(report);
+        const partialDescription =
+          report.coveredEpisodes < report.totalEpisodes
+            ? seasonGrabFailureDescription(report, outcome.value.message)
+            : undefined;
         toast.success(outcome.value.message, {
-          description: report.planReason ?? undefined,
+          id: toastId,
+          description: partialDescription ?? report.planReason ?? undefined,
+          // Stays until the user retries or dismisses it; a full start fades.
+          duration: partialRetry ? Infinity : undefined,
+          action: partialRetry,
+          classNames: partialRetry ? RETRY_TOAST_CLASSNAMES : undefined,
         });
         refetch();
       } catch (err) {
@@ -697,18 +764,25 @@ export function TitleDetail(props: TitleDetailProps) {
             message:
               err instanceof Error
                 ? err.message
-                : `Could not plan season ${targetSeason}`,
+                : `Could not download season ${targetSeason}`,
           },
         }));
         const message =
           err instanceof Error
             ? err.message
             : `Could not download season ${targetSeason}`;
-        const description =
-          err instanceof SeasonGrabFailureError
-            ? err.description
-            : undefined;
-        toast.error(message, description ? { description } : undefined);
+        const failure =
+          err instanceof SeasonGrabFailureError ? err : undefined;
+        const failureRetry = failure ? retryAction(failure.report) : undefined;
+        toast.error(message, {
+          id: toastId,
+          duration: Infinity,
+          description: failure?.description,
+          action: failureRetry,
+          classNames: failureRetry ? RETRY_TOAST_CLASSNAMES : undefined,
+        });
+      } finally {
+        inFlightSeasonGrabs.current.delete(key);
       }
     },
     [
@@ -726,6 +800,7 @@ export function TitleDetail(props: TitleDetailProps) {
       cap,
     ],
   );
+  runSeasonGrabRef.current = runSeasonGrab;
 
   // One exclusive chain. A failed request must never be narrowed into "there
   // is nothing here" — those are different sentences and only one of them is

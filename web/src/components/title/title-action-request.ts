@@ -50,38 +50,45 @@ export interface PostTitleActionInput {
 }
 
 /**
- * Hard ceiling on how long a single grab round trip may take before we report
- * an error and re-enable the row.  30 s is long enough for a slow server to
- * respond but short enough that a dead connection does not leave a row disabled
- * for the remainder of the session.
+ * Acquisition requests (title, episode and season POSTs) carry no browser-side
+ * deadline. The server legitimately spends minutes on source retries and the
+ * start budget, and owns its own lifecycle; a client cutoff only turned a
+ * download that was still starting into a generic failure.
  */
-const FETCH_TIMEOUT_MS = 30_000;
 
 /**
- * What a 30 s abort actually means, said out loud.
+ * What a lost connection mid-acquisition means, said out loud.
  *
- * The request is abandoned here; the *grab is not*. The server keeps resolving
- * the release and its torrent metadata on its own, longer budget, so a row that
- * reported "Could not send this episode" was making a claim this client cannot
- * support — and the download frequently appeared moments later. Say what is
- * true: we stopped waiting, the work may still be running, and here is where to
- * look. Never phrased as "no release", which is a statement about availability
- * that a timeout is no evidence for.
+ * The request is gone; the *download may not be*. The server may already have
+ * started it, so this is an uncertain state, never "no release". It carries no
+ * Retry: the next step is to look at Downloads, and a repeat click is safe only
+ * because the server reuses a torrent that is already running.
  */
-const GRAB_TIMEOUT_MESSAGE =
-  "Still working after 30s, so we stopped waiting. The grab may still be running on the server. Check Downloads before trying again.";
+export const ACQUISITION_TRANSPORT_MESSAGE =
+  "Lost contact with TorrentFlow before it answered. The download may still be starting. Check Downloads before trying again.";
+
+export class AcquisitionTransportError extends Error {
+  constructor() {
+    super(ACQUISITION_TRANSPORT_MESSAGE);
+    this.name = "AcquisitionTransportError";
+  }
+}
 
 /**
- * Our own 30 s deadline, as opposed to a caller's cancellation.
- *
- * Only `TimeoutError`, which is what `AbortSignal.timeout` raises. A plain
+ * The connection failed or a deadline (ours or a proxy's) cut it. A plain
  * `AbortError` is the component cancelling its own request (an unmount, a
- * switched season) and must keep propagating untouched — turning that into a
- * message would make ordinary navigation look like a failed grab.
+ * switched season) and keeps propagating untouched.
  */
-function isTimeoutAbort(err: unknown): boolean {
+export function isAcquisitionTransportFailure(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
-  return (err as { name?: string }).name === "TimeoutError";
+  const name = (err as { name?: string }).name;
+  return name === "TypeError" || name === "TimeoutError" || name === "NetworkError";
+}
+
+/** Rethrows a fetch rejection, turning transport failures into the uncertain state. */
+export function rethrowAcquisitionFetchError(err: unknown): never {
+  if (isAcquisitionTransportFailure(err)) throw new AcquisitionTransportError();
+  throw err;
 }
 
 export async function postTitleAction({
@@ -101,7 +108,6 @@ export async function postTitleAction({
   const res = await fetch(`/api/title/${encodeURIComponent(workKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       scope:
         action.season != null && action.episode != null
@@ -120,10 +126,7 @@ export async function postTitleAction({
       ...(resolution != null ? { preferredResolution: resolution } : {}),
       ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
     }),
-  }).catch((err: unknown) => {
-    if (isTimeoutAbort(err)) throw new Error(GRAB_TIMEOUT_MESSAGE);
-    throw err;
-  });
+  }).catch(rethrowAcquisitionFetchError);
   const body = (await res.json().catch(() => null)) as TitleGrabResponse | null;
   if (!res.ok || !body?.ok) {
     throwGrabFailure(body, "Could not send this episode");

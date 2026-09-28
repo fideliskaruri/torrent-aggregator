@@ -27,6 +27,24 @@ export interface SeasonGrabReport {
    * Null when the planner did not produce one.
    */
   planReason?: string | null;
+  /**
+   * Aggregate reasons the missing episodes did not start, most common first
+   * when the server sorts them. Optional: older servers omit it.
+   */
+  failureReasons?: SeasonGrabFailureReason[] | null;
+  /**
+   * False when trying the missing episodes again cannot help (for example the
+   * season has nothing released at the chosen quality). Omitted means unknown,
+   * which still allows a retry of the missing episodes.
+   */
+  retryable?: boolean | null;
+}
+
+export interface SeasonGrabFailureReason {
+  code: string;
+  count: number;
+  message: string;
+  action?: string | null;
 }
 
 export type SeasonGrabStatus =
@@ -55,45 +73,135 @@ export function shouldRunSeasonGrab(status: SeasonGrabStatus): boolean {
   return status.status === "idle" || status.status === "error";
 }
 
-const SEASON_FAILURE_DESCRIPTION_MAX = 160;
+/**
+ * A Retry from a result toast may rerun a season whose last run finished
+ * ("done" after a partial start) or failed, but never one still in flight.
+ */
+export function shouldRetrySeasonGrab(status: SeasonGrabStatus): boolean {
+  return status.status !== "pending";
+}
+
+/**
+ * Episodes a Retry may resend: those the report marks missing, limited to the
+ * episodes the original click asked for. Covered episodes are never resent.
+ */
+export function seasonGrabMissingEpisodes(
+  report: SeasonGrabReport,
+  requested: readonly number[],
+): number[] {
+  const asked = new Set(requested);
+  const covered = new Set<number>();
+  const missing = new Set<number>();
+  for (const episode of report.episodes) {
+    if (!Number.isInteger(episode.episode)) continue;
+    if (episode.status === "covered") covered.add(episode.episode);
+    else if (episode.status === "missing") missing.add(episode.episode);
+  }
+  return [...missing]
+    .filter((episode) => asked.has(episode) && !covered.has(episode))
+    .sort((a, b) => a - b);
+}
+
+/** Missing episodes to offer a Retry for, or null when a retry cannot help. */
+export function seasonGrabRetryEpisodes(
+  report: SeasonGrabReport | null | undefined,
+  requested: readonly number[],
+): number[] | null {
+  if (!report || report.retryable === false) return null;
+  const missing = seasonGrabMissingEpisodes(report, requested);
+  return missing.length > 0 ? missing : null;
+}
+
+const SEASON_FAILURE_DESCRIPTION_MAX = 200;
 
 /** Season grab failure that keeps a short toast description beside the title. */
 export class SeasonGrabFailureError extends Error {
   readonly description?: string;
+  readonly report?: SeasonGrabReport | null;
 
-  constructor(message: string, description?: string) {
+  constructor(
+    message: string,
+    description?: string,
+    report?: SeasonGrabReport | null,
+  ) {
     super(message);
     this.name = "SeasonGrabFailureError";
     this.description = description;
+    this.report = report;
   }
 }
 
 /**
- * Short toast description when a season grab starts nothing.
- * Prefers the planner's own sentence; otherwise groups distinct per-episode
- * reasons (e.g. "3 episodes: no release found; 1: rate limited").
+ * Short toast description for the episodes a season download did not start.
+ * Prefers the server's aggregate reasons ("3 episodes: No release at 1080p or
+ * higher. Choose a lower quality."), then groups distinct per-episode reasons,
+ * then falls back to the planner's sentence. When `headline` (the toast title
+ * from the server) already states every aggregate reason, only the next step
+ * is returned so the toast does not say the same thing twice.
  */
 export function seasonGrabFailureDescription(
   report: SeasonGrabReport,
+  headline?: string | null,
 ): string | undefined {
-  const plan = report.planReason?.trim();
-  if (plan) return clipSeasonFailureDescription(plan);
+  const aggregate = describeFailureReasons(report.failureReasons, headline);
+  if (aggregate !== null) return aggregate ? clipSeasonFailureDescription(aggregate) : undefined;
 
   const counts = new Map<string, number>();
   for (const episode of report.episodes) {
+    if (episode.status !== "missing") continue;
     const reason = episode.reason?.trim();
     if (!reason) continue;
     counts.set(reason, (counts.get(reason) ?? 0) + 1);
   }
-  if (counts.size === 0) return undefined;
-
-  const parts: string[] = [];
-  for (const [reason, count] of counts) {
-    parts.push(
-      count === 1 ? `1: ${reason}` : `${count} episodes: ${reason}`,
-    );
+  if (counts.size > 0) {
+    const parts = [...counts]
+      .sort((a, b) => b[1] - a[1])
+      .map(([reason, count]) => `${episodeCountLabel(count)}: ${sentence(reason)}`);
+    return clipSeasonFailureDescription(parts.join(" "));
   }
-  return clipSeasonFailureDescription(parts.join("; "));
+
+  const plan = report.planReason?.trim();
+  return plan ? clipSeasonFailureDescription(plan) : undefined;
+}
+
+/**
+ * The aggregate description, "" when the headline already says it all and
+ * there is no next step, or null when the server sent no aggregate reasons.
+ */
+function describeFailureReasons(
+  reasons: SeasonGrabFailureReason[] | null | undefined,
+  headline?: string | null,
+): string | null {
+  const usable = (reasons ?? [])
+    .filter((reason) => reason.message?.trim())
+    .sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+  if (usable.length === 0) return null;
+  // One next step, from the most common reason, so the text stays short.
+  const action = usable.find((reason) => reason.action?.trim())?.action?.trim();
+  const said = normalizeForMatch(headline ?? "");
+  if (said && usable.every((reason) => said.includes(normalizeForMatch(reason.message)))) {
+    return action && !said.includes(normalizeForMatch(action)) ? sentence(action) : "";
+  }
+  const parts = usable.map((reason) =>
+    usable.length === 1 && !(reason.count > 1)
+      ? sentence(reason.message)
+      : `${episodeCountLabel(Math.max(1, reason.count || 1))}: ${sentence(reason.message)}`,
+  );
+  if (action) parts.push(sentence(action));
+  return parts.join(" ");
+}
+
+function normalizeForMatch(text: string): string {
+  return text.trim().replace(/[.!?…]+$/, "").replace(/\s+/g, " ").toLowerCase();
+}
+
+function episodeCountLabel(count: number): string {
+  return count === 1 ? "1 episode" : `${count} episodes`;
+}
+
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 function clipSeasonFailureDescription(text: string): string {

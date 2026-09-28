@@ -51,3 +51,21 @@ The fresh S5–6 request contained only persisted season values 5 and 6. Its 50 
 ## Regression coverage
 
 The full `.NET 10` solution passes after rebasing onto main's storage fix: `dotnet test TorrentFlow.slnx -p:SkipWebBuild=true` (10,207 passed; nine pre-existing optional/live tests skipped). Coverage includes all three acquisition lanes, anime recovery during AniList outage, audio policy, constrained episode rules/deduplication, film fallback, 49/50 partial request plus missing-only retry, owner-only retry authorization, swap sources/coordinates, metadata timeout/wrong hash/cancellation, queued metadata without payload, the four-probe bound and cancellable search-budget waiting. Downloaded as well as peer-fetched metadata must match the pinned release hash.
+
+## Season failures and transient recovery follow-up
+
+The title season response no longer says "try again shortly" without a cause. It groups per-episode failures into `report.failureReasons` (`code`, `count`, `message`, `action`), provides `report.retryable`, and preserves the existing missing/covered episode list. Quality-floor, no-source, source-unavailable, no-seeder, unavailable metadata, download-folder and storage-limit failures have distinct next steps. User-facing copy contains no em dash or internal implementation explanation.
+
+The shared search service now waits for both the minute budget and concurrent-search capacity. Automatic source requests retry transient transport errors, HTTP 408/429 and 5xx failures up to three attempts, with 250/500 ms backoff and a 15-second maximum per attempt (a shorter configured source timeout still applies). Each attempt is cancelled before the next starts. Permanent configuration/4xx errors are not retried. Ordinary search retains its immediate throttle behavior. This is bounded in-request recovery, not a new durable background scheduler.
+
+The title download request no longer gives up after the browser's former 30-second timer while server work continues. Lost-contact copy explicitly says the download may still be starting and asks the user to check Downloads. Season replay coalesces concurrent attempts for the same work/episode and reuses healthy kept transfers; errored or removed transfers remain eligible for retry.
+
+Failure and partial-start toasts remain visible until dismissed or retried, show reasons once followed by next steps, and offer Retry for missing episodes only. Retry preserves identity, season, quality and retention, blocks double clicks and keeps an in-progress state instead of disappearing.
+
+### Follow-up verification
+
+- **Real HTTP, isolated 3928:** 40 distinct foreground searches returned 200; the 41st returned 429 with `retryAfterSeconds:36`. A season POST started while that budget was exhausted remained pending after two seconds, waited 36.1 seconds and then returned the genuine `no_sources` reason, not a throttling error. The suspected 15/minute bucket belongs to background automation, not title/season requests.
+- **Real HTTP with a local Torznab fixture:** each preferred-quality query initially returned two HTTP 503s, then a 720p result. The final season response correctly reported the 1080p quality floor, proving transient failures were recovered before failure classification. A separate source-timeout case recovered on its third attempt; a persistent-503 case returned actionable `sources_unavailable` after bounded retries. No media was downloaded.
+- **UI-only response fixtures through Playwright MCP:** full failure and partial-start toasts verified at 390, 768 and 1280. Toasts survived six seconds, Retry was 44px tall at mobile/tablet sizes, double-click submitted once, and partial retry sent only episode 2 while preserving 1080p and keep retention. These browser fixtures verify presentation and interaction, not real indexer behavior.
+- Regression tests cover cause aggregation, mixed HTTP outcomes, absent versus unavailable sources, healthy-coordinate reuse, concurrent season retry coalescing, capacity waiting, transient/permanent error classification and shutdown cancellation. Web strict type-check, 147 existing tests and 14 focused TypeScript tests pass.
+- Final full backend suite: **10,232 passed, nine skipped, zero failures** (`dotnet test TorrentFlow.slnx -p:SkipWebBuild=true`).
