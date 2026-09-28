@@ -68,6 +68,9 @@ import {
   type SeriesGroup,
 } from "./grouping";
 import {
+  canDownloadNow,
+  forcedStartLabel,
+  isVerifiedDownload,
   releaseDisplayFacts,
   sourceTierChip,
   stateBadgeVariant,
@@ -400,8 +403,17 @@ function EpisodeCard({
               {done ? <Check className="h-3 w-3" aria-hidden /> : null}
               {stateLabel(t.state, t.queuePosition)}
             </Badge>
+            {isVerifiedDownload(t) ? (
+              <Badge variant="outline" title="Checked on disk" data-episode-verified>
+                Verified
+              </Badge>
+            ) : null}
             {t.imported && <Badge variant="outline">Imported</Badge>}
-            {waitReasonLabel(t.state, t.waitReason) ? (
+            {forcedStartLabel(t) ? (
+              <span className="text-[12px] text-[var(--text-secondary)]" data-episode-forced>
+                {forcedStartLabel(t)}
+              </span>
+            ) : waitReasonLabel(t.state, t.waitReason) ? (
               <span
                 className="text-[12px] text-[var(--text-tertiary)]"
                 data-wait-reason={t.waitReason ?? undefined}
@@ -445,7 +457,7 @@ function EpisodeCard({
 
       <div className="flex items-center justify-between gap-2 pt-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {isQueued(t.state) && isBuiltin ? (
+          {canDownloadNow(t) && isBuiltin ? (
             <Button
               type="button"
               variant="secondary"
@@ -548,7 +560,7 @@ function EpisodeCard({
               Open folder
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {isQueued(t.state) ? (
+            {canDownloadNow(t) ? (
               <DropdownMenuItem
                 onClick={() => onAction("force", t)}
                 className="min-h-[44px] lg:min-h-0"

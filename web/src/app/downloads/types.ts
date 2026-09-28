@@ -29,14 +29,12 @@ export interface ClientTorrent {
   waitReason?: QueueWaitReason | null;
   /** Queue priority of a kept built-in download: owner > request > automation. */
   lane?: "owner" | "request" | "automation" | null;
-  /**
-   * Failure text from the engine/client when `state` is `error`.
-   * Server DTO field is `error` (`EngineTorrentInfo.Error`); tolerate
-   * `errorMessage` / `message` if a later agent renames the payload.
-   */
+  /** Plain failure text when `state` is `error` (docs/dotnet-port.md, Downloads list JSON). */
   error?: string | null;
-  errorMessage?: string | null;
-  message?: string | null;
+  /** The owner pressed Download now on this row. */
+  forced?: boolean;
+  /** Checked on disk after completion; survives a restart with no live client. */
+  verified?: boolean;
   workId?: string | null;
   workKey?: string | null;
   workTitle?: string | null;

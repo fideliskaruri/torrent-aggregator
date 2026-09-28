@@ -85,18 +85,27 @@ export function stateBadgeVariant(
   return "default";
 }
 
-/**
- * Prefer the engine's `error` string; tolerate alternate payload names a
- * server agent may ship (`errorMessage`, `message`).
- */
+/** The server's plain failure text for an `error` row, or null. */
 export function transferErrorMessage(
-  torrent: Pick<ClientTorrent, "error" | "errorMessage" | "message" | "state">,
+  torrent: Pick<ClientTorrent, "error" | "state">,
 ): string | null {
   if (!isError(torrent.state)) return null;
-  for (const candidate of [torrent.error, torrent.errorMessage, torrent.message]) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
-  }
-  return null;
+  return torrent.error?.trim() || null;
+}
+
+/** Offer Download now only on a queued row the owner hasn't already pushed. */
+export function canDownloadNow(torrent: Pick<ClientTorrent, "state" | "forced">): boolean {
+  return isQueued(torrent.state) && torrent.forced !== true;
+}
+
+/** A queued row that already got Download now is starting; say so instead of offering it again. */
+export function forcedStartLabel(torrent: Pick<ClientTorrent, "state" | "forced">): string | null {
+  return isQueued(torrent.state) && torrent.forced === true ? "Starting now" : null;
+}
+
+/** Finished and checked on disk. */
+export function isVerifiedDownload(torrent: Pick<ClientTorrent, "state" | "verified">): boolean {
+  return torrent.verified === true && isDownloaded(torrent.state);
 }
 
 const WAIT_REASON_LABELS: Record<string, string> = {

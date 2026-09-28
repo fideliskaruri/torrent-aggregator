@@ -20,6 +20,9 @@ const {
   groupDownloads,
 } = await server.ssrLoadModule("/src/app/downloads/grouping.ts");
 const {
+  canDownloadNow,
+  forcedStartLabel,
+  isVerifiedDownload,
   stateBadgeVariant,
   stateLabel,
   transferErrorMessage,
@@ -45,8 +48,6 @@ function row(partial) {
     workKey: partial.workKey ?? null,
     workTitle: partial.workTitle ?? null,
     error: partial.error,
-    errorMessage: partial.errorMessage,
-    message: partial.message,
   };
 }
 
@@ -67,34 +68,33 @@ test("state label and badge treat error as Error / danger", () => {
   assert.notEqual(stateBadgeVariant("paused"), "danger");
 });
 
-test("transferErrorMessage surfaces error, errorMessage, or message", () => {
+test("transferErrorMessage reads the contract's error field", () => {
   assert.equal(
-    transferErrorMessage({ state: "error", error: "Metadata timeout" }),
+    transferErrorMessage({ state: "error", error: "  Metadata timeout  " }),
     "Metadata timeout",
   );
-  assert.equal(
-    transferErrorMessage({
-      state: "error",
-      errorMessage: "Could not fetch metadata",
-    }),
-    "Could not fetch metadata",
-  );
-  assert.equal(
-    transferErrorMessage({ state: "error", message: "Engine failed" }),
-    "Engine failed",
-  );
-  assert.equal(
-    transferErrorMessage({
-      state: "error",
-      error: "  primary  ",
-      errorMessage: "secondary",
-    }),
-    "primary",
-  );
+  assert.equal(transferErrorMessage({ state: "error", error: null }), null);
+  assert.equal(transferErrorMessage({ state: "error", error: "   " }), null);
   assert.equal(transferErrorMessage({ state: "downloading", error: "x" }), null);
   assert.equal(transferErrorMessage({ state: "paused" }), null);
 });
 
+test("forced rows stop offering Download now and say they're starting", () => {
+  assert.equal(canDownloadNow({ state: "queued" }), true);
+  assert.equal(canDownloadNow({ state: "queued", forced: false }), true);
+  assert.equal(canDownloadNow({ state: "queued", forced: true }), false);
+  assert.equal(canDownloadNow({ state: "downloading" }), false);
+  assert.equal(forcedStartLabel({ state: "queued", forced: true }), "Starting now");
+  assert.equal(forcedStartLabel({ state: "queued" }), null);
+  assert.equal(forcedStartLabel({ state: "downloading", forced: true }), null);
+});
+
+test("verified only shows on finished rows", () => {
+  assert.equal(isVerifiedDownload({ state: "downloaded", verified: true }), true);
+  assert.equal(isVerifiedDownload({ state: "downloaded", verified: false }), false);
+  assert.equal(isVerifiedDownload({ state: "downloaded" }), false);
+  assert.equal(isVerifiedDownload({ state: "downloading", verified: true }), false);
+});
 test("group aggregate state is error when a member failed", () => {
   const groups = groupDownloads([
     row({
@@ -129,6 +129,14 @@ test("downloads UI wires error badge, message, and retry", () => {
   assert.match(pageSrc, /data-torrent-retry/);
   assert.match(pageSrc, /isError\(t\.state\)/);
   assert.match(dialogSrc, /data-episode-error-message/);
+  assert.match(pageSrc, /canDownloadNow\(t\) && isBuiltin/);
+  assert.match(pageSrc, /data-torrent-verified/);
+  assert.match(pageSrc, /data-torrent-forced/);
+  assert.match(dialogSrc, /canDownloadNow\(t\) && isBuiltin/);
+  assert.match(dialogSrc, /data-episode-verified/);
+  assert.match(dialogSrc, /data-episode-forced/);
+  assert.doesNotMatch(pageSrc, /isQueued\(t\.state\) && isBuiltin/);
+  assert.doesNotMatch(dialogSrc, /isQueued\(t\.state\) && isBuiltin/);
   assert.match(dialogSrc, /isError\(t\.state\) \? "Retry"/);
   assert.doesNotMatch(
     readFileSync(new URL("../src/app/downloads/grouping.ts", import.meta.url), "utf8"),
