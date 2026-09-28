@@ -34,7 +34,6 @@ public static class RemoteAccessClaims
 public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessStore store, AccessTokenValidator validator, RequesterDirectory requesters, ILogger<RemoteAccessMiddleware> logger)
 {
     private static readonly string[] StreamingRoutes = ["/api/stream", "/api/playback", "/api/prewarm", "/api/subtitles"];
-    private static readonly string[] LocalOnlyRoutes = ["/api/settings/download-recovery"];
     public const string AuthHeader = "X-TorrentFlow-Auth";
 
     public async Task InvokeAsync(HttpContext context)
@@ -128,17 +127,6 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
         context.User = Principal(RemoteAccessClaims.ViaTunnel, result.Email, "CloudflareAccess");
 
         var path = context.Request.Path;
-        // Exposes local data/download paths and imports files: this computer only, never remote.
-        if (LocalOnlyRoutes.Any(r => path.StartsWithSegments(r, StringComparison.OrdinalIgnoreCase)))
-        {
-            await WriteJson(context, StatusCodes.Status403Forbidden, new
-            {
-                error = "This is only available on the computer running TorrentFlow.",
-                code = "local_only",
-            });
-            return;
-        }
-
         if (path.Equals("/api/settings/open-folder", StringComparison.OrdinalIgnoreCase))
         {
             await WriteJson(context, StatusCodes.Status409Conflict, new { error = "Folder opening is unavailable through remote access.", openFolderDisabled = true });

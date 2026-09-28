@@ -12,10 +12,12 @@ namespace TorrentFlow.Engine.Controllers;
 [Route("api/settings/download-recovery")]
 public sealed class DownloadRecoveryController(ClientSettingsStore settings, IOptions<EngineOptions> options, IConfiguration configuration) : ControllerBase
 {
-    // A proxy can connect from loopback: forwarded requests are never owner requests. Remote-access middleware
-    // must also deny this route on its dedicated listener, before controllers execute.
+    // The host authenticates both listeners before routing. Socket checks are only a fallback for hosts
+    // without that identity; proxy headers never grant ownership.
     internal static bool IsOwner(HttpContext context, string? ownerUrls = null) =>
-        (context.Connection.RemoteIpAddress is null || IPAddress.IsLoopback(context.Connection.RemoteIpAddress))
+        context.User.Identity?.IsAuthenticated == true
+        ? context.User.FindFirst("tf:role")?.Value == "owner"
+        : (context.Connection.RemoteIpAddress is null || IPAddress.IsLoopback(context.Connection.RemoteIpAddress))
         && !context.Request.Headers.ContainsKey("Forwarded")
         && !context.Request.Headers.ContainsKey("CF-Connecting-IP")
         && !context.Request.Headers.Keys.Any(k => k.StartsWith("X-Forwarded-", StringComparison.OrdinalIgnoreCase))

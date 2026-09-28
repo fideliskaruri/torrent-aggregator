@@ -37,6 +37,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- UNI-007: tunnel owners have download-recovery access (including real Cloudflare headers); requester GET/POST recovery routes remain 403. Table-driven HTTP role regressions cover both.
 - MATCH-UNICODE-SLUG: native-only work keys now match exact releases and provider identities regardless of URI escape case or route decoding; existing native fallback IDs remain stable.
 - MATCH-APPROVAL-RESTART: approved requests interrupted before grab hashes persist are resumed by startup sweep; concurrent sweeps cannot duplicate an active approval grab.
 - MATCH-CONCURRENT-TARGETS: title grabs recover SQLite unique-key races on both Work and AcquisitionTarget insertion; concurrent requests share one durable identity rather than returning 500.

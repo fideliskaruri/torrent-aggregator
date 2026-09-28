@@ -160,20 +160,17 @@ public class RemoteHostFactory : WebApplicationFactory<Program>
 public sealed class RemoteAccessTests(RemoteHostFactory factory) : IClassFixture<RemoteHostFactory>
 {
     [Theory]
-    [InlineData("GET")]
-    [InlineData("POST")]
-    public async Task AuthenticatedTunnelOwnerCannotScanOrImportOtherClients(string method)
+    [InlineData("GET", "/api/settings/download-recovery", HttpStatusCode.OK)]
+    [InlineData("GET", "/api/settings/download-recovery/sources", HttpStatusCode.OK)]
+    [InlineData("POST", "/api/settings/download-recovery/sources", HttpStatusCode.BadRequest)]
+    public async Task AuthenticatedTunnelOwnerCanAccessRecovery(string method, string path, HttpStatusCode expected)
     {
         using var client = factory.Tunnel(factory.Token());
-        using var request = new HttpRequestMessage(new HttpMethod(method), "/api/settings/download-recovery/sources");
-        if (method == "POST") request.Content = JsonContent.Create(new { ids = new[] { "fixture" }, acknowledged = true });
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+        request.Headers.Add("CF-Connecting-IP", "198.51.100.5");
+        if (method == "POST") request.Content = JsonContent.Create(new { ids = Array.Empty<string>(), acknowledged = false });
         using var response = await client.SendAsync(request);
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        var text = await response.Content.ReadAsStringAsync();
-        Assert.Contains("local_only", text);
-        Assert.DoesNotContain(factory.Root, text);
-        Assert.DoesNotContain("savePath", text);
-        Assert.DoesNotContain("candidates", text);
+        Assert.Equal(expected, response.StatusCode);
     }
 
     private static async Task<JsonElement> Json(HttpResponseMessage response)
@@ -429,14 +426,14 @@ public sealed class RemoteAccessTests(RemoteHostFactory factory) : IClassFixture
     }
 
     [Fact]
-    public async Task DownloadRecoveryIsRefusedThroughTheTunnel()
+    public async Task DownloadRecoveryRequiresAuthenticationThroughTheTunnel()
     {
-        using var client = factory.Tunnel(factory.Token());
+        using var client = factory.Tunnel(null);
         foreach (var method in new[] { HttpMethod.Get, HttpMethod.Post })
         {
             var response = await client.SendAsync(new HttpRequestMessage(method, "/api/settings/download-recovery"));
-            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-            Assert.Equal("local_only", (await Json(response)).GetProperty("code").GetString());
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            Assert.Equal("remote_sign_in_required", (await Json(response)).GetProperty("code").GetString());
         }
     }
 
