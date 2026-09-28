@@ -1,3 +1,4 @@
+import { readJsonBody, sendErrorFromBody } from "@/lib/api-json";
 import { useEffect, useId, useState } from "react";
 import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
@@ -575,7 +576,7 @@ export default function WatchlistPage() {
             ...(overrideStorageCap ? { overrideStorageCap: true } : {}),
           }),
         });
-        const body = await res.json();
+        const body = (await readJsonBody<{ ok?: boolean; message?: string; error?: string; storage?: unknown }>(res)) ?? null;
         // Throw an over-cap refusal so the shared rule can offer the choice;
         // a wont-fit refusal is not overridable and falls through unchanged.
         if (!res.ok || body?.ok === false) {
@@ -591,12 +592,10 @@ export default function WatchlistPage() {
       if (outcome.status === "cancelled") return;
 
       const { res, data } = outcome.value;
-      if (res.ok && data.ok !== false) {
+      if (res.ok && data && data.ok !== false) {
         toast.success(data.message || "Sent to client");
       } else {
-        toast.error(
-          data.message || data.error || "Failed to send to client",
-        );
+        toast.error(sendErrorFromBody(data, res.status).message);
       }
     } catch (err) {
       toast.error(
@@ -717,7 +716,7 @@ export default function WatchlistPage() {
             data-library-tab={id}
             onClick={() => setTab(id)}
             className={cn(
-              "inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ring-1 lg:min-h-0 lg:min-w-0",
+              "inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] rounded-md px-2.5 py-1 text-xs font-medium transition-colors ring-1 lg:min-h-0 lg:min-w-0",
               activeTab === id
                 ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                 : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
@@ -904,11 +903,11 @@ export default function WatchlistPage() {
                       <p className="text-[13px] font-medium text-[var(--text)]">
                         {itemState.label}
                       </p>
-                      <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                      <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
                         {itemState.detail}
                       </p>
                       {item.lastEpisode ? (
-                        <p className="text-[11px] text-[var(--text-tertiary)]">
+                        <p className="text-xs text-[var(--text-tertiary)]">
                           Previous:{" "}
                           <span className="text-[var(--text-secondary)] tabular-nums">
                             {item.lastEpisode}
@@ -922,7 +921,7 @@ export default function WatchlistPage() {
                           ) : null}
                         </p>
                       ) : item.fromSeason != null ? (
-                        <p className="text-[11px] text-[var(--text-tertiary)]">
+                        <p className="text-xs text-[var(--text-tertiary)]">
                           Started from season{" "}
                           {String(item.fromSeason).padStart(2, "0")}
                         </p>
@@ -933,7 +932,7 @@ export default function WatchlistPage() {
                       <p className="text-[13px] font-medium text-[var(--text)]">
                         {itemState.label}
                       </p>
-                      <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                      <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
                         {itemState.detail}
                       </p>
                     </div>
@@ -994,11 +993,11 @@ export default function WatchlistPage() {
                     {/* Secondary: season reset + space — not competing with primary */}
                     {isSeries ? (
                       <details className="w-full sm:w-auto">
-                        <summary className="cursor-pointer list-none text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1 py-1.5 min-h-[44px] inline-flex items-center gap-1 lg:min-h-0">
+                        <summary className="cursor-pointer list-none text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1 py-1.5 min-h-[44px] inline-flex items-center gap-1 lg:min-h-0">
                           More options
                         </summary>
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2">
-                          <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)]">
+                          <label className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
                             Jump to season
                             <Input
                               type="number"
@@ -1025,7 +1024,7 @@ export default function WatchlistPage() {
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="h-8 text-[11px]"
+                              className="h-8 text-xs"
                               disabled={sendingId === item.id}
                               onClick={() => void sendLatest(item)}
                               title={item.latestReleaseTitle || "Re-send last match"}
@@ -1039,7 +1038,7 @@ export default function WatchlistPage() {
                             onChange={(e) =>
                               updateStatus(item.id, e.target.value)
                             }
-                            className="h-8 min-h-[44px] rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-[11px] text-[var(--text)] capitalize lg:min-h-0"
+                            className="h-8 min-h-[44px] rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-xs text-[var(--text)] capitalize lg:min-h-0"
                             aria-label="Status"
                           >
                             {STATUSES.map((s) => (
@@ -1058,7 +1057,7 @@ export default function WatchlistPage() {
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+                            className="h-8 text-xs text-[var(--text-tertiary)] hover:text-[var(--danger)]"
                             onClick={() => openDeleteFiles(item)}
                             data-delete-files
                             title={`Delete downloaded files for ${item.title}`}
@@ -1076,7 +1075,7 @@ export default function WatchlistPage() {
                       <p
                         data-card-state
                         data-card-attention={cardAttention ? "true" : undefined}
-                        className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[11px]"
+                        className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs"
                       >
                         {cardPosition ? (
                           <span className="tabular-nums text-[var(--text-secondary)]">
@@ -1241,7 +1240,7 @@ export default function WatchlistPage() {
                           chooseDeleteScope(pendingDelete, option.scope)
                         }
                         className={cn(
-                          "inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 text-[11px] font-medium ring-1 transition-colors lg:min-h-0",
+                          "inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 transition-colors lg:min-h-0",
                           sameScope(option.scope, deleteScope)
                             ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
                             : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
@@ -1270,7 +1269,7 @@ export default function WatchlistPage() {
                     {/* The server's sentence, not a locally re-derived one. */}
                     <p className="text-[var(--text)]">{deletePlan.summary}</p>
                     {deletePlan.releases.length ? (
-                      <ul className="mt-2 space-y-0.5 text-[11px] text-[var(--text-tertiary)]">
+                      <ul className="mt-2 space-y-0.5 text-xs text-[var(--text-tertiary)]">
                         {deletePlan.releases.map((release) => (
                           <li key={release.name} className="truncate">
                             {release.name}
@@ -1279,7 +1278,7 @@ export default function WatchlistPage() {
                       </ul>
                     ) : null}
                     {deletePlan.blocked.length ? (
-                      <ul className="mt-2 space-y-0.5 text-[11px] text-[var(--text-tertiary)]">
+                      <ul className="mt-2 space-y-0.5 text-xs text-[var(--text-tertiary)]">
                         {deletePlan.blocked.map((entry) => (
                           <li key={entry.name} className="truncate">
                             Kept: {entry.name} · covers {entry.covers}

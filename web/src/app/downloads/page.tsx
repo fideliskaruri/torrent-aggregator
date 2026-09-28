@@ -20,6 +20,7 @@ import {
   Zap,
 } from "lucide-react";
 import { formatBytes, formatDuration, cn } from "@/lib/utils";
+import { readJsonBody, sendErrorFromBody, type SendError } from "@/lib/api-json";
 import { Button } from "@/components/ui/button";
 import { useDownloadSetup } from "@/components/setup/download-setup";
 import { Badge } from "@/components/ui/badge";
@@ -253,6 +254,7 @@ export default function ClientPage() {
   const [selectedSeasonKey, setSelectedSeasonKey] = useState<string | null>(null);
   const [rawSendValue, setRawSendValue] = useState("");
   const [sendingRaw, setSendingRaw] = useState(false);
+  const [rawSendError, setRawSendError] = useState<SendError | null>(null);
   const { ensureDownloadSetup } = useDownloadSetup();
   const [pendingDelete, setPendingDelete] = useState<ClientTorrent[] | null>(
     null,
@@ -621,12 +623,13 @@ export default function ClientPage() {
     void load();
     if (act === "force") {
       if (!res?.ok) {
-        const data = (await res?.json().catch(() => null)) as { message?: string } | null;
-        toast.error(data?.message || "Could not start this download now.");
+        const data = res ? await readJsonBody<{ message?: string; error?: string }>(res) : null;
+        toast.error(data?.message || data?.error || `Couldn't start ${torrent.name} now. Try again.`);
         setAnnouncement("Could not start the download.");
         return;
       }
-      setAnnouncement("Download starting now.");
+      toast.success(`Started ${torrent.name}`);
+      setAnnouncement(`Started ${torrent.name}.`);
       return;
     }
     setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
@@ -635,9 +638,10 @@ export default function ClientPage() {
   async function sendRawTorrent() {
     const parsed = parseRawTorrentInput(rawSendValue);
     if (!parsed) {
-      toast.error("Paste a magnet link or a direct .torrent URL.");
+      setRawSendError({ message: "Paste a magnet link or a direct .torrent URL.", field: "source" });
       return;
     }
+    setRawSendError(null);
     invalidateInFlight();
     if (!(await ensureDownloadSetup())) return;
     setSendingRaw(true);
@@ -652,25 +656,22 @@ export default function ClientPage() {
           retention: "keep",
         }),
       });
-      const text = await res.text();
-      let data: { ok?: boolean; message?: string; error?: string } = {};
-      try {
-        data = text ? (JSON.parse(text) as typeof data) : {};
-      } catch {
-        toast.error("Bad response from torrent send");
-        return;
-      }
-      if (res.ok && data.ok !== false) {
+      const data = await readJsonBody<{ ok?: boolean; message?: string; error?: string }>(res);
+      if (res.ok && data && data.ok !== false) {
         toast.success(data.message || "Added to downloads");
         setRawSendValue("");
-        void load();
       } else {
-        toast.error(data.message || data.error || "Could not add torrent");
+        setRawSendError(sendErrorFromBody(data, res.status));
       }
-    } catch {
-      toast.error("Network error adding torrent");
+    } catch (err) {
+      setRawSendError({
+        message: err instanceof Error && err.message ? err.message : "Couldn't reach TorrentFlow. Try again.",
+        field: null,
+      });
     } finally {
       setSendingRaw(false);
+      // Refresh either way: a failed send must not leave a half-added row on screen.
+      void load();
     }
   }
 
@@ -1073,10 +1074,10 @@ export default function ClientPage() {
               {offline && !isBuiltin ? "Retrying automatically" : "Updates automatically"}
             </span>
             <details
-              className="text-[11px] text-[var(--text-tertiary)]"
+              className="text-xs text-[var(--text-tertiary)]"
               data-client-connection-details
             >
-              <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
+              <summary className="min-h-[44px] cursor-pointer py-[14px] font-medium text-[var(--text-secondary)] lg:min-h-0 lg:py-0">
                 Details
               </summary>
               <div className="mt-1 space-y-0.5">
@@ -1174,13 +1175,42 @@ export default function ClientPage() {
           </Button>
         </div>
         <textarea
-          className="min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--accent)]"
+          className={cn(
+            "min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--accent)]",
+            rawSendError?.field === "source" && "border-[var(--danger)]",
+          )}
           value={rawSendValue}
-          onChange={(event) => setRawSendValue(event.target.value)}
+          onChange={(event) => {
+            setRawSendValue(event.target.value);
+            if (rawSendError) setRawSendError(null);
+          }}
           placeholder="magnet:?xt=urn:btih:… or https://example.com/release.torrent"
           aria-label="Paste a magnet link or .torrent URL"
+          aria-invalid={rawSendError?.field === "source" || undefined}
+          aria-describedby={rawSendError ? "raw-torrent-send-error" : undefined}
           data-raw-torrent-send-input
         />
+        {rawSendError ? (
+          <p
+            id="raw-torrent-send-error"
+            role="alert"
+            className="text-[12px] leading-relaxed text-[var(--danger)]"
+            data-raw-torrent-send-error={rawSendError.field ?? "send"}
+          >
+            {rawSendError.message}
+            {rawSendError.field === "savePath" ? (
+              <>
+                {" "}
+                <Link
+                  to="/settings"
+                  className="inline-flex min-h-[44px] items-center font-medium text-[var(--accent-text)] underline underline-offset-2 lg:min-h-0"
+                >
+                  Open Settings
+                </Link>
+              </>
+            ) : null}
+          </p>
+        ) : null}
       </div>
 
       {/*
@@ -1373,7 +1403,7 @@ export default function ClientPage() {
                   onClick={() => setStatusFilter(c.id)}
                   aria-pressed={statusFilter === c.id}
                   className={cn(
-                    "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-2 py-1 text-[11px] font-medium transition-colors lg:min-h-0 lg:min-w-0",
+                    "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-2 py-1 text-xs font-medium transition-colors lg:min-h-0 lg:min-w-0",
                     statusFilter === c.id
                       ? "bg-[var(--bg-muted)] text-[var(--text)]"
                       : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
@@ -2023,6 +2053,20 @@ function FilmRow({
       </div>
 
       <div className="flex items-center justify-end gap-2 lg:gap-0.5">
+        {isQueued(t.state) && isBuiltin ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="lg:mr-1.5"
+            onClick={() => onAction("force", t)}
+            aria-label={`Download ${display.title} now`}
+            data-torrent-force-now
+          >
+            <Zap className="h-3.5 w-3.5" />
+            Download now
+          </Button>
+        ) : null}
         {isPaused(t.state) && t.progress < 1 ? (
           <Button
             type="button"

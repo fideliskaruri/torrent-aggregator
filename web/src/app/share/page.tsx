@@ -1,3 +1,4 @@
+import { readJsonBody, sendErrorFromBody } from "@/lib/api-json";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { TfPageHeader } from "@/components/tf/page-header";
@@ -67,30 +68,21 @@ export default function SharePage() {
             retention: "keep",
           }),
         });
-        const text = await res.text();
-        let data: { ok?: boolean; message?: string; error?: string; name?: string } = {};
-        try {
-          data = text ? (JSON.parse(text) as typeof data) : {};
-        } catch {
-          if (!cancelled) {
-            setState({ kind: "error", message: "Bad response from torrent send." });
-            toast.error("Could not add shared magnet");
-          }
-          return;
-        }
+        const data = await readJsonBody<{ ok?: boolean; message?: string; error?: string; name?: string }>(res);
         if (cancelled) return;
-        if (res.ok && data.ok !== false) {
+        if (res.ok && data && data.ok !== false) {
           setState({ kind: "ok", name: data.name });
           toast.success(data.message || "Added shared magnet to downloads");
         } else {
-          const message = data.message || data.error || "Could not add torrent";
+          const { message } = sendErrorFromBody(data, res.status);
           setState({ kind: "error", message });
           toast.error(message);
         }
-      } catch {
+      } catch (err) {
         if (!cancelled) {
-          setState({ kind: "error", message: "Network error adding torrent." });
-          toast.error("Network error adding shared magnet");
+          const message = err instanceof Error && err.message ? err.message : "Couldn't reach TorrentFlow. Try again.";
+          setState({ kind: "error", message });
+          toast.error(message);
         }
       }
     })();
