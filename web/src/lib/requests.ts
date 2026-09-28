@@ -259,6 +259,29 @@ export function parseRequests(json: unknown): RequesterRequest[] {
   });
 }
 
+/**
+ * Where the request dialog reads a series' season list. A requester asks
+ * `/api/requester/seasons`; the owner's "View as requester" preview is still the
+ * owner's session (that endpoint refuses it), so it reads the same catalog list
+ * from the title's extras. Both answer `{ seasons: number[] }`.
+ */
+export function requestSeasonsUrl(title: RequesterTitle | null, ownerSession: boolean): string | null {
+  if (!title?.isSeries) return null;
+  if (ownerSession) {
+    const params = new URLSearchParams({ t: title.title, type: title.mediaType, provider: title.provider, series: "1" });
+    if (title.year) params.set("y", String(title.year));
+    if (title.providerId) params.set("providerId", title.providerId);
+    return `/api/title/${encodeURIComponent(title.key)}/extras?${params}`;
+  }
+  return `/api/requester/seasons?${new URLSearchParams({
+    provider: title.provider,
+    providerId: title.providerId ?? "",
+    mediaType: title.mediaType,
+    title: title.title,
+    ...(title.year ? { year: String(title.year) } : {}),
+  })}`;
+}
+
 export function parseSeasons(json: unknown): number[] {
   const body = (json ?? {}) as { seasons?: unknown };
   const rows = Array.isArray(body.seasons) ? body.seasons : [];

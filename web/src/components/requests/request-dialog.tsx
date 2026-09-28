@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   formatSeasons,
   parseSeasons,
+  requestSeasonsUrl,
   sendRequest,
   type RequestScope,
   type RequesterTitle,
@@ -39,7 +40,7 @@ export function RequestDialog({
 }) {
   const open = title != null;
   // The owner's preview renders the dialog but never sends: the server only takes requests from requesters.
-  const { previewing } = useCapabilities();
+  const { previewing, ownerSession } = useCapabilities();
   const noteId = useId();
   const [scope, setScope] = useState<RequestScope>("series");
   const [seasons, setSeasons] = useState<number[]>([]);
@@ -55,17 +56,10 @@ export function RequestDialog({
     setBusy(false);
   }, [title?.key, title?.provider, title?.providerId]);
 
-  const seasonsUrl = title?.isSeries
-    ? `/api/requester/seasons?${new URLSearchParams({
-        provider: title.provider,
-        providerId: title.providerId ?? "",
-        mediaType: title.mediaType,
-        title: title.title,
-        ...(title.year ? { year: String(title.year) } : {}),
-      })}`
-    : null;
+  // The preview reads the same season list through the owner's session, so it shows exactly what a requester picks from.
+  const seasonsUrl = requestSeasonsUrl(title, ownerSession);
   const seasonQuery = useApiQuery<number[]>(seasonsUrl, {
-    enabled: open && !previewing,
+    enabled: open,
     select: parseSeasons,
     emptyOnUnauthorized: false,
     deps: [seasonsUrl],
@@ -73,7 +67,7 @@ export function RequestDialog({
   const seasonList = seasonQuery.data ?? [];
 
   const needsSeasons = title?.isSeries === true && scope === "seasons";
-  const canSubmit = !busy && (!needsSeasons || seasons.length > 0);
+  const canSubmit = !busy && !previewing && (!needsSeasons || seasons.length > 0);
 
   const toggleSeason = (season: number, checked: boolean) =>
     setSeasons((current) =>
@@ -187,6 +181,12 @@ export function RequestDialog({
             data-request-note
           />
         </div>
+
+        {previewing ? (
+          <p className="text-sm text-[var(--text-secondary)]" data-request-preview-note>
+            Preview: requests aren&apos;t sent. Exit preview to go back to your own view.
+          </p>
+        ) : null}
 
         {error ? (
           <p role="alert" className="text-sm text-[var(--danger)]" data-request-error>

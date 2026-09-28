@@ -158,6 +158,11 @@ export default function RequestsPage() {
             ? "What friends asked for. Approving starts the download."
             : "What you asked for. The owner decides, and you can cancel while it's waiting."}
         </p>
+        {caps.previewing ? (
+          <p className="max-w-prose text-sm text-[var(--text-secondary)]" data-requests-preview-note>
+            Preview: this lists every friend&apos;s request and Cancel is off. A friend sees only their own.
+          </p>
+        ) : null}
       </div>
 
       {reviewing ? (
@@ -310,7 +315,7 @@ export default function RequestsPage() {
                       size="sm"
                       variant="ghost"
                       className="shrink-0 self-start"
-                      disabled={busy}
+                      disabled={busy || caps.previewing}
                       onClick={() => void cancel(request)}
                       aria-label={`Cancel request for ${request.title}`}
                       data-request-cancel={request.id}
