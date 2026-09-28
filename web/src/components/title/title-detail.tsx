@@ -34,6 +34,7 @@ import { PosterImage } from "@/components/browse/poster-image";
 import { PlayOverlay } from "@/components/browse/play-overlay";
 import { posterTint } from "@/components/browse/poster";
 import { cleanDisplayTitle } from "@/components/browse/availability";
+import { headingTitle } from "./heading-title";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { Button } from "@/components/ui/button";
@@ -780,6 +781,7 @@ export function TitleDetail(props: TitleDetailProps) {
           onLibraryChanged={refetch}
           provider={props.provider ?? null}
           providerId={props.providerId ?? null}
+          routeTitle={props.title ?? null}
         />
       )}
 
@@ -829,10 +831,13 @@ function TitleContent({
   onLibraryChanged,
   provider,
   providerId,
+  routeTitle,
 }: {
   /** From the link that opened the page; a request needs them to name the title. */
   provider: string | null;
   providerId: string | null;
+  /** The name the link carried, used when the payload only has a provider key. */
+  routeTitle: string | null;
   payload: TitleDetailPayload;
   extras: TitleExtrasPayload | null;
   progress: TitleProgressPayload | null;
@@ -923,7 +928,12 @@ function TitleContent({
     );
   }
 
-  const title = cleanDisplayTitle(payload.title);
+  // A provider key ("Tmdb:movie:550") is never printed. While metadata is
+  // still arriving the heading is a skeleton; once it settles with no name the
+  // page says so plainly.
+  const knownTitle = headingTitle(payload.title, routeTitle);
+  const titlePending = knownTitle == null && (refreshing || extrasLoading || !extrasSettled);
+  const title = knownTitle != null ? cleanDisplayTitle(knownTitle) : "Unknown title";
   // Only a real backdrop. A poster stretched across a 16:9 band is a hack in
   // itself, and it is also how a single wrong artwork URL becomes a
   // full-bleed claim: the invented film above wore *The Quiet*'s key art,
@@ -1185,22 +1195,35 @@ function TitleContent({
                   gated && "grayscale",
                 )}
               >
-                <PosterImage
-                  src={payload.posterUrl}
-                  title={title}
-                  sizes="(min-width: 1024px) 196px, (min-width: 768px) 168px, (min-width: 640px) 120px, 104px"
-                  priority
-                />
+                {titlePending && !payload.posterUrl ? (
+                  <div className="skeleton h-full w-full" aria-hidden="true" data-title-poster-pending />
+                ) : (
+                  <PosterImage
+                    src={payload.posterUrl}
+                    title={title}
+                    sizes="(min-width: 1024px) 196px, (min-width: 768px) 168px, (min-width: 640px) 120px, 104px"
+                    priority
+                  />
+                )}
               </div>
             </div>
 
             <div className="min-w-0 flex-1">
               <h1
                 id="title-heading"
-                title={payload.title}
+                title={titlePending ? undefined : title}
+                aria-busy={titlePending || undefined}
+                data-title-heading-pending={titlePending ? "" : undefined}
                 className="break-words text-[clamp(1.75rem,7vw,2.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-[var(--text)] md:text-display"
               >
-                {title}
+                {titlePending ? (
+                  <>
+                    <span className="sr-only">Loading title</span>
+                    <span aria-hidden="true" className="skeleton block h-[1em] w-3/4 max-w-[28rem] rounded" />
+                  </>
+                ) : (
+                  title
+                )}
               </h1>
 
               {/* The rating/meta line sits directly under the title, SILO-style:

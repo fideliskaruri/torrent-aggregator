@@ -14,6 +14,7 @@ after(() => server.close());
 for (const file of [
   "components/title/add-to-library-questions.test.ts",
   "app/downloads/season-selection.test.ts",
+  "components/title/heading-title.test.ts",
   "lib/library/storage-override.test.ts",
 ]) {
   test(`existing UI regressions: ${file}`, async () => {
