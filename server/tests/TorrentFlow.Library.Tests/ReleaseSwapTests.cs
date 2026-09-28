@@ -80,6 +80,111 @@ public sealed class ReleaseSwapTests
         Assert.False(body.GetProperty("health").TryGetProperty("connectedPeers", out _));
     }
 
+    private static async Task<(LibraryHost Host, HttpClient Client, string Path)> Movie(params TorrentResult[] results)
+    {
+        var host = new LibraryHost();
+        var client = host.CreateClient();
+        var hash = 1.ToString("x40");
+        await host.Seed(db => db.EngineTorrents.Add(new()
+        {
+            Id = "swap-best", UserId = LocalUser.Id, Hash = hash, Name = "Big Buck Bunny 2008 1080p", SizeBytes = 1000,
+            Origin = "user", Status = "downloading", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow, LastUsedAt = DateTime.UtcNow
+        }));
+        host.Engine.Info = _ => new EngineTorrentInfo { Hash = hash, Name = "Big Buck Bunny", State = "stalledDL",
+            Health = new(2, 2, 0, 300, "stalledDL") };
+        host.Search.Respond = options => new() { Query = options.Query, Results = options.Sources is { Length: > 0 } only
+            ? results.Where(r => only.Contains(r.Source)).ToArray() : results };
+        return (host, client, $"/api/client/torrents/{hash}/alternatives");
+    }
+
+    [Fact]
+    public void RankingPutsTheBestReleaseFirstWithSpecificReasons()
+    {
+        var ranked = ReleaseSwapService.Rank([
+            Release(2, "Big Buck Bunny 2008 1080p") with { Seeders = 11, SizeBytes = 1000 },
+            Release(3, "Big Buck Bunny 2008 1080p") with { Seeders = 29, SizeBytes = 1100 },
+            Release(4, "Big Buck Bunny 2008 1080p") with { Seeders = 12, SizeBytes = 500 },
+            Release(5, "Big Buck Bunny 2008 2160p") with { Seeders = 14, SizeBytes = 5000 }], 1080, 1000);
+        Assert.Equal(["3", "4", "2", "5"], ranked.Select(r => r.Result.Id));
+        Assert.Equal("Most seeders (29)", ranked[0].Why);
+        Assert.Equal("Same quality, 50% smaller file", ranked[1].Why);
+        Assert.Equal("Only 2160p release", ranked[3].Why);
+        Assert.Equal(ranked.Count, ranked.Select(r => r.Why).Distinct().Count());
+        Assert.True(ranked.Zip(ranked.Skip(1)).All(p => p.First.Score >= p.Second.Score));
+        // Deterministic: input order never changes the result.
+        Assert.Equal(ranked.Select(r => r.Result.Id), ReleaseSwapService.Rank(ranked.Select(r => r.Result).Reverse().ToList(), 1080, 1000).Select(r => r.Result.Id));
+    }
+
+    [Fact]
+    public async Task SourceFilterSearchesOnlyThatSourceAndReportsCountsAndRecommendation()
+    {
+        var (host, client, path) = await Movie(
+            Release(2, "Big Buck Bunny 2008 1080p") with { Seeders = 11, Source = "apibay" },
+            Release(3, "Big Buck Bunny 2008 1080p") with { Seeders = 29, Source = "torrentscsv" },
+            Release(4, "Big Buck Bunny 2008 1080p") with { Seeders = 8, Source = "torrentscsv" });
+        using (host) using (client)
+        {
+            var all = await client.GetFromJsonAsync<JsonElement>(path);
+            var alternatives = all.GetProperty("alternatives").EnumerateArray().ToList();
+            Assert.Equal([3.ToString("x40"), 2.ToString("x40"), 4.ToString("x40")], alternatives.Select(a => a.GetProperty("hash").GetString()));
+            Assert.Equal(alternatives[0].GetProperty("token").GetString(), all.GetProperty("recommendedToken").GetString());
+            var counts = all.GetProperty("sources").EnumerateArray().ToDictionary(s => s.GetProperty("id").GetString()!,
+                s => s.TryGetProperty("count", out var n) ? n.GetInt32() : (int?)null);
+            Assert.Equal(1, counts["apibay"]);
+            Assert.Equal(2, counts["torrentscsv"]);
+            Assert.DoesNotContain("1337x", counts.Keys);
+            Assert.All(counts.Values, n => Assert.NotNull(n));
+
+            var only = await client.GetFromJsonAsync<JsonElement>(path + "?source=apibay");
+            Assert.Equal(["apibay"], host.Search.Requests.Last().Sources!);
+            var single = Assert.Single(only.GetProperty("alternatives").EnumerateArray());
+            Assert.Equal(2.ToString("x40"), single.GetProperty("hash").GetString());
+            Assert.Equal(single.GetProperty("token").GetString(), only.GetProperty("recommendedToken").GetString());
+            // The other source keeps its last known count instead of being dropped.
+            Assert.Equal(2, only.GetProperty("sources").EnumerateArray().Single(s => s.GetProperty("id").GetString() == "torrentscsv").GetProperty("count").GetInt32());
+
+            using var off = await client.GetAsync(path + "?source=1337x");
+            Assert.Equal(HttpStatusCode.Conflict, off.StatusCode);
+            Assert.Contains("turned off", (await off.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("message").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task BestSwapPicksTheRecommendedReleaseInOneStep()
+    {
+        var (host, client, path) = await Movie(
+            Release(2, "Big Buck Bunny 2008 1080p") with { Seeders = 11, Source = "apibay" },
+            Release(3, "Big Buck Bunny 2008 1080p") with { Seeders = 29, Source = "torrentscsv" });
+        using (host) using (client)
+        {
+            using var response = await client.PostAsJsonAsync(path, new { best = true });
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(3.ToString("x40"), Assert.Single(host.Engine.Swaps).Request.Hash);
+
+            using var filtered = await client.PostAsJsonAsync(path, new { best = true, source = "apibay" });
+            Assert.Equal(HttpStatusCode.OK, filtered.StatusCode);
+            Assert.Equal(2.ToString("x40"), host.Engine.Swaps.Last().Request.Hash);
+        }
+    }
+
+    [Fact]
+    public async Task BestSwapRefusesWhenNothingIsBetter()
+    {
+        var (host, client, path) = await Movie(Release(2, "Big Buck Bunny 2008 1080p") with { Seeders = 2, Source = "apibay" });
+        using (host) using (client)
+        {
+            using var weak = await client.PostAsJsonAsync(path, new { best = true });
+            Assert.Equal(HttpStatusCode.Conflict, weak.StatusCode);
+            Assert.Equal("No better release was found on any source. Your current download was kept.",
+                (await weak.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("message").GetString());
+            using var none = await client.PostAsJsonAsync(path, new { best = true, source = "torrentscsv" });
+            Assert.Equal(HttpStatusCode.Conflict, none.StatusCode);
+            Assert.Contains("on torrentscsv", (await none.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("message").GetString());
+            using var off = await client.PostAsJsonAsync(path, new { best = true, source = "1337x" });
+            Assert.Equal(HttpStatusCode.Conflict, off.StatusCode);
+            Assert.Empty(host.Engine.Swaps);
+        }
+    }
     private static TorrentResult Release(int n, string title) => new()
     {
         Id = n.ToString(), Title = title, InfoHash = n.ToString("x40"),

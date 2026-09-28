@@ -23,17 +23,23 @@ modeled on CoCo Artifacts: one ASP.NET Core host that serves the JSON API and th
 ## Manual release replacement
 
 The server supports **Find another release** for incomplete built-in movie and episode rows.
-The Downloads dialog is a separate UI-specialist task; this implementation provides its API only.
-The API returns connected seeders/peers, speed and observed stall duration, then alternatives in the existing
-search rank order. An explicit swap request replaces that release and deletes only its
+The Downloads dialog (`web/src/app/downloads/release-swap-dialog.tsx`) offers a source picker, one-click
+"Find the best one for me", and a manual list. The API returns connected seeders/peers, speed and observed
+stall duration, then alternatives sorted best first by `ReleaseSwapService.Rank`. An explicit swap request replaces that release and deletes only its
 recorded incomplete payload and partial-file siblings—not shared folders, unrelated or completed files.
 When no live bitfield remains, full-length files are conservatively preserved because their completion
 cannot be disproved; the swap never guesses folder ownership.
 
-- `GET /api/client/torrents/{hash}/alternatives` searches the same work and episode/season scope,
-  retains the current/acquisition quality floor, and excludes current, loaded and previously tried hashes.
+- `GET /api/client/torrents/{hash}/alternatives[?source=<id>]` searches the same work and episode/season scope
+  (all enabled sources, or only `source`), retains the current/acquisition quality floor, and excludes current,
+  loaded and previously tried hashes.
+- Ranking is one deterministic score: quality match to the current release (+30 same, +15 higher),
+  seeders `min(60, 10·log2(1+seeders))`, size sanity against the current release (+10 within 0.4–2.5×,
+  −20 outside), plus search health/10. Ties break on seeders, smaller size, then hash. Each item gets a
+  specific `why` ("Most seeders (29)", "Same quality, 40% smaller file", "Only other 1080p release", ...).
 - `POST /api/client/torrents/{hash}/alternatives` accepts `{ "token": "..." }`, an opaque selection
   from GET valid for ten minutes. Stale, foreign and already-tried selections are rejected.
+  `{ "best": true, "source"?: "<id>" }` searches, takes the recommended release and swaps in one step.
 - Both routes use the host's default owner-only requester middleware; they are not requester-enabled.
 - The engine transaction transfers work/queue/category/path/lane/forced state and updates acquisition,
   grab, watchlist and request hash links. Paused rows remain paused; queued rows retain their enqueue
@@ -51,7 +57,8 @@ Both routes require owner access under the existing host middleware. Requesters 
 JSON is camelCase; nullable properties are **omitted**, not serialized as `null`.
 Examples below are illustrative; obtain a fresh token from GET instead of copying one.
 
-**GET `/api/client/torrents/{hash}/alternatives`** has no body or required query parameters.
+**GET `/api/client/torrents/{hash}/alternatives`** has no body. Optional `?source=<id>` (an id from
+`sources`; `all` or empty means every source) limits the search to one enabled source.
 HTTP 200:
 
 ```json
@@ -73,9 +80,15 @@ HTTP 200:
       "sizeBytes": 1048105953,
       "quality": 720,
       "source": "apibay",
-      "why": "More advertised seeders than current connected peers"
+      "why": "Most seeders (10)"
     }
-  ]
+  ],
+  "sources": [
+    { "id": "apibay", "name": "apibay", "count": 1 },
+    { "id": "torrentscsv", "name": "torrentscsv", "count": 0 },
+    { "id": "yts", "name": "yts" }
+  ],
+  "recommendedToken": "2439b06f437f491cb2b3f809fe088c00"
 }
 ```
 
@@ -86,7 +99,11 @@ state (for example `metaDL`, `stalledDL`, `downloading`, `paused`, `queued`, `ch
 Candidate `seeders` and `peers` are integer indexer/scrape counts; **candidate `peers` means leechers,
 not connected peers**. `sizeBytes` (integer bytes) and `quality` (integer resolution, e.g. 720) are
 optional. All other candidate properties are strings. Preserve the array's rank order.
-An empty result is HTTP 200 with `"alternatives": []`; it is not an error.
+An empty result is HTTP 200 with `"alternatives": []`; it is not an error. `recommendedToken` is the
+token of `alternatives[0]` and is omitted when the list is empty. `sources` lists the enabled torrent sources
+that can search this media type; `count` is how many alternatives that source returned, omitted when that
+source has not been searched in the last ten minutes (after a `?source=` search the other sources keep their
+last all-source counts). A `source` that is disabled or unsupported for the category returns HTTP 409.
 Missing/completed/unsupported downloads and all-source outages return HTTP 409:
 
 ```json
@@ -118,9 +135,14 @@ Expected refusals return HTTP 409:
 { "ok": false, "message": "This selection expired. Find releases again." }
 ```
 
+`{ "best": true }` returns the same 200 shape after swapping. When there are no alternatives, or the
+recommended one has no more seeders than the current connected seeders, it returns HTTP 409
+`{ "ok": false, "message": "No better release was found on any source. Your current download was kept." }`
+(`on <source>` when filtered); search errors return 409 `{ "ok": false, "message" }`.
+
 Storage refusals additionally include `"storageLimit"` (`setup`, `inventory`, `cap`, `reserve`, or
-`wont-fit`). GET again after an expired selection. Malformed JSON or missing `token` returns standard
-HTTP 400 validation ProblemDetails. Other transport/server failures must remain errors in the UI,
+`wont-fit`). GET again after an expired selection. Malformed JSON returns standard HTTP 400 ProblemDetails;
+a body with neither `token` nor `best: true` returns HTTP 400 `{ "message" }`. Other transport/server failures must remain errors in the UI,
 not an empty alternatives list. The successful swap currently omits nullable `details` and
 `storageLimit`; failure responses also omit nullable `hash`.
 
