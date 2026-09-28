@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import { TfErrorState } from "@/components/tf/error-state";
@@ -752,12 +753,12 @@ export default function SettingsPage() {
               </p>
             ) : null}
             <div className="space-y-1.5">
-              <label
+              <Label
                 htmlFor="max-active-downloads"
-                className="text-xs font-medium text-[var(--text-secondary)]"
+                className="text-xs text-muted-foreground"
               >
                 Downloads at once
-              </label>
+              </Label>
               <Input
                 id="max-active-downloads"
                 type="number"
@@ -776,7 +777,7 @@ export default function SettingsPage() {
                     maxActiveDownloads: event.target.valueAsNumber,
                   }))
                 }
-                className="h-11 max-w-[8rem] scroll-mb-32 text-base sm:text-sm"
+                className="max-w-[8rem] scroll-mb-32"
                 aria-describedby="max-active-downloads-help"
                 data-max-active-downloads
               />
@@ -811,7 +812,7 @@ export default function SettingsPage() {
                 {QUALITY_CHOICES.map((choice) => (
                   <label
                     key={choice.value}
-                    className="flex min-h-[44px] cursor-pointer flex-col justify-center rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--accent)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent)]"
+                    className="flex min-h-[44px] cursor-pointer flex-col justify-center rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--brand)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--brand)]"
                   >
                     <input
                       type="radio"

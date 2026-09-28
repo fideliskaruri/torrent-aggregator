@@ -2,6 +2,7 @@ import type { Ref } from "react";
 import { FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /**
  * The download folder and space limit fields.
@@ -32,18 +33,15 @@ export function DownloadLocationFields({
   return (
     <>
       <div className="min-w-0 space-y-1.5">
-        <label
-          htmlFor={folderId}
-          className="text-xs font-medium text-[var(--text-secondary)]"
-        >
+        <Label htmlFor={folderId} className="text-xs text-muted-foreground">
           Download folder
-        </label>
+        </Label>
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             id={folderId}
             value={folder}
             onChange={(event) => onFolderChange(event.target.value)}
-            className="h-11 w-full min-w-0 scroll-mb-32 font-mono text-base sm:text-sm"
+            className="w-full min-w-0 scroll-mb-32 font-mono"
             placeholder="Choose a folder or enter its path"
             autoComplete="off"
             title={folder || undefined}
@@ -51,7 +49,7 @@ export function DownloadLocationFields({
           <Button
             type="button"
             variant="secondary"
-            className="h-11 w-full shrink-0 sm:w-auto"
+            className="w-full shrink-0 sm:w-auto"
             onClick={onBrowse}
           >
             <FolderOpen />
@@ -71,13 +69,10 @@ export function DownloadLocationFields({
       </div>
 
       <div className="min-w-0 space-y-1.5">
-        <label
-          htmlFor={limitId}
-          className="text-xs font-medium text-[var(--text-secondary)]"
-        >
+        <Label htmlFor={limitId} className="text-xs text-muted-foreground">
           Space limit
-        </label>
-        <div className="flex min-w-0 flex-col gap-2 sm:max-w-[14rem] sm:flex-row sm:items-center">
+        </Label>
+        <div className="flex min-w-0 max-w-[14rem] items-center gap-2">
           <Input
             ref={spaceInputRef}
             id={limitId}
@@ -87,7 +82,7 @@ export function DownloadLocationFields({
             inputMode="decimal"
             value={spaceGb}
             onChange={(event) => onSpaceGbChange(event.target.value)}
-            className="h-11 w-full min-w-0 scroll-mb-32 text-base sm:text-sm"
+            className="w-full min-w-0 scroll-mb-32"
             aria-describedby={`${limitId}-help`}
           />
           <span className="shrink-0 text-sm text-[var(--text-secondary)]">GB</span>

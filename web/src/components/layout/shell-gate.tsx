@@ -34,7 +34,7 @@ export function ShellGate({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-[60vh] items-center justify-center" aria-busy="true" data-shell-pending>
       <span className="sr-only">Loading</span>
-      <span className="h-7 w-7 animate-pulse rounded-md bg-[var(--accent)]/60 motion-reduce:animate-none" aria-hidden />
+      <span className="h-7 w-7 animate-pulse rounded-md bg-[var(--brand)]/60 motion-reduce:animate-none" aria-hidden />
     </div>
   );
 }

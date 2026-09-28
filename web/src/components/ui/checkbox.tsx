@@ -1,37 +1,30 @@
-import * as React from "react";
-import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
-import { Check } from "lucide-react";
-import { cn } from "@/lib/utils";
+import * as React from "react"
+import { cn } from "@/lib/utils"
+import { Checkbox as CheckboxPrimitive } from "radix-ui"
+import { CheckIcon } from "lucide-react"
 
-const Checkbox = React.forwardRef<
-  React.ElementRef<typeof CheckboxPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
->(({ className, ...props }, ref) => (
-  // The control the finger lands on is 44x44 on touch (WCAG 2.5.5 / the app's
-  // established touch rule, mirrored on the monitoring switch), while the box
-  // the eye reads stays 16px: the Root is a transparent, centred hit area and
-  // the painted checkbox is the inner span. On desktop, where the pointer is a
-  // mouse and a 44px control looks oversized, the hit area collapses back to
-  // 16px. Enlarging the visible border box instead would put a big empty square
-  // beside every label; a bare ::before hit area would not enlarge the element's
-  // own box, which is exactly what an accessibility audit measures.
-  <CheckboxPrimitive.Root
-    ref={ref}
-    className={cn(
-      "peer group relative grid h-11 w-11 shrink-0 place-items-center rounded lg:h-4 lg:w-4",
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--bg)]",
-      "disabled:cursor-not-allowed disabled:opacity-50",
-      className,
-    )}
-    {...props}
-  >
-    <span className="grid h-4 w-4 place-items-center rounded border border-[var(--border-strong)] bg-[var(--bg)] shadow-sm transition-colors group-data-[state=checked]:border-[var(--primary)] group-data-[state=checked]:bg-[var(--primary)] group-data-[state=checked]:text-[var(--primary-foreground)]">
-      <CheckboxPrimitive.Indicator className="flex items-center justify-center text-current">
-        <Check className="h-3 w-3" strokeWidth={3} />
+function Checkbox({
+  className,
+  ...props
+}: React.ComponentProps<typeof CheckboxPrimitive.Root>) {
+  return (
+    <CheckboxPrimitive.Root
+      data-slot="checkbox"
+      className={cn(
+        "peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input transition-colors outline-none group-has-disabled/field:opacity-50 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:not-data-checked:border-input after:absolute after:-inset-x-3 after:-inset-y-2 max-md:after:-inset-3.5 pointer-coarse:after:-inset-3.5 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground group-has-[:focus-visible]/field-label:data-checked:border-primary dark:data-checked:bg-primary",
+        className
+      )}
+      {...props}
+    >
+      <CheckboxPrimitive.Indicator
+        data-slot="checkbox-indicator"
+        className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
+      >
+        <CheckIcon
+        />
       </CheckboxPrimitive.Indicator>
-    </span>
-  </CheckboxPrimitive.Root>
-));
-Checkbox.displayName = CheckboxPrimitive.Root.displayName;
+    </CheckboxPrimitive.Root>
+  )
+}
 
-export { Checkbox };
+export { Checkbox }

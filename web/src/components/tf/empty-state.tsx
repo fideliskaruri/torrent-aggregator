@@ -2,7 +2,16 @@ import { Link } from "react-router";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
+/** "There is nothing here yet", built on the shadcn `Empty` parts. */
 export function TfEmptyState({
   icon: Icon,
   title,
@@ -19,31 +28,30 @@ export function TfEmptyState({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "surface flex flex-col items-center justify-center text-center px-6 py-14 gap-3",
-        className,
-      )}
+    <Empty
+      className={cn("border border-border bg-card px-6 py-14", className)}
       data-empty-state
     >
-      {Icon ? (
-        <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--bg-muted)] text-[var(--text-tertiary)]">
-          <Icon className="h-5 w-5" strokeWidth={1.75} />
-        </span>
-      ) : null}
-      <div className="space-y-1 max-w-sm">
-        <p className="text-sm font-medium text-[var(--text)]">{title}</p>
-        {description ? (
-          <p className="text-[13px] text-[var(--text-tertiary)] leading-relaxed">
-            {description}
-          </p>
+      <EmptyHeader>
+        {Icon ? (
+          <EmptyMedia variant="icon" className="size-11 text-subtle-foreground">
+            <Icon className="size-5" strokeWidth={1.75} />
+          </EmptyMedia>
         ) : null}
-      </div>
+        <EmptyTitle className="text-foreground">{title}</EmptyTitle>
+        {description ? (
+          <EmptyDescription className="text-[13px] text-subtle-foreground">
+            {description}
+          </EmptyDescription>
+        ) : null}
+      </EmptyHeader>
       {actionLabel && actionHref ? (
-        <Button asChild size="sm" className="mt-1">
-          <Link to={actionHref}>{actionLabel}</Link>
-        </Button>
+        <EmptyContent>
+          <Button asChild size="sm">
+            <Link to={actionHref}>{actionLabel}</Link>
+          </Button>
+        </EmptyContent>
       ) : null}
-    </div>
+    </Empty>
   );
 }

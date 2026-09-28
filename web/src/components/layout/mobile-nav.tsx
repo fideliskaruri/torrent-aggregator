@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
   Activity,
@@ -14,10 +14,19 @@ import {
   MoreHorizontal,
   Search,
   Settings,
-  X,
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import {
   EVERYTHING_HREF,
@@ -71,7 +80,6 @@ export function MobileNav() {
   const showPreviewToggle = caps.canPreview;
   const showMore = MORE_ITEMS.length > 0 || showPreviewToggle;
   const [moreOpen, setMoreOpen] = useState(false);
-  const sheetRef = useRef<HTMLDivElement | null>(null);
   const activePrimaryHref = navActiveHref(PRIMARY_TABS, pathname);
   const activeMoreHref = navActiveHref(MORE_ITEMS, pathname);
 
@@ -81,75 +89,6 @@ export function MobileNav() {
     setMoreOpen(false);
   }, [pathname]);
 
-  useEffect(() => {
-    if (!moreOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMoreOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    // Lock the *document element*, not `body`. `body { overflow: hidden }` only
-    // stops the page when the UA propagates body's overflow to the viewport,
-    // and that propagation is disabled whenever `html` is not `overflow:
-    // visible` — which it isn't, because `html` carries `overflow-x: hidden`.
-    // Locking body was therefore a no-op and the page scrolled behind the open
-    // sheet. `scrollbar-gutter: stable` on `html` keeps this from shifting the
-    // layout when the scrollbar goes away.
-    const root = document.documentElement;
-    const prev = root.style.overflow;
-    root.style.overflow = "hidden";
-
-    // The sheet claims `aria-modal="true"`, which tells assistive technology
-    // that everything behind it is inert. Without focus management that claim
-    // was false: focus stayed on the More button, and 41 tab stops sat between
-    // it and the first item *inside* the sheet — a keyboard or screen-reader
-    // user tabbed through the dimmed page they were told they could not reach.
-    const sheet = sheetRef.current;
-    const restoreTo = document.activeElement as HTMLElement | null;
-    const focusables = () =>
-      Array.from(
-        sheet?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      ).filter(
-        // The scrim is a full-bleed close button that exists for pointer
-        // dismissal only; putting it in the tab order would mean the first Tab
-        // press lands on "close the thing you just opened".
-        (el) => el.offsetParent !== null && !el.hasAttribute("data-sheet-scrim"),
-      );
-
-    focusables()[0]?.focus();
-
-    const onTab = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const items = focusables();
-      if (!items.length) return;
-      const head = items[0];
-      const tail = items[items.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      if (!sheet?.contains(active)) {
-        e.preventDefault();
-        (e.shiftKey ? tail : head).focus();
-      } else if (e.shiftKey && active === head) {
-        e.preventDefault();
-        tail.focus();
-      } else if (!e.shiftKey && active === tail) {
-        e.preventDefault();
-        head.focus();
-      }
-    };
-    document.addEventListener("keydown", onTab, true);
-
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("keydown", onTab, true);
-      root.style.overflow = prev;
-      // Only restore focus if it is still inside the sheet; a click on a nav
-      // link has already moved it somewhere the user chose.
-      if (!restoreTo) return;
-      if (sheet && sheet.contains(document.activeElement)) restoreTo.focus();
-      else if (document.activeElement === document.body) restoreTo.focus();
-    };
-  }, [moreOpen]);
 
   const moreRouteActive =
     activeMoreHref !== null ||
@@ -159,112 +98,87 @@ export function MobileNav() {
 
   return (
     <>
-      {moreOpen ? (
-        <div
-          className="md:hidden fixed inset-0 z-50"
+      {/* Radix owns focus trap, Escape, scroll lock and focus return. */}
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent
+          side="bottom"
           data-mobile-more-sheet
-          ref={sheetRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="More"
+          className="md:hidden gap-0 max-h-[calc(100dvh-var(--header-h))] overflow-y-auto overscroll-contain rounded-t-xl"
+          style={{ paddingBottom: "var(--safe-bottom)" }}
         >
-          <button
-            type="button"
-            data-sheet-scrim
-            tabIndex={-1}
-            className="absolute inset-0 bg-black/55"
-            aria-label="Close menu"
-            onClick={() => setMoreOpen(false)}
-          />
-          <div
-            className="absolute inset-x-0 bottom-0 max-h-[calc(100dvh-var(--header-h))] overflow-y-auto overscroll-contain rounded-t-xl border-t border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]"
-            style={{ paddingBottom: "var(--safe-bottom)" }}
-          >
-            <div className="flex justify-center pt-2 pb-1" aria-hidden>
-              <span className="h-1 w-9 rounded-full bg-[var(--border-strong)]" />
-            </div>
+          <div className="flex justify-center pt-2 pb-1" aria-hidden>
+            <span className="h-1 w-9 rounded-full bg-input" />
+          </div>
+          <SheetHeader className="px-4 pt-1 pb-2">
+            <SheetTitle className="text-sm">More</SheetTitle>
+            <SheetDescription className="sr-only">Other pages and options</SheetDescription>
+          </SheetHeader>
 
-            <div className="flex items-center justify-between gap-2 px-4 pb-2">
-              <h2 className="text-sm font-semibold tracking-tight text-[var(--text)]">
-                More
-              </h2>
-              <button
-                type="button"
-                onClick={() => setMoreOpen(false)}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-md text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+          <nav className="px-2 pb-1" aria-label="Secondary">
+            <ul className="flex flex-col gap-0.5">
+              {MORE_ITEMS.map(({ href, label, icon: Icon }) => {
+                const active = href === activeMoreHref;
+                return (
+                  <li key={href}>
+                    <Link
+                      to={href}
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => setMoreOpen(false)}
+                      className={cn(
+                        "flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                        active
+                          ? "bg-brand-dim text-brand-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <Icon
+                        className={cn("size-4 shrink-0", active ? "text-brand" : "text-subtle-foreground")}
+                        strokeWidth={active ? 2.25 : 1.75}
+                      />
+                      {label}
+                      {href === REQUESTS_HREF && requestsBadge ? (
+                        <Badge
+                          variant="solid"
+                          data-nav-requests-pending
+                          aria-label={`${requestsBadge} pending`}
+                          className="ml-auto min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
+                        >
+                          {requestsBadge}
+                        </Badge>
+                      ) : null}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
 
-            <nav className="px-2 pb-1" aria-label="Secondary">
-              <ul className="flex flex-col gap-0.5">
-                {MORE_ITEMS.map(({ href, label, icon: Icon }) => {
-                  const active = href === activeMoreHref;
-                  return (
-                    <li key={href}>
-                      <Link
-                        to={href}
-                        aria-current={active ? "page" : undefined}
-                        onClick={() => setMoreOpen(false)}
-                        className={cn(
-                          "flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-[13px] font-medium transition-colors",
-                          active
-                            ? "bg-[var(--accent-dim)] text-[var(--accent-text)]"
-                            : "text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
-                        )}
-                      >
-                        <Icon
-                          className={cn(
-                            "h-4 w-4 shrink-0",
-                            active
-                              ? "text-[var(--accent)]"
-                              : "text-[var(--text-tertiary)]",
-                          )}
-                          strokeWidth={active ? 2.25 : 1.75}
-                        />
-                        {label}
-                        {href === REQUESTS_HREF && requestsBadge ? (
-                          <span
-                            data-nav-requests-pending
-                            aria-label={`${requestsBadge} pending`}
-                            className="ml-auto inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
-                          >
-                            {requestsBadge}
-                          </span>
-                        ) : null}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </nav>
-
-            {showPreviewToggle ? (
-              <div className="border-t border-[var(--border)] px-2 pt-1 pb-2">
-                <button
+          {showPreviewToggle ? (
+            <>
+              <Separator />
+              <div className="px-2 pt-1 pb-2">
+                <Button
                   type="button"
+                  variant="ghost"
                   data-preview-toggle
                   aria-label="View as requester"
                   onClick={() => {
                     setPreviewAsRequester(true);
                     setMoreOpen(false);
                   }}
-                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
+                  className="h-auto min-h-[44px] w-full justify-start gap-3 px-3 py-2.5 text-[13px] text-muted-foreground"
                 >
-                  <Eye className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" strokeWidth={1.75} aria-hidden />
+                  <Eye className="size-4 shrink-0 text-subtle-foreground" strokeWidth={1.75} aria-hidden />
                   View as requester
-                </button>
+                </Button>
               </div>
-            ) : null}
-
-          </div>
-        </div>
-      ) : null}
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
 
       <nav
-        className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--bg)]"
+        className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background"
         style={{
           paddingBottom: "var(--safe-bottom)",
           height: "calc(var(--mobile-nav-h) + var(--safe-bottom))",
@@ -295,25 +209,26 @@ export function MobileNav() {
                   // The bar is fixed to the bottom edge and the tabs run
                   // edge-to-edge, so an outer ring is clipped by the viewport on
                   // every side. An inset ring is always fully visible.
-                  "outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                   active
-                    ? "text-[var(--accent-text)]"
-                    : "text-[var(--text-tertiary)]",
+                    ? "text-brand-foreground"
+                    : "text-subtle-foreground",
                 )}
               >
                 <Icon
-                  className={cn("h-5 w-5 shrink-0", active && "text-[var(--accent)]")}
+                  className={cn("h-5 w-5 shrink-0", active && "text-brand")}
                   strokeWidth={active ? 2.25 : 1.75}
                 />
                 {/* Badge rides the icon so the label keeps its full width. */}
                 {href === NOTIFICATIONS_HREF && badge ? (
-                  <span
+                  <Badge
+                    variant="solid"
                     data-nav-unread
                     aria-label={`${badge} unread`}
-                    className="absolute top-0.5 translate-x-3.5 min-w-[20px] rounded-full bg-[var(--accent)] px-1 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)] ring-2 ring-[var(--bg)]"
+                    className="absolute top-0.5 translate-x-3.5 ring-2 ring-background min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
                   >
                     {badge}
-                  </span>
+                  </Badge>
                 ) : null}
                 {/* No truncate: five slots leave room for full short labels. */}
                 <span className="max-w-full whitespace-nowrap px-0.5">{label}</span>
@@ -330,27 +245,28 @@ export function MobileNav() {
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen((o) => !o)}
               className={cn(
-                "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[12px] leading-tight font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
+                "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[12px] leading-tight font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                 moreTabActive
-                  ? "text-[var(--accent-text)]"
-                  : "text-[var(--text-tertiary)]",
+                  ? "text-brand-foreground"
+                  : "text-subtle-foreground",
               )}
             >
               <MoreHorizontal
                 className={cn(
                   "h-5 w-5 shrink-0",
-                  moreTabActive && "text-[var(--accent)]",
+                  moreTabActive && "text-brand",
                 )}
                 strokeWidth={moreTabActive ? 2.25 : 1.75}
               />
               {requestsBadge ? (
-                <span
+                <Badge
+                  variant="solid"
                   data-nav-more-pending
                   aria-label={`${requestsBadge} pending requests`}
-                  className="absolute top-0.5 translate-x-3.5 min-w-[20px] rounded-full bg-[var(--accent)] px-1 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)] ring-2 ring-[var(--bg)]"
+                  className="absolute top-0.5 translate-x-3.5 ring-2 ring-background min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
                 >
                   {requestsBadge}
-                </span>
+                </Badge>
               ) : null}
               <span className="whitespace-nowrap">More</span>
             </button>

@@ -1,39 +1,55 @@
-import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/utils";
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { cn } from "@/lib/utils"
+import { Slot } from "radix-ui"
 
 const badgeVariants = cva(
-  "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[12px] font-medium transition-colors max-w-full truncate",
+  "group/badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden max-w-full min-h-5 rounded-md border border-transparent px-1.5 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
-        default:
-          "border-[var(--border)] bg-[var(--bg-muted)] text-[var(--text-secondary)]",
+        // TorrentFlow: the default badge is a quiet neutral chip; use `accent`
+        // for the amber brand tone and `solid` for a filled primary badge.
+        default: "border-border bg-muted text-muted-foreground",
+        solid: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        accent: "border-[var(--accent-border)] bg-brand-dim text-brand-foreground",
+        success: "border-success/25 bg-success/10 text-success",
+        danger: "border-destructive/25 bg-destructive/10 text-destructive",
+        info: "border-info/25 bg-info/10 text-info",
         secondary:
-          "border-transparent bg-[var(--bg-hover)] text-[var(--text-secondary)]",
-        accent:
-          "border-[var(--accent-border)] bg-[var(--accent-dim)] text-[var(--accent-text)]",
-        success:
-          "border-[rgba(62,207,142,0.22)] bg-[rgba(62,207,142,0.12)] text-[var(--success)]",
-        danger:
-          "border-[rgba(240,113,120,0.22)] bg-[rgba(240,113,120,0.12)] text-[var(--danger)]",
-        outline: "border-[var(--border)] text-[var(--text-secondary)]",
+          "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
+        destructive:
+          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+        outline:
+          "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
+        ghost:
+          "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
+        link: "text-primary underline-offset-4 hover:underline",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  },
-);
+  }
+)
 
-interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
+function Badge({
+  className,
+  variant = "default",
+  asChild = false,
+  ...props
+}: React.ComponentProps<"span"> &
+  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+  const Comp = asChild ? Slot.Root : "span"
 
-function Badge({ className, variant, ...props }: BadgeProps) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
-  );
+    <Comp
+      data-slot="badge"
+      data-variant={variant}
+      className={cn(badgeVariants({ variant }), className)}
+      {...props}
+    />
+  )
 }
 
-export { Badge };
+export { Badge, badgeVariants }

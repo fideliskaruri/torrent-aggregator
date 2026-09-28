@@ -174,7 +174,7 @@ export function LibraryControls({
                 <label
                   key={option.value}
                   data-add-option={option.value}
-                  className="relative flex min-h-[44px] cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] p-3 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--accent)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent)]"
+                  className="relative flex min-h-[44px] cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] p-3 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--brand)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--brand)]"
                 >
                   <input
                     type="radio"
@@ -186,9 +186,9 @@ export function LibraryControls({
                   />
                   <span
                     aria-hidden
-                    className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-[var(--border-strong)] peer-checked:border-[var(--accent)] peer-checked:[&>span]:scale-100"
+                    className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-[var(--border-strong)] peer-checked:border-[var(--brand)] peer-checked:[&>span]:scale-100"
                   >
-                    <span className="h-2 w-2 scale-0 rounded-full bg-[var(--accent)] transition-transform" />
+                    <span className="h-2 w-2 scale-0 rounded-full bg-[var(--brand)] transition-transform" />
                   </span>
                   <span className="min-w-0">
                     <span className="block text-[13px] font-medium text-[var(--text)]">
@@ -211,7 +211,7 @@ export function LibraryControls({
                     <label
                       key={option.value}
                       data-add-option={option.value}
-                      className="inline-flex h-11 min-w-[44px] cursor-pointer items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] px-3.5 text-[13px] tabular-nums text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] has-[:checked]:border-[var(--accent)] has-[:checked]:bg-[var(--accent-dim)] has-[:checked]:text-[var(--text)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent)]"
+                      className="inline-flex h-11 min-w-[44px] cursor-pointer items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] px-3.5 text-[13px] tabular-nums text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] has-[:checked]:border-[var(--brand)] has-[:checked]:bg-[var(--accent-dim)] has-[:checked]:text-[var(--text)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--brand)]"
                     >
                       <input
                         type="radio"
@@ -317,7 +317,7 @@ export function LibraryControls({
           data-add-library-dialog
           className={
             isMobile
-              ? "top-auto max-h-[90dvh] gap-4 overflow-y-auto rounded-t-[var(--radius-lg)] p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+              ? "top-auto bottom-0 left-0 max-h-[90dvh] max-w-none translate-x-0 translate-y-0 gap-4 overflow-y-auto rounded-none rounded-t-[var(--radius-lg)] p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
               : "gap-4 overflow-y-auto p-5 sm:max-w-lg"
           }
           onCloseAutoFocus={(event) => {

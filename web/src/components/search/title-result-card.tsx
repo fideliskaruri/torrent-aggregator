@@ -131,8 +131,8 @@ export function TitleResultCard({
 
   const shellClass = cn(
     "surface group relative block scroll-mt-24 transition-colors motion-reduce:transition-none",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-    featured ? "border-[var(--accent)]/60 p-3 sm:p-4" : "p-3 sm:p-4",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
+    featured ? "border-[var(--brand)]/60 p-3 sm:p-4" : "p-3 sm:p-4",
     title.status.unreleased && "opacity-60 saturate-[0.35]",
     title.href && "hover:border-[var(--border-strong)]",
   );
@@ -193,7 +193,7 @@ export function TitleResultCardSkeleton({
 }) {
   return (
     <div
-      className={cn("surface p-3 sm:p-4", featured && "border-[var(--accent)]/30")}
+      className={cn("surface p-3 sm:p-4", featured && "border-[var(--brand)]/30")}
       aria-hidden
       data-title-card-skeleton
     >

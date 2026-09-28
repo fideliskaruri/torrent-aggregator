@@ -162,7 +162,7 @@ export function RatingMetaLine(input: HeroMetaInput) {
           aria-label={`Rated ${score} out of 10 on ${source}${votes}`}
           className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_60%,transparent)] px-2.5 text-[12px]"
         >
-          <Star className="h-3 w-3 fill-[var(--accent)] text-[var(--accent)]" aria-hidden />
+          <Star className="h-3 w-3 fill-[var(--brand)] text-[var(--brand)]" aria-hidden />
           <span className="font-semibold tabular-nums text-[var(--text)]">{score}</span>
           <span className="text-[var(--text-tertiary)]">{source}</span>
         </span>

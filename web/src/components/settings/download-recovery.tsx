@@ -177,12 +177,12 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
           : "Recover media already in the saved download folder. Files without torrent metadata are imported as completed, non-seeding downloads."}
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="secondary" className="min-h-[44px]" disabled={busy || !info.downloadDirectory}
+        <Button type="button" variant="secondary" disabled={busy || !info.downloadDirectory}
           aria-label="Import existing downloads" data-import-downloads onClick={() => void importFiles()}>
           {busy && <LoadingGlyph className="h-4 w-4" />}
           {busy ? "Scanning and importing…" : "Import existing downloads"}
         </Button>
-        <Button type="button" variant="outline" className="min-h-[44px]" aria-label="Import from another torrent client"
+        <Button type="button" variant="secondary" aria-label="Import from another torrent client"
           data-import-other-client onClick={openSourceImport}>
           Import from another client
         </Button>
@@ -213,7 +213,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
               <Button type="button" variant="ghost" disabled={sourceBusy} onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
               <Button type="button" variant="ghost" disabled={sourceBusy} onClick={() => void scanSources()}>Scan again</Button>
             </div>
-            {sourceScan?.warnings.map((warning, index) => <p key={index} className="break-words rounded-md border border-[var(--accent)]/40 bg-[var(--bg-muted)] p-3 text-[var(--text-secondary)]" data-source-warning>{warning}</p>)}
+            {sourceScan?.warnings.map((warning, index) => <p key={index} className="break-words rounded-md border border-[var(--brand)]/40 bg-[var(--bg-muted)] p-3 text-[var(--text-secondary)]" data-source-warning>{warning}</p>)}
             {groupedSources.length === 0 && <p className="rounded-md border border-dashed border-[var(--border)] p-4 text-[var(--text-secondary)]">No other-client downloads were found. You can retry the scan or use the local-folder import.</p>}
             {groupedSources.map(([source, candidates]) => (
               <section key={source} className="space-y-2" data-source-group={source}>

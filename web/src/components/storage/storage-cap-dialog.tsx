@@ -84,8 +84,8 @@ function blockedBody(facts: StorageOverrideFacts | null): string {
 
 const SWATCH: Record<StorageBreakdownRow["key"], string | null> = {
   used: "bg-[var(--text-tertiary)]",
-  incoming: "bg-[var(--accent)]",
-  queued: "bg-[var(--accent)] opacity-40",
+  incoming: "bg-[var(--brand)]",
+  queued: "bg-[var(--brand)] opacity-40",
   cap: null,
   free: null,
   left: null,

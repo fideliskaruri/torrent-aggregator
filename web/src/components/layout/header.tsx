@@ -4,12 +4,23 @@ import { ChevronDown, Eye, Search } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-feed";
 import { cn } from "@/lib/utils";
 import { openSearchOverlay } from "@/components/search/search-overlay";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  navigationMenuTriggerStyle,
+} from "@/components/ui/navigation-menu";
+import { Separator } from "@/components/ui/separator";
 import { pendingBadge } from "@/lib/requests";
 import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
@@ -59,6 +70,17 @@ function useHeaderFold(contentKey: string, maxFold: number) {
       setWidth((prev) => (prev === next ? prev : next));
     });
     observer.observe(row);
+    return () => observer.disconnect();
+  }, []);
+
+  // The nav also narrows when the actions grow (the bell count loads late).
+  // Re-render so the check below can fold further without a row resize.
+  const [, setNavTick] = useState(0);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setNavTick((n) => n + 1));
+    observer.observe(nav);
     return () => observer.disconnect();
   }, []);
 
@@ -135,7 +157,7 @@ export function Header() {
             showWordmark && isDesktop ? "w-auto justify-start" : "w-11 justify-center",
           )}
         >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--primary-foreground)]">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--brand)] text-[var(--primary-foreground)]">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path
                 d="M12 3v10m0 0l4-4m-4 4L8 9M5 17h14"
@@ -158,13 +180,10 @@ export function Header() {
             always matches the URL on this render (no lag / owns bleed). */}
         {pageTitle ? (
           <>
-            <span
-              className="md:hidden h-4 w-px shrink-0 bg-[var(--border)]"
-              aria-hidden
-            />
+            <Separator orientation="vertical" className="md:hidden data-vertical:h-4 data-vertical:self-center" />
             <span
               data-header-page-title
-              className="md:hidden text-[13px] font-medium text-[var(--text-secondary)] truncate"
+              className="md:hidden min-w-0 truncate text-[13px] font-medium text-muted-foreground"
             >
               {pageTitle}
             </span>
@@ -175,99 +194,105 @@ export function Header() {
             useHeaderFold folds labels and, as a last resort, moves trailing
             links into "More" until the row fits. py/-my give the focus ring
             room inside the clipped row. */}
-        <nav
+        <NavigationMenu
           ref={navRef}
-          className="hidden md:flex items-center gap-0.5 flex-1 min-w-0 overflow-hidden py-1.5 -my-1.5 px-0.5 -mx-0.5"
+          viewport={false}
+          className="hidden md:flex flex-1 min-w-0 max-w-none justify-start overflow-hidden py-1.5 -my-1.5 px-0.5 -mx-0.5"
           data-desktop-nav
           data-header-fold={fold}
           aria-label="Main"
         >
-          {inlineRow.map((item) => {
-            const { href, label } = item;
-            const active = href === activeDesktopHref;
-            // Divider separates the primary path from the secondary pages.
-            const showDivider = href === dividerHref;
-            return (
-              <span key={href} className="contents">
-                {showDivider ? (
-                  <span
-                    className="mx-1 h-4 w-px shrink-0 bg-[var(--border)]"
-                    aria-hidden
-                  />
-                ) : null}
-                <Link
-                  to={href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "inline-flex items-center min-h-[44px] py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
-                    tightLinks ? "px-2" : "px-3",
-                    "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
-                    active
-                      ? "text-[var(--text)] bg-[var(--bg-muted)]"
-                      : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]",
-                  )}
-                >
-                  {label}
-                  {href === REQUESTS_HREF && requestsBadge ? (
-                    <span
-                      data-nav-requests-pending
-                      aria-label={`${requestsBadge} pending`}
-                      className="ml-1.5 inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
-                    >
-                      {requestsBadge}
-                    </span>
+          <NavigationMenuList className="flex-none justify-start gap-0.5">
+            {inlineRow.map((item) => {
+              const { href, label } = item;
+              const active = href === activeDesktopHref;
+              // Divider separates the primary path from the secondary pages.
+              const showDivider = href === dividerHref;
+              return (
+                <NavigationMenuItem key={href} className="flex items-center">
+                  {showDivider ? (
+                    <Separator orientation="vertical" className="mx-1 data-vertical:h-4 data-vertical:self-center" />
                   ) : null}
-                </Link>
-              </span>
-            );
-          })}
-          {moreRow.length ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                data-header-more
-                aria-current={moreActive ? "page" : undefined}
-                className={cn(
-                  "inline-flex items-center gap-1 min-h-[44px] px-2 py-1.5 rounded-md text-[13px] font-medium whitespace-nowrap shrink-0 transition-colors",
-                  "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
-                  moreActive
-                    ? "text-[var(--text)] bg-[var(--bg-muted)]"
-                    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]",
-                )}
-              >
-                More
-                {requestsBadge && moreRow.some((item) => item.href === REQUESTS_HREF) ? (
-                  <span
-                    data-nav-more-pending
-                    aria-label={`${requestsBadge} pending`}
-                    className="inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
-                  >
-                    {requestsBadge}
-                  </span>
-                ) : null}
-                <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {moreRow.map((item) => (
-                  <DropdownMenuItem
-                    key={item.href}
-                    onSelect={() => navigate(item.href)}
+                  <NavigationMenuLink asChild active={active}>
+                    <Link
+                      to={href}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        navigationMenuTriggerStyle(),
+                        "h-9 pointer-coarse:h-11 gap-1.5 whitespace-nowrap text-[13px]",
+                        tightLinks ? "px-2" : "px-3",
+                        active
+                          ? "bg-muted text-foreground"
+                          : "text-subtle-foreground hover:text-muted-foreground",
+                      )}
+                    >
+                      {label}
+                      {href === REQUESTS_HREF && requestsBadge ? (
+                        <Badge
+                          variant="solid"
+                          data-nav-requests-pending
+                          aria-label={`${requestsBadge} pending`}
+                          className="min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
+                        >
+                          {requestsBadge}
+                        </Badge>
+                      ) : null}
+                    </Link>
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
+              );
+            })}
+            {moreRow.length ? (
+              <NavigationMenuItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    data-header-more
+                    aria-current={moreActive ? "page" : undefined}
                     className={cn(
-                      "min-h-[44px]",
-                      item.href === activeDesktopHref && "text-[var(--text)] bg-[var(--bg-muted)]",
+                      navigationMenuTriggerStyle(),
+                      "h-9 pointer-coarse:h-11 gap-1 px-2 text-[13px] whitespace-nowrap",
+                      moreActive
+                        ? "bg-muted text-foreground"
+                        : "text-subtle-foreground hover:text-muted-foreground",
                     )}
                   >
-                    {item.label}
-                    {item.href === REQUESTS_HREF && requestsBadge ? (
-                      <span className="ml-auto text-[12px] tabular-nums text-[var(--text-tertiary)]">
-                        {requestsBadge} pending
-                      </span>
+                    More
+                    {requestsBadge && moreRow.some((item) => item.href === REQUESTS_HREF) ? (
+                      <Badge
+                        variant="solid"
+                        data-nav-more-pending
+                        aria-label={`${requestsBadge} pending`}
+                        className="min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
+                      >
+                        {requestsBadge}
+                      </Badge>
                     ) : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </nav>
+                    <ChevronDown className="size-3.5" aria-hidden />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {moreRow.map((item) => (
+                      <DropdownMenuItem
+                        key={item.href}
+                        onSelect={() => navigate(item.href)}
+                        className={cn(
+                          "min-h-11",
+                          item.href === activeDesktopHref && "bg-muted text-foreground",
+                        )}
+                      >
+                        {item.label}
+                        {item.href === REQUESTS_HREF && requestsBadge ? (
+                          <span className="ml-auto text-[12px] tabular-nums text-subtle-foreground">
+                            {requestsBadge} pending
+                          </span>
+                        ) : null}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </NavigationMenuItem>
+            ) : null}
+          </NavigationMenuList>
+        </NavigationMenu>
 
         {/* Desktop actions: search, then list density */}
         <div className="flex items-center gap-1 sm:gap-1.5 ml-auto shrink-0">
@@ -276,67 +301,69 @@ export function Header() {
               row: it is the second thing anyone does here, and on Browse there
               is no input for the `/` shortcut to land on. Full control on
               desktop, icon on phones where the bottom tab bar also carries it. */}
-          <Link
-            to={HEADER_SEARCH_HREF}
-            onClick={onSearchClick}
-            aria-current={searchActive ? "page" : undefined}
-            aria-label="Search"
-            data-header-search
-            data-search-trigger
+          <Button
+            asChild
+            variant="outline"
             className={cn(
-              "hidden md:inline-flex shrink-0 items-center gap-2 rounded-md border text-[12px] transition-colors",
-              showSearchLabel ? "h-9 w-auto justify-start px-2.5" : "h-11 w-11 justify-center",
-              "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
+              "hidden md:inline-flex shrink-0 text-[12px] font-normal",
+              showSearchLabel ? "h-9 justify-start px-2.5" : "size-9 px-0",
               searchActive
-                ? "border-[var(--border-strong)] bg-[var(--bg-muted)] text-[var(--text)]"
-                : "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-tertiary)] hover:border-[var(--border-strong)] hover:text-[var(--text-secondary)]",
+                ? "border-input bg-muted text-foreground"
+                : "bg-card text-subtle-foreground hover:text-muted-foreground",
             )}
           >
-            <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            {showSearchLabel ? (
-              <>
-                <span className="min-w-[7rem] text-left" aria-hidden>Search</span>
-                <kbd className="rounded border border-[var(--border)] bg-[var(--bg)] px-1 font-mono text-[12px] leading-none text-[var(--text-tertiary)]" aria-hidden>
-                  /
-                </kbd>
-              </>
-            ) : null}
-          </Link>
-          <Link
-            to={HEADER_SEARCH_HREF}
-            onClick={onSearchClick}
-            aria-label="Search"
-            aria-current={searchActive ? "page" : undefined}
-            data-search-trigger
+            <Link
+              to={HEADER_SEARCH_HREF}
+              onClick={onSearchClick}
+              aria-current={searchActive ? "page" : undefined}
+              aria-label="Search"
+              data-header-search
+              data-search-trigger
+            >
+              <Search className="size-3.5 shrink-0" aria-hidden />
+              {showSearchLabel ? (
+                <>
+                  <span className="min-w-[7rem] text-left" aria-hidden>Search</span>
+                  <Kbd aria-hidden>/</Kbd>
+                </>
+              ) : null}
+            </Link>
+          </Button>
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
             className={cn(
-              "md:hidden inline-flex h-11 w-11 items-center justify-center rounded-md transition-colors",
-              "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
-              searchActive
-                ? "bg-[var(--bg-muted)] text-[var(--text)]"
-                : "text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text-secondary)]",
+              "md:hidden size-11",
+              searchActive ? "bg-muted text-foreground" : "text-subtle-foreground",
             )}
           >
-            <Search className="h-4 w-4" aria-hidden />
-          </Link>
+            <Link
+              to={HEADER_SEARCH_HREF}
+              onClick={onSearchClick}
+              aria-label="Search"
+              aria-current={searchActive ? "page" : undefined}
+              data-search-trigger
+            >
+              <Search className="size-4" aria-hidden />
+            </Link>
+          </Button>
           {/* Phones get the toggle in the More sheet. Rendering a CSS-hidden twin here
               gave the page two "View as requester" buttons, one of them invisible. */}
           {caps.canPreview && isDesktop ? (
-            <button
+            <Button
               type="button"
+              variant="ghost"
               onClick={() => setPreviewAsRequester(true)}
               data-preview-toggle
               aria-label="View as requester"
               title="See the app the way people you share it with do"
-              className={cn(
-                "hidden md:inline-flex h-11 min-w-[44px] shrink-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium whitespace-nowrap text-[var(--text-tertiary)] transition-colors",
-                "hover:bg-[var(--bg-muted)] hover:text-[var(--text-secondary)]",
-                "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
-              )}
+              className="hidden md:inline-flex h-9 min-w-9 pointer-coarse:h-11 pointer-coarse:min-w-11 shrink-0 px-2.5 text-[12px] text-subtle-foreground hover:text-muted-foreground"
             >
-              <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <Eye className="size-3.5 shrink-0" aria-hidden />
               {/* One name: aria-label. The word is shown only when the row has room. */}
               {showPreviewLabel ? <span aria-hidden>View as requester</span> : null}
-            </button>
+            </Button>
           ) : null}
           {/* The list-density toggle used to sit here.
               It answered an implementation question — how tightly should rows

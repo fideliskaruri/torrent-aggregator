@@ -62,7 +62,7 @@ export default function UpcomingPage() {
           {groups.map((group) => (
             <section key={group.label} aria-labelledby={`upcoming-${group.label}`} data-upcoming-group={group.label}>
               <h2 id={`upcoming-${group.label}`} className="mb-3 flex items-center gap-3 text-sm font-semibold text-[var(--text)]">
-                <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-hidden />
+                <span className="h-2 w-2 rounded-full bg-[var(--brand)]" aria-hidden />
                 {group.label}
                 <span className="font-mono text-xs font-normal text-[var(--text-tertiary)]">{group.entries.length}</span>
               </h2>

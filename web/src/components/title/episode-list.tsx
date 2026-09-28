@@ -267,7 +267,7 @@ export function EpisodeList({
                   className={cn(
                     "h-11 min-h-[44px] cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors lg:h-9 lg:min-h-0",
                     "hover:border-[var(--border-strong)]",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
                   )}
                 >
                   {seasons.map((s) => {
@@ -309,7 +309,7 @@ export function EpisodeList({
                 data-watched-label
                 className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-[var(--text-tertiary)]"
               >
-                <Check className="h-3.5 w-3.5 text-[var(--accent-text,var(--accent))]" aria-hidden />
+                <Check className="h-3.5 w-3.5 text-[var(--accent-text,var(--brand))]" aria-hidden />
                 {watchedProgressLabel(episodes)}
               </p>
             ) : null}
@@ -681,7 +681,7 @@ function EpisodeCardImpl({
           className="absolute inset-x-0 bottom-0 h-1 bg-[color-mix(in_srgb,var(--bg)_55%,transparent)]"
         >
           <span
-            className="block h-full bg-[var(--accent-text,var(--accent))]"
+            className="block h-full bg-[var(--accent-text,var(--brand))]"
             style={{ width: `${progressPct}%` }}
           />
         </span>
@@ -740,7 +740,7 @@ function EpisodeCardImpl({
         event.stopPropagation();
         setSynopsisOpen(true);
       }}
-      className="absolute bottom-0 right-0 z-10 hidden h-11 items-center px-3 text-[12px] font-medium text-[var(--text-secondary)] underline-offset-2 transition-colors hover:text-[var(--text)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] sm:inline-flex"
+      className="absolute bottom-0 right-0 z-10 hidden h-11 items-center px-3 text-[12px] font-medium text-[var(--text-secondary)] underline-offset-2 transition-colors hover:text-[var(--text)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)] sm:inline-flex"
     >
       More
     </button>
@@ -780,7 +780,7 @@ function EpisodeCardImpl({
           aria-label="Close synopsis"
           onClick={(event) => closeSynopsis(event.currentTarget)}
           autoFocus
-          className="-mr-2 -mt-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+          className="-mr-2 -mt-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
         >
           <X className="h-4 w-4" aria-hidden />
         </button>
@@ -875,14 +875,14 @@ function EpisodeCardImpl({
                 // old 82% elevated frost washed the icon out.
                 "bg-[color-mix(in_srgb,var(--bg)_86%,transparent)] text-[var(--text)] shadow-[var(--shadow-sm)] backdrop-blur-sm",
                 "transition-colors hover:bg-[var(--bg)] hover:border-[var(--border-strong)]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
                 // Busy/done states are disabled but still report status, so they stay
                 // fully opaque: fading them let a bright still wash the glyph below AA.
                 "disabled:cursor-default",
                 // Downloading shows a live percentage, so the pill grows to fit
                 // the digits; every other state is a single glyph in a circle.
                 transfer?.status === "downloading"
-                  ? "w-auto px-2.5 text-[var(--accent-text,var(--accent))]"
+                  ? "w-auto px-2.5 text-[var(--accent-text,var(--brand))]"
                   : "w-11",
               )}
             >
@@ -1017,7 +1017,7 @@ function DownloadGlyph({
     return <Loader2 className="h-4 w-4 animate-spin" aria-hidden />;
   }
   if (held || transferStatus === "downloaded" || status === "done") {
-    return <Check className="h-4 w-4 text-[var(--accent-text,var(--accent))]" aria-hidden />;
+    return <Check className="h-4 w-4 text-[var(--accent-text,var(--brand))]" aria-hidden />;
   }
   return <Download className="h-4 w-4" aria-hidden />;
 }
