@@ -100,9 +100,8 @@ export function TitleCard({
     !blocked &&
     ((streaming && action.kind === "play") || action.kind === "get");
 
-  // A row id is not unique on the page — the same episode legitimately appears
-  // in Continue Watching and Ready to Play — and two elements sharing an id
-  // break `aria-describedby` for whichever one loses.
+  // A row id is not unique across every surface on the page, and two elements
+  // sharing an id break `aria-describedby` for whichever one loses.
   const reactId = useId();
   const describedBy =
     unreleased || blocked ? `${reactId}-reason` : undefined;
@@ -154,7 +153,9 @@ export function TitleCard({
           >
             {releaseGate.label ?? "Coming soon"}
           </span>
-        ) : (
+        ) : action.kind === "get" ? null : (
+          // A card offering "Get S02E01" already says the episode is not here
+          // yet; a second badge saying so would only repeat it.
           <AvailabilityChip state={item.availability} compact />
         )}
       </span>

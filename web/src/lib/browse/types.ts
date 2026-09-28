@@ -83,7 +83,7 @@ export interface RailItem {
   posterUrl: string | null;
   backdropUrl: string | null;
   availability: AvailabilityState | null;
-  /** 0–1 watch progress fraction (Continue Watching / Ready to Play). */
+  /** 0–1 watch progress fraction (Continue watching). */
   progressFraction: number | null;
   /** Resume position in seconds (Continue Watching). */
   resumePositionSec: number | null;

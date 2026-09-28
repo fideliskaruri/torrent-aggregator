@@ -20,20 +20,18 @@ export interface HeroPick {
 }
 
 /** Rails good enough to lead the page, best first. */
-const HERO_RAIL_PRIORITY = ["continue-watching", "ready-to-play", "next-up"];
+const HERO_RAIL_PRIORITY = ["continue-watching", "your-library"];
 
 const EYEBROW_BY_RAIL: Record<string, string> = {
   "continue-watching": "Continue watching",
-  "ready-to-play": "Ready to play",
-  "next-up": "Next up",
-  "my-library": "From your library",
+  "your-library": "From your library",
 };
 
 /**
  * The featured item.
  *
- * Preference order is "what you were doing" → "what plays instantly" → "what is
- * coming" → whatever exists. Within a rail the first item wins, because every
+ * Preference order is "what you were doing" → "what plays instantly" →
+ * whatever exists. Within a rail the first item wins, because every
  * builder already orders by recency. Returns null only when there is genuinely
  * nothing, which is the new-install case the empty state handles.
  */

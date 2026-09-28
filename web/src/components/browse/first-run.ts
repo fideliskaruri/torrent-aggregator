@@ -31,45 +31,32 @@ export interface RailPreview {
 }
 
 /**
- * The four rails, in the order `buildBrowsePayload` emits them.
+ * The two personal rails, in the order `BrowseService` emits them.
  *
- * Kept as data rather than JSX so the ids can be asserted against the data
- * layer: a rail renamed there and not here would otherwise show a first-run
- * page describing a rail that no longer exists.
+ * Kept as data rather than JSX so the ids stay next to the data layer's: a
+ * rail renamed there and not here would otherwise show a first-run page
+ * describing a rail that no longer exists.
  */
 export const RAIL_PREVIEWS: readonly RailPreview[] = [
   {
     id: "continue-watching",
-    title: "Continue Watching",
-    blurb: "Anything you stopped part-way through comes back here, at the second you left it.",
+    title: "Continue watching",
+    blurb: "One card per show at the next episode, and any film you stopped part-way through.",
     href: SEARCH_HREF,
     cta: "Find something to watch",
   },
   {
-    id: "ready-to-play",
-    title: "Ready to Play",
-    blurb: "Fully downloaded and on disk. These play the instant you click them.",
+    id: "your-library",
+    title: "Your library",
+    blurb: "Series and films that are downloaded and ready to play, newest first.",
     href: "/downloads",
-    cta: "Open client",
-  },
-  {
-    id: "next-up",
-    title: "Next Up",
-    blurb: "The next episode of every show you follow, whether or not it is downloaded yet.",
-    href: "/watchlist",
-    cta: "Add a show",
-  },
-  {
-    id: "my-library",
-    title: "My Library",
-    blurb: "Everything you are tracking, so a series stays one thing instead of forty files.",
-    href: "/watchlist",
-    cta: "Open Library",
+    cta: "Open downloads",
   },
 ] as const;
 
+/** Continue watching is about playback, so it only shows for people who can play. */
 export function visibleBrowseRail(id: string, streaming: boolean): boolean {
-  return streaming || (id !== "continue-watching" && id !== "ready-to-play");
+  return streaming || id !== "continue-watching";
 }
 
 /** The minimum a rail-like object has to expose to be counted. */

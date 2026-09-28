@@ -139,10 +139,10 @@ interface PlayAction {
   resumePositionSec: number | null;
 }
 
-/** Asks the on-demand grabber for one specific episode. */
+/** Asks the on-demand grabber for one specific episode, named on the button ("Get S02E01"). */
 interface GetAction {
   kind: "get";
-  label: "Download";
+  label: string;
   disabled: false;
   reason: null;
   request: {
@@ -214,12 +214,13 @@ const STATE_POLICY: Record<AvailabilityState, "local" | "fetch" | "dead"> = {
  *  1. Playable *and* we hold the info hash → Play/Resume.
  *  2. Playable but no info hash → treat as not-local. A claim we cannot honour
  *     must never surface as Play; it degrades below.
- *  3. `unavailable` → blocked, with the reason spoken. The *only* dead end.
- *  4. No title at all → blocked; there is not even a string to look up.
- *  5. `null` → Check. Nobody has searched, so the honest offer is to go and
+ *  3. The next episode of a followed show that is not on disk → "Get S02E01".
+ *  4. `unavailable` → blocked, with the reason spoken. The *only* dead end.
+ *  5. No title at all → blocked; there is not even a string to look up.
+ *  6. `null` → Check. Nobody has searched, so the honest offer is to go and
  *     find out, not to promise a grab we have no evidence can succeed.
- *  6. Enough to name one episode → Download (on-demand grab).
- *  7. Otherwise → Find it (search). Always executable.
+ *  7. Enough to name one episode → "Get S02E01" (on-demand grab).
+ *  8. Otherwise → Find it (search). Always executable.
  */
 export function resolveCardAction(item: RailItem): CardAction {
   const state = item.availability;
@@ -239,6 +240,28 @@ export function resolveCardAction(item: RailItem): CardAction {
       infoHash,
       filePath: item.filePath,
       resumePositionSec: item.resumePositionSec,
+    };
+  }
+
+  // A show you follow always has a way forward to its next episode. Neither
+  // "nobody checked yet" nor "nothing viable at the last check" is a verdict,
+  // so the card offers to get that exact episode instead of a dead badge or a
+  // detour through search; the grab runs the search and says why if it still
+  // finds nothing.
+  const followedEpisode = item.watchListItemId ? episodeRequest(item) : null;
+  if (followedEpisode && title) {
+    return {
+      kind: "get",
+      label: `Get ${episodeCode(followedEpisode.season, followedEpisode.episode)}`,
+      disabled: false,
+      reason: null,
+      request: {
+        watchListItemId: item.watchListItemId,
+        title,
+        mediaType: normalizeMediaType(item.mediaType),
+        season: followedEpisode.season,
+        episode: followedEpisode.episode,
+      },
     };
   }
 
@@ -279,7 +302,7 @@ export function resolveCardAction(item: RailItem): CardAction {
   if (episode) {
     return {
       kind: "get",
-      label: "Download",
+      label: `Get ${episodeCode(episode.season, episode.episode)}`,
       disabled: false,
       reason: null,
       request: {
@@ -351,6 +374,10 @@ function episodeRequest(
   if (!Number.isInteger(season) || !Number.isInteger(episode)) return null;
   if (season < 1 || episode < 1) return null;
   return { season, episode };
+}
+
+function episodeCode(season: number, episode: number): string {
+  return `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
 }
 
 function searchHref(title: string, category?: string | null): string {
