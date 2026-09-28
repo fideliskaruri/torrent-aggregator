@@ -2,6 +2,7 @@
 
 ## Fix status (September 28, 2026)
 
+- MATCH-CONCURRENT-TARGETS: fixed; concurrent unique insert losers reuse the winning Work and AcquisitionTarget rows. HTTP regression runs 16 simultaneous grabs with and without a pre-existing Work (both failed before the fix).
 - MATCH-BARE-RANGE: fixed; shared parser classifies bare numeric ranges as batches before interpreting dash singles. Four regressions reproduced the final-episode bug before the fix.
 - MATCH-ANIME-COORDINATES: already fixed by `5c328c2`; sequel mapping regression tests rerun on main successfully.
 - MATCH-QUALITY-PARSER: already fixed by `c52f4e1`; shared resolution tests include `1920x1080`.

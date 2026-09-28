@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
@@ -93,7 +94,12 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
                 PosterUrl = detail["posterUrl"] as string, AliasesJson = JsonSerializer.Serialize(detail["aliases"]),
                 Provider = verified?.Source, ProviderId = verified?.ExternalId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
             db.Works.Add(work);
-            await db.SaveChangesAsync(ct);
+            try { await db.SaveChangesAsync(ct); }
+            catch (DbUpdateException error) when (IsUniqueViolation(error))
+            {
+                db.Entry(work).State = EntityState.Detached;
+                work = await db.Works.SingleAsync(x => x.WorkKey == workKey, ct);
+            }
         }
         else if (verified != null && work.ProviderId == null)
         {
@@ -126,9 +132,19 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
                 var target = await db.AcquisitionTargets.FirstOrDefaultAsync(x => x.UserId == LocalUser.Id && x.TargetKey == key, ct);
                 if (target == null)
                 {
-                    db.AcquisitionTargets.Add(new() { Id = Ids.New(), UserId = LocalUser.Id, TargetKey = key, WorkKey = workKey, WorkId = work.Id,
-                        Scope = targetScope, Season = season, Episode = ep, Status = "queued", PreferredResolution = resolution, CreatedAt = now, UpdatedAt = now });
-                    continue;
+                    target = new() { Id = Ids.New(), UserId = LocalUser.Id, TargetKey = key, WorkKey = workKey, WorkId = work.Id,
+                        Scope = targetScope, Season = season, Episode = ep, Status = "queued", PreferredResolution = resolution, CreatedAt = now, UpdatedAt = now };
+                    db.AcquisitionTargets.Add(target);
+                    try
+                    {
+                        await db.SaveChangesAsync(ct);
+                        continue;
+                    }
+                    catch (DbUpdateException error) when (IsUniqueViolation(error))
+                    {
+                        db.Entry(target).State = EntityState.Detached;
+                        target = await db.AcquisitionTargets.SingleAsync(x => x.UserId == LocalUser.Id && x.TargetKey == key, ct);
+                    }
                 }
                 target.WorkId = work.Id; target.PreferredResolution = resolution; target.UpdatedAt = now;
                 // TS seedSeasonEpisodeTargets: a season retry resets only terminal failures and never downgrades an episode
@@ -181,6 +197,9 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
     private static bool MatchesProvider(string workKey, MediaMetadata resolved) =>
         (resolved.Aliases ?? []).Prepend(resolved.Title).Any(title =>
             ReleaseSelection.MatchesWork(workKey.Trim().ToLowerInvariant(), title, resolved.Year));
+
+    private static bool IsUniqueViolation(DbUpdateException error) =>
+        error.InnerException is SqliteException { SqliteExtendedErrorCode: 2067 or 1555 };
 
     /// <summary>
     /// Port of TS settleSeasonEpisodeTargets / failQueuedSeasonEpisodeTargets. An outcome applies only to a row that is still
