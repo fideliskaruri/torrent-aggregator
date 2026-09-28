@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useLocation } from "react-router";
 import { Search, X, AlertTriangle } from "lucide-react";
 import { TitleResultsList } from "./title-results-list";
@@ -412,7 +413,14 @@ export function SearchOverlay() {
         ? `${titles.length} ${titles.length === 1 ? "result" : "results"} for ${query.trim()}`
         : `Search ${display.scope.label.toLowerCase()}`;
 
-  return (
+  // Rendered inside the page's <main> landmark (it creates no stacking
+  // context), so /search's results live in main and the skip link lands on them.
+  const host =
+    typeof document === "undefined"
+      ? null
+      : document.getElementById("main-content");
+
+  const overlay = (
     <div
       className="fixed inset-0 z-[100] flex justify-center p-0 sm:px-6 sm:pt-[10vh]"
       role="dialog"
@@ -606,4 +614,5 @@ export function SearchOverlay() {
       </div>
     </div>
   );
+  return host ? createPortal(overlay, host) : overlay;
 }
