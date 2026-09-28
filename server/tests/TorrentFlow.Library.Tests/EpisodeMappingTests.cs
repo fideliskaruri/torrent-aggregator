@@ -7,6 +7,53 @@ namespace TorrentFlow.Library.Tests;
 
 public sealed class EpisodeMappingTests
 {
+    [Theory]
+    [InlineData("[Erai-raws] Shingeki no Kyojin - The Final Season - 03 [1080p][Multiple Subtitle].mkv", false)]
+    [InlineData("[Erai-raws] Shingeki no Kyojin - The Final Season Part 2 - 03 [1080p][Multiple Subtitle][525B4EBE].mkv", true)]
+    public void IncompletePrequelChainNeverTreatsEarlierCourAsLocalEpisode(string name, bool expected)
+    {
+        var mapping = new AnimeEpisodeMapping(null, null,
+            ["Attack on Titan Final Season Part 2", "Shingeki no Kyojin: The Final Season Part 2", "Shingeki no Kyojin: The Final Season (2022)", "SnK 4"],
+            ["Attack on Titan", "Shingeki no Kyojin"],
+            PrequelTitles: ["Attack on Titan Final Season", "Shingeki no Kyojin: The Final Season", "SnK 4"], IsSequel: true);
+        Assert.Equal(expected, EpisodeLadder.MatchesTargetEpisode(FakeSearch.Release(name), new(1, 3), mapping));
+    }
+
+    [Fact]
+    public void SharedBleachCourAliasDoesNotQualifyAnEarlierCoursEpisode()
+    {
+        var mapping = new AnimeEpisodeMapping(null, 379,
+            ["BLEACH: Thousand-Year Blood War - The Separation", "BLEACH TYBW"], ["Bleach"],
+            PrequelTitles: ["BLEACH: Thousand-Year Blood War", "BLEACH TYBW"], IsSequel: true);
+        Assert.False(EpisodeLadder.MatchesTargetEpisode(
+            FakeSearch.Release("[NPA_Zero&iDerKaiser0] Bleach TYBW - 03 [KoksalProduction] (1080p) (ArabicSub).mp4"), new(1, 3), mapping));
+    }
+
+    [Theory]
+    [InlineData("[Erai-raws] Shingeki no Kyojin - The Final Season Part 2 - 03 [1080p][Multiple Subtitle][525B4EBE].mkv", 3)]
+    [InlineData("[Erai-raws] Dr. Stone: Science Future Part 3 - 04 [1080p CR WEB-DL AVC AAC][MultiSub][F25746BE]", 4)]
+    [InlineData("Example Cour 2 - 03 [1080p]", 3)]
+    public void CourNumberBeforeEpisodeIsNotABareEpisodeRange(string name, int episode)
+    {
+        var parsed = ReleaseNames.ParseEpisode(name);
+        Assert.False(parsed.IsBatch);
+        Assert.Equal(episode, parsed.Episode);
+    }
+
+    [Fact]
+    public void RealEpisodeRangeAfterCourLabelRemainsABatch() =>
+        Assert.True(ReleaseNames.ParseEpisode("Example Part 2 - 03-04 [1080p]").IsBatch);
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void CourNumberIsPreservedInExactWorkIdentity(int episode)
+    {
+        var name = $"[Erai-raws] Shingeki no Kyojin - The Final Season Part 2 - {episode:00} [1080p][Multiple Subtitle][525B4EBE].mkv";
+        Assert.True(EpisodeLadder.ReleaseMatchesWork(FakeSearch.Release(name), ["Shingeki no Kyojin: The Final Season Part 2"]));
+        Assert.False(EpisodeLadder.ReleaseMatchesWork(FakeSearch.Release(name), ["Shingeki no Kyojin: The Final Season Part 3"]));
+    }
+
     private static readonly AnimeEpisodeMapping Frieren = new(2, 28,
         ["Frieren: Beyond Journey's End Season 2", "Sousou no Frieren 2nd Season"],
         ["Frieren: Beyond Journey's End", "Sousou no Frieren"]);

@@ -75,7 +75,9 @@ public static class ReleaseEpisodeParser
         var season = M(t, @"\bS(?:eason)?\s*(\d{1,3})\b");
         int? s = season.Success ? N(season) : null;
         // Check before dash singles: otherwise "01-12" is read as episode 12.
-        var range = M(t, @"(?<![\p{L}\p{N}])(\d{1,4})(?:v\d+)?\s*[-–—~]\s*(\d{1,4})(?:v\d+)?(?=\s|[\])]|$|\.(?:mkv|mp4|avi|m4v|ts)\b)");
+        // "Part 2 - 03" names a cour and one episode, not episodes 2 through 3.
+        var rangeText = Pattern(@"\b(?:Part|Cour)\s+\d+\s+(?=[-–—])").Replace(t, m => new string(' ', m.Length));
+        var range = M(rangeText, @"(?<![\p{L}\p{N}])(\d{1,4})(?:v\d+)?\s*[-–—~]\s*(\d{1,4})(?:v\d+)?(?=\s|[\])]|$|\.(?:mkv|mp4|avi|m4v|ts)\b)");
         if (range.Success && N(range) > 0 && N(range, 2) > N(range)
             && N(range) is not (>= 1900 and <= 2100))
             return Pack(s);

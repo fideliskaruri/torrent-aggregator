@@ -16,4 +16,5 @@ public interface ILibraryAnimeLookup
 /// <summary>Release coordinates for an AniList entry's local Season 1; never changes catalog or queue coordinates.</summary>
 public sealed record AnimeEpisodeMapping(int? FranchiseSeason, int? AbsoluteOffset,
     IReadOnlyList<string> EntryTitles, IReadOnlyList<string> FranchiseTitles,
-    string Provenance = "anilist-prequel-v1", int SeasonEpisodeOffset = 0);
+    string Provenance = "anilist-prequel-v1", int SeasonEpisodeOffset = 0,
+    IReadOnlyList<string>? PrequelTitles = null, bool IsSequel = false);

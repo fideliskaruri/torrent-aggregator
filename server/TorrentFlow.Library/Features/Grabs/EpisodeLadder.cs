@@ -168,6 +168,15 @@ public static class EpisodeLadder
         if (preferRequestedQuality && minimumResolution is { } preferred)
             Push("preferred-quality", $"{cursor.Query(primaryTitle)} {preferred}p", primaryCat, epFilters);
         Exact(primaryTitle, primaryCat);
+        if (mapping?.IsSequel == true && season == 1)
+        {
+            // Entry English/romaji names qualify a cour; short franchise synonyms often do not.
+            foreach (var entryTitle in mapping.EntryTitles.Take(2))
+            {
+                Exact(entryTitle, animeCat ?? primaryCat);
+                AbsoluteRung(entryTitle, animeCat ?? primaryCat);
+            }
+        }
         if (mapping != null && season == 1)
         {
             foreach (var name in new[] { primaryTitle, bestAlias }.Where(n => n != null).Cast<string>()
@@ -233,10 +242,10 @@ public static class EpisodeLadder
             if (mapping.AbsoluteOffset is { } offset &&
                 (ep.AbsoluteEpisode == offset + target.Episode || ep.Season == null && ep.Episode == offset + target.Episode)) return true;
             // A base-franchise S01E05 isn't the sequel's local E05. Only an entry-qualified name may use local numbering.
-            if (mapping.AbsoluteOffset is > 0 || mapping.FranchiseSeason is > 1)
+            if (mapping.IsSequel || mapping.AbsoluteOffset is > 0 || mapping.FranchiseSeason is > 1)
             {
                 var name = ReleaseSelection.Normalize(result.Title);
-                var bases = mapping.FranchiseTitles.Select(ReleaseSelection.Normalize).ToHashSet();
+                var bases = mapping.FranchiseTitles.Concat(mapping.PrequelTitles ?? []).Select(ReleaseSelection.Normalize).ToHashSet();
                 if (!mapping.EntryTitles.Select(ReleaseSelection.Normalize)
                     .Any(t => t.Length > 0 && !bases.Contains(t) && name.Contains(t, StringComparison.Ordinal))) return false;
             }

@@ -178,9 +178,14 @@ public static class ReleaseNames
     private static string ShowFolder(string title)
     {
         var clean = ShowCleanTitle(title);
-        if (ParseEpisode(title).Episode is { } number)
-            clean = Regex.Replace(clean, $@"\b0*{number}\b", " ", Options, Timeout);
-        clean = Strip(Strip(TrailingNumber.Replace(clean, " "), FolderWords), Whitespace).Trim();
+        var namedPart = Regex.IsMatch(clean, @"\b(?:Part|Cour)\s+\d{1,3}$", Options, Timeout);
+        if (!namedPart)
+        {
+            if (ParseEpisode(title).Episode is { } number)
+                clean = Regex.Replace(clean, $@"\b0*{number}\b", " ", Options, Timeout);
+            clean = TrailingNumber.Replace(clean, " ");
+        }
+        clean = Strip(Strip(clean, FolderWords), Whitespace).Trim();
         return Sanitize(clean);
     }
 

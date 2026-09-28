@@ -28,10 +28,11 @@ public sealed partial class AniListClient
         return await _mappingFlight.RunAsync(id, async () =>
         {
             AnimeEpisodeMapping? result = null;
+            var chain = new List<JsonElement>();
+            var complete = false;
             try
             {
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-                var chain = new List<JsonElement>();
                 var seen = new HashSet<int>();
                 while (seen.Add(numeric) && chain.Count < 16)
                 {
@@ -47,7 +48,7 @@ public sealed partial class AniListClient
                     var prequels = edges.EnumerateArray().Where(e => Str(e, "relationType") == "PREQUEL").ToArray();
                     if (prequels.Length == 0)
                     {
-                        result = MapEpisodeChain(chain);
+                        complete = true;
                         break;
                     }
                     // Movies, specials, branching continuities and missing totals are not safe offsets.
@@ -56,35 +57,39 @@ public sealed partial class AniListClient
                         Int(node, "id") is not { } next) break;
                     numeric = next;
                 }
-                // Explicit season labels remain useful even when a complete absolute mapping isn't available.
-                result ??= chain.Count > 0 ? new(HasLaterPart(chain[0]) ? null : ExplicitSeason(chain[0]), null,
-                    Titles(chain[0]).ToArray(), BaseTitles(chain[0])) : null;
             }
             catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException) { }
+            // A movie/OVA boundary or timeout invalidates absolute offsets, not the sequel identity already read.
+            if (chain.Count > 0) result = MapEpisodeChain(chain, complete);
             _mappings.Set(id, result, result?.AbsoluteOffset != null ? TimeSpan.FromHours(12) : TimeSpan.FromMinutes(5));
             return result;
         }, ct).ConfigureAwait(false);
     }
 
-    internal static AnimeEpisodeMapping MapEpisodeChain(IReadOnlyList<JsonElement> chain)
+    internal static AnimeEpisodeMapping MapEpisodeChain(IReadOnlyList<JsonElement> chain, bool complete = true)
     {
         var current = chain[0];
         var explicitSeason = ExplicitSeason(current);
+        var prequelTitles = chain.Skip(1).SelectMany(Titles).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var isSequel = chain.Count > 1 || HasLaterPart(current) || explicitSeason is > 1;
+        var franchiseTitles = chain.Count > 1 || complete ? Titles(chain[^1]).ToArray() : BaseTitles(current);
         var offset = 0;
         var seasonOffset = 0;
         for (var i = 1; i < chain.Count; i++)
         {
             var previous = chain[i];
             if (Str(previous, "status") != "FINISHED" || Int(previous, "episodes") is not (>= 1 and <= 5000))
-                return new(HasLaterPart(current) ? null : explicitSeason, null, Titles(current).ToArray(), BaseTitles(current));
+                return new(HasLaterPart(current) ? null : explicitSeason, null, Titles(current).ToArray(), BaseTitles(current),
+                    PrequelTitles: prequelTitles, IsSequel: isSequel);
             offset += Int(previous, "episodes")!.Value;
             if (explicitSeason != null && ExplicitSeason(previous) == explicitSeason)
                 seasonOffset += Int(previous, "episodes")!.Value;
         }
         // Chain length is not a season number: split cours often have separate AniList entries.
-        var season = explicitSeason ?? (chain.Count == 1 ? 1 : (int?)null);
-        return new(season, offset, Titles(current).ToArray(), Titles(chain[^1]).ToArray(),
-            SeasonEpisodeOffset: seasonOffset);
+        var season = explicitSeason ?? (complete && chain.Count == 1 ? 1 : (int?)null);
+        if (!complete && HasLaterPart(current)) season = null;
+        return new(season, complete ? offset : null, Titles(current).ToArray(), franchiseTitles,
+            SeasonEpisodeOffset: seasonOffset, PrequelTitles: prequelTitles, IsSequel: isSequel);
     }
 
     private static int? ExplicitSeason(JsonElement media)

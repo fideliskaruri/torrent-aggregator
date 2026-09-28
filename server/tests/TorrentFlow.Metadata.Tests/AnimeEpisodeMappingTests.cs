@@ -5,6 +5,21 @@ namespace TorrentFlow.Metadata.Tests;
 
 public sealed class AnimeEpisodeMappingTests
 {
+    [Fact]
+    public void PartialChainKeepsCourIdentityAndEveryKnownPrequelAliasWithoutGuessingAbsoluteOffset()
+    {
+        var mapping = AniListClient.MapEpisodeChain([
+            Entry("Attack on Titan Final Season Part 2", 12),
+            Entry("Attack on Titan Final Season", 16),
+            Entry("Attack on Titan Season 3 Part 2", 10),
+            Entry("Attack on Titan Season 3", 12),
+            Entry("Attack on Titan Season 2", 12),
+            Entry("Attack on Titan", 25)], complete: false);
+        Assert.Null(mapping.AbsoluteOffset);
+        Assert.True(mapping.IsSequel);
+        Assert.Contains("Attack on Titan Final Season", mapping.PrequelTitles!);
+        Assert.Contains("Attack on Titan", mapping.FranchiseTitles);
+    }
     private static JsonElement Entry(string title, int? episodes, string status = "FINISHED") =>
         JsonSerializer.SerializeToElement(new { title = new { english = title }, episodes, status });
 
