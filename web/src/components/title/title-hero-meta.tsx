@@ -15,6 +15,7 @@
  *    order). The month table below is fixed, so "2023-05-04" is always
  *    "May 4, 2023" on both sides.
  */
+import { Star } from "lucide-react";
 import { factsLine } from "@/lib/utils";
 
 const MONTHS = [
@@ -53,25 +54,7 @@ export function formatReleaseDate(
 }
 
 /**
- * The TMDB score, with its vote count in parentheses when there is one.
- *
- * TMDB reports `0` for an unrated title and `null`/`0` votes for a score
- * nobody has cast on, so a `0.0` is treated as *not rated* (absent) and a
- * missing count drops the "(votes)" rather than printing "(0)" or "()".
- */
-function tmdbScore(
-  rating: number | null | undefined,
-  voteCount: number | null | undefined,
-): string | null {
-  if (rating == null || rating <= 0) return null;
-  const score = rating.toFixed(1);
-  return voteCount != null && voteCount > 0
-    ? `${score} (${voteCount})`
-    : score;
-}
-
-/**
- * The trailing fact after the year: "3 Seasons" for a series, the runtime for
+ * The trailing fact after the year: "3 seasons" for a series, the runtime for
  * a film. Null when neither is known.
  */
 function seasonRuntimeLabel(input: {
@@ -82,7 +65,7 @@ function seasonRuntimeLabel(input: {
   if (input.isSeries) {
     const n = input.seasonCount;
     if (n == null || n <= 0) return null;
-    return `${n} Season${n === 1 ? "" : "s"}`;
+    return `${n} season${n === 1 ? "" : "s"}`;
   }
   const runtime = input.runtimeLabel?.trim();
   return runtime ? runtime : null;
@@ -126,11 +109,11 @@ function ratingBadgeLabel(
 ): string {
   switch (source) {
     case "anilist":
-      return "ANILIST";
+      return "AniList";
     case "tvmaze":
-      return "TVMAZE";
+      return "TVmaze";
     case "itunes":
-      return "ITUNES";
+      return "iTunes";
     case "cinemeta":
       // Cinemeta scores are IMDb ratings.
       return "IMDb";
@@ -139,49 +122,52 @@ function ratingBadgeLabel(
     default: {
       // Unknown provider strings from the wire stay named, never claimed as TMDB.
       const raw = typeof source === "string" ? source.trim() : "";
-      return raw ? raw.toUpperCase() : "TMDB";
+      return raw ? raw : "TMDB";
     }
   }
-}
-
-/**
- * The whole rating/meta line *after* the "TMDB" badge:
- * `{score} · {year} · {N Seasons|runtime}`, with any absent piece dropped.
- * The badge itself is rendered separately (only when {@link tmdbScore} is
- * present), and the line begins with the score so the badge reads as its
- * label.
- */
-function metaLine(input: HeroMetaInput): string {
-  return factsLine([
-    tmdbScore(input.rating, input.voteCount),
-    input.year ? String(input.year) : null,
-    seasonRuntimeLabel(input),
-  ]);
 }
 
 // ---------------------------------------------------------------------------
 // Presentational
 // ---------------------------------------------------------------------------
 
-/** The rating/meta line under the title, with the small "TMDB" text badge. */
+/**
+ * The rating/meta line under the title: a labelled score chip ("8.2 AniList")
+ * followed by `{year} · {N seasons|runtime}`. The score is never shown bare, so
+ * it cannot be mistaken for an age rating or an episode count.
+ */
 export function RatingMetaLine(input: HeroMetaInput) {
-  const score = tmdbScore(input.rating, input.voteCount);
-  const line = metaLine(input);
-  if (!line) return null;
+  const score =
+    input.rating != null && input.rating > 0 ? input.rating.toFixed(1) : null;
+  const facts = factsLine([
+    input.year ? String(input.year) : null,
+    seasonRuntimeLabel(input),
+  ]);
+  if (!score && !facts) return null;
+  const source = ratingBadgeLabel(input.ratingSource);
+  const votes =
+    input.voteCount != null && input.voteCount > 0
+      ? `, ${input.voteCount.toLocaleString("en-US")} votes`
+      : "";
   return (
     <div
       data-title-meta-line
-      className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] text-[var(--text-secondary)]"
+      className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-[var(--text-secondary)]"
     >
       {score ? (
         <span
           data-title-tmdb-badge
-          className="rounded-[calc(var(--radius)-3px)] border border-[var(--border)] px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
+          role="img"
+          title={`Rated ${score} out of 10 on ${source}${votes}`}
+          aria-label={`Rated ${score} out of 10 on ${source}${votes}`}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_60%,transparent)] px-2.5 text-[12px]"
         >
-          {ratingBadgeLabel(input.ratingSource)}
+          <Star className="h-3 w-3 fill-[var(--accent)] text-[var(--accent)]" aria-hidden />
+          <span className="font-semibold tabular-nums text-[var(--text)]">{score}</span>
+          <span className="text-[var(--text-tertiary)]">{source}</span>
         </span>
       ) : null}
-      <span className="tabular-nums">{line}</span>
+      {facts ? <span className="tabular-nums">{facts}</span> : null}
     </div>
   );
 }
@@ -205,6 +191,23 @@ export function GenreChips({ genres }: { genres: string[] }) {
 }
 
 /**
+ * "ja" to "Japanese". The provider hands over an ISO 639 code; a person reads a
+ * language name. The locale is pinned to English so the output never depends
+ * on the browser. An unknown code is shown upper-cased rather than dropped.
+ */
+export function languageName(code: string | null | undefined): string | null {
+  const raw = code?.trim();
+  if (!raw) return null;
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(raw);
+    if (name && name.toLowerCase() !== raw.toLowerCase()) return name;
+  } catch {
+    // Not a valid language tag; fall through.
+  }
+  return raw.toUpperCase();
+}
+
+/**
  * The compact metadata list in the hero's right column. One row per known
  * field; the whole block is omitted when none are present.
  */
@@ -218,23 +221,27 @@ export function HeroMetaList({
   certification: string | null | undefined;
 }) {
   const rows: { label: string; value: string }[] = [];
-  if (originalLanguage) {
-    rows.push({ label: "Language", value: originalLanguage });
+  const language = languageName(originalLanguage);
+  if (language) {
+    rows.push({ label: "Language", value: language });
   }
   const formattedDate = formatReleaseDate(releaseDate);
   if (formattedDate) {
-    rows.push({ label: "Release Date", value: formattedDate });
+    rows.push({ label: "Released", value: formattedDate });
   }
   if (certification) {
-    rows.push({ label: "Rating", value: certification });
+    rows.push({ label: "Age rating", value: certification });
   }
   if (rows.length === 0) return null;
   return (
-    <dl data-title-metalist className="space-y-2 text-[13px]">
+    <dl
+      data-title-metalist
+      className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[13px]"
+    >
       {rows.map((row) => (
-        <div key={row.label} className="flex gap-2">
-          <dt className="shrink-0 text-[var(--text-tertiary)]">{row.label}:</dt>
-          <dd className="min-w-0 text-[var(--text-secondary)]">{row.value}</dd>
+        <div key={row.label} className="contents">
+          <dt className="text-[var(--text-tertiary)]">{row.label}</dt>
+          <dd className="min-w-0 text-[var(--text)]">{row.value}</dd>
         </div>
       ))}
     </dl>
