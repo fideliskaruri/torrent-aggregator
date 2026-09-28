@@ -6,7 +6,6 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
-| Live anime episode matrix and automation | anime-live | 22 live baseline grabs completed; investigating wrong-cour/remake selections and three watchlist misses. Isolated port 3928. |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
@@ -21,6 +20,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Next
 
+- Live anime leftovers: Cowboy Bebop E5 now rejects the live-action remake, but the selected 1080i anime magnet had zero peers/no metadata; find a healthy preferred-quality alternative. Haibane Renmei E5 had only batch-shaped 1080p inventory in the observed searches; explicit batch/file-selection opt-in is not implemented. See `anime-live-results.md` for exact failures and evidence.
 - FQ-DL-005 remote link remains blocked: webtorrent.io Sintel metadata rejects secure connection from this Windows host across HTTP/TLS variants; HTTP returns 403. Plain host-failure guidance and magnet fallback are covered. Use another host or magnet; no transport workaround is claimed.
 - Shared matcher consolidation across acquisition, automation, replacement and playback (deferred from matching fixes).
 - Explicit opt-in below-quality-floor fallback (deferred; selected quality remains a hard minimum).
@@ -41,6 +41,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- Live anime matrix (September 28, 2026): 23 episode-specific title cases plus five watchlist cases against Nyaa/apibay/torrents-csv. Original title matrix improved from **17/22 to 21/22 actual file-list passes**; watchlist **2/5 to 5/5**. Fixed long-running episode visibility, wrong-cour identity, remake rejection, watchlist provider/mapping/alias queries and transient AniList identity reuse. Five code commits pushed; **10,179 tests passed / 9 skipped**. Results and sanitized query/candidate/file evidence are in `anime-live-results.md` and `anime-live-evidence.json`. Browser pass remains blocked by Playwright MCP transport.
 - Series download dialog status: the header and overview chips count members once anything fails ("1 downloading · 30 need attention", error-toned when most failed) instead of one member's "Finding files"; the repeated header error line is gone; season tabs show "N failed"; error cards show one line (tap or hover for the full text) and a visible Find another release button. Swap reasons say "1 seeder". Node and ReleaseSwap tests pass; browser pass pending (MCP transport closed).
 - Live One Piece title reachability: removed anime-only 200-episode truncation in provider extras and local targets. Real 1,180-episode payload now includes E1100/E1180; western placeholder bound unchanged.
 - Server remainder completed and pushed: seven fixes, four already-fixed items reverified, and the webtorrent.io transport blocker documented with improved plain error handling. Final solution validation: **10,152 passed / 9 skipped / 0 failed**. Per-item commit map and verification limits are in `search-matching.md`.
