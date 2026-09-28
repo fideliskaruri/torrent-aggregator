@@ -85,9 +85,31 @@ export interface StorageOverrideFacts {
   message: string;
 }
 
+/** One labelled figure in the dialog's breakdown. */
+export interface StorageBreakdownRow {
+  key: "used" | "incoming" | "queued" | "cap" | "free" | "left";
+  label: string;
+  value: string;
+}
+
+/** A proportional bar: filled segments plus an optional limit marker, all 0..1. */
+export interface StorageBar {
+  segments: { key: "used" | "incoming" | "queued"; fraction: number }[];
+  /** Where the cap sits along the bar, or null when there is no marker. */
+  markerFraction: number | null;
+}
+
 export interface StorageOverridePrompt {
+  /** Short headline. */
   title: string;
-  /** The real numbers, stated plainly. */
+  /** One line under the headline with the number that matters most. */
+  summary: string;
+  /** Used / This download / Already queued / Cap (or the free-space variant). */
+  rows: StorageBreakdownRow[];
+  bar: StorageBar | null;
+  /** One line of reassurance or caution, after the figures. */
+  note: string;
+  /** The same facts as one paragraph, for surfaces with no room for the breakdown. */
   body: string;
   /** Consequential action. Must never be the focused default. */
   confirmLabel: string;
@@ -136,7 +158,33 @@ function downloadAndQueueCopy(facts: StorageOverrideFacts): string {
   return parts.length > 0 ? ` ${parts.join(" ")}` : "";
 }
 
+function positive(value: number | null | undefined): number {
+  return value != null && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function incomingValue(facts: StorageOverrideFacts): string {
+  const size = formatBytesShort(positive(facts.incomingBytes));
+  return facts.incomingEstimated ? `about ${size}` : size;
+}
+
+function downloadAndQueueRows(facts: StorageOverrideFacts): StorageBreakdownRow[] {
+  const rows: StorageBreakdownRow[] = [];
+  if (positive(facts.incomingBytes) > 0) {
+    rows.push({ key: "incoming", label: "This download", value: incomingValue(facts) });
+  }
+  if (positive(facts.reservedQueuedBytes) > 0) {
+    rows.push({ key: "queued", label: "Already queued", value: formatBytesShort(positive(facts.reservedQueuedBytes)) });
+  }
+  return rows;
+}
+
+function clampFraction(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
 export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverridePrompt {
+  const incoming = positive(facts.incomingBytes);
+  const queued = positive(facts.reservedQueuedBytes);
   if (facts.limit === "reserve") {
     const free = facts.freeBytes != null ? formatBytesShort(facts.freeBytes) : "the space";
     const claim = claimedBytes(facts);
@@ -144,8 +192,29 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
       facts.freeBytes != null && claim != null
         ? ` That would leave about ${formatBytesShort(Math.max(0, facts.freeBytes - claim))} free.`
         : "";
+    const freeBytes = positive(facts.freeBytes);
+    const left = facts.freeBytes != null && claim != null ? Math.max(0, facts.freeBytes - claim) : null;
+    const rows: StorageBreakdownRow[] = [
+      ...(facts.freeBytes != null ? [{ key: "free" as const, label: "Free on drive", value: free }] : []),
+      ...downloadAndQueueRows(facts),
+      ...(left != null ? [{ key: "left" as const, label: "Left after", value: formatBytesShort(left) }] : []),
+    ];
+    const bar: StorageBar | null =
+      freeBytes > 0 && incoming + queued > 0
+        ? {
+            segments: [
+              { key: "incoming", fraction: clampFraction(incoming / freeBytes) },
+              { key: "queued", fraction: clampFraction(queued / freeBytes) },
+            ].filter((segment) => segment.fraction > 0) as StorageBar["segments"],
+            markerFraction: null,
+          }
+        : null;
     return {
-      title: "This will use most of your free space",
+      title: "Low on free space",
+      summary: left != null ? `About ${formatBytesShort(left)} would be left free.` : "It fits, with little room to spare.",
+      rows,
+      bar,
+      note: "It fits, but dips into the spare margin TorrentFlow normally keeps.",
       body:
         `Your drive has ${free} free.${downloadAndQueueCopy(facts)} ` +
         `It fits, but it goes into the safety margin this app normally keeps spare.${after} ` +
@@ -162,8 +231,37 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
   // Why the arithmetic looks the way it does. Without this the dialog could
   // read "You are using 0 B of 1 MB" when a large queue tip the cap. Keep this
   // download and already-queued reservations as separate sentences.
+  const usedBytes = positive(facts.usedBytes);
+  const capBytes = facts.capBytes != null && facts.capBytes > 0 ? facts.capBytes : null;
+  const total = usedBytes + incoming + queued;
+  const scale = Math.max(total, capBytes ?? 0);
+  const over = capBytes != null ? total - capBytes : null;
+  const bar: StorageBar | null =
+    scale > 0
+      ? {
+          segments: (
+            [
+              { key: "used", fraction: clampFraction(usedBytes / scale) },
+              { key: "incoming", fraction: clampFraction(incoming / scale) },
+              { key: "queued", fraction: clampFraction(queued / scale) },
+            ] as StorageBar["segments"]
+          ).filter((segment) => segment.fraction > 0),
+          markerFraction: capBytes != null ? clampFraction(capBytes / scale) : null,
+        }
+      : null;
   return {
-    title: "This exceeds your storage cap",
+    title: "Over your storage cap",
+    summary:
+      over != null && over > 0
+        ? `Downloading this puts you ${formatBytesShort(over)} over the cap.`
+        : "Downloading this goes over the cap you set.",
+    rows: [
+      { key: "used", label: "Used", value: used },
+      ...downloadAndQueueRows(facts),
+      { key: "cap", label: "Cap", value: cap },
+    ],
+    bar,
+    note: "Nothing gets deleted, and free disk space stays protected.",
     body:
       `You are using ${used} of ${cap} under the download folder.${downloadAndQueueCopy(facts)} ` +
       `Downloading anyway will go over the cap you set. Nothing else is deleted, ` +

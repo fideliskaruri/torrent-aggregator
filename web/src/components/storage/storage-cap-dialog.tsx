@@ -48,7 +48,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { buttonVariants } from "@/components/ui/button";
-import { capOverridePrompt, type StorageOverrideFacts } from "@/lib/library/storage-override";
+import {
+  capOverridePrompt,
+  type StorageBar,
+  type StorageBreakdownRow,
+  type StorageOverrideFacts,
+} from "@/lib/library/storage-override";
 import { cn } from "@/lib/utils";
 
 /**
@@ -74,6 +79,66 @@ function blockedBody(facts: StorageOverrideFacts | null): string {
     `${message} This is the one limit that cannot be waived. The file is ` +
     `larger than the space that exists, and forcing it would corrupt the ` +
     `download partway through.`
+  );
+}
+
+const SWATCH: Record<StorageBreakdownRow["key"], string | null> = {
+  used: "bg-[var(--text-tertiary)]",
+  incoming: "bg-[var(--accent)]",
+  queued: "bg-[var(--accent)] opacity-40",
+  cap: null,
+  free: null,
+  left: null,
+};
+
+/** Used, this download and the queue laid end to end, with a tick where the cap sits. */
+function StorageBarView({ bar }: { bar: StorageBar }) {
+  return (
+    <div className="relative pt-1" aria-hidden="true" data-storage-bar>
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--bg-muted)]">
+        {bar.segments.map((segment) => (
+          <div
+            key={segment.key}
+            className={cn("h-full", SWATCH[segment.key])}
+            style={{ width: `${segment.fraction * 100}%` }}
+          />
+        ))}
+      </div>
+      {bar.markerFraction != null ? (
+        <div
+          className="absolute top-0 h-4 w-0.5 -translate-x-1/2 rounded-full bg-[var(--text)]"
+          style={{ left: `${bar.markerFraction * 100}%` }}
+          data-storage-bar-cap
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function StorageBreakdown({ rows }: { rows: StorageBreakdownRow[] }) {
+  return (
+    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm" data-storage-breakdown>
+      {rows.map((row) => (
+        <div key={row.key} className="contents" data-storage-row={row.key}>
+          <dt className="flex min-w-0 items-center gap-2 text-[var(--text-secondary)]">
+            {SWATCH[row.key] ? (
+              <span className={cn("h-2 w-2 shrink-0 rounded-full", SWATCH[row.key])} aria-hidden="true" />
+            ) : (
+              <span className="h-2 w-2 shrink-0 rounded-full border border-[var(--text)]" aria-hidden="true" />
+            )}
+            {row.label}
+          </dt>
+          <dd
+            className={cn(
+              "text-right font-medium tabular-nums",
+              row.key === "incoming" ? "text-[var(--accent-text)]" : "text-[var(--text)]",
+            )}
+          >
+            {row.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -106,9 +171,21 @@ export function StorageCapDialog({ facts, onCancel, onConfirm }: StorageCapDialo
             {facts?.overridable ? prompt?.title : blockedTitle(facts)}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {facts?.overridable ? prompt?.body : blockedBody(facts)}
+            {facts?.overridable ? prompt?.summary : blockedBody(facts)}
           </AlertDialogDescription>
         </AlertDialogHeader>
+
+        {facts?.overridable && prompt ? (
+          <div className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3.5">
+            {prompt.bar ? <StorageBarView bar={prompt.bar} /> : null}
+            <StorageBreakdown rows={prompt.rows} />
+          </div>
+        ) : null}
+        {facts?.overridable && prompt ? (
+          <p className="text-xs text-[var(--text-tertiary)]" data-storage-note>
+            {prompt.note}
+          </p>
+        ) : null}
 
         <AlertDialogFooter>
           {/*
