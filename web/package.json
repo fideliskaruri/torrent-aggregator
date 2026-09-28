@@ -11,8 +11,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

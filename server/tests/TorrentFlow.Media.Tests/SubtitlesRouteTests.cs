@@ -86,6 +86,16 @@ public class SubtitlesRouteTests(SubtitlesApiFactory factory) : IClassFixture<Su
 {
     private readonly HttpClient _http = factory.CreateClient();
 
+    private static readonly SubtitleStream[] ProbeStreams =
+    [
+        new(0, "video", "h264"),
+        new(1, "audio", "ac3", "eng", Channels: 6),
+        new(2, "subtitle", "subrip", "eng", "English"),
+        new(3, "subtitle", "hdmv_pgs_subtitle", "eng", "English PGS"),
+        new(4, "subtitle", "ass", "jpn"),
+        new(5, "subtitle", "dvd_subtitle", "fre")
+    ];
+
     private string AddTorrent(string? state = null, string[]? paths = null)
     {
         var hash = Guid.NewGuid().ToString("N") + "12345678";
@@ -134,7 +144,7 @@ public class SubtitlesRouteTests(SubtitlesApiFactory factory) : IClassFixture<Su
     public async Task CachedListingIsFreeAndKeepsExplicitNullFields()
     {
         var hash = AddTorrent();
-        await factory.SeedProbeAsync(hash, "Film.mkv", SubtitlesRulesTests.Streams);
+        await factory.SeedProbeAsync(hash, "Film.mkv", ProbeStreams);
         var opens = factory.Engine.OpenCount;
         var response = await _http.GetAsync(Url(hash.ToUpperInvariant()));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -231,7 +241,7 @@ public class SubtitlesRouteTests(SubtitlesApiFactory factory) : IClassFixture<Su
     public async Task EmbeddedUnknownBitmapAndUnavailableToolsAreDistinct()
     {
         var hash = AddTorrent();
-        await factory.SeedProbeAsync(hash, "Film.mkv", SubtitlesRulesTests.Streams);
+        await factory.SeedProbeAsync(hash, "Film.mkv", ProbeStreams);
         var unknown = await _http.GetAsync(Url(hash, "&track=embedded%3A42"));
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
         Assert.Equal("Subtitle track not found", (await Body(unknown)).GetProperty("error").GetString());
