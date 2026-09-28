@@ -190,6 +190,38 @@ public sealed class ReleaseSwapTests
             Assert.Empty(host.Engine.Swaps);
         }
     }
+    [Theory]
+    [InlineData("user", true, "added from files already on your disk")]
+    [InlineData("stream", false, "temporary copy made for streaming")]
+    public async Task RefusalsExplainWhyInPlainLanguage(string origin, bool imported, string expected)
+    {
+        using var host = new LibraryHost();
+        using var client = host.CreateClient();
+        var hash = 1.ToString("x40");
+        await host.Seed(db => db.EngineTorrents.Add(new()
+        {
+            Id = "swap-refused", UserId = LocalUser.Id, Hash = hash, Name = "Big Buck Bunny 2008 1080p", Origin = origin,
+            Status = "queued", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow, LastUsedAt = DateTime.UtcNow
+        }));
+        host.Engine.Info = _ => new EngineTorrentInfo { Hash = hash, Name = "Big Buck Bunny", State = "queued", Imported = imported };
+        using var response = await client.GetAsync($"/api/client/torrents/{hash}/alternatives");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains(expected, (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task QueuedRowWithNoProgressYetCanBeSwapped()
+    {
+        var (host, client, path) = await Movie(Release(2, "Big Buck Bunny 2008 1080p") with { Seeders = 30, Source = "apibay" });
+        using (host) using (client)
+        {
+            host.Engine.Info = _ => new EngineTorrentInfo { Hash = 1.ToString("x40"), Name = "Big Buck Bunny 2008 1080p", State = "queued", Progress = 0 };
+            var body = await client.GetFromJsonAsync<JsonElement>(path);
+            Assert.Single(body.GetProperty("alternatives").EnumerateArray());
+            using var swapped = await client.PostAsJsonAsync(path, new { best = true });
+            Assert.Equal(HttpStatusCode.OK, swapped.StatusCode);
+        }
+    }
     private static TorrentResult Release(int n, string title) => new()
     {
         Id = n.ToString(), Title = title, InfoHash = n.ToString("x40"),

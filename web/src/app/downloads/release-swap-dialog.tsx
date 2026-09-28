@@ -62,9 +62,14 @@ export interface ReleaseAlternatives {
   recommendedToken?: string;
 }
 
-/** Only incomplete, built-in, non-imported rows have a release to replace. */
+/**
+ * Every unfinished built-in row offers the action — queued, paused, stalled,
+ * just swapped, or not yet reporting progress. When the server can't replace a
+ * row (imported from disk, a streaming copy, playing) the dialog says why
+ * instead of the menu hiding the item.
+ */
 export function canFindAnotherRelease(t: ClientTorrent): boolean {
-  return t.ownerClientType === "builtin" && !t.imported && t.progress < 0.9999 && !isDownloaded(t.state);
+  return t.ownerClientType === "builtin" && !isDownloaded(t.state) && !(Number(t.progress) >= 0.9999);
 }
 
 const CHOICES_TTL_MS = 10 * 60_000;
@@ -96,7 +101,7 @@ function failureMessage(body: { message?: string; title?: string } | null, statu
 type LoadState =
   | { kind: "loading" }
   | { kind: "ready"; data: ReleaseAlternatives }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string; refused?: boolean };
 
 export function ReleaseSwapDialog({
   torrent,
@@ -146,7 +151,12 @@ export function ReleaseSwapDialog({
         const body = await readJsonBody<ReleaseAlternatives & { message?: string }>(res);
         if (controller.signal.aborted) return;
         if (!res.ok || !body || !Array.isArray(body.alternatives) || !body.health) {
-          setState({ kind: "error", message: failureMessage(body, res.status, "Couldn't search right now. Try again.") });
+          setState({
+            kind: "error",
+            message: failureMessage(body, res.status, "Couldn't search right now. Try again."),
+            // 409 is the server declining this row (imported, streaming copy, complete), not a failed search.
+            refused: res.status === 409,
+          });
           return;
         }
         setSources((previous) => mergeSources(previous, body.sources));
@@ -234,7 +244,8 @@ export function ReleaseSwapDialog({
   const searchHref = `/search?q=${encodeURIComponent(torrent.workTitle || torrent.name)}`;
   const selectedSource = source ? sources.find((entry) => entry.id === source) : undefined;
   const selectedLabel = source ? sourceLabel(source, selectedSource?.name) : null;
-  const nothingToPick = state.kind === "ready" && state.data.alternatives.length === 0;
+  const refused = state.kind === "error" && state.refused === true;
+  const nothingToPick = (state.kind === "ready" && state.data.alternatives.length === 0) || refused;
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -317,7 +328,11 @@ export function ReleaseSwapDialog({
               </ul>
             </div>
           ) : state.kind === "error" ? (
-            <TfErrorState title="Couldn't find other releases" message={state.message} onRetry={retry} />
+            <TfErrorState
+              title={state.refused ? "This release can't be replaced" : "Couldn't find other releases"}
+              message={state.message}
+              onRetry={retry}
+            />
           ) : state.data.alternatives.length === 0 ? (
             selectedLabel ? (
               <TfEmptyState

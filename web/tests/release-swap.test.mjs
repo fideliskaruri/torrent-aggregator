@@ -95,3 +95,15 @@ test("menus cap their width so long release names wrap instead of pushing the me
   assert.match(series, /data-find-release/);
   assert.match(page, /data-find-release/);
 });
+
+test("every unfinished built-in row offers Find another release, including queued and just-swapped rows", () => {
+  const dialog = read("release-swap-dialog.tsx");
+  const gate = dialog.match(/export function canFindAnotherRelease[\s\S]*?\n\}/)[0];
+  // Imported/streaming rows are explained by the server in the dialog, never hidden by the menu.
+  assert.doesNotMatch(gate, /imported/);
+  assert.doesNotMatch(gate, /isQueued|isPaused|dlspeed|peers/);
+  assert.match(gate, /ownerClientType === "builtin"/);
+  assert.match(gate, /!\(Number\(t\.progress\) >= 0\.9999\)/);
+  assert.match(dialog, /refused: res\.status === 409/);
+  assert.match(dialog, /This release can't be replaced/);
+});

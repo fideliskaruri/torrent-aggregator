@@ -33,8 +33,12 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             .SingleOrDefaultAsync(r => r.UserId == LocalUser.Id && r.Hash == hash, ct)
             ?? throw new InvalidOperationException("Download no longer exists.");
         var info = await engine.GetAsync(hash, ct) ?? throw new InvalidOperationException("Download no longer exists.");
-        if (info.Imported || info.Progress >= .9999 || row.Origin != TorrentOrigin.User)
-            throw new InvalidOperationException("Only incomplete kept downloads can be replaced.");
+        if (info.Progress >= .9999 || row.VerifiedAt is not null && row.Progress >= .9999)
+            throw new InvalidOperationException("This download is already complete, so there's nothing to replace.");
+        if (info.Imported)
+            throw new InvalidOperationException("This download was added from files already on your disk, so it has no release to swap. Delete it and download the title again to choose a release.");
+        if (row.Origin != TorrentOrigin.User)
+            throw new InvalidOperationException("This is a temporary copy made for streaming. Keep it as a download first, then find another release.");
         // Torrent metadata can rename a release to an opaque payload filename. Keep the acquisition identity.
         var releaseName = await db.GrabJobs.AsNoTracking().Where(j => j.UserId == LocalUser.Id && j.InfoHash == hash)
             .OrderByDescending(j => j.CreatedAt).Select(j => j.Title).FirstOrDefaultAsync(ct)
