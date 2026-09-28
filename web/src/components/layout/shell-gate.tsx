@@ -9,14 +9,17 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * Everyone gets the same app. Remote pages wait for `/api/me` first, so the
+ * Everyone gets the same app. Every page waits for `/api/me` first, so the
  * role — and with it every capability — is known before any page mounts and
- * nobody fires API calls their role can't make.
+ * nobody fires API calls their role can't make. A loopback page is the owner
+ * by construction, so it still renders if `/api/me` fails; the wait itself is
+ * one local round trip. (Loopback is not proof of the owner on its own: a
+ * tunnel or dev proxy can also arrive at 127.0.0.1.)
  */
 export function ShellGate({ children }: { children: ReactNode }) {
   const session = useSessionInfo();
   const local = typeof window !== "undefined" && isLoopbackHost(window.location.hostname);
-  if (local || session.known) return <>{children}</>;
+  if (session.known || (local && session.failed)) return <>{children}</>;
   if (session.failed) {
     return (
       <div className="container-app py-10" data-shell-failed>

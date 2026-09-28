@@ -210,7 +210,8 @@ export function EpisodeList({
       : null;
   // The watched label only earns its place once a season's episodes exist:
   // "Watched 0 of 0 (0%)" over a spinner is noise, not progress.
-  const showWatched = view.kind === "rows" && episodes.length > 0;
+  // Watched counts are the owner's playback history; people who can't play have none.
+  const showWatched = canStream && view.kind === "rows" && episodes.length > 0;
 
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>

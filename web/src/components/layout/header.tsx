@@ -197,8 +197,8 @@ export function Header() {
               )}
             >
               <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="hidden lg:inline">View as requester</span>
-              <span className="sr-only lg:hidden">View as requester</span>
+              <span className="hidden 2xl:inline">View as requester</span>
+              <span className="sr-only 2xl:hidden">View as requester</span>
             </button>
           ) : null}
           {/* The list-density toggle used to sit here.

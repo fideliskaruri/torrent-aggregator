@@ -3,6 +3,7 @@ import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useApiQuery } from "@/hooks/use-api-query";
+import { useCapabilities } from "@/lib/capabilities";
 import {
   DESKTOP_URL,
   UPDATE_DISMISS_KEY,
@@ -24,7 +25,9 @@ function readDismissed(): string | null {
 /** A slim notice under the header when the installed Windows app has an update; hidden everywhere else. */
 export function UpdateBanner() {
   const [fastPoll, setFastPoll] = useState(false);
+  const { canManage } = useCapabilities();
   const { data, refetch } = useApiQuery<DesktopStatus>(DESKTOP_URL, {
+    enabled: canManage,
     refreshMs: fastPoll ? 1000 : 30 * 60_000,
     emptyOnUnauthorized: true,
   });
