@@ -98,8 +98,6 @@ const DOWNLOADED_STATES = new Set([
 ]);
 
 const PAUSED_STATES = new Set([
-  "error",
-  "missingfiles",
   "paused",
   "pauseddl",
   "pausedup",
@@ -107,6 +105,9 @@ const PAUSED_STATES = new Set([
   "stoppeddl",
   "stoppedup",
 ]);
+
+/** Failed transfers (metadata timeout, missing files, engine error) — not paused. */
+const ERROR_STATES = new Set(["error", "missingfiles"]);
 
 export function isDownloading(state: string): boolean {
   return DOWNLOADING_STATES.has(state.trim().toLowerCase());
@@ -118,6 +119,11 @@ export function isDownloaded(state: string): boolean {
 
 export function isPaused(state: string): boolean {
   return PAUSED_STATES.has(state.trim().toLowerCase());
+}
+
+/** True when the client reports a failed transfer (`error` / `missingFiles`). */
+export function isError(state: string): boolean {
+  return ERROR_STATES.has(state.trim().toLowerCase());
 }
 
 /**
@@ -203,12 +209,15 @@ function combinedProgress(
  * page renders whatever comes back through its own `stateLabel`, so this
  * returns a real member's raw state rather than inventing a vocabulary.
  *
+ * Error outranks paused and queued: a failed member is the thing the user has
+ * to act on, and must never be collapsed into "Paused".
+ *
  * Paused outranks downloaded for the same reason: unfinished-and-stopped is the
  * honest description of a group holding one paused episode, and it is the
  * state the user has to act on.
  *
- * Queued sits between the two: behind a member that is actually moving, but
- * ahead of paused, because a queued member will start on its own.
+ * Queued sits between downloading and error: behind a member that is actually
+ * moving, but ahead of paused, because a queued member will start on its own.
  */
 function combinedState(
   members: readonly Pick<TransferRow, "state">[],
@@ -218,14 +227,16 @@ function combinedState(
   for (const member of members) {
     const state = member.state ?? "";
     const rank = isDownloading(state)
-      ? 4
-      : isQueued(state)
-        ? 3
-        : isPaused(state)
-          ? 2
-          : isDownloaded(state)
-            ? 1
-            : 0;
+      ? 5
+      : isError(state)
+        ? 4
+        : isQueued(state)
+          ? 3
+          : isPaused(state)
+            ? 2
+            : isDownloaded(state)
+              ? 1
+              : 0;
     if (rank > bestRank) {
       bestRank = rank;
       best = state;

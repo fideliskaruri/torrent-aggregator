@@ -59,6 +59,7 @@ import {
   canStreamTransfer,
   isDownloaded,
   isDownloading,
+  isError,
   isPaused,
   isQueued,
   leadQueuePosition,
@@ -69,7 +70,9 @@ import {
 import {
   releaseDisplayFacts,
   sourceTierChip,
+  stateBadgeVariant,
   stateLabel,
+  transferErrorMessage,
   waitReasonLabel,
 } from "./release-display";
 import type { Artwork } from "@/lib/metadata/artwork";
@@ -109,9 +112,11 @@ export interface SeriesDownloadDialogProps {
 function barTone(state: string): string {
   return isDownloaded(state)
     ? "bg-[var(--success)]"
-    : isPaused(state) || isQueued(state)
-      ? "bg-[var(--text-tertiary)]"
-      : "bg-[var(--primary)]";
+    : isError(state)
+      ? "bg-[var(--danger)]"
+      : isPaused(state) || isQueued(state)
+        ? "bg-[var(--text-tertiary)]"
+        : "bg-[var(--primary)]";
 }
 
 function seasonLabelFor(season: Pick<SeasonBucket<ClientTorrent>, "season" | "label">) {
@@ -389,9 +394,7 @@ function EpisodeCard({
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge
-              variant={
-                done ? "success" : isPaused(t.state) || isQueued(t.state) ? "default" : "accent"
-              }
+              variant={done ? "success" : stateBadgeVariant(t.state)}
               data-episode-state
             >
               {done ? <Check className="h-3 w-3" aria-hidden /> : null}
@@ -412,6 +415,14 @@ function EpisodeCard({
               {showEta ? ` · ETA ${formatDuration(t.eta as number)}` : ""}
             </span>
           </div>
+          {transferErrorMessage(t) ? (
+            <p
+              className="text-[12px] leading-snug text-[var(--danger)]"
+              data-episode-error-message
+            >
+              {transferErrorMessage(t)}
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -557,19 +568,22 @@ function EpisodeCard({
                 Find another release
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              onClick={() => onAction("pause", t)}
-              className="min-h-[44px] lg:min-h-0"
-            >
-              <Pause />
-              Pause
-            </DropdownMenuItem>
+            {!isError(t.state) ? (
+              <DropdownMenuItem
+                onClick={() => onAction("pause", t)}
+                className="min-h-[44px] lg:min-h-0"
+              >
+                <Pause />
+                Pause
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onClick={() => onAction("resume", t)}
               className="min-h-[44px] lg:min-h-0"
+              data-episode-retry={isError(t.state) ? "true" : undefined}
             >
               <Play />
-              Resume
+              {isError(t.state) ? "Retry" : "Resume"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -673,13 +687,7 @@ export function SeriesDownloadDialog({
           </h2>
           <div className="flex min-w-0 items-center gap-2">
             <Badge
-              variant={
-                isDownloading(group.state)
-                  ? "accent"
-                  : isDownloaded(group.state)
-                    ? "success"
-                    : "default"
-              }
+              variant={stateBadgeVariant(group.state)}
               data-mobile-group-state
             >
               {stateLabel(group.state, leadQueuePosition(group.torrents))}
@@ -736,13 +744,7 @@ export function SeriesDownloadDialog({
               </h2>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge
-                  variant={
-                    isDownloading(group.state)
-                      ? "accent"
-                      : isDownloaded(group.state)
-                        ? "success"
-                        : "default"
-                  }
+                  variant={stateBadgeVariant(group.state)}
                   data-group-state
                 >
                   {stateLabel(group.state, leadQueuePosition(group.torrents))}
@@ -753,6 +755,19 @@ export function SeriesDownloadDialog({
                   {formatBytes(group.sizeBytes)}
                 </span>
               </div>
+              {(() => {
+                const msg = transferErrorMessage(
+                  group.torrents.find((row) => isError(row.state)) ?? { state: group.state },
+                );
+                return msg ? (
+                  <p
+                    className="text-[12px] leading-snug text-[var(--danger)]"
+                    data-group-error-message
+                  >
+                    {msg}
+                  </p>
+                ) : null;
+              })()}
               <div className="flex items-center gap-2">
                 <Progress
                   value={pct}

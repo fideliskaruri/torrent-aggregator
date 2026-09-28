@@ -29,6 +29,14 @@ export interface ClientTorrent {
   waitReason?: QueueWaitReason | null;
   /** Queue priority of a kept built-in download: owner > request > automation. */
   lane?: "owner" | "request" | "automation" | null;
+  /**
+   * Failure text from the engine/client when `state` is `error`.
+   * Server DTO field is `error` (`EngineTorrentInfo.Error`); tolerate
+   * `errorMessage` / `message` if a later agent renames the payload.
+   */
+  error?: string | null;
+  errorMessage?: string | null;
+  message?: string | null;
   workId?: string | null;
   workKey?: string | null;
   workTitle?: string | null;

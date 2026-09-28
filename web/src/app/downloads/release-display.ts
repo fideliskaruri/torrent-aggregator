@@ -10,6 +10,13 @@
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { parseEpisode } from "@/lib/torrents/episodes";
 import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
+import {
+  isDownloaded,
+  isDownloading,
+  isError,
+  isPaused,
+  isQueued,
+} from "./grouping";
 import type { ClientTorrent } from "./types";
 
 /**
@@ -51,9 +58,13 @@ const STATE_LABELS: Record<string, string> = {
  * `queuePosition`, which is the one thing worth knowing about it ("Queued · #2").
  */
 export function stateLabel(state: string, queuePosition?: number | null) {
-  const label = STATE_LABELS[state] ?? state;
+  const raw = state.trim();
+  const label =
+    STATE_LABELS[raw] ??
+    STATE_LABELS[Object.keys(STATE_LABELS).find((k) => k.toLowerCase() === raw.toLowerCase()) ?? ""] ??
+    raw;
   if (
-    state === "queued" &&
+    raw.toLowerCase() === "queued" &&
     typeof queuePosition === "number" &&
     Number.isFinite(queuePosition) &&
     queuePosition > 0
@@ -61,6 +72,31 @@ export function stateLabel(state: string, queuePosition?: number | null) {
     return `${label} · #${Math.floor(queuePosition)}`;
   }
   return label;
+}
+
+/** Badge colour for a transfer/group state — errors use the destructive token. */
+export function stateBadgeVariant(
+  state: string,
+): "accent" | "success" | "danger" | "default" {
+  if (isError(state)) return "danger";
+  if (isDownloaded(state)) return "success";
+  if (isDownloading(state)) return "accent";
+  if (isPaused(state) || isQueued(state)) return "default";
+  return "default";
+}
+
+/**
+ * Prefer the engine's `error` string; tolerate alternate payload names a
+ * server agent may ship (`errorMessage`, `message`).
+ */
+export function transferErrorMessage(
+  torrent: Pick<ClientTorrent, "error" | "errorMessage" | "message" | "state">,
+): string | null {
+  if (!isError(torrent.state)) return null;
+  for (const candidate of [torrent.error, torrent.errorMessage, torrent.message]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
 }
 
 const WAIT_REASON_LABELS: Record<string, string> = {

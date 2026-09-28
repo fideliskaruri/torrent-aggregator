@@ -67,6 +67,7 @@ import {
   groupDownloads,
   canStreamTransfer,
   isDownloading,
+  isError,
   isPaused,
   isQueued,
   isDownloaded,
@@ -80,7 +81,19 @@ import {
   filterDownloadsByTab,
   type DownloadTab,
 } from "./media-filter";
-import { releaseDisplayFacts, sourceTierChip, stateLabel, waitReasonLabel } from "./release-display";
+import {
+  releaseDisplayFacts,
+  sourceTierChip,
+  stateBadgeVariant,
+  stateLabel,
+  transferErrorMessage,
+  waitReasonLabel,
+} from "./release-display";
+import {
+  isValidTorrentSourceInput,
+  parseTorrentSourceInput,
+  TORRENT_SOURCE_INPUT_HINT,
+} from "@/lib/torrents/magnet-input";
 import { resolveSelectedSeasonKey, seriesGroupByKey } from "./season-selection";
 import {
   applySnapshot,
@@ -106,36 +119,6 @@ import {
 import type { TorrentClientType } from "@/lib/clients";
 
 type StatusFilter = "all" | "active" | "downloading" | "ready" | "paused";
-
-function parseRawTorrentInput(
-  raw: string,
-): { magnet?: string; torrentUrl?: string; name?: string } | null {
-  const value = raw.trim();
-  if (!value) return null;
-  if (/^magnet:\?/i.test(value)) {
-    const dn = (() => {
-      try {
-        const url = new URL(value);
-        return url.searchParams.get("dn")?.trim() || undefined;
-      } catch {
-        const match = /(?:^|[?&])dn=([^&]+)/i.exec(value)?.[1];
-        if (!match) return undefined;
-        try {
-          return decodeURIComponent(match).trim() || undefined;
-        } catch {
-          return match.trim() || undefined;
-        }
-      }
-    })();
-    return dn ? { magnet: value, name: dn } : { magnet: value };
-  }
-  if (/^https?:\/\//i.test(value) && /\.torrent(?:[?#]|$)/i.test(value)) {
-    const tail = value.split("/").pop() ?? "";
-    const name = tail.replace(/\.torrent(?:[?#].*)?$/i, "").trim();
-    return name ? { torrentUrl: value, name: decodeURIComponent(name) } : { torrentUrl: value };
-  }
-  return null;
-}
 
 const SHARE_TRACKERS = [
   "udp://tracker.opentrackr.org:1337/announce",
@@ -595,6 +578,7 @@ export default function ClientPage() {
     let downloading = 0;
     let ready = 0;
     let paused = 0;
+    let errored = 0;
     let dlspeed = 0;
     let upspeed = 0;
     let total = 0;
@@ -602,12 +586,23 @@ export default function ClientPage() {
       total += 1;
       if (isDownloading(t.state)) downloading += 1;
       else if (isDownloaded(t.state)) ready += 1;
+      else if (isError(t.state)) errored += 1;
       else if (isPaused(t.state)) paused += 1;
       dlspeed += t.dlspeed || 0;
       upspeed += t.upspeed || 0;
     }
-    return { downloading, ready, paused, dlspeed, upspeed, total };
+    return { downloading, ready, paused, errored, dlspeed, upspeed, total };
   }, [downloadable]);
+
+  const rawSendTrimmed = rawSendValue.trim();
+  const rawSendInvalid =
+    rawSendTrimmed.length > 0 && !isValidTorrentSourceInput(rawSendValue);
+  const rawSendClientError = rawSendInvalid
+    ? TORRENT_SOURCE_INPUT_HINT
+    : rawSendError?.field === "source"
+      ? rawSendError.message
+      : null;
+  const rawSendAnyError = rawSendClientError || rawSendError?.message || null;
 
   async function action(act: TorrentRowAction, torrent: ClientTorrent) {
     if (act === "swap") { setSwapTorrent(torrent); return; }
@@ -639,9 +634,9 @@ export default function ClientPage() {
   }
 
   async function sendRawTorrent() {
-    const parsed = parseRawTorrentInput(rawSendValue);
+    const parsed = parseTorrentSourceInput(rawSendValue);
     if (!parsed) {
-      setRawSendError({ message: "Paste a magnet link or a direct .torrent URL.", field: "source" });
+      setRawSendError({ message: TORRENT_SOURCE_INPUT_HINT, field: "source" });
       return;
     }
     setRawSendError(null);
@@ -1169,7 +1164,7 @@ export default function ClientPage() {
             type="button"
             size="sm"
             onClick={() => void sendRawTorrent()}
-            disabled={sendingRaw || !rawSendValue.trim()}
+            disabled={sendingRaw || !rawSendTrimmed || rawSendInvalid}
             className="shrink-0"
             data-raw-torrent-send-button
           >
@@ -1180,7 +1175,7 @@ export default function ClientPage() {
         <textarea
           className={cn(
             "min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--accent)]",
-            rawSendError?.field === "source" && "border-[var(--danger)]",
+            (rawSendInvalid || rawSendError?.field === "source") && "border-[var(--danger)]",
           )}
           value={rawSendValue}
           onChange={(event) => {
@@ -1189,11 +1184,20 @@ export default function ClientPage() {
           }}
           placeholder="magnet:?xt=urn:btih:… or https://example.com/release.torrent"
           aria-label="Paste a magnet link or .torrent URL"
-          aria-invalid={rawSendError?.field === "source" || undefined}
-          aria-describedby={rawSendError ? "raw-torrent-send-error" : undefined}
+          aria-invalid={rawSendInvalid || rawSendError?.field === "source" || undefined}
+          aria-describedby={rawSendAnyError ? "raw-torrent-send-error" : undefined}
           data-raw-torrent-send-input
         />
-        {rawSendError ? (
+        {rawSendInvalid ? (
+          <p
+            id="raw-torrent-send-error"
+            className="text-[12px] leading-relaxed text-[var(--danger)]"
+            data-raw-torrent-send-error="source"
+            data-raw-torrent-invalid
+          >
+            {TORRENT_SOURCE_INPUT_HINT}
+          </p>
+        ) : rawSendError ? (
           <p
             id="raw-torrent-send-error"
             role="alert"
@@ -1343,6 +1347,15 @@ export default function ClientPage() {
                 value: stats.paused,
                 tone: stats.paused ? "muted" : "muted",
               },
+              ...(stats.errored
+                ? [
+                    {
+                      label: "Error",
+                      value: stats.errored,
+                      tone: "default" as const,
+                    },
+                  ]
+                : []),
               {
                 label: "Total",
                 value: stats.total,
@@ -1762,10 +1775,16 @@ function SeriesOverviewRow({
     transferIds.every((transferId) => selected.has(transferId));
   const barTone = isDownloaded(group.state)
     ? "bg-[var(--success)]"
-    : isPaused(group.state) || isQueued(group.state)
-      ? "bg-[var(--text-tertiary)]"
-      : "bg-[var(--primary)]";
+    : isError(group.state)
+      ? "bg-[var(--danger)]"
+      : isPaused(group.state) || isQueued(group.state)
+        ? "bg-[var(--text-tertiary)]"
+        : "bg-[var(--primary)]";
   const titleHref = downloadTitleHref(head);
+  const groupErrorMessage =
+    transferErrorMessage(
+      group.torrents.find((t) => isError(t.state)) ?? { state: group.state },
+    ) ?? null;
 
   return (
     <div
@@ -1775,6 +1794,7 @@ function SeriesOverviewRow({
       )}
       data-download-group
       data-group-key={group.key}
+      data-group-error={isError(group.state) ? "true" : undefined}
     >
       <Checkbox
         checked={allSelected}
@@ -1807,16 +1827,7 @@ function SeriesOverviewRow({
               </p>
             )}
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge
-                variant={
-                  isDownloading(group.state)
-                    ? "accent"
-                    : isDownloaded(group.state)
-                      ? "success"
-                      : "default"
-                }
-                data-group-state
-              >
+              <Badge variant={stateBadgeVariant(group.state)} data-group-state>
                 {stateLabel(group.state, leadQueuePosition(group.torrents))}
               </Badge>
               <span className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
@@ -1827,6 +1838,14 @@ function SeriesOverviewRow({
                 {formatBytes(group.sizeBytes)}
               </span>
             </div>
+            {groupErrorMessage ? (
+              <p
+                className="text-[12px] leading-snug text-[var(--danger)]"
+                data-group-error-message
+              >
+                {groupErrorMessage}
+              </p>
+            ) : null}
             <div className="flex items-center gap-2 pt-0.5">
               <Progress
                 value={pct}
@@ -1947,11 +1966,14 @@ function FilmRow({
   const art = artwork[query.key];
   const barTone = isDownloaded(t.state)
     ? "bg-[var(--success)]"
-    : isPaused(t.state) || isQueued(t.state)
-      ? "bg-[var(--text-tertiary)]"
-      : "bg-[var(--primary)]";
+    : isError(t.state)
+      ? "bg-[var(--danger)]"
+      : isPaused(t.state) || isQueued(t.state)
+        ? "bg-[var(--text-tertiary)]"
+        : "bg-[var(--primary)]";
   const titleHref = downloadTitleHref(t);
   const isBuiltin = t.ownerClientType === "builtin";
+  const errorMessage = transferErrorMessage(t);
 
   return (
     <div
@@ -1967,6 +1989,7 @@ function FilmRow({
       data-hash={t.hash}
       data-owner-client={t.ownerClientType}
       data-retention={t.retentionState}
+      data-torrent-error={isError(t.state) ? "true" : undefined}
       onClick={(e) => {
         if (
           e.target instanceof HTMLElement &&
@@ -2019,16 +2042,7 @@ function FilmRow({
                 </p>
               )}
               <div className="flex flex-wrap items-center gap-1.5">
-                <Badge
-                  variant={
-                    isDownloaded(t.state)
-                      ? "success"
-                      : isPaused(t.state) || isQueued(t.state)
-                        ? "default"
-                        : "accent"
-                  }
-                  data-torrent-state
-                >
+                <Badge variant={stateBadgeVariant(t.state)} data-torrent-state>
                   {stateLabel(t.state, t.queuePosition)}
                 </Badge>
                 {t.imported && <Badge variant="outline">Imported</Badge>}
@@ -2054,6 +2068,14 @@ function FilmRow({
                     : ""}
                 </span>
               </div>
+              {errorMessage ? (
+                <p
+                  className="text-[12px] leading-snug text-[var(--danger)]"
+                  data-torrent-error-message
+                >
+                  {errorMessage}
+                </p>
+              ) : null}
               <div className="flex items-center gap-2 pt-0.5">
                 <Progress
                   value={pct}
@@ -2090,7 +2112,21 @@ function FilmRow({
             Download now
           </Button>
         ) : null}
-        {isPaused(t.state) && t.progress < 1 ? (
+        {isError(t.state) ? (
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="lg:mr-1.5"
+            onClick={() => onAction("resume", t)}
+            aria-label={`Retry ${display.title}`}
+            data-torrent-retry
+            data-torrent-resume
+          >
+            <Download className="h-3.5 w-3.5" />
+            Retry
+          </Button>
+        ) : isPaused(t.state) && t.progress < 1 ? (
           <Button
             type="button"
             variant="default"
