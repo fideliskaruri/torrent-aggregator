@@ -177,7 +177,7 @@ export function MobileNav() {
             onClick={() => setMoreOpen(false)}
           />
           <div
-            className="absolute inset-x-0 bottom-0 rounded-t-xl border-t border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]"
+            className="absolute inset-x-0 bottom-0 max-h-[calc(100dvh-var(--header-h))] overflow-y-auto overscroll-contain rounded-t-xl border-t border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]"
             style={{ paddingBottom: "var(--safe-bottom)" }}
           >
             <div className="flex justify-center pt-2 pb-1" aria-hidden>
@@ -229,7 +229,7 @@ export function MobileNav() {
                           <span
                             data-nav-requests-pending
                             aria-label={`${requestsBadge} pending`}
-                            className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold leading-[16px] text-[var(--bg)]"
+                            className="ml-auto inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
                           >
                             {requestsBadge}
                           </span>
@@ -246,6 +246,7 @@ export function MobileNav() {
                 <button
                   type="button"
                   data-preview-toggle
+                  aria-label="View as requester"
                   onClick={() => {
                     setPreviewAsRequester(true);
                     setMoreOpen(false);
@@ -309,7 +310,7 @@ export function MobileNav() {
                   <span
                     data-nav-unread
                     aria-label={`${badge} unread`}
-                    className="absolute top-1 translate-x-3 rounded-full bg-[var(--accent)] px-1 text-[9px] font-semibold leading-[14px] text-[var(--bg)]"
+                    className="absolute top-0.5 translate-x-3.5 min-w-[20px] rounded-full bg-[var(--accent)] px-1 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)] ring-2 ring-[var(--bg)]"
                   >
                     {badge}
                   </span>
@@ -346,7 +347,7 @@ export function MobileNav() {
                 <span
                   data-nav-more-pending
                   aria-label={`${requestsBadge} pending requests`}
-                  className="absolute top-1.5 translate-x-3 rounded-full bg-[var(--accent)] px-1 text-[9px] font-semibold leading-[14px] text-[var(--bg)]"
+                  className="absolute top-0.5 translate-x-3.5 min-w-[20px] rounded-full bg-[var(--accent)] px-1 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)] ring-2 ring-[var(--bg)]"
                 >
                   {requestsBadge}
                 </span>

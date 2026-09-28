@@ -7,6 +7,7 @@ import { openSearchOverlay } from "@/components/search/search-overlay";
 import { pendingBadge } from "@/lib/requests";
 import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import {
   HEADER_SEARCH_HREF,
   titleForRoute,
@@ -23,6 +24,7 @@ export function Header() {
   // Synchronous with the route — never derived from a previous page's owns map.
   const pageTitle = titleForRoute(pathname);
   const caps = useCapabilities();
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const { items: navRow, dividerIndex } = desktopNavRow(caps);
   const activeDesktopHref = navActiveHref(navRow, pathname);
   const { badge } = useUnreadNotifications();
@@ -121,7 +123,7 @@ export function Header() {
                     <span
                       data-nav-unread
                       aria-label={`${badge} unread`}
-                      className="ml-1.5 rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold leading-[16px] text-[var(--bg)]"
+                      className="ml-1.5 inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
                     >
                       {badge}
                     </span>
@@ -130,7 +132,7 @@ export function Header() {
                     <span
                       data-nav-requests-pending
                       aria-label={`${requestsBadge} pending`}
-                      className="ml-1.5 rounded-full bg-[var(--accent)] px-1.5 text-[10px] font-semibold leading-[16px] text-[var(--bg)]"
+                      className="ml-1.5 inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
                     >
                       {requestsBadge}
                     </span>
@@ -164,7 +166,7 @@ export function Header() {
           >
             <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="hidden lg:inline lg:min-w-[7rem] text-left">Search</span>
-            <kbd className="hidden lg:inline rounded border border-[var(--border)] bg-[var(--bg)] px-1 font-mono text-[10px] text-[var(--text-tertiary)]">
+            <kbd className="hidden lg:inline rounded border border-[var(--border)] bg-[var(--bg)] px-1 font-mono text-[12px] leading-none text-[var(--text-tertiary)]">
               /
             </kbd>
           </Link>
@@ -184,11 +186,14 @@ export function Header() {
           >
             <Search className="h-4 w-4" aria-hidden />
           </Link>
-          {caps.canPreview ? (
+          {/* Phones get the toggle in the More sheet. Rendering a CSS-hidden twin here
+              gave the page two "View as requester" buttons, one of them invisible. */}
+          {caps.canPreview && isDesktop ? (
             <button
               type="button"
               onClick={() => setPreviewAsRequester(true)}
               data-preview-toggle
+              aria-label="View as requester"
               title="See the app the way people you share it with do"
               className={cn(
                 "hidden md:inline-flex h-11 lg:h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-[var(--text-tertiary)] transition-colors",
@@ -197,8 +202,8 @@ export function Header() {
               )}
             >
               <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="hidden 2xl:inline">View as requester</span>
-              <span className="sr-only 2xl:hidden">View as requester</span>
+              {/* One name: aria-label. The word is decoration on wide screens only. */}
+              <span className="hidden 2xl:inline" aria-hidden>View as requester</span>
             </button>
           ) : null}
           {/* The list-density toggle used to sit here.
