@@ -1,5 +1,6 @@
 import { AlertCircle, Check, Download, Zap } from "lucide-react";
 import type { AvailabilityState } from "@/lib/browse";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
   availabilityMeta,
@@ -19,16 +20,25 @@ import {
  * Both maps below are keyed by a whole union, so a state added upstream is a
  * compile error here rather than a chip that silently renders blank.
  */
+const TONE_VARIANT: Record<
+  AvailabilityTone,
+  "success" | "accent" | "info" | "outline" | "default"
+> = {
+  success: "success",
+  accent: "accent",
+  info: "info",
+  secondary: "outline",
+  tertiary: "default",
+};
+
+// Chips sit on poster art of unknown brightness, so the tinted variants get an
+// opaque card underneath instead of the page showing through.
 const TONE_CLASS: Record<AvailabilityTone, string> = {
-  success:
-    "text-[var(--success)] [background:color-mix(in_srgb,var(--success)_16%,var(--bg-elevated))] [border-color:color-mix(in_srgb,var(--success)_28%,var(--border))]",
-  accent:
-    "text-[var(--accent-text)] [background:color-mix(in_srgb,var(--brand)_18%,var(--bg-elevated))] [border-color:var(--accent-border)]",
-  info: "text-[var(--info)] [background:color-mix(in_srgb,var(--info)_14%,var(--bg-elevated))] [border-color:color-mix(in_srgb,var(--info)_26%,var(--border))]",
-  secondary:
-    "text-[var(--text-secondary)] bg-[var(--bg-elevated)] border-[var(--border-strong)]",
-  tertiary:
-    "text-[var(--text-tertiary)] bg-[var(--bg-elevated)] border-[var(--border)]",
+  success: "[background:color-mix(in_srgb,var(--success)_16%,var(--card))]",
+  accent: "[background:color-mix(in_srgb,var(--brand)_18%,var(--card))]",
+  info: "[background:color-mix(in_srgb,var(--info)_14%,var(--card))]",
+  secondary: "border-input bg-card text-muted-foreground",
+  tertiary: "bg-card text-subtle-foreground",
 };
 
 const STATE_ICON: Record<AvailabilityState, typeof Check> = {
@@ -76,7 +86,7 @@ export function AvailabilityChip({
         )}
       >
         <span
-          className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)] opacity-60"
+          className="size-1.5 rounded-full bg-subtle-foreground opacity-60"
           aria-hidden
         />
         <span className="sr-only">{meta.label}</span>
@@ -87,12 +97,13 @@ export function AvailabilityChip({
   const Icon = STATE_ICON[state];
 
   return (
-    <span
+    <Badge
+      variant={TONE_VARIANT[meta.tone]}
       data-availability={state ?? "unresolved"}
       title={meta.description ?? undefined}
       className={cn(
-        "inline-flex max-w-full items-center gap-1 rounded-[5px] border font-medium leading-none",
-        compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-[12px]",
+        "justify-start py-1 leading-none",
+        compact ? "text-[11px]" : "px-2 text-xs",
         TONE_CLASS[meta.tone],
         className,
       )}
@@ -104,6 +115,6 @@ export function AvailabilityChip({
       {meta.description ? (
         <span className="sr-only">. {meta.description}</span>
       ) : null}
-    </span>
+    </Badge>
   );
 }

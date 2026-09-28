@@ -18,6 +18,7 @@
 import { Link } from "react-router";
 import { PosterImage } from "@/components/browse/poster-image";
 import { posterTint } from "@/components/browse/poster";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { TitleSimilar } from "./types";
 
 export function MoreLikeThis({
@@ -43,7 +44,7 @@ export function MoreLikeThis({
   if (loading && items.length === 0) {
     return (
       <section aria-labelledby="title-similar-heading" data-title-similar aria-busy="true">
-        <div className="skeleton h-5 w-28 rounded" aria-hidden />
+        <Skeleton className="h-5 w-28 rounded" aria-hidden />
         {/* Skeleton grid: same grid-cols and aspect-ratio as the real grid so
             the section's height matches exactly once items arrive. */}
         <ul
@@ -52,9 +53,9 @@ export function MoreLikeThis({
         >
           {Array.from({ length: 8 }, (_, i) => (
             <li key={i}>
-              <div className="skeleton aspect-[2/3] w-full rounded-[var(--radius)]" />
-              <div className="skeleton mt-1.5 h-3 w-4/5 rounded" />
-              <div className="skeleton mt-1 h-2.5 w-1/2 rounded" />
+              <Skeleton className="aspect-[2/3] w-full rounded-lg" />
+              <Skeleton className="mt-1.5 h-3 w-4/5 rounded" />
+              <Skeleton className="mt-1 h-2.5 w-1/2 rounded" />
             </li>
           ))}
         </ul>
@@ -74,10 +75,10 @@ export function MoreLikeThis({
             <Link
               to={item.href}
               data-similar-card
-              className="group block rounded-[var(--radius)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+              className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
               <div
-                className="relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] transition-colors group-hover:border-[var(--border-strong)]"
+                className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-border transition-colors group-hover:border-input"
                 style={{ background: posterTint(item.title) }}
               >
                 <PosterImage
@@ -87,7 +88,7 @@ export function MoreLikeThis({
                 />
               </div>
               <p
-                className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-[var(--text-secondary)] transition-colors group-hover:text-[var(--text)]"
+                className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground transition-colors group-hover:text-foreground"
                 title={item.title}
               >
                 {item.title}
@@ -98,7 +99,7 @@ export function MoreLikeThis({
                   real element with real text so it survives — and so a screen
                   reader hears something between "2024" and "8.1". */}
               {item.year != null || item.rating != null ? (
-                <span className="mt-0.5 flex items-center text-[12px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="mt-0.5 flex items-center text-[12px] tabular-nums text-subtle-foreground">
                   {item.year != null ? <span>{item.year}</span> : null}
                   {item.year != null && item.rating != null ? (
                     <span className="mx-1">·</span>

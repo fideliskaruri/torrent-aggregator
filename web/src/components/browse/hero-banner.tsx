@@ -18,7 +18,10 @@ import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
 import { titleHrefForItem } from "@/components/title/work-key";
 import { useCapabilities } from "@/lib/capabilities";
-import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
+import { Badge } from "@/components/ui/badge";
+import { LoadingGlyph } from "@/components/ui/loading";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { browseReleaseGate } from "@/lib/browse/release-status";
 
 export interface HeroBannerProps {
@@ -64,7 +67,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
       data-browse-hero
       data-unreleased={releaseGate.gated ? "true" : undefined}
       aria-labelledby="browse-hero-title"
-      className="relative isolate overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]"
+      className="relative isolate overflow-hidden border-b border-border bg-card"
     >
       <div
         className={cn(
@@ -102,7 +105,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}
         >
-          <p className="text-[12px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+          <p className="text-[12px] font-medium uppercase tracking-wide text-subtle-foreground">
             {eyebrow}
           </p>
 
@@ -112,7 +115,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
               id="browse-hero-title"
               title={item.title}
               aria-label={item.title}
-              className="text-display mt-2 line-clamp-2 text-balance break-words outline-none transition-colors hover:text-[var(--accent-text)] focus-visible:ring-2 focus-visible:ring-[var(--brand)] rounded-[4px]"
+              className="text-display mt-2 line-clamp-2 text-balance break-words outline-none transition-colors hover:text-brand-foreground focus-visible:ring-2 focus-visible:ring-brand rounded-sm"
             >
               {title}
             </Link>
@@ -129,29 +132,22 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           {/* No availability chip. "Partial" is engine vocabulary about bytes
               on disk; the viewer only needs to know what pressing Play does,
               and Play now always plays. Gated titles still say when they land. */}
-          <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-[var(--text-secondary)]">
+          <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-muted-foreground">
             {releaseGate.gated ? (
-              <span className="inline-flex items-center rounded-[6px] border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 text-[11px] font-medium leading-none text-[var(--text-secondary)]">
+              <Badge className="bg-card px-2 py-1 text-[11px] leading-none">
                 {label}
-              </span>
+              </Badge>
             ) : null}
             {factsText ? <span className="tabular-nums">{factsText}</span> : null}
           </div>
 
           {fraction != null ? (
-            <div
-              className="mt-4 h-1 w-full max-w-sm overflow-hidden rounded-full bg-[var(--bg-muted)]"
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(fraction * 100)}
+            <Progress
+              value={Math.round(fraction * 100)}
               aria-label={`${title} watched`}
-            >
-              <div
-                className="h-full rounded-full bg-[var(--brand)]"
-                style={{ width: `${Math.round(fraction * 100)}%` }}
-              />
-            </div>
+              className="mt-4 h-1 max-w-sm bg-muted"
+              indicatorClassName="bg-brand"
+            />
           ) : null}
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -201,7 +197,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
             <p
               className={cn(
                 "mt-2.5 max-w-md text-[12px] leading-relaxed",
-                "text-[var(--text-tertiary)]",
+                "text-subtle-foreground",
               )}
             >
               {action.reason}
@@ -218,15 +214,15 @@ export function HeroSkeleton() {
   return (
     <section
       aria-hidden
-      className="border-b border-[var(--border)] bg-[var(--bg-elevated)]"
+      className="border-b border-border bg-card"
     >
       <div className="container-app">
         <div className="flex min-h-[19rem] max-w-2xl flex-col justify-end py-8 sm:min-h-[23rem] sm:py-10 lg:min-h-[26rem]">
-          <SkeletonBlock className="h-3 w-28 rounded" />
-          <SkeletonBlock className="mt-3 h-9 w-3/4 rounded" />
-          <SkeletonBlock className="mt-3 h-3 w-40 rounded" />
-          <SkeletonBlock className="mt-3 h-3 w-full max-w-md rounded" />
-          <SkeletonBlock className="mt-5 h-11 w-40 rounded-[var(--radius)]" />
+          <Skeleton className="h-3 w-28 rounded" />
+          <Skeleton className="mt-3 h-9 w-3/4 rounded" />
+          <Skeleton className="mt-3 h-3 w-40 rounded" />
+          <Skeleton className="mt-3 h-3 w-full max-w-md rounded" />
+          <Skeleton className="mt-5 h-11 w-40 rounded-lg" />
         </div>
       </div>
     </section>

@@ -18,7 +18,11 @@ import { AvailabilityChip } from "./availability-chip";
 import { PosterImage } from "./poster-image";
 import { titleHrefForItem } from "@/components/title/work-key";
 import { useCapabilities } from "@/lib/capabilities";
-import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { LoadingGlyph } from "@/components/ui/loading";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /** Poster box width per breakpoint. Also drives the poster `<img>` `sizes`. */
 const CARD_WIDTH = "w-[124px] sm:w-[148px] lg:w-[168px]";
@@ -135,9 +139,9 @@ export function TitleCard({
   const surface = (
     <div
       className={cn(
-        "relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)]",
+        "relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-border bg-muted",
         "transition-[transform,border-color,box-shadow] duration-150 ease-out",
-        "group-hover:border-[var(--border-strong)] group-hover:shadow-[var(--shadow-md)]",
+        "group-hover:border-input group-hover:shadow-md",
         "motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1",
         // Future art is present but inert: greyscale + muted so it never reads
         // as something you can press Play on. Matches the title-page hero gate.
@@ -157,12 +161,12 @@ export function TitleCard({
           "Coming {date}". The label is also used by the action row badge. */}
       <span className="absolute left-1.5 top-1.5 z-[1]">
         {unreleased ? (
-          <span
+          <Badge
             data-card-coming
-            className="inline-flex max-w-[calc(100%-0.25rem)] items-center truncate rounded-[6px] border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 py-1 text-[11px] font-medium leading-none text-[var(--text-secondary)]"
+            className="max-w-[calc(100%-0.25rem)] bg-card text-[11px] leading-none"
           >
-            {releaseGate.label ?? "Coming soon"}
-          </span>
+            <span className="truncate">{releaseGate.label ?? "Coming soon"}</span>
+          </Badge>
         ) : action.kind === "get" || arriving ? null : (
           // A card offering "Get S02E01" or "Downloading" already says the
           // episode is not here yet; a second badge saying so would only repeat it.
@@ -171,23 +175,22 @@ export function TitleCard({
       </span>
 
       {fraction != null ? (
-        <span className="absolute inset-x-0 bottom-0 z-[2] h-[3px] bg-[var(--border-strong)]">
-          <span
-            className="block h-full bg-[var(--brand)]"
-            style={{ width: `${Math.round(fraction * 100)}%` }}
-          />
-        </span>
+        <Progress
+          value={Math.round(fraction * 100)}
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 z-[2] h-[3px] rounded-none bg-input"
+          indicatorClassName="bg-brand"
+        />
       ) : null}
     </div>
   );
 
   // Solid panel rather than a scrim gradient: the text has to stay legible
   // over artwork we have never seen.
+  const quietBadge = (blocked && !arriving) || unreleased;
   const badgeClass = cn(
-    "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[6px] border px-1.5 py-1 text-[12px] font-medium leading-none",
-    (blocked && !arriving) || unreleased
-      ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
-      : "border-transparent bg-[var(--brand)] text-[var(--primary-foreground)]",
+    "min-w-0 justify-start py-1 leading-none",
+    quietBadge && "bg-card text-subtle-foreground",
   );
   const badgeInner = (
     <>
@@ -220,8 +223,9 @@ export function TitleCard({
   // row would compete with it, and there is no control to reveal on hover.
   const actionRow = unreleased ? null : runnable ? (
     <span className={actionRowClass}>
-      <button
+      <Button
         type="button"
+        variant="ghost"
         data-card-action={action.kind}
         aria-label={accessibleName}
         disabled={status === "pending"}
@@ -235,16 +239,20 @@ export function TitleCard({
           if (status === "pending") return;
           onAction(item, action);
         }}
-        className={cn(
-          "inline-flex min-w-0 max-w-full items-end min-h-[44px] pointer-events-auto cursor-pointer disabled:cursor-default lg:min-h-0",
-        )}
+        // A transparent hit area around the chip: 44px tall on touch, the chip
+        // itself on a desktop pointer.
+        className="pointer-events-auto h-auto min-h-11 min-w-0 max-w-full cursor-pointer items-end justify-start rounded-md p-0 hover:bg-transparent disabled:cursor-default disabled:opacity-100 dark:hover:bg-transparent lg:min-h-0"
       >
-        <span className={badgeClass}>{badgeInner}</span>
-      </button>
+        <Badge variant={quietBadge ? "default" : "solid"} className={badgeClass}>
+          {badgeInner}
+        </Badge>
+      </Button>
     </span>
   ) : action.kind === "blocked" || arriving ? (
     <span className={actionRowClass} aria-hidden>
-      <span className={badgeClass}>{badgeInner}</span>
+      <Badge variant={quietBadge ? "default" : "solid"} className={badgeClass}>
+        {badgeInner}
+      </Badge>
     </span>
   ) : (
     // `search` needs no caption: the whole card is already a link to the title
@@ -257,21 +265,21 @@ export function TitleCard({
   // not as a border on the poster; the rail's vertical padding exists to keep
   // it from being clipped by the scroll container.
   const controlClass = cn(
-    "block w-full rounded-[var(--radius)] text-left outline-none",
-    "focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
-    "focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
+    "block w-full rounded-lg text-left outline-none",
+    "focus-visible:ring-2 focus-visible:ring-brand",
+    "focus-visible:ring-offset-2 focus-visible:ring-offset-background",
   );
 
   const caption = (
     <div className="mt-2 min-w-0 min-h-[2.75rem]">
       <p
         title={item.title}
-        className="line-clamp-2 text-[12px] font-medium leading-snug text-[var(--text)] break-words"
+        className="line-clamp-2 text-[12px] font-medium leading-snug text-foreground break-words"
       >
         {title}
       </p>
       {item.subtitle ? (
-        <p className="mt-0.5 truncate text-[12px] text-[var(--text-tertiary)]">
+        <p className="mt-0.5 truncate text-[12px] text-subtle-foreground">
           {item.subtitle}
         </p>
       ) : null}
@@ -299,8 +307,9 @@ export function TitleCard({
             {caption}
           </Link>
         ) : (
-          <button
+          <Button
             type="button"
+            variant="ghost"
             data-rail-card
             // `aria-disabled` rather than `disabled`: a blocked card must stay
             // in the tab order and inside the rail's arrow-key run, or the row
@@ -313,6 +322,7 @@ export function TitleCard({
               onAction(item, action);
             }}
             className={cn(
+              "h-auto whitespace-normal border-0 p-0 font-normal hover:bg-transparent dark:hover:bg-transparent",
               controlClass,
               "min-h-[44px]",
               (blocked || unreleased) && "cursor-default",
@@ -320,7 +330,7 @@ export function TitleCard({
           >
             {surface}
             {caption}
-          </button>
+          </Button>
         )}
 
         {/* Poster-height overlay so the action chip stays on the art, not the caption. */}
@@ -331,18 +341,20 @@ export function TitleCard({
         ) : null}
 
         {fallbackSearch ? (
-          <Link
-            to={fallbackSearch.href}
-            title={`Search releases for ${title}`}
-            aria-label={`Search releases for ${title}`}
-            className={cn(
-              "absolute right-1.5 top-1.5 z-[4] inline-flex h-11 w-11 lg:h-7 lg:w-7 items-center justify-center rounded-md",
-              "border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]",
-              "transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)]",
-            )}
+          <Button
+            asChild
+            variant="outline"
+            size="icon-sm"
+            className="absolute right-1.5 top-1.5 z-[4] size-11 bg-card text-muted-foreground hover:text-foreground lg:size-7 dark:bg-card"
           >
-            <Search className="h-3.5 w-3.5" aria-hidden />
-          </Link>
+            <Link
+              to={fallbackSearch.href}
+              title={`Search releases for ${title}`}
+              aria-label={`Search releases for ${title}`}
+            >
+              <Search className="size-3.5" aria-hidden />
+            </Link>
+          </Button>
         ) : null}
       </div>
 
@@ -371,9 +383,9 @@ export function TitleCard({
 export function TitleCardSkeleton() {
   return (
     <li className={cn("shrink-0", CARD_WIDTH)} aria-hidden>
-      <SkeletonBlock className="aspect-[2/3] w-full rounded-[var(--radius)]" />
-      <SkeletonBlock className="mt-2 h-3 w-4/5 rounded" />
-      <SkeletonBlock className="mt-1.5 h-2.5 w-2/5 rounded" />
+      <Skeleton className="aspect-[2/3] w-full rounded-lg" />
+      <Skeleton className="mt-2 h-3 w-4/5 rounded" />
+      <Skeleton className="mt-1.5 h-2.5 w-2/5 rounded" />
     </li>
   );
 }

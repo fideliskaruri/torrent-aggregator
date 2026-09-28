@@ -20,7 +20,7 @@
  *    local file always wins over a future date.
  *
  * The header carries a compact watched-progress label — `Watched X of Y (Z%)`
- * for the loaded season — alongside the season <select>, the episode count and
+ * for the loaded season — alongside the season picker, the episode count and
  * the season-scoped Download button.
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -38,7 +38,23 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { PosterImage } from "@/components/browse/poster-image";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useCapabilities } from "@/lib/capabilities";
 import {
@@ -157,23 +173,35 @@ export function EpisodeList({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
 
-  const stripRef = useRef<HTMLUListElement | null>(null);
+  // The scroll container is the ScrollArea viewport around the strip.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const stripViewport = useCallback(
+    () =>
+      stripRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      ) ?? null,
+    [],
+  );
   const [edges, setEdges] = useState({ start: false, end: false });
   const updateEdges = useCallback(() => {
-    const el = stripRef.current;
+    const el = stripViewport();
     if (!el) return;
     const start = el.scrollLeft > 4;
     const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
     setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
-  }, []);
+  }, [stripViewport]);
   useEffect(() => {
-    const el = stripRef.current;
+    const el = stripViewport();
     if (!el || typeof ResizeObserver === "undefined") return;
     updateEdges();
+    el.addEventListener("scroll", updateEdges, { passive: true });
     const observer = new ResizeObserver(updateEdges);
     observer.observe(el);
-    return () => observer.disconnect();
-  }, [updateEdges, episodes.length, loadState.status, busy]);
+    return () => {
+      el.removeEventListener("scroll", updateEdges);
+      observer.disconnect();
+    };
+  }, [stripViewport, updateEdges, episodes.length, loadState.status, busy]);
 
   const openPickerFor = useCallback((pending: PendingDownload) => {
     setPendingDownload(pending);
@@ -220,7 +248,7 @@ export function EpisodeList({
   }
 
   function scrollStrip(direction: -1 | 1) {
-    const el = stripRef.current;
+    const el = stripViewport();
     if (!el) return;
     el.scrollBy({ left: direction * Math.round(el.clientWidth * 0.9), behavior: "smooth" });
   }
@@ -255,41 +283,41 @@ export function EpisodeList({
           </h2>
           <div className="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:col-auto sm:row-auto">
             {seasons.length > 1 ? (
-              <label className="relative inline-flex min-w-0 shrink-0 items-center">
-                <span className="sr-only">Season</span>
-                <select
+              <Select
+                value={season != null ? String(season) : undefined}
+                onValueChange={(value) => {
+                  const next = Number(value);
+                  if (Number.isFinite(next)) onSeasonChange(next);
+                }}
+              >
+                <SelectTrigger
                   data-season-select
-                  value={season ?? ""}
-                  onChange={(event) => {
-                    const next = Number(event.target.value);
-                    if (Number.isFinite(next)) onSeasonChange(next);
-                  }}
-                  className={cn(
-                    "h-11 min-h-[44px] cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors lg:h-9 lg:min-h-0",
-                    "hover:border-[var(--border-strong)]",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
-                  )}
+                  aria-label="Season"
+                  className="min-w-0 shrink-0 bg-card font-medium dark:bg-card"
                 >
+                  <SelectValue placeholder="Season" />
+                </SelectTrigger>
+                <SelectContent position="popper" align="start">
                   {seasons.map((s) => {
                     const short = seasonProgress[s.season]
                       ? seasonProgressShort(seasonProgress[s.season])
                       : null;
                     return (
-                      <option key={s.season} value={s.season}>
+                      <SelectItem
+                        key={s.season}
+                        value={String(s.season)}
+                        data-season-option={s.season}
+                      >
                         {short ? `Season ${s.season} \u00b7 ${short}` : `Season ${s.season}`}
-                      </option>
+                      </SelectItem>
                     );
                   })}
-                </select>
-                <ChevronDown
-                  className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[var(--text-tertiary)]"
-                  aria-hidden
-                />
-              </label>
+                </SelectContent>
+              </Select>
             ) : season != null ? (
               <span
                 data-season-label
-                className="text-[13px] font-medium text-[var(--text)]"
+                className="text-[13px] font-medium text-foreground"
               >
                 Season {season}
               </span>
@@ -298,7 +326,7 @@ export function EpisodeList({
             {seasonCountLabel && !(activeProgressLabel && activeProgress?.aired != null) ? (
               <p
                 data-season-count
-                className="text-[12px] tabular-nums text-[var(--text-tertiary)]"
+                className="text-[12px] tabular-nums text-subtle-foreground"
               >
                 {seasonCountLabel}
               </p>
@@ -307,9 +335,9 @@ export function EpisodeList({
             {showWatched ? (
               <p
                 data-watched-label
-                className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-[var(--text-tertiary)]"
+                className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-subtle-foreground"
               >
-                <Check className="h-3.5 w-3.5 text-[var(--accent-text,var(--brand))]" aria-hidden />
+                <Check className="h-3.5 w-3.5 text-brand-foreground" aria-hidden />
                 {watchedProgressLabel(episodes)}
               </p>
             ) : null}
@@ -367,12 +395,12 @@ export function EpisodeList({
       ) : view.kind === "error" ? (
         <p
           role="alert"
-          className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-[var(--text-tertiary)]"
+          className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-subtle-foreground"
         >
           Could not load this season&apos;s episodes. {view.message}
         </p>
       ) : view.kind === "empty" ? (
-        <p className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+        <p className="surface mt-3 px-4 py-6 text-[13px] leading-relaxed text-subtle-foreground">
           {/* Not an empty state: the page has plenty on it. This is the honest
               answer to "how many episodes are there?" — which nothing local
               knows until something for this show has been searched or grabbed. */}
@@ -387,37 +415,19 @@ export function EpisodeList({
                 arrow shows only on a side that has more, and both are hidden
                 from assistive tech (the strip scrolls on its own). */}
             {edges.start ? (
-              <button
-                type="button"
-                aria-hidden
-                tabIndex={-1}
-                data-strip-arrow="left"
-                onClick={() => scrollStrip(-1)}
-                className="absolute -left-3 top-[calc(28%_-_1rem)] z-30 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
-              >
-                <ChevronLeft className="h-4 w-4" aria-hidden />
-              </button>
+              <StripArrow direction="left" onClick={() => scrollStrip(-1)} />
             ) : null}
             {edges.end ? (
-              <button
-                type="button"
-                aria-hidden
-                tabIndex={-1}
-                data-strip-arrow="right"
-                onClick={() => scrollStrip(1)}
-                className="absolute -right-3 top-[calc(28%_-_1rem)] z-30 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
-              >
-                <ChevronRight className="h-4 w-4" aria-hidden />
-              </button>
+              <StripArrow direction="right" onClick={() => scrollStrip(1)} />
             ) : null}
 
-            <ul
+            <ScrollArea
               ref={stripRef}
-              data-episode-strip
-              onScroll={updateEdges}
               className={cn(
-                "grid grid-cols-1 gap-2 sm:flex sm:snap-x sm:snap-mandatory sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden",
-                "sm:[scrollbar-width:none] sm:[-webkit-overflow-scrolling:touch] sm:[&::-webkit-scrollbar]:hidden",
+                "sm:[&>[data-slot=scroll-area-viewport]]:snap-x sm:[&>[data-slot=scroll-area-viewport]]:snap-mandatory",
+                // Phones stack the cards; Radix's table wrapper would let a long
+                // name widen the column past the screen.
+                "max-sm:[&>[data-slot=scroll-area-viewport]>div]:block!",
                 // A card cut at the edge reads as a layout bug; fading the side
                 // that has more makes the cut read as "keep scrolling".
                 edges.start && edges.end
@@ -428,6 +438,10 @@ export function EpisodeList({
                       ? "sm:[mask-image:linear-gradient(to_right,transparent,black_40px)]"
                       : null,
               )}
+            >
+            <ul
+              data-episode-strip
+              className="grid grid-cols-1 gap-2 sm:flex sm:gap-3 sm:pb-3"
             >
               {episodes.map((episode) => (
                 <EpisodeCard
@@ -444,9 +458,11 @@ export function EpisodeList({
                 />
               ))}
             </ul>
+            <ScrollBar orientation="horizontal" />
+            </ScrollArea>
           </div>
           {truncated ? (
-            <p className="mt-2 text-[12px] text-[var(--text-tertiary)]">
+            <p className="mt-2 text-[12px] text-subtle-foreground">
               Only the first {episodes.length} episodes are listed.
             </p>
           ) : null}
@@ -502,6 +518,38 @@ function ButtonBody({
   );
 }
 
+/**
+ * Desktop-only edge control for the strip. Touch, trackpad and keyboard scroll
+ * the strip on their own, so it stays out of the tab order and away from
+ * assistive tech.
+ */
+function StripArrow({
+  direction,
+  onClick,
+}: {
+  direction: "left" | "right";
+  onClick: () => void;
+}) {
+  const Icon = direction === "left" ? ChevronLeft : ChevronRight;
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      aria-hidden
+      tabIndex={-1}
+      data-strip-arrow={direction}
+      onClick={onClick}
+      className={cn(
+        "absolute top-[calc(28%_-_1rem)] z-30 hidden rounded-full bg-card text-muted-foreground shadow-md hover:text-foreground lg:inline-flex dark:bg-card",
+        direction === "left" ? "-left-3" : "-right-3",
+      )}
+    >
+      <Icon aria-hidden />
+    </Button>
+  );
+}
+
 /** Shared card width so skeletons and real cards reserve identical geometry. */
 const CARD_WIDTH = "w-full sm:w-[300px] sm:shrink-0 sm:snap-start";
 
@@ -534,11 +582,11 @@ function EpisodeSkeletonStrip({
             )}
             data-episode-skeleton
           >
-            <span className="skeleton block h-24 w-16 shrink-0 sm:aspect-video sm:h-auto sm:w-full" />
+            <Skeleton className="h-24 w-16 shrink-0 rounded-none sm:aspect-video sm:h-auto sm:w-full" />
             <span className="min-w-0 flex-1 p-3">
-              <span className="skeleton block h-3.5 w-3/4 rounded" />
-              <span className="skeleton mt-2 block h-2.5 w-full rounded" />
-              <span className="skeleton mt-1.5 block h-2.5 w-2/3 rounded" />
+              <Skeleton className="h-3.5 w-3/4 rounded" />
+              <Skeleton className="mt-2 h-2.5 w-full rounded" />
+              <Skeleton className="mt-1.5 h-2.5 w-2/3 rounded" />
             </span>
           </li>
         ))}
@@ -660,31 +708,29 @@ function EpisodeCardImpl({
   const still = (
     <span
       data-episode-still
-      className="relative block h-24 w-16 shrink-0 overflow-hidden bg-[var(--bg-muted)] sm:aspect-video sm:h-auto sm:w-full"
+      className="relative block h-24 w-16 shrink-0 overflow-hidden bg-muted sm:aspect-video sm:h-auto sm:w-full"
     >
       {meta?.stillUrl ? (
         <EpisodeStillImage src={meta.stillUrl} title={episodeName} />
       ) : (
-        <span aria-hidden className="absolute inset-0 flex items-center justify-center text-[var(--border-strong)]">
-          <Tv className="h-6 w-6 sm:h-8 sm:w-8" />
+        <span aria-hidden className="absolute inset-0 flex items-center justify-center text-input">
+          <Tv className="size-6 sm:size-8" />
         </span>
       )}
-      <span
+      <Badge
         data-episode-badge
-        className="absolute left-2 top-2 rounded-[6px] bg-[color-mix(in_srgb,var(--bg)_80%,transparent)] px-1.5 py-0.5 text-[12px] font-semibold tabular-nums text-[var(--text)] backdrop-blur-sm"
+        className="absolute left-2 top-2 border-transparent bg-background/80 font-semibold tabular-nums text-foreground backdrop-blur-sm"
       >
         E{episode.episode}
-      </span>
+      </Badge>
       {progressPct > 0 ? (
-        <span
+        <Progress
           data-episode-progress={progressKind}
-          className="absolute inset-x-0 bottom-0 h-1 bg-[color-mix(in_srgb,var(--bg)_55%,transparent)]"
-        >
-          <span
-            className="block h-full bg-[var(--accent-text,var(--brand))]"
-            style={{ width: `${progressPct}%` }}
-          />
-        </span>
+          value={progressPct}
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-1 rounded-none bg-background/55"
+          indicatorClassName="bg-brand-foreground"
+        />
       ) : null}
     </span>
   );
@@ -702,12 +748,12 @@ function EpisodeCardImpl({
       <span
         data-episode-name
         title={episodeName}
-        className="line-clamp-2 break-words text-[13px] font-medium text-[var(--text)] sm:block sm:truncate"
+        className="line-clamp-2 break-words text-[13px] font-medium text-foreground sm:block sm:truncate"
       >
         {episodeName}
       </span>
       {mobileMeta ? (
-        <span className="mt-1 block break-words text-[12px] leading-relaxed text-[var(--text-tertiary)] sm:hidden">
+        <span className="mt-1 block break-words text-[12px] leading-relaxed text-subtle-foreground sm:hidden">
           {mobileMeta}
         </span>
       ) : null}
@@ -715,7 +761,7 @@ function EpisodeCardImpl({
           height whether its synopsis is long, short or missing. */}
       <span
         data-episode-overview
-        className="mt-1 hidden min-h-[calc(2*1.625*12px)] text-[12px] leading-relaxed text-[var(--text-tertiary)] sm:line-clamp-2"
+        className="mt-1 hidden min-h-[calc(2*1.625*12px)] text-[12px] leading-relaxed text-subtle-foreground sm:line-clamp-2"
       >
         {overview ?? ""}
       </span>
@@ -723,28 +769,12 @@ function EpisodeCardImpl({
           press, so there should be nothing to tab to. */}
       <span
         data-episode-unaired={unaired || undefined}
-        className="mt-2 hidden min-h-5 items-center text-[12px] tabular-nums text-[var(--text-tertiary)] sm:flex"
+        className="mt-2 hidden min-h-5 items-center text-[12px] tabular-nums text-subtle-foreground sm:flex"
       >
         {unaired ? (airDate ? `Airs ${airDate}` : "Not aired yet") : desktopFacts}
       </span>
     </span>
   );
-
-  const synopsisToggle = overviewClamped ? (
-    <button
-      type="button"
-      data-episode-synopsis-toggle
-      aria-expanded={synopsisOpen}
-      aria-label={`Read the synopsis of ${episodeName}`}
-      onClick={(event) => {
-        event.stopPropagation();
-        setSynopsisOpen(true);
-      }}
-      className="absolute bottom-0 right-0 z-10 hidden h-11 items-center px-3 text-[12px] font-medium text-[var(--text-secondary)] underline-offset-2 transition-colors hover:text-[var(--text)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)] sm:inline-flex"
-    >
-      More
-    </button>
-  ) : null;
 
   // Closing hands focus back to the "More" toggle so keyboard users land
   // where they started instead of at the top of the page.
@@ -756,42 +786,62 @@ function EpisodeCardImpl({
     toggle?.focus();
   };
 
-  const synopsisPanel = synopsisOpen && overview ? (
-    <div
-      data-episode-synopsis
-      role="region"
-      aria-label={`Synopsis of ${episodeName}`}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape") return;
-        event.stopPropagation();
-        closeSynopsis(event.currentTarget);
-      }}
-      // Phone rows are compact and carry no synopsis, so the overlay is
-      // desktop only; a stale open state must not cover the phone row.
-      className="absolute inset-0 z-20 hidden flex-col bg-[var(--bg-elevated)] p-3 sm:flex"
-    >
-      <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 text-[13px] font-medium text-[var(--text)]">
-          <span className="tabular-nums text-[var(--text-tertiary)]">E{episode.episode}</span>{" "}
-          {episodeName}
-        </p>
-        <button
+  // The trigger stays under the panel while it is open; the panel covers the
+  // whole card and carries its own close control.
+  const synopsis = overviewClamped && overview ? (
+    <Collapsible open={synopsisOpen} onOpenChange={setSynopsisOpen}>
+      <CollapsibleTrigger asChild>
+        <Button
           type="button"
-          aria-label="Close synopsis"
-          onClick={(event) => closeSynopsis(event.currentTarget)}
-          autoFocus
-          className="-mr-2 -mt-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+          variant="link"
+          data-episode-synopsis-toggle
+          aria-label={`Read the synopsis of ${episodeName}`}
+          onClick={(event) => event.stopPropagation()}
+          className="absolute bottom-0 right-0 z-10 hidden h-11 rounded-none px-3 text-xs text-muted-foreground underline-offset-2 hover:text-foreground focus-visible:ring-inset sm:inline-flex"
         >
-          <X className="h-4 w-4" aria-hidden />
-        </button>
-      </div>
-      <p className="mt-1 min-h-0 flex-1 overflow-y-auto pr-1 text-[12px] leading-relaxed text-[var(--text-secondary)]">
-        {overview}
-      </p>
-      {desktopFacts ? (
-        <p className="mt-2 text-[12px] tabular-nums text-[var(--text-tertiary)]">{desktopFacts}</p>
-      ) : null}
-    </div>
+          More
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent asChild>
+        <div
+          data-episode-synopsis
+          role="region"
+          aria-label={`Synopsis of ${episodeName}`}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.stopPropagation();
+            closeSynopsis(event.currentTarget);
+          }}
+          // Phone rows are compact and carry no synopsis, so the overlay is
+          // desktop only; a stale open state must not cover the phone row.
+          className="absolute inset-0 z-20 hidden flex-col bg-card p-3 sm:flex"
+        >
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 text-[13px] font-medium text-foreground">
+              <span className="tabular-nums text-subtle-foreground">E{episode.episode}</span>{" "}
+              {episodeName}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-lg"
+              aria-label="Close synopsis"
+              onClick={(event) => closeSynopsis(event.currentTarget)}
+              autoFocus
+              className="-mr-2 -mt-2 size-11 text-muted-foreground"
+            >
+              <X aria-hidden />
+            </Button>
+          </div>
+          <p className="mt-1 min-h-0 flex-1 overflow-y-auto pr-1 text-[12px] leading-relaxed text-muted-foreground">
+            {overview}
+          </p>
+          {desktopFacts ? (
+            <p className="mt-2 text-[12px] tabular-nums text-subtle-foreground">{desktopFacts}</p>
+          ) : null}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   ) : null;
 
   return (
@@ -801,7 +851,7 @@ function EpisodeCardImpl({
       data-availability={episode.availability ?? "unresolved"}
       className={cn(
         "group surface relative overflow-hidden p-0",
-        "transition-colors hover:border-[var(--border-strong)]",
+        "transition-colors hover:border-input",
         CARD_WIDTH,
       )}
     >
@@ -816,8 +866,9 @@ function EpisodeCardImpl({
               press is keyboard-reachable; the Download control is a SIBLING
               layered on top, never a child, so a click on Download can never
               also fire Play. */}
-          {streaming ? <button
+          {streaming ? <Button
             type="button"
+            variant="ghost"
             data-episode-action
             data-action="stream"
             data-action-kind={streamAction.kind}
@@ -825,7 +876,9 @@ function EpisodeCardImpl({
             aria-busy={effectiveStreamStatus === "pending" || undefined}
             disabled={!streamCanRun}
             onClick={() => onAction(streamAction, episode.label, "stream")}
-            className="flex min-h-[96px] w-full cursor-pointer items-stretch text-left disabled:cursor-default sm:block sm:min-h-0"
+            // The whole card is the control, so none of the button chrome:
+            // no fill, no fade when disabled, text that wraps like a caption.
+            className="flex h-auto min-h-[96px] w-full cursor-pointer items-stretch justify-start gap-0 whitespace-normal rounded-none border-0 p-0 text-left font-normal hover:bg-transparent focus-visible:ring-inset disabled:cursor-default disabled:opacity-100 active:not-aria-[haspopup]:translate-y-0 sm:block sm:min-h-0 dark:hover:bg-transparent"
           >
             <span className="relative block shrink-0">
               {still}
@@ -835,17 +888,17 @@ function EpisodeCardImpl({
                 aria-hidden
                 className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
               >
-                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--bg)_60%,transparent)] text-[var(--text)] backdrop-blur-sm">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-background/60 text-foreground backdrop-blur-sm">
                   {effectiveStreamStatus === "pending" ? (
-                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                    <Loader2 className="size-5 animate-spin" aria-hidden />
                   ) : (
-                    <Play className="h-5 w-5 fill-current" aria-hidden />
+                    <Play className="size-5 fill-current" aria-hidden />
                   )}
                 </span>
               </span>
             </span>
             {caption}
-          </button> : (
+          </Button> : (
             <div className="flex min-h-[96px] w-full items-stretch text-left sm:block sm:min-h-0">
               <span className="relative block shrink-0">{still}</span>
               {caption}
@@ -857,8 +910,10 @@ function EpisodeCardImpl({
               too small to hit nor mute to assistive tech. */}
           {canDownload ? (
           <span className="absolute bottom-2 right-2 z-10 sm:bottom-auto sm:top-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="icon-lg"
               data-episode-action
               data-action="download"
               data-action-kind={downloadAction.kind}
@@ -870,19 +925,18 @@ function EpisodeCardImpl({
                 onAction(downloadAction, episode.label, "keep");
               }}
               className={cn(
-                "inline-flex h-11 items-center justify-center gap-1 rounded-full border border-[color-mix(in_srgb,var(--text)_14%,transparent)]",
+                "h-11 gap-1 rounded-full border-foreground/14 dark:border-foreground/14",
                 // Near-opaque canvas under the glyph: on a bright still the
                 // old 82% elevated frost washed the icon out.
-                "bg-[color-mix(in_srgb,var(--bg)_86%,transparent)] text-[var(--text)] shadow-[var(--shadow-sm)] backdrop-blur-sm",
-                "transition-colors hover:bg-[var(--bg)] hover:border-[var(--border-strong)]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
+                "bg-background/86 text-foreground shadow-sm backdrop-blur-sm dark:bg-background/86",
+                "hover:border-input hover:bg-background dark:hover:bg-background",
                 // Busy/done states are disabled but still report status, so they stay
                 // fully opaque: fading them let a bright still wash the glyph below AA.
-                "disabled:cursor-default",
+                "disabled:cursor-default disabled:opacity-100",
                 // Downloading shows a live percentage, so the pill grows to fit
                 // the digits; every other state is a single glyph in a circle.
                 transfer?.status === "downloading"
-                  ? "w-auto px-2.5 text-[var(--accent-text,var(--brand))]"
+                  ? "w-auto px-2.5 text-brand-foreground"
                   : "w-11",
               )}
             >
@@ -892,20 +946,19 @@ function EpisodeCardImpl({
                 held={held}
                 status={effectiveDownloadStatus}
               />
-            </button>
+            </Button>
           </span>
           ) : available ? (
-            <span
+            <Badge
               data-episode-available
-              className="absolute bottom-2 right-2 z-10 hidden rounded-[6px] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] px-1.5 py-0.5 text-[12px] font-medium text-[var(--text-secondary)] backdrop-blur-sm sm:bottom-auto sm:top-2 sm:inline-flex"
+              className="absolute bottom-2 right-2 z-10 hidden bg-card/82 backdrop-blur-sm sm:bottom-auto sm:top-2 sm:inline-flex"
             >
               Available
-            </span>
+            </Badge>
           ) : null}
         </>
       )}
-      {synopsisToggle}
-      {synopsisPanel}
+      {synopsis}
     </li>
   );
 }
@@ -1017,7 +1070,7 @@ function DownloadGlyph({
     return <Loader2 className="h-4 w-4 animate-spin" aria-hidden />;
   }
   if (held || transferStatus === "downloaded" || status === "done") {
-    return <Check className="h-4 w-4 text-[var(--accent-text,var(--brand))]" aria-hidden />;
+    return <Check className="h-4 w-4 text-brand-foreground" aria-hidden />;
   }
   return <Download className="h-4 w-4" aria-hidden />;
 }
@@ -1051,18 +1104,18 @@ function SeasonProgressMeter({
     <p
       data-season-progress
       data-complete={complete ? "true" : undefined}
-      className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-[var(--text-secondary)]"
+      className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-muted-foreground"
     >
       {complete ? (
         <span
           aria-hidden
-          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--success)] text-[var(--bg)]"
+          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-success text-background"
         >
           <Check className="h-3 w-3" strokeWidth={3} />
         </span>
       ) : progress.aired != null && progress.aired > 0 ? (
         <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 -rotate-90">
-          <circle cx="8" cy="8" r={radius} fill="none" strokeWidth="2.5" className="stroke-[var(--border-strong,var(--border))]" />
+          <circle cx="8" cy="8" r={radius} fill="none" strokeWidth="2.5" className="stroke-input" />
           {fraction > 0 ? (
             <circle
               cx="8"
@@ -1072,16 +1125,16 @@ function SeasonProgressMeter({
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeDasharray={`${fraction * circumference} ${circumference}`}
-              className="stroke-[var(--accent)]"
+              className="stroke-brand"
             />
           ) : null}
         </svg>
       ) : (
-        <Download className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" aria-hidden />
+        <Download className="h-3.5 w-3.5 shrink-0 text-subtle-foreground" aria-hidden />
       )}
       <span>{label}</span>
       {progress.downloading > 0 ? (
-        <span data-season-downloading className="text-[var(--text-tertiary)]">
+        <span data-season-downloading className="text-subtle-foreground">
           +{progress.downloading} downloading
         </span>
       ) : null}

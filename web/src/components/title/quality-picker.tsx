@@ -27,6 +27,8 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { QUALITY_CHOICES, type QualityValue } from "./quality-picker-state";
 
@@ -69,7 +71,7 @@ function QualityPickerDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="bottom-0 left-0 top-auto max-h-[calc(100dvh-0.5rem)] w-full max-w-none translate-x-0 translate-y-0 rounded-b-none rounded-t-[var(--radius-lg)] border-x-0 border-b-0 pb-[calc(1.25rem+var(--safe-bottom))] sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-2rem)] sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:p-5">
+      <AlertDialogContent className="bottom-0 left-0 top-auto max-h-[calc(100dvh-0.5rem)] w-full max-w-none translate-x-0 translate-y-0 rounded-b-none rounded-t-xl border-x-0 border-b-0 pb-[calc(1.25rem+var(--safe-bottom))] sm:bottom-auto sm:left-1/2 sm:top-1/2 sm:w-[calc(100%-2rem)] sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:p-5">
         <AlertDialogHeader>
           <AlertDialogTitle>Choose quality</AlertDialogTitle>
           <AlertDialogDescription>
@@ -78,64 +80,41 @@ function QualityPickerDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        {/* Quality radio list.
-            Each row is min-h-[44px] to meet the app's touch-target rule. The
-            radio input is visually hidden but accessible; the entire row label
-            is the click/tap target. */}
-        <div
-          role="radiogroup"
+        {/* Each row is a 44px Label card around a RadioGroupItem, so the whole
+            row is the click/tap target and arrow keys move the choice. */}
+        <RadioGroup
           aria-label="Download quality"
-          className="space-y-1"
+          value={String(selected)}
+          onValueChange={(value) => {
+            const choice = QUALITY_CHOICES.find((c) => String(c.value) === value);
+            if (choice) setSelected(choice.value);
+          }}
+          className="gap-1"
         >
           {QUALITY_CHOICES.map((choice) => {
             const id = `${groupName}-${choice.value}`;
-            const isSelected = selected === choice.value;
             return (
-              <label
+              <Label
                 key={choice.value}
                 htmlFor={id}
                 className={cn(
-                  "flex min-h-[44px] cursor-pointer items-center gap-3 rounded-[var(--radius)] border px-3 py-2 transition-colors",
-                  isSelected
-                    ? "border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_8%,transparent)]"
-                    : "border-[var(--border)] hover:border-[var(--border-strong)]",
+                  "min-h-[44px] cursor-pointer gap-3 rounded-lg border border-border px-3 py-2 font-normal transition-colors hover:border-input",
+                  "has-data-checked:border-brand has-data-checked:bg-brand/8",
                 )}
               >
-                <input
-                  id={id}
-                  type="radio"
-                  name={groupName}
-                  value={choice.value}
-                  checked={isSelected}
-                  onChange={() => setSelected(choice.value)}
-                  className="sr-only"
-                />
-                {/* Custom radio indicator */}
-                <span
-                  aria-hidden
-                  className={cn(
-                    "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
-                    isSelected
-                      ? "border-[var(--brand)] bg-[var(--brand)]"
-                      : "border-[var(--border-strong)] bg-[var(--bg)]",
-                  )}
-                >
-                  {isSelected ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                  ) : null}
-                </span>
+                <RadioGroupItem id={id} value={String(choice.value)} />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium text-[var(--text)]">
+                  <span className="block text-[13px] font-medium text-foreground">
                     {choice.label}
                   </span>
-                  <span className="mt-0.5 block text-[12px] leading-snug text-[var(--text-tertiary)]">
+                  <span className="mt-0.5 block text-[12px] leading-snug text-subtle-foreground">
                     {choice.hint}
                   </span>
                 </span>
-              </label>
+              </Label>
             );
           })}
-        </div>
+        </RadioGroup>
 
         {/* "Always use my preferred quality" — once checked, the picker is
             skipped on all future Download presses. Visible so the user can
@@ -148,12 +127,12 @@ function QualityPickerDialog({
               onAlwaysPreferredChange(checked === true)
             }
           />
-          <label
+          <Label
             htmlFor={`${groupName}-always`}
-            className="cursor-pointer select-none text-[13px] text-[var(--text-secondary)]"
+            className="cursor-pointer text-[13px] font-normal text-muted-foreground"
           >
             Always use my preferred quality
-          </label>
+          </Label>
         </div>
 
         <AlertDialogFooter>

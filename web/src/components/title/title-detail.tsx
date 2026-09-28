@@ -37,7 +37,9 @@ import { cleanDisplayTitle } from "@/components/browse/availability";
 import { headingTitle } from "./heading-title";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { cn } from "@/lib/utils";
 import { releaseStatus, theatricalWindowStatus } from "@/lib/browse/release-status";
@@ -1213,8 +1215,8 @@ function TitleContent({
         data-title-hero
         data-hero-fills={nothingBelowHero || undefined}
         className={cn(
-          "relative isolate flex flex-col overflow-hidden bg-[var(--bg-elevated)]",
-          nothingBelowHero ? "grow justify-start" : "justify-end border-b border-[var(--border)]",
+          "relative isolate flex flex-col overflow-hidden bg-card",
+          nothingBelowHero ? "grow justify-start" : "justify-end border-b border-border",
         )}
       >
         <div
@@ -1244,7 +1246,7 @@ function TitleContent({
             strength, then the directional falloffs that carry the layout. */}
         <div
           aria-hidden
-          className="absolute inset-0 -z-10 bg-[color-mix(in_srgb,var(--bg)_52%,transparent)]"
+          className="absolute inset-0 -z-10 bg-background/52"
         />
         <div
           aria-hidden
@@ -1280,12 +1282,12 @@ function TitleContent({
             <div className="w-[104px] shrink-0 self-end sm:w-[120px] md:row-span-2 md:w-[168px] lg:w-[196px]">
               <div
                 className={cn(
-                  "relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] shadow-[var(--shadow-md)]",
+                  "relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-border bg-muted shadow-md",
                   gated && "grayscale",
                 )}
               >
                 {titlePending && !payload.posterUrl ? (
-                  <div className="skeleton h-full w-full" aria-hidden="true" data-title-poster-pending />
+                  <Skeleton className="size-full rounded-none" aria-hidden="true" data-title-poster-pending />
                 ) : (
                   <PosterImage
                     src={payload.posterUrl}
@@ -1303,12 +1305,13 @@ function TitleContent({
                 title={titlePending ? undefined : title}
                 aria-busy={titlePending || undefined}
                 data-title-heading-pending={titlePending ? "" : undefined}
-                className="break-words text-[clamp(1.75rem,7vw,2.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-[var(--text)] md:text-display"
+                className="break-words text-[clamp(1.75rem,7vw,2.25rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-foreground md:text-display"
               >
                 {titlePending ? (
                   <>
                     <span className="sr-only">Loading title</span>
-                    <span aria-hidden="true" className="skeleton block h-[1em] w-3/4 max-w-[28rem] rounded" />
+                    {/* A span, not <Skeleton>: a div is not allowed inside a heading. */}
+                    <span aria-hidden="true" className="block h-[1em] w-3/4 max-w-[28rem] animate-pulse rounded bg-muted" />
                   </>
                 ) : (
                   title
@@ -1320,12 +1323,12 @@ function TitleContent({
                   title keeps its "Coming {date}" / "In cinemas" chip beside it. */}
               <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2">
                 {gated ? (
-                  <span
+                  <Badge
                     data-title-coming
-                    className="inline-flex items-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-1 text-[12px] font-medium text-[var(--text-secondary)]"
+                    className="h-auto gap-1.5 rounded-lg bg-card px-2.5 py-1"
                   >
                     {theatrical.theatricalLabel ?? release.comingLabel ?? "Coming soon"}
-                  </span>
+                  </Badge>
                 ) : null}
                 <RatingMetaLine
                   rating={metaRating}
@@ -1599,7 +1602,7 @@ function TitleContent({
         />
 
         {!payload.known ? (
-          <p className="text-[12px] text-[var(--text-tertiary)]">
+          <p className="text-[12px] text-subtle-foreground">
             Nothing local knows this title yet. Everything above comes from
             the link you followed.
           </p>
@@ -1862,31 +1865,31 @@ function titleProgressHasActiveTransfer(
 function TitleDetailSkeleton() {
   return (
     <div aria-hidden>
-      <div className="border-b border-[var(--border)] bg-[var(--bg-elevated)]">
+      <div className="border-b border-border bg-card">
         <div className="container-app">
           <div className="grid grid-cols-1 items-end gap-4 py-5 sm:py-8 md:grid-cols-[168px_minmax(0,1fr)] md:gap-6 md:py-10 lg:grid-cols-[196px_minmax(0,1fr)] lg:py-12">
             <div className="w-[104px] shrink-0 sm:w-[120px] md:w-[168px] lg:w-[196px]">
-              <div className="skeleton aspect-[2/3] w-full rounded-[var(--radius)]" />
+              <Skeleton className="aspect-[2/3] w-full rounded-lg" />
             </div>
             <div className="min-w-0 max-w-2xl flex-1">
-              <div className="skeleton h-9 w-3/4 rounded" />
-              <div className="skeleton mt-3 h-3 w-40 rounded" />
-              <div className="skeleton mt-5 h-11 w-full rounded-[var(--radius)] md:w-44" />
+              <Skeleton className="h-9 w-3/4 rounded" />
+              <Skeleton className="mt-3 h-3 w-40 rounded" />
+              <Skeleton className="mt-5 h-11 w-full rounded-lg md:w-44" />
             </div>
             <div className="space-y-2 md:col-start-2">
-              <div className="skeleton h-3 w-full max-w-md rounded" />
-              <div className="skeleton h-3 w-4/5 max-w-md rounded" />
+              <Skeleton className="h-3 w-full max-w-md rounded" />
+              <Skeleton className="h-3 w-4/5 max-w-md rounded" />
             </div>
           </div>
         </div>
       </div>
       <div className="container-app py-6 md:py-8">
-        <div className="skeleton h-5 w-32 rounded" />
+        <Skeleton className="h-5 w-32 rounded" />
         <div className="mt-3 space-y-2 sm:flex sm:gap-3 sm:space-y-0 sm:overflow-hidden">
           {[0, 1, 2, 3, 4].map((i) => (
-            <div
+            <Skeleton
               key={i}
-              className="skeleton h-24 w-full rounded-[var(--radius)] sm:h-[215px] sm:w-[300px] sm:shrink-0"
+              className="h-24 w-full rounded-lg sm:h-[215px] sm:w-[300px] sm:shrink-0"
             />
           ))}
         </div>
