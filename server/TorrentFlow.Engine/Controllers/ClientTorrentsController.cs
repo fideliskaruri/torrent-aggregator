@@ -80,8 +80,8 @@ public sealed class ClientTorrentsController(
         StringComparer.Create(System.Globalization.CultureInfo.InvariantCulture, System.Globalization.CompareOptions.NumericOrdering);
 
     /// <summary>
-    /// Matches the shape Next lists for built-in rows. Work identity comes only from acquisition intent (below),
-    /// never the engine row, and a row that is not loaded in the client reports no peer count and no positive
+    /// Matches the shape Next lists for built-in rows. Canonical work identity is resolved below, not inferred
+    /// from release names. A row that is not loaded in the client reports no peer count and no positive
     /// playability claim (only a known-invalid <c>playable: false</c>), exactly like the persisted-row branch there.
     /// </summary>
     private JsonObject BuiltinListRow(JsonObject node, EngineTorrentInfo t)
@@ -115,8 +115,32 @@ public sealed class ClientTorrentsController(
             .Select(a => new AcquisitionIntent(a.InfoHash!, a.WorkId, a.WorkKey, a.Scope, a.Season, a.Episode,
                 a.Work != null ? a.Work.CanonicalTitle : null, a.Work != null ? a.Work.Year : null, a.Work != null ? a.Work.MediaType : null))
             .ToListAsync(ct);
-        if (targets.Count == 0) return;
         var byHash = IntentByHash(targets);
+        var targetHashes = byHash.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Request grabs have a canonical work but no owner-created acquisition target.
+        var requestTransfers = await db.EngineTorrents.AsNoTracking()
+            .Where(t => t.UserId == LocalUser.Id && hashes.Contains(t.Hash) && t.Work != null)
+            .Select(t => new { t.Hash, t.WorkId, t.Work!.WorkKey, t.Work.CanonicalTitle, t.Work.Year, t.Work.MediaType })
+            .ToListAsync(ct);
+        foreach (var transfer in requestTransfers)
+            byHash.TryAdd(transfer.Hash.ToLowerInvariant(), new(transfer.Hash, transfer.WorkId, transfer.WorkKey, "title",
+                null, null, transfer.CanonicalTitle, transfer.Year, transfer.MediaType));
+        // Older request downloads predate the work link. Their recorded hashes still provide exact identity,
+        // without merging unrelated shows that merely have similar release names.
+        var wanted = hashes.Except(byHash.Keys, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (wanted.Count > 0)
+        {
+            var requests = await db.MediaRequests.AsNoTracking()
+                .Where(r => r.GrabbedHashes != null && (r.Status == "approved" || r.Status == "fulfilled"))
+                .OrderByDescending(r => r.CreatedAt)
+                .Select(r => new { r.GrabbedHashes, r.WorkKey, r.Title, r.Year, r.MediaType }).ToListAsync(ct);
+            foreach (var request in requests)
+                foreach (var hash in request.GrabbedHashes!.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    if (wanted.Contains(hash))
+                        byHash.TryAdd(hash.ToLowerInvariant(), new(hash, null, request.WorkKey, "title", null, null,
+                            request.Title, request.Year, request.MediaType));
+        }
+        if (byHash.Count == 0) return;
         var workKeys = byHash.Values.Select(t => t.WorkKey).Where(k => !string.IsNullOrEmpty(k)).Distinct().ToList();
         var catalog = (await db.CatalogEntries.AsNoTracking().Where(c => workKeys.Contains(c.WorkKey))
                 .OrderByDescending(c => c.RefreshedAt).Select(c => new { c.WorkKey, c.Title, c.Year, c.MediaType }).ToListAsync(ct))
@@ -132,9 +156,12 @@ public sealed class ClientTorrentsController(
             torrent["workYear"] = target.Year ?? entry?.Year;
             torrent["workMediaType"] = (target.MediaType != "unknown" ? target.MediaType : null)
                 ?? entry?.MediaType ?? torrent["category"]?.GetValue<string>();
-            torrent["targetScope"] = target.Scope;
-            torrent["season"] = target.Season;
-            torrent["episode"] = target.Episode;
+            if (targetHashes.Contains(hash))
+            {
+                torrent["targetScope"] = target.Scope;
+                torrent["season"] = target.Season;
+                torrent["episode"] = target.Episode;
+            }
         }
     }
 

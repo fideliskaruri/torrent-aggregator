@@ -169,8 +169,11 @@ public sealed class MediaRequestService(
         if (row.Status != MediaRequestStatus.Pending) return (true, false, ToRequester(row));
         row.Status = MediaRequestStatus.Cancelled;
         row.UpdatedAt = time.GetUtcNow().UtcDateTime;
-        await db.SaveChangesAsync(ct);
-        return (true, true, ToRequester(row));
+        var changed = await db.MediaRequests.Where(r => r.Id == id && r.RequestedByUserId == userId && r.Status == MediaRequestStatus.Pending)
+            .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, MediaRequestStatus.Cancelled)
+                .SetProperty(r => r.UpdatedAt, row.UpdatedAt), ct);
+        if (changed == 0) await db.Entry(row).ReloadAsync(ct);
+        return (true, changed > 0, ToRequester(row));
     }
 
     private static RequesterRequest ToRequester(MediaRequest r) => new(r.Id, r.Title, r.Year, r.MediaType, r.Provider, r.ProviderId, r.PosterUrl,

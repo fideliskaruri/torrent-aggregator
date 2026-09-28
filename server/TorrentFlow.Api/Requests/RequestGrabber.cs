@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Grabs;
 using TorrentFlow.Library.Features.Watchlist;
@@ -19,13 +21,16 @@ public interface IRequestGrabber
 /// Uses the owner's own grab path (<see cref="GrabService"/>) on the request lane: one release for a film, one
 /// exact release per aired episode for the chosen seasons of a series.
 /// </summary>
-public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras, TimeProvider time) : IRequestGrabber
+public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras, TimeProvider time,
+    IDbContextFactory<TorrentFlowDbContext> factory) : IRequestGrabber
 {
     private const int MaxSeriesSeasons = 30;
 
     public async Task<RequestGrabOutcome> GrabAsync(MediaRequest request, CancellationToken ct)
     {
-        var input = new GrabInput(request.Title, request.MediaType, Year: request.Year, WorkKey: request.WorkKey, Lane: TorrentLane.Request);
+        var workId = await EnsureWorkAsync(request, ct);
+        var input = new GrabInput(request.Title, request.MediaType, WorkId: workId,
+            Year: request.Year, WorkKey: request.WorkKey, Lane: TorrentLane.Request);
         if (request.Scope == MediaRequestScope.Movie)
         {
             var film = await grabs.Grab(input, ct);
@@ -56,6 +61,26 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
 
     private Task<TitleExtrasPayload> Extras(MediaRequest r, int? season, CancellationToken ct) =>
         extras.GetAsync(new TitleExtrasQuery(r.WorkKey, r.Title, r.Year, r.MediaType, season, r.Provider, r.ProviderId, null, SeriesHint: true), ct);
+
+    private async Task<string> EnsureWorkAsync(MediaRequest request, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var existing = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == request.WorkKey, ct);
+        if (existing is not null) return existing.Id;
+        var now = time.GetUtcNow().UtcDateTime;
+        var work = new Work { Id = Ids.New(), WorkKey = request.WorkKey, CanonicalTitle = request.Title,
+            MediaType = request.MediaType, Year = request.Year, PosterUrl = request.PosterUrl, CreatedAt = now, UpdatedAt = now };
+        db.Works.Add(work);
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateException)
+        {
+            // Another request for the same title may have established its identity first.
+            var winner = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == request.WorkKey, ct);
+            if (winner is null) throw;
+            return winner.Id;
+        }
+        return work.Id;
+    }
 
     private static bool Aired(string? airDate, DateOnly today) =>
         DateOnly.TryParse(airDate?.Length >= 10 ? airDate[..10] : airDate, System.Globalization.CultureInfo.InvariantCulture,

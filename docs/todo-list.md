@@ -18,7 +18,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | Engine RAM: reported 2.2 GB season workload | qa-engine (Astra, server only) | Exact workload still needs reproduction; bounded HTTP buffering and documented/shared-cache regression added |
 | Search takes 5–16 s | qa-search-perf (Astra, server only) | Running |
 | UI QA bugs: source controls under 44px on desktop, queued "Download now", send field errors, Advanced JSON crash, offline and expired sign-in banners, sweep of the other pages | qa-ui (Opus 5.5) | Running |
-| One request made two Frieren download groups (38 releases, 58 GB) | req-dup-grab (Astra, server) | Running |
+| One request made two Frieren download groups (38 releases, 58 GB) | req-dup-grab (Astra, server) | Fixed and simulator/MCP verified: 38 distinct episodes, not duplicate grabs; canonical request identity merges both groups. Approval/decline/cancel races are guarded. |
 
 ## Next
 

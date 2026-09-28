@@ -97,7 +97,11 @@ Title and season lookups share a `SearchesPerMinute` budget per email (429 `rate
   one release for a film; one exact release per aired episode of the chosen seasons (the whole series is
   every catalog season, at most 30). The hashes are stored; if nothing starts, the request becomes `failed`
   with a generic reason (the indexer detail stays in the owner's log). Auto-approve reuses this same path
-  with reason `"Auto-approved"`.
+  with reason `"Auto-approved"`. Approval, decline and cancellation atomically claim the pending state:
+  concurrent retries cannot start a second grab or overwrite a winning decision. Request grabs persist one
+  canonical work identity before sending any releases; they do not add a monitored watch-list item.
+  Downloads uses that identity across release-name variations. Older request downloads are also grouped
+  using the request's stored hashes, without moving or downloading their files again.
 - `POST /api/requests/{id}/decline` — optional body `{ reason }` (at most 500 characters, shown to the
   requester). Pending only.
 - `GET /api/requests/auto-approve` — owner only. `{ rules, knownEmails }`. Each rule is
@@ -116,6 +120,19 @@ Title and season lookups share a `SearchesPerMinute` budget per email (429 `rate
   Off / Movies only / Everything, and add emails that have not requested yet.
 
 ## Configuration
+
+### Duplicate-looking download groups
+
+A whole-series request is one release per aired episode, not one torrent for the entire show. In the
+September 28, 2026 simulator reproduction, TVmaze's Frieren catalog contained 28 season-one and 10
+season-two episodes. One approval produced 38 distinct episode hashes, no season packs, and no watch-list
+item. The old Downloads fallback classified some cleaned release titles as films and others as series,
+splitting the same show into two groups; it did not download the episodes twice.
+
+Update and refresh Downloads to regroup existing request transfers using their stored request identity.
+Do **not** delete one whole group as a cleanup step: it may contain different episodes. If individual
+episodes really have multiple releases, inspect their season/episode and remove only the unwanted
+transfers (choose file deletion only when those files are no longer wanted).
 
 `TorrentFlow:Requests`:
 

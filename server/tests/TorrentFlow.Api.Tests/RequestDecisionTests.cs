@@ -82,6 +82,62 @@ public sealed class RequestDecisionTests(DecisionHostFactory factory) : IClassFi
         (await Json(await client.GetAsync("/api/requester/requests"))).GetProperty("requests").EnumerateArray().Single(r => r.GetProperty("id").GetString() == id);
 
     [Fact]
+    public async Task ConcurrentApprovalsStartOnlyOneGrab()
+    {
+        var (friend, id) = await RequestAsync("Approve Only Once", "5091");
+        using (friend)
+        using (var owner = factory.Local())
+        {
+            var responses = await Task.WhenAll(Enumerable.Range(0, 16)
+                .Select(_ => Task.Run(() => owner.PostAsync($"/api/requests/{id}/approve", null))));
+            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+            Assert.Equal(15, responses.Count(r => r.StatusCode == HttpStatusCode.Conflict));
+            await GrabDone();
+            Assert.Single(factory.Grabber.Grabbed, r => r.Id == id);
+            Assert.Equal(MediaRequestStatus.Approved, (await RowAsync(id)).Status);
+            foreach (var response in responses) response.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ApprovalAndDeclineCannotBothWin()
+    {
+        var (friend, id) = await RequestAsync("One Decision", "5092");
+        using (friend)
+        using (var owner = factory.Local())
+        {
+            var responses = await Task.WhenAll(
+                Task.Run(() => owner.PostAsync($"/api/requests/{id}/approve", null)),
+                Task.Run(() => owner.PostAsync($"/api/requests/{id}/decline", null)));
+            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
+            await GrabDone();
+            var row = await RowAsync(id);
+            Assert.Equal(row.Status == MediaRequestStatus.Approved ? 1 : 0, factory.Grabber.Grabbed.Count(r => r.Id == id));
+            foreach (var response in responses) response.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task ApprovalAndCancellationCannotBothWin()
+    {
+        var (friend, id) = await RequestAsync("One Final State", "5093");
+        using (friend)
+        using (var owner = factory.Local())
+        {
+            var responses = await Task.WhenAll(
+                Task.Run(() => owner.PostAsync($"/api/requests/{id}/approve", null)),
+                Task.Run(() => friend.PostAsync($"/api/requester/requests/{id}/cancel", null)));
+            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+            Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
+            await GrabDone();
+            var row = await RowAsync(id);
+            Assert.Equal(row.Status == MediaRequestStatus.Approved ? 1 : 0, factory.Grabber.Grabbed.Count(r => r.Id == id));
+            foreach (var response in responses) response.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task ApprovingGrabsOnTheRequestLaneAndCompletionFulfills()
     {
         var (friend, id) = await RequestAsync("Approve Me", "5001");

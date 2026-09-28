@@ -51,7 +51,12 @@ public sealed class RequestDecisionService(
         row.DecisionReason = string.IsNullOrWhiteSpace(decisionReason) ? null : decisionReason.Trim();
         row.DecidedAt = now;
         row.UpdatedAt = now;
-        await db.SaveChangesAsync(ct);
+        var changed = await db.MediaRequests.Where(r => r.Id == id && r.Status == MediaRequestStatus.Pending)
+            .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, row.Status)
+                .SetProperty(r => r.DecisionReason, row.DecisionReason).SetProperty(r => r.DecidedAt, now)
+                .SetProperty(r => r.UpdatedAt, now), ct);
+        if (changed == 0)
+            return (DecisionOutcome.NotPending, await db.MediaRequests.Where(r => r.Id == id).Select(r => r.Status).FirstOrDefaultAsync(ct));
         await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestApproved, "Request approved", row.Title, "/requests");
         LastGrab = Task.Run(() => GrabAsync(id, lifetime.ApplicationStopping), CancellationToken.None);
         return (DecisionOutcome.Done, row.Status);
@@ -68,7 +73,12 @@ public sealed class RequestDecisionService(
         row.DecisionReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
         row.DecidedAt = now;
         row.UpdatedAt = now;
-        await db.SaveChangesAsync(ct);
+        var changed = await db.MediaRequests.Where(r => r.Id == id && r.Status == MediaRequestStatus.Pending)
+            .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, row.Status)
+                .SetProperty(r => r.DecisionReason, row.DecisionReason).SetProperty(r => r.DecidedAt, now)
+                .SetProperty(r => r.UpdatedAt, now), ct);
+        if (changed == 0)
+            return (DecisionOutcome.NotPending, await db.MediaRequests.Where(r => r.Id == id).Select(r => r.Status).FirstOrDefaultAsync(ct));
         await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestDeclined, "Request declined",
             row.DecisionReason is { } reasonText ? $"{row.Title}: {reasonText}" : row.Title, "/requests");
         return (DecisionOutcome.Done, row.Status);
