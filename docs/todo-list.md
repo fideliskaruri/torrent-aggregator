@@ -19,6 +19,8 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | Search takes 5–16 s | qa-search-perf (Astra, server only) | Running |
 | UI QA bugs: source controls under 44px on desktop, queued "Download now", send field errors, Advanced JSON crash, offline and expired sign-in banners, sweep of the other pages | qa-ui (Opus 5.5) | Running |
 
+| One request made two Frieren download groups (38 releases, 58 GB) | req-dup-grab (Astra, server) | Running |
+
 ## Next
 
 - QA pass: owner vs requester vs preview, on phone and desktop, using the simulator.
