@@ -17,6 +17,7 @@ import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { readJsonBody } from "@/lib/api-json";
+import { sessionAwareFetch } from "@/lib/session-expiry";
 import { toast } from "@/lib/toast";
 import { formatBytes, formatDuration } from "@/lib/utils";
 import { isDownloaded } from "./grouping";
@@ -54,6 +55,8 @@ export function canFindAnotherRelease(t: ClientTorrent): boolean {
   return t.ownerClientType === "builtin" && !t.imported && t.progress < 0.9999 && !isDownloaded(t.state);
 }
 
+const CHOICES_TTL_MS = 10 * 60_000;
+
 function alternativesEndpoint(hash: string): string {
   return `/api/client/torrents/${encodeURIComponent(hash.toLowerCase())}/alternatives`;
 }
@@ -61,7 +64,7 @@ function alternativesEndpoint(hash: string): string {
 function failureMessage(body: { message?: string; title?: string } | null, status: number, fallback: string): string {
   if (body?.message?.trim()) return body.message.trim();
   if (status === 403) return "Only the owner can replace a release.";
-  if (!body) return `TorrentFlow didn't answer properly (HTTP ${status}). Check that it's running, then try again.`;
+  if (!body || status >= 500) return "TorrentFlow couldn't check other releases just now. Try again in a moment.";
   return fallback;
 }
 
@@ -84,17 +87,33 @@ export function ReleaseSwapDialog({
   const [attempt, setAttempt] = useState(0);
   const [switchingToken, setSwitchingToken] = useState<string | null>(null);
   const [swapError, setSwapError] = useState<string | null>(null);
+  // Choices are one-use tokens that expire after 10 minutes; once refused or
+  // old they can't be used, so the list asks to be fetched again.
+  const [stale, setStale] = useState(false);
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  const retry = useCallback(() => {
+    setSwapError(null);
+    setStale(false);
+    setAttempt((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    if (state.kind !== "ready") return;
+    const timer = window.setTimeout(() => {
+      setStale(true);
+      setSwapError("These choices expired. Find releases again to get fresh ones.");
+    }, CHOICES_TTL_MS);
+    return () => window.clearTimeout(timer);
+  }, [state]);
 
   useEffect(() => {
     const controller = new AbortController();
     setState({ kind: "loading" });
     void (async () => {
       try {
-        const res = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
+        const res = await sessionAwareFetch(endpoint, { cache: "no-store", signal: controller.signal });
         const body = await readJsonBody<ReleaseAlternatives & { message?: string }>(res);
         if (controller.signal.aborted) return;
         if (!res.ok || !body || !Array.isArray(body.alternatives) || !body.health) {
@@ -115,7 +134,7 @@ export function ReleaseSwapDialog({
     setSwitchingToken(candidate.token);
     setSwapError(null);
     try {
-      const res = await fetch(endpoint, {
+      const res = await sessionAwareFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: candidate.token }),
@@ -123,9 +142,9 @@ export function ReleaseSwapDialog({
       const body = await readJsonBody<{ ok?: boolean; message?: string; title?: string }>(res);
       if (!res.ok || !body?.ok) {
         if (!mounted.current) return;
-        setSwapError(failureMessage(body, res.status, "Could not switch to this release."));
-        // A refused token is spent or stale; fetch fresh selections.
-        retry();
+        setSwapError(failureMessage(body, res.status, "That release couldn't be used. Find releases again and pick another."));
+        // A refused token is spent or expired; the rest of the list may be too.
+        setStale(true);
         return;
       }
       toast.success(`Switched to ${candidate.title}`);
@@ -151,7 +170,7 @@ export function ReleaseSwapDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
-          <HealthSummary torrent={torrent} health={state.kind === "ready" ? state.data.health : null} />
+          <HealthSummary torrent={torrent} health={state.kind === "ready" ? state.data.health : null} checking={state.kind === "loading"} />
 
           <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
             Switching removes this release&apos;s partial files. Completed files and other downloads are kept.
@@ -165,6 +184,18 @@ export function ReleaseSwapDialog({
             >
               {swapError}
             </p>
+          ) : null}
+
+          {stale && state.kind === "ready" ? (
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-[44px] w-full sm:w-auto"
+              onClick={retry}
+              data-release-refresh
+            >
+              Find releases again
+            </Button>
           ) : null}
 
           {state.kind === "loading" ? (
@@ -227,7 +258,7 @@ export function ReleaseSwapDialog({
                       type="button"
                       variant={index === 0 ? "default" : "secondary"}
                       className="min-h-[44px] w-full sm:w-auto"
-                      disabled={switching}
+                      disabled={switching || stale}
                       aria-busy={pending}
                       aria-label={`Use this release: ${candidate.title}`}
                       onClick={() => void switchTo(candidate)}
@@ -248,7 +279,7 @@ export function ReleaseSwapDialog({
   );
 }
 
-function HealthSummary({ torrent, health }: { torrent: ClientTorrent; health: ReleaseSwapHealth | null }) {
+function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; health: ReleaseSwapHealth | null; checking: boolean }) {
   const seeders = health?.connectedSeeders;
   const peers = health ? health.connectedPeers : torrent.peers;
   const speed = health ? health.downloadBytesPerSecond : torrent.dlspeed || 0;
@@ -257,7 +288,7 @@ function HealthSummary({ torrent, health }: { torrent: ClientTorrent; health: Re
     peers != null ? `${peers} ${peers === 1 ? "peer" : "peers"}` : null,
   ].filter(Boolean).join(" · ") || "Unknown";
   const stalledText = !health
-    ? "Checking…"
+    ? checking ? "Checking…" : "Unknown"
     : health.stalledForSeconds > 0
       ? formatDuration(health.stalledForSeconds)
       : "Not stalled";

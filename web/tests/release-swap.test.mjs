@@ -28,7 +28,11 @@ test("release swap renders loading, empty, error and ready states", () => {
 });
 
 test("switching disables every button, marks the pressed one and toasts the release name", () => {
-  assert.match(dialog, /disabled=\{switching\}/);
+  assert.match(dialog, /disabled=\{switching \|\| stale\}/);
+  assert.match(dialog, /Find releases again/);
+  assert.match(dialog, /CHOICES_TTL_MS = 10 \* 60_000/);
+  assert.match(dialog, /sessionAwareFetch\(endpoint/);
+  assert.doesNotMatch(dialog, /HTTP \$\{status\}/);
   assert.match(dialog, /Switching…/);
   assert.match(dialog, /toast\.success\(`Switched to \$\{candidate\.title\}`\)/);
   assert.match(dialog, /min-h-\[44px\]/);
