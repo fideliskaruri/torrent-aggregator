@@ -60,7 +60,7 @@ export function DownloadLocationFields({
         </div>
         {folder.trim() ? (
           <p
-            className="break-all font-mono text-[11px] leading-relaxed text-[var(--text-tertiary)]"
+            className="break-all font-mono text-xs leading-relaxed text-[var(--text-tertiary)]"
             data-download-folder-path
           >
             {folder}

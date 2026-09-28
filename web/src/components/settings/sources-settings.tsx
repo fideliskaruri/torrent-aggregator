@@ -132,7 +132,7 @@ export function SourcesSettings() {
         return <section key={kind} className="space-y-4" aria-label={`${kind} sources`}>
           <h3 className="font-semibold">{kind === "metadata" ? "Metadata" : "Torrent indexers"}</h3>
           {[...new Set(group.map(s => s.categories.join(", ")))].map(category => <div key={category} className="space-y-3">
-            <h4 className="text-sm text-[var(--text-secondary)]">{category}</h4>
+            <h4 className="text-sm text-[var(--text-secondary)] first-letter:uppercase">{category}</h4>
             {group.filter(s => s.categories.join(", ") === category).map(source =>
               <SourceCard key={source.id} source={source} update={update} remove={remove} move={move}
                 first={group[0]?.id === source.id} last={group.at(-1)?.id === source.id} reload={() => void load()} />)}

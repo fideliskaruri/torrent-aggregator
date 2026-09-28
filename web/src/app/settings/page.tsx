@@ -1224,7 +1224,7 @@ export default function SettingsPage() {
                               {category}
                             </span>
                             {!open && effective ? (
-                              <span className="ml-auto max-w-[55%] truncate font-mono text-[10px] text-[var(--text-tertiary)]">
+                              <span className="ml-auto max-w-[55%] truncate font-mono text-xs text-[var(--text-tertiary)]">
                                 {effective}
                               </span>
                             ) : null}

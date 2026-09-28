@@ -66,6 +66,26 @@ function statusVariant(
   }
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  sent: "Sent",
+  failed: "Failed",
+  skipped: "Skipped",
+  searching: "Searching",
+  queued: "Waiting",
+  downloaded: "Downloaded",
+  completed: "Finished",
+  complete: "Finished",
+  info: "Info",
+};
+
+/** A status in the user's words; unknown values become sentence case, never a raw enum. */
+function statusLabel(status: string): string {
+  const known = STATUS_LABELS[status];
+  if (known) return known;
+  const words = status.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().toLowerCase();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Update";
+}
+
 function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean }) {
   const displayPath = useDisplayPath();
   const [searchParams] = useSearchParams();
@@ -290,7 +310,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
             <section key={group.key} aria-labelledby={`activity-day-${group.key}`}>
               <h2
                 id={`activity-day-${group.key}`}
-                className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
+                className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
               >
                 {group.label}
               </h2>
@@ -307,27 +327,27 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                     >
                       <Badge
                         variant={statusVariant(item.status)}
-                        className="mt-0.5 capitalize"
+                        className="mt-0.5"
                       >
-                        {item.status}
+                        {statusLabel(item.status)}
                       </Badge>
                       <div className="min-w-0">
                         <p className="truncate text-[13px] font-medium text-[var(--text)]">
                           {item.title}
                         </p>
-                        <p className="truncate text-[11px] text-[var(--text-tertiary)]">
+                        <p className="truncate text-xs text-[var(--text-tertiary)]">
                           {[kindLabel, item.source, item.category]
                             .filter(Boolean)
                             .join(" · ")}
                         </p>
                         {item.message ? (
-                          <p className="truncate text-[11px] text-[var(--text-secondary)]">
+                          <p className="truncate text-xs text-[var(--text-secondary)]">
                             {item.message}
                           </p>
                         ) : null}
                         {location ? (
                           <p
-                            className="truncate font-mono text-[11px] text-[var(--text-tertiary)]"
+                            className="truncate font-mono text-xs text-[var(--text-tertiary)]"
                             title={item.savePath ? displayPath(item.savePath) : undefined}
                             data-save-path
                           >
@@ -337,7 +357,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                       </div>
                       <time
                         dateTime={item.createdAt}
-                        className="col-start-2 whitespace-nowrap text-[11px] text-[var(--text-tertiary)] sm:col-start-3 sm:row-start-1"
+                        className="col-start-2 whitespace-nowrap text-xs text-[var(--text-tertiary)] sm:col-start-3 sm:row-start-1"
                       >
                         {formatRelativeTime(item.createdAt)}
                       </time>

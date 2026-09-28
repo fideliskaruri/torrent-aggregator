@@ -81,7 +81,7 @@ export function TfStatStrip({
               ],
             )}
           >
-            <span className="truncate text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+            <span className="truncate text-xs font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
               {item.label}
             </span>
             <span

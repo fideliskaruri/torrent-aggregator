@@ -39,7 +39,7 @@ export function NotificationBell() {
     <Link to="/notifications" aria-label={`Notifications${count ? `, ${count} unread` : ""}`}
       data-notification-bell className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--bg-muted)] focus-visible:ring-2 focus-visible:ring-[var(--accent)]">
       <Bell className="h-5 w-5" aria-hidden />
-      {badge && <span data-notification-badge className="absolute right-0 top-0 rounded-full bg-[var(--accent)] px-1 text-[10px] font-semibold text-[var(--primary-foreground)]">{badge}</span>}
+      {badge && <span data-notification-badge className="absolute right-0 top-0 rounded-full bg-[var(--accent)] px-1 text-xs font-semibold text-[var(--primary-foreground)]">{badge}</span>}
     </Link>
   );
 }

@@ -343,13 +343,17 @@ export default function RulesPage() {
       const res = await fetch("/api/rules/run", { method: "POST" });
       const data = await res.json().catch(() => ({
         ok: false,
-        message: "Empty response from server",
+        message: "TorrentFlow didn't send back a result. Check Downloads, then run the rules again.",
         summary: [],
       }));
+      const statusWords = (status: string) => {
+        const words = status.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().toLowerCase();
+        return words ? `${words[0].toUpperCase()}${words.slice(1)}: ` : "";
+      };
       const lines = (data.summary ?? [])
         .map(
           (s: { message: string; title?: string; status?: string }) =>
-            `${s.status ? `[${s.status}] ` : ""}${s.title ? s.title + " — " : ""}${s.message}`,
+            `${s.status ? statusWords(s.status) : ""}${s.title ? s.title + " — " : ""}${s.message}`,
         )
         .join("\n");
       if (res.ok && data.ok !== false) {
@@ -609,7 +613,7 @@ export default function RulesPage() {
                       <p className="font-medium text-[var(--text)]">
                         Search only these indexers
                       </p>
-                      <p className="text-[11px] text-[var(--text-tertiary)]">
+                      <p className="text-xs text-[var(--text-tertiary)]">
                         Leave all unselected to search every enabled source.
                       </p>
                       <div className="flex flex-wrap gap-2">
@@ -725,7 +729,7 @@ export default function RulesPage() {
                     Last match: {rule.lastMatchTitle}
                   </p>
                 ) : null}
-                <p className="text-[11px] text-[var(--text-tertiary)]">
+                <p className="text-xs text-[var(--text-tertiary)]">
                   {rule.matchCount} sends
                   {rule.lastRunAt
                     ? ` · last run ${new Date(rule.lastRunAt).toLocaleString()}`

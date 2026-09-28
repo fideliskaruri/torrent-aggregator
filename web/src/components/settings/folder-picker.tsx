@@ -122,7 +122,7 @@ export function FolderPicker({
             <h3 className="text-sm font-medium text-[var(--text)] truncate">
               {title}
             </h3>
-            <p className="text-[11px] text-[var(--text-tertiary)] font-mono truncate mt-0.5">
+            <p className="text-xs text-[var(--text-tertiary)] font-mono truncate mt-0.5">
               {currentPath || "Select a drive or folder"}
             </p>
           </div>
