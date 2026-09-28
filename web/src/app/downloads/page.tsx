@@ -57,7 +57,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { TfEmptyState } from "@/components/tf/empty-state";
-import { TfStatStrip } from "@/components/tf/stat-strip";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
 import {
   encodeKeySegment,
@@ -133,7 +132,7 @@ import {
 } from "@/lib/clients/transfer-ownership";
 import type { TorrentClientType } from "@/lib/clients";
 
-type StatusFilter = "all" | "active" | "downloading" | "ready" | "paused";
+type StatusFilter = "all" | "active" | "downloading" | "ready" | "paused" | "attention";
 
 const SHARE_TRACKERS = [
   "udp://tracker.opentrackr.org:1337/announce",
@@ -482,6 +481,7 @@ export default function ClientPage() {
       if (statusFilter === "downloading") return isDownloading(t.state);
       if (statusFilter === "ready") return isDownloaded(t.state);
       if (statusFilter === "paused") return isPaused(t.state);
+      if (statusFilter === "attention") return isError(t.state);
       if (statusFilter === "active")
         return isDownloading(t.state) || isQueued(t.state);
       return true;
@@ -1066,7 +1066,22 @@ export default function ClientPage() {
     { id: "downloading", label: "Downloading" },
     { id: "ready", label: "Ready" },
     { id: "paused", label: "Paused" },
+    ...(stats.errored > 0 || statusFilter === "attention"
+      ? [{ id: "attention" as const, label: "Needs attention" }]
+      : []),
   ];
+
+  const summaryParts: { id: StatusFilter; label: string; hook: string }[] = [
+    { id: "all", label: `${stats.total} ${stats.total === 1 ? "download" : "downloads"}`, hook: "total" },
+    ...(stats.downloading > 0 ? [{ id: "downloading" as const, label: `${stats.downloading} downloading`, hook: "downloading" }] : []),
+    ...(stats.ready > 0 ? [{ id: "ready" as const, label: `${stats.ready} ready`, hook: "ready" }] : []),
+    ...(stats.paused > 0 ? [{ id: "paused" as const, label: `${stats.paused} paused`, hook: "paused" }] : []),
+    ...(stats.errored > 0
+      ? [{ id: "attention" as const, label: `${stats.errored} ${stats.errored === 1 ? "needs" : "need"} attention`, hook: "attention" }]
+      : []),
+  ];
+  const liveSpeed = stats.downloading > 0 ? speedLabel(stats.dlspeed) : null;
+  const clientUnavailable = offline && !isBuiltin;
 
   return (
     <div className="container-app max-w-5xl py-6 sm:py-8 space-y-4 min-w-0">
@@ -1075,6 +1090,42 @@ export default function ClientPage() {
       </p>
       <TfPageHeader
         title="Downloads"
+        meta={
+          clientUnavailable ? null : (
+            <p
+              className="flex flex-wrap items-center gap-x-3 text-[13px] tabular-nums text-muted-foreground sm:gap-x-1"
+              data-downloads-summary
+            >
+              {summaryParts.map((part, index) => (
+                <span key={part.id} className="inline-flex items-center">
+                  {index > 0 ? <span aria-hidden className="hidden px-1 text-subtle-foreground sm:inline">·</span> : null}
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className={cn(
+                      "h-auto px-0 text-[13px] font-normal tabular-nums max-md:min-h-11 pointer-coarse:min-h-11",
+                      part.id === "attention" ? "text-destructive" : "text-muted-foreground",
+                      statusFilter === part.id && part.id !== "all" && "font-medium text-foreground underline",
+                    )}
+                    aria-pressed={statusFilter === part.id}
+                    onClick={() => setStatusFilter(part.id)}
+                    data-summary-part={part.hook}
+                    data-stat-value={part.hook === "downloading" ? stats.downloading : undefined}
+                  >
+                    {part.label}
+                  </Button>
+                </span>
+              ))}
+              {liveSpeed ? (
+                <span className="inline-flex items-center font-mono text-brand-foreground" data-summary-speed>
+                  <span aria-hidden className="hidden px-1 font-sans text-subtle-foreground sm:inline">·</span>
+                  {liveSpeed}
+                </span>
+              ) : null}
+            </p>
+          )
+        }
         description={
           <span className="inline-flex items-center gap-2 flex-wrap">
             <Badge
@@ -1322,47 +1373,6 @@ export default function ClientPage() {
         </div>
       ) : (
         <>
-          <TfStatStrip
-            items={[
-              {
-                label: "Downloading",
-                value: stats.downloading,
-                tone: stats.downloading ? "accent" : "muted",
-                statValueHook: true,
-              },
-              {
-                label: "Ready",
-                value: stats.ready,
-                tone: stats.ready ? "success" : "muted",
-              },
-              {
-                label: "Download",
-                value: `${formatBytes(stats.dlspeed)}/s`,
-                tone: "accent",
-                mono: true,
-              },
-              {
-                label: "Paused",
-                value: stats.paused,
-                tone: stats.paused ? "muted" : "muted",
-              },
-              ...(stats.errored
-                ? [
-                    {
-                      label: "Error",
-                      value: stats.errored,
-                      tone: "default" as const,
-                    },
-                  ]
-                : []),
-              {
-                label: "Total",
-                value: stats.total,
-                tone: "muted",
-              },
-            ]}
-          />
-
           {/*
             Two filters, two questions. The tab bar asks what kind of thing you
             are after and sits above; the status chips ask what a transfer is
@@ -1408,6 +1418,7 @@ export default function ClientPage() {
                 data-client-filter
               />
             </InputGroup>
+            <ScrollArea className="min-w-0 sm:shrink-0">
             <ToggleGroup
               type="single"
               value={statusFilter}
@@ -1416,7 +1427,7 @@ export default function ClientPage() {
               }}
               aria-label="Status"
               spacing={1}
-              className="flex-wrap"
+              className="flex-nowrap"
               data-status-filters
             >
               {statusChips.map((c) => (
@@ -1431,6 +1442,8 @@ export default function ClientPage() {
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
           </div>
 
           {selected.size > 0 ? (
@@ -1842,8 +1855,7 @@ function SeriesOverviewRow({
                 {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}
                 {" · "}
                 {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"}
-                {" · "}
-                {formatBytes(group.sizeBytes)}
+                {group.sizeBytes > 0 ? ` · ${formatBytes(group.sizeBytes)}` : null}
               </span>
             </div>
             {tally.downloaded > 0 || tally.downloading > 0 ? (
@@ -1851,12 +1863,20 @@ function SeriesOverviewRow({
                 data-group-episodes
                 className="flex flex-wrap items-center gap-x-1 text-[12px] tabular-nums text-muted-foreground"
               >
-                <span>
-                  {tally.downloaded} {tally.downloaded === 1 ? "episode" : "episodes"} downloaded
-                </span>
-                {tally.downloading > 0 ? (
-                  <span className="text-subtle-foreground">+{tally.downloading} downloading</span>
-                ) : null}
+                {tally.downloaded > 0 ? (
+                  <>
+                    <span>
+                      {tally.downloaded} {tally.downloaded === 1 ? "episode" : "episodes"} downloaded
+                    </span>
+                    {tally.downloading > 0 ? (
+                      <span className="text-subtle-foreground">+{tally.downloading} downloading</span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span>
+                    {tally.downloading} {tally.downloading === 1 ? "episode" : "episodes"} downloading
+                  </span>
+                )}
               </p>
             ) : null}
             {groupErrorMessage ? (
@@ -1867,6 +1887,7 @@ function SeriesOverviewRow({
                 {groupErrorMessage}
               </p>
             ) : null}
+            {pct > 0 || tally.downloaded > 0 ? (
             <div className="flex items-center gap-2 pt-0.5">
               <Progress
                 value={pct}
@@ -1883,6 +1904,7 @@ function SeriesOverviewRow({
                 </span>
               ) : null}
             </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -2090,12 +2112,15 @@ function FilmRow({
                   overflow's Details.
                 */}
                 {display.qualityChip ? <Badge variant="outline">{display.qualityChip}</Badge> : null}
-                <span className="text-[12px] text-subtle-foreground tabular-nums">
-                  {formatBytes(t.sizeBytes)}
-                  {isDownloading(t.state) && t.eta != null && t.eta > 0
-                    ? ` · ETA ${formatDuration(t.eta)}`
-                    : ""}
-                </span>
+                {t.sizeBytes > 0 || (isDownloading(t.state) && t.eta != null && t.eta > 0) ? (
+                  <span className="text-[12px] text-subtle-foreground tabular-nums">
+                    {t.sizeBytes > 0 ? formatBytes(t.sizeBytes) : null}
+                    {t.sizeBytes > 0 && isDownloading(t.state) && t.eta != null && t.eta > 0 ? " · " : ""}
+                    {isDownloading(t.state) && t.eta != null && t.eta > 0
+                      ? `ETA ${formatDuration(t.eta)}`
+                      : ""}
+                  </span>
+                ) : null}
               </div>
               {errorMessage ? (
                 <p

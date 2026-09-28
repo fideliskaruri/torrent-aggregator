@@ -854,42 +854,23 @@ export default function WatchlistPage() {
             return (
               <article
                 key={item.id}
-                className="surface overflow-hidden flex flex-row gap-0 min-w-0"
+                className="surface flex min-w-0 flex-row items-start gap-3 overflow-hidden p-3.5"
                 data-library-card
               >
-                {/* The poster column stretches to the card's height and the
-                    image is absolutely positioned inside it. Sizing the image
-                    itself (h-full / min-h) left a grey strip under every real
-                    poster, because a stretch-sized flex parent gives `height:
-                    100%` nothing to resolve against — and it let AniList's
-                    460x649 covers render shorter than TMDb's 2:3 ones.
-
-                    Filling that strip with `object-cover` was worse than the
-                    strip: a card is roughly twice as tall as a 2:3 poster is
-                    at this width, so every cover lost a third of itself — at
-                    390px *Severance* read "everan" and *Frieren* read "IERI".
-                    So the poster is now contained, never cropped, and the
-                    column behind it is a blurred blow-up of the same image.
-                    Same URL, so it is one request, and the card reads as
-                    designed rather than as a broken crop. */}
-                <div className="relative w-[4.75rem] sm:w-[5.5rem] shrink-0 self-stretch min-h-[7.25rem] overflow-hidden bg-muted">
+                {/* A fixed 2:3 poster pinned top-left; the content beside it
+                    sets the card's height. Stretching the poster column to the
+                    card left either a grey strip, a cropped cover or a blurred
+                    fill band, all of which read as broken. */}
+                <div className="relative aspect-[2/3] w-[4.5rem] shrink-0 overflow-hidden rounded-md bg-muted sm:w-[5.5rem]">
                   {item.posterUrl && !brokenPosters.has(item.id) ? (
-                    <>
-                      <img
-                        src={item.posterUrl}
-                        alt=""
-                        aria-hidden
-                        className="absolute inset-0 h-full w-full scale-125 object-cover opacity-45 blur-lg"
-                      />
-                      <img
-                        src={item.posterUrl}
-                        alt=""
-                        onError={() =>
-                          setBrokenPosters((prev) => new Set(prev).add(item.id))
-                        }
-                        className="absolute inset-0 h-full w-full object-contain"
-                      />
-                    </>
+                    <img
+                      src={item.posterUrl}
+                      alt=""
+                      onError={() =>
+                        setBrokenPosters((prev) => new Set(prev).add(item.id))
+                      }
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
                   ) : (
                     <div
                       className="absolute inset-0 flex items-center justify-center px-1"
@@ -917,7 +898,7 @@ export default function WatchlistPage() {
                   ) : null}
                 </div>
 
-                <div className="flex flex-1 flex-col gap-2.5 p-3.5 min-w-0">
+                <div className="flex min-w-0 flex-1 flex-col gap-2.5">
                   {/* Title + remove */}
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -1148,16 +1129,21 @@ export default function WatchlistPage() {
                             Delete files
                           </Button>
                     </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    ) : null}
+                  </div>
+
                     {/* Two questions, two lines: where am I, and is anything
                         happening. The old card answered neither without being
                         opened - "watching" told you the status you had already
                         filtered by, and a monitored show with an episode
                         waiting looked identical to one with nothing to do. */}
-                    {cardPosition || cardActivity ? (
+                    {isSeries && (cardPosition || cardActivity) ? (
                       <p
                         data-card-state
                         data-card-attention={cardAttention ? "true" : undefined}
-                        className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs"
+                        className="-mt-1 flex flex-wrap items-center gap-x-1.5 text-xs"
                       >
                         {cardPosition ? (
                           <span className="tabular-nums text-muted-foreground">
@@ -1182,10 +1168,6 @@ export default function WatchlistPage() {
                         ) : null}
                       </p>
                     ) : null}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    ) : null}
-                  </div>
 
                   {streaming && isBuiltinClient && latestInfoHash ? (
                     <InlineStreamPlayer
