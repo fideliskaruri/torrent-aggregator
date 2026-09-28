@@ -102,7 +102,7 @@ export function AvailabilityChip({
       {/* No sentence means no node: an empty ` — ` reads aloud as a dangling
           dash, and a `title` of "" is a tooltip that flashes and says nothing. */}
       {meta.description ? (
-        <span className="sr-only"> — {meta.description}</span>
+        <span className="sr-only">. {meta.description}</span>
       ) : null}
     </span>
   );

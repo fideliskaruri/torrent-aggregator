@@ -114,14 +114,14 @@ export function TitleCard({
     unreleased ? gatedLabel : blocked ? action.reason : null,
   ]
     .filter(Boolean)
-    .join(" — ");
+    .join(", ");
   const linkName = [
     title,
     item.subtitle,
     unreleased ? gatedLabel : blocked ? action.reason : null,
   ]
     .filter(Boolean)
-    .join(" — ");
+    .join(", ");
 
   const surface = (
     <div

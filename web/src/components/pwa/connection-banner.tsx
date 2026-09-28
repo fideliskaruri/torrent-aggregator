@@ -31,7 +31,7 @@ export function ConnectionBanner() {
         <p className="flex min-w-0 items-start gap-2 text-sm text-[var(--text)]">
           <WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
           <span>
-            {offline ? "You're offline — reconnecting…" : "Can't reach TorrentFlow — reconnecting…"}{" "}
+            {offline ? "You're offline. Reconnecting…" : "Can't reach TorrentFlow. Reconnecting…"}{" "}
             <span className="text-[var(--text-secondary)]">
               {offline
                 ? "Your downloads keep going on your PC. This page updates when you're back online."

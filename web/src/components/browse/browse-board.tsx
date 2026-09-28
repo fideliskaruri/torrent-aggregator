@@ -119,7 +119,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
         setStatuses((prev) => ({ ...prev, [item.id]: "done" }));
         toast.success(`Grabbing ${label}`, {
           description: item.subtitle
-            ? `${item.subtitle} — sent to your client.`
+            ? `${item.subtitle}. Sent to your client.`
             : "Sent to your client.",
         });
       } catch (err) {

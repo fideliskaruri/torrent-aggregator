@@ -88,7 +88,7 @@ export function InstallAppCard() {
             {state === "error"
               ? `The browser couldn't open the install dialog: ${snapshot.errorMessage}`
               : "You closed the install dialog."}{" "}
-            A browser offers this once at a time — install from the icon in the
+            A browser offers this once at a time. Install from the icon in the
             address bar, or the browser menu → Install TorrentFlow. The button
             here returns when the browser offers again.
           </p>
@@ -108,7 +108,7 @@ export function InstallAppCard() {
         <ol className="list-decimal pl-5 space-y-1 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
           <li>Tap the Share button in Safari&apos;s toolbar.</li>
           <li>Choose &ldquo;Add to Home Screen&rdquo;.</li>
-          <li>Confirm — TorrentFlow opens full-screen from then on.</li>
+          <li>Confirm. TorrentFlow opens full-screen from then on.</li>
         </ol>
       ) : null}
     </section>

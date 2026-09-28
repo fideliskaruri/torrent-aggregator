@@ -69,7 +69,7 @@ const FETCH_TIMEOUT_MS = 30_000;
  * that a timeout is no evidence for.
  */
 const GRAB_TIMEOUT_MESSAGE =
-  "Still working after 30s, so we stopped waiting — the grab may still be running on the server. Check Downloads before trying again.";
+  "Still working after 30s, so we stopped waiting. The grab may still be running on the server. Check Downloads before trying again.";
 
 /**
  * Our own 30 s deadline, as opposed to a caller's cancellation.

@@ -248,7 +248,7 @@ export function resolveCardAction(item: RailItem): CardAction {
       label: "Unavailable",
       disabled: true,
       reason: item.watchListItemId
-        ? "Nothing viable on the indexers yet — it stays monitored in your library."
+        ? "Nothing viable on the indexers yet. It stays monitored in your library."
         : "No viable release found yet.",
     };
   }

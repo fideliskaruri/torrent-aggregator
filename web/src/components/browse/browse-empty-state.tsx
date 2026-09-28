@@ -55,7 +55,7 @@ export function BrowseEmptyState({
       />
 
       <p className="mt-4 text-center text-[12px] text-[var(--text-tertiary)]">
-        Search still works if you know what you are looking for —{" "}
+        Search still works if you know what you are looking for:{" "}
         <Link
           to={SEARCH_HREF}
           data-dense-ui

@@ -1274,7 +1274,7 @@ function streamStatusMessage(status: number): {
     return {
       problem: "missing",
       message:
-        "This release isn't in the built-in engine — download it first, then play.",
+        "This release isn't in the built-in engine. Download it first, then play.",
     };
   }
   if (status === 416) {
@@ -1462,7 +1462,7 @@ const LOADER_STILL_WORKING_AFTER_SECONDS = 15;
 function upNextStatusSentence(state: UpNextAvailability): string {
   if (state === "ready") return "Ready to play now.";
   if (state === "downloading") {
-    return "Still downloading — you can start now, but it may pause to catch up.";
+    return "Still downloading. You can start now, but it may pause to catch up.";
   }
   return "Not fetched yet.";
 }
@@ -4009,7 +4009,7 @@ function InlineStreamPlayerInner({
           setSubtitleTrackId(chosen.id);
           setSubtitleStatus(chosen.needsExtraction ? "extracting" : "loading");
           if (data.subtitleDefault?.noEnglishAvailable) {
-            setSubtitleNote(`English subtitles are unavailable — using ${chosen.label}.`);
+            setSubtitleNote(`English subtitles are unavailable, using ${chosen.label}.`);
           }
         } else if (data.subtitleDefault?.noEnglishAvailable) {
           // Foreign audio and no English subtitle exists: say so out loud rather
@@ -4018,7 +4018,7 @@ function InlineStreamPlayerInner({
         }
         if (tracks.length > 0 && data.embeddedInspected === false) {
           setSubtitleNote(
-            "Some subtitles could not be checked — only subtitle files are listed.",
+            "Some subtitles could not be checked. Only subtitle files are listed.",
           );
         }
       } catch {
@@ -4115,7 +4115,7 @@ function InlineStreamPlayerInner({
       if (action === "failed") {
         requestedSeekRef.current = null;
         clearSeekRetry();
-        setMessage("That spot isn't ready yet — try again in a moment.");
+        setMessage("That spot isn't ready yet. Try again in a moment.");
         setSeeking(false);
         return;
       }
@@ -5968,7 +5968,7 @@ function InlineStreamPlayerInner({
                     <span className="min-w-0 truncate">
                       {upNextError
                         ? upNextError
-                        : `Next: ${upNext.title} ${upNext.label} — ${upNextStatusSentence(upNext.availability)}`}
+                        : `Next: ${upNext.title} ${upNext.label}: ${upNextStatusSentence(upNext.availability)}`}
                     </span>
                     {upNext.infoHash ? (
                       <button

@@ -800,7 +800,7 @@ function EpisodeCardImpl({
             data-episode-action
             data-action="stream"
             data-action-kind={streamAction.kind}
-            aria-label={`${streamDisplayLabel} — ${episode.label}`}
+            aria-label={`${streamDisplayLabel}, ${episode.label}`}
             aria-busy={effectiveStreamStatus === "pending" || undefined}
             disabled={!streamCanRun}
             onClick={() => onAction(streamAction, episode.label, "stream")}
@@ -841,7 +841,7 @@ function EpisodeCardImpl({
               data-episode-action
               data-action="download"
               data-action-kind={downloadAction.kind}
-              aria-label={`${downloadDisplayLabel} — ${episode.label}`}
+              aria-label={`${downloadDisplayLabel}, ${episode.label}`}
               aria-busy={effectiveDownloadStatus === "pending" || undefined}
               disabled={!downloadCanRun}
               onClick={(event) => {

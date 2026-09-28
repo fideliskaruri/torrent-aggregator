@@ -56,7 +56,7 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
   }
 
   const content = <div className="min-w-0 space-y-4" data-tmdb-settings aria-busy={busy}>
-      <p className="text-sm text-[var(--text-secondary)]">Optional — AniList and keyless sources work without it.</p>
+      <p className="text-sm text-[var(--text-secondary)]">Optional. AniList and keyless sources work without it.</p>
       {!status && busy && <p role="status">Loading TMDB settings…</p>}
       {status && <p className="text-sm text-[var(--text-secondary)]" data-tmdb-status>
         {status.configured ? `${status.hint} · ${status.source === "settings" ? "Saved in Settings" : "Environment / configuration"}` : "No TMDB key configured."}

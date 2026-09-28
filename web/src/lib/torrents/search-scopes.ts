@@ -75,7 +75,7 @@ export const SEARCH_SCOPES = [
   {
     id: "all",
     label: "All",
-    blurb: "Search films, series and anime together — best matches first.",
+    blurb: "Search films, series and anime together, best matches first.",
     kind: "work",
     playable: false,
     category: null,

@@ -53,7 +53,7 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
             )}
             data-download-window-status={open ? "open" : "closed"}
           >
-            {open ? "Open now — new downloads can start" : "Closed now — new downloads wait"}
+            {open ? "Open now, new downloads can start" : "Closed now, new downloads wait"}
           </p>
         ) : null}
       </div>

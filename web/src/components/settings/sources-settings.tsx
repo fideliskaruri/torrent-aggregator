@@ -68,7 +68,7 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
       <Input value={url} onChange={e => setUrl(e.target.value)} aria-label={`${source.id} base URL`} data-source-url
         className="min-h-[44px] min-w-0" disabled={busy} />
     </label>
-    <label className="block space-y-1 text-sm">Mirrors — one URL per line
+    <label className="block space-y-1 text-sm">Mirrors, one URL per line
       <textarea value={mirrors} onChange={e => setMirrors(e.target.value)} aria-label={`${source.id} mirrors`} data-source-mirrors
         rows={2} disabled={busy} className="block min-h-[44px] w-full min-w-0 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2 text-sm" />
     </label>

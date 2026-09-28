@@ -350,7 +350,7 @@ export function RetentionPanel({
       if (data.usage) setUsage(data.usage);
       else await load();
       toast.success(
-        `Removed ${target.label} — ${formatBytes(data.deleted?.bytes ?? target.bytes)} freed.`,
+        `Removed ${target.label}, ${formatBytes(data.deleted?.bytes ?? target.bytes)} freed.`,
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
@@ -679,7 +679,7 @@ function UntrackedFiles({
           <span>
             {scan.unreadablePaths.length} location
             {scan.unreadablePaths.length === 1 ? "" : "s"} could not be read, so
-            anything inside is not counted — starting with{" "}
+            anything inside is not counted, starting with{" "}
             <span className="break-all text-[var(--text-secondary)]">
               {scan.unreadablePaths[0]}
             </span>

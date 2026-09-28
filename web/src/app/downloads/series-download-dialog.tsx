@@ -522,7 +522,7 @@ function EpisodeCard({
                   episode: entry.episode,
                 })
               }
-              aria-label={canPlay ? `Play ${epLabel}` : `Play ${epLabel} — nothing to play yet`}
+              aria-label={canPlay ? `Play ${epLabel}` : `Play ${epLabel}, nothing to play yet`}
               title={canPlay ? "Play" : "Nothing to play yet"}
               data-episode-play
             >

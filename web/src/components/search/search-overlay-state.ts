@@ -128,7 +128,7 @@ export function searchErrorMessage(
   body: { error?: string | null } | null,
 ): string {
   if (status === 429) {
-    return "Searching too quickly — wait a moment, then try again.";
+    return "Searching too quickly. Wait a moment, then try again.";
   }
   const stated = body?.error?.trim();
   if (stated) return stated;

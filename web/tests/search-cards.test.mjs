@@ -40,7 +40,7 @@ test("requester hits show requested, approved, declined and in-library on the ca
     const html = card(title);
     assert.ok(html.includes(`data-title-request-status="${attr}"`), attr);
     assert.ok(html.includes(`>${label}<`), label);
-    assert.ok(html.includes(`— ${label}"`), `accessible name carries ${label}`);
+    assert.ok(html.includes(`, ${label}"`), `accessible name carries ${label}`);
   }
 });
 

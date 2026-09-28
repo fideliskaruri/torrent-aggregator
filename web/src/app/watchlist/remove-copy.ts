@@ -53,7 +53,7 @@ export function removeFromLibraryCopy(
     title: "Remove from library?",
     body:
       `${subject} leaves your library and TorrentFlow stops looking for new ` +
-      `episodes. Downloaded files are kept — nothing is removed from your disk. ` +
+      `episodes. Downloaded files are kept. Nothing is removed from your disk. ` +
       `To remove the files too, use “Delete files” under More options before you ` +
       `remove the title.`,
     confirmLabel: "Remove, keep files",

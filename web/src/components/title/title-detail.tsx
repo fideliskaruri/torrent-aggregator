@@ -1273,7 +1273,7 @@ function TitleContent({
                   data-title-primary
                   data-action-kind={primary.kind}
                   aria-label={
-                    `${primaryDisplayLabel} — ${title}`
+                    `${primaryDisplayLabel}, ${title}`
                   }
                   aria-busy={
                     (primary.kind === "discover"
@@ -1325,7 +1325,7 @@ function TitleContent({
                       to="/downloads"
                       data-title-download
                       data-transfer-status={titleTransfer?.status}
-                      aria-label={`${downloadLabel} — view ${title} in Downloads`}
+                      aria-label={`${downloadLabel}, view ${title} in Downloads`}
                     >
                       {titleTransfer?.status === "downloaded" ? (
                         <CheckCircle2 aria-hidden />
@@ -1343,7 +1343,7 @@ function TitleContent({
                     data-title-download
                     data-action-kind="get"
                     data-transfer-status={titleTransfer?.status}
-                    aria-label={`${downloadLabel} — ${title}`}
+                    aria-label={`${downloadLabel}, ${title}`}
                     title={downloadControl.error ?? undefined}
                     aria-busy={downloadStatus === "pending" || undefined}
                     disabled={!downloadCanRun}

@@ -105,7 +105,7 @@ export function libraryItemState(
     return {
       kind: "paused",
       label: `Paused at ${nextLabel}`,
-      detail: "Paused — new episodes won't be added until you resume.",
+      detail: "Paused. New episodes won't be added until you resume.",
       nextLabel,
     };
   }
