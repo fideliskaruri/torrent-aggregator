@@ -8,8 +8,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // A disabled primary used to be the accent at 40% opacity: a muddy amber
+        // slab that read as broken. It goes neutral instead, unless it is busy
+        // (aria-busy), where the accent stays so a pending action keeps its place.
         default:
-          "bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--accent-hover)]",
+          "bg-[var(--primary)] text-[var(--primary-foreground)] hover:bg-[var(--accent-hover)] [&:disabled:not([aria-busy=true])]:border [&:disabled:not([aria-busy=true])]:border-[var(--border)] [&:disabled:not([aria-busy=true])]:bg-[var(--bg-muted)] [&:disabled:not([aria-busy=true])]:text-[var(--text-tertiary)] [&:disabled:not([aria-busy=true])]:opacity-100",
         destructive:
           "bg-[var(--destructive)] text-white hover:bg-[#e85d66]",
         outline:

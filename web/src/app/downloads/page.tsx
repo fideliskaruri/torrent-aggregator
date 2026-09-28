@@ -19,6 +19,7 @@ import {
   Search,
   Trash2,
   Zap,
+  ChevronDown,
 } from "lucide-react";
 import { formatBytes, formatDuration, cn } from "@/lib/utils";
 import { readJsonBody, sendErrorFromBody, type SendError } from "@/lib/api-json";
@@ -829,7 +830,7 @@ export default function ClientPage() {
       }
       const notes = [
         data.stillNested > 0
-          ? `${plural(data.stillNested, "video")} kept in a release folder — another download already has that name`
+          ? `${plural(data.stillNested, "video")} kept in a release folder because another download already has that name`
           : "",
         data.skipped > 0 ? `${plural(data.skipped, "download")} in use, try again later` : "",
       ].filter(Boolean);
@@ -1076,11 +1077,12 @@ export default function ClientPage() {
               {offline && !isBuiltin ? "Retrying automatically" : "Updates automatically"}
             </span>
             <details
-              className="text-xs text-[var(--text-tertiary)]"
+              className="group/details text-xs text-[var(--text-tertiary)]"
               data-client-connection-details
             >
-              <summary className="min-h-[44px] cursor-pointer py-[14px] font-medium text-[var(--text-secondary)] lg:min-h-0 lg:py-0">
+              <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-1 font-medium text-[var(--text-secondary)] hover:text-[var(--text)] lg:min-h-0 [&::-webkit-details-marker]:hidden">
                 Details
+                <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" />
               </summary>
               <div className="mt-1 space-y-0.5">
                 <p>
@@ -1155,26 +1157,13 @@ export default function ClientPage() {
       />
 
       <div className="surface space-y-3 p-4" data-raw-torrent-send>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1">
-            <p className="text-[13px] font-medium text-[var(--text)]">
-              Add a magnet or .torrent URL
-            </p>
-            <p className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
-              Paste a magnet link or a direct .torrent URL, then add it to your downloads.
-            </p>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void sendRawTorrent()}
-            disabled={sendingRaw || !rawSendTrimmed || rawSendInvalid}
-            className="shrink-0"
-            data-raw-torrent-send-button
-          >
-            {sendingRaw ? <LoadingGlyph className="h-3.5 w-3.5" /> : null}
-            Add torrent
-          </Button>
+        <div className="min-w-0 space-y-1">
+          <p className="text-[13px] font-medium text-[var(--text)]">
+            Add a magnet or .torrent URL
+          </p>
+          <p className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+            Paste a magnet link or a direct .torrent URL, then add it to your downloads.
+          </p>
         </div>
         <textarea
           className={cn(
@@ -1222,6 +1211,19 @@ export default function ClientPage() {
             ) : null}
           </p>
         ) : null}
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void sendRawTorrent()}
+            disabled={sendingRaw || !rawSendTrimmed || rawSendInvalid}
+            className="min-h-[44px] w-full shrink-0 sm:w-auto"
+            data-raw-torrent-send-button
+          >
+            {sendingRaw ? <LoadingGlyph className="h-3.5 w-3.5" /> : <Magnet aria-hidden />}
+            Add torrent
+          </Button>
+        </div>
       </div>
 
       {/*
@@ -1245,9 +1247,10 @@ export default function ClientPage() {
           <span className="min-w-0 flex-1 text-[var(--text-secondary)]">
             Showing the last known state. Your downloads are unchanged.
           </span>
-          <details className="min-w-0 text-[var(--text-tertiary)]" data-client-error-details>
-            <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
+          <details className="group/details min-w-0 text-[var(--text-tertiary)]" data-client-error-details>
+            <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-1 font-medium text-[var(--text-secondary)] hover:text-[var(--text)] lg:min-h-0 [&::-webkit-details-marker]:hidden">
               Details
+              <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" />
             </summary>
             <p className="mt-1 break-words font-mono text-[12px]">{error}</p>
           </details>
@@ -1285,9 +1288,10 @@ export default function ClientPage() {
                   ? "Reconnect the client, or switch to the built-in downloader."
                   : "Retry now, or check the download connection settings."}
             </p>
-            <details className="text-[var(--text-tertiary)]" data-client-error-details>
-              <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
+            <details className="group/details text-[var(--text-tertiary)]" data-client-error-details>
+              <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-1 font-medium text-[var(--text-secondary)] hover:text-[var(--text)] lg:min-h-0 [&::-webkit-details-marker]:hidden">
                 Details
+                <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" />
               </summary>
               <p className="mt-1 break-words font-mono text-[12px]">{error}</p>
             </details>
@@ -1392,7 +1396,7 @@ export default function ClientPage() {
                 aria-selected={mediaTab === tab}
                 data-media-tab={tab}
                 className={cn(
-                  "inline-flex items-center justify-center min-h-[44px] rounded-md px-3 py-1 text-[12px] font-medium transition-colors lg:min-h-0 lg:py-1.5",
+                  "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-3 py-1 text-[12px] font-medium transition-colors lg:min-h-0 lg:py-1.5",
                   mediaTab === tab
                     ? "bg-[var(--bg-muted)] text-[var(--text)]"
                     : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
@@ -2183,8 +2187,8 @@ function FilmRow({
               variant="secondary"
               size="sm"
               disabled
-              aria-label={`Play ${display.title} — nothing to play yet`}
-              title="Nothing to play yet — waiting for data"
+              aria-label={`Play ${display.title}, nothing to play yet`}
+              title="Nothing to play yet. Waiting for data."
               data-client-play-disabled
             >
               <Play className="h-3.5 w-3.5" />
