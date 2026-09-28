@@ -128,7 +128,7 @@ function QualityPickerDialog({
                   <span className="block text-[13px] font-medium text-[var(--text)]">
                     {choice.label}
                   </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-[var(--text-tertiary)]">
+                  <span className="mt-0.5 block text-[12px] leading-snug text-[var(--text-tertiary)]">
                     {choice.hint}
                   </span>
                 </span>

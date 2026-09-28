@@ -30,7 +30,7 @@ export function Field({
       </label>
       {children}
       {hint ? (
-        <p className="text-[11px] text-[var(--text-tertiary)]">{hint}</p>
+        <p className="text-[12px] text-[var(--text-tertiary)]">{hint}</p>
       ) : null}
     </div>
   );

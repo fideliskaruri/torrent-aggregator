@@ -152,7 +152,7 @@ export default function RequestsPage() {
   return (
     <div className="container-app max-w-4xl space-y-6 py-6" data-requests-page={reviewing ? "inbox" : "mine"} {...(reviewing ? { "data-owner-requests": "" } : {})}>
       <div className="space-y-2">
-        <h1 className="text-xl font-semibold tracking-tight text-[var(--text)]">Requests</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-[var(--text)]">Requests</h1>
         <p className="max-w-prose text-sm leading-relaxed text-[var(--text-secondary)]">
           {reviewing
             ? "What friends asked for. Approving starts the download."

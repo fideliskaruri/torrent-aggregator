@@ -47,7 +47,7 @@ export function TitleResultCard({
     request?.label,
   ]
     .filter(Boolean)
-    .join(" — ");
+    .join(", ");
 
   const body = (
     <div className="flex gap-3 sm:gap-4">
@@ -94,7 +94,7 @@ export function TitleResultCard({
           </h2>
           <div className="flex flex-wrap items-center gap-1.5">
             {typeLabel ? (
-              <span className="badge text-[11px] text-[var(--text-tertiary)]">{typeLabel}</span>
+              <span className="badge text-[12px] text-[var(--text-tertiary)]">{typeLabel}</span>
             ) : null}
             {title.status.comingLabel ? (
               <span className="text-[12px] font-medium text-[var(--text-tertiary)]">

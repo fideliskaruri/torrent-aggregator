@@ -53,7 +53,7 @@ export default function RootLayout() {
               <Outlet />
             </main>
             <footer className="app-footer hidden md:block">
-              <div className="container-app flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[11px] text-[var(--text-tertiary)]">
+              <div className="container-app flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[12px] text-[var(--text-tertiary)]">
                 <p className="min-w-0">
                   Self-hosted aggregator · respect local law & indexer terms
                 </p>
@@ -70,8 +70,12 @@ export default function RootLayout() {
                   >
                     ·
                   </span>
-                  <span className="hidden sm:inline font-mono text-[10px]">
-                    / search · j k nav
+                  <span className="hidden items-center gap-1.5 sm:inline-flex">
+                    <kbd className="rounded border border-[var(--border)] px-1.5 font-mono text-[12px] leading-5">/</kbd>
+                    search
+                    <kbd className="ml-1.5 rounded border border-[var(--border)] px-1.5 font-mono text-[12px] leading-5">j</kbd>
+                    <kbd className="rounded border border-[var(--border)] px-1.5 font-mono text-[12px] leading-5">k</kbd>
+                    move
                   </span>
                 </div>
               </div>

@@ -53,7 +53,7 @@ interface Rule {
 }
 
 const selectClass =
-  "flex h-11 lg:h-9 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-11 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
 
 const RULE_CATEGORY_OPTIONS = [
   { value: "all", label: "All video" },
@@ -353,7 +353,7 @@ export default function RulesPage() {
       const lines = (data.summary ?? [])
         .map(
           (s: { message: string; title?: string; status?: string }) =>
-            `${s.status ? statusWords(s.status) : ""}${s.title ? s.title + " — " : ""}${s.message}`,
+            `${s.status ? statusWords(s.status) : ""}${s.title ? s.title + ": " : ""}${s.message}`,
         )
         .join("\n");
       if (res.ok && data.ok !== false) {

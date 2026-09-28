@@ -10,7 +10,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import { withTimeout } from "@/lib/with-timeout";
 
 const PUSH_ENABLE_TIMEOUT_MS = 15_000;
-const PUSH_ENABLE_FAIL = "Couldn't enable push — check browser notification permission";
+const PUSH_ENABLE_FAIL = "Couldn't enable push. Check the browser's notification permission.";
 
 export const NOTIFICATIONS_CHANGED = "tf:notifications-read";
 
@@ -71,7 +71,7 @@ export function NotificationFeed() {
   return (
     <section className="mx-auto w-full max-w-3xl space-y-4 py-6" data-notification-feed>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Notifications</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-[var(--text)]">Notifications</h1>
         <Button variant="outline" disabled={busy || !data?.unreadCount} onClick={() => void read()}
           aria-label="Mark all notifications read" data-notifications-read-all className="min-h-[44px]">Mark all read</Button>
       </div>

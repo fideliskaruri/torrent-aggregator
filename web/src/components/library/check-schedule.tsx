@@ -15,7 +15,7 @@ export function CheckSchedule({ nextCheckAt, nextCheckReason, monitored, status,
     nextCheckReason === "waiting for seeders" ? "Waiting for seeders" : null;
   const timing = at.getTime() <= Date.now() ? "Check due" : "Next check";
   return (
-    <p data-check-schedule className="mt-1 min-w-0 text-[11px] text-[var(--text-tertiary)]">
+    <p data-check-schedule className="mt-1 min-w-0 text-[12px] text-[var(--text-tertiary)]">
       {reason ? `${reason} · ` : ""}{timing} <time dateTime={at.toISOString()} title={at.toLocaleString()}>{label}</time>
     </p>
   );

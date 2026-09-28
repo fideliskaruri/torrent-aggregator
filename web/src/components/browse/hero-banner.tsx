@@ -102,7 +102,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}
         >
-          <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+          <p className="text-[12px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
             {eyebrow}
           </p>
 
