@@ -30,6 +30,21 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { infoHashFromMagnet } from "@/lib/torrents/infohash";
 import { deadEvidenceFromSamples, type SwarmSample } from "@/components/watch/swarm-chip";
@@ -169,6 +184,16 @@ type CandidateVerdict = "good" | "weak" | "dead" | "unknown";
 type CandidatePlayability = "direct" | "transcode" | "unknown";
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+
+/** Radix Select reserves the empty string, so \Off\ needs its own value. */
+const SUBTITLES_OFF = "__off__";
+
+/** The slider primitive does not forward a name to its thumb; set it on the thumb. */
+function labelSliderThumb(label: string) {
+  return (root: HTMLSpanElement | null) => {
+    root?.querySelector('[role="slider"]')?.setAttribute("aria-label", label);
+  };
+}
 
 type PlaybackCandidate = {
   infoHash: string;
@@ -1186,16 +1211,17 @@ function PlayerQualityChoices({
   return (
     <div data-player-quality-choices className="grid grid-cols-2 gap-1 sm:block">
       {PLAYER_RESOLUTIONS.map((resolution) => (
-        <button
+        <Button
           key={resolution}
           type="button"
+          variant="ghost"
           data-quality-resolution={resolution}
           disabled={disabled}
           onClick={() => onSelect(resolution)}
-          className="flex min-h-10 w-full items-center rounded-xl px-3 text-[13px] font-semibold text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+          className="h-10 w-full justify-start rounded-md px-3 text-[13px] font-semibold text-white hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60 dark:hover:bg-white/10"
         >
           {resolution}p
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -1893,20 +1919,22 @@ class InlinePlayerErrorBoundary extends Component<
     return (
       <div
         data-inline-player-error
-        className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px] text-[var(--text-secondary)]"
+        className="rounded-lg border border-border bg-background p-3 text-[12px] text-muted-foreground"
       >
-        <p className="font-medium text-[var(--text)]">The player is unavailable.</p>
+        <p className="font-medium text-foreground">The player is unavailable.</p>
         <p className="mt-1">
           {this.props.title} is still in your library. Retry the player, or use the other title
           actions while this recovers.
         </p>
-        <button
+        <Button
           type="button"
-          className="mt-2 rounded-full border border-[var(--border)] px-3 py-1 text-[12px] font-medium text-[var(--accent-text)]"
+          variant="outline"
+          size="sm"
+          className="mt-2"
           onClick={() => this.setState({ failed: false })}
         >
           Retry player
-        </button>
+        </Button>
       </div>
     );
   }
@@ -2152,6 +2180,7 @@ function InlineStreamPlayerInner({
    const [subtitleMenuOpen, setSubtitleMenuOpen] = useState(false);
    const [audioMenuOpen, setAudioMenuOpen] = useState(false);
    const [volumeMenuOpen, setVolumeMenuOpen] = useState(false);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
    const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
    const [qualityLoading, setQualityLoading] = useState(false);
    const [qualityError, setQualityError] = useState<string | null>(null);
@@ -2266,6 +2295,7 @@ function InlineStreamPlayerInner({
    const hlsRef = useRef<Hls | null>(null);
    const videoRef = useRef<HTMLVideoElement | null>(null);
    const fullscreenSurfaceRef = useRef<HTMLDivElement | null>(null);
+   const fullscreenOwnedRef = useRef(false);
    const motionLeaseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
    const lastActiveMediaTimeRef = useRef<number | null>(null);
    /**
@@ -4139,7 +4169,26 @@ function InlineStreamPlayerInner({
     subtitleMenuOpen ||
     audioMenuOpen ||
     volumeMenuOpen ||
+    speedMenuOpen ||
     qualityMenuOpen;
+  const anyPlayerMenuOpen =
+    subtitleMenuOpen || audioMenuOpen || speedMenuOpen || qualityMenuOpen;
+  // The theatre overlay closes on Escape from a document capture listener.
+  // Window capture runs first, so Escape closes the open menu and nothing else.
+  useEffect(() => {
+    if (!anyPlayerMenuOpen) return;
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      setSubtitleMenuOpen(false);
+      setAudioMenuOpen(false);
+      setSpeedMenuOpen(false);
+      setQualityMenuOpen(false);
+    };
+    window.addEventListener("keydown", onEscape, true);
+    return () => window.removeEventListener("keydown", onEscape, true);
+  }, [anyPlayerMenuOpen]);
   const [previousControlsPinned, setPreviousControlsPinned] =
     useState(controlsPinned);
   if (controlsPinned !== previousControlsPinned) {
@@ -4168,12 +4217,22 @@ function InlineStreamPlayerInner({
 
   useEffect(() => {
     const syncFullscreen = () => {
-      const surface = fullscreenSurfaceRef.current;
-      setFullscreenActive(Boolean(surface && document.fullscreenElement === surface));
+      if (!document.fullscreenElement) fullscreenOwnedRef.current = false;
+      setFullscreenActive(
+        fullscreenOwnedRef.current &&
+          document.fullscreenElement === document.documentElement,
+      );
     };
     syncFullscreen();
     document.addEventListener("fullscreenchange", syncFullscreen);
-    return () => document.removeEventListener("fullscreenchange", syncFullscreen);
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreen);
+      // Fullscreen used to end with the surface; the root outlives the player.
+      if (fullscreenOwnedRef.current && document.fullscreenElement) {
+        fullscreenOwnedRef.current = false;
+        void document.exitFullscreen?.().catch(() => {});
+      }
+    };
   }, []);
 
   const triggerPlayPulse = useCallback((kind: "play" | "pause") => {
@@ -4412,17 +4471,21 @@ function InlineStreamPlayerInner({
     return () => window.clearInterval(timer);
   }, [subtitleStatus, activeSubtitleSrc]);
 
+  // The document root goes fullscreen, not the surface: the player menus are
+  // portalled to <body>, and anything outside the fullscreen element is not
+  // painted. The surface covers the viewport itself while `fullscreenActive`.
   const goFullscreen = useCallback(() => {
     const surface = fullscreenSurfaceRef.current;
     if (!surface) return;
-    if (document.fullscreenElement === surface) {
+    if (fullscreenOwnedRef.current && document.fullscreenElement) {
       void document.exitFullscreen?.().catch(() => {
         /* the browser owns fullscreen denial */
       });
       return;
     }
-    void surface.requestFullscreen?.().catch(() => {
-      /* denied outside a user gesture or in an unsupported browser */
+    fullscreenOwnedRef.current = true;
+    void document.documentElement.requestFullscreen?.().catch(() => {
+      fullscreenOwnedRef.current = false;
     });
   }, []);
 
@@ -4653,6 +4716,15 @@ function InlineStreamPlayerInner({
         tag === "SELECT" ||
         tag === "TEXTAREA" ||
         el?.isContentEditable
+      ) {
+        return;
+      }
+      // The seek and volume sliders and the open player menus own their
+      // arrow keys, the same way the native range and select inputs did.
+      if (
+        el?.closest?.(
+          '[role="slider"],[role="listbox"],[role="option"],[role="menu"],[data-radix-popper-content-wrapper]',
+        )
       ) {
         return;
       }
@@ -5008,112 +5080,122 @@ function InlineStreamPlayerInner({
     ],
   );
 
-  const compactSelectClass = cn(
-    "h-8 min-w-0 max-w-full appearance-none truncate py-1 pl-3 pr-8 text-[11px] outline-none transition focus-visible:ring-2",
-    theatre
-      ? "w-20 rounded-full border border-white/15 bg-white/10 text-white focus-visible:ring-white/25 sm:w-40"
-      : "input-field w-24 px-1.5 focus-visible:ring-[var(--accent-dim)] sm:w-40",
+  // Every player menu sits over a dark frame (the theatre stage or the inline
+  // control bar), so the triggers and lists are always light-on-dark. The
+  // lists portal to <body>; z-[80] lifts them above the z-[60] play overlay.
+  const playerSelectTriggerClass = cn(
+    "h-8 min-w-0 max-w-full truncate rounded-full data-[size=sm]:rounded-full border-white/15 bg-white/10 py-1 pl-3 pr-2 text-[11px] text-white hover:bg-white/15 focus-visible:border-white/40 focus-visible:ring-white/25 dark:bg-white/10 dark:hover:bg-white/15 data-placeholder:text-white/70 [&_svg]:text-white/60",
   );
-  const selectChevron = (
-    <ChevronDown
-      aria-hidden
-      className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-current opacity-60"
-    />
+  const playerMenuContentClass =
+    "z-[80] border-0 bg-black/90 text-white ring-white/10 backdrop-blur";
+  const playerMenuItemClass =
+    "text-[13px] text-white focus:bg-white/10 focus:text-white max-md:min-h-11 pointer-coarse:min-h-11";
+  const unavailableIconButtonClass = cn(
+    "shrink-0 rounded-full text-white/70 disabled:cursor-not-allowed disabled:opacity-40",
+    theatre ? "size-10" : "size-8",
   );
   const audioControl =
     audioTracks.length > 1 ? (
-      <label
+      <div
         className={cn(
-          "flex min-w-0 max-w-full items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
-          theatre && "text-white/70",
+          "flex min-w-0 max-w-full items-center gap-2 text-[11px] text-white/70",
         )}
       >
-        <span className={theatre ? "hidden sm:inline" : undefined}>Audio</span>
-        <span className="relative min-w-0 max-w-full">
-          <select
-            className={compactSelectClass}
-            value={audioStreamIndex ?? ""}
+        <span aria-hidden className={theatre ? "hidden sm:inline" : undefined}>Audio</span>
+        <Select
+          value={audioStreamIndex == null ? undefined : String(audioStreamIndex)}
+          open={audioMenuOpen}
+          onOpenChange={setAudioMenuOpen}
+          onValueChange={(value) => {
+            // Restart at the current position so switching language
+            // doesn't throw the viewer back to the beginning.
+            pendingSeekRef.current = currentSourceTime;
+            setAudioStreamIndex(Number(value));
+          }}
+        >
+          <SelectTrigger
+            size="sm"
             data-stream-audio-select
             aria-label="Audio track"
-            onChange={(e) => {
-              // Restart at the current position so switching language
-              // doesn't throw the viewer back to the beginning.
-              pendingSeekRef.current = currentSourceTime;
-              setAudioStreamIndex(Number(e.target.value));
-            }}
+            className={cn(playerSelectTriggerClass, "w-24 sm:w-40")}
           >
+            <SelectValue placeholder="Audio" />
+          </SelectTrigger>
+          <SelectContent position="popper" side="top" align="end" collisionPadding={8} className={playerMenuContentClass}>
             {audioTracks.map((track, i) => (
-              <option
+              <SelectItem
                 key={track.streamIndex}
-                value={track.streamIndex}
-                className="bg-[var(--bg-elevated)]"
+                value={String(track.streamIndex)}
+                className={playerMenuItemClass}
               >
                 {audioTrackLabel(track, i)}
-              </option>
+              </SelectItem>
             ))}
-          </select>
-          {selectChevron}
-        </span>
-      </label>
+          </SelectContent>
+        </Select>
+      </div>
     ) : (
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         disabled
         aria-label="Audio settings unavailable"
-        className={cn(
-          "grid shrink-0 cursor-not-allowed place-items-center rounded-full opacity-40",
-          theatre ? "h-10 w-10 text-white/70" : "h-8 w-8 text-white/60",
-        )}
+        className={unavailableIconButtonClass}
       >
-        <SlidersHorizontal className={theatre ? "h-5 w-5" : "h-4 w-4"} />
-      </button>
+        <SlidersHorizontal className={theatre ? "size-5" : "size-4"} />
+      </Button>
     );
   const subtitleControl =
     subtitleTracks.length > 0 ? (
-      <label
-        className={cn(
-          "flex min-w-0 max-w-full items-center gap-2 text-[11px] text-[var(--text-tertiary)]",
-          theatre && "text-white/70",
-        )}
-      >
-        <span className={theatre ? "hidden sm:inline" : undefined}>Subtitles</span>
-        <span className="relative min-w-0 max-w-full">
-          <select
-            className={compactSelectClass}
-            value={subtitleTrackId}
+      <div className="flex min-w-0 max-w-full items-center gap-2 text-[11px] text-white/70">
+        <span aria-hidden className={theatre ? "hidden sm:inline" : undefined}>Subtitles</span>
+        <Select
+          value={subtitleTrackId || SUBTITLES_OFF}
+          open={subtitleMenuOpen}
+          onOpenChange={setSubtitleMenuOpen}
+          onValueChange={(value) =>
+            selectSubtitleTrack(value === SUBTITLES_OFF ? "" : value)
+          }
+        >
+          <SelectTrigger
+            size="sm"
             data-stream-subtitle-select
             aria-label="Subtitles"
-            onChange={(e) => selectSubtitleTrack(e.target.value)}
+            className={cn(playerSelectTriggerClass, "w-24 sm:w-40")}
           >
-            <option value="" className="bg-[var(--bg-elevated)]">Off</option>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper" side="top" align="end" collisionPadding={8} className={playerMenuContentClass}>
+            <SelectItem value={SUBTITLES_OFF} className={playerMenuItemClass}>
+              Off
+            </SelectItem>
             {subtitleTracks.map((track) => (
               // A track that cannot become WebVTT is shown, because hiding it
               // would make the release look like it has no subtitles at all.
-              <option
+              <SelectItem
                 key={track.id}
                 value={track.id}
                 disabled={!track.src}
-                className="bg-[var(--bg-elevated)]"
+                className={playerMenuItemClass}
               >
                 {track.label}
-              </option>
+              </SelectItem>
             ))}
-          </select>
-          {selectChevron}
-        </span>
-      </label>
+          </SelectContent>
+        </Select>
+      </div>
     ) : (
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         disabled
         aria-label="Subtitles unavailable"
-        className={cn(
-          "grid shrink-0 cursor-not-allowed place-items-center rounded-full opacity-40",
-          theatre ? "h-10 w-10 text-white/70" : "h-8 w-8 text-white/60",
-        )}
+        className={unavailableIconButtonClass}
       >
-        <Captions className={theatre ? "h-5 w-5" : "h-4 w-4"} />
-      </button>
+        <Captions className={theatre ? "size-5" : "size-4"} />
+      </Button>
     );
 
   const unifiedControlBar = (variant: "theatre" | "inline") => {
@@ -5121,18 +5203,29 @@ function InlineStreamPlayerInner({
     // 44×44px minimum touch target on every transport control (ui-ux-pro-max
     // touch rule): the tappable box is 44px while the glyph stays small.
     const buttonClass = cn(
-      "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2",
+      "size-11 shrink-0 rounded-full disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-white/40",
       large
-        ? "h-11 w-11 text-white/80 hover:bg-white/12 hover:text-white focus-visible:outline-white"
-        : "h-11 w-11 text-[var(--text-tertiary)] hover:text-[var(--text)] focus-visible:outline-[var(--brand)]",
+        ? "text-white/80 hover:bg-white/12 hover:text-white dark:hover:bg-white/12 aria-expanded:bg-white/12 aria-expanded:text-white"
+        : "text-white/70 hover:bg-white/10 hover:text-white dark:hover:bg-white/10 aria-expanded:bg-white/10 aria-expanded:text-white",
     );
     const playButtonClass = cn(
-      "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2",
+      "size-11 shrink-0 rounded-full disabled:cursor-not-allowed disabled:opacity-60",
       large
-        ? "h-11 w-11 bg-white text-black hover:scale-105 focus-visible:outline-white"
-        : "h-11 w-11 bg-[var(--brand)] text-black hover:brightness-110 focus-visible:outline-[var(--brand)]",
+        ? "bg-white text-black hover:scale-105 hover:bg-white focus-visible:ring-white/40"
+        : "bg-brand text-black hover:bg-brand hover:brightness-110",
     );
-    const iconClass = large ? "h-5 w-5" : "h-4 w-4";
+    const iconClass = large ? "size-5" : "size-4";
+    const tip = (label: string, control: ReactNode) => (
+      <Tooltip delayDuration={600}>
+        <TooltipTrigger asChild>{control}</TooltipTrigger>
+        <TooltipContent side="top" className="z-[80]">
+          {label}
+        </TooltipContent>
+      </Tooltip>
+    );
+    const seekValue = sourceDuration && sourceDuration > 0
+      ? Math.min(Math.floor(currentSourceTime), Math.floor(sourceDuration))
+      : 0;
     return (
       <div
         data-stream-transport-row
@@ -5143,57 +5236,76 @@ function InlineStreamPlayerInner({
             : "mx-auto w-full max-w-6xl flex-wrap gap-2 rounded-xl border border-white/10 bg-black/70 px-3 py-2 text-white shadow-[var(--shadow-md)] backdrop-blur",
         )}
       >
-        <button type="button" data-stream-transport onClick={togglePlay} disabled={!playableSrc} aria-label={isPlaying ? "Pause" : "Play"} className={playButtonClass}>
-          {isPlaying ? <Pause className={cn(iconClass, "fill-current")} /> : <Play className={cn(iconClass, "translate-x-px fill-current")} />}
-        </button>
-        <button
-          type="button"
-          data-stream-next
-          // Reuse the exact up-next/autoplay resolution: play the prewarmed next
-          // episode when it is ready, otherwise kick the same grab the up-next
-          // card's fetch action uses. No duplicated resolution logic. Disabled
-          // (never hidden) when there is genuinely no next item — a movie or the
-          // last episode — so the control greys out instead of appearing and
-          // disappearing. aria-label only; no `title` tooltip over the frame.
-          onClick={() => {
-            if (upNext?.infoHash) playUpNext(upNext);
-            else void fetchUpNext();
-          }}
-          disabled={!upNext || upNextLoading}
-          aria-label="Next episode"
-          className={buttonClass}
-        >
-          {upNextLoading ? (
-            <Loader2 className={cn(iconClass, "animate-spin")} />
-          ) : (
-            <SkipForward className={iconClass} />
-          )}
-        </button>
-        <button type="button" onClick={() => seekRelative(-10)} disabled={!playableSrc} aria-label="Back 10 seconds" className={buttonClass}>
-          <RotateCcw className={iconClass} />
-        </button>
-        <button type="button" onClick={() => seekRelative(10)} disabled={!playableSrc} aria-label="Forward 10 seconds" className={buttonClass}>
-          <RotateCw className={iconClass} />
-        </button>
+        {tip(
+          isPlaying ? "Pause (k)" : "Play (k)",
+          <Button type="button" size="icon" data-stream-transport onClick={togglePlay} disabled={!playableSrc} aria-label={isPlaying ? "Pause" : "Play"} className={playButtonClass}>
+            {isPlaying ? <Pause className={cn(iconClass, "fill-current")} /> : <Play className={cn(iconClass, "translate-x-px fill-current")} />}
+          </Button>,
+        )}
+        {tip(
+          "Next episode",
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            data-stream-next
+            // Reuse the exact up-next/autoplay resolution: play the prewarmed next
+            // episode when it is ready, otherwise kick the same grab the up-next
+            // card's fetch action uses. No duplicated resolution logic. Disabled
+            // (never hidden) when there is genuinely no next item (a movie or the
+            // last episode) so the control greys out instead of appearing and
+            // disappearing.
+            onClick={() => {
+              if (upNext?.infoHash) playUpNext(upNext);
+              else void fetchUpNext();
+            }}
+            disabled={!upNext || upNextLoading}
+            aria-label="Next episode"
+            className={buttonClass}
+          >
+            {upNextLoading ? (
+              <Loader2 className={cn(iconClass, "animate-spin")} />
+            ) : (
+              <SkipForward className={iconClass} />
+            )}
+          </Button>,
+        )}
+        {tip(
+          "Back 10 seconds (j)",
+          <Button type="button" variant="ghost" size="icon" onClick={() => seekRelative(-10)} disabled={!playableSrc} aria-label="Back 10 seconds" className={buttonClass}>
+            <RotateCcw className={iconClass} />
+          </Button>,
+        )}
+        {tip(
+          "Forward 10 seconds (l)",
+          <Button type="button" variant="ghost" size="icon" onClick={() => seekRelative(10)} disabled={!playableSrc} aria-label="Forward 10 seconds" className={buttonClass}>
+            <RotateCw className={iconClass} />
+          </Button>,
+        )}
         <span className={cn("shrink-0 tabular-nums", large ? "min-w-[84px] text-[12px] text-white/80" : "min-w-[76px] text-[11px] text-white/70")}>
           {formatClock(currentSourceTime)} / {sourceDuration && sourceDuration > 0 ? formatClock(sourceDuration) : "0:00"}
         </span>
         {sourceDuration && sourceDuration > 0 ? (
-          <span className={cn("relative flex min-w-0 flex-1 basis-full items-center sm:basis-auto", large ? "sm:min-w-[200px]" : "sm:min-w-[180px]")}>
-            <span aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
+          <span className={cn("relative flex h-6 min-w-0 flex-1 basis-full items-center sm:basis-auto", large ? "sm:min-w-[200px]" : "sm:min-w-[180px]")}>
+            <span aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-white/15")} />
             <TimelineBands sourceDuration={sourceDuration} bufferedRanges={bufferedRanges} downloadedRanges={downloadedRanges} currentSourceTime={currentSourceTime} />
-            <span aria-hidden="true" className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--brand)]" style={{ width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%` }} />
-            <input
-              type="range"
-              aria-label="Seek"
+            <Slider
+              ref={labelSliderThumb("Seek")}
               data-stream-seek
               data-current-held={currentTimeHeld ?? "unknown"}
-              className="relative w-full min-w-0"
               min={0}
               max={Math.floor(sourceDuration)}
               step={1}
-              value={Math.min(Math.floor(currentSourceTime), Math.floor(sourceDuration))}
-              onChange={(e) => setCurrentSourceTime(Number(e.target.value))}
+              value={[seekValue]}
+              className={cn(
+                "relative w-full min-w-0 cursor-pointer py-2",
+                // The buffered and downloaded bands paint behind the slider, so
+                // its own track stays clear and only the played range is filled.
+                "[&_[data-slot=slider-track]]:bg-transparent [&_[data-slot=slider-range]]:bg-brand",
+                "[&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-brand",
+                large &&
+                  "[&_[data-slot=slider-thumb]]:opacity-0 hover:[&_[data-slot=slider-thumb]]:opacity-100 [&_[data-slot=slider-thumb]:focus-visible]:opacity-100",
+              )}
               onPointerDown={() => {
                 // COMPLAINT 4: while the viewer drags, gate `timeupdate` adoption
                 // so the reconcile loop can't yank the thumb back to the video's
@@ -5201,16 +5313,9 @@ function InlineStreamPlayerInner({
                 // input speed; the actual seek commits once, on release.
                 isScrubbingRef.current = true;
               }}
-              onMouseUp={(e) => {
-                handleSourceSeek(Number(e.currentTarget.value));
-                isScrubbingRef.current = false;
-              }}
-              onKeyUp={(e) => {
-                handleSourceSeek(Number(e.currentTarget.value));
-                isScrubbingRef.current = false;
-              }}
-              onTouchEnd={(e) => {
-                handleSourceSeek(Number(e.currentTarget.value));
+              onValueChange={([value]) => setCurrentSourceTime(value)}
+              onValueCommit={([value]) => {
+                handleSourceSeek(value);
                 isScrubbingRef.current = false;
               }}
               onPointerCancel={() => {
@@ -5226,59 +5331,86 @@ function InlineStreamPlayerInner({
           // scrubber footprint with an inert rail so the control bar doesn't shift
           // (CLS) and no second loading indicator appears here. The single
           // StreamLoader over the stage is the only busy signal.
-          <span aria-hidden="true" className={cn("relative flex min-w-0 flex-1 basis-full items-center sm:basis-auto", large ? "sm:min-w-[200px]" : "sm:min-w-[180px]")}>
-            <span className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
+          <span aria-hidden="true" className={cn("relative flex h-6 min-w-0 flex-1 basis-full items-center sm:basis-auto", large ? "sm:min-w-[200px]" : "sm:min-w-[180px]")}>
+            <span className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-white/15")} />
           </span>
         )}
-        <button type="button" onClick={toggleMute} disabled={!playableSrc} aria-label={muted ? "Unmute" : "Mute"} className={buttonClass}>
-          {muted ? <VolumeX className={iconClass} /> : <Volume2 className={iconClass} />}
-        </button>
-        <input data-stream-volume type="range" min={0} max={1} step={0.05} value={muted ? 0 : volume} aria-label="Volume" className="hidden w-20 sm:block" onChange={(e) => changeVolume(Number(e.target.value))} />
-        <label className={cn("flex min-w-0 max-w-full shrink-0 items-center gap-1.5 text-[11px]", large ? "text-white/70" : "text-white/65")}>
-          <span className={large ? "hidden sm:inline" : undefined}>Speed</span>
-          <select
-            data-stream-speed-select
-            aria-label="Playback speed"
-            value={playbackRate}
-            onChange={(e) => changePlaybackRate(Number(e.target.value))}
-            className={cn(
-              "h-8 appearance-none rounded-full border px-2 text-[11px] outline-none focus-visible:ring-2",
-              large
-                ? "border-white/15 bg-white/10 text-white focus-visible:ring-white/25"
-                : "border-white/10 bg-black/40 text-white focus-visible:ring-[var(--accent-dim)]",
-            )}
+        {tip(
+          muted ? "Unmute (m)" : "Mute (m)",
+          <Button type="button" variant="ghost" size="icon" onClick={toggleMute} disabled={!playableSrc} aria-label={muted ? "Unmute" : "Mute"} className={buttonClass}>
+            {muted ? <VolumeX className={iconClass} /> : <Volume2 className={iconClass} />}
+          </Button>,
+        )}
+        <Slider
+          ref={labelSliderThumb("Volume")}
+          data-stream-volume
+          min={0}
+          max={1}
+          step={0.05}
+          value={[muted ? 0 : volume]}
+          onValueChange={([value]) => changeVolume(value)}
+          className="hidden w-20 py-2 sm:flex [&_[data-slot=slider-track]]:bg-white/20 [&_[data-slot=slider-range]]:bg-brand [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:bg-brand"
+        />
+        <div className={cn("flex min-w-0 max-w-full shrink-0 items-center gap-1.5 text-[11px]", large ? "text-white/70" : "text-white/65")}>
+          <span aria-hidden className={large ? "hidden sm:inline" : undefined}>Speed</span>
+          <Select
+            value={String(playbackRate)}
+            open={speedMenuOpen}
+            onOpenChange={setSpeedMenuOpen}
+            onValueChange={(value) => changePlaybackRate(Number(value))}
           >
-            {PLAYBACK_RATES.map((rate) => (
-              <option key={rate} value={rate} className="bg-[var(--bg-elevated)]">
-                {rate === 1 ? "1×" : `${rate}×`}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger
+              size="sm"
+              data-stream-speed-select
+              aria-label="Playback speed"
+              className={cn(playerSelectTriggerClass, "w-auto px-2.5")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper" side="top" align="end" collisionPadding={8} className={cn(playerMenuContentClass, "min-w-24")}>
+              {PLAYBACK_RATES.map((rate) => (
+                <SelectItem key={rate} value={String(rate)} className={playerMenuItemClass}>
+                  {`${rate}×`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {subtitleControl}
         {audioControl}
-        <div className="relative">
-          <button type="button" onClick={() => setQualityMenuOpen((open) => !open)} aria-label="Quality" aria-expanded={qualityMenuOpen} className={buttonClass}>
-            <Gauge className={iconClass} />
-          </button>
-          {qualityMenuOpen ? (
-            <div data-quality-selector className="fixed inset-x-4 bottom-20 z-[100] overflow-hidden rounded-2xl border border-white/10 bg-black/90 p-2 text-sm text-white shadow-2xl backdrop-blur sm:absolute sm:inset-x-auto sm:bottom-full sm:right-0 sm:mb-2 sm:w-36">
-              <div className="px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">Quality</p>
-              </div>
-              {qualityError ? <p className="mx-2 mb-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100">{qualityError}</p> : null}
-              <PlayerQualityChoices
-                disabled={qualityLoading}
-                onSelect={(resolution) =>
-                  void choosePreferredResolution(resolution)
-                }
-              />
-            </div>
-          ) : null}
-        </div>
-        <button type="button" onClick={goFullscreen} disabled={!playableSrc} aria-label={fullscreenActive ? "Exit full screen" : "Full screen"} className={buttonClass}>
-          {fullscreenActive ? <Minimize className={iconClass} /> : <Maximize className={iconClass} />}
-        </button>
+        <Popover open={qualityMenuOpen} onOpenChange={setQualityMenuOpen}>
+          {tip(
+            "Quality",
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" aria-label="Quality" className={buttonClass}>
+                <Gauge className={iconClass} />
+              </Button>
+            </PopoverTrigger>,
+          )}
+          <PopoverContent
+            data-quality-selector
+            side="top"
+            align="end"
+            sideOffset={8}
+            collisionPadding={8}
+            className={cn(playerMenuContentClass, "w-[min(20rem,calc(100vw-2rem))] gap-0 rounded-xl p-2 text-sm sm:w-36")}
+          >
+            <p className="px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/60">Quality</p>
+            {qualityError ? <p className="mx-2 mb-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-100">{qualityError}</p> : null}
+            <PlayerQualityChoices
+              disabled={qualityLoading}
+              onSelect={(resolution) =>
+                void choosePreferredResolution(resolution)
+              }
+            />
+          </PopoverContent>
+        </Popover>
+        {tip(
+          fullscreenActive ? "Exit full screen (f)" : "Full screen (f)",
+          <Button type="button" variant="ghost" size="icon" onClick={goFullscreen} disabled={!playableSrc} aria-label={fullscreenActive ? "Exit full screen" : "Full screen"} className={buttonClass}>
+            {fullscreenActive ? <Minimize className={iconClass} /> : <Maximize className={iconClass} />}
+          </Button>,
+        )}
       </div>
     );
   };
@@ -5396,72 +5528,10 @@ function InlineStreamPlayerInner({
             25% { opacity: 1; }
             to { opacity: 0; transform: scale(1.08); }
           }
-          [data-player-chrome="theatre"] [data-stream-seek],
-          [data-inline-player] [data-stream-volume] {
-            -webkit-appearance: none;
-            appearance: none;
-            background: transparent;
-            height: 12px;
-            cursor: pointer;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]::-webkit-slider-runnable-track,
-          [data-inline-player] [data-stream-volume]::-webkit-slider-runnable-track {
-            height: 3px;
-            background: transparent;
-            border-radius: 999px;
-            transition: height 180ms ease;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]::-webkit-slider-thumb,
-          [data-inline-player] [data-stream-volume]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            height: 13px;
-            width: 13px;
-            margin-top: -5px;
-            border-radius: 999px;
-            background: var(--brand);
-            border: none;
-            opacity: 0;
-            transition: opacity 160ms ease, transform 160ms ease;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]:hover::-webkit-slider-runnable-track,
-          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible::-webkit-slider-runnable-track {
-            height: 6px;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]:hover::-webkit-slider-thumb,
-          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible::-webkit-slider-thumb,
-          [data-inline-player] [data-stream-volume]:hover::-webkit-slider-thumb,
-          [data-inline-player] [data-stream-volume]:focus-visible::-webkit-slider-thumb {
-            opacity: 1;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]::-moz-range-track,
-          [data-inline-player] [data-stream-volume]::-moz-range-track {
-            height: 3px;
-            background: transparent;
-            border-radius: 999px;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]::-moz-range-thumb,
-          [data-inline-player] [data-stream-volume]::-moz-range-thumb {
-            height: 13px;
-            width: 13px;
-            border: none;
-            border-radius: 999px;
-            background: var(--brand);
-            opacity: 0;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]:hover::-moz-range-thumb,
-          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible::-moz-range-thumb,
-          [data-inline-player] [data-stream-volume]:hover::-moz-range-thumb,
-          [data-inline-player] [data-stream-volume]:focus-visible::-moz-range-thumb {
-            opacity: 1;
-          }
-          [data-player-chrome="theatre"] [data-stream-seek]:focus-visible,
-          [data-inline-player] [data-stream-volume]:focus-visible {
-            outline: 2px solid var(--brand);
-            outline-offset: 2px;
-            border-radius: 999px;
-          }
-          [data-player-fullscreen-surface]:fullscreen {
+          [data-player-fullscreen-surface][data-fullscreen-active] {
+            position: fixed;
+            inset: 0;
+            z-index: 70;
             width: 100vw;
             height: 100vh;
             max-width: none;
@@ -5472,8 +5542,8 @@ function InlineStreamPlayerInner({
             display: flex;
             flex-direction: column;
           }
-          [data-player-fullscreen-surface]:fullscreen[data-stream-stage],
-          [data-player-fullscreen-surface]:fullscreen [data-stream-stage] {
+          [data-player-fullscreen-surface][data-fullscreen-active][data-stream-stage],
+          [data-player-fullscreen-surface][data-fullscreen-active] [data-stream-stage] {
             flex: 1 1 auto;
             min-height: 0;
             width: 100%;
@@ -5488,6 +5558,7 @@ function InlineStreamPlayerInner({
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <div
               ref={fullscreenSurfaceRef}
+              data-fullscreen-active={fullscreenActive ? "" : undefined}
               data-stream-stage
               data-player-fullscreen-surface
               className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black bg-cover bg-center sm:h-auto sm:aspect-video sm:max-h-full sm:rounded-2xl sm:border sm:border-white/12 sm:shadow-[0_24px_90px_rgba(0,0,0,0.68)] sm:ring-1 sm:ring-black/50"
@@ -5511,32 +5582,43 @@ function InlineStreamPlayerInner({
                     <p className="text-sm font-medium text-white">{panelTitle}</p>
                     {panelDetail ? <p className="text-[12px] text-white/60">{panelDetail}</p> : null}
                     {mediaErrorDiagnostic ? (
-                      <details
-                        className="max-w-full text-left text-[11px] text-white/55"
+                      <Collapsible
+                        className="flex max-w-full flex-col items-center text-left text-[11px] text-white/55"
                         data-stream-error-details
                       >
-                        <summary className="cursor-pointer text-center font-medium text-white/70">
-                          Details
-                        </summary>
-                        <p className="mt-1 break-words font-mono">
-                          {mediaErrorDiagnostic}
-                        </p>
-                      </details>
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            className="group/details text-[11px] font-medium text-white/70 hover:bg-white/10 hover:text-white dark:hover:bg-white/10"
+                          >
+                            Details
+                            <ChevronDown aria-hidden className="transition-transform group-data-[state=open]/details:rotate-180" />
+                          </Button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <p className="mt-1 break-words font-mono">
+                            {mediaErrorDiagnostic}
+                          </p>
+                        </CollapsibleContent>
+                      </Collapsible>
                     ) : null}
                     <div className="mt-1 flex flex-wrap items-center justify-center gap-2">
                       {failureCopy?.affordance === "retry" ? (
-                        <button
+                        <Button
                           type="button"
                           data-stream-retry
                           disabled={retrying}
+                          aria-busy={retrying || undefined}
                           onClick={() => {
                             void retrySameRelease();
                             showTheatreControls();
                           }}
-                          className="inline-flex h-9 items-center rounded-full bg-white px-4 text-[12px] font-semibold text-black transition hover:bg-white/90 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                          className="rounded-full bg-white px-4 text-[12px] font-semibold text-black hover:bg-white/90 disabled:cursor-wait disabled:opacity-60"
                         >
                           {retrying ? "Retrying…" : "Retry"}
-                        </button>
+                        </Button>
                       ) : null}
                     </div>
                   </div>
@@ -5602,33 +5684,33 @@ function InlineStreamPlayerInner({
                     </div>
                     <div className="mt-3 flex items-center gap-2">
                       {upNext.infoHash ? (
-                        <button
+                        <Button
                           type="button"
                           onClick={() => playUpNext(upNext)}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black"
+                          variant="ghost" className="inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black hover:bg-white/90 hover:text-black dark:hover:bg-white/90"
                         >
                           <Play className="h-3.5 w-3.5 fill-current" />
                           Play now
-                        </button>
+                        </Button>
                       ) : (
-                        <button
+                        <Button
                           type="button"
                           onClick={() => void fetchUpNext()}
                           disabled={upNextLoading}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-[12px] font-semibold text-white/80 disabled:cursor-wait disabled:opacity-60"
+                          variant="ghost" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/15 px-3 text-[12px] font-semibold text-white/80 disabled:cursor-wait disabled:opacity-60 hover:bg-white/10 hover:text-white dark:hover:bg-white/10"
                         >
                           {upNextLoading && playbackStarted ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                           {upNextError ? "Try again" : upNextUnavailableActionLabel()}
-                        </button>
+                        </Button>
                       )}
                       {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled) ? (
-                        <button
+                        <Button
                           type="button"
                           onClick={() => setAutoAdvanceCancelled(true)}
-                          className="h-9 rounded-full border border-white/15 px-3 text-[12px] text-white/75 hover:bg-white/10"
+                          variant="ghost" className="h-9 rounded-full border border-white/15 px-3 text-[12px] text-white/75 hover:bg-white/10 hover:text-white dark:hover:bg-white/10"
                         >
                           Cancel
-                        </button>
+                        </Button>
                       ) : null}
                     </div>
                   </div>
@@ -5732,53 +5814,10 @@ function InlineStreamPlayerInner({
             @media (prefers-reduced-motion: reduce) {
               [data-inline-player] [id="${panelId}"] { animation: none; }
             }
-            /*
-              The buffered band is painted *behind* the scrubber, so the input's
-              own UA-drawn track has to get out of the way. Suppressing the track
-              also removes the accent fill, so the played portion is drawn
-              explicitly alongside the band — one bar, three layers, all in the
-              same source coordinate space.
-            */
-            [data-inline-player] [data-stream-seek] {
-              -webkit-appearance: none;
-              appearance: none;
-              background: transparent;
-              height: 12px;
-              cursor: pointer;
-            }
-            [data-inline-player] [data-stream-seek]::-webkit-slider-runnable-track {
-              height: 4px;
-              background: transparent;
-              border-radius: 999px;
-            }
-            [data-inline-player] [data-stream-seek]::-webkit-slider-thumb {
-              -webkit-appearance: none;
-              appearance: none;
-              height: 11px;
-              width: 11px;
-              margin-top: -3.5px;
-              border-radius: 999px;
-              background: var(--brand);
-              border: none;
-            }
-            [data-inline-player] [data-stream-seek]::-moz-range-track {
-              height: 4px;
-              background: transparent;
-              border-radius: 999px;
-            }
-            [data-inline-player] [data-stream-seek]::-moz-range-thumb {
-              height: 11px;
-              width: 11px;
-              border: none;
-              border-radius: 999px;
-              background: var(--brand);
-            }
-            [data-inline-player] [data-stream-seek]:focus-visible {
-              outline: 2px solid var(--brand);
-              outline-offset: 2px;
-              border-radius: 999px;
-            }
-            [data-player-fullscreen-surface]:fullscreen {
+            [data-player-fullscreen-surface][data-fullscreen-active] {
+            position: fixed;
+            inset: 0;
+            z-index: 70;
               width: 100vw;
               height: 100vh;
               max-width: none;
@@ -5791,7 +5830,7 @@ function InlineStreamPlayerInner({
               flex-direction: column;
               gap: 0.5rem;
             }
-            [data-player-fullscreen-surface]:fullscreen [data-stream-stage] {
+            [data-player-fullscreen-surface][data-fullscreen-active] [data-stream-stage] {
               flex: 1 1 auto;
               min-height: 0;
               width: 100%;
@@ -5809,13 +5848,13 @@ function InlineStreamPlayerInner({
               ) : null}
               <span>{message}</span>
               {effectiveSelectedPath && problem !== "preparing" ? (
-                <button
+                <Button
                   type="button"
-                  className="font-medium text-[var(--accent-text)] hover:underline"
+                  variant="link" className="h-auto p-0 font-medium text-[var(--accent-text)] hover:underline"
                   onClick={() => void copySelected()}
                 >
                   Open in your player →
-                </button>
+                </Button>
               ) : null}
             </div>
           ) : null}
@@ -5829,6 +5868,7 @@ function InlineStreamPlayerInner({
               restarts or hands off to a second spinner (COMPLAINT 1). */}
             <div
               ref={fullscreenSurfaceRef}
+              data-fullscreen-active={fullscreenActive ? "" : undefined}
               data-player-fullscreen-surface
               className={cn("space-y-1.5", theatre && "flex h-full min-h-0 flex-col gap-2")}
             >
@@ -5861,23 +5901,23 @@ function InlineStreamPlayerInner({
                   </p>
                   <div className="mt-3 flex items-center gap-2">
                     {upNext.infoHash ? (
-                      <button
+                      <Button
                         type="button"
                         onClick={() => playUpNext(upNext)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black"
+                        variant="ghost" className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black hover:bg-white/90 hover:text-black dark:hover:bg-white/90"
                       >
                         <Play className="h-3.5 w-3.5 fill-current" />
                         Play now
-                      </button>
+                      </Button>
                     ) : (
                       // Was `disabled` with no handler: at the one moment the
                       // viewer most wants to move on, the only control on the
                       // card did nothing and looked like it never would.
-                      <button
+                      <Button
                         type="button"
                         onClick={() => void fetchUpNext()}
                         disabled={upNextLoading}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black disabled:cursor-wait disabled:opacity-60"
+                        variant="ghost" className="inline-flex h-8 items-center gap-1.5 rounded-full bg-white px-3 text-[12px] font-semibold text-black disabled:cursor-wait disabled:opacity-60 hover:bg-white/90 hover:text-black dark:hover:bg-white/90"
                       >
                         {upNextLoading ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -5885,16 +5925,16 @@ function InlineStreamPlayerInner({
                           <Play className="h-3.5 w-3.5 fill-current" />
                         )}
                         {upNextError ? "Try again" : upNextUnavailableActionLabel()}
-                      </button>
+                      </Button>
                     )}
                     {canAutoAdvanceToUpNext(upNext, autoAdvanceCancelled) ? (
-                      <button
+                      <Button
                         type="button"
                         onClick={() => setAutoAdvanceCancelled(true)}
-                        className="h-8 rounded-full border border-white/20 px-3 text-[12px] text-white/80"
+                        variant="ghost" className="h-8 rounded-full border border-white/20 px-3 text-[12px] text-white/80 hover:bg-white/10 hover:text-white dark:hover:bg-white/10"
                       >
                         Cancel autoplay ({advanceCountdown})
-                      </button>
+                      </Button>
                     ) : upNext.infoHash && autoAdvanceCancelled ? (
                       <span className="text-[12px] text-white/60">Autoplay cancelled.</span>
                     ) : null}
@@ -5971,24 +6011,24 @@ function InlineStreamPlayerInner({
                         : `Next: ${upNext.title} ${upNext.label}: ${upNextStatusSentence(upNext.availability)}`}
                     </span>
                     {upNext.infoHash ? (
-                      <button
+                      <Button
                         type="button"
                         onClick={() => playUpNext(upNext)}
-                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-semibold text-black"
+                        variant="ghost" className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-white px-2.5 text-[11px] font-semibold text-black hover:bg-white/90 hover:text-black dark:hover:bg-white/90"
                       >
                         <Play className="h-3 w-3 fill-current" />
                         Play
-                      </button>
+                      </Button>
                     ) : (
-                      <button
+                      <Button
                         type="button"
                         onClick={() => void fetchUpNext()}
                         disabled={upNextLoading}
-                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-white/15 px-2.5 text-[11px] font-medium text-white/80 disabled:cursor-wait disabled:opacity-60"
+                        variant="ghost" className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-white/15 px-2.5 text-[11px] font-medium text-white/80 disabled:cursor-wait disabled:opacity-60 hover:bg-white/10 hover:text-white dark:hover:bg-white/10"
                       >
                         {upNextLoading && playbackStarted ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                         {upNextError ? "Try again" : "Fetch next"}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 ) : null}
