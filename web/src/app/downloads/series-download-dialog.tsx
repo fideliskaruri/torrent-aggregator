@@ -28,6 +28,7 @@ import {
   MoreHorizontal,
   Pause,
   Play,
+  Search,
   Trash2,
   Zap,
 } from "lucide-react";
@@ -73,6 +74,7 @@ import {
 } from "./release-display";
 import type { Artwork } from "@/lib/metadata/artwork";
 import type { ClientTorrent, TorrentRowAction } from "./types";
+import { canFindAnotherRelease } from "./release-swap-dialog";
 
 export interface SeriesDownloadDialogProps {
   /** `null` while closed, or once the group the dialog was opened for is gone. */
@@ -530,6 +532,16 @@ function EpisodeCard({
               >
                 <Zap />
                 Download now
+              </DropdownMenuItem>
+            ) : null}
+            {canFindAnotherRelease(t) ? (
+              <DropdownMenuItem
+                onClick={() => onAction("swap", t)}
+                className="min-h-[44px] lg:min-h-0"
+                data-find-release
+              >
+                <Search />
+                Find another release
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuItem

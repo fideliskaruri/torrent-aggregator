@@ -92,6 +92,7 @@ import {
   type SnapshotState,
 } from "./snapshot-sync";
 import { SeriesDownloadDialog } from "./series-download-dialog";
+import { ReleaseSwapDialog, canFindAnotherRelease } from "./release-swap-dialog";
 import { isDownloadRow, type ClientTorrent, type NowPlaying, type StreamManifestFile, type TorrentRowAction } from "./types";
 import {
   LoadingGlyph,
@@ -241,6 +242,7 @@ export default function ClientPage() {
   const [loading, setLoading] = useState(true);
   const [openingHash, setOpeningHash] = useState<string | null>(null);
   const [tidying, setTidying] = useState(false);
+  const [swapTorrent, setSwapTorrent] = useState<ClientTorrent | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -608,6 +610,7 @@ export default function ClientPage() {
   }, [downloadable]);
 
   async function action(act: TorrentRowAction, torrent: ClientTorrent) {
+    if (act === "swap") { setSwapTorrent(torrent); return; }
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
     invalidateInFlight();
@@ -1600,6 +1603,26 @@ export default function ClientPage() {
         />
       ) : null}
 
+      {swapTorrent && !playing ? (
+        <ReleaseSwapDialog
+          torrent={swapTorrent}
+          onClose={() => setSwapTorrent(null)}
+          onSwapped={(releaseName) => {
+            invalidateInFlight();
+            const swapped = swapTorrent;
+            setSelected((previous) => {
+              if (!previous.has(swapped.transferId)) return previous;
+              const next = new Set(previous);
+              next.delete(swapped.transferId);
+              return next;
+            });
+            setSwapTorrent(null);
+            setAnnouncement(`Switched to ${releaseName}.`);
+            void load();
+          }}
+        />
+      ) : null}
+
       {playing ? (
         <PlayOverlay
           infoHash={playing.infoHash}
@@ -2193,6 +2216,16 @@ function FilmRow({
               >
                 <Zap />
                 Download now
+              </DropdownMenuItem>
+            ) : null}
+            {canFindAnotherRelease(t) ? (
+              <DropdownMenuItem
+                onClick={() => onAction("swap", t)}
+                className="min-h-[44px] lg:min-h-0"
+                data-find-release
+              >
+                <Search />
+                Find another release
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuItem
