@@ -30,6 +30,10 @@ export interface WorkSearchHit {
   overview: string | null;
   releaseDate: string | null;
   href: string;
+  /** Requester responses only: the caller's library/request state for this work. */
+  inLibrary?: boolean;
+  requestStatus?: string | null;
+  requestId?: string | null;
 }
 
 function parseWorkSearchCategory(

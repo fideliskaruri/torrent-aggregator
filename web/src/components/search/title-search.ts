@@ -8,6 +8,7 @@ import type { TitleResult } from "./group-titles";
 import { releaseStatus } from "@/lib/browse/release-status";
 import { titlePath, workKeyFor } from "@/components/title/work-key";
 import type { WorkSearchHit } from "@/lib/search/work-search";
+import { parseRequestState } from "@/lib/requests";
 
 /** Map API hits into the card model. Pure — safe for tests. */
 export function titlesFromSearchHits(
@@ -47,6 +48,10 @@ export function titlesFromSearchHits(
       status,
       href,
       overview: hit.overview ?? null,
+      request:
+        "inLibrary" in hit || "requestStatus" in hit
+          ? parseRequestState(hit)
+          : null,
     });
   }
   return out;

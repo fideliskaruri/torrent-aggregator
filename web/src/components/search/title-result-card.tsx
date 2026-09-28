@@ -3,6 +3,8 @@ import { Link } from "react-router";
 import type { TitleResult } from "./group-titles";
 import { cn } from "@/lib/utils";
 import { PosterImage } from "@/components/browse/poster-image";
+import { Badge } from "@/components/ui/badge";
+import { requestViewFor } from "@/lib/requests";
 
 interface TitleResultCardProps {
   title: TitleResult;
@@ -34,11 +36,15 @@ export function TitleResultCard({
     title.isSeries,
     title.format,
   );
+  const request = title.request
+    ? requestViewFor(title.request, title.isSeries)
+    : null;
   const accessibleName = [
     title.name,
     title.year ? String(title.year) : null,
     typeLabel,
     title.status.comingLabel,
+    request?.label,
   ]
     .filter(Boolean)
     .join(" — ");
@@ -94,6 +100,18 @@ export function TitleResultCard({
               <span className="text-[12px] font-medium text-[var(--text-tertiary)]">
                 {title.status.comingLabel}
               </span>
+            ) : null}
+            {request?.label ? (
+              <Badge
+                variant={request.tone}
+                data-title-request-status={
+                  title.request?.inLibrary
+                    ? "available"
+                    : (title.request?.requestStatus ?? "")
+                }
+              >
+                {request.label}
+              </Badge>
             ) : null}
           </div>
         </div>

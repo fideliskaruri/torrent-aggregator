@@ -16,6 +16,7 @@
  */
 import type { TorrentResult } from "@/lib/torrents/types";
 import { type ReleaseStatus } from "@/lib/browse/release-status";
+import type { RequestState } from "@/lib/requests";
 
 
 export interface TitleResult {
@@ -39,6 +40,8 @@ export interface TitleResult {
   href: string | null;
   /** One-line synopsis when the catalog has one. */
   overview?: string | null;
+  /** Requester only: the caller's library/request state, when the server sent it. */
+  request?: RequestState | null;
   /**
    * Legacy torrent fields — only filled by `groupTitles` (indexer path).
    * Catalog search never sets these; the title page owns torrent matching.
