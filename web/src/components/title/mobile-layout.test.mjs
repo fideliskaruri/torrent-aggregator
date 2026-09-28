@@ -36,8 +36,15 @@ test("library questions use one mobile modal with an accessible title and focus 
   assert.match(library, /grid grid-cols-1 gap-2 md:flex md:items-center/);
 });
 
-test("title article reserves mobile navigation and safe-area clearance", () => {
-  assert.match(title, /<article[^>]+pb-\[calc\(var\(--mobile-nav-h\)\+env\(safe-area-inset-bottom\)\+1rem\)\][^>]+md:pb-0/);
+test("title page relies on the shell's single mobile-nav + safe-area clearance", () => {
+  // `.app-main` reserves the fixed bottom nav, the home-indicator inset and
+  // air below md; the article padding it again only doubled the dead space.
+  const css = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
+  assert.match(
+    css,
+    /@media \(max-width: 767\.98px\) \{\s*\.app-main \{\s*padding-bottom: calc\(var\(--mobile-nav-h\) \+ var\(--safe-bottom\) \+ 1rem\);/,
+  );
+  assert.match(title, /<article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col">/);
 });
 
 test("layout changes retain memoized cards, populated rows and cookie season selection", () => {

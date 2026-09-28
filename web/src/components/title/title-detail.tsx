@@ -26,7 +26,8 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Download, Loader2, Play, Search } from "lucide-react";
+import { CheckCircle2, Download, Loader2, Play, Search } from "lucide-react";
+import { Link } from "react-router";
 import { useFeatures } from "@/lib/features";
 import { toast } from "@/lib/toast";
 import { PosterImage } from "@/components/browse/poster-image";
@@ -58,8 +59,8 @@ import {
   releaseYear,
 } from "./title-hero-meta";
 import {
-  offersDownload,
   resolvePrimaryAction,
+  resolveTitleTransferControl,
   shouldRunTitleAction,
   titleActionButtonLabel,
   type TitleAction,
@@ -1092,20 +1093,11 @@ function TitleContent({
   };
   const downloadStatus = statusFor(DOWNLOAD_KEY);
   const titleTransfer = progress?.transfer ?? payload.transfer;
-  const downloadLabel =
-    titleTransfer?.status === "queued"
-      ? "Queued"
-      : titleTransfer?.status === "downloading"
-        ? `Downloading ${Math.floor(Math.max(0, Math.min(1, titleTransfer.progress)) * 100)}%`
-        : titleTransfer?.status === "downloaded"
-          ? "Downloaded"
-          : titleTransfer?.status === "failed"
-            ? "Retry download"
-            : titleActionButtonLabel(downloadAction, downloadStatus);
-  const downloadCanRun =
-    offersDownload(titleTransfer) &&
-    shouldRunTitleAction(downloadAction, downloadStatus) &&
-    !gated;
+  const downloadControl = resolveTitleTransferControl(titleTransfer, downloadStatus, {
+    canSeeTransfers: caps.canSeeTransfers,
+  });
+  const downloadLabel = downloadControl.label;
+  const downloadCanRun = downloadControl.canRun && !gated;
   const downloadLabelTarget = title;
 
   return (
@@ -1289,14 +1281,37 @@ function TitleContent({
                 </Button>
                 )}
 
-                {showDownload && caps.canDownload ? (
+                {showDownload && caps.canDownload && downloadControl.opensDownloads ? (
+                  <Button
+                    asChild
+                    size="lg"
+                    variant={streaming ? "secondary" : "default"}
+                    className="relative w-full min-w-0 md:w-auto md:min-w-[8rem]"
+                  >
+                    <Link
+                      to="/downloads"
+                      data-title-download
+                      data-transfer-status={titleTransfer?.status}
+                      aria-label={`${downloadLabel} — view ${title} in Downloads`}
+                    >
+                      {titleTransfer?.status === "downloaded" ? (
+                        <CheckCircle2 aria-hidden />
+                      ) : (
+                        <Download aria-hidden />
+                      )}
+                      {downloadLabel}
+                    </Link>
+                  </Button>
+                ) : showDownload && caps.canDownload ? (
                   <Button
                     type="button"
                     size="lg"
                     variant={streaming ? "secondary" : "default"}
                     data-title-download
                     data-action-kind="get"
-                    aria-label={`Download — ${title}`}
+                    data-transfer-status={titleTransfer?.status}
+                    aria-label={`${downloadLabel} — ${title}`}
+                    title={downloadControl.error ?? undefined}
                     aria-busy={downloadStatus === "pending" || undefined}
                     disabled={!downloadCanRun}
                     onClick={() => {
@@ -1331,6 +1346,7 @@ function TitleContent({
                     isSeries={payload.isSeries}
                     seasons={seasons.map((s) => s.season)}
                     releaseDate={payload.releaseDate}
+                    title={title}
                     onChanged={onLibraryChanged}
                   />
                 ) : null}
