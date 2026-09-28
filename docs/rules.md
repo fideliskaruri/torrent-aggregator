@@ -33,6 +33,8 @@ Standing rules from the owner. Every agent reads this before starting work. When
 
 - UI work goes to Claude Opus 5.5 (medium effort), following the frontend-design skill, and it may start sub-agents. Never use GPT-6 Astra for UI, and never use Claude Opus 5 or Sonnet 5.
 - Keep long-running agents in check. The orchestrator checks every running agent against its timebox. At the timebox it asks for status and a push of the finished slices. At 1.5× the timebox it forces a push, and it splits or reassigns whatever is left. No agent runs past its timebox without the owner hearing about it.
+- Test server behaviour (search, grabs, requests) by calling the HTTP API and inspecting the JSON. Use a browser only when the thing under test is the UI itself. The Playwright MCP browser is shared between agents, so keep sessions short and use headless scripts for bulk screenshots.
+- Errors shown to the user must say why it failed and what to do. The system auto-resolves transient failures (retry, back off, queue) before surfacing anything. No internal jargon in user-facing copy.
 - All code must be type-checked: TypeScript (strict) for JS-land code, no plain `.js`/`.mjs` source files.
 - No UI change ships without a real visual check at 390 and 1280. If the browser tool is down, stop UI work and tell the owner; don't push "verified by unit tests" UI.
 - One pipeline per action. A season, series or request grab is just the title-page episode download run for each episode (with bounded concurrency). Never a separate search or ranking path.
