@@ -9,7 +9,8 @@ import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
 import { FeaturesProvider } from "@/lib/features";
 import { SessionProvider } from "@/lib/session";
-import { ShellGate } from "@/components/requester/shell-gate";
+import { ShellGate } from "@/components/layout/shell-gate";
+import { PreviewBanner } from "@/components/layout/preview-banner";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./fonts.css";
@@ -24,8 +25,8 @@ const scrollKey = (location: Location) =>
 /**
  * The root layout. `<html>`/`<body>`, metadata and viewport live in
  * `web/index.html`; everything inside `<body>` is the same tree as the Next.js
- * layout, with the page rendered through the router outlet. Requesters get the
- * trimmed requester shell instead (see ShellGate); owner pages never mount for them.
+ * layout, with the page rendered through the router outlet. Everyone gets this one
+ * shell; what each person sees comes from `useCapabilities()`.
  */
 export default function RootLayout() {
   return (
@@ -33,7 +34,7 @@ export default function RootLayout() {
       <ScrollRestoration getKey={scrollKey} />
       <AuthSessionProvider>
         <SessionProvider>
-        <ShellGate owner={
+        <ShellGate>
         <FeaturesProvider>
         <UiPreferencesProvider>
           <DownloadSetupProvider>
@@ -41,12 +42,13 @@ export default function RootLayout() {
             <a href="#main-content" className="skip-link">
               Skip to main content
             </a>
+            <PreviewBanner />
             <Header />
             <UpdateBanner />
             <main
               id="main-content"
               tabIndex={-1}
-              className="app-main pb-[calc(var(--mobile-nav-h)+var(--safe-bottom))] md:pb-0"
+              className="app-main"
             >
               <Outlet />
             </main>
@@ -80,7 +82,7 @@ export default function RootLayout() {
           </DownloadSetupProvider>
         </UiPreferencesProvider>
         </FeaturesProvider>
-        } />
+        </ShellGate>
         </SessionProvider>
       </AuthSessionProvider>
     </>

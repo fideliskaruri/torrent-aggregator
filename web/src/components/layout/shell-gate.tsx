@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
-import { useLocation } from "react-router";
-import { ShareUnavailable } from "@/components/pwa/share-unavailable";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useSessionInfo } from "@/lib/session";
-import { RequesterShell } from "./requester-shell";
 
 /** The owner's own machine never needs to wait for `/api/me`. */
 export function isLoopbackHost(hostname: string): boolean {
@@ -12,26 +9,14 @@ export function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * Picks the shell for the signed-in role. Requesters get the trimmed shell and
- * the owner tree is never mounted for them; remote pages wait for `/api/me` so
- * the owner shell never flashes (and never fires owner API calls) for a friend.
+ * Everyone gets the same app. Remote pages wait for `/api/me` first, so the
+ * role — and with it every capability — is known before any page mounts and
+ * nobody fires API calls their role can't make.
  */
-export function ShellGate({ owner }: { owner: ReactNode }) {
+export function ShellGate({ children }: { children: ReactNode }) {
   const session = useSessionInfo();
-  const location = useLocation();
-  if (session.role === "requester") {
-    // Share-target is owner-only; keep requesters out of the download pipeline UI.
-    if (location.pathname === "/share") {
-      return (
-        <div className="container-app max-w-xl py-8 sm:py-12 min-w-0" data-share-page>
-          <ShareUnavailable />
-        </div>
-      );
-    }
-    return <RequesterShell email={session.email} />;
-  }
   const local = typeof window !== "undefined" && isLoopbackHost(window.location.hostname);
-  if (local || session.known) return <>{owner}</>;
+  if (local || session.known) return <>{children}</>;
   if (session.failed) {
     return (
       <div className="container-app py-10" data-shell-failed>

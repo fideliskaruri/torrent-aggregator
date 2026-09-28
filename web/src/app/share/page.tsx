@@ -5,9 +5,7 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { Button } from "@/components/ui/button";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { useDownloadSetup } from "@/components/setup/download-setup";
-import { ShareUnavailable } from "@/components/pwa/share-unavailable";
 import { magnetFromShare } from "@/lib/pwa/magnet-from-share";
-import { useSessionInfo } from "@/lib/session";
 import { toast } from "@/lib/toast";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 
@@ -19,19 +17,17 @@ type ShareState =
   | { kind: "missing" };
 
 /**
- * Web Share Target landing page (owner only). Extracts a magnet from the share
+ * Web Share Target landing page (owner only; the router's capability guard keeps others out). Extracts a magnet from the share
  * payload and posts it through the same /api/torrent/send path as Downloads.
  */
 export default function SharePage() {
   useDocumentTitle("Share");
-  const session = useSessionInfo();
   const [params] = useSearchParams();
   const { ensureDownloadSetup } = useDownloadSetup();
   const [state, setState] = useState<ShareState>({ kind: "idle" });
   const started = useRef(false);
 
   useEffect(() => {
-    if (session.role === "requester") return;
     if (started.current) return;
     started.current = true;
 
@@ -90,15 +86,8 @@ export default function SharePage() {
     return () => {
       cancelled = true;
     };
-  }, [ensureDownloadSetup, params, session.role]);
+  }, [ensureDownloadSetup, params]);
 
-  if (session.role === "requester") {
-    return (
-      <div className="container-app max-w-xl py-8 sm:py-12 min-w-0" data-share-page>
-        <ShareUnavailable />
-      </div>
-    );
-  }
 
   return (
     <div className="container-app max-w-xl py-8 sm:py-12 space-y-6 min-w-0" data-share-page>

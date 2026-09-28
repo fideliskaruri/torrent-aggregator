@@ -1,5 +1,8 @@
-import type { TitleResult } from "@/components/search/group-titles";
-import { releaseStatus } from "@/lib/browse/release-status";
+/**
+ * Requests: the one module both roles share. Parsing, labels, and the calls
+ * that send or cancel a request live here; the pages only render.
+ */
+import { sessionAwareFetch } from "@/lib/session-expiry";
 
 /** One title from `GET /api/requester/titles`. No file paths, magnets or owner data. */
 export interface RequesterTitle {
@@ -52,20 +55,6 @@ export interface RequesterRequest {
   decidedAt: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-export type RequesterView = "search" | "requests" | "library";
-
-/**
- * The requester shell has three views. `/watchlist` is the owner's library
- * route, so a shared owner link lands on the requester's library; every other
- * path shows search.
- */
-export function requesterView(pathname: string): RequesterView {
-  const path = pathname.replace(/\/+$/, "").toLowerCase();
-  if (path === "/requests") return "requests";
-  if (path === "/library" || path === "/watchlist") return "library";
-  return "search";
 }
 
 /** One title from `GET /api/requester/library`: identity and art only. */
@@ -277,23 +266,6 @@ export function parseSeasons(json: unknown): number[] {
   return [...new Set(valid)].sort((a, b) => a - b);
 }
 
-/** Adapts a requester title to the shared search card (requesters get no title page link). */
-export function toTitleResult(title: RequesterTitle): TitleResult {
-  return {
-    key: title.key,
-    name: title.title,
-    year: title.year,
-    isSeries: title.isSeries,
-    mediaType: title.mediaType,
-    format: title.format,
-    posterUrl: title.posterUrl,
-    releaseDate: title.releaseDate,
-    status: releaseStatus(title.releaseDate),
-    href: null,
-    overview: title.overview,
-  };
-}
-
 export function statusLabel(status: RequestStatus): string {
   switch (status) {
     case "pending":
@@ -393,4 +365,80 @@ export function requestErrorMessage(code: string | null | undefined, fallback?: 
 export function canRequest(title: RequesterTitle): boolean {
   if (title.inLibrary || title.providerId == null) return false;
   return title.isSeries || title.requestStatus == null;
+}
+
+
+/** What the catalog says about one title for the person asking. */
+export interface RequestState {
+  inLibrary: boolean;
+  requestStatus: RequestStatus | null;
+  requestId: string | null;
+}
+
+/** Reads the requester fields the server adds to search and title payloads; absent fields mean "nothing known". */
+export function parseRequestState(json: unknown): RequestState {
+  const r = (json ?? {}) as Record<string, unknown>;
+  return { inLibrary: r.inLibrary === true, requestStatus: asStatus(r.requestStatus), requestId: str(r.requestId) };
+}
+
+export interface RequestView {
+  /** Status chip text, or null for none. */
+  label: string | null;
+  tone: StatusTone;
+  /** The button beside it, or null when there is nothing to ask for. */
+  action: "Request" | "Request again" | "Request more seasons" | null;
+}
+
+/** What sits where the owner's Download would: a status, a Request button, or both. */
+export function requestViewFor(state: RequestState, isSeries: boolean): RequestView {
+  if (state.inLibrary || state.requestStatus === "fulfilled") {
+    return { label: "Available", tone: "success", action: null };
+  }
+  switch (state.requestStatus) {
+    case "pending":
+      return { label: "Requested", tone: "accent", action: isSeries ? "Request more seasons" : null };
+    case "approved":
+      return { label: "Approved", tone: "accent", action: isSeries ? "Request more seasons" : null };
+    case "declined":
+      return { label: "Declined", tone: "danger", action: "Request again" };
+    case "failed":
+      return { label: statusLabel("failed"), tone: "danger", action: "Request again" };
+    default:
+      return { label: null, tone: "outline", action: "Request" };
+  }
+}
+
+/** A requester's own list: waiting first, then newest. */
+export function myRequestRows<T extends Pick<RequesterRequest, "status" | "createdAt">>(requests: readonly T[]): T[] {
+  return [...requests].sort(
+    (a, b) => Number(b.status === "pending") - Number(a.status === "pending") || b.createdAt.localeCompare(a.createdAt),
+  );
+}
+
+/** Cancels one of my pending requests. Resolves to an error message, or null when it worked. */
+export async function cancelRequest(id: string): Promise<string | null> {
+  try {
+    const res = await sessionAwareFetch(`/api/requester/requests/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+    if (res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { code?: string; error?: string } | null;
+    return requestErrorMessage(body?.code, body?.error);
+  } catch (err) {
+    return requestErrorMessage(null, (err as Error)?.message);
+  }
+}
+
+/** Sends one request. Resolves to an error message, or null when it worked. */
+export async function sendRequest(title: RequesterTitle, choice: RequestChoice): Promise<string | null> {
+  try {
+    const res = await sessionAwareFetch("/api/requester/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(createRequestBody(title, choice)),
+    });
+    if (res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { code?: string; error?: string } | null;
+    return requestErrorMessage(body?.code, body?.error);
+  } catch (err) {
+    return requestErrorMessage(null, (err as Error)?.message);
+  }
 }

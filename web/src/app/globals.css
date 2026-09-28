@@ -139,6 +139,14 @@ body {
   scroll-margin-top: calc(var(--header-h) + 0.75rem);
 }
 
+/* Phones: the bottom nav is fixed, so main reserves its full height, the
+   home-indicator inset and a little air, or the last row sits under the bar. */
+@media (max-width: 767.98px) {
+  .app-main {
+    padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 1rem);
+  }
+}
+
 .skip-link {
   position: fixed;
   left: max(0.75rem, env(safe-area-inset-left));

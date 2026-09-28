@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
+import path from "node:path";
 import { createServer } from "vite";
 
 const server = await createServer({
   configFile: false, root: process.cwd(),
+  resolve: { alias: { "@": path.resolve("src") } },
   server: { middlewareMode: true, watch: null, hmr: false, ws: false },
 });
 after(() => server.close());
@@ -66,7 +68,7 @@ test("Upcoming sits beside Downloads on desktop and inside mobile More", () => {
 
 test("mobile bottom bar is five slots: four tabs + More; Settings in More", () => {
   assert.deepEqual(
-    nav.MOBILE_PRIMARY_NAV.map((item) => [item.href, item.label]),
+    nav.navFor(nav.MOBILE_PRIMARY_NAV).map((item) => [item.href, item.label]),
     [
       ["/", "Browse"],
       ["/watchlist", "Library"],

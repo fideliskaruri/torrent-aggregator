@@ -3,10 +3,10 @@ import { after, test } from "node:test";
 import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { createServer } from "vite";
 
-// Every useApiQuery in the session and requester modules answers from this table.
+// Every useApiQuery in the session and request modules answers from this table.
 let responses = {};
 globalThis.__requesterQuery = (url, options = {}) => {
   const key = url == null || options.enabled === false ? null : Object.keys(responses).find((k) => url.startsWith(k));
@@ -32,7 +32,7 @@ const server = await createServer({
     enforce: "pre",
     transform(code, id) {
       const file = id.replaceAll("\\", "/");
-      if (!file.endsWith("/lib/session.tsx") && !file.includes("/components/requester/")) return;
+      if (!file.endsWith("/lib/session.tsx") && !file.includes("/components/requests/")) return;
       return code.replace(
         'import { useApiQuery } from "@/hooks/use-api-query";',
         "const useApiQuery = globalThis.__requesterQuery;",
@@ -47,10 +47,12 @@ after(async () => {
 });
 
 const { SessionProvider, parseMe } = await server.ssrLoadModule("/src/lib/session.tsx");
-const { ShellGate, isLoopbackHost } = await server.ssrLoadModule("/src/components/requester/shell-gate.tsx");
-const { RequestSearch } = await server.ssrLoadModule("/src/components/requester/request-search.tsx");
-const { MyRequests } = await server.ssrLoadModule("/src/components/requester/my-requests.tsx");
-const requests = await server.ssrLoadModule("/src/components/requester/requests.ts");
+const { ShellGate, isLoopbackHost } = await server.ssrLoadModule("/src/components/layout/shell-gate.tsx");
+const { CapabilityGuard } = await server.ssrLoadModule("/src/components/layout/capability-guard.tsx");
+const { RequestAction } = await server.ssrLoadModule("/src/components/requests/request-action.tsx");
+const caps = await server.ssrLoadModule("/src/lib/capabilities.ts");
+const nav = await server.ssrLoadModule("/src/lib/navigation.ts");
+const requests = await server.ssrLoadModule("/src/lib/requests.ts");
 
 function render(element, url = "/") {
   return renderToStaticMarkup(createElement(MemoryRouter, { initialEntries: [url] }, element));
@@ -60,10 +62,13 @@ function gate(me, url = "/") {
   responses = me === undefined ? {} : { "/api/me": me };
   return render(
     createElement(SessionProvider, null,
-      createElement(ShellGate, { owner: createElement("div", { "data-owner-shell": "" }, "OWNER") })),
+      createElement(ShellGate, null, createElement("div", { "data-app-shell": "" }, "APP"))),
     url,
   );
 }
+
+const requester = { via: "tunnel", email: "friend@example.com", role: "requester", pendingRequests: null };
+const owner = { via: "tunnel", email: "owner@example.com", role: "owner", pendingRequests: 2 };
 
 test("parseMe reads the role and keeps the pending count for the owner only", () => {
   assert.deepEqual(parseMe({ via: "tunnel", email: "f@x.com", role: "requester", pendingRequests: 4 }), {
@@ -74,34 +79,15 @@ test("parseMe reads the role and keeps the pending count for the owner only", ()
   assert.equal(parseMe({ role: "owner", pendingRequests: -1 }).pendingRequests, null);
 });
 
-test("a requester gets the trimmed shell and never the owner tree", () => {
-  const html = gate({ via: "tunnel", email: "friend@example.com", role: "requester", pendingRequests: null });
-  assert.match(html, /data-requester-shell/);
-  assert.doesNotMatch(html, /data-owner-shell/);
-  assert.match(html, /data-requester-nav-item="search"/);
-  assert.match(html, /data-requester-nav-item="requests"/);
-  for (const owner of ["/downloads", "/settings", "/watchlist", "/activity", "/history", "/rules", "/client"]) {
-    assert.doesNotMatch(html, new RegExp(`href="${owner}"`), `requester shell links to ${owner}`);
-  }
-});
-
-test("owner routes show requester views for a requester", () => {
-  const me = { via: "tunnel", email: "friend@example.com", role: "requester" };
-  assert.match(gate(me, "/settings"), /data-requester-search/);
-  assert.match(gate(me, "/downloads"), /data-requester-search/);
-  assert.match(gate(me, "/requests"), /data-requester-requests/);
-});
-
-test("the owner keeps the full shell; remote pages wait for /api/me", () => {
-  assert.match(gate({ via: "tunnel", email: "owner@example.com", role: "owner", pendingRequests: 2 }), /data-owner-shell/);
-  // No answer yet on a non-loopback host (SSR has no window): nothing owner-side mounts.
+test("one shell for everyone; remote pages wait for /api/me before mounting it", () => {
+  assert.match(gate(requester), /data-app-shell/);
+  assert.match(gate(owner), /data-app-shell/);
   const pending = gate(undefined);
   assert.match(pending, /data-shell-pending/);
-  assert.doesNotMatch(pending, /data-owner-shell/);
-  // A failed /api/me on a remote host offers a retry instead of guessing the owner shell.
+  assert.doesNotMatch(pending, /data-app-shell/);
   const failed = gate(new Error("offline"));
   assert.match(failed, /data-shell-failed/);
-  assert.doesNotMatch(failed, /data-owner-shell/);
+  assert.doesNotMatch(failed, /data-app-shell/);
 });
 
 test("loopback detection", () => {
@@ -109,6 +95,102 @@ test("loopback detection", () => {
   for (const host of ["tf.example.com", "192.168.1.5", "127.0.0.1.example.com"]) assert.equal(isLoopbackHost(host), false, host);
 });
 
+test("capability matrix: the owner does everything but request; a requester only requests", () => {
+  const o = caps.capabilitiesFor("owner");
+  const r = caps.capabilitiesFor("requester");
+  for (const key of ["canDownload", "canManage", "canStream", "canSeePaths", "canSeeTransfers", "canReviewRequests", "canSeeUpcoming"]) {
+    assert.equal(o[key], true, `owner ${key}`);
+    assert.equal(r[key], false, `requester ${key}`);
+  }
+  assert.equal(o.canRequest, false);
+  assert.equal(r.canRequest, true);
+});
+
+test("preview: only a real owner can render as a requester", () => {
+  assert.equal(caps.effectiveRole("owner", "requester"), "requester");
+  assert.equal(caps.effectiveRole("owner", null), "owner");
+  assert.equal(caps.effectiveRole("owner", "admin"), "owner");
+  assert.equal(caps.effectiveRole("requester", "owner"), "requester");
+  assert.equal(caps.effectiveRole("requester", null), "requester");
+  assert.equal(caps.PREVIEW_ROLE_KEY, "tf_preview_role");
+});
+
+test("navigation is filtered by capability", () => {
+  const r = caps.capabilitiesFor("requester");
+  const o = caps.capabilitiesFor("owner");
+  const hrefs = (items) => items.map((item) => item.href);
+  assert.deepEqual(hrefs(nav.desktopNavRow(r).items), ["/", "/watchlist", "/notifications", "/requests"]);
+  assert.deepEqual(hrefs(nav.desktopNavRow(o).items), ["/", "/watchlist", "/downloads", "/upcoming", "/notifications", "/settings", "/requests"]);
+  assert.deepEqual(nav.navFor(nav.MOBILE_PRIMARY_NAV, r).map((i) => [i.href, i.label]), [
+    ["/", "Browse"], ["/watchlist", "Library"], ["/requests", "Requests"], ["/notifications", "Alerts"],
+  ]);
+  assert.deepEqual(nav.navFor(nav.MOBILE_MORE_NAV, r), []);
+  assert.deepEqual(hrefs(nav.navFor(nav.MOBILE_MORE_NAV, o)), ["/upcoming", "/requests", "/settings"]);
+});
+
+test("owner-only routes need a capability; shared routes need none", () => {
+  for (const route of ["/downloads", "/client", "/settings", "/rules", "/upcoming", "/history", "/activity", "/share", "/Settings/"]) {
+    assert.notEqual(nav.routeRequirement(route), null, route);
+  }
+  for (const route of ["/", "/search", "/title/tmdb-movie-1", "/watchlist", "/requests", "/notifications", "/about"]) {
+    assert.equal(nav.routeRequirement(route), null, route);
+  }
+});
+
+function guarded(me, url) {
+  responses = { "/api/me": me };
+  return render(
+    createElement(SessionProvider, null,
+      createElement(Routes, null,
+        createElement(Route, { element: createElement(CapabilityGuard) },
+          createElement(Route, { path: "*", element: createElement("div", { "data-page": "" }, "PAGE") })))),
+    url,
+  );
+}
+
+test("a requester opening an owner page gets Not available, not the page", () => {
+  for (const url of ["/downloads", "/settings", "/rules", "/upcoming", "/share"]) {
+    const html = guarded(requester, url);
+    assert.match(html, /data-not-available/, url);
+    assert.match(html, /Go to Browse/);
+    assert.doesNotMatch(html, /data-page/);
+  }
+  assert.match(guarded(requester, "/title/x"), /data-page/);
+  assert.match(guarded(owner, "/settings"), /data-page/);
+});
+
+test("the Request control says where the request stands", () => {
+  const title = { key: "sev", title: "Severance", year: 2022, mediaType: "tv", isSeries: true, format: null, category: "",
+    provider: "tmdb", providerId: "95396", posterUrl: null, overview: null, releaseDate: null, inLibrary: false, requestStatus: null, requestId: null };
+  const movie = { ...title, key: "arr", title: "Arrival", mediaType: "movie", isSeries: false };
+  const html = (t, state) => render(createElement(RequestAction, { title: t, state }));
+  const none = { inLibrary: false, requestStatus: null, requestId: null };
+  assert.match(html(movie, none), /data-request-button="arr"/);
+  assert.match(html(movie, none), />Request</);
+  const pending = html(movie, { ...none, requestStatus: "pending" });
+  assert.match(pending, /Requested/);
+  assert.doesNotMatch(pending, /data-request-button/);
+  assert.match(html(title, { ...none, requestStatus: "pending" }), /Request more seasons/);
+  assert.match(html(movie, { ...none, requestStatus: "declined" }), /Declined[\s\S]*Request again/);
+  const inLibrary = html(movie, { ...none, inLibrary: true });
+  assert.match(inLibrary, /Available/);
+  assert.doesNotMatch(inLibrary, /data-request-button/);
+  assert.match(html(null, none), /disabled/);
+});
+
+test("request state parsing and my-requests order", () => {
+  assert.deepEqual(requests.parseRequestState({ inLibrary: true, requestStatus: "bogus", requestId: 3 }), {
+    inLibrary: true, requestStatus: null, requestId: null,
+  });
+  assert.deepEqual(requests.parseRequestState(undefined), { inLibrary: false, requestStatus: null, requestId: null });
+  assert.equal(requests.requestViewFor({ inLibrary: false, requestStatus: "fulfilled", requestId: "x" }, false).label, "Available");
+  const rows = [
+    { id: "a", status: "declined", createdAt: "2026-01-05" },
+    { id: "b", status: "pending", createdAt: "2026-01-01" },
+    { id: "c", status: "approved", createdAt: "2026-01-06" },
+  ];
+  assert.deepEqual(requests.myRequestRows(rows).map((r) => r.id), ["b", "c", "a"]);
+});
 const titles = {
   results: [
     { key: "dune-2021", title: "Dune", year: 2021, mediaType: "movie", isSeries: false, format: null, category: "movies",
@@ -124,53 +206,8 @@ const titles = {
   partial: false,
 };
 
-test("title search shows library and request state with Request buttons, no title links", () => {
-  responses = { "/api/requester/titles": titles };
-  const html = render(createElement(RequestSearch), "/?q=dune");
-  assert.match(html, /data-requester-in-library/);
-  assert.match(html, /data-requester-requested="pending"/);
-  assert.match(html, /data-requester-request="severance"/);
-  assert.doesNotMatch(html, /data-requester-request="dune-2021"/);
-  assert.doesNotMatch(html, /data-requester-request="arrival-2016"/);
-  assert.doesNotMatch(html, /href="\/title\//);
-  assert.doesNotMatch(html, /magnet:|dune\.mkv/);
-});
-
-test("title search has explicit empty, error and idle states", () => {
-  responses = {};
-  assert.match(render(createElement(RequestSearch), "/"), /Search for a title/);
-  responses = { "/api/requester/titles": { results: [], partial: false } };
-  assert.match(render(createElement(RequestSearch), "/?q=zzz"), /Nothing found/);
-  responses = { "/api/requester/titles": new Error("Title search failed.") };
-  assert.match(render(createElement(RequestSearch), "/?q=zzz"), /Search didn&#x27;t work/);
-});
-
-test("my requests: status labels, scope and cancel only while pending", () => {
-  responses = {
-    "/api/requester/requests": {
-      requests: [
-        { id: "a", title: "Arrival", year: 2016, mediaType: "movie", provider: "tmdb", providerId: "1", posterUrl: null,
-          scope: "movie", seasons: [], note: null, status: "pending", decisionReason: null, decidedAt: null,
-          createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
-        { id: "b", title: "Severance", year: 2022, mediaType: "tv", provider: "tmdb", providerId: "2", posterUrl: null,
-          scope: "seasons", seasons: [1, 2, 3, 5], note: "thanks", status: "declined", decisionReason: "Not available",
-          decidedAt: null, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
-      ],
-    },
-  };
-  const html = render(createElement(MyRequests), "/requests");
-  assert.match(html, /data-requester-cancel="a"/);
-  assert.doesNotMatch(html, /data-requester-cancel="b"/);
-  assert.match(html, /Waiting for approval/);
-  assert.match(html, /Seasons 1–3, 5/);
-  assert.match(html, /Not available/);
-  responses = { "/api/requester/requests": { requests: [] } };
-  assert.match(render(createElement(MyRequests), "/requests"), /No requests yet/);
-});
 
 test("pure request helpers", () => {
-  assert.equal(requests.requesterView("/requests/"), "requests");
-  assert.equal(requests.requesterView("/settings"), "search");
   assert.equal(requests.formatSeasons([2]), "Season 2");
   assert.equal(requests.formatSeasons([3, 1, 2, 7]), "Seasons 1–3, 7");
 
@@ -194,8 +231,8 @@ test("pure request helpers", () => {
   assert.deepEqual(requests.createRequestBody(arrival, { scope: "seasons", seasons: [1], note: "hi" }).seasons, []);
   assert.deepEqual(requests.parseSeasons({ seasons: [3, 1, 0, 1, 2.5, 501, "4"] }), [1, 3]);
   assert.equal(requests.requestErrorMessage("duplicate"), "You've already asked for this.");
+  assert.deepEqual(requests.parseLibrary({ titles: [{ key: "k" }, { key: "k2", title: "T" }] }).map((t) => t.key), ["k2"]);
 });
-
 test("pending badge: nothing at zero or unknown, capped at 99+", () => {
   assert.equal(requests.pendingBadge(null), null);
   assert.equal(requests.pendingBadge(undefined), null);
@@ -243,20 +280,4 @@ test("auto-approve: parse rules, drop none, merge known emails, labels", () => {
   assert.equal(requests.autoApproveModeLabel("none"), "Off");
   assert.equal(requests.autoApproveModeLabel("moviesOnly"), "Movies only");
   assert.equal(requests.autoApproveModeLabel("everything"), "Everything");
-});
-
-test("requester library: /library and /watchlist show it read-only, unknown routes fall back to search", () => {
-  const me = { via: "tunnel", email: "friend@example.com", role: "requester" };
-  responses = { "/api/me": me, "/api/requester/library": { titles: [{ key: "dune-2021", title: "Dune", year: 2021, mediaType: "movie", posterUrl: null, filePath: "C:\\x" }] } };
-  const render2 = (url) => render(
-    createElement(SessionProvider, null, createElement(ShellGate, { owner: createElement("div", null, "OWNER") })), url);
-  for (const url of ["/library", "/watchlist"]) {
-    const html = render2(url);
-    assert.match(html, /data-requester-library-item="dune-2021"/);
-    assert.match(html, /data-requester-nav-item="library"/);
-    assert.doesNotMatch(html, /C:\\|filePath|<video|Play|Open folder/i);
-  }
-  assert.match(render2("/no/such/page"), /data-requester-search/);
-  assert.equal(requests.requesterView("/Library/"), "library");
-  assert.deepEqual(requests.parseLibrary({ titles: [{ key: "k" }, { key: "k2", title: "T" }] }).map((t) => t.key), ["k2"]);
 });

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Inbox, Loader2, Plus, X } from "lucide-react";
+import { Ban, Check, Inbox, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,36 +18,56 @@ import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useSessionInfo } from "@/lib/session";
+import { useCapabilities } from "@/lib/capabilities";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import {
   autoApproveModeLabel,
   autoApproveRows,
   inboxRows,
   parseAutoApprove,
+  cancelRequest,
+  myRequestRows,
   parseOwnerRequests,
+  parseRequests,
   scopeLabel,
   statusLabel,
   statusTone,
   type AutoApproveMode,
   type AutoApproveRule,
   type OwnerRequest,
-} from "@/components/requester/requests";
+} from "@/lib/requests";
 
 const REASON_MAX = 500;
 const AUTO_MODES: AutoApproveMode[] = ["none", "moviesOnly", "everything"];
 
-/** The owner's request inbox: pending requests to approve or decline, and what was decided. */
+/**
+ * One page for everyone. The owner sees the inbox of every request, with
+ * approve, decline and auto-approve; a requester sees their own requests, with
+ * Cancel while one is still waiting.
+ */
 export default function RequestsPage() {
   const session = useSessionInfo();
-  const list = useApiQuery("/api/requests", { select: parseOwnerRequests, refreshMs: 30_000 });
-  const auto = useApiQuery("/api/requests/auto-approve", { select: parseAutoApprove, refreshMs: 60_000 });
+  const caps = useCapabilities();
+  const reviewing = caps.canReviewRequests;
+  // Only a real requester may call /api/requester/*; the owner's preview maps the owner's list instead.
+  const ownerList = useApiQuery(caps.ownerSession ? "/api/requests" : null, {
+    select: parseOwnerRequests,
+    refreshMs: 30_000,
+  });
+  const mineList = useApiQuery(caps.ownerSession ? null : "/api/requester/requests", {
+    select: (json: unknown) => ({ requests: parseRequests(json).map((r): OwnerRequest => ({ ...r, requestedBy: "" })) }),
+    refreshMs: 30_000,
+    emptyOnUnauthorized: false,
+  });
+  const list = caps.ownerSession ? ownerList : mineList;
+  const auto = useApiQuery(reviewing ? "/api/requests/auto-approve" : null, { select: parseAutoApprove, refreshMs: 60_000 });
   const [busyId, setBusyId] = useState<string | null>(null);
   const [declining, setDeclining] = useState<OwnerRequest | null>(null);
   const [reason, setReason] = useState("");
   const [autoBusy, setAutoBusy] = useState(false);
   const [draftEmail, setDraftEmail] = useState("");
   const [extraEmails, setExtraEmails] = useState<string[]>([]);
-  const rows = inboxRows(list.data?.requests ?? []);
+  const rows = reviewing ? inboxRows(list.data?.requests ?? []) : myRequestRows(list.data?.requests ?? []);
   const autoRows = useMemo(
     () => autoApproveRows(auto.data ?? { rules: [], knownEmails: [] }, extraEmails),
     [auto.data, extraEmails],
@@ -73,6 +93,19 @@ export default function RequestsPage() {
       list.refetch();
       session.retry();
     }
+  }
+
+  async function cancel(request: OwnerRequest) {
+    if (caps.previewing) {
+      toast.error("Requests aren't cancelled while previewing.", { description: "Exit preview to go back to your own view." });
+      return;
+    }
+    setBusyId(request.id);
+    const error = await cancelRequest(request.id);
+    if (error) toast.error(error);
+    else toast.success(`Cancelled ${request.title}`);
+    setBusyId(null);
+    list.refetch();
   }
 
   async function saveAutoRules(next: AutoApproveRule[]) {
@@ -116,14 +149,17 @@ export default function RequestsPage() {
   }
 
   return (
-    <div className="container-app max-w-4xl space-y-6 py-6" data-owner-requests>
+    <div className="container-app max-w-4xl space-y-6 py-6" data-requests-page={reviewing ? "inbox" : "mine"} {...(reviewing ? { "data-owner-requests": "" } : {})}>
       <div className="space-y-2">
         <h1 className="text-xl font-semibold tracking-tight text-[var(--text)]">Requests</h1>
         <p className="max-w-prose text-sm leading-relaxed text-[var(--text-secondary)]">
-          What friends asked for. Approving starts the download.
+          {reviewing
+            ? "What friends asked for. Approving starts the download."
+            : "What you asked for. The owner decides, and you can cancel while it's waiting."}
         </p>
       </div>
 
+      {reviewing ? (
       <section className="surface space-y-3 p-3 sm:p-4" data-auto-approve>
         <div className="space-y-0.5">
           <h2 className="text-sm font-semibold text-[var(--text)]">Auto-approve</h2>
@@ -206,6 +242,7 @@ export default function RequestsPage() {
           </Button>
         </div>
       </section>
+      ) : null}
 
       {list.loading ? (
         <ul className="space-y-2" aria-busy="true" aria-label="Loading requests">
@@ -222,7 +259,17 @@ export default function RequestsPage() {
       ) : list.error && rows.length === 0 ? (
         <TfErrorState title="Couldn't load requests" message={list.error} onRetry={list.refetch} retrying={list.refreshing} />
       ) : rows.length === 0 ? (
-        <TfEmptyState icon={Inbox} title="No requests" description="When a friend asks for a title it shows up here." />
+        reviewing ? (
+          <TfEmptyState icon={Inbox} title="No requests" description="When a friend asks for a title it shows up here." />
+        ) : (
+          <TfEmptyState
+            icon={Inbox}
+            title="No requests yet"
+            description="Browse or search for something, then press Request."
+            actionLabel="Go to Browse"
+            actionHref="/"
+          />
+        )
       ) : (
         <ul className="space-y-2" data-owner-request-list>
           {rows.map((request) => {
@@ -242,19 +289,36 @@ export default function RequestsPage() {
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge variant={statusTone(request.status)} data-owner-request-status={request.status}>
-                        {request.status === "pending" ? "Waiting for you" : statusLabel(request.status)}
+                        {request.status === "pending" && reviewing ? "Waiting for you" : statusLabel(request.status)}
                       </Badge>
                       <span className="text-xs text-[var(--text-tertiary)]">{scopeLabel(request)}</span>
                     </div>
-                    <p className="truncate text-xs text-[var(--text-tertiary)]" title={request.requestedBy}>
-                      From {request.requestedBy || "someone"}
-                    </p>
+                    {reviewing ? (
+                      <p className="truncate text-xs text-[var(--text-tertiary)]" title={request.requestedBy}>
+                        From {request.requestedBy || "someone"}
+                      </p>
+                    ) : null}
                     {request.note ? <p className="line-clamp-3 text-xs text-[var(--text-secondary)]">“{request.note}”</p> : null}
                     {request.decisionReason ? (
                       <p className="text-xs text-[var(--text-secondary)]">Reason: {request.decisionReason}</p>
                     ) : null}
                   </div>
-                  {request.status === "pending" ? (
+                  {request.status === "pending" && !reviewing ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="shrink-0 self-start"
+                      disabled={busy}
+                      onClick={() => void cancel(request)}
+                      aria-label={`Cancel request for ${request.title}`}
+                      data-request-cancel={request.id}
+                    >
+                      {busy ? <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Ban aria-hidden="true" />}
+                      Cancel request
+                    </Button>
+                  ) : null}
+                  {request.status === "pending" && reviewing ? (
                     <div className="flex shrink-0 gap-2">
                       <Button
                         type="button"

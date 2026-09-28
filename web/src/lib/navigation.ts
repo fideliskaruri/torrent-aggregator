@@ -37,9 +37,13 @@
  * relying on it. It is simply no longer advertised.
  */
 
+import { capabilitiesFor, type Capabilities, type Capability } from "@/lib/capabilities";
+
 export type NavItem = {
   href: string;
   label: string;
+  /** Shown only to people with this capability; absent = everyone. */
+  requires?: Capability;
   /**
    * Other routes this entry represents. `/history` is reached from
    * Notifications, and the old `/activity` and `/client` paths still resolve
@@ -81,9 +85,9 @@ export const NOTIFICATIONS_HREF = "/notifications";
 export const PRIMARY_NAV: readonly NavItem[] = [
   { href: "/", label: "Browse" },
   { href: "/watchlist", label: "Library" },
-  { href: DOWNLOADS_HREF, label: "Downloads", owns: ["/client"] },
+  { href: DOWNLOADS_HREF, label: "Downloads", owns: ["/client"], requires: "canDownload" },
   { href: NOTIFICATIONS_HREF, label: "Notifications", owns: ["/activity", "/history"] },
-  { href: "/settings", label: "Settings", owns: ["/about"] },
+  { href: "/settings", label: "Settings", owns: ["/about"], requires: "canManage" },
 ] as const;
 
 /**
@@ -96,7 +100,9 @@ export const PRIMARY_NAV: readonly NavItem[] = [
 export const MOBILE_PRIMARY_NAV: readonly NavItem[] = [
   { href: "/", label: "Browse" },
   { href: "/watchlist", label: "Library" },
-  { href: DOWNLOADS_HREF, label: "Downloads", owns: ["/client"] },
+  { href: DOWNLOADS_HREF, label: "Downloads", owns: ["/client"], requires: "canDownload" },
+  // Requesters have no Downloads tab; their own requests take the slot.
+  { href: "/requests", label: "Requests", requires: "canRequest" },
   { href: NOTIFICATIONS_HREF, label: "Alerts", owns: ["/activity", "/history"] },
 ] as const;
 
@@ -112,7 +118,7 @@ export const SETTINGS_HREF = "/settings";
  * keeps Settings in the primary row.
  */
 export const SECONDARY_NAV: readonly NavItem[] = [
-  { href: UPCOMING_HREF, label: "Upcoming" },
+  { href: UPCOMING_HREF, label: "Upcoming", requires: "canSeeUpcoming" },
   { href: REQUESTS_HREF, label: "Requests" },
 ] as const;
 
@@ -121,15 +127,18 @@ export const SECONDARY_NAV: readonly NavItem[] = [
  * reached from Settings; More lights for `/about` via {@link MORE_ACTIVE_PREFIXES}).
  */
 export const MOBILE_MORE_NAV: readonly NavItem[] = [
-  ...SECONDARY_NAV,
-  { href: SETTINGS_HREF, label: "Settings", owns: ["/about"] },
+  ...SECONDARY_NAV.map((item): NavItem =>
+    // On mobile a requester's Requests is a bottom tab, so More keeps only the owner's inbox.
+    item.href === REQUESTS_HREF ? { ...item, requires: "canReviewRequests" } : item,
+  ),
+  { href: SETTINGS_HREF, label: "Settings", owns: ["/about"], requires: "canManage" },
 ] as const;
 
 /** Desktop header: the primary path. */
 export const DESKTOP_NAV: readonly NavItem[] = [
   ...PRIMARY_NAV.flatMap((item) =>
     item.href === DOWNLOADS_HREF
-      ? [item, { href: UPCOMING_HREF, label: "Upcoming" }]
+      ? [item, { href: UPCOMING_HREF, label: "Upcoming", requires: "canSeeUpcoming" as const }]
       : [item],
   ),
   ...SECONDARY_NAV.filter((item) => item.href !== UPCOMING_HREF),
@@ -143,11 +152,11 @@ export const DESKTOP_NAV: readonly NavItem[] = [
  * computed rather than hardcoded — a constant here was previously corrected by
  * hand in the header every time the model changed.
  */
-export function desktopNavRow(): {
+export function desktopNavRow(caps?: Capabilities): {
   items: readonly NavItem[];
   dividerIndex: number;
 } {
-  const items = DESKTOP_NAV.filter((item) => item.href !== HEADER_SEARCH_HREF);
+  const items = navFor(DESKTOP_NAV, caps).filter((item) => item.href !== HEADER_SEARCH_HREF);
   const primaryHrefs = new Set(
     PRIMARY_NAV.filter((item) => item.href !== HEADER_SEARCH_HREF).map(
       (item) => item.href,
@@ -156,6 +165,34 @@ export function desktopNavRow(): {
   primaryHrefs.add(UPCOMING_HREF);
   const dividerIndex = items.findIndex((item) => !primaryHrefs.has(item.href));
   return { items, dividerIndex: dividerIndex === -1 ? items.length : dividerIndex };
+}
+
+/**
+ * The entries of `items` this person may see (the owner's view by default).
+ */
+export function navFor(items: readonly NavItem[], caps: Capabilities = capabilitiesFor("owner")): NavItem[] {
+  return items.filter((item) => !item.requires || caps[item.requires]);
+}
+
+/**
+ * The capability a route needs, or null when everyone may open it. The router
+ * wraps every page in one guard that reads this, so no page checks roles itself.
+ */
+const ROUTE_REQUIREMENTS: readonly (readonly [string, Capability])[] = [
+  [DOWNLOADS_HREF, "canDownload"],
+  ["/client", "canDownload"],
+  ["/share", "canDownload"],
+  ["/settings", "canManage"],
+  ["/rules", "canManage"],
+  [UPCOMING_HREF, "canSeeUpcoming"],
+  ["/history", "canSeeTransfers"],
+  ["/activity", "canSeeTransfers"],
+];
+
+export function routeRequirement(pathname: string): Capability | null {
+  const path = pathname.toLowerCase();
+  for (const [href, cap] of ROUTE_REQUIREMENTS) if (navActive(path, href)) return cap;
+  return null;
 }
 
 /** Routes that light the mobile More tab when the sheet is closed. */

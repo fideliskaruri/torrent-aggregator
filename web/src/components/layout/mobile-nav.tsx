@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Circle,
   Clapperboard,
+  Eye,
   HardDriveDownload,
   Inbox,
   Info,
@@ -22,14 +23,16 @@ import {
   EVERYTHING_HREF,
   MOBILE_MORE_NAV,
   MOBILE_PRIMARY_NAV,
-  MORE_ACTIVE_PREFIXES,
   NOTIFICATIONS_HREF,
   REQUESTS_HREF,
   SEARCH_HREF,
   navActiveHref,
+  navFor,
+  type NavItem,
 } from "@/lib/navigation";
-import { pendingBadge } from "@/components/requester/requests";
+import { pendingBadge } from "@/lib/requests";
 import { useSessionInfo } from "@/lib/session";
+import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
 
 /** Icons live here because they are presentation, not part of the nav model. */
 const NAV_ICONS: Record<string, typeof Search> = {
@@ -53,24 +56,24 @@ const NAV_ICONS: Record<string, typeof Search> = {
  */
 const NAV_ICON_FALLBACK = Circle;
 
-const PRIMARY_TABS = MOBILE_PRIMARY_NAV.map((item) => ({
-  ...item,
-  icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK,
-}));
-
-const MORE_ITEMS = MOBILE_MORE_NAV.map((item) => ({
-  ...item,
-  icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK,
-}));
+const withIcons = (items: readonly NavItem[]) =>
+  items.map((item) => ({ ...item, icon: NAV_ICONS[item.href] ?? NAV_ICON_FALLBACK }));
 
 export function MobileNav() {
   const pathname = useLocation().pathname;
   const { badge } = useUnreadNotifications();
-  const requestsBadge = pendingBadge(useSessionInfo().pendingRequests);
+  const caps = useCapabilities();
+  const pending = useSessionInfo().pendingRequests;
+  const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
+  const PRIMARY_TABS = withIcons(navFor(MOBILE_PRIMARY_NAV, caps));
+  const MORE_ITEMS = withIcons(navFor(MOBILE_MORE_NAV, caps));
+  // The owner's preview switch lives in More, so More shows whenever it has either.
+  const showPreviewToggle = caps.canPreview;
+  const showMore = MORE_ITEMS.length > 0 || showPreviewToggle;
   const [moreOpen, setMoreOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const activePrimaryHref = navActiveHref(MOBILE_PRIMARY_NAV, pathname);
-  const activeMoreHref = navActiveHref(MOBILE_MORE_NAV, pathname);
+  const activePrimaryHref = navActiveHref(PRIMARY_TABS, pathname);
+  const activeMoreHref = navActiveHref(MORE_ITEMS, pathname);
 
   useEffect(() => {
     // The current route is external navigation state; closing the sheet on route changes belongs in an effect.
@@ -148,9 +151,10 @@ export function MobileNav() {
     };
   }, [moreOpen]);
 
-  const moreRouteActive = MORE_ACTIVE_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  );
+  const moreRouteActive =
+    activeMoreHref !== null ||
+    (MORE_ITEMS.some((item) => item.href === "/settings") &&
+      (pathname === "/about" || pathname.startsWith("/about/")));
   const moreTabActive = moreRouteActive || moreOpen;
 
   return (
@@ -237,6 +241,23 @@ export function MobileNav() {
               </ul>
             </nav>
 
+            {showPreviewToggle ? (
+              <div className="border-t border-[var(--border)] px-2 pt-1 pb-2">
+                <button
+                  type="button"
+                  data-preview-toggle
+                  onClick={() => {
+                    setPreviewAsRequester(true);
+                    setMoreOpen(false);
+                  }}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-[13px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]"
+                >
+                  <Eye className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" strokeWidth={1.75} aria-hidden />
+                  View as requester
+                </button>
+              </div>
+            ) : null}
+
           </div>
         </div>
       ) : null}
@@ -256,7 +277,7 @@ export function MobileNav() {
           className="grid h-[var(--mobile-nav-h)]"
           style={{
             gridTemplateColumns: `repeat(${
-              PRIMARY_TABS.length + (MORE_ITEMS.length > 0 ? 1 : 0)
+              PRIMARY_TABS.length + (showMore ? 1 : 0)
             }, minmax(0, 1fr))`,
           }}
         >
@@ -269,7 +290,7 @@ export function MobileNav() {
                 aria-label={label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] leading-tight font-medium transition-colors",
+                  "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[12px] leading-tight font-medium transition-colors",
                   // The bar is fixed to the bottom edge and the tabs run
                   // edge-to-edge, so an outer ring is clipped by the viewport on
                   // every side. An inset ring is always fully visible.
@@ -299,7 +320,7 @@ export function MobileNav() {
             );
           })}
 
-          {MORE_ITEMS.length > 0 ? (
+          {showMore ? (
             <button
               type="button"
               data-mobile-more
@@ -308,7 +329,7 @@ export function MobileNav() {
               aria-expanded={moreOpen}
               onClick={() => setMoreOpen((o) => !o)}
               className={cn(
-                "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] leading-tight font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
+                "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[12px] leading-tight font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)]",
                 moreTabActive
                   ? "text-[var(--accent-text)]"
                   : "text-[var(--text-tertiary)]",

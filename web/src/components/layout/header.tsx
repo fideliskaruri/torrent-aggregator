@@ -1,13 +1,13 @@
 import { Link, useLocation } from "react-router";
-import { Search } from "lucide-react";
+import { Eye, Search } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-feed";
 import { cn } from "@/lib/utils";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { openSearchOverlay } from "@/components/search/search-overlay";
-import { pendingBadge } from "@/components/requester/requests";
+import { pendingBadge } from "@/lib/requests";
 import { useSessionInfo } from "@/lib/session";
+import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
 import {
-  DESKTOP_NAV,
   HEADER_SEARCH_HREF,
   titleForRoute,
   NOTIFICATIONS_HREF,
@@ -22,10 +22,12 @@ export function Header() {
   const pathname = useLocation().pathname;
   // Synchronous with the route — never derived from a previous page's owns map.
   const pageTitle = titleForRoute(pathname);
-  const activeDesktopHref = navActiveHref(DESKTOP_NAV, pathname);
-  const { items: navRow, dividerIndex } = desktopNavRow();
+  const caps = useCapabilities();
+  const { items: navRow, dividerIndex } = desktopNavRow(caps);
+  const activeDesktopHref = navActiveHref(navRow, pathname);
   const { badge } = useUnreadNotifications();
-  const requestsBadge = pendingBadge(useSessionInfo().pendingRequests);
+  const pending = useSessionInfo().pendingRequests;
+  const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
   const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
 
   // A plain click opens the palette and gives it the durable `/search` URL;
@@ -182,6 +184,23 @@ export function Header() {
           >
             <Search className="h-4 w-4" aria-hidden />
           </Link>
+          {caps.canPreview ? (
+            <button
+              type="button"
+              onClick={() => setPreviewAsRequester(true)}
+              data-preview-toggle
+              title="See the app the way people you share it with do"
+              className={cn(
+                "hidden md:inline-flex h-11 lg:h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-[var(--text-tertiary)] transition-colors",
+                "hover:bg-[var(--bg-muted)] hover:text-[var(--text-secondary)]",
+                "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
+              )}
+            >
+              <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="hidden lg:inline">View as requester</span>
+              <span className="sr-only lg:hidden">View as requester</span>
+            </button>
+          ) : null}
           {/* The list-density toggle used to sit here.
               It answered an implementation question — how tightly should rows
               pack — rather than a user question, and it was a permanent control

@@ -8,6 +8,7 @@ import {
 } from "react-router";
 import RootLayout from "@/app/layout";
 import { NotFoundPage } from "@/app/not-found";
+import { CapabilityGuard } from "@/components/layout/capability-guard";
 
 /** Each `src/app/.../page.tsx` becomes a lazily loaded route, like Next.js page chunks. */
 function page(load: () => Promise<{ default: ComponentType }>): Pick<RouteObject, "lazy"> {
@@ -31,6 +32,8 @@ const routes: RouteObject[] = [
     children: [
       {
         errorElement: <RouteBoundary />,
+        // One guard for every page: routes someone can't use show "Not available" instead of mounting.
+        Component: CapabilityGuard,
         children: [
           { index: true, ...page(() => import("@/app/page")) },
           { path: "search", ...page(() => import("@/app/search/page")) },
@@ -45,7 +48,7 @@ const routes: RouteObject[] = [
           { path: "notifications", ...page(() => import("@/app/notifications/page")) },
           { path: "client", ...page(() => import("@/app/client/page")) },
           { path: "rules", ...page(() => import("@/app/rules/page")) },
-    { path: "requests", ...page(() => import("@/app/requests/page")) },
+          { path: "requests", ...page(() => import("@/app/requests/page")) },
           { path: "settings", ...page(() => import("@/app/settings/page")) },
           { path: "about", ...page(() => import("@/app/about/page")) },
           { path: "share", ...page(() => import("@/app/share/page")) },
