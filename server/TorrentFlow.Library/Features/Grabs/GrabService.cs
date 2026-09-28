@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Search;
@@ -40,7 +41,7 @@ public sealed class RungDiagnostic
 }
 
 public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
-    IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime)
+    IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime, ILogger<GrabService>? logger = null)
 {
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
     {
@@ -111,7 +112,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 memo[rung.SearchKey] = raw;
             }
             searchFailed |= raw.Sources.Any(s => s.Error != null);
-            var work = raw.Results.Where(x => EpisodeLadder.ReleaseMatchesWork(x, accepted)).ToList();
+            var work = raw.Results.Where(x => EpisodeLadder.ReleaseMatchesWork(x, accepted, PremiereYear(input))).ToList();
             var quality = floor == null ? work : work.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor)).ToList();
             if (input.QueueLane == TorrentLane.Request && floor != null)
                 quality = PreferRequestedQuality(quality, floor.Value).ToList();
@@ -121,7 +122,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 var key = EpisodeLadder.CandidateKey(row.Result);
                 var decision = attempted.Contains(key) && decisions.TryGetValue(key, out var previous)
                     ? previous : EpisodeRejections.Explain(row.Result, accepted, cursor, input.EpisodeMapping, floor, rung.Relaxed,
-                        row.Reason.Length > 0 ? row.Reason : null);
+                        row.Reason.Length > 0 ? row.Reason : null, PremiereYear(input));
                 rungCandidates[key] = decisions[key] = decision;
             }
             var diagnostic = new RungDiagnostic { Kind = rung.Kind, Query = rung.Query, Category = rung.Category, MinSeeders = rung.Filters.MinSeeders,
@@ -129,6 +130,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 EpisodeEligible = quality.Count(r => EpisodeLadder.MatchesTargetEpisode(r, cursor, input.EpisodeMapping)),
                 Sources = raw.Sources, Candidates = rungCandidates.Values.ToArray() };
             diagnostics.Add(diagnostic);
+            if (logger?.IsEnabled(LogLevel.Debug) == true)
+                logger.LogDebug("Episode search rung: {Diagnostic}", JsonSerializer.Serialize(diagnostic));
             while (EpisodeLadder.Select(rung, quality, cursor, attempted, input.EpisodeMapping) is { } candidate)
             {
                 attempted.Add(EpisodeLadder.CandidateKey(candidate));
@@ -156,6 +159,11 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         await LogSkip(db, input, query, message, ct);
         return new(false, message) { Query = query, Skipped = true, NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release") };
     }
+
+    private static int? PremiereYear(GrabInput input) => input.Cursor is { Season: 1 }
+        && input.EpisodeMapping is not { IsSequel: true }
+        && input.EpisodeMapping?.AbsoluteOffset is not > 0
+        && input.EpisodeMapping?.FranchiseSeason is not > 1 ? input.Year : null;
 
     /// <summary>Port of the title page's grabWholeWork: one search, identity-checked first survivor, one send.</summary>
     private async Task<GrabResult> Film(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, int? floor, Func<Task>? beforeSend, CancellationToken ct)
@@ -208,7 +216,10 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var response = await search.SearchAsync(new() { Query = huntQuery, Category = category, Limit = 15, TargetResolution = floor, Enrich = false,
             SkipCache = true, Background = true, IncludeRejectedResults = input.Cursor != null,
             Filters = new() { HasMagnet = true, Season = huntSeason, Episode = huntEpisode } }, ct);
-        var eligible = response.Results.Where(x => ReleaseSelection.SameWork(x, input.Title, input.Aliases ?? [])).ToList();
+        var acceptedNames = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToArray();
+        var eligible = response.Results.Where(x => input.Cursor != null
+            ? EpisodeLadder.ReleaseMatchesWork(x, acceptedNames, PremiereYear(input))
+            : ReleaseSelection.SameWork(x, input.Title, input.Aliases ?? [])).ToList();
         bool Exact(TorrentResult r) => input.Cursor == null || EpisodeLadder.MatchesTargetEpisode(r, input.Cursor.Value, input.EpisodeMapping);
         var exactBeforeQuality = eligible.Count(Exact);
         var quality = eligible.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor)).ToList();
@@ -262,7 +273,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 .Select(r =>
                 {
                     var decision = EpisodeRejections.Explain(r.Result, accepted, target, input.EpisodeMapping, floor, true,
-                        r.Reason.Length > 0 ? r.Reason : null);
+                        r.Reason.Length > 0 ? r.Reason : null, PremiereYear(input));
                     var identity = LibraryJson.Hash(r.Result.InfoHash) ?? LibraryJson.Hash(r.Result.Magnet) ?? r.Result.TorrentUrl ?? r.Result.Id;
                     return lastError != null && attempts.Contains(identity)
                         ? decision with { Reasons = ["send_failed"] } : decision;

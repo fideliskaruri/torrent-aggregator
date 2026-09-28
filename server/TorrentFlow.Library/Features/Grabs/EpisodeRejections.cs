@@ -9,10 +9,10 @@ public sealed record CandidateRejection(string Title, string Source, IReadOnlyLi
 internal static class EpisodeRejections
 {
     public static CandidateRejection Explain(TorrentResult candidate, IReadOnlyList<string> accepted, EpisodeCursor cursor,
-        AnimeEpisodeMapping? mapping, int? floor, bool relaxed, string? searchReason = null)
+        AnimeEpisodeMapping? mapping, int? floor, bool relaxed, string? searchReason = null, int? premiereYear = null)
     {
         var reasons = new List<string>();
-        if (!EpisodeLadder.ReleaseMatchesWork(candidate, accepted)) reasons.Add("other_work");
+        if (!EpisodeLadder.ReleaseMatchesWork(candidate, accepted, premiereYear)) reasons.Add("other_work");
         var ep = candidate.Episode ?? ReleaseNames.ParseEpisode(candidate.Title);
         if (ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(candidate.Title))
             reasons.Add("pack");

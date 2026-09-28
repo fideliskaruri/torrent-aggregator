@@ -255,8 +255,10 @@ public static class EpisodeLadder
     }
 
     /// <summary>Port of <c>episodeReleaseMatchesWork</c>: the release's identity keys to one of the accepted names.</summary>
-    public static bool ReleaseMatchesWork(TorrentResult release, IReadOnlyList<string> titles)
+    public static bool ReleaseMatchesWork(TorrentResult release, IReadOnlyList<string> titles, int? premiereYear = null)
     {
+        if (premiereYear is { } expected && ReleaseNames.ReleaseYear(release.Title) is { } actual && actual != expected)
+            return false;
         var identity = ReleaseNames.IdentityFor(release.Title);
         if (titles.Any(title => ReleaseNames.WorkKeyFor(title) is { Length: > 0 } key && ReleaseNames.WorkKeyMatches(key, identity.Name, identity.Year)))
             return true;
