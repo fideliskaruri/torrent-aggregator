@@ -684,7 +684,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="container-app max-w-2xl space-y-5 py-6 pb-24 sm:py-8">
+    <div className={cn("container-app max-w-2xl space-y-5 py-6 pb-24 sm:py-8", (isDirty || saving) && "pb-40 sm:pb-40")}>
       <TfPageHeader
         title="Settings"
         description="Most defaults are ready. Change only what matters to you."
@@ -999,6 +999,17 @@ export default function SettingsPage() {
                         placeholder="••••••••"
                       />
                     </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={saving}
+                      onClick={(event) =>
+                        void save(event as unknown as FormEvent, true)
+                      }
+                      data-settings-save
+                    >
+                      Save & test app
+                    </Button>
                   </div>
                 ) : null}
               </>
@@ -1006,42 +1017,42 @@ export default function SettingsPage() {
           </section>
         </div>
 
-        <div className="surface flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center sm:justify-end">
-          <div className="flex flex-wrap gap-2">
-            {isDirty ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={discardChanges}
-                disabled={saving}
-                data-settings-discard
-              >
-                Discard
-              </Button>
-            ) : null}
-            {externalEnabled ? (
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={saving}
-                onClick={(event) =>
-                  void save(event as unknown as FormEvent, true)
-                }
-                data-settings-save
-              >
-                Save & test app
-              </Button>
-            ) : null}
-            <Button
-              type="submit"
-              disabled={saving || !isDirty}
-              data-settings-save
-            >
-              {saving ? <LoadingGlyph /> : null}
-              Save changes
-            </Button>
+        {isDirty || saving ? (
+          <div
+            role="region"
+            aria-label="Unsaved changes"
+            className="fixed inset-x-0 bottom-[calc(var(--mobile-nav-h)+var(--safe-bottom)+0.5rem)] z-30 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 md:bottom-4"
+            data-settings-save-bar
+          >
+            <div className="container-app max-w-2xl">
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-popover/95 py-2.5 pr-2.5 pl-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-popover/85">
+                <p className="min-w-0 truncate text-sm text-muted-foreground">
+                  <span className="sm:hidden">Unsaved</span>
+                  <span className="max-sm:hidden">Unsaved changes</span>
+                </p>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={discardChanges}
+                    disabled={saving}
+                    data-settings-discard
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={saving || !isDirty}
+                    data-settings-save
+                  >
+                    {saving ? <LoadingGlyph /> : null}
+                    Save changes
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <SettingsDisclosure
           id="advanced-settings"
@@ -1122,7 +1133,7 @@ export default function SettingsPage() {
                         savePath: event.target.value,
                       }))
                     }
-                    className="min-w-0 font-mono"
+                    className="min-w-0 font-mono placeholder:font-sans placeholder:text-muted-foreground"
                     placeholder="Uses the main download folder when blank"
                   />
                   <Button
@@ -1274,7 +1285,7 @@ export default function SettingsPage() {
                                       },
                                     }))
                                   }
-                                  className="min-w-0 font-mono"
+                                  className="min-w-0 font-mono placeholder:font-sans placeholder:text-muted-foreground"
                                   placeholder={derived || "Uses the fallback folder"}
                                 />
                                 <Button

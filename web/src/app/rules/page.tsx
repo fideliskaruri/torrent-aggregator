@@ -433,7 +433,7 @@ export default function RulesPage() {
           <Plus className="h-4 w-4 text-subtle-foreground" />
           New rule
         </p>
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid items-start gap-3 sm:grid-cols-2">
           <FormField label="Rule name" htmlFor="rule-name">
             <Input
               id="rule-name"
@@ -479,21 +479,6 @@ export default function RulesPage() {
               </SelectContent>
             </Select>
           </FormField>
-          <FormField
-            label="Min seeders"
-            htmlFor="rule-min-seeders"
-            hint="Skip releases with fewer"
-          >
-            <Input
-              id="rule-min-seeders"
-              inputMode="numeric"
-              placeholder="10"
-              value={form.minSeeders}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, minSeeders: e.target.value }))
-              }
-            />
-          </FormField>
           <FormField label="Resolution" htmlFor="rule-resolution">
             <Select
               value={form.resolution || RESOLUTION_ANY}
@@ -517,28 +502,19 @@ export default function RulesPage() {
             </Select>
           </FormField>
           <FormField
-            label="Search only these indexers"
-            htmlFor="rule-sources"
-            hint="Leave all unselected to search every enabled source."
+            label="Min seeders"
+            htmlFor="rule-min-seeders"
+            hint="Skip releases with fewer"
           >
-            <ToggleGroup
-              id="rule-sources"
-              type="multiple"
-              value={form.sources}
-              onValueChange={setSources}
-              className="w-full min-w-0 flex-wrap rounded-md border border-border bg-background p-2"
-            >
-              {RULE_SOURCE_OPTIONS.map((source) => (
-                <ToggleGroupItem
-                  key={source.value}
-                  value={source.value}
-                  title={source.label}
-                  className={sourceChipClass}
-                >
-                  {source.label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            <Input
+              id="rule-min-seeders"
+              inputMode="numeric"
+              placeholder="10"
+              value={form.minSeeders}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, minSeeders: e.target.value }))
+              }
+            />
           </FormField>
           <FormField
             label="Skip releases larger than"
@@ -559,6 +535,31 @@ export default function RulesPage() {
                 GB
               </span>
             </div>
+          </FormField>
+          <FormField
+            label="Search only these indexers"
+            htmlFor="rule-sources"
+            className="sm:col-span-2"
+            hint="Leave all unselected to search every enabled source."
+          >
+            <ToggleGroup
+              id="rule-sources"
+              type="multiple"
+              value={form.sources}
+              onValueChange={setSources}
+              className="w-full min-w-0 flex-wrap rounded-md border border-border bg-background p-2"
+            >
+              {RULE_SOURCE_OPTIONS.map((source) => (
+                <ToggleGroupItem
+                  key={source.value}
+                  value={source.value}
+                  title={source.label}
+                  className={sourceChipClass}
+                >
+                  {source.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
           </FormField>
         </div>
         <Button type="submit" size="sm">

@@ -41,7 +41,7 @@ export function DownloadLocationFields({
             id={folderId}
             value={folder}
             onChange={(event) => onFolderChange(event.target.value)}
-            className="w-full min-w-0 scroll-mb-32 font-mono"
+            className="w-full min-w-0 scroll-mb-32 font-mono placeholder:font-sans placeholder:text-muted-foreground"
             placeholder="Choose a folder or enter its path"
             autoComplete="off"
             title={folder || undefined}

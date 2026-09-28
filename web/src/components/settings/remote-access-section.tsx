@@ -405,7 +405,7 @@ function RemoteAccessPanel() {
           placeholder="Copied from the Access application's overview"
           autoComplete="off"
           spellCheck={false}
-          className={cn(inputClass, "font-mono")}
+          className={cn(inputClass, "font-mono placeholder:font-sans placeholder:text-muted-foreground")}
           data-remote-access-audience
         />
       </FormField>
