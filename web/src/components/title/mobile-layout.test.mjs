@@ -24,16 +24,21 @@ test("episode captions reclaim thumbnail and action width without truncating mob
   assert.match(episodes, /className="mt-1 block break-words[^"]*sm:hidden"/);
 });
 
-test("library questions use one mobile modal with an accessible title and focus return", () => {
+test("library questions use one modal on every width with an accessible title and focus return", () => {
   assert.match(library, /useMediaQuery\("\(max-width: 767px\)"\)/);
   assert.match(library, /<Dialog open=\{asking\} onOpenChange=\{setAsking\}>/);
   assert.match(library, /data-add-library-dialog/);
   assert.match(library, /<DialogTitle[^>]*>Add to library<\/DialogTitle>/);
   assert.match(library, /onCloseAutoFocus=/);
   assert.match(library, /addButtonRef\.current\.focus\(\)/);
-  assert.match(library, /asking \? questionPanel : null/);
-  assert.match(library, /!isMobile && option\.hint/);
-  assert.match(library, /grid grid-cols-1 gap-2 md:flex md:items-center/);
+  // Inline on desktop, the panel pushed the poster down and doubled the add button.
+  assert.doesNotMatch(library, /asking \? questionPanel : null/);
+  // Options are styled radios with the hint on its own line, not a native select
+  // with the hint glued on after a dash.
+  assert.doesNotMatch(library, /<select/);
+  assert.match(library, /type="radio"/);
+  assert.doesNotMatch(library, / — \$\{option\.hint\}/);
+  assert.match(library, /grid grid-cols-1 gap-2 sm:flex/);
 });
 
 test("title page relies on the shell's single mobile-nav + safe-area clearance", () => {

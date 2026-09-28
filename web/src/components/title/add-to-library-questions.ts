@@ -78,9 +78,10 @@ export function addQuestions(subject: AddSubject): AddQuestion[] {
         {
           value: "beginning",
           label: "From the beginning",
-          hint: seasonOptions.length
-            ? `All ${seasonOptions.length} seasons`
-            : undefined,
+          hint:
+            seasonOptions.length > 1
+              ? `All ${seasonOptions.length} seasons`
+              : "Every episode so far",
         },
         ...seasonOptions,
       ],

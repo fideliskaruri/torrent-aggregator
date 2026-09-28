@@ -143,68 +143,120 @@ export function LibraryControls({
 
   const busy = phase === "pending";
 
+  const selectedStart =
+    answers.startPoint.kind === "season"
+      ? `season:${answers.startPoint.season}`
+      : answers.startPoint.kind;
+  const pickStart = (value: string) => {
+    const next = parseStartPoint(value);
+    if (next) setAnswers((a) => ({ ...a, startPoint: next }));
+  };
+
+  // Styled radios rather than a native select: the choice is the whole point
+  // of the dialog, so every option and what it means stays visible at once.
   const questionPanel = (
     <div
       data-add-questions
       role="group"
       aria-label="Add to library options"
-      className="w-full min-w-0 space-y-3 md:mt-2 md:max-w-md md:rounded-[var(--radius)] md:border md:border-[var(--border)] md:bg-[var(--bg-elevated)] md:p-3"
+      className="w-full min-w-0 space-y-4"
     >
-      {questions.map((question) => (
-        <div key={question.id} className="space-y-1.5">
-          <p className="text-[13px] font-medium text-[var(--text)]">
-            {question.prompt}
-          </p>
-          <select
-            data-question="start-point"
-            aria-label={question.prompt}
-            value={
-              answers.startPoint.kind === "season"
-                ? `season:${answers.startPoint.season}`
-                : answers.startPoint.kind
-            }
-            onChange={(event) => {
-              const next = parseStartPoint(event.target.value);
-              if (next) setAnswers((a) => ({ ...a, startPoint: next }));
-            }}
-            className="min-h-[44px] w-full min-w-0 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-2 text-[13px] text-[var(--text)]"
-          >
-            {question.options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-                {!isMobile && option.hint ? ` — ${option.hint}` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-      ))}
+      {questions.map((question) => {
+        const main = question.options.filter((o) => !o.value.startsWith("season:"));
+        const bySeason = question.options.filter((o) => o.value.startsWith("season:"));
+        return (
+          <fieldset key={question.id} data-question={question.id} className="min-w-0 space-y-2">
+            <legend className="mb-2 text-[13px] font-medium text-[var(--text)]">
+              {question.prompt}
+            </legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {main.map((option) => (
+                <label
+                  key={option.value}
+                  data-add-option={option.value}
+                  className="relative flex min-h-[44px] cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] p-3 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--accent)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent)]"
+                >
+                  <input
+                    type="radio"
+                    name={`add-${question.id}`}
+                    value={option.value}
+                    checked={selectedStart === option.value}
+                    onChange={() => pickStart(option.value)}
+                    className="peer sr-only"
+                  />
+                  <span
+                    aria-hidden
+                    className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-[var(--border-strong)] peer-checked:border-[var(--accent)] peer-checked:[&>span]:scale-100"
+                  >
+                    <span className="h-2 w-2 scale-0 rounded-full bg-[var(--accent)] transition-transform" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-medium text-[var(--text)]">
+                      {option.label}
+                    </span>
+                    {option.hint ? (
+                      <span className="mt-0.5 block text-[12px] text-[var(--text-tertiary)]">
+                        {option.hint}
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {bySeason.length > 1 ? (
+              <div className="pt-1">
+                <p className="mb-2 text-[12px] text-[var(--text-tertiary)]">Or start from a season</p>
+                <div className="flex flex-wrap gap-2">
+                  {bySeason.map((option) => (
+                    <label
+                      key={option.value}
+                      data-add-option={option.value}
+                      className="inline-flex h-11 min-w-[44px] cursor-pointer items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] px-3.5 text-[13px] tabular-nums text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] has-[:checked]:border-[var(--accent)] has-[:checked]:bg-[var(--accent-dim)] has-[:checked]:text-[var(--text)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent)]"
+                    >
+                      <input
+                        type="radio"
+                        name={`add-${question.id}`}
+                        value={option.value}
+                        checked={selectedStart === option.value}
+                        onChange={() => pickStart(option.value)}
+                        aria-label={option.label}
+                        className="sr-only"
+                      />
+                      {option.label.replace(/^From season /, "Season ")}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </fieldset>
+        );
+      })}
 
       <p
         data-add-summary
+        aria-live="polite"
         className="text-[12px] leading-relaxed text-[var(--text-tertiary)]"
       >
         {addSummary(subject, answers)}
       </p>
 
-      <div className="grid grid-cols-1 gap-2 md:flex md:items-center">
+      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row-reverse sm:items-center">
         <Button
           type="button"
-          size="sm"
           data-add-confirm
           disabled={busy}
           onClick={() => void add(answers)}
-          className="min-h-[44px] w-full md:w-auto lg:min-h-0"
+          className="min-h-[44px] w-full sm:w-auto"
         >
-          {busy ? <Loader2 className="animate-spin" aria-hidden /> : null}
+          {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Plus aria-hidden />}
           Add to library
         </Button>
         <Button
           type="button"
-          size="sm"
           variant="ghost"
           data-add-cancel
           onClick={() => setAsking(false)}
-          className="min-h-[44px] w-full text-[var(--text-secondary)] md:w-auto lg:min-h-0"
+          className="min-h-[44px] w-full text-[var(--text-secondary)] sm:w-auto"
         >
           Cancel
         </Button>
@@ -220,7 +272,7 @@ export function LibraryControls({
       {library.inLibrary ? (
         <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex md:w-auto">
           <span
-            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-[12px] text-[var(--text-secondary)] lg:min-h-0"
+            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-[12px] text-[var(--text-secondary)]"
             data-in-library
           >
             <Check className="h-3.5 w-3.5" aria-hidden />
@@ -235,7 +287,7 @@ export function LibraryControls({
               aria-label="Remove from library"
               disabled={busy}
               onClick={() => setConfirmingRemove(true)}
-              className="min-h-[44px] text-[var(--text-secondary)] lg:min-h-0"
+              className="min-h-[44px] text-[var(--text-secondary)]"
             >
               {busy ? <Loader2 className="animate-spin" aria-hidden /> : <X aria-hidden />}
               Remove
@@ -251,33 +303,41 @@ export function LibraryControls({
           data-add-to-library
           disabled={busy}
           onClick={onAddPressed}
-          className="min-h-[44px] w-full justify-center md:w-auto lg:min-h-0"
+          className="min-h-[44px] w-full justify-center md:w-auto"
         >
           {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Plus aria-hidden />}
           Add to library
         </Button>
       )}
 
-      {isMobile ? (
-        <Dialog open={asking} onOpenChange={setAsking}>
-          <DialogContent
-            data-add-library-dialog
-            className="top-auto max-h-[90dvh] gap-4 overflow-y-auto rounded-t-[var(--radius-lg)] p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
-            onCloseAutoFocus={(event) => {
-              if (addButtonRef.current) {
-                event.preventDefault();
-                addButtonRef.current.focus();
-              }
-            }}
-          >
-            <DialogTitle className="pr-12">Add to library</DialogTitle>
+      {/* One modal on every width: inline, the questions pushed the poster
+          below the title and put a second "Add to library" beside the first. */}
+      <Dialog open={asking} onOpenChange={setAsking}>
+        <DialogContent
+          data-add-library-dialog
+          className={
+            isMobile
+              ? "top-auto max-h-[90dvh] gap-4 overflow-y-auto rounded-t-[var(--radius-lg)] p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+              : "gap-4 overflow-y-auto p-5 sm:max-w-lg"
+          }
+          onCloseAutoFocus={(event) => {
+            if (addButtonRef.current) {
+              event.preventDefault();
+              addButtonRef.current.focus();
+            }
+          }}
+        >
+          <div className="space-y-1 pr-12">
+            <DialogTitle>Add to library</DialogTitle>
             <DialogDescription>
-              Choose which episodes to add and keep up with.
+              {title?.trim()
+                ? `Choose which episodes of ${title.trim()} to get and keep up with.`
+                : "Choose which episodes to get and keep up with."}
             </DialogDescription>
-            {questionPanel}
-          </DialogContent>
-        </Dialog>
-      ) : asking ? questionPanel : null}
+          </div>
+          {questionPanel}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={confirmingRemove}
