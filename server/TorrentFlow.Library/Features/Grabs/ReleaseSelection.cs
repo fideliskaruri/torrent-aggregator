@@ -38,11 +38,7 @@ public static class ReleaseSelection
         var plain = WorkKey(title);
         return key == WorkKey(title, year) || key == plain || (year == null && Regex.IsMatch(key, $"^{Regex.Escape(plain)}-(?:19|20)\\d{{2}}$"));
     }
-    public static int? Resolution(string title)
-    {
-        var match = Regex.Match(title, @"(?i)\b(480|720|1080|2160)p\b");
-        return match.Success ? int.Parse(match.Groups[1].Value) : Regex.IsMatch(title, @"(?i)\b4k\b") ? 2160 : null;
-    }
+    public static int? Resolution(string title) => TorrentFlow.Core.ReleaseResolution.Parse(title);
     public static bool MeetsFloor(string title, int? floor) => floor == null || Resolution(title) >= floor;
     public static int? Year(string title)
     {

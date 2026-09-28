@@ -62,25 +62,7 @@ public static partial class Releases
     public static string? ReleaseInfoHash(TorrentResult r) =>
         (r.InfoHash is { Length: > 0 } ? InfoHashes.Normalize(r.InfoHash) : null) ?? InfoHashes.FromMagnet(r.Magnet);
 
-    private static readonly (Regex Re, int Value)[] ResolutionPatterns =
-    [
-        (new Regex(@"\b(?:4kto1080p)\b", RegexOptions.IgnoreCase), 1080),
-        (new Regex(@"\b(?:2160p|3840x2160|uhd|4k[-_. ]?(?:uhd|hevc|bd|h ?265)|(?:uhd|hevc|bd|h ?265)[-_. ]4k)\b", RegexOptions.IgnoreCase), 2160),
-        (new Regex(@"\[4k\]", RegexOptions.IgnoreCase), 2160),
-        (new Regex(@"\b(?:1080p|1920x1080|1440p|fhd|1080i)\b", RegexOptions.IgnoreCase), 1080),
-        (new Regex(@"\b(?:720p|1280x720|960p)\b", RegexOptions.IgnoreCase), 720),
-        (new Regex(@"\b(?:576p|576i)\b", RegexOptions.IgnoreCase), 576),
-        (new Regex(@"\b(?:480p|480i|640x480|848x480)\b", RegexOptions.IgnoreCase), 480),
-        (new Regex(@"\b(?:360p|240p)\b", RegexOptions.IgnoreCase), 360),
-    ];
-
-    public static int? ParseResolution(string title)
-    {
-        if (string.IsNullOrEmpty(title)) return null;
-        var t = UnderscoreDot().Replace(title, " ");
-        foreach (var (re, value) in ResolutionPatterns) if (re.IsMatch(t)) return value;
-        return null;
-    }
+    public static int? ParseResolution(string title) => TorrentFlow.Core.ReleaseResolution.Parse(title);
 
     public static bool MeetsResolutionFloor(string title, int? minimum) =>
         Unit(minimum) is not { } floor || ParseResolution(title) is { } r && r >= floor;

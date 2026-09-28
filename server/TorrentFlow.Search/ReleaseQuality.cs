@@ -10,23 +10,7 @@ public sealed record ReleaseRank(int CategoryMatch, int Relevance, int LanguageP
 
 public static class ReleaseQuality
 {
-    public static int? ParseResolution(string title)
-    {
-        var t = Replace(title, @"[._]");
-        (string Pattern, int Value)[] patterns =
-        [
-            (@"\b4kto1080p\b", 1080),
-            (@"\b(?:2160p|3840x2160|uhd|4k[-_. ]?(?:uhd|hevc|bd|h ?265)|(?:uhd|hevc|bd|h ?265)[-_. ]4k)\b|\[4k\]", 2160),
-            (@"\b(?:1080p|1920x1080|1440p|fhd|1080i)\b", 1080),
-            (@"\b(?:720p|1280x720|960p)\b", 720),
-            (@"\b(?:576p|576i)\b", 576),
-            (@"\b(?:480p|480i|640x480|848x480)\b", 480),
-            (@"\b(?:360p|240p)\b", 360)
-        ];
-        foreach (var (pattern, value) in patterns)
-            if (Match(t, pattern).Success) return value;
-        return null;
-    }
+    public static int? ParseResolution(string title) => TorrentFlow.Core.ReleaseResolution.Parse(title);
     public static bool MeetsResolutionFloor(string title, int? floor) => floor is null or < 1 || ParseResolution(title) >= floor;
     public static int ResolutionAffinity(int? resolution, int target = 1080) => resolution == null ? -1 : resolution == target ? 1000
         : resolution < target ? 500 + Round(resolution.Value / 10d) : 100 - Round(resolution.Value / 100d);

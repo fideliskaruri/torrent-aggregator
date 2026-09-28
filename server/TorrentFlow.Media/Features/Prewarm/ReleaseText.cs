@@ -29,23 +29,7 @@ internal static class ReleaseText
         return R(R(t, @"[._\-–—|]+"), @"\s+").Trim();
     }
 
-    public static int? ParseResolution(string title)
-    {
-        var t = R(title, @"[._]");
-        (string Pattern, int Value)[] patterns =
-        [
-            (@"\b4kto1080p\b", 1080),
-            (@"\b(?:2160p|3840x2160|uhd|4k[-_. ]?(?:uhd|hevc|bd|h ?265)|(?:uhd|hevc|bd|h ?265)[-_. ]4k)\b|\[4k\]", 2160),
-            (@"\b(?:1080p|1920x1080|1440p|fhd|1080i)\b", 1080),
-            (@"\b(?:720p|1280x720|960p)\b", 720),
-            (@"\b(?:576p|576i)\b", 576),
-            (@"\b(?:480p|480i|640x480|848x480)\b", 480),
-            (@"\b(?:360p|240p)\b", 360),
-        ];
-        foreach (var (pattern, value) in patterns)
-            if (M(t, pattern).Success) return value;
-        return null;
-    }
+    public static int? ParseResolution(string title) => TorrentFlow.Core.ReleaseResolution.Parse(title);
 
     public static bool MeetsResolutionFloor(string title, int? floor) => floor is null or < 1 || ParseResolution(title) >= floor;
 
@@ -195,56 +179,7 @@ internal static class ReleaseText
 
     // ---------------------------------------------------------------- episodes
 
-    /// <summary>episodes.parseEpisode (season/episode/pack shape only; labels are not needed here).</summary>
-    public static EpisodeInfo ParseEpisode(string title)
-    {
-        var parsed = ParseBase(title);
-        return parsed with { IsMultiSeason = parsed.IsMultiSeason ?? false };
-    }
-
-    private static EpisodeInfo Single(int? season, int episode) => new() { Season = season, Episode = episode };
-
-    private static EpisodeInfo Pack(int? season, int? end = null) =>
-        new() { Season = season, IsBatch = true, IsSeasonPack = true, IsMultiSeason = end != null && end != season };
-
-    private static EpisodeInfo ParseBase(string t)
-    {
-        var m = M(t, @"\b(\d{1,3})(?:st|nd|rd|th)\s+Season\s*[-–—]\s*(\d{1,4})\b");
-        if (m.Success) return Single(N(m), N(m, 2));
-        m = M(t, @"\bS(?:easons?|eries)?[\s._]*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?|eries)?[\s._]*)?\d{1,3}(?!\d))+");
-        if (!m.Success) m = M(t, @"\b(?:Seasons?|Series)\s+(\d{1,3}(?:\s+\d{1,3}){2,})\b");
-        if (m.Success)
-        {
-            var nums = Regex.Matches(m.Value, @"\d{1,3}").Select(x => int.Parse(x.Value, CultureInfo.InvariantCulture)).ToArray();
-            return Pack(nums[0], nums[^1]);
-        }
-        if (M(t, @"\b(complete|batch|season\s*pack)\b").Success)
-        {
-            m = M(t, @"\bS(?:eason)?\s*(\d{1,3})\b");
-            return Pack(m.Success ? N(m) : null);
-        }
-        m = M(t, @"\bS(\d{1,3})\s*E(\d{1,4})\b");
-        if (!m.Success) m = M(t, @"\b(\d{1,2})x(\d{1,4})\b");
-        if (m.Success) return Single(N(m), N(m, 2));
-        var season = M(t, @"\bS(?:eason)?\s*(\d{1,3})\b");
-        int? s = season.Success ? N(season) : null;
-        m = M(t, @"\b(?:episode|ep|e)\s*\.?\s*(\d{1,4})\b");
-        if (m.Success) return Single(s, N(m));
-        m = M(t, @"[-–]\s*(\d{1,4})\s*(?=\.(?:mkv|mp4|avi|m4v|ts)\s*$|[\[(]|$|\b(?:480p|720p|1080p|2160p|4k|web-?dl|webrip|bluray|hdtv)\b)");
-        if (m.Success && N(m) > 0 && N(m) is not (>= 1900 and <= 2100)) return Single(s, N(m));
-        if (M(t, @"^\s*\[[^\]]+\]").Success)
-        {
-            var after = R(t, @"^\s*\[[^\]]+\]\s*", "");
-            m = M(after, @"\s(\d{3,4})(?=\s|$|[\[(.])");
-            if (m.Success && N(m) > 0 && N(m) is not (>= 1900 and <= 2100)
-                && !M(after[(m.Index + m.Length)..], @"^\s*(?:years?|yrs?|nen|ans?|days?)\b").Success
-                && !(N(m) == 300 && M(after, @"\bslime[\s._-]*300\b").Success))
-                return Single(s, N(m));
-        }
-        m = M(t, @"\bS(\d{1,3})\b(?!\s*E\d)");
-        if (!m.Success) m = M(t, @"\b(?:Seasons?|Series)[\s._]*(\d{1,3})\b");
-        return m.Success ? Pack(N(m)) : new();
-    }
+    public static EpisodeInfo ParseEpisode(string title) => TorrentFlow.Core.ReleaseEpisodeParser.Parse(title);
 
     // ---------------------------------------------------------------- pack files
 

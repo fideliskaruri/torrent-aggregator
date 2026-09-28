@@ -23,101 +23,8 @@ public static class ReleaseNames
     private static bool Has(string value, Regex regex) => regex.IsMatch(value);
     private static string Strip(string value, Regex regex, string replacement = " ") => regex.Replace(value, replacement);
 
-    // ── parseEpisode ─────────────────────────────────────────────────────────
-    private static readonly Regex OrdinalSeason = Rx(@"\b(\d{1,3})(?:st|nd|rd|th)\s+Season\s*[-–—]\s*(\d{1,4})\b");
-    private static readonly Regex AbsoluteEp = Rx(@"\b(?:absolute\s*)?(?:episode|ep)\s*\.?\s*(\d{1,4})\b");
-    private static readonly Regex SeasonRange = Rx(@"\bS(?:easons?|eries)?[\s._]*\d{1,3}(?:\s*(?:[-–—~+&,]|\band\b|\bto\b|\bplus\b)\s*(?:S(?:easons?|eries)?[\s._]*)?\d{1,3}(?!\d))+");
-    private static readonly Regex SeasonList = Rx(@"\b(?:Seasons?|Series)\s+(\d{1,3}(?:\s+\d{1,3}){2,})\b");
-    private static readonly Regex Digits = Rx(@"\d{1,3}");
-    private static readonly Regex CompleteWord = Rx(@"\b(complete|batch|season\s*pack)\b");
-    private static readonly Regex SeasonNumber = Rx(@"\bS(?:eason)?\s*(\d{1,3})\b");
-    private static readonly Regex SceneEpisode = Rx(@"\bS(\d{1,3})\s*E(\d{1,4})\b");
-    private static readonly Regex CrossEpisode = Rx(@"\b(\d{1,2})x(\d{1,4})\b");
-    private static readonly Regex WordEpisode = Rx(@"\b(?:episode|ep|e)\s*\.?\s*(\d{1,4})\b");
-    private static readonly Regex DashEpisode = Rx(@"[-–]\s*(\d{1,4})\s*(?=\.(?:mkv|mp4|avi|m4v|ts)\s*$|[\[(]|$|\b(?:480p|720p|1080p|2160p|4k|web-?dl|webrip|bluray|hdtv)\b)");
-    private static readonly Regex LeadingGroup = Rx(@"^\s*\[[^\]]+\]");
-    private static readonly Regex LeadingGroupStrip = Rx(@"^\s*\[[^\]]+\]\s*");
-    private static readonly Regex BareNumber = Rx(@"\s(\d{3,4})(?=\s|$|[\[(.])");
-    private static readonly Regex CountWord = Rx(@"^\s*(?:years?|yrs?|nen|ans?|days?)\b");
-    private static readonly Regex Slime300 = Rx(@"\bslime[\s._-]*300\b");
-    private static readonly Regex BareSeason = Rx(@"\bS(\d{1,3})\b(?!\s*E\d)");
-    private static readonly Regex WordSeason = Rx(@"\b(?:Seasons?|Series)[\s._]*(\d{1,3})\b");
-    private static readonly Regex SpecialSeparators = Rx(@"[._-]+");
-    private static readonly (Regex Pattern, string Name)[] Specials =
-        [(Rx(@"\b(?:ova|oad)\b"), "ova"), (Rx(@"\brecap\b"), "recap"), (Rx(@"\bmovie\b"), "movie"), (Rx(@"\bspecials?\b"), "special")];
-
-    private static int N(Match m, int group = 1) => int.Parse(m.Groups[group].Value, CultureInfo.InvariantCulture);
-
-    public static string? SpecialType(string title)
-    {
-        var t = Strip(title, SpecialSeparators);
-        foreach (var (pattern, name) in Specials)
-            if (pattern.IsMatch(t)) return name;
-        return null;
-    }
-
-    public static EpisodeInfo ParseEpisode(string title)
-    {
-        var parsed = ParseEpisodeBase(title ?? "");
-        return parsed with { SpecialType = SpecialType(title ?? ""), IsMultiSeason = parsed.IsMultiSeason ?? false };
-    }
-
-    private static EpisodeInfo Single(int? season, int episode, bool scene = false) => new()
-    {
-        Season = season, Episode = episode,
-        Label = season is null ? $"Ep {episode}" : scene ? $"S{season:00}E{episode:00}" : $"S{season:00} Ep {episode}",
-    };
-
-    private static EpisodeInfo Pack(int? season, int? end = null) => new()
-    {
-        Season = season, IsBatch = true, IsSeasonPack = true, IsMultiSeason = end != null && end != season,
-        Label = season == null ? "Batch" : end != null && end != season ? $"S{season:00}-S{end:00} pack" : $"S{season:00} pack",
-    };
-
-    private static EpisodeInfo ParseEpisodeBase(string t)
-    {
-        var m = OrdinalSeason.Match(t);
-        if (m.Success)
-        {
-            var result = Single(N(m), N(m, 2), true);
-            var absolute = AbsoluteEp.Match(t);
-            return absolute.Success && N(absolute) != result.Episode
-                ? result with { AbsoluteEpisode = N(absolute), Label = $"{result.Label} · absolute {N(absolute)}" } : result;
-        }
-        m = SeasonRange.Match(t);
-        if (!m.Success) m = SeasonList.Match(t);
-        if (m.Success)
-        {
-            var nums = Digits.Matches(m.Value).Select(x => int.Parse(x.Value, CultureInfo.InvariantCulture)).ToArray();
-            return Pack(nums[0], nums[^1]);
-        }
-        if (CompleteWord.IsMatch(t))
-        {
-            m = SeasonNumber.Match(t);
-            return Pack(m.Success ? N(m) : null);
-        }
-        m = SceneEpisode.Match(t);
-        if (!m.Success) m = CrossEpisode.Match(t);
-        if (m.Success) return Single(N(m), N(m, 2), true);
-        var season = SeasonNumber.Match(t);
-        int? s = season.Success ? N(season) : null;
-        m = WordEpisode.Match(t);
-        if (m.Success) return Single(s, N(m));
-        m = DashEpisode.Match(t);
-        if (m.Success && N(m) > 0 && N(m) is not (>= 1900 and <= 2100)) return Single(s, N(m));
-        if (LeadingGroup.IsMatch(t))
-        {
-            var after = LeadingGroupStrip.Replace(t, "");
-            m = BareNumber.Match(after);
-            if (m.Success && N(m) > 0 && N(m) is not (>= 1900 and <= 2100)
-                && !CountWord.IsMatch(after[(m.Index + m.Length)..])
-                && !(N(m) == 300 && Slime300.IsMatch(after)))
-                return Single(s, N(m));
-        }
-        m = BareSeason.Match(t);
-        if (!m.Success) m = WordSeason.Match(t);
-        return m.Success ? Pack(N(m)) : new();
-    }
+    public static string? SpecialType(string title) => TorrentFlow.Core.ReleaseEpisodeParser.SpecialType(title);
+    public static EpisodeInfo ParseEpisode(string title) => TorrentFlow.Core.ReleaseEpisodeParser.Parse(title);
 
     // ── isEpisodeRangeRelease ────────────────────────────────────────────────
     private static readonly Regex[] EpisodeRanges =
@@ -125,6 +32,8 @@ public static class ReleaseNames
         Rx(@"\bS\d{1,3}\s*E\d{1,4}\s*[-–—~]\s*(?:S\d{1,3}\s*)?E?\d{1,4}\b"),
         Rx(@"\b\d{1,3}x\d{1,4}\s*[-–—~]\s*(?:\d{1,3}x)?\d{1,4}\b"),
         Rx(@"\b(?:episodes?|eps?|e)\s*\.?\s*\d{1,4}\s*[-–—~]\s*(?:episodes?|eps?|e)?\s*\.?\s*\d{1,4}\b"),
+        Rx(@"(?:\s[-–—]\s*|\[)\d{1,4}(?:v\d+)?\s*[-–—~]\s*\d{1,4}(?:v\d+)?(?=\s|[\])]|$)"),
+        Rx(@"\bS\d{1,3}E\d{1,4}(?:v\d+)?E\d{1,4}\b"),
     ];
 
     /// <summary>Episode ranges are multi-file intent even when the parser sees their first E.</summary>
@@ -322,7 +231,13 @@ public static class ReleaseNames
     }
 
     /// <summary>Port of <c>workIdentityFor(releaseName)</c>: display-clean first, then identify.</summary>
-    public static ReleaseIdentity IdentityFor(string releaseName) => WorkIdentity(CleanDisplayTitle(releaseName ?? ""));
+    public static ReleaseIdentity IdentityFor(string releaseName)
+    {
+        var name = releaseName ?? "";
+        name = Regex.Replace(name, @"(?<=\d)v\d+\b", "", Options, Timeout);
+        name = Regex.Replace(name, @"\[(\d{1,4})\](?=\s*(?:[\[(]|$))", " - $1 ", Options, Timeout);
+        return WorkIdentity(CleanDisplayTitle(name));
+    }
 
     // ── work keys ────────────────────────────────────────────────────────────
     private static readonly Regex LegacySizeGroup = Rx(@"-\d+(?:-\d+)?-?[kmgt]i?b(?:-(?!(?:19|20)\d{2}$)[a-z0-9]{2,20})?(?=-(?:19|20)\d{2}$|$)");

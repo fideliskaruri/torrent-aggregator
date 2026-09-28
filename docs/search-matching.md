@@ -3,7 +3,8 @@
 ## Fix status (September 28, 2026)
 
 - Episode mapping implemented: cached AniList PREQUEL traversal, explicit franchise season labels and completed-prequel totals; provider coordinates remain the persisted queue identity. Split cours do not increment the season by chain length. Ambiguous/movie/special chains and unknown totals do not receive guessed offsets.
-- Parser, alias and rejection-diagnostic slices in progress. The investigation below remains historical evidence.
+- Parser fixes implemented: shared server episode grammar handles spaced season/dash singles, version suffixes and bracket-number fansubs; ranges/packs stay excluded. One shared resolution parser now serves Search, Library, playback and prewarm (including pixel dimensions, FHD, interlaced labels and 4k).
+- Alias and rejection-diagnostic slices in progress. The investigation below remains historical evidence.
 
 Investigated September 28, 2026, against `6f65b0a` (`origin/main` when the detached `match-trace` worktree was created). **Investigation only; no product code changed.** Line references below describe that revision, not a promise that line numbers will survive later edits.
 
