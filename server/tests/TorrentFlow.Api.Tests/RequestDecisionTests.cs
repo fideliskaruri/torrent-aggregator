@@ -78,6 +78,26 @@ public sealed class RequestDecisionTests(DecisionHostFactory factory) : IClassFi
 
     private Task GrabDone() => factory.Services.GetRequiredService<RequestDecisionService>().LastGrab;
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task SweepResumesInterruptedApprovalsWithoutDuplicatingSavedGrabs(string? hashes)
+    {
+        var (friend, id) = await RequestAsync("Restart Approval", "5094");
+        using (friend)
+        {
+            await using (var db = await factory.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>().CreateDbContextAsync())
+                await db.MediaRequests.Where(r => r.Id == id).ExecuteUpdateAsync(s =>
+                    s.SetProperty(r => r.Status, MediaRequestStatus.Approved).SetProperty(r => r.GrabbedHashes, hashes));
+            var decisions = factory.Services.GetRequiredService<RequestDecisionService>();
+            await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => decisions.SweepAsync(default)));
+            Assert.False(string.IsNullOrEmpty((await RowAsync(id)).GrabbedHashes));
+            await decisions.SweepAsync(default);
+            Assert.Single(factory.Grabber.Grabbed, r => r.Id == id);
+            Assert.Equal(MediaRequestStatus.Approved, (await RowAsync(id)).Status);
+        }
+    }
+
     private static async Task<JsonElement> Mine(HttpClient client, string id) =>
         (await Json(await client.GetAsync("/api/requester/requests"))).GetProperty("requests").EnumerateArray().Single(r => r.GetProperty("id").GetString() == id);
 

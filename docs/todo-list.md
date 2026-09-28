@@ -37,6 +37,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- MATCH-APPROVAL-RESTART: approved requests interrupted before grab hashes persist are resumed by startup sweep; concurrent sweeps cannot duplicate an active approval grab.
 - MATCH-CONCURRENT-TARGETS: title grabs recover SQLite unique-key races on both Work and AcquisitionTarget insertion; concurrent requests share one durable identity rather than returning 500.
 - MATCH-BARE-RANGE: bare `01-12` (including brackets, spacing, Unicode dashes and filename suffixes) is a batch, never the final single episode.
 - Server remainder baseline: MATCH-ANIME-COORDINATES already fixed by `5c328c2`; MATCH-QUALITY-PARSER and MATCH-SEASON-RANGE by `c52f4e1`; MATCH-DIAGNOSTICS by `964ecf8`. Reran 98 matching regression cases successfully; no UI changes.

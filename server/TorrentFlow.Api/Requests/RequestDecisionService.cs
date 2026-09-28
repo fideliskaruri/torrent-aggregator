@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.Notifications;
 using TorrentFlow.Core.Contracts.Engine;
@@ -39,6 +40,7 @@ public sealed class RequestDecisionService(
 
     /// <summary>The last grab an approval started; tests await it.</summary>
     internal Task LastGrab { get; private set; } = Task.CompletedTask;
+    private readonly ConcurrentDictionary<string, byte> activeGrabs = new(StringComparer.Ordinal);
 
     public async Task<(DecisionOutcome Outcome, string? Status)> ApproveAsync(string id, CancellationToken ct, string? decisionReason = null)
     {
@@ -86,12 +88,19 @@ public sealed class RequestDecisionService(
 
     private async Task GrabAsync(string id, CancellationToken ct)
     {
+        if (!activeGrabs.TryAdd(id, 0)) return;
+        try { await GrabCoreAsync(id, ct); }
+        finally { activeGrabs.TryRemove(id, out _); }
+    }
+
+    private async Task GrabCoreAsync(string id, CancellationToken ct)
+    {
         RequestGrabOutcome outcome;
         try
         {
             await using var read = await factory.CreateDbContextAsync(ct);
             var row = await read.MediaRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, ct);
-            if (row is null || row.Status != MediaRequestStatus.Approved) return;
+            if (row is null || row.Status != MediaRequestStatus.Approved || !string.IsNullOrEmpty(row.GrabbedHashes)) return;
             outcome = await grabber.GrabAsync(row, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
@@ -148,9 +157,13 @@ public sealed class RequestDecisionService(
     public async Task SweepAsync(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var ids = await db.MediaRequests.AsNoTracking()
-            .Where(r => r.Status == MediaRequestStatus.Approved && r.GrabbedHashes != null).Select(r => r.Id).ToListAsync(ct);
-        foreach (var id in ids) await CheckFulfilledAsync(id, ct);
+        var rows = await db.MediaRequests.AsNoTracking()
+            .Where(r => r.Status == MediaRequestStatus.Approved).Select(r => new { r.Id, r.GrabbedHashes }).ToListAsync(ct);
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrEmpty(row.GrabbedHashes)) await GrabAsync(row.Id, ct);
+            else await CheckFulfilledAsync(row.Id, ct);
+        }
     }
 
     private async Task CheckFulfilledAsync(string id, CancellationToken ct)
