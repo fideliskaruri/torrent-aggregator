@@ -125,6 +125,29 @@ public sealed class SourcesTests : IDisposable
     }
 
     [Fact]
+    public async Task Cinemeta_search_falls_back_to_imdb_suggestions_for_exact_titles_missing_from_its_index()
+    {
+        using var handler = new FakeHandler(request => Task.FromResult(FakeHandler.Json(request.RequestUri!.Host switch
+        {
+            "v3.sg.media-imdb.com" => """{"d":[{"id":"tt1727587","l":"Sintel","qid":"short","y":2010,"i":{"imageUrl":"https://img.test/s.jpg"}},{"id":"nm1416900","l":"Sintel"},{"id":"tt9999999","l":"Sintel Street","qid":"movie"},{"id":"tt8888888","l":"Sintel","qid":"tvSeries"}]}""",
+            _ => """{"metas":[{"id":"tt0816692","name":"Interstellar","releaseInfo":"2014"}]}"""
+        })));
+        var client = new CinemetaClient(new FakeHttpFactory(handler));
+        var movies = await client.SearchAsync("Sintel", "movie");
+        Assert.Equal("tt1727587", movies[0].ExternalId);
+        Assert.Equal(2010, movies[0].Year);
+        Assert.Equal("https://img.test/s.jpg", movies[0].PosterUrl);
+        Assert.DoesNotContain(movies, m => m.ExternalId is "tt9999999" or "tt8888888" or "nm1416900");
+        Assert.Contains(await client.SearchAsync("sintel", "tv"), m => m.ExternalId == "tt8888888");
+
+        using var exact = new FakeHandler(request => Task.FromResult(FakeHandler.Json(request.RequestUri!.Host == "v3.sg.media-imdb.com"
+            ? """{"d":[{"id":"tt1","l":"Heat","qid":"movie"}]}"""
+            : """{"metas":[{"id":"tt0113277","name":"Heat","releaseInfo":"1995"}]}""")));
+        var withExact = await new CinemetaClient(new FakeHttpFactory(exact)).SearchAsync("Heat", "movie");
+        Assert.Equal("tt0113277", Assert.Single(withExact).ExternalId);
+    }
+
+    [Fact]
     public async Task No_key_search_returns_series_and_movies_then_respects_disable_without_restart()
     {
         var registry = Registry();

@@ -32,8 +32,73 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or OperationCanceledException or JsonException) { return null; }
     }
 
-    public async Task<List<MediaMetadata>> SearchAsync(string query, string type, int limit = 12, CancellationToken ct = default) =>
-        await List($"/catalog/{Kind(type)}/top/search={Uri.EscapeDataString(query.Trim())}.json", type, limit, ct);
+    public const string ImdbSuggest = "https://v3.sg.media-imdb.com/suggestion/x/";
+
+    public async Task<List<MediaMetadata>> SearchAsync(string query, string type, int limit = 12, CancellationToken ct = default)
+    {
+        // Cinemeta's search index leaves out IMDb shorts and TV movies (e.g. "Sintel") and fuzzy-matches
+        // unrelated titles instead. IMDb's suggestion index covers the same tt ids that /meta/ resolves;
+        // it runs in parallel so it adds no latency, and only exact title matches are used.
+        var suggest = SuggestAsync(query, type, ct);
+        var rows = await List($"/catalog/{Kind(type)}/top/search={Uri.EscapeDataString(query.Trim())}.json", type, limit, ct);
+        var suggested = await suggest;
+        if (rows.Any(r => SameTitle(r.Title, query))) return rows;
+        var extra = suggested.Where(s => rows.All(r => r.ExternalId != s.ExternalId));
+        return extra.Concat(rows).Take(limit).ToList();
+    }
+
+    private static readonly HashSet<string> MovieKinds = ["movie", "short", "tvMovie", "video"];
+    private static readonly HashSet<string> SeriesKinds = ["tvSeries", "tvMiniSeries"];
+
+    private async Task<List<MediaMetadata>> SuggestAsync(string query, string type, CancellationToken ct)
+    {
+        var term = query.Trim().ToLowerInvariant();
+        if (term.Length < 2 || term.Length > 120) return [];
+        if (registry is not null && !registry.Active("metadata").Any(e => e.Type == "cinemeta")) return [];
+        var key = $"suggest:{Kind(type)}:{term}";
+        JsonElement root;
+        if (!cache.TryGet(key, out root))
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                using var client = http.CreateClient(HttpClientName);
+                using var response = await client.GetAsync(ImdbSuggest + Uri.EscapeDataString(term) + ".json", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                if (!response.IsSuccessStatusCode) return [];
+                using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, timeout.Token);
+                root = doc.RootElement.Clone();
+                cache.Set(key, root, TimeSpan.FromMinutes(15));
+            }
+            catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or OperationCanceledException or JsonException) { return []; }
+        }
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array) return [];
+        var kinds = Kind(type) == "series" ? SeriesKinds : MovieKinds;
+        var list = new List<MediaMetadata>();
+        foreach (var hit in hits.EnumerateArray())
+        {
+            if (hit.ValueKind != JsonValueKind.Object) continue;
+            var id = Str(hit, "id"); var title = Str(hit, "l"); var qid = Str(hit, "qid");
+            if (id is null || !id.StartsWith("tt", StringComparison.Ordinal) || title is null || qid is null || !kinds.Contains(qid)) continue;
+            if (!SameTitle(title, query)) continue;
+            int? year = hit.TryGetProperty("y", out var y) && y.TryGetInt32(out var n) ? n : null;
+            var poster = hit.TryGetProperty("i", out var image) && image.ValueKind == JsonValueKind.Object ? Str(image, "imageUrl") : null;
+            list.Add(new()
+            {
+                Source = "cinemeta", ExternalId = id, Title = title, MediaType = Kind(type) == "series" ? "tv" : "movie",
+                PosterUrl = poster, Year = year,
+                AdditionalProperties = new() { ["externalIds"] = JsonSerializer.SerializeToElement(new { imdb = id }) }
+            });
+        }
+        return list;
+    }
+
+    private static bool SameTitle(string? a, string b) =>
+        a is not null && string.Equals(Fold(a), Fold(b), StringComparison.Ordinal);
+
+    private static string Fold(string value) =>
+        new(value.Normalize(System.Text.NormalizationForm.FormD)
+            .Where(c => char.IsLetterOrDigit(c)).Select(char.ToLowerInvariant).ToArray());
     public Task<List<MediaMetadata>> CatalogAsync(string type, int limit = 24, CancellationToken ct = default) =>
         List($"/catalog/{Kind(type)}/top.json", type, limit, ct);
     private async Task<List<MediaMetadata>> List(string path, string type, int limit, CancellationToken ct)
