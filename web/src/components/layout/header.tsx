@@ -1,9 +1,15 @@
-import { Link, useLocation } from "react-router";
-import { Eye, Search } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+import { ChevronDown, Eye, Search } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-feed";
 import { cn } from "@/lib/utils";
-import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { openSearchOverlay } from "@/components/search/search-overlay";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { pendingBadge } from "@/lib/requests";
 import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
@@ -18,19 +24,95 @@ import {
   navActiveHref,
 } from "@/lib/navigation";
 
+/**
+ * How far the desktop header has had to fold to fit its row.
+ *
+ * The header is capped at the page container (72rem), so the room it has stops
+ * growing long before the viewport does; viewport breakpoints therefore showed
+ * the most text at exactly the widths with the least spare room. Instead the
+ * row is measured and folded one step at a time until nothing overflows:
+ *
+ *   0  everything labelled
+ *   1  "View as requester" becomes its eye icon
+ *   2  the wordmark goes, the logo stays
+ *   3  the search box becomes an icon
+ *   4  nav links tighten their padding
+ *   5+ trailing nav links move into a "More" menu, one per step
+ */
+const FOLD_PREVIEW_LABEL = 1;
+const FOLD_WORDMARK = 2;
+const FOLD_SEARCH_LABEL = 3;
+const FOLD_TIGHT_LINKS = 4;
+const FOLD_OVERFLOW = 5;
+
+function useHeaderFold(contentKey: string, maxFold: number) {
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const navRef = useRef<HTMLElement | null>(null);
+  const [fold, setFold] = useState(0);
+  const [width, setWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const next = Math.round(entries[0]?.contentRect.width ?? 0);
+      setWidth((prev) => (prev === next ? prev : next));
+    });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, []);
+
+  // Width or content changed: start from the roomiest layout and fold again.
+  const measuredKey = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const key = `${width}|${contentKey}`;
+    if (measuredKey.current !== key) {
+      measuredKey.current = key;
+      if (fold !== 0) {
+        setFold(0);
+        return;
+      }
+    }
+    const row = rowRef.current;
+    const nav = navRef.current;
+    if (!row || !nav || nav.offsetParent === null) return;
+    const overflowing =
+      nav.scrollWidth > nav.clientWidth || row.scrollWidth > row.clientWidth;
+    if (overflowing && fold < maxFold) setFold(fold + 1);
+  });
+
+  return { rowRef, navRef, fold };
+}
 
 export function Header() {
   const pathname = useLocation().pathname;
+  const navigate = useNavigate();
   // Synchronous with the route — never derived from a previous page's owns map.
   const pageTitle = titleForRoute(pathname);
   const caps = useCapabilities();
   const isDesktop = useMediaQuery("(min-width: 768px)");
-  const { items: navRow, dividerIndex } = desktopNavRow(caps);
-  const activeDesktopHref = navActiveHref(navRow, pathname);
-  const { badge } = useUnreadNotifications();
+  const { items: fullRow, dividerIndex: fullDivider } = desktopNavRow(caps);
+  // Notifications is the bell beside search, which carries the one unread
+  // count. A text link to the same page next to it printed the count twice.
+  const dividerHref = fullRow[fullDivider]?.href ?? null;
+  const navRow = fullRow.filter((item) => item.href !== NOTIFICATIONS_HREF);
+  const activeDesktopHref = navActiveHref(fullRow, pathname);
   const pending = useSessionInfo().pendingRequests;
   const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
   const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
+
+  const { rowRef, navRef, fold } = useHeaderFold(
+    `${navRow.map((i) => i.href).join(",")}|${requestsBadge ?? ""}|${caps.canPreview}`,
+    FOLD_OVERFLOW + navRow.length - 1,
+  );
+  const overflowCount = Math.max(0, fold - FOLD_OVERFLOW + 1);
+  const inlineRow = overflowCount ? navRow.slice(0, navRow.length - overflowCount) : navRow;
+  const moreRow = overflowCount ? navRow.slice(navRow.length - overflowCount) : [];
+  const moreActive = moreRow.some((item) => item.href === activeDesktopHref);
+  const showWordmark = fold < FOLD_WORDMARK;
+  const showSearchLabel = fold < FOLD_SEARCH_LABEL;
+  const showPreviewLabel = fold < FOLD_PREVIEW_LABEL;
+  const tightLinks = fold >= FOLD_TIGHT_LINKS;
 
   // A plain click opens the palette and gives it the durable `/search` URL;
   // modified clicks still open that fallback route in a new tab.
@@ -43,12 +125,15 @@ export function Header() {
 
   return (
     <header className="app-header" data-app-header>
-      <div className="container-app flex h-14 items-center gap-3 sm:gap-4">
+      <div ref={rowRef} className="container-app flex h-14 items-center gap-3 sm:gap-4">
         <Link
           to="/"
           aria-label="TorrentFlow home"
           data-brand-home
-          className="flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center gap-2 shrink-0 rounded-md lg:h-auto lg:w-auto lg:min-h-0 lg:min-w-0 lg:justify-start"
+          className={cn(
+            "flex h-11 min-h-[44px] min-w-[44px] items-center gap-2 shrink-0 rounded-md",
+            showWordmark && isDesktop ? "w-auto justify-start" : "w-11 justify-center",
+          )}
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[var(--primary-foreground)]">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -61,9 +146,11 @@ export function Header() {
               />
             </svg>
           </span>
-          <span className="hidden text-sm font-semibold tracking-tight text-[var(--text)] truncate lg:inline">
-            TorrentFlow
-          </span>
+          {showWordmark && isDesktop ? (
+            <span className="text-sm font-semibold tracking-tight text-[var(--text)] whitespace-nowrap">
+              TorrentFlow
+            </span>
+          ) : null}
         </Link>
 
         {/* Mobile: name the current page — the bottom tab bar is the only other
@@ -84,19 +171,22 @@ export function Header() {
           </>
         ) : null}
 
-        {/* Desktop: flat nav — one click to every main page.
-            py/-my give the focus ring room: the scroll container clips on both
-            axes, so without it the ring's top and bottom edges are cut off. */}
+        {/* Desktop: flat nav — one click to every main page. It never scrolls:
+            useHeaderFold folds labels and, as a last resort, moves trailing
+            links into "More" until the row fits. py/-my give the focus ring
+            room inside the clipped row. */}
         <nav
-          className="hidden md:flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto py-1.5 -my-1.5"
+          ref={navRef}
+          className="hidden md:flex items-center gap-0.5 flex-1 min-w-0 overflow-hidden py-1.5 -my-1.5 px-0.5 -mx-0.5"
           data-desktop-nav
+          data-header-fold={fold}
           aria-label="Main"
         >
-          {navRow.map((item, i) => {
+          {inlineRow.map((item) => {
             const { href, label } = item;
             const active = href === activeDesktopHref;
             // Divider separates the primary path from the secondary pages.
-            const showDivider = i === dividerIndex;
+            const showDivider = href === dividerHref;
             return (
               <span key={href} className="contents">
                 {showDivider ? (
@@ -109,7 +199,8 @@ export function Header() {
                   to={href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "inline-flex items-center min-h-[44px] lg:min-h-0 px-2 lg:px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
+                    "inline-flex items-center min-h-[44px] py-1.5 rounded-md text-[13px] font-medium transition-colors whitespace-nowrap shrink-0",
+                    tightLinks ? "px-2" : "px-3",
                     "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
                     active
                       ? "text-[var(--text)] bg-[var(--bg-muted)]"
@@ -117,17 +208,6 @@ export function Header() {
                   )}
                 >
                   {label}
-                  {/* Beside the word, not on it: the desktop row has room, so
-                      the count can be read rather than decoded. */}
-                  {href === NOTIFICATIONS_HREF && badge ? (
-                    <span
-                      data-nav-unread
-                      aria-label={`${badge} unread`}
-                      className="ml-1.5 inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
-                    >
-                      {badge}
-                    </span>
-                  ) : null}
                   {href === REQUESTS_HREF && requestsBadge ? (
                     <span
                       data-nav-requests-pending
@@ -141,6 +221,52 @@ export function Header() {
               </span>
             );
           })}
+          {moreRow.length ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                data-header-more
+                aria-current={moreActive ? "page" : undefined}
+                className={cn(
+                  "inline-flex items-center gap-1 min-h-[44px] px-2 py-1.5 rounded-md text-[13px] font-medium whitespace-nowrap shrink-0 transition-colors",
+                  "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
+                  moreActive
+                    ? "text-[var(--text)] bg-[var(--bg-muted)]"
+                    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]",
+                )}
+              >
+                More
+                {requestsBadge && moreRow.some((item) => item.href === REQUESTS_HREF) ? (
+                  <span
+                    data-nav-more-pending
+                    aria-label={`${requestsBadge} pending`}
+                    className="inline-block min-w-[20px] rounded-full bg-[var(--accent)] px-1.5 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]"
+                  >
+                    {requestsBadge}
+                  </span>
+                ) : null}
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {moreRow.map((item) => (
+                  <DropdownMenuItem
+                    key={item.href}
+                    onSelect={() => navigate(item.href)}
+                    className={cn(
+                      "min-h-[44px]",
+                      item.href === activeDesktopHref && "text-[var(--text)] bg-[var(--bg-muted)]",
+                    )}
+                  >
+                    {item.label}
+                    {item.href === REQUESTS_HREF && requestsBadge ? (
+                      <span className="ml-auto text-[12px] tabular-nums text-[var(--text-tertiary)]">
+                        {requestsBadge} pending
+                      </span>
+                    ) : null}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </nav>
 
         {/* Desktop actions: search, then list density */}
@@ -154,10 +280,12 @@ export function Header() {
             to={HEADER_SEARCH_HREF}
             onClick={onSearchClick}
             aria-current={searchActive ? "page" : undefined}
+            aria-label="Search"
             data-header-search
             data-search-trigger
             className={cn(
-              "hidden md:inline-flex h-11 w-11 lg:h-8 lg:w-auto items-center justify-center lg:justify-start gap-2 rounded-md border px-2.5 text-[12px] transition-colors",
+              "hidden md:inline-flex shrink-0 items-center gap-2 rounded-md border text-[12px] transition-colors",
+              showSearchLabel ? "h-9 w-auto justify-start px-2.5" : "h-11 w-11 justify-center",
               "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
               searchActive
                 ? "border-[var(--border-strong)] bg-[var(--bg-muted)] text-[var(--text)]"
@@ -165,10 +293,14 @@ export function Header() {
             )}
           >
             <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span className="hidden lg:inline lg:min-w-[7rem] text-left">Search</span>
-            <kbd className="hidden lg:inline rounded border border-[var(--border)] bg-[var(--bg)] px-1 font-mono text-[12px] leading-none text-[var(--text-tertiary)]">
-              /
-            </kbd>
+            {showSearchLabel ? (
+              <>
+                <span className="min-w-[7rem] text-left" aria-hidden>Search</span>
+                <kbd className="rounded border border-[var(--border)] bg-[var(--bg)] px-1 font-mono text-[12px] leading-none text-[var(--text-tertiary)]" aria-hidden>
+                  /
+                </kbd>
+              </>
+            ) : null}
           </Link>
           <Link
             to={HEADER_SEARCH_HREF}
@@ -196,14 +328,14 @@ export function Header() {
               aria-label="View as requester"
               title="See the app the way people you share it with do"
               className={cn(
-                "hidden md:inline-flex h-11 lg:h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-[var(--text-tertiary)] transition-colors",
+                "hidden md:inline-flex h-11 min-w-[44px] shrink-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium whitespace-nowrap text-[var(--text-tertiary)] transition-colors",
                 "hover:bg-[var(--bg-muted)] hover:text-[var(--text-secondary)]",
                 "outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)]",
               )}
             >
               <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              {/* One name: aria-label. The word is decoration on wide screens only. */}
-              <span className="hidden 2xl:inline" aria-hidden>View as requester</span>
+              {/* One name: aria-label. The word is shown only when the row has room. */}
+              {showPreviewLabel ? <span aria-hidden>View as requester</span> : null}
             </button>
           ) : null}
           {/* The list-density toggle used to sit here.
