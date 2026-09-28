@@ -53,6 +53,8 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
         {
             await using var db = await factory.CreateDbContextAsync(ct);
             var rules = await db.AutoRules.Where(x => x.UserId == LocalUser.Id && x.Enabled == true).ToListAsync(ct);
+            var preferredResolution = await db.ClientSettings.Where(x => x.UserId == LocalUser.Id)
+                .Select(x => x.PreferredResolution).FirstOrDefaultAsync(ct) ?? 1080;
             var summary = new List<RuleRunResult>();
             foreach (var rule in rules)
             {
@@ -65,7 +67,9 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                     var response = await search.SearchAsync(new() { Query = rule.Query, Category = rule.Category, Limit = 15,
                         Sources = rule.Sources?.Split(','), Enrich = true, SkipCache = true, Background = true,
                         Filters = new() { MinSeeders = rule.MinSeeders, MaxSizeBytes = rule.MaxSizeBytes, Resolution = rule.Resolution, HasMagnet = true } }, ct);
-                    candidate = response.Results.FirstOrDefault(x => x.Magnet != null && MatchesCategory(x, rule.Category) &&
+                    candidate = GrabService.PreferRequestedQuality(response.Results,
+                        ReleaseSelection.Resolution(rule.Resolution ?? "") ?? preferredResolution)
+                        .FirstOrDefault(x => x.Magnet != null && MatchesCategory(x, rule.Category) &&
                         x.Seeders >= rule.MinSeeders && (rule.MaxSizeBytes == null || x.SizeBytes <= rule.MaxSizeBytes) &&
                         (rule.Resolution == null || ReleaseSelection.Resolution(x.Title)?.ToString() + "p" == rule.Resolution));
                     if (candidate != null)

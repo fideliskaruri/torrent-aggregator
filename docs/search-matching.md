@@ -2,6 +2,7 @@
 
 ## Fix status (September 28, 2026)
 
+- FQ-SET-006 (automation): fixed; `a863a9b` only handled requests. Watchlist hunts and rules now reuse its closest-quality/non-remux/smaller-known-size ordering, retaining watchlist seeder grace/floors and explicit rule filters. Four 720p/1080p tests reproduced both paths selecting huge remuxes before the change. Search page budgets are unchanged; this preference applies to returned candidates, not unseen releases.
 - MAGNET-NOMETA (server): fixed; admitted magnets persist the requested name or decoded `dn` before peers supply metadata. Metadata timeout preserves that name and reports `error` with plain file-list recovery guidance; clock-driven engine/list regressions cover Unicode and explicit titles.
 - UNI-007: fixed; authenticated tunnel owners can use download recovery. Middleware no longer treats recovery as local-only and controller trusts the authenticated owner role; requesters remain denied by the role-route matrix.
 - MATCH-UNICODE-SLUG: fixed; a native-only identity already had a percent-encoded fallback, but lowercased comparison keys never equaled its uppercase escapes. Comparisons now normalize URI escaping/case (including route-decoded keys), preserving existing stable IDs and exact-name guards; three Japanese-only title regressions pass without requiring an invented alias.

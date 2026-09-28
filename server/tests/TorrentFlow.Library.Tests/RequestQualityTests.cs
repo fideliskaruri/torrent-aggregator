@@ -1,12 +1,45 @@
 using Microsoft.Extensions.DependencyInjection;
+using System.Net.Http.Json;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Library.Features.Grabs;
+using TorrentFlow.Library.Features.Automation;
 
 namespace TorrentFlow.Library.Tests;
 
 public sealed class RequestQualityTests
 {
+    [Theory]
+    [InlineData(false, 720)]
+    [InlineData(false, 1080)]
+    [InlineData(true, 720)]
+    [InlineData(true, 1080)]
+    public async Task AutomationWatchlistAndRulesPreferSmallerNonRemuxAtSelectedQuality(bool rule, int floor)
+    {
+        using var host = new LibraryHost();
+        using var client = host.CreateClient();
+        await host.Settings();
+        await host.Seed(db => db.ClientSettings.Single().PreferredResolution = floor);
+        if (rule)
+            await client.PostAsJsonAsync("/api/rules", new { name = "Weekly", query = "Example Show", category = "anime", resolution = $"{floor}p" });
+        else
+            await host.Seed(db => db.WatchListItems.Add(LibraryHost.Watch()));
+        host.Search.Respond = o => new()
+        {
+            Query = o.Query, Results =
+            [
+                FakeSearch.Release("Example Show S01E01 2160p REMUX", 500) with { SizeBytes = 12_000_000_000 },
+                FakeSearch.Release($"Example Show S01E01 {floor}p REMUX", 400) with { SizeBytes = 8_000_000_000 },
+                FakeSearch.Release($"Example Show S01E01 {floor}p WEB-DL Large", 300) with { SizeBytes = 4_000_000_000 },
+                FakeSearch.Release($"Example Show S01E01 {floor}p WEB-DL", 30) with { SizeBytes = 700_000_000 }
+            ]
+        };
+        await host.Services.GetRequiredService<AutomationService>().Run(default);
+        var sent = Assert.Single(host.Engine.Adds);
+        Assert.Equal($"Example Show S01E01 {floor}p WEB-DL", sent.Name);
+        Assert.Equal(TorrentLane.Automation, sent.Lane);
+    }
+
     [Theory]
     [InlineData(720, "Breaking Bad S03E05 720p WEB-DL", false)]
     [InlineData(1080, "Breaking Bad S03E05 1080p WEB-DL", false)]

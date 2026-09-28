@@ -212,11 +212,11 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         bool Exact(TorrentResult r) => input.Cursor == null || EpisodeLadder.MatchesTargetEpisode(r, input.Cursor.Value, input.EpisodeMapping);
         var exactBeforeQuality = eligible.Count(Exact);
         var quality = eligible.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor)).ToList();
-        var candidates = quality.Where(x => input.Cursor == null ? !EpisodeCursor.IsSeries(x.Metadata?.MediaType) && EpisodeCursor.Parse(x.Title) == null &&
+        var candidates = PreferRequestedQuality(quality.Where(x => input.Cursor == null ? !EpisodeCursor.IsSeries(x.Metadata?.MediaType) && EpisodeCursor.Parse(x.Title) == null &&
                 (input.Year == null || ReleaseSelection.Year(x.Title) == null || ReleaseSelection.Year(x.Title) == input.Year) :
                 Exact(x))
-            .Where(x => x.Magnet != null || x.TorrentUrl != null || x.InfoHash != null)
-            .OrderByDescending(x => x.Seeders >= Math.Max(1, options.MinimumSeeders)).ThenByDescending(x => ReleaseSelection.Resolution(x.Title) == floor).ThenByDescending(x => x.Score ?? x.Seeders).ToList();
+            .Where(x => x.Magnet != null || x.TorrentUrl != null || x.InfoHash != null), floor ?? 1080)
+            .OrderByDescending(x => x.Seeders >= Math.Max(1, options.MinimumSeeders)).ToList();
         var attempts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string? lastError = null;
         foreach (var candidate in candidates)
@@ -355,7 +355,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         await db.SaveChangesAsync(ct);
     }
 
-    private static IOrderedEnumerable<TorrentResult> PreferRequestedQuality(IEnumerable<TorrentResult> releases, int floor) =>
+    internal static IOrderedEnumerable<TorrentResult> PreferRequestedQuality(IEnumerable<TorrentResult> releases, int floor) =>
         releases.OrderBy(r => r.Seeders > 0 ? 0 : 1)
             .ThenBy(r => ReleaseSelection.Resolution(r.Title) is { } resolution ? Math.Abs(resolution - floor) : int.MaxValue)
             .ThenBy(r => System.Text.RegularExpressions.Regex.IsMatch(r.Title, @"\bremux\b",
