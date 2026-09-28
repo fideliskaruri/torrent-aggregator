@@ -4,12 +4,14 @@
  *
  * Codes against the owner-only contract in docs/dotnet-port.md
  * ("Manual release replacement → UI integration contract"):
- *   GET  /api/client/torrents/{hash}/alternatives → { health, alternatives[] }
+ *   GET  /api/client/torrents/{hash}/alternatives[?source=id]
+ *        → { health, alternatives[], sources[], recommendedToken? }
  *   POST /api/client/torrents/{hash}/alternatives { token } → { ok, message, hash }
+ *   POST /api/client/torrents/{hash}/alternatives { best: true, source? } → { ok, message, hash }
  * Nullable properties are omitted by the server, so every optional field is
  * `?:` here. Alternatives are rendered in the order the server ranked them.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,9 +19,10 @@ import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
 import { readJsonBody } from "@/lib/api-json";
+import { RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import { toast } from "@/lib/toast";
-import { formatBytes, formatDuration } from "@/lib/utils";
+import { cn, formatBytes, formatDuration } from "@/lib/utils";
 import { isDownloaded } from "./grouping";
 import { stateLabel } from "./release-display";
 import type { ClientTorrent } from "./types";
@@ -45,9 +48,18 @@ export interface ReleaseAlternative {
   why: string;
 }
 
+/** An enabled searchable source. `count` is omitted until that source has been searched. */
+export interface ReleaseSwapSource {
+  id: string;
+  name: string;
+  count?: number;
+}
+
 export interface ReleaseAlternatives {
   health: ReleaseSwapHealth;
   alternatives: ReleaseAlternative[];
+  sources?: ReleaseSwapSource[];
+  recommendedToken?: string;
 }
 
 /** Only incomplete, built-in, non-imported rows have a release to replace. */
@@ -59,6 +71,19 @@ const CHOICES_TTL_MS = 10 * 60_000;
 
 function alternativesEndpoint(hash: string): string {
   return `/api/client/torrents/${encodeURIComponent(hash.toLowerCase())}/alternatives`;
+}
+
+function sourceLabel(id: string, name?: string): string {
+  return RULE_SOURCE_OPTIONS.find((option) => option.value === id)?.label ?? (name?.trim() || id);
+}
+
+/** Keep chips stable across refetches: keep every known source and only overwrite counts the server reported. */
+function mergeSources(previous: ReleaseSwapSource[], next: ReleaseSwapSource[] | undefined): ReleaseSwapSource[] {
+  if (!next?.length) return previous;
+  const prior = new Map(previous.map((source) => [source.id, source]));
+  const merged = next.map((source) => ({ ...source, count: source.count ?? prior.get(source.id)?.count }));
+  const seen = new Set(merged.map((source) => source.id));
+  return [...merged, ...previous.filter((source) => !seen.has(source.id))];
 }
 
 function failureMessage(body: { message?: string; title?: string } | null, status: number, fallback: string): string {
@@ -85,7 +110,10 @@ export function ReleaseSwapDialog({
   const endpoint = alternativesEndpoint(torrent.hash);
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [source, setSource] = useState<string | null>(null);
+  const [sources, setSources] = useState<ReleaseSwapSource[]>([]);
   const [switchingToken, setSwitchingToken] = useState<string | null>(null);
+  const [findingBest, setFindingBest] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
   // Choices are one-use tokens that expire after 10 minutes; once refused or
   // old they can't be used, so the list asks to be fetched again.
@@ -111,16 +139,25 @@ export function ReleaseSwapDialog({
   useEffect(() => {
     const controller = new AbortController();
     setState({ kind: "loading" });
+    const url = source ? `${endpoint}?source=${encodeURIComponent(source)}` : endpoint;
     void (async () => {
       try {
-        const res = await sessionAwareFetch(endpoint, { cache: "no-store", signal: controller.signal });
+        const res = await sessionAwareFetch(url, { cache: "no-store", signal: controller.signal });
         const body = await readJsonBody<ReleaseAlternatives & { message?: string }>(res);
         if (controller.signal.aborted) return;
         if (!res.ok || !body || !Array.isArray(body.alternatives) || !body.health) {
-          setState({ kind: "error", message: failureMessage(body, res.status, "Could not search for other releases.") });
+          setState({ kind: "error", message: failureMessage(body, res.status, "Couldn't search right now. Try again.") });
           return;
         }
-        setState({ kind: "ready", data: { health: body.health, alternatives: body.alternatives } });
+        setSources((previous) => mergeSources(previous, body.sources));
+        setState({
+          kind: "ready",
+          data: {
+            health: body.health,
+            alternatives: body.alternatives,
+            recommendedToken: body.recommendedToken ?? body.alternatives[0]?.token,
+          },
+        });
       } catch {
         if (!controller.signal.aborted) {
           setState({ kind: "error", message: "Couldn't reach TorrentFlow. Check your connection, then try again." });
@@ -128,7 +165,14 @@ export function ReleaseSwapDialog({
       }
     })();
     return () => controller.abort();
-  }, [endpoint, attempt]);
+  }, [endpoint, source, attempt]);
+
+  function chooseSource(next: string | null) {
+    if (next === source) return;
+    setSwapError(null);
+    setStale(false);
+    setSource(next);
+  }
 
   async function switchTo(candidate: ReleaseAlternative) {
     setSwitchingToken(candidate.token);
@@ -156,8 +200,41 @@ export function ReleaseSwapDialog({
     }
   }
 
-  const switching = switchingToken !== null;
+  async function findBest() {
+    setFindingBest(true);
+    setSwapError(null);
+    try {
+      const res = await sessionAwareFetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(source ? { best: true, source } : { best: true }),
+      });
+      const body = await readJsonBody<{ ok?: boolean; message?: string; title?: string; hash?: string }>(res);
+      if (!res.ok || !body?.ok) {
+        if (!mounted.current) return;
+        const message = failureMessage(body, res.status, "No better release was found. Your current download was kept.");
+        retry();
+        setSwapError(message);
+        return;
+      }
+      const picked = state.kind === "ready" && body.hash
+        ? state.data.alternatives.find((candidate) => candidate.hash.toLowerCase() === body.hash?.toLowerCase())
+        : undefined;
+      const releaseName = picked?.title ?? "a better release";
+      toast.success(body.message?.trim() || `Switched to ${releaseName}`);
+      onSwapped(releaseName);
+    } catch {
+      if (mounted.current) setSwapError("Couldn't reach TorrentFlow. The release was not switched. Try again.");
+    } finally {
+      if (mounted.current) setFindingBest(false);
+    }
+  }
+
+  const switching = switchingToken !== null || findingBest;
   const searchHref = `/search?q=${encodeURIComponent(torrent.workTitle || torrent.name)}`;
+  const selectedSource = source ? sources.find((entry) => entry.id === source) : undefined;
+  const selectedLabel = source ? sourceLabel(source, selectedSource?.name) : null;
+  const nothingToPick = state.kind === "ready" && state.data.alternatives.length === 0;
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -171,6 +248,30 @@ export function ReleaseSwapDialog({
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[calc(1rem+var(--safe-bottom))] sm:px-5 sm:pb-5">
           <HealthSummary torrent={torrent} health={state.kind === "ready" ? state.data.health : null} checking={state.kind === "loading"} />
+
+          <section aria-label="Where to look" className="space-y-3" data-swap-finder>
+            <SourcePicker sources={sources} selected={source} disabled={switching} onSelect={chooseSource} />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <Button
+                type="button"
+                size="lg"
+                className="w-full sm:w-auto"
+                disabled={switching || nothingToPick}
+                aria-busy={findingBest}
+                onClick={() => void findBest()}
+                data-swap-best
+                data-pending={findingBest ? "true" : undefined}
+              >
+                {findingBest ? <LoadingGlyph /> : null}
+                {findingBest ? "Finding the best release…" : "Find the best one for me"}
+              </Button>
+              <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+                {nothingToPick
+                  ? "There's nothing better to switch to here."
+                  : `Picks the best release on ${selectedLabel ?? "any source"} and switches to it.`}
+              </p>
+            </div>
+          </section>
 
           <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
             Switching removes this release&apos;s partial files. Completed files and other downloads are kept.
@@ -199,10 +300,10 @@ export function ReleaseSwapDialog({
           ) : null}
 
           {state.kind === "loading" ? (
-            <div role="status" aria-live="polite" aria-label="Searching for other releases" data-release-alternatives-loading>
+            <div role="status" aria-live="polite" aria-label={`Searching ${selectedLabel ?? "all sources"}`} data-release-alternatives-loading>
               <p className="mb-3 flex items-center gap-2 text-[13px] text-[var(--text-secondary)]">
                 <LoadingGlyph className="h-3.5 w-3.5" />
-                Searching sources for other releases…
+                Searching {selectedLabel ?? "all sources"}…
               </p>
               <ul className="space-y-2" aria-hidden>
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -218,64 +319,168 @@ export function ReleaseSwapDialog({
           ) : state.kind === "error" ? (
             <TfErrorState title="Couldn't find other releases" message={state.message} onRetry={retry} />
           ) : state.data.alternatives.length === 0 ? (
-            <TfEmptyState
-              title="No other releases found."
-              description="Try again later or search for the title."
-              actionLabel="Search for the title"
-              actionHref={searchHref}
-            />
+            selectedLabel ? (
+              <TfEmptyState
+                title={`No other releases on ${selectedLabel}`}
+                description="Try another source or search for the title."
+                actionLabel="Search for the title"
+                actionHref={searchHref}
+              />
+            ) : (
+              <TfEmptyState
+                title="No other releases found on any source"
+                description="Try again later or search for the title."
+                actionLabel="Search for the title"
+                actionHref={searchHref}
+              />
+            )
           ) : (
-            <ol className="space-y-2" aria-label="Other releases, best first" data-release-alternatives>
-              {state.data.alternatives.map((candidate, index) => {
-                const pending = switchingToken === candidate.token;
-                return (
-                  <li
-                    key={candidate.token}
-                    className="min-w-0 space-y-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] p-3"
-                    data-release-alternative
-                    data-alternative-hash={candidate.hash}
-                    data-alternative-rank={index + 1}
-                  >
-                    <p className="break-words text-sm font-medium text-[var(--text)]">{candidate.title}</p>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
-                      {candidate.quality ? <Badge variant="outline">{candidate.quality}p</Badge> : null}
-                      <span>{candidate.seeders} {candidate.seeders === 1 ? "seeder" : "seeders"}</span>
-                      <span aria-hidden>·</span>
-                      <span>{candidate.sizeBytes != null ? formatBytes(candidate.sizeBytes) : "Size unknown"}</span>
-                      {candidate.source ? (
-                        <>
-                          <span aria-hidden>·</span>
-                          <span className="break-all">{candidate.source}</span>
-                        </>
-                      ) : null}
-                    </div>
-                    {candidate.why ? (
-                      <p className="text-[13px] leading-relaxed text-[var(--text-secondary)] break-words" data-alternative-reason>
-                        {candidate.why}
-                      </p>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant={index === 0 ? "default" : "secondary"}
-                      className="min-h-[44px] w-full sm:w-auto"
-                      disabled={switching || stale}
-                      aria-busy={pending}
-                      aria-label={`Use this release: ${candidate.title}`}
-                      onClick={() => void switchTo(candidate)}
-                      data-use-release
-                      data-pending={pending ? "true" : undefined}
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium text-[var(--text-secondary)]">Or choose one yourself</h3>
+              <ol className="space-y-2" aria-label="Other releases, best first" data-release-alternatives>
+                {state.data.alternatives.map((candidate, index) => {
+                  const pending = switchingToken === candidate.token;
+                  const recommended = candidate.token === state.data.recommendedToken;
+                  return (
+                    <li
+                      key={candidate.token}
+                      className={cn(
+                        "min-w-0 space-y-2 rounded-[var(--radius)] border bg-[var(--bg-elevated)] p-3",
+                        recommended ? "border-[var(--accent)]" : "border-[var(--border)]",
+                      )}
+                      data-release-alternative
+                      data-swap-card
+                      data-recommended={recommended ? "true" : undefined}
+                      data-alternative-hash={candidate.hash}
+                      data-alternative-rank={index + 1}
                     >
-                      {pending ? <LoadingGlyph /> : null}
-                      {pending ? "Switching…" : "Use this release"}
-                    </Button>
-                  </li>
-                );
-              })}
-            </ol>
+                      {recommended ? <Badge variant="accent" data-best-match>Best match</Badge> : null}
+                      <p className="break-words text-sm font-medium text-[var(--text)]">{candidate.title}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
+                        {candidate.quality ? <Badge variant="outline">{candidate.quality}p</Badge> : null}
+                        <span>{candidate.seeders} {candidate.seeders === 1 ? "seeder" : "seeders"}</span>
+                        <span aria-hidden>·</span>
+                        <span>{candidate.sizeBytes != null ? formatBytes(candidate.sizeBytes) : "Size unknown"}</span>
+                        {candidate.source ? (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span className="break-all">{sourceLabel(candidate.source)}</span>
+                          </>
+                        ) : null}
+                      </div>
+                      {candidate.why ? (
+                        <p className="text-[13px] leading-relaxed text-[var(--text-secondary)] break-words" data-alternative-reason>
+                          {candidate.why}
+                        </p>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant={recommended ? "default" : "secondary"}
+                        className="min-h-[44px] w-full sm:w-auto"
+                        disabled={switching || stale}
+                        aria-busy={pending}
+                        aria-label={`Use this release: ${candidate.title}`}
+                        onClick={() => void switchTo(candidate)}
+                        data-use-release
+                        data-pending={pending ? "true" : undefined}
+                      >
+                        {pending ? <LoadingGlyph /> : null}
+                        {pending ? "Switching…" : "Use this release"}
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
           )}
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Single-choice source filter. Roving tabindex with arrow/Home/End keys;
+ * sources that were searched and found nothing stay focusable but can't be picked.
+ */
+function SourcePicker({
+  sources,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  sources: ReleaseSwapSource[];
+  selected: string | null;
+  disabled: boolean;
+  onSelect: (id: string | null) => void;
+}) {
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const options: Array<{ id: string | null; label: string; count?: number }> = [
+    { id: null, label: "All sources" },
+    ...sources.map((entry) => ({ id: entry.id, label: sourceLabel(entry.id, entry.name), count: entry.count })),
+  ];
+  const activeIndex = Math.max(0, options.findIndex((option) => option.id === selected));
+  const unavailable = (option: { id: string | null; count?: number }) => option.id !== null && option.count === 0 && option.id !== selected;
+
+  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % options.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + options.length) % options.length;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = options.length - 1;
+    else return;
+    event.preventDefault();
+    refs.current[next]?.focus();
+    if (!disabled && !unavailable(options[next])) onSelect(options[next].id);
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <p id="swap-source-label" className="text-xs font-medium text-[var(--text-secondary)]">Look on</p>
+      <div
+        role="radiogroup"
+        aria-labelledby="swap-source-label"
+        className="-mx-1 flex gap-1.5 overflow-x-auto px-1 py-1"
+        data-swap-sources
+      >
+        {options.map((option, index) => {
+          const checked = index === activeIndex;
+          const empty = unavailable(option);
+          return (
+            <button
+              key={option.id ?? "all"}
+              ref={(el) => { refs.current[index] = el; }}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              aria-disabled={empty || disabled || undefined}
+              aria-label={option.count === 0 ? `${option.label}, nothing found` : undefined}
+              tabIndex={checked ? 0 : -1}
+              onClick={() => { if (!empty && !disabled) onSelect(option.id); }}
+              onKeyDown={(event) => onKeyDown(event, index)}
+              data-swap-source={option.id ?? "all"}
+              data-swap-source-count={option.count}
+              className={cn(
+                "flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-xs font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
+                checked
+                  ? "border-[var(--accent-border)] bg-[var(--accent-dim)] text-[var(--text)]"
+                  : empty
+                    ? "cursor-not-allowed border-[var(--border)] text-[var(--text-tertiary)] opacity-60"
+                    : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
+              )}
+            >
+              <span>{option.label}</span>
+              {option.count != null ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>{option.count}</span>
+                </>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

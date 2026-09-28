@@ -19,8 +19,11 @@ test("release swap codes against the documented alternatives contract", () => {
 test("release swap renders loading, empty, error and ready states", () => {
   assert.match(dialog, /data-release-alternatives-loading/);
   assert.match(dialog, /SkeletonBlock/);
-  assert.match(dialog, /No other releases found\./);
+  assert.match(dialog, /No other releases found on any source/);
+  assert.match(dialog, /No other releases on \$\{selectedLabel\}/);
   assert.match(dialog, /Try again later or search for the title\./);
+  assert.match(dialog, /Searching \{selectedLabel \?\? "all sources"\}…/);
+  assert.match(dialog, /Couldn't search right now\. Try again\./);
   assert.match(dialog, /<TfErrorState[^>]*onRetry=\{retry\}/);
   assert.match(dialog, /data-release-alternative\b/);
   assert.match(dialog, /data-use-release/);
@@ -36,6 +39,36 @@ test("switching disables every button, marks the pressed one and toasts the rele
   assert.match(dialog, /Switching…/);
   assert.match(dialog, /toast\.success\(`Switched to \$\{candidate\.title\}`\)/);
   assert.match(dialog, /min-h-\[44px\]/);
+});
+
+test("find the best one for me posts best with the selected source and reuses the swap success path", () => {
+  assert.match(dialog, /Find the best one for me/);
+  assert.match(dialog, /Finding the best release…/);
+  assert.match(dialog, /data-swap-best/);
+  assert.match(dialog, /JSON\.stringify\(source \? \{ best: true, source \} : \{ best: true \}\)/);
+  assert.match(dialog, /onSwapped\(releaseName\)/);
+});
+
+test("source picker is a keyboard radiogroup with counts, stable across refetches", () => {
+  assert.match(dialog, /role="radiogroup"/);
+  assert.match(dialog, /role="radio"/);
+  assert.match(dialog, /data-swap-sources/);
+  assert.match(dialog, /data-swap-source=\{option\.id \?\? "all"\}/);
+  assert.match(dialog, /"All sources"/);
+  assert.match(dialog, /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/);
+  assert.match(dialog, /aria-disabled=\{empty \|\| disabled \|\| undefined\}/);
+  assert.match(dialog, /\?source=\$\{encodeURIComponent\(source\)\}/);
+  assert.match(dialog, /mergeSources\(previous, body\.sources\)/);
+  assert.match(dialog, /import \{ RULE_SOURCE_OPTIONS \} from "@\/lib\/rules\/form"/);
+});
+
+test("only the recommended card gets the Best match tag and the primary button", () => {
+  assert.match(dialog, /candidate\.token === state\.data\.recommendedToken/);
+  assert.match(dialog, /Best match/);
+  assert.match(dialog, /data-recommended=\{recommended \? "true" : undefined\}/);
+  assert.match(dialog, /data-swap-card/);
+  assert.match(dialog, /variant=\{recommended \? "default" : "secondary"\}/);
+  assert.doesNotMatch(dialog, /index === 0 \? "default"/);
 });
 
 test("Find another release is a row action on films and episode cards, and success refreshes the list", () => {
