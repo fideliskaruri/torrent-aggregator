@@ -256,6 +256,21 @@ test("owner inbox rows: pending first, then approved, then declined; history hid
   assert.equal(requests.parseOwnerRequests({ requests: [row("x", "pending", "2026-01-01")] }).pendingCount, 1);
 });
 
+test("partial and failed requests stay in the inbox with a retry; partial reads Partly done", () => {
+  const row = (id, status, createdAt) => ({ id, title: id, status, scope: "seasons", seasons: [1], createdAt, requestedBy: "f@x.com" });
+  const parsed = requests.parseOwnerRequests({
+    requests: [row("a", "approved", "2026-01-03"), row("pt", "partial", "2026-01-02"), row("fl", "failed", "2026-01-04"),
+      row("p", "pending", "2026-01-01"), row("ok", "fulfilled", "2026-01-05")],
+  });
+  assert.deepEqual(requests.inboxRows(parsed.requests).map((r) => r.id), ["p", "pt", "fl", "a"]);
+  assert.equal(requests.statusLabel("partial"), "Partly done");
+  assert.equal(requests.canRetryRequest("partial"), true);
+  assert.equal(requests.canRetryRequest("failed"), true);
+  assert.equal(requests.canRetryRequest("approved"), false);
+  assert.equal(requests.canRetryRequest("fulfilled"), false);
+  assert.match(requests.ownerRequestErrorMessage("retry", { code: "not_pending", status: 409 }), /Nothing is left to retry/);
+});
+
 test("auto-approve: parse rules, drop none, merge known emails, labels", () => {
   const cfg = requests.parseAutoApprove({
     rules: [

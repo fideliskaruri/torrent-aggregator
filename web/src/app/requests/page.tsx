@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Ban, Check, Inbox, Loader2, Plus, X } from "lucide-react";
+import { Ban, Check, Inbox, Loader2, Plus, RotateCw, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
   ownerRequestErrorMessage,
   scopeLabel,
   statusLabel,
+  canRetryRequest,
   statusTone,
   type AutoApproveMode,
   type AutoApproveRule,
@@ -74,7 +75,7 @@ export default function RequestsPage() {
     [auto.data, extraEmails],
   );
 
-  async function decide(request: OwnerRequest, action: "approve" | "decline", declineReason?: string) {
+  async function decide(request: OwnerRequest, action: "approve" | "decline" | "retry", declineReason?: string) {
     setBusyId(request.id);
     try {
       const res = await sessionAwareFetch(`/api/requests/${encodeURIComponent(request.id)}/${action}`, {
@@ -86,6 +87,7 @@ export default function RequestsPage() {
       const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
       if (!res.ok) toast.error(ownerRequestErrorMessage(action, { code: typeof body?.code === "string" ? body.code : null, status: res.status }));
       else if (action === "approve") toast.success(`Approved ${request.title}`, { description: "It's downloading on the request lane." });
+      else if (action === "retry") toast.success(`Retrying ${request.title}`, { description: "Only the missing episodes are searched again." });
       else toast.success(`Declined ${request.title}`);
     } catch {
       toast.error(ownerRequestErrorMessage(action, {}));
@@ -353,6 +355,21 @@ export default function RequestsPage() {
                         Decline
                       </Button>
                     </div>
+                  ) : null}
+                  {reviewing && canRetryRequest(request.status) ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 self-start"
+                      disabled={busy}
+                      onClick={() => void decide(request, "retry")}
+                      aria-label={`Retry missing episodes for ${request.title}`}
+                      data-owner-request-retry={request.id}
+                    >
+                      {busy ? <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <RotateCw aria-hidden="true" />}
+                      {request.scope === "movie" ? "Retry" : "Retry missing episodes"}
+                    </Button>
                   ) : null}
                 </div>
               </li>

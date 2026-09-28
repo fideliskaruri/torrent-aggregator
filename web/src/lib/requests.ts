@@ -29,6 +29,7 @@ export type RequestStatus =
   | "approved"
   | "declined"
   | "fulfilled"
+  | "partial"
   | "failed"
   | "cancelled";
 
@@ -98,8 +99,17 @@ export function parseOwnerRequests(json: unknown): { requests: OwnerRequest[]; p
   return { requests, pendingCount: pending !== null && pending >= 0 ? pending : requests.filter((r) => r.status === "pending").length };
 }
 
-/** The owner inbox shows what needs a decision and what was decided; cancelled/fulfilled/failed rows are history. */
-export const INBOX_STATUSES: readonly RequestStatus[] = ["pending", "approved", "declined"];
+/**
+ * The owner inbox shows what needs a decision, what can be retried, and what was decided.
+ * Partial and failed rows stay so the owner can retry the missing episodes; cancelled and
+ * fulfilled rows are history.
+ */
+export const INBOX_STATUSES: readonly RequestStatus[] = ["pending", "partial", "failed", "approved", "declined"];
+
+/** Rows the owner can retry: only the episodes that never started are searched again. */
+export function canRetryRequest(status: RequestStatus): boolean {
+  return status === "partial" || status === "failed";
+}
 
 export function inboxRows(requests: readonly OwnerRequest[]): OwnerRequest[] {
   const rank = (s: RequestStatus) => INBOX_STATUSES.indexOf(s);
@@ -180,6 +190,7 @@ const STATUSES: readonly RequestStatus[] = [
   "approved",
   "declined",
   "fulfilled",
+  "partial",
   "failed",
   "cancelled",
 ];
@@ -299,6 +310,8 @@ export function statusLabel(status: RequestStatus): string {
       return "Declined";
     case "fulfilled":
       return "Ready";
+    case "partial":
+      return "Partly done";
     case "failed":
       return "Couldn't get it";
     case "cancelled":
@@ -309,7 +322,7 @@ export function statusLabel(status: RequestStatus): string {
 export type StatusTone = "accent" | "success" | "danger" | "outline";
 
 export function statusTone(status: RequestStatus): StatusTone {
-  if (status === "pending" || status === "approved") return "accent";
+  if (status === "pending" || status === "approved" || status === "partial") return "accent";
   if (status === "fulfilled") return "success";
   if (status === "declined" || status === "failed") return "danger";
   return "outline";
@@ -410,9 +423,10 @@ export function requestErrorMessage(failure: RequestFailure | string | null | un
 }
 /** Owner inbox copy for a failed approve/decline or auto-approve save. */
 export function ownerRequestErrorMessage(
-  action: "approve" | "decline" | "auto-approve",
+  action: "approve" | "decline" | "retry" | "auto-approve",
   failure: RequestFailure,
 ): string {
+  if (action === "retry" && failure.code === "not_pending") return "Nothing is left to retry. The list now shows where it stands.";
   if (failure.code === "not_pending") return "This request was already answered. The list now shows where it stands.";
   if (failure.code === "not_found") return "That request no longer exists. The list now shows the current requests.";
   if (failure.status === undefined) return "Couldn't reach TorrentFlow. Check your connection and try again.";
@@ -463,6 +477,8 @@ export function requestViewFor(state: RequestState, isSeries: boolean): RequestV
       return { label: "Approved", tone: "accent", action: isSeries ? "Request more seasons" : null };
     case "declined":
       return { label: "Declined", tone: "danger", action: "Request again" };
+    case "partial":
+      return { label: statusLabel("partial"), tone: "accent", action: isSeries ? "Request more seasons" : null };
     case "failed":
       return { label: statusLabel("failed"), tone: "danger", action: "Request again" };
     default:
