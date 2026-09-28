@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { TfPageHeader } from "@/components/tf/page-header";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { useDownloadSetup } from "@/components/setup/download-setup";
 import { magnetFromShare } from "@/lib/pwa/magnet-from-share";
@@ -97,49 +98,49 @@ export default function SharePage() {
       />
 
       {state.kind === "working" || state.kind === "idle" ? (
-        <div
-          className="surface flex items-center gap-3 p-4 text-[13px] text-[var(--text-secondary)]"
+        <Card
+          className="flex-row items-center gap-3 px-4 text-[13px] text-muted-foreground"
           aria-busy="true"
           data-share-state="working"
         >
           <LoadingGlyph />
           Adding the shared magnet…
-        </div>
+        </Card>
       ) : null}
 
       {state.kind === "ok" ? (
-        <div className="surface space-y-3 p-4" data-share-state="ok">
-          <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
+        <Card className="gap-3 px-4" data-share-state="ok">
+          <p className="text-[13px] leading-relaxed text-muted-foreground">
             Added to downloads{state.name ? `: ${state.name}` : ""}.
           </p>
-          <Button asChild size="sm">
+          <Button asChild size="sm" className="self-start">
             <Link to="/downloads">Open downloads</Link>
           </Button>
-        </div>
+        </Card>
       ) : null}
 
       {state.kind === "missing" ? (
-        <div className="surface space-y-3 p-4" data-share-state="missing">
-          <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
+        <Card className="gap-3 px-4" data-share-state="missing">
+          <p className="text-[13px] leading-relaxed text-muted-foreground">
             No magnet link was found in what was shared. Share a{" "}
-            <code className="text-[12px] text-[var(--accent-text)]">magnet:</code> URI
+            <code className="font-mono text-[12px] text-brand-foreground">magnet:</code> URI
             and try again.
           </p>
-          <Button asChild size="sm" variant="secondary">
+          <Button asChild size="sm" className="self-start" variant="secondary">
             <Link to="/downloads">Go to downloads</Link>
           </Button>
-        </div>
+        </Card>
       ) : null}
 
       {state.kind === "error" ? (
-        <div className="surface space-y-3 p-4" data-share-state="error">
-          <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
+        <Card className="gap-3 px-4" data-share-state="error">
+          <p className="text-[13px] leading-relaxed text-muted-foreground">
             {state.message}
           </p>
-          <Button asChild size="sm" variant="secondary">
+          <Button asChild size="sm" className="self-start" variant="secondary">
             <Link to="/downloads">Go to downloads</Link>
           </Button>
-        </div>
+        </Card>
       ) : null}
     </div>
   );

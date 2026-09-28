@@ -34,6 +34,8 @@ public sealed record TitleExtrasPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? Season { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public int? SeasonCount { get; init; }
     public IReadOnlyList<int> Seasons { get; init; } = [];
+    /// <summary>Aired episode count per season number, when the provider can say. Missing season = unknown.</summary>
+    public IReadOnlyDictionary<int, int> AiredEpisodes { get; init; } = new Dictionary<int, int>();
     public IReadOnlyList<TitleEpisodeMeta> Episodes { get; init; } = [];
     public IReadOnlyList<TitleSimilar> MoreLikeThis { get; init; } = [];
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? Overview { get; init; }
@@ -127,6 +129,7 @@ public sealed class TitleExtrasService(
                 Season = animeSeason,
                 SeasonCount = count is null ? null : 1,
                 Seasons = count is null ? [] : [1],
+                AiredEpisodes = series && work!.AiredEpisodeCount is { } airedCount ? new Dictionary<int, int> { [1] = airedCount } : new Dictionary<int, int>(),
                 Episodes = animeEpisodes,
                 Resolved = m is not null && (!series || animeEpisodes.Count > 0),
             };
@@ -174,9 +177,12 @@ public sealed class TitleExtrasService(
                 var rating = show.Rating is > 0 and <= 10 ? Math.Round(show.Rating.Value * 10, MidpointRounding.AwayFromZero) / 10 : (double?)null;
                 var genres = show.Genres.Select(g => g.Trim()).Where(g => g.Length > 0).DistinctBy(g => g.ToLowerInvariant()).ToList();
                 var premiered = string.IsNullOrWhiteSpace(show.Premiered) ? null : show.Premiered.Trim();
+                var today = time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var aired = episodes.Where(e => e.Season >= 1 && e.Episode >= 1).GroupBy(e => e.Season)
+                    .ToDictionary(g => g.Key, g => g.Count(e => !string.IsNullOrEmpty(e.AirDate) && string.CompareOrdinal(e.AirDate, today) <= 0));
                 result = result with
                 {
-                    Season = wanted, SeasonCount = seasons.Count == 0 ? null : seasons.Count, Seasons = seasons,
+                    Season = wanted, SeasonCount = seasons.Count == 0 ? null : seasons.Count, Seasons = seasons, AiredEpisodes = aired,
                     Episodes = episodes.Where(e => e.Season == wanted).Select(e => new TitleEpisodeMeta(e.Episode, e.Name, null, e.AirDate, e.RuntimeMin, e.StillUrl, e.AirStamp)).ToList(),
                     Overview = overview, Rating = rating, RatingSource = rating is null ? null : "tvmaze",
                     ReleaseDate = premiered, Genres = genres.Count > 0 ? genres : result.Genres,
@@ -214,6 +220,12 @@ public sealed class TitleExtrasService(
             foreach (var s in ss.EnumerateArray())
                 if (TmdbClient.Int(s, "season_number") is { } n && n >= 1) seasonCounts[n] = TmdbClient.Int(s, "episode_count") ?? 0;
         var wanted = q.Season is >= 1 ? q.Season : seasonCounts.Keys.Cast<int?>().FirstOrDefault() ?? (series ? 1 : null);
+        // last_episode_to_air bounds what has aired: earlier seasons are complete, later ones have nothing yet.
+        var airedEpisodes = new Dictionary<int, int>();
+        if (series && d.TryGetProperty("last_episode_to_air", out var last) && last.ValueKind == JsonValueKind.Object &&
+            TmdbClient.Int(last, "season_number") is { } lastSeason && TmdbClient.Int(last, "episode_number") is { } lastEpisode)
+            foreach (var (n, c) in seasonCounts)
+                airedEpisodes[n] = n < lastSeason ? c : n == lastSeason ? lastEpisode : 0;
 
         var episodes = new List<TitleEpisodeMeta>();
         if (series && wanted is { } w && await tmdb.FetchSeasonAsync(r.Id, w, ExtrasTimeoutMs, ct).ConfigureAwait(false) is { } season &&
@@ -238,6 +250,7 @@ public sealed class TitleExtrasService(
             Season = series ? wanted : null,
             SeasonCount = series && seasonCounts.Count > 0 ? seasonCounts.Count : null,
             Seasons = seasonCounts.Keys.ToList(),
+            AiredEpisodes = airedEpisodes,
             Episodes = episodes,
             MoreLikeThis = (rail?.Items ?? []).Select(ToSimilarLink).ToList(),
             Overview = TmdbClient.Str(d, "overview").OrEmpty(null),

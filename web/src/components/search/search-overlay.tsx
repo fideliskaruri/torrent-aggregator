@@ -4,9 +4,32 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { useLocation } from "react-router";
-import { Search, X, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Search, SearchX, X } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TitleResultsList } from "./title-results-list";
 import { titlesFromSearchHits } from "./title-search";
 import { partialResultsNotice } from "./partial-results-notice";
@@ -26,7 +49,6 @@ import {
   searchRequestFor,
   searchUrlFor,
 } from "./search-overlay-state";
-import { cn } from "@/lib/utils";
 
 /** The window event that asks the overlay to open. */
 const OPEN_EVENT = "tf:open-search";
@@ -73,8 +95,9 @@ export function SearchOverlay() {
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Arrow keys on the scope tabs move focus along the tabs; a click hands it
+  // back to the query box.
+  const tabKeyNavRef = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reqIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -160,62 +183,6 @@ export function SearchOverlay() {
     window.addEventListener(OPEN_EVENT, onOpen as EventListener);
     return () => window.removeEventListener(OPEN_EVENT, onOpen as EventListener);
   }, []);
-
-  // Treat the palette as a real modal: lock both viewport roots, trap focus,
-  // and return focus to the control that opened it.
-  useEffect(() => {
-    if (!open) return;
-    const root = document.documentElement;
-    const body = document.body;
-    const previousRootOverflow = root.style.overflow;
-    const previousBodyOverflow = body.style.overflow;
-    root.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-
-    const focusables = () =>
-      Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      ).filter((element) => element.offsetParent !== null);
-
-    const raf = requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        close();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const items = focusables();
-      if (!items.length) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      if (!dialogRef.current?.contains(active)) {
-        e.preventDefault();
-        (e.shiftKey ? last : first).focus();
-      } else if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      cancelAnimationFrame(raf);
-      document.removeEventListener("keydown", onKey, true);
-      root.style.overflow = previousRootOverflow;
-      body.style.overflow = previousBodyOverflow;
-      const opener = openerRef.current;
-      if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
-    };
-  }, [open, close]);
 
   // Let the title link complete its own Next navigation. Closing from the
   // results click handler unmounted that link during the same event and raced
@@ -320,7 +287,8 @@ export function SearchOverlay() {
     }
     if (query.trim().length >= 2) runSearch(query, next);
     else setLoading(false);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    if (tabKeyNavRef.current) tabKeyNavRef.current = false;
+    else requestAnimationFrame(() => inputRef.current?.focus());
   }
 
   /** Every keyboard-reachable result is one canonical title link. */
@@ -341,10 +309,7 @@ export function SearchOverlay() {
   }
 
   function onInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      close();
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       focusCard(0);
     } else if (e.key === "Enter") {
@@ -353,29 +318,6 @@ export function SearchOverlay() {
       e.preventDefault();
       first.click();
     }
-  }
-
-  function onCategoryKeyDown(
-    event: React.KeyboardEvent<HTMLButtonElement>,
-    index: number,
-  ) {
-    const last = SEARCH_SCOPES.length - 1;
-    let next = index;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-      next = index === last ? 0 : index + 1;
-    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-      next = index === 0 ? last : index - 1;
-    } else if (event.key === "Home") {
-      next = 0;
-    } else if (event.key === "End") {
-      next = last;
-    } else {
-      return;
-    }
-    event.preventDefault();
-    const category = SEARCH_SCOPES[next].id as WorkSearchScope;
-    onScopeChange(category);
-    requestAnimationFrame(() => tabRefs.current[next]?.focus());
   }
 
   function onResultsKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -396,8 +338,6 @@ export function SearchOverlay() {
     focusCard(down ? idx + 1 : idx - 1);
   }
 
-  if (!open) return null;
-
   const display = searchDisplayFor({
     scopeId,
     query,
@@ -413,206 +353,228 @@ export function SearchOverlay() {
         ? `${titles.length} ${titles.length === 1 ? "result" : "results"} for ${query.trim()}`
         : `Search ${display.scope.label.toLowerCase()}`;
 
-  // Rendered inside the page's <main> landmark (it creates no stacking
-  // context), so /search's results live in main and the skip link lands on them.
-  const host =
-    typeof document === "undefined"
-      ? null
-      : document.getElementById("main-content");
+  function renderBody() {
+    switch (display.state) {
+      case "prompt":
+      case "typing":
+        // Never a blank panel: the active category supplies one concise
+        // prompt and a real example.
+        return (
+          <SearchEmpty
+            icon={Search}
+            title={display.scope.blurb}
+            description={`Try "${display.scope.placeholder.split(",")[0].trim()}"`}
+          />
+        );
 
-  const overlay = (
-    <div
-      className="fixed inset-0 z-[100] flex justify-center p-0 sm:px-6 sm:pt-[10vh]"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Search"
-      data-search-overlay
+      case "error":
+        return (
+          <SearchEmpty
+            icon={AlertTriangle}
+            title="Search did not finish"
+            description={display.message}
+            role="alert"
+            data-search-error
+          >
+            <Button
+              variant="secondary"
+              onClick={() => runSearch(query, scopeId)}
+            >
+              Try search again
+            </Button>
+          </SearchEmpty>
+        );
+
+      case "empty":
+        return (
+          <SearchEmpty
+            icon={SearchX}
+            title={`Nothing in ${display.scope.label} matched "${display.query}"`}
+            description="Try another spelling, or a different category above."
+            data-results-empty
+          />
+        );
+
+      case "loading":
+        return (
+          <TitleResultsList
+            titles={[]}
+            loading
+            query={query}
+            skeletonCount={4}
+          />
+        );
+
+      case "results":
+        return (
+          <TitleResultsList
+            titles={titles}
+            loading={loading}
+            query={query}
+            skeletonCount={4}
+          />
+        );
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
     >
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={close}
-        aria-hidden
-      />
-
-      <div
-        ref={dialogRef}
-        className="relative z-[1] flex h-dvh max-h-dvh w-full max-w-3xl flex-col overflow-hidden border-y-0 border-x-0 border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)] sm:h-auto sm:max-h-[80vh] sm:rounded-[var(--radius)] sm:border"
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            close();
-          }
+      <DialogContent
+        mobileFullscreen
+        showCloseButton={false}
+        aria-label="Search"
+        data-search-overlay
+        className="sm:top-[10vh] sm:h-[min(80vh,46rem)] sm:max-w-3xl sm:translate-y-0"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          requestAnimationFrame(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+          });
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const opener = openerRef.current;
+          if (opener?.isConnected) opener.focus();
         }}
       >
+        <DialogTitle className="sr-only">Search</DialogTitle>
+        <DialogDescription className="sr-only">
+          Find a film, series or anime and open its title page.
+        </DialogDescription>
         <p className="sr-only" role="status" aria-live="polite">
           {statusMessage}
         </p>
-        <div className="border-b border-[var(--border)] p-3">
-          <div
-            role="search"
-            className="flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none focus-within:border-[var(--brand)] focus-within:shadow-[0_0_0_3px_var(--accent-dim)]"
-          >
-            <Search
-              className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]"
-              aria-hidden
-            />
-            <input
-              ref={inputRef}
-              type="search"
-              data-search-input="true"
-              data-search-overlay-input="true"
-              value={query}
-              onChange={(e) => onQueryChange(e.target.value)}
-              onKeyDown={onInputKeyDown}
-              placeholder={placeholderFor(scopeId)}
-              aria-label="Search"
-              autoComplete="off"
-              spellCheck={false}
-              className="h-11 w-full min-w-0 bg-transparent text-base text-[var(--text)] outline-none placeholder:text-[var(--text-tertiary)] [&::-webkit-search-cancel-button]:appearance-none"
-            />
-            <button
-              type="button"
-              onClick={close}
-              aria-label="Close search"
-              className="-mr-1 flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center rounded-md text-[var(--text-tertiary)] transition-colors duration-200 ease-out motion-reduce:transition-none hover:bg-[var(--bg-muted)] hover:text-[var(--text)]"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div
-            role="tablist"
-            aria-label="Search category"
-            className="-mx-3 mt-2.5 flex gap-1.5 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:px-0"
-          >
-            {SEARCH_SCOPES.map((s, index) => {
-              const active = s.id === scopeId;
-              return (
-                <button
-                  key={s.id}
-                  ref={(element) => {
-                    tabRefs.current[index] = element;
-                  }}
-                  type="button"
-                  role="tab"
-                  id={`search-scope-${s.id}`}
-                  aria-selected={active}
-                  aria-controls="search-results-region"
-                  title={s.blurb}
-                  tabIndex={active ? 0 : -1}
-                  onClick={() => onScopeChange(s.id as WorkSearchScope)}
-                  onKeyDown={(event) => onCategoryKeyDown(event, index)}
-                  className={cn(
-                    "min-h-11 shrink-0 touch-manipulation whitespace-nowrap rounded-full border px-3 text-[13px] transition-colors duration-200 ease-out motion-reduce:transition-none sm:min-h-8 sm:px-3",
-                    active
-                      ? "border-[var(--brand)] bg-[var(--accent-dim)] font-medium text-[var(--text)]"
-                      : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
-                  )}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div
-          ref={resultsRef}
-          id="search-results-region"
-          role="tabpanel"
-          aria-label={`${display.scope.label} search results`}
-          onKeyDown={onResultsKeyDown}
-          className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4"
+        <Tabs
+          value={scopeId}
+          onValueChange={(value) => onScopeChange(value as WorkSearchScope)}
+          className="min-h-0 flex-1 gap-0"
         >
-          {notice && display.state === "results" ? (
-            <div
-              className="mb-3 flex items-start gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2.5"
-              role="status"
-              aria-live="polite"
-              data-partial-notice
-            >
-              <AlertTriangle
-                className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]"
-                aria-hidden
+          <div className="shrink-0 space-y-2.5 border-b border-border p-3">
+            <InputGroup role="search" className="h-11 bg-background">
+              <InputGroupAddon>
+                <Search className="text-subtle-foreground" aria-hidden />
+              </InputGroupAddon>
+              <InputGroupInput
+                ref={inputRef}
+                type="search"
+                data-search-input="true"
+                data-search-overlay-input="true"
+                value={query}
+                onChange={(e) => onQueryChange(e.target.value)}
+                onKeyDown={onInputKeyDown}
+                placeholder={placeholderFor(scopeId)}
+                aria-label="Search"
+                autoComplete="off"
+                spellCheck={false}
+                className="h-full text-base [&::-webkit-search-cancel-button]:appearance-none"
               />
-              <p className="min-w-0 text-[12px] text-[var(--text-secondary)]">
-                {notice}
-              </p>
-            </div>
-          ) : null}
-          {(() => {
-            switch (display.state) {
-              case "prompt":
-              case "typing":
-                // Never a blank panel: the active category supplies one concise
-                // prompt and a real example.
-                return (
-                  <div className="px-1 py-10 text-center">
-                    <p className="text-[13px] text-[var(--text-secondary)]">
-                      {display.scope.blurb}
-                    </p>
-                    <p className="mt-1.5 text-[12px] text-[var(--text-tertiary)]">
-                      Try “{display.scope.placeholder.split(",")[0].trim()}”
-                    </p>
-                  </div>
-                );
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  size="icon-sm"
+                  onClick={close}
+                  aria-label="Close search"
+                  className="size-9 text-subtle-foreground hover:text-foreground max-md:size-11 pointer-coarse:size-11"
+                >
+                  <X aria-hidden />
+                </InputGroupButton>
+              </InputGroupAddon>
+            </InputGroup>
 
-              case "error":
-                return (
-                  <div
-                    className="px-1 py-10 text-center"
-                    role="alert"
-                    data-search-error
+            <ScrollArea className="-mx-3 sm:mx-0">
+              <TabsList
+                aria-label="Search category"
+                className="mx-3 group-data-horizontal/tabs:h-auto sm:mx-0"
+              >
+                {SEARCH_SCOPES.map((s) => (
+                  <TabsTrigger
+                    key={s.id}
+                    value={s.id}
+                    title={s.blurb}
+                    data-search-scope={s.id}
+                    onKeyDown={(event) => {
+                      if (
+                        ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
+                      ) {
+                        tabKeyNavRef.current = true;
+                      }
+                    }}
+                    className="h-8 flex-none px-3 text-[13px] max-md:h-11 pointer-coarse:h-11"
                   >
-                    <p className="text-[13px] text-[var(--text-secondary)]">
-                      {display.message}
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn-secondary btn-md mt-4"
-                      onClick={() => runSearch(query, scopeId)}
-                    >
-                      Try search again
-                    </button>
-                  </div>
-                );
+                    {s.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+          </div>
 
-              case "empty":
-                return (
-                  <div className="px-1 py-10 text-center" data-results-empty>
-                    <p className="text-[13px] text-[var(--text-secondary)]">
-                      Nothing in {display.scope.label} matched “{display.query}”.
-                    </p>
-                    <p className="mt-1.5 text-[12px] text-[var(--text-tertiary)]">
-                      Try another spelling, or a different category above.
-                    </p>
-                  </div>
-                );
-
-              case "loading":
-                return (
-                  <TitleResultsList
-                    titles={[]}
-                    loading
-                    query={query}
-                    skeletonCount={4}
-                  />
-                );
-
-              case "results":
-                return (
-                  <TitleResultsList
-                    titles={titles}
-                    loading={loading}
-                    query={query}
-                    skeletonCount={4}
-                  />
-                );
-            }
-          })()}
-        </div>
-      </div>
-    </div>
+          <TabsContent
+            value={scopeId}
+            aria-label={`${display.scope.label} search results`}
+            className="relative min-h-0 flex-1"
+          >
+            <ScrollArea className="absolute inset-0">
+              <div
+                ref={resultsRef}
+                onKeyDown={onResultsKeyDown}
+                className="p-3 sm:p-4"
+                data-search-results
+              >
+                {notice && display.state === "results" ? (
+                  <Alert
+                    role="status"
+                    aria-live="polite"
+                    className="mb-3 bg-muted"
+                    data-partial-notice
+                  >
+                    <AlertTriangle className="text-brand" aria-hidden />
+                    <AlertDescription className="text-[12px] text-muted-foreground">
+                      {notice}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+                {renderBody()}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
+      </DialogContent>
+    </Dialog>
   );
-  return host ? createPortal(overlay, host) : overlay;
+}
+
+function SearchEmpty({
+  icon: Icon,
+  title,
+  description,
+  children,
+  ...rest
+}: {
+  icon: typeof Search;
+  title: string;
+  description?: string;
+  children?: React.ReactNode;
+} & Omit<React.ComponentProps<typeof Empty>, "title">) {
+  return (
+    <Empty className="px-4 py-12" {...rest}>
+      <EmptyHeader>
+        <EmptyMedia variant="icon" className="size-11 text-subtle-foreground">
+          <Icon className="size-5" strokeWidth={1.75} aria-hidden />
+        </EmptyMedia>
+        <EmptyTitle className="text-foreground">{title}</EmptyTitle>
+        {description ? (
+          <EmptyDescription className="text-[13px] text-subtle-foreground">
+            {description}
+          </EmptyDescription>
+        ) : null}
+      </EmptyHeader>
+      {children ? <EmptyContent>{children}</EmptyContent> : null}
+    </Empty>
+  );
 }

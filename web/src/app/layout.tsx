@@ -8,6 +8,7 @@ import { DownloadSetupProvider } from "@/components/setup/download-setup";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { FeaturesProvider } from "@/lib/features";
 import { SessionProvider } from "@/lib/session";
 import { ShellGate } from "@/components/layout/shell-gate";
@@ -55,28 +56,30 @@ export default function RootLayout() {
               <Outlet />
             </main>
             <footer className="app-footer hidden md:block">
-              <div className="container-app flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[12px] text-[var(--text-tertiary)]">
+              <div className="container-app flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-[12px] text-subtle-foreground">
                 <p className="min-w-0">
                   Self-hosted aggregator · respect local law & indexer terms
                 </p>
                 <div className="flex items-center gap-3 shrink-0">
                   <a
                     href="/about"
-                    className="inline-flex min-h-[44px] items-center px-2 hover:text-[var(--text-secondary)] lg:min-h-0 lg:px-0"
+                    className="inline-flex min-h-[44px] items-center px-2 hover:text-muted-foreground lg:min-h-0 lg:px-0"
                   >
                     About
                   </a>
                   <span
                     aria-hidden="true"
-                    className="hidden sm:inline text-[var(--border-strong)]"
+                    className="hidden sm:inline text-subtle-foreground"
                   >
                     ·
                   </span>
                   <span className="hidden items-center gap-1.5 sm:inline-flex">
-                    <kbd className="rounded border border-[var(--border)] px-1.5 font-mono text-[12px] leading-5">/</kbd>
+                    <Kbd className="font-mono">/</Kbd>
                     search
-                    <kbd className="ml-1.5 rounded border border-[var(--border)] px-1.5 font-mono text-[12px] leading-5">j</kbd>
-                    <kbd className="rounded border border-[var(--border)] px-1.5 font-mono text-[12px] leading-5">k</kbd>
+                    <KbdGroup className="ml-1.5">
+                      <Kbd className="font-mono">j</Kbd>
+                      <Kbd className="font-mono">k</Kbd>
+                    </KbdGroup>
                     move
                   </span>
                 </div>

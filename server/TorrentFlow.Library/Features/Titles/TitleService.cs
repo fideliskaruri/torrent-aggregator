@@ -151,7 +151,15 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var seasons = seasonNumbers.Select(s =>
         {
             var pack = playable.FirstOrDefault(x => PackSeason(x.Name) == s && x.Progress > 0);
+            // Same evidence the episode rows use: an exact finished target, a finished episode file, or a verified pack file.
+            var downloaded = targets.Where(t => t.Scope == "episode" && t.Season == s && t.Episode != null && t.Status == "downloaded").Select(t => t.Episode!.Value)
+                .Concat(playable.Where(x => x.Progress >= 1 && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
+                .Concat(PackCoverage(playable, s).Keys).Where(e => e >= 1).ToHashSet();
+            var downloading = targets.Where(t => t.Scope == "episode" && t.Season == s && t.Episode != null && t.Status is "queued" or "downloading").Select(t => t.Episode!.Value)
+                .Concat(playable.Where(x => x.Progress < 1 && x.Origin is not ("stream" or "prewarm") && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
+                .Where(e => e >= 1 && !downloaded.Contains(e)).Distinct().Count();
             return LibraryJson.Object(("season", s), ("knownEpisodes", knownCoordinates.Where(c => c.Season == s).Select(c => c.Episode).Distinct().Count()),
+                ("downloadedEpisodes", downloaded.Count), ("downloadingEpisodes", downloading),
                 ("pack", pack == null ? null : LibraryJson.Object(("name", pack.Name), ("availability", State(pack)), ("infoHash", pack.Hash), ("downloadFraction", Fraction(pack)))),
                 ("transfer", targets.FirstOrDefault(t => t.Scope == "season" && t.Season == s) is { } target ? Transfer(target) : null));
         }).ToList();

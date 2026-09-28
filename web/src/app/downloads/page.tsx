@@ -67,6 +67,7 @@ import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
 import {
   groupDownloads,
+  seriesEpisodeTally,
   canStreamTransfer,
   isDownloading,
   isError,
@@ -1782,6 +1783,7 @@ function SeriesOverviewRow({
     transferIds.length > 0 &&
     transferIds.every((transferId) => selected.has(transferId));
   const chip = rollupChip(group);
+  const tally = seriesEpisodeTally(group);
   const barTone = isDownloaded(group.state)
     ? "bg-[var(--success)]"
     : isError(group.state) || chip.failing
@@ -1800,7 +1802,7 @@ function SeriesOverviewRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors",
+        "grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors",
         allSelected ? "bg-[var(--accent-dim)]" : "hover:bg-[var(--bg-muted)]/60",
       )}
       data-download-group
@@ -1849,6 +1851,19 @@ function SeriesOverviewRow({
                 {formatBytes(group.sizeBytes)}
               </span>
             </div>
+            {tally.downloaded > 0 || tally.downloading > 0 ? (
+              <p
+                data-group-episodes
+                className="flex flex-wrap items-center gap-x-1 text-[12px] tabular-nums text-[var(--text-secondary)]"
+              >
+                <span>
+                  {tally.downloaded} {tally.downloaded === 1 ? "episode" : "episodes"} downloaded
+                </span>
+                {tally.downloading > 0 ? (
+                  <span className="text-[var(--text-tertiary)]">+{tally.downloading} downloading</span>
+                ) : null}
+              </p>
+            ) : null}
             {groupErrorMessage ? (
               <p
                 className="text-[12px] leading-snug text-[var(--danger)]"
@@ -1877,7 +1892,7 @@ function SeriesOverviewRow({
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-2 lg:gap-1">
+      <div className="col-start-2 flex items-center justify-end gap-2 sm:col-start-auto lg:gap-1">
         <Button
           type="button"
           variant="secondary"
