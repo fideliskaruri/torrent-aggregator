@@ -18,6 +18,37 @@ public class EngineLifecycleTests
 
     private static string H(int n) => EngineHarness.Hash(n);
 
+    [Theory]
+    [InlineData(null, "Example+Show", "Example Show")]
+    [InlineData(null, "%E8%91%AC%E9%80%81", "葬送")]
+    [InlineData("Requested title", "Release", "Requested title")]
+    public async Task MetadataTimeoutKeepsDisplayNameAndExplainsFailure(string? requested, string dn, string expected)
+    {
+        var clock = new ManualClock(DateTimeOffset.UtcNow);
+        await using var h = await EngineHarness.CreateAsync(time: clock);
+        h.Backend.AddOverride = spec =>
+        {
+            var live = new BackendSnapshot(spec.Hash, spec.Hash, 0, 0, 0, 0, 0, "metaDL", false, spec.SavePath, [], null);
+            h.Backend.Live[spec.Hash] = live;
+            return new BackendAddOutcome(true, "", live);
+        };
+        var added = await h.Engine.AddAsync(new()
+        {
+            Magnet = $"magnet:?xt=urn:btih:{H(1)}&dn={dn}", Name = requested, Purpose = TorrentPurpose.Keep
+        });
+        Assert.True(added.Ok);
+        clock.Now = clock.Now.AddSeconds(10);
+        await h.Engine.TickAsync();
+        var row = await h.RowAsync(1);
+        Assert.Equal(expected, row.Name);
+        Assert.Equal("error", row.Status);
+        Assert.Equal("Couldn't get this torrent's file list from peers. Check the magnet or try another release.", row.Error);
+        var listed = Assert.Single(await h.Engine.ListAsync());
+        Assert.Equal(expected, listed.Name);
+        Assert.Equal("error", listed.State);
+        Assert.Equal(row.Error, listed.Error);
+    }
+
     [Fact]
     public async Task SeasonStartsFillTheCapWhileEarlierStartsAreStillInFlight()
     {

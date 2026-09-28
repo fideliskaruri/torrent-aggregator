@@ -2,6 +2,7 @@
 
 ## Fix status (September 28, 2026)
 
+- MAGNET-NOMETA (server): fixed; admitted magnets persist the requested name or decoded `dn` before peers supply metadata. Metadata timeout preserves that name and reports `error` with plain file-list recovery guidance; clock-driven engine/list regressions cover Unicode and explicit titles.
 - UNI-007: fixed; authenticated tunnel owners can use download recovery. Middleware no longer treats recovery as local-only and controller trusts the authenticated owner role; requesters remain denied by the role-route matrix.
 - MATCH-UNICODE-SLUG: fixed; a native-only identity already had a percent-encoded fallback, but lowercased comparison keys never equaled its uppercase escapes. Comparisons now normalize URI escaping/case (including route-decoded keys), preserving existing stable IDs and exact-name guards; three Japanese-only title regressions pass without requiring an invented alias.
 - MATCH-APPROVAL-RESTART: fixed; startup sweep resumes approved requests with null/empty grab hashes, using a single-flight guard shared with approval. Saved hashes are never re-grabbed. Concurrent and repeat sweeps covered.

@@ -250,7 +250,7 @@ internal sealed partial class TorrentEngineService(
         var queued = DownloadQueue.ShouldQueueNewDownload(rows.Where(r => r.Hash != hash).ToList(), CapFor(schedule), origin, request.Forced, schedule.Open);
 
         var row = existing ?? new EngineTorrent { Id = Ids.New(), UserId = LocalUser.Id, Hash = hash, CreatedAt = Now, LastUsedAt = Now, Origin = origin, Lane = lane };
-        row.Name = FirstNonBlank(request.Name, existing?.Name, hash)!;
+        row.Name = FirstNonBlank(request.Name, existing?.Name, TorrentSource.NameFromMagnet(magnet), hash)!;
         row.Magnet = magnet ?? existing?.Magnet;
         row.TorrentUrl = request.TorrentUrl ?? existing?.TorrentUrl;
         row.SavePath = savePath;
@@ -1378,7 +1378,7 @@ internal sealed partial class TorrentEngineService(
                     && Now - startedAt > TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds))
                 {
                     row.Status = EngineTorrentStatus.Error;
-                    row.Error = "Timed out waiting for torrent metadata (no peers / blocked DHT?). Try another release or check network.";
+                    row.Error = "Couldn't get this torrent's file list from peers. Check the magnet or try another release.";
                     failed.Add(new(row.Hash, row.Name, row.Origin));
                     row.ForcedAt = null;
                     detach.Add(row.Hash);

@@ -38,6 +38,16 @@ public static class TorrentSource
         catch (Exception ex) when (ex is TorrentException or FormatException or ArgumentException or InvalidOperationException) { return null; }
     }
 
+    public static string? NameFromMagnet(string? magnet)
+    {
+        if (string.IsNullOrWhiteSpace(magnet)) return null;
+        try
+        {
+            return MagnetLink.TryParse(magnet.Trim(), out var link) ? link?.Name : null;
+        }
+        catch (Exception ex) when (ex is FormatException or ArgumentException) { return null; }
+    }
+
     public static string BuildMagnet(string hash, string? name, IEnumerable<string> trackers) =>
         PublicTrackers.BuildMagnet(hash, name, trackers);
 
