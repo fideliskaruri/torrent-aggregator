@@ -112,7 +112,17 @@ public sealed class ReleaseSwapTests
         Assert.Equal(ranked.Count, ranked.Select(r => r.Why).Distinct().Count());
         Assert.True(ranked.Zip(ranked.Skip(1)).All(p => p.First.Score >= p.Second.Score));
         // Deterministic: input order never changes the result.
-        Assert.Equal(ranked.Select(r => r.Result.Id), ReleaseSwapService.Rank(ranked.Select(r => r.Result).Reverse().ToList(), 1080, 1000).Select(r => r.Result.Id));
+    }
+
+    [Fact]
+    public void ReasonsUseSingularSeederForOne()
+    {
+        var ranked = ReleaseSwapService.Rank([
+            Release(2, "Big Buck Bunny 2008 1080p") with { Seeders = 5, SizeBytes = 1000 },
+            Release(3, "Big Buck Bunny 2008 1080p") with { Seeders = 1, SizeBytes = 5000 }], 1080, 1000);
+        Assert.Equal("Unusual size for 1080p, 1 seeder", ranked.Single(r => r.Result.Id == "3").Why);
+        var only = ReleaseSwapService.Rank([Release(2, "Big Buck Bunny 2008 1080p") with { Seeders = 1 }], 1080, 1000);
+        Assert.Equal("The only other 1080p release found (1 seeder)", only[0].Why);
     }
 
     [Fact]

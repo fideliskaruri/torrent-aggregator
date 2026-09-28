@@ -160,21 +160,23 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             var ratio = reference is > 0 && r.SizeBytes is > 0 ? r.SizeBytes.Value / (double)reference.Value : (double?)null;
             string why;
             if (ordered.Count == 1)
-                why = label is null ? $"The only other release found ({r.Seeders} seeders)" : $"The only other {label} release found ({r.Seeders} seeders)";
+                why = label is null ? $"The only other release found ({Seeders(r.Seeders)})" : $"The only other {label} release found ({Seeders(r.Seeders)})";
             else if (r.Seeders == maxSeeders && topSeeded == 1) why = $"Most seeders ({r.Seeders})";
             else if (quality is { } only && byQuality[only] == 1)
                 why = only == currentQuality ? $"Only other {label} release" : $"Only {label} release";
             else if (quality is not null && quality == currentQuality && currentSize is > 0 && ratio is < .9)
                 why = $"Same quality, {Math.Round((1 - ratio!.Value) * 100)}% smaller file";
             else if (quality is not null && currentQuality is not null && quality > currentQuality)
-                why = $"Higher quality ({label}), {r.Seeders} seeders{Size(r.SizeBytes)}";
-            else if (ratio is < .4 or > 2.5) why = $"Unusual size for {label ?? "this release"}, {r.Seeders} seeders";
-            else if (i == 0) why = $"Best balance of quality and seeders ({(label is null ? "" : label + ", ")}{r.Seeders} seeders)";
-            else if (quality is not null && quality == currentQuality) why = $"Same quality, {r.Seeders} seeders{Size(r.SizeBytes)}";
-            else why = (label is null ? $"{r.Seeders} seeders" : $"{r.Seeders} seeders at {label}") + Size(r.SizeBytes);
+                why = $"Higher quality ({label}), {Seeders(r.Seeders)}{Size(r.SizeBytes)}";
+            else if (ratio is < .4 or > 2.5) why = $"Unusual size for {label ?? "this release"}, {Seeders(r.Seeders)}";
+            else if (i == 0) why = $"Best balance of quality and seeders ({(label is null ? "" : label + ", ")}{Seeders(r.Seeders)})";
+            else if (quality is not null && quality == currentQuality) why = $"Same quality, {Seeders(r.Seeders)}{Size(r.SizeBytes)}";
+            else why = (label is null ? Seeders(r.Seeders) : $"{Seeders(r.Seeders)} at {label}") + Size(r.SizeBytes);
             return new RankedRelease(r, x.Score, why);
         }).ToList();
     }
+
+    private static string Seeders(int count) => count == 1 ? "1 seeder" : $"{count} seeders";
 
     private static string Size(long? bytes) => bytes is not > 0 ? "" : bytes >= 1L << 30
         ? FormattableString.Invariant($", {bytes.Value / (double)(1L << 30):0.#} GB") : $", {Math.Max(1, bytes.Value >> 20)} MB";
