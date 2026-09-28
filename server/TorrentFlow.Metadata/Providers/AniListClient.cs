@@ -46,15 +46,25 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
 
     private readonly SingleFlight<List<JsonElement>> _inFlight = new();
     private readonly BoundedTtlCache<List<JsonElement>> _recent = new(300, time);
+    private readonly BoundedTtlCache<AniListWork> _works = new(300, time);
     private static readonly TimeSpan QueryTtl = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan WorkTtl = TimeSpan.FromMinutes(5);
 
-    public void ResetQueryCache() => _recent.Clear();
+    public void ResetQueryCache() { _recent.Clear(); _works.Clear(); }
 
     public async Task<List<MediaMetadata>> SearchAsync(string search, int perPage = 5, CancellationToken ct = default) =>
-        (await FetchMediaAsync(search, perPage, ct).ConfigureAwait(false)).Select(Map).ToList();
+        (await FetchMediaAsync(search, perPage, ct).ConfigureAwait(false)).Select(m => RememberWork(m).Metadata).ToList();
 
     public async Task<List<AniListWork>> SearchWorksAsync(string search, int perPage = 12, CancellationToken ct = default) =>
-        (await FetchMediaAsync(search, perPage, ct).ConfigureAwait(false)).Select(ToWork).ToList();
+        (await FetchMediaAsync(search, perPage, ct).ConfigureAwait(false)).Select(RememberWork).ToList();
+
+    private AniListWork RememberWork(JsonElement media)
+    {
+        var work = ToWork(media);
+        if (int.TryParse(work.Metadata.ExternalId, out var id) && id > 0)
+            _works.Set(id.ToString(CultureInfo.InvariantCulture), work, WorkTtl);
+        return work;
+    }
 
     public static AniListWork ToWork(JsonElement m)
     {
@@ -171,7 +181,9 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
 
     public async Task<AniListWork?> GetWorkByIdAsync(string id, CancellationToken ct = default)
     {
-        if (!int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric)) return null;
+        ct.ThrowIfCancellationRequested();
+        if (!int.TryParse(id, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric) || numeric < 1) return null;
+        if (_works.TryGet(numeric.ToString(CultureInfo.InvariantCulture), out var cached)) return cached;
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -179,8 +191,9 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
             using var response = await PostAsync(ByIdQuery, new JsonObject { ["id"] = numeric }, cts.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return null;
             using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
-            if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("Media", out var media) && media.ValueKind == JsonValueKind.Object)
-                return ToWork(media.Clone());
+            if (doc.RootElement.TryGetProperty("data", out var data) && data.TryGetProperty("Media", out var media) &&
+                media.ValueKind == JsonValueKind.Object && Int(media, "id") == numeric)
+                return RememberWork(media.Clone());
             return null;
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
