@@ -272,9 +272,9 @@ function RemoteAccessPanel() {
         <div
           role="status"
           data-remote-access-warnings
-          className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+          className="flex items-start gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
         >
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
           <ul className="min-w-0 space-y-0.5 text-xs leading-relaxed text-[var(--text-secondary)]">
             {settings.warnings.map((warning) => (
               <li key={warning} className="break-words">{warning}</li>
@@ -302,9 +302,9 @@ function RemoteAccessPanel() {
         <div
           role="status"
           data-remote-access-restart
-          className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+          className="flex items-start gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
         >
-          <RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+          <RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
           <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
             <span className="font-medium text-[var(--text)]">Restart needed.</span>{" "}
             Turning remote access on or off and changing its port take effect the
@@ -500,14 +500,14 @@ function RemoteAccessPanel() {
               "space-y-1 rounded-lg border p-3 text-xs leading-relaxed",
               check.ok
                 ? "border-[var(--success)]/40 bg-[var(--success)]/5"
-                : "border-[var(--warning)]/40 bg-[var(--warning)]/5",
+                : "border-[var(--accent-border)] bg-[var(--accent-dim)]",
             )}
           >
             <p className="flex items-start gap-2 font-medium text-[var(--text)]">
               {check.ok ? (
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--success)]" aria-hidden="true" />
               ) : (
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
               )}
               {check.ok
                 ? `Ready. Cloudflare published ${check.keyCount ?? 0} signing key${check.keyCount === 1 ? "" : "s"} for your team.`

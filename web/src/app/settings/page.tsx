@@ -685,9 +685,9 @@ export default function SettingsPage() {
       {!setupComplete ? (
         <div
           role="status"
-          className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+          className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
         >
-          <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" />
+          <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" />
           <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--text-secondary)] break-words whitespace-normal">
             Choose a download folder and a space limit before saving your first
             download.
@@ -713,9 +713,9 @@ export default function SettingsPage() {
             {visiblePathWarnings.length ? (
               <div
                 role="status"
-                className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/5 p-3"
+                className="flex items-start gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
               >
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--warning)]" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" />
                 <div className="space-y-1 text-xs leading-relaxed">
                   <p className="font-medium text-[var(--text)]">
                     This folder may be cleared by another tool

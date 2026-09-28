@@ -150,7 +150,7 @@ function DesktopPanel() {
           />
           {status.autostart.pointsElsewhere ? (
             <p className="flex items-start gap-2 text-xs text-[var(--text-secondary)]" role="status">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--warning)]" aria-hidden="true" />
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
               The startup entry opens a different copy of TorrentFlow. Turn this off and on to point it here.
             </p>
           ) : null}

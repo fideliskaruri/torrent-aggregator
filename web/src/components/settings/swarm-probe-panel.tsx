@@ -62,7 +62,7 @@ function toneBadge(tone: VerdictTone): {
       return {
         variant: "outline",
         className:
-          "border-[rgba(245,181,90,0.28)] bg-[rgba(245,181,90,0.12)] text-[var(--warning)]",
+          "border-[rgba(245,181,90,0.28)] bg-[rgba(245,181,90,0.12)] text-[var(--accent-text)]",
       };
     case "neutral":
     default:

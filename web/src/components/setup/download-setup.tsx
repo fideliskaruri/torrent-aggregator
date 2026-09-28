@@ -208,7 +208,7 @@ export function DownloadSetupProvider({ children }: { children: ReactNode }) {
               onSpaceGbChange={setSpaceGb}
             />
             {safety.unsafe ? (
-              <p className="flex items-start gap-2 text-xs leading-relaxed text-[var(--warning)]">
+              <p className="flex items-start gap-2 text-xs leading-relaxed text-[var(--accent-text)]">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 {unsafeDownloadPathMessage(safety.reasons)}
               </p>
