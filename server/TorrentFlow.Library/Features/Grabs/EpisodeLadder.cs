@@ -175,6 +175,9 @@ public static class EpisodeLadder
             {
                 Exact(entryTitle, animeCat ?? primaryCat);
                 AbsoluteRung(entryTitle, animeCat ?? primaryCat);
+                // Internal hyphens in provider names can exclude the spaced release spelling on Nyaa.
+                var spaced = Whitespace.Replace(NonAlnumSpace.Replace(entryTitle, " "), " ").Trim();
+                AbsoluteRung(spaced, animeCat ?? primaryCat);
             }
         }
         if (mapping != null && season == 1)

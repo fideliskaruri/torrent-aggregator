@@ -187,7 +187,57 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         return await Send(db, settings, input, title, candidate, beforeSend, false, ct);
     }
 
-    /// <summary>Automation's single background search (TS automation runner), with its seeder-wait grace.</summary>
+    private async Task<SearchResponse> SearchAnimeHunt(GrabInput input, EpisodeCursor cursor, string query, string category,
+        SearchFilters filters, int? floor, CancellationToken ct)
+    {
+        var accepted = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToArray();
+        var rungs = new[] { new LadderRung("hunt", query, category, filters) }
+            .Concat(EpisodeLadder.BuildEpisodeRungs(input.Title, cursor, input.MediaType, input.Aliases, floor, input.EpisodeMapping))
+            .Select(r => r with { Filters = r.Filters with { MinSeeders = null } })
+            .DistinctBy(r => r.SearchKey);
+        var all = new SearchResponse { Query = query };
+        foreach (var rung in rungs)
+        {
+            SearchResponse response;
+            try
+            {
+                response = await search.SearchAsync(new()
+                {
+                    Query = rung.Query, Category = rung.Category, Limit = EpisodeLadder.SearchLimit, PageSize = EpisodeLadder.SearchLimit,
+                    TargetResolution = floor, Enrich = false, SkipCache = true, Background = true,
+                    IncludeRejectedResults = true, Filters = rung.Filters
+                }, ct);
+            }
+            catch (Exception error) when (!ct.IsCancellationRequested)
+            {
+                return all with { Sources = all.Sources.Concat([new SourceStatus("search", 0, error.Message)]).ToArray() };
+            }
+            all = all with
+            {
+                Results = all.Results.Concat(response.Results).DistinctBy(EpisodeLadder.CandidateKey).ToArray(),
+                RejectedResults = all.RejectedResults.Concat(response.RejectedResults).DistinctBy(r => EpisodeLadder.CandidateKey(r.Result)).ToArray(),
+                Sources = all.Sources.Concat(response.Sources).ToArray()
+            };
+            var matching = response.Results.Where(r => EpisodeLadder.ReleaseMatchesWork(r, accepted, PremiereYear(input))).ToArray();
+            var eligible = matching.Where(r => ReleaseSelection.MeetsFloor(r.Title, floor) &&
+                EpisodeLadder.MatchesTargetEpisode(r, cursor, input.EpisodeMapping)).ToArray();
+            if (logger?.IsEnabled(LogLevel.Debug) == true)
+                logger.LogDebug("Episode search rung: {Diagnostic}", JsonSerializer.Serialize(new RungDiagnostic
+                {
+                    Kind = "hunt-" + rung.Kind, Query = rung.Query, Category = rung.Category, Fetched = response.Results.Count,
+                    WorkEligible = matching.Length, QualityEligible = matching.Count(r => ReleaseSelection.MeetsFloor(r.Title, floor)),
+                    EpisodeEligible = eligible.Length, Sources = response.Sources,
+                    Candidates = response.RejectedResults.Concat(response.Results.Select(r => new SearchRejectedResult(r, "")))
+                        .Select(r => EpisodeRejections.Explain(r.Result, accepted, cursor, input.EpisodeMapping, floor, true,
+                            r.Reason.Length > 0 ? r.Reason : null, PremiereYear(input))).ToArray()
+                }));
+            // Keep zero-seeder candidates: Hunt, not the query ladder, owns their wait/grace policy.
+            if (eligible.Length > 0 || response.Sources.Count > 0 && response.Sources.All(s => s.Error != null)) break;
+        }
+        return all;
+    }
+
+    /// <summary>Background acquisition with the same anime query ladder and automation's seeder-wait grace.</summary>
     private async Task<GrabResult> Hunt(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, string query, int? floor, CancellationToken ct)
     {
         var options = automationOptions.Value;
@@ -199,7 +249,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var huntEpisode = input.Cursor?.Episode;
         if (input.Cursor is { Season: 1 } local && input.EpisodeMapping is { } mapping)
         {
-            var name = EpisodeLadder.RankAliases(mapping.FranchiseTitles).FirstOrDefault() ?? input.Title;
+            var name = EpisodeLadder.RankAliases(mapping.FranchiseTitles.Take(2)).FirstOrDefault() ?? input.Title;
             if (mapping.FranchiseSeason is { } sceneSeason)
             {
                 huntSeason = sceneSeason;
@@ -213,9 +263,12 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 huntQuery = $"{name} - {huntEpisode:00}";
             }
         }
-        var response = await search.SearchAsync(new() { Query = huntQuery, Category = category, Limit = 15, TargetResolution = floor, Enrich = false,
+        var huntFilters = new SearchFilters { HasMagnet = true, Season = huntSeason, Episode = huntEpisode };
+        var response = input.MediaType == "anime" && input.Cursor is { } animeCursor
+            ? await SearchAnimeHunt(input, animeCursor, huntQuery, category, huntFilters, floor, ct)
+            : await search.SearchAsync(new() { Query = huntQuery, Category = category, Limit = 15, TargetResolution = floor, Enrich = false,
             SkipCache = true, Background = true, IncludeRejectedResults = input.Cursor != null,
-            Filters = new() { HasMagnet = true, Season = huntSeason, Episode = huntEpisode } }, ct);
+            Filters = huntFilters }, ct);
         var acceptedNames = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToArray();
         var eligible = response.Results.Where(x => input.Cursor != null
             ? EpisodeLadder.ReleaseMatchesWork(x, acceptedNames, PremiereYear(input))
