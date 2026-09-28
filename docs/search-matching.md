@@ -2,6 +2,10 @@
 
 ## Fix status (September 28, 2026)
 
+- MATCH-ANIME-COORDINATES: already fixed by `5c328c2`; sequel mapping regression tests rerun on main successfully.
+- MATCH-QUALITY-PARSER: already fixed by `c52f4e1`; shared resolution tests include `1920x1080`.
+- MATCH-SEASON-RANGE: already fixed by `c52f4e1`; spaced `S2 - 05` singles pass shared search/acquisition tests.
+- MATCH-DIAGNOSTICS: already fixed by `964ecf8`; HTTP regression verifies `noReleaseFound`, the exact short message, persisted target error and grab-job message (98 matching regression cases passed together).
 - Episode mapping implemented: cached AniList PREQUEL traversal, explicit franchise season labels and completed-prequel totals; provider coordinates remain the persisted queue identity. Split cours do not increment the season by chain length. Ambiguous/movie/special chains and unknown totals do not receive guessed offsets.
 - Parser fixes implemented: shared server episode grammar handles spaced season/dash singles, version suffixes and bracket-number fansubs; ranges/packs stay excluded. One shared resolution parser now serves Search, Library, playback and prewarm (including pixel dimensions, FHD, interlaced labels and 4k).
 - Aliases implemented: AniList English/romaji/native/synonyms plus verified prequel root titles feed queries and exact title matching; distinct names replace duplicate compact spellings. Aliases persist on Works for legacy/automation callers, and request-created works retain provider identity.
