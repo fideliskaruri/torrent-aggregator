@@ -6,6 +6,17 @@ namespace TorrentFlow.Library.Tests;
 public sealed class ReleaseGrammarTests
 {
     [Theory]
+    [InlineData("Frieren 01-12 [1080p]", 12)]
+    [InlineData("Frieren 01 - 12 [1080p]", 12)]
+    [InlineData("Frieren [01–12] [1080p]", 12)]
+    [InlineData("Frieren 01-12.mkv", 12)]
+    public void BareRangesCannotBeAcquiredAsTheirFinalEpisode(string title, int last)
+    {
+        Assert.True(EpisodeParser.Parse(title).IsBatch);
+        Assert.False(EpisodeLadder.MatchesTargetEpisode(FakeSearch.Release(title), new(1, last)));
+    }
+
+    [Theory]
     [InlineData("[Erai-raws] Solo Leveling S2 - 05 [1080p]", 2, 5)]
     [InlineData("[Erai-raws] Solo Leveling Season 2 - 05 [1080p]", 2, 5)]
     [InlineData("[Group] Frieren - 05 [1080p]", null, 5)]

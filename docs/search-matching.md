@@ -2,6 +2,7 @@
 
 ## Fix status (September 28, 2026)
 
+- MATCH-BARE-RANGE: fixed; shared parser classifies bare numeric ranges as batches before interpreting dash singles. Four regressions reproduced the final-episode bug before the fix.
 - MATCH-ANIME-COORDINATES: already fixed by `5c328c2`; sequel mapping regression tests rerun on main successfully.
 - MATCH-QUALITY-PARSER: already fixed by `c52f4e1`; shared resolution tests include `1920x1080`.
 - MATCH-SEASON-RANGE: already fixed by `c52f4e1`; spaced `S2 - 05` singles pass shared search/acquisition tests.
