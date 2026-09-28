@@ -48,6 +48,8 @@ export interface TitleEpisode {
   fromPack: boolean;
   /** Exact user acquisition state. Never inferred from a covering pack. */
   transfer: TitleEpisodeTransfer | null;
+  /** Requester view only: the owner already has this episode. */
+  available?: boolean;
 }
 
 export interface TitleEpisodeTransfer {

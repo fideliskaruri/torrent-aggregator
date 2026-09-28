@@ -157,8 +157,11 @@ interface GetAction {
 /** Hands the title to search — the affordance that always works. */
 export interface SearchAction {
   kind: "search";
-  /** "Find it" — a plain, honest handoff to search. Never narrates a check. */
-  label: "Find it";
+  /**
+   * "Find it" — a plain, honest handoff to search. Never narrates a check.
+   * "Request" — someone who can't download goes to the title page to ask.
+   */
+  label: "Find it" | "Request";
   disabled: false;
   reason: null;
   href: string;
@@ -298,6 +301,27 @@ export function resolveCardAction(item: RailItem): CardAction {
     disabled: false,
     reason: null,
     href: searchHref(title, searchCategoryFor(item.mediaType)),
+  };
+}
+
+/**
+ * {@link resolveCardAction} for this viewer. People who can't download or play
+ * never get Play or Download; the card sends them to the title page, where the
+ * Request button sits in the same place.
+ */
+export function viewerCardAction(
+  item: RailItem,
+  canDownload: boolean,
+  titleHref: string | null,
+): CardAction {
+  const action = resolveCardAction(item);
+  if (canDownload || (action.kind !== "play" && action.kind !== "get")) return action;
+  return {
+    kind: "search",
+    label: "Request",
+    disabled: false,
+    reason: null,
+    href: titleHref ?? searchHref(item.title.trim(), searchCategoryFor(item.mediaType)),
   };
 }
 

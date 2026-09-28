@@ -44,6 +44,9 @@ import { extrasRequestPending } from "./episode-list-state";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
 import { MoreLikeThis } from "./more-like-this";
+import { RequestAction } from "@/components/requests/request-action";
+import { useCapabilities } from "@/lib/capabilities";
+import { parseRequestState, type RequesterTitle } from "@/lib/requests";
 import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
@@ -173,6 +176,7 @@ function ButtonBody({
 
 export function TitleDetail(props: TitleDetailProps) {
   const { streaming: streamingEnabled } = useFeatures();
+  const caps = useCapabilities();
   const [season, setSeason] = useState<number | null>(() =>
     resolveInitialSeason({
       legacySeason: props.legacySeason,
@@ -293,12 +297,14 @@ export function TitleDetail(props: TitleDetailProps) {
   const { data, loading, refreshing, error, refetch } =
     useApiQuery<TitleDetailPayload>(url, {
       refreshMs: 0,
+      select: withCatalogDefaults,
     });
   useEffect(() => {
     if (titleNeedsTransferPoll(data)) startTransferPoll();
   }, [data, startTransferPoll]);
 
-  const progressUrl = transferPoll && !playing
+  // Transfers are the owner's; everyone else never polls them.
+  const progressUrl = caps.canSeeTransfers && transferPoll && !playing
     ? `/api/title/${encodeURIComponent(props.workKey)}/progress?session=${transferPollSession}`
     : null;
   const {
@@ -771,6 +777,8 @@ export function TitleDetail(props: TitleDetailProps) {
           onSeasonGrab={runSeasonGrab}
           onAction={runAction}
           onLibraryChanged={refetch}
+          provider={props.provider ?? null}
+          providerId={props.providerId ?? null}
         />
       )}
 
@@ -818,7 +826,12 @@ function TitleContent({
   onSeasonGrab,
   onAction,
   onLibraryChanged,
+  provider,
+  providerId,
 }: {
+  /** From the link that opened the page; a request needs them to name the title. */
+  provider: string | null;
+  providerId: string | null;
   payload: TitleDetailPayload;
   extras: TitleExtrasPayload | null;
   progress: TitleProgressPayload | null;
@@ -850,7 +863,8 @@ function TitleContent({
   ) => void;
   onLibraryChanged: () => void;
 }) {
-  const { streaming } = useFeatures();
+  const caps = useCapabilities();
+  const streaming = useFeatures().streaming && caps.canStream;
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
   // Quality picker for the hero Download button. Play is always instant.
   const [heroPicker, setHeroPicker] = useState(false);
@@ -1095,7 +1109,7 @@ function TitleContent({
   const downloadLabelTarget = title;
 
   return (
-    <article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col pb-[calc(var(--mobile-nav-h)+env(safe-area-inset-bottom)+1rem)] md:pb-0">
+    <article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col">
       <header
         data-title-hero
         className="relative isolate flex flex-col justify-end overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]"
@@ -1219,7 +1233,15 @@ function TitleContent({
                     the "Coming {date}" label and grayed art already say why, and
                     a disabled action is just clutter that does nothing. Tracking
                     it via "Add to library" stays available below. */}
-                {gated || (!streaming && primary.kind !== "discover") ? null : (
+                {!caps.canDownload ? (
+                  gated ? null : (
+                    <RequestAction
+                      title={requestTitleFor(payload, provider, providerId)}
+                      state={parseRequestState(payload)}
+                      onRequested={onLibraryChanged}
+                    />
+                  )
+                ) : gated || (!streaming && primary.kind !== "discover") ? null : (
                 <Button
                   type="button"
                   size="lg"
@@ -1267,7 +1289,7 @@ function TitleContent({
                 </Button>
                 )}
 
-                {showDownload ? (
+                {showDownload && caps.canDownload ? (
                   <Button
                     type="button"
                     size="lg"
@@ -1303,13 +1325,15 @@ function TitleContent({
                   </Button>
                 ) : null}
 
-                <LibraryControls
-                  library={payload.library}
-                  isSeries={payload.isSeries}
-                  seasons={seasons.map((s) => s.season)}
-                  releaseDate={payload.releaseDate}
-                  onChanged={onLibraryChanged}
-                />
+                {caps.canManage ? (
+                  <LibraryControls
+                    library={payload.library}
+                    isSeries={payload.isSeries}
+                    seasons={seasons.map((s) => s.season)}
+                    releaseDate={payload.releaseDate}
+                    onChanged={onLibraryChanged}
+                  />
+                ) : null}
               </div>
 
             </div>
@@ -1360,6 +1384,7 @@ function TitleContent({
           and does not interfere with the hero's z-index layers. Radix manages
           scroll-lock with body padding compensation, so opening it does not
           shift the page behind it. */}
+      {caps.canDownload ? (
       <QualityPicker
         open={heroPicker}
         onOpenChange={setHeroPicker}
@@ -1377,6 +1402,7 @@ function TitleContent({
           );
         }}
       />
+      ) : null}
 
       <div className="container-app space-y-7 py-6 md:space-y-10 md:py-8">
         {payload.isSeries ? (
@@ -1423,6 +1449,78 @@ function TitleContent({
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Fills what a requester's catalog-only payload leaves out (library state,
+ * files, transfers) with "nothing here", so the shared page code never reads
+ * a missing field. The owner's payload already has them all and passes through.
+ */
+function withCatalogDefaults(json: unknown): TitleDetailPayload {
+  const p = (json ?? {}) as Partial<TitleDetailPayload> & { inLibrary?: unknown };
+  return {
+    ...p,
+    aliases: p.aliases ?? [],
+    seasons: p.seasons ?? [],
+    episodes: ((p.episodes ?? []) as Partial<TitleDetailPayload["episodes"][number]>[]).map((e) => ({
+      availability: null,
+      infoHash: null,
+      filePath: null,
+      downloadFraction: null,
+      watchedFraction: null,
+      resumePositionSec: null,
+      watched: false,
+      nextUp: false,
+      fromPack: false,
+      transfer: null,
+      ...e,
+    })),
+    availability: p.availability ?? null,
+    infoHash: p.infoHash ?? null,
+    resume: p.resume ?? null,
+    transfer: p.transfer ?? null,
+    library: p.library ?? {
+      inLibrary: p.inLibrary === true,
+      watchListItemId: null,
+      monitored: false,
+      status: null,
+      cursorSeason: null,
+      cursorEpisode: null,
+      addPayload: {
+        mediaType: p.mediaType ?? "movie",
+        externalId: "",
+        title: p.title ?? "",
+        posterUrl: p.posterUrl ?? null,
+        synopsis: null,
+        rating: null,
+      },
+    },
+  } as TitleDetailPayload;
+}
+
+/** The title as a request names it. Null when there is no catalog id to ask for. */
+function requestTitleFor(
+  payload: TitleDetailPayload,
+  provider: string | null,
+  providerId: string | null,
+): RequesterTitle | null {
+  if (!providerId) return null;
+  const mediaType = payload.mediaType ?? (payload.isSeries ? "tv" : "movie");
+  return {
+    key: payload.workKey,
+    title: payload.title,
+    year: payload.year,
+    mediaType,
+    isSeries: payload.isSeries,
+    format: null,
+    category: "",
+    provider: provider ?? "tmdb",
+    providerId,
+    posterUrl: payload.posterUrl ?? null,
+    overview: payload.overview ?? null,
+    releaseDate: payload.releaseDate ?? null,
+    ...parseRequestState(payload),
+  };
+}
 
 function buildDetailUrl(
   props: TitleDetailProps & { season: number | null },

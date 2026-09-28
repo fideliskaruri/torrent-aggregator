@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/lib/capabilities";
 import { useCallback, useEffect, useState } from "react";
 
 export interface DownloadPrefs {
@@ -104,7 +105,10 @@ export function useDownloadPrefs() {
     setLoaded(true);
   }, []);
 
+  // Download folders are the owner's settings; nobody else reads them.
+  const { canDownload } = useCapabilities();
   useEffect(() => {
+    if (!canDownload) return;
     let cancelled = false;
     void fetchPrefs().then((p) => {
       if (cancelled) return;
@@ -114,7 +118,7 @@ export function useDownloadPrefs() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canDownload]);
 
   /**
    * Resolve download folder preview.

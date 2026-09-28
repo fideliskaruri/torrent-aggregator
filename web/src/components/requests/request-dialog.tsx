@@ -12,16 +12,15 @@ import {
 } from "@/components/ui/dialog";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { sessionAwareFetch } from "@/lib/session-expiry";
 import { cn } from "@/lib/utils";
 import {
-  createRequestBody,
   formatSeasons,
   parseSeasons,
-  requestErrorMessage,
+  sendRequest,
   type RequestScope,
   type RequesterTitle,
-} from "./requests";
+} from "@/lib/requests";
+import { useCapabilities } from "@/lib/capabilities";
 
 const NOTE_MAX = 500;
 
@@ -39,6 +38,8 @@ export function RequestDialog({
   onCreated: () => void;
 }) {
   const open = title != null;
+  // The owner's preview renders the dialog but never sends: the server only takes requests from requesters.
+  const { previewing } = useCapabilities();
   const noteId = useId();
   const [scope, setScope] = useState<RequestScope>("series");
   const [seasons, setSeasons] = useState<number[]>([]);
@@ -64,7 +65,7 @@ export function RequestDialog({
       })}`
     : null;
   const seasonQuery = useApiQuery<number[]>(seasonsUrl, {
-    enabled: open,
+    enabled: open && !previewing,
     select: parseSeasons,
     emptyOnUnauthorized: false,
     deps: [seasonsUrl],
@@ -81,36 +82,29 @@ export function RequestDialog({
 
   async function submit() {
     if (!title || !canSubmit) return;
+    if (previewing) {
+      setError("Requests aren't sent while previewing. Exit preview to go back to your own view.");
+      return;
+    }
     setBusy(true);
     setError(null);
-    try {
-      const res = await sessionAwareFetch("/api/requester/requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(createRequestBody(title, { scope, seasons, note })),
-      });
-      const body = (await res.json().catch(() => null)) as { code?: string; error?: string } | null;
-      if (!res.ok) {
-        setError(requestErrorMessage(body?.code, body?.error));
-        return;
-      }
-      toast.success(`Asked for ${title.title}`);
-      onCreated();
-      onClose();
-    } catch (err) {
-      setError(requestErrorMessage(null, (err as Error)?.message));
-    } finally {
-      setBusy(false);
+    const failure = await sendRequest(title, { scope, seasons, note });
+    setBusy(false);
+    if (failure) {
+      setError(failure);
+      return;
     }
+    toast.success(`Requested ${title.title}`);
+    onCreated();
+    onClose();
   }
-
   return (
     <Dialog open={open} onOpenChange={(next) => (!next && !busy ? onClose() : undefined)}>
       <DialogContent className="gap-4 overflow-y-auto p-5 sm:max-w-md" data-request-dialog>
         <DialogHeader>
           <DialogTitle>Request {title?.title ?? ""}</DialogTitle>
           <DialogDescription>
-            The owner decides. You can follow it under My requests.
+            The owner decides. Follow it under Requests.
           </DialogDescription>
         </DialogHeader>
 
@@ -206,7 +200,7 @@ export function RequestDialog({
           </Button>
           <Button type="button" onClick={submit} disabled={!canSubmit} data-request-submit>
             {busy ? <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
-            {busy ? "Sending…" : "Send request"}
+            {busy ? "Requesting…" : "Request"}
           </Button>
         </div>
       </DialogContent>

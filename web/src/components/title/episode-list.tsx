@@ -38,6 +38,7 @@ import type { ReactNode } from "react";
 import { PosterImage } from "@/components/browse/poster-image";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useCapabilities } from "@/lib/capabilities";
 import {
   formatAirDate,
   isUnaired,
@@ -131,7 +132,9 @@ export function EpisodeList({
   onSeasonGrab,
   onAction,
 }: EpisodeListProps) {
-  const { streaming } = useFeatures();
+  const { canDownload, canStream } = useCapabilities();
+  // Play and Download are owner controls; everyone else sees the same cards without them.
+  const streaming = useFeatures().streaming && canStream;
   const { preferredResolution, alwaysPreferred, setAlwaysPreferred } = usePreferredQuality();
 
   // Single quality picker for the whole list. One picker serves every card's
@@ -276,7 +279,7 @@ export function EpisodeList({
             ) : null}
           </div>
 
-          {showSeasonGrab && season != null ? (
+          {showSeasonGrab && canDownload && season != null ? (
             <div className="col-start-2 row-start-1 ml-auto flex items-center justify-end sm:col-auto sm:row-auto sm:w-auto">
               <Button
                 type="button"
@@ -503,7 +506,9 @@ function EpisodeCardImpl({
   downloadStatus: TitleActionStatus;
   onAction: (action: TitleAction, label: string, retention: TitleRetention, resolution?: number) => void;
 }) {
-  const { streaming } = useFeatures();
+  const { canDownload, canStream } = useCapabilities();
+  // Play and Download are owner controls; everyone else sees the same cards without them.
+  const streaming = useFeatures().streaming && canStream;
   const transfer = episode.transfer;
   const transferComplete =
     transfer?.status === "downloaded" && Boolean(transfer.infoHash);
@@ -617,9 +622,10 @@ function EpisodeCardImpl({
     </span>
   );
 
+  const available = episode.available ?? (episode.availability === "ready" || episode.availability === "warm");
   const mobileMeta = [
     airDate,
-    downloadDisplayLabel,
+    canDownload ? downloadDisplayLabel : available ? "Available" : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -715,6 +721,7 @@ function EpisodeCardImpl({
           {/* Compact keep-it affordance. Icon-only to stay out of the card's
               way, but a 44px touch target and a full aria-label so it is neither
               too small to hit nor mute to assistive tech. */}
+          {canDownload ? (
           <span className="absolute bottom-2 right-2 z-10 sm:bottom-auto sm:top-2">
             <button
               type="button"
@@ -750,6 +757,14 @@ function EpisodeCardImpl({
               />
             </button>
           </span>
+          ) : available ? (
+            <span
+              data-episode-available
+              className="absolute bottom-2 right-2 z-10 hidden rounded-[6px] border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] px-1.5 py-0.5 text-[12px] font-medium text-[var(--text-secondary)] backdrop-blur-sm sm:bottom-auto sm:top-2 sm:inline-flex"
+            >
+              Available
+            </span>
+          ) : null}
         </>
       )}
     </li>

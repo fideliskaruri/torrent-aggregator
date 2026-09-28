@@ -9,7 +9,7 @@ import {
   actionLabel,
   cleanDisplayTitle,
   clampFraction,
-  resolveCardAction,
+  viewerCardAction,
   type ActionStatus,
   type CardAction,
 } from "./availability";
@@ -17,6 +17,7 @@ import { heroFacts, type HeroPick } from "./hero";
 import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
 import { titleHrefForItem } from "@/components/title/work-key";
+import { useCapabilities } from "@/lib/capabilities";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { browseReleaseGate } from "@/lib/browse/release-status";
 
@@ -42,7 +43,9 @@ export interface HeroBannerProps {
 export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps) {
   const { streaming } = useFeatures();
   const { item, eyebrow } = pick;
-  const action = resolveCardAction(item);
+  const { canDownload } = useCapabilities();
+  const titleHref = titleHrefForItem(item);
+  const action = viewerCardAction(item, canDownload, titleHref);
   const releaseGate = browseReleaseGate(item);
   const title = cleanDisplayTitle(item.title);
   const facts = heroFacts(streaming ? item : { ...item, progressFraction: null });
@@ -53,7 +56,6 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
   const label = releaseGate.gated
     ? (releaseGate.label ?? "Coming soon")
     : actionLabel(action, status);
-  const titleHref = titleHrefForItem(item);
   const image = item.backdropUrl ?? item.posterUrl;
   const reduceMotion = useReducedMotion();
 
@@ -165,7 +167,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
               ) : null
             ) : action.kind === "search" ? (
               <Button asChild size="lg" data-hero-primary>
-                <Link to={titleHref ?? action.href}>Details</Link>
+                <Link to={titleHref ?? action.href}>{action.label === "Request" ? "Request" : "Details"}</Link>
               </Button>
             ) : action.kind === "get" && status === "done" ? (
               <Button asChild size="lg" variant="secondary">

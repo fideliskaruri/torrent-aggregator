@@ -1,3 +1,4 @@
+import { useCapabilities } from "@/lib/capabilities";
 /**
  * Quality-selection hook — reads the user's preferred resolution from
  * `/api/settings/client` and exposes it for the Download quality picker.
@@ -96,8 +97,11 @@ export function usePreferredQuality() {
     () => false,
   );
   const [loaded, setLoaded] = useState(Boolean(cachedResolution));
+  // Quality is a download setting; people who can't download never read it.
+  const { canDownload } = useCapabilities();
 
   useEffect(() => {
+    if (!canDownload) return;
     let cancelled = false;
     void fetchPreferredResolution().then((r) => {
       if (cancelled) return;
@@ -107,7 +111,7 @@ export function usePreferredQuality() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canDownload]);
 
   function setAlwaysPreferred(value: boolean) {
     writeAlwaysPreferred(value);

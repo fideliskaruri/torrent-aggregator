@@ -9,7 +9,7 @@ import {
   actionLabel,
   cleanDisplayTitle,
   clampFraction,
-  resolveCardAction,
+  viewerCardAction,
   searchAction,
   type ActionStatus,
   type CardAction,
@@ -17,6 +17,7 @@ import {
 import { AvailabilityChip } from "./availability-chip";
 import { PosterImage } from "./poster-image";
 import { titleHrefForItem } from "@/components/title/work-key";
+import { useCapabilities } from "@/lib/capabilities";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 
 /** Poster box width per breakpoint. Also drives the poster `<img>` `sizes`. */
@@ -66,7 +67,9 @@ export function TitleCard({
   const releaseGate = browseReleaseGate(item);
   const unreleased = releaseGate.gated;
 
-  const action = resolveCardAction(item);
+  const { canDownload } = useCapabilities();
+  const titleHref = titleHrefForItem(item);
+  const action = viewerCardAction(item, canDownload, titleHref);
   // Search fallback is for unavailable library rows, not unreleased catalog
   // cards — a "find it" affordance on something that does not exist yet is the
   // same dead end as Play.
@@ -86,7 +89,6 @@ export function TitleCard({
   // action itself, because a title page with nothing to name is worse.
   // Unreleased cards keep the link: the title page is the library surface
   // (overview, track) — only Play/Get/Download are withheld.
-  const titleHref = titleHrefForItem(item);
 
   // Only `play` and `get` are *performed*. `search` and `blocked` describe
   // where the card already goes, so they render as a caption rather than a

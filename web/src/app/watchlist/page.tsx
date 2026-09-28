@@ -1,5 +1,5 @@
 import { readJsonBody, sendErrorFromBody } from "@/lib/api-json";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { useSession } from "@/components/providers/session-provider";
@@ -44,6 +44,8 @@ import {
   InlineStreamPlayer,
 } from "@/components/watch/inline-player";
 import { useDownloadPrefs } from "@/hooks/use-download-prefs";
+import { useCapabilities } from "@/lib/capabilities";
+import { parseLibrary } from "@/lib/requests";
 import {
   isSeriesMediaType,
   normalizeMediaType,
@@ -112,6 +114,48 @@ function libraryTitleHref(item: WatchItem): string | null {
     mediaType: item.mediaType,
     season: item.cursorSeason ?? item.fromSeason ?? null,
   });
+}
+
+/**
+ * The Library's rows. The owner reads `/api/watchlist`; a requester reads
+ * `/api/requester/library` (identity and art only), mapped onto the same row
+ * shape so one page renders both. The owner's preview maps its own rows the
+ * same way, since `/api/requester/*` only answers requesters.
+ */
+function useLibraryItems(ownerSession: boolean, readOnly: boolean) {
+  const owner = useApiQuery<{ items?: WatchItem[] }>(ownerSession ? "/api/watchlist" : null, { refreshMs: 30_000 });
+  const mine = useApiQuery<{ items?: WatchItem[] }>(ownerSession ? null : "/api/requester/library", {
+    refreshMs: 60_000,
+    emptyOnUnauthorized: false,
+    select: (json: unknown) => ({ items: parseLibrary(json).map(readOnlyItem) }),
+  });
+  const ownerData = owner.data;
+  const previewData = useMemo(
+    () => (ownerSession && readOnly && ownerData ? { items: (ownerData.items ?? []).map(readOnlyItem) } : null),
+    [ownerSession, readOnly, ownerData],
+  );
+  if (!ownerSession) return mine;
+  return readOnly ? { ...owner, data: previewData } : owner;
+}
+
+/** A library row with nothing but identity and art, as a requester may see it. */
+function readOnlyItem(row: { key?: string; id?: string; title: string; mediaType: string; posterUrl: string | null; year?: number | null }): WatchItem {
+  return {
+    id: row.key ?? row.id ?? row.title,
+    mediaType: row.mediaType,
+    externalId: "",
+    title: row.title,
+    posterUrl: row.posterUrl,
+    synopsis: null,
+    rating: null,
+    status: "available",
+    lastEpisode: null,
+    latestReleaseTitle: null,
+    latestReleaseAt: null,
+    latestReleaseMagnet: null,
+    nextEpisodeHint: null,
+    updatedAt: "",
+  };
 }
 
 /** Last automation run summary (client-only, not source of truth — Activity is). */
@@ -228,7 +272,10 @@ function writeLastAuto(summary: LastAutoSummary) {
 }
 
 export default function WatchlistPage() {
-  const { streaming } = useFeatures();
+  const caps = useCapabilities();
+  // Read-only for anyone who can't manage the library: no delete, paths, streams or automation.
+  const readOnly = !caps.canManage;
+  const streaming = useFeatures().streaming && caps.canStream;
   const { data: session } = useSession();
   const { prefs, loaded: prefsLoaded } = useDownloadPrefs();
   const [items, setItems] = useState<WatchItem[]>([]);
@@ -274,7 +321,7 @@ export default function WatchlistPage() {
     loading,
     error,
     refetch: load,
-  } = useApiQuery<{ items?: WatchItem[] }>("/api/watchlist", { refreshMs: 30_000 });
+  } = useLibraryItems(caps.ownerSession, readOnly);
   const showLoading = useStableLoading(loading && watchlist == null && !error);
 
   // Adjusting state from a prop/query during render is React's documented
@@ -620,11 +667,11 @@ export default function WatchlistPage() {
   const counts = tabCounts(items);
 
   return (
-    <div className="container-app space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] min-w-0 sm:py-8 sm:pb-8">
+    <div className="container-app space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] min-w-0 sm:py-8 sm:pb-8" data-library-page={readOnly ? "read-only" : "manage"}>
       <TfPageHeader
         title="Library"
         description={libraryPageSummary(items)}
-        actions={
+        actions={readOnly ? undefined :
           <Button
             type="button"
             size="sm"
@@ -642,6 +689,7 @@ export default function WatchlistPage() {
         }
       />
 
+      {readOnly ? null : (
       <p
         id={automationStateId}
         data-dense-ui
@@ -670,8 +718,9 @@ export default function WatchlistPage() {
           </>
         ) : null}
       </p>
+      )}
 
-      {lastAuto ? (
+      {lastAuto && !readOnly ? (
         <div className="surface px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
           <span className="text-[var(--text-secondary)]">
             Last automation
@@ -740,7 +789,9 @@ export default function WatchlistPage() {
           title={
             items.length
               ? `Nothing in ${LIBRARY_TAB_LABELS[activeTab]}`
-              : "No items yet"
+              : readOnly
+                ? "Nothing in the library yet"
+                : "No items yet"
           }
           description={
             items.length
@@ -748,9 +799,11 @@ export default function WatchlistPage() {
                 // while the page was open. Name the way back rather than
                 // leaving the user on a dead end.
                 "Everything in your library is under another tab. Choose All to see it."
-              : "Search a show, add it to your library, then check for the next episode."
+              : readOnly
+                ? "Browse or search for something, then press Request."
+                : "Search a show, add it to your library, then check for the next episode."
           }
-          actionLabel={items.length ? undefined : "Search shows"}
+          actionLabel={items.length ? undefined : readOnly ? "Go to Browse" : "Search shows"}
           actionHref={items.length ? undefined : "/"}
         />
       ) : (
@@ -866,9 +919,11 @@ export default function WatchlistPage() {
                           </h2>
                           <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)] capitalize">
                             {typeLabel}
-                            {item.monitored !== false
-                              ? " · watching"
-                              : " · paused"}
+                            {readOnly
+                              ? null
+                              : item.monitored !== false
+                                ? " · watching"
+                                : " · paused"}
                           </p>
                         </Link>
                       ) : (
@@ -878,14 +933,16 @@ export default function WatchlistPage() {
                           </h2>
                                                     <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)] capitalize">
                             {typeLabel}
-                            {item.monitored !== false
-                              ? " · watching"
-                              : " · paused"}
+                            {readOnly
+                              ? null
+                              : item.monitored !== false
+                                ? " · watching"
+                                : " · paused"}
                           </p>
                         </>
                       )}
                     </div>
-                    <Button
+                    {readOnly ? null : <Button
                       type="button"
                       variant="ghost"
                       size="icon-sm"
@@ -894,9 +951,10 @@ export default function WatchlistPage() {
                       className="shrink-0 text-[var(--text-tertiary)] hover:text-[var(--danger)]"
                     >
                       <Trash2 className="h-4 w-4" />
-                    </Button>
+                    </Button>}
                   </div>
 
+                  {readOnly ? null : (<>
                   {/* One clear “what happens next” block */}
                   {isSeries ? (
                     <div className="rounded-md border border-[var(--border)] bg-[var(--bg-muted)]/50 px-3 py-2.5 space-y-1">
@@ -1110,6 +1168,7 @@ export default function WatchlistPage() {
                       title={canonicalWatchlistPlayerTitle(item)}
                     />
                   ) : null}
+                  </>)}
                 </div>
               </article>
             );
@@ -1117,10 +1176,12 @@ export default function WatchlistPage() {
         </div>
       )}
 
-      <RecommendationRailSection
-        onAdded={() => void load()}
-        refreshKey={items.length}
-      />
+      {readOnly ? null : (
+        <RecommendationRailSection
+          onAdded={() => void load()}
+          refreshKey={items.length}
+        />
+      )}
 
       <AlertDialog
         open={automationReviewOpen}
