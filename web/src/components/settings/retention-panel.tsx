@@ -1,3 +1,4 @@
+import { readJsonBody } from "@/lib/api-json";
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -174,7 +175,7 @@ export function RetentionPanel({
     setLoadError(null);
     try {
       const res = await fetch("/api/settings/client");
-      const data = (await res.json()) as {
+      const data = ((await readJsonBody(res)) ?? {}) as {
         settings?: {
           defaultRetentionPolicy?: RetentionPolicy;
           defaultRetentionPolicyPersisted?: boolean;
@@ -207,7 +208,7 @@ export function RetentionPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ defaultRetentionPolicy: next }),
       });
-      const data = (await res.json()) as {
+      const data = ((await readJsonBody(res)) ?? {}) as {
         settings?: {
           defaultRetentionPolicy?: RetentionPolicy;
           defaultRetentionPolicyPersisted?: boolean;
@@ -252,7 +253,7 @@ export function RetentionPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode }),
       });
-      const data = (await res.json()) as {
+      const data = ((await readJsonBody(res)) ?? {}) as {
         ok?: boolean;
         result?: SweepResult;
         error?: string;
@@ -288,7 +289,7 @@ export function RetentionPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: target }),
       });
-      const data = (await res.json()) as {
+      const data = ((await readJsonBody(res)) ?? {}) as {
         ok?: boolean;
         message?: string;
         error?: string;
@@ -335,7 +336,7 @@ export function RetentionPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ relativePath: target.relativePath }),
       });
-      const data = (await res.json()) as {
+      const data = ((await readJsonBody(res)) ?? {}) as {
         ok?: boolean;
         deleted?: { bytes: number; fileCount: number };
         usage?: StorageUsage;
@@ -399,7 +400,7 @@ export function RetentionPanel({
                   ) : null}
                   {option.label}
                 </span>
-                <span className="mt-1 block text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                <span className="mt-1 block text-xs leading-relaxed text-[var(--text-tertiary)]">
                   {option.hint}
                 </span>
               </button>
@@ -408,7 +409,7 @@ export function RetentionPanel({
           ) : null}
  
           {showPolicy && !persisted ? (
-            <p className="text-[11px] text-[var(--color-warning)] leading-relaxed">
+            <p className="text-xs text-[var(--color-warning)] leading-relaxed">
               The app needs the pending database migration before this default can be saved persistently.
             </p>
           ) : null}
@@ -487,7 +488,7 @@ export function RetentionPanel({
                   {/* The identity the cap is enforced on, spelled out. The exact
                       byte count is what makes it checkable against Explorer,
                       whose "GB" is binary while this app's is decimal. */}
-                  <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+                  <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
                     {formatBytes(usage.disk.trackedBytes)} tracked by transfers ·{" "}
                     <span
                       className={
@@ -649,7 +650,7 @@ function UntrackedFiles({
           <FileWarning className="h-3.5 w-3.5" />
           Untracked files
         </h3>
-        <span className="text-[11px] text-[var(--text-tertiary)]">
+        <span className="text-xs text-[var(--text-tertiary)]">
           {groups.length
             ? `${formatBytes(usage.orphanBytes)} · ${scan.orphanFileCount} file${
                 scan.orphanFileCount === 1 ? "" : "s"
@@ -659,7 +660,7 @@ function UntrackedFiles({
       </div>
 
       {scan.truncated ? (
-        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-[var(--color-warning)]">
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--color-warning)]">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             The folder is deeper or larger than one scan covers
@@ -673,7 +674,7 @@ function UntrackedFiles({
       ) : null}
 
       {scan.unreadablePaths.length ? (
-        <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-[var(--color-warning)]">
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--color-warning)]">
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             {scan.unreadablePaths.length} location
@@ -699,7 +700,7 @@ function UntrackedFiles({
         </p>
       ) : (
         <>
-          <p className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+          <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
             These sit under your download folder and count against the storage
             cap, but no live transfer owns them. Removing one deletes it from
             disk.
@@ -718,7 +719,7 @@ function UntrackedFiles({
             ))}
           </ul>
           {scan.groupsTruncated ? (
-            <p className="text-[11px] text-[var(--text-tertiary)]">
+            <p className="text-xs text-[var(--text-tertiary)]">
               Showing the largest {groups.length}. Remove some and re-open this
               page to see the rest.
             </p>
@@ -761,7 +762,7 @@ function UntrackedGroupRow({
           <p className="truncate text-xs font-medium text-[var(--text)]" title={title}>
             {title}
           </p>
-          <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
             {formatBytes(group.bytes)} · {group.fileCount} file
             {group.fileCount === 1 ? "" : "s"}
             {group.loose ? "" : ` · ${group.relativePath}`}
@@ -819,12 +820,12 @@ function UntrackedGroupRow({
               className="flex flex-wrap items-center justify-between gap-2"
             >
               <span
-                className="min-w-0 flex-1 truncate text-[11px] text-[var(--text-secondary)]"
+                className="min-w-0 flex-1 truncate text-xs text-[var(--text-secondary)]"
                 title={file.relativePath}
               >
                 {file.name}
               </span>
-              <span className="shrink-0 text-[11px] text-[var(--text-tertiary)]">
+              <span className="shrink-0 text-xs text-[var(--text-tertiary)]">
                 {formatBytes(file.bytes)}
               </span>
               <Button
@@ -853,12 +854,12 @@ function UntrackedGroupRow({
             </li>
           ))}
           {group.filesTruncated ? (
-            <li className="text-[11px] text-[var(--text-tertiary)]">
+            <li className="text-xs text-[var(--text-tertiary)]">
               Showing the largest {group.files.length} of {group.fileCount}.
             </li>
           ) : null}
           {!group.loose ? (
-            <li className="text-[11px] leading-relaxed text-[var(--text-tertiary)]">
+            <li className="text-xs leading-relaxed text-[var(--text-tertiary)]">
               This folder still holds files a live transfer owns, so it can only
               be cleared one file at a time.
             </li>

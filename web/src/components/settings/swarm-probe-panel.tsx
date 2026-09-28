@@ -4,6 +4,7 @@ import { Loader2, Radar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { readJsonBody } from "@/lib/api-json";
 import type { SwarmVerdict } from "@/lib/torrents/swarm-probe";
 import {
   verdictDisplay,
@@ -79,16 +80,22 @@ function EnabledSwarmProbePanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<Scope | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/prewarm/swarm-probe");
-      const body = (await res.json()) as Partial<ProbeSettings> & {
-        error?: string;
-      };
-      if (!res.ok) throw new Error(body.error || "Could not load availability checks");
+      const body = await readJsonBody<Partial<ProbeSettings> & { error?: string }>(res);
+      if (!body) {
+        // An older server has no availability checks (404 with an empty body);
+        // that is a state to explain, not a JSON error to show.
+        setUnavailable(true);
+        return;
+      }
+      if (!res.ok) throw new Error(body.error || "Couldn't load availability checks. Try again.");
+      setUnavailable(false);
       setData({
         scope: body.scope ?? "monitored",
         defaultScope: body.defaultScope ?? "monitored",
@@ -117,8 +124,10 @@ function EnabledSwarmProbePanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope: next }),
       });
-      const body = (await res.json()) as { scope?: Scope; error?: string };
-      if (!res.ok) throw new Error(body.error || "Could not save availability checks");
+      const body = await readJsonBody<{ scope?: Scope; error?: string }>(res);
+      if (!res.ok || !body) {
+        throw new Error(body?.error || "Couldn't save availability checks. Try again.");
+      }
       setData((prev) => (prev ? { ...prev, scope: body.scope ?? next } : prev));
       // Refresh the measured list — switching scope may change what is relevant.
       await load();
@@ -154,6 +163,10 @@ function EnabledSwarmProbePanel() {
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading availability checks…
         </div>
+      ) : unavailable ? (
+        <p className="text-xs text-[var(--text-secondary)] leading-relaxed" data-swarm-probe-unavailable>
+          Availability checks aren't available on this version of TorrentFlow. Update TorrentFlow to turn them on.
+        </p>
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -174,7 +187,7 @@ function EnabledSwarmProbePanel() {
                   ) : null}
                   <span className="truncate">{choice.label}</span>
                   {isDefault ? (
-                    <span className="text-[10px] text-[var(--text-tertiary)]">
+                    <span className="text-xs text-[var(--text-tertiary)]">
                       · default
                     </span>
                   ) : null}
@@ -188,7 +201,7 @@ function EnabledSwarmProbePanel() {
               <h3 className="text-xs font-medium text-[var(--text-secondary)]">
                 Recent checks
               </h3>
-              <span className="text-[11px] text-[var(--text-tertiary)]">
+              <span className="text-xs text-[var(--text-tertiary)]">
                 Results can change over time.
               </span>
             </div>
@@ -226,7 +239,7 @@ function EnabledSwarmProbePanel() {
                           {display.label}
                         </Badge>
                       </div>
-                      <div className="mt-1 text-[11px] text-[var(--text-tertiary)]">
+                      <div className="mt-1 text-xs text-[var(--text-tertiary)]">
                         {fresh}
                       </div>
                     </li>
@@ -238,7 +251,14 @@ function EnabledSwarmProbePanel() {
         </>
       )}
 
-      {error ? <p className="text-xs text-[var(--danger)]">{error}</p> : null}
+      {error ? (
+        <div className="flex flex-wrap items-center gap-2" role="alert">
+          <p className="text-xs text-[var(--danger)]">{error}</p>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }

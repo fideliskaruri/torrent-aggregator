@@ -1,3 +1,4 @@
+import { readJsonBody } from "@/lib/api-json";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
@@ -57,7 +58,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
       .then(async (response) => {
         if (response.status === 404 || response.status === 403) { setInfo(null); return; } // Owner-only, hidden on remote access.
         if (!response.ok) throw new Error("Could not inspect download storage");
-        setInfo(await response.json() as RecoveryInfo);
+        setInfo(await readJsonBody<RecoveryInfo>(response));
       }).catch(() => { if (!abort.signal.aborted) setError(true); });
     return () => abort.abort();
   }, [retry, revision]);
@@ -75,7 +76,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
         return;
       }
       if (!response.ok) throw new Error("Could not scan other torrent clients");
-      const result = await response.json() as SourceScan;
+      const result = ((await readJsonBody(response)) ?? {}) as SourceScan;
       setSourceScan(result);
       setSelectedIds(new Set(result.candidates.filter((candidate) => !candidate.alreadyImported).map((candidate) => candidate.id)));
       setAcknowledged(false);
@@ -101,7 +102,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ids: [...selectedIds], acknowledged: true }),
       });
-      const result = await response.json() as {
+      const result = ((await readJsonBody(response)) ?? {}) as {
         imported?: number;
         paused?: number;
         skipped?: number;
@@ -131,7 +132,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     setBusy(true);
     try {
       const response = await fetch("/api/settings/download-recovery", { method: "POST" });
-      const result = await response.json() as { imported?: number; restoredTorrents?: number; failedTorrents?: number; error?: string };
+      const result = ((await readJsonBody(response)) ?? {}) as { imported?: number; restoredTorrents?: number; failedTorrents?: number; error?: string };
       if (!response.ok) throw new Error(result.error || "Import failed");
       const message = `Imported ${result.imported ?? 0} local files; restored ${result.restoredTorrents ?? 0} torrents.`;
       if (result.failedTorrents) toast.warning(`${message} ${result.failedTorrents} torrents could not start; check their error in Downloads.`);
