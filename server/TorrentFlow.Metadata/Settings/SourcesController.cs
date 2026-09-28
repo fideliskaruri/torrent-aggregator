@@ -107,12 +107,33 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
                 return Ok(new { ok, status = ok ? "ok" : "unavailable", message });
             }, ct);
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or XmlException)
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or XmlException or IOException)
         {
             // XmlException here is only reached when the response body could not be read as Torznab caps.
-            var message = source.Type == "torznab" && e is XmlException
-                ? "That address answered, but not as a Torznab indexer."
-                : null;
+            string message;
+            if (source.Type == "torznab" && e is XmlException)
+                message = "That address answered, but not as a Torznab indexer.";
+            else if (e is OperationCanceledException or TaskCanceledException)
+                message = "The source did not answer in time. Check the address and try again.";
+            else if (e is HttpRequestException http)
+            {
+                var detail = http.InnerException?.Message ?? http.Message;
+                message = detail.Contains("refused", StringComparison.OrdinalIgnoreCase)
+                        || detail.Contains("actively refused", StringComparison.OrdinalIgnoreCase)
+                    ? "Could not connect — the host refused the connection."
+                    : detail.Contains("No such host", StringComparison.OrdinalIgnoreCase)
+                        || detail.Contains("not known", StringComparison.OrdinalIgnoreCase)
+                        || detail.Contains("Name or service not known", StringComparison.OrdinalIgnoreCase)
+                        || detail.Contains("nodename nor servname", StringComparison.OrdinalIgnoreCase)
+                    ? "Could not look up that host name. Check the address."
+                    : detail.Contains("SSL", StringComparison.OrdinalIgnoreCase)
+                        || detail.Contains("TLS", StringComparison.OrdinalIgnoreCase)
+                        || detail.Contains("certificate", StringComparison.OrdinalIgnoreCase)
+                    ? "Could not open a secure connection to that source."
+                    : "Could not reach that source. Check the address and your network.";
+            }
+            else
+                message = "Could not reach that source. Check the address and your network.";
             return Ok(new { ok = false, status = "unavailable", message });
         }
     }

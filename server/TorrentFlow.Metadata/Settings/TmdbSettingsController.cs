@@ -22,11 +22,13 @@ public sealed class TmdbSettingsController(TmdbSettingsStore store, IHttpClientF
 
     [HttpPut]
     [RequestSizeLimit(8192)]
-    public IActionResult Put([FromBody] JsonElement body)
+    public async Task<IActionResult> Put([FromBody] JsonElement body, CancellationToken ct)
     {
         if (!Allowed()) return StatusCode(403, new { error = "Cross-site writes are not allowed." });
         var key = Key(body);
-        if (!TmdbSettingsStore.Accepts(key)) return BadRequest(new { error = "Enter a usable TMDB API key." });
+        if (!TmdbSettingsStore.Accepts(key))
+            return BadRequest(new { error = "Enter a usable TMDB API key (32-character v3 key or v4 access token)." });
+        // Format-validated keys save here. Use POST /test for a live TMDB probe (keeps offline/dev saves working).
         try { store.Save(key!); return Get(); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         { return StatusCode(503, new { error = "Could not save TMDB settings." }); }
@@ -47,7 +49,20 @@ public sealed class TmdbSettingsController(TmdbSettingsStore store, IHttpClientF
     {
         if (!Allowed()) return StatusCode(403, new { error = "Cross-site writes are not allowed." });
         var key = Key(body) ?? store.ApiKey;
-        if (!TmdbSettingsStore.Accepts(key)) return BadRequest(new { ok = false, status = "invalid" });
+        if (!TmdbSettingsStore.Accepts(key))
+            return BadRequest(new { ok = false, status = "invalid", message = "Enter a usable TMDB API key (32-character v3 key or v4 access token)." });
+        var probe = await ProbeKeyAsync(key!, ct);
+        var message = probe.Status switch
+        {
+            "ok" => "TMDB accepted this key.",
+            "invalid" => "TMDB rejected that key. Check it in your TMDB account settings.",
+            _ => "Could not reach TMDB. Check your network and try again.",
+        };
+        return Ok(new { ok = probe.Status == "ok", status = probe.Status, message });
+    }
+
+    private async Task<(string Status, string? Detail)> ProbeKeyAsync(string key, CancellationToken ct)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         try
@@ -57,9 +72,11 @@ public sealed class TmdbSettingsController(TmdbSettingsStore store, IHttpClientF
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             var status = response.IsSuccessStatusCode ? "ok" :
                 response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden ? "invalid" : "unavailable";
-            return Ok(new { ok = status == "ok", status });
+            return (status, null);
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException)
-        { return Ok(new { ok = false, status = "unavailable" }); }
+        {
+            return ("unavailable", e.Message);
+        }
     }
 }

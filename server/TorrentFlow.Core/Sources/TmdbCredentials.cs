@@ -18,8 +18,13 @@ public static class TmdbCredentials
     public static bool IsUsable(string? value)
     {
         var key = Normalize(value);
-        return key.Length >= 10 && !Regex.IsMatch(key, @"^(.)\1*$", RegexOptions.Singleline) &&
-            !Placeholders.Contains(key.ToLowerInvariant()) &&
-            !Regex.IsMatch(key, @"\byour\b|\bhere\b|^<.*>$|\bkey\s*goes\b", RegexOptions.IgnoreCase);
+        if (key.Length < 10 || Regex.IsMatch(key, @"^(.)\1*$", RegexOptions.Singleline)
+            || Placeholders.Contains(key.ToLowerInvariant())
+            || Regex.IsMatch(key, @"\byour\b|\bhere\b|^<.*>$|\bkey\s*goes\b", RegexOptions.IgnoreCase))
+            return false;
+        // v3 keys are 32 hex chars; v4 read-access tokens are JWT-shaped (three base64url segments).
+        if (Regex.IsMatch(key, @"^[0-9a-fA-F]{32}$")) return true;
+        var parts = key.Split('.');
+        return parts.Length == 3 && parts.All(p => p.Length >= 8 && Regex.IsMatch(p, @"^[A-Za-z0-9_-]+$"));
     }
 }

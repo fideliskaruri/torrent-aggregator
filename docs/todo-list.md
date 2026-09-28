@@ -36,6 +36,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 ## Done recently
 
 - "Find another release": source picker (All sources + each enabled source with counts), one-click "Find the best one for me" (`POST {best:true}`), one deterministic ranking with a specific reason per release, and only the recommended card highlighted. API verified live on a real download (best-swap and filtered search); Playwright visual check at 390/1280 still pending (MCP was down).
+- Flow QA server (FQ-DL/REQ/SET): movie year folders; list prefers durable queued/error; forced/verified flags; torrent URL plain errors; fulfilled blocks re-request; partial grab honesty; QueueKey season/episode; Amazon posters; create rate-limit after validate; source test messages; TMDB key shape; build version; decline empty body.
 - Engine QA: DL-1 verified already fixed in e2cfde7; DL-3 verified already ported in ea1f829.
 - DL-5: save-path write probe before admission; real API returns 400 / `savePath` with no transfer.
 - Season starts: removed send barriers, shared fanout with approved requests, metadata waits moved to monitor.

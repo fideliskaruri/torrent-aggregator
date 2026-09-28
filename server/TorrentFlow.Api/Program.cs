@@ -255,7 +255,7 @@ app.MapGet("/api/health", async (TorrentFlowDbContext db, HttpContext http, Canc
         ready,
         timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture),
         process = new { status = "up", uptimeSeconds = Math.Max(0, (long)uptime.TotalSeconds) },
-        build = new { id = typeof(Program).Assembly.GetName().Version?.ToString() ?? "dev" },
+        build = new { id = TorrentFlow.Core.BuildVersion.Id },
         database = new { status = ready ? "up" : "down", latencyMs },
     }, statusCode: ready ? 200 : 503);
 }).AllowRequesters();

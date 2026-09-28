@@ -41,7 +41,7 @@ public sealed class DiagnosticsHealthController(TorrentFlowDbContext db, IOption
             ["ready"] = dbUp,
             ["timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture),
             ["process"] = new { status = "up", uptimeSeconds = Math.Max(0, (long)(DateTime.UtcNow - Started).TotalSeconds) },
-            ["build"] = new { id = typeof(EngineModule).Assembly.GetName().Version?.ToString() ?? "dev" },
+            ["build"] = new { id = TorrentFlow.Core.BuildVersion.IdFrom(typeof(EngineModule).Assembly) },
             ["database"] = new { status = dbUp ? "up" : "down", latencyMs = latency },
             ["caches"] = new Dictionary<string, long>(),
             ["cacheRegistry"] = new { names = Array.Empty<string>(), missing = Array.Empty<string>() },
