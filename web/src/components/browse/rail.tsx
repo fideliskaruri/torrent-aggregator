@@ -152,6 +152,7 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
               status={statuses?.[item.id]}
               onAction={onAction}
               priority={index === 0 && i < 4}
+              persistentAction={rail.id === "continue-watching"}
             />
           ))}
         </ul>

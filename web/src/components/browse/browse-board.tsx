@@ -47,6 +47,19 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
     [payload.rails, streaming],
   );
   const hero = useMemo(() => pickHeroItem(rails), [rails]);
+  // The hero already features its title, so the rail it came from drops that
+  // card and keeps the rest in order. A rail left empty is hidden.
+  const shownRails = useMemo(
+    () =>
+      rails
+        .map((rail) =>
+          hero && rail.id === hero.railId
+            ? { ...rail, items: rail.items.filter((item) => item.id !== hero.item.id) }
+            : rail,
+        )
+        .filter((rail) => rail.items.length > 0),
+    [rails, hero],
+  );
 
   const runAction = useCallback(
     async (item: RailItem, action: CardAction) => {
@@ -143,7 +156,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
       ) : null}
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
-        {rails.map((rail, index) => (
+        {shownRails.map((rail, index) => (
           <Rail
             key={rail.id}
             rail={rail}

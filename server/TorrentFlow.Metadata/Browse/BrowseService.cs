@@ -35,6 +35,10 @@ public sealed record WorkRailItem : RailItem
 {
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkId { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? WorkKey { get; init; }
+    /// <summary>Next-episode cards only: "ready" (on disk), "downloading" or "missing". Omitted elsewhere.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? NextState { get; init; }
+    /// <summary>0-1 download progress of that next episode while it is downloading.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? NextProgress { get; init; }
 }
 
 /// <summary>discovery.ts toRailItem: a catalog card also carries overview / releaseDate / theatrical gate explicitly.</summary>
@@ -63,7 +67,6 @@ public sealed record CatalogSeed(string Title, string? MediaType);
 public sealed partial class BrowseService(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
     CatalogService catalog,
-    AvailabilityResolver availability,
     HomeReleaseCache homeReleases,
     ArtworkResolver artwork,
     ITorrentPresenceProbe presence,
@@ -363,28 +366,130 @@ public sealed partial class BrowseService(
 
     // ------------------------------------------------------------------ Next Up
 
-    /// <summary>The next episode of every monitored show; merged into Continue watching, never shown as its own rail.</summary>
+    /// <summary>
+    /// The next episode of every monitored show; merged into Continue watching, never shown as its own rail. Whether
+    /// that episode is on disk comes from the library's own episode records for the work (acquisition targets, then
+    /// the season/episode of the files in torrents linked to it), never from matching release names to the title.
+    /// </summary>
     private async Task<Rail?> BuildNextUpAsync(string userId, CancellationToken ct)
     {
-        List<WatchListItem> rows;
-        await using (var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false))
-        {
-            rows = await db.WatchListItems.AsNoTracking()
-                .Where(w => w.UserId == userId && w.Monitored == true && w.CursorSeason != null && w.CursorEpisode != null)
-                .OrderByDescending(w => w.UpdatedAt).Take(20).ToListAsync(ct).ConfigureAwait(false);
-        }
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var rows = await db.WatchListItems.AsNoTracking()
+            .Where(w => w.UserId == userId && w.Monitored == true && w.CursorSeason != null && w.CursorEpisode != null)
+            .OrderByDescending(w => w.UpdatedAt).Take(20).ToListAsync(ct).ConfigureAwait(false);
         if (rows.Count == 0) return null;
-        var avail = await availability.ResolveBatchAsync(userId,
-            rows.Select(w => new AvailabilityQuery(w.Title, w.CursorSeason, w.CursorEpisode, w.MediaType)).ToList(), ct).ConfigureAwait(false);
+
+        var workIds = rows.Select(w => w.WorkId).OfType<string>().Where(id => id.Length > 0).Distinct().ToList();
+        var works = await db.Works.AsNoTracking().Where(w => workIds.Contains(w.Id))
+            .Select(w => new { w.Id, w.WorkKey, w.PosterUrl }).ToListAsync(ct).ConfigureAwait(false);
+        var workKeys = works.Select(w => w.WorkKey).ToList();
+        var targets = await db.AcquisitionTargets.AsNoTracking()
+            .Where(a => a.UserId == userId && a.Scope == "episode" && a.Season != null && a.Episode != null
+                && ((a.WorkId != null && workIds.Contains(a.WorkId)) || workKeys.Contains(a.WorkKey)))
+            .OrderByDescending(a => a.UpdatedAt).ToListAsync(ct).ConfigureAwait(false);
+        var targetHashes = targets.Select(a => a.InfoHash).OfType<string>().Select(h => h.ToLowerInvariant()).Distinct().ToList();
+        var torrents = await db.EngineTorrents.AsNoTracking()
+            .Where(t => t.UserId == userId && t.Status != "removed" && t.Status != "error"
+                && ((t.WorkId != null && workIds.Contains(t.WorkId)) || targetHashes.Contains(t.Hash.ToLower())))
+            .ToListAsync(ct).ConfigureAwait(false);
+        var filePresence = files.Lookup(torrents);
+        var torrentByHash = torrents.GroupBy(t => t.Hash.ToLowerInvariant()).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        var workKeyById = works.ToDictionary(w => w.Id, w => w.WorkKey, StringComparer.Ordinal);
+
+        var states = rows.Select(w =>
+        {
+            var workKey = w.WorkId is { } id ? workKeyById.GetValueOrDefault(id) : null;
+            var mine = targets.Where(a => (w.WorkId != null && a.WorkId == w.WorkId) || (workKey != null && a.WorkKey == workKey));
+            var linked = torrents.Where(t => w.WorkId != null && t.WorkId == w.WorkId);
+            return ResolveNextEpisode(w.CursorSeason!.Value, w.CursorEpisode!.Value, mine, linked, torrentByHash,
+                h => presence.Presence(userId, h), filePresence);
+        }).ToList();
+
+        var posterByWork = works.Where(w => !string.IsNullOrEmpty(w.PosterUrl)).ToDictionary(w => w.Id, w => w.PosterUrl, StringComparer.Ordinal);
+        var needsArt = rows.Where(w => string.IsNullOrEmpty(w.PosterUrl) && (w.WorkId is null || !posterByWork.ContainsKey(w.WorkId))).ToList();
+        var art = needsArt.Count == 0 ? [] : await ResolveArtworkForReleasesAsync(needsArt.Select(w => w.Title).ToList()).ConfigureAwait(false);
+        var artByRow = needsArt.Select((w, i) => (w.Id, art[i].PosterUrl)).ToDictionary(x => x.Id, x => x.PosterUrl, StringComparer.Ordinal);
+
         var items = rows.Select((w, i) => (object)new WorkRailItem
         {
-            Id = $"next-{w.Id}", WorkId = w.WorkId, Title = w.Title, Subtitle = FormatEpisodeSubtitle(w.CursorSeason, w.CursorEpisode), PosterUrl = w.PosterUrl,
-            Availability = avail[i].State, ProgressFraction = avail[i].Progress, InfoHash = avail[i].InfoHash,
+            Id = $"next-{w.Id}", WorkId = w.WorkId, WorkKey = w.WorkId is { } id ? workKeyById.GetValueOrDefault(id) : null, Title = w.Title,
+            Subtitle = FormatEpisodeSubtitle(w.CursorSeason, w.CursorEpisode) is { } code ? $"Next · {code}" : null,
+            PosterUrl = NonEmpty(w.PosterUrl) ?? (w.WorkId is { } wid ? posterByWork.GetValueOrDefault(wid) : null) ?? artByRow.GetValueOrDefault(w.Id),
+            Availability = states[i].State == NextEpisodeState.Ready ? "ready" : null,
+            NextState = states[i].State switch { NextEpisodeState.Ready => "ready", NextEpisodeState.Downloading => "downloading", _ => "missing" },
+            NextProgress = states[i].State == NextEpisodeState.Downloading ? states[i].Progress : null,
+            InfoHash = states[i].State == NextEpisodeState.Ready ? states[i].InfoHash : null,
+            FilePath = states[i].State == NextEpisodeState.Ready ? states[i].FilePath : null,
             WatchListItemId = w.Id, MediaType = w.MediaType, Season = w.CursorSeason, Episode = w.CursorEpisode,
         }).ToList();
         return new Rail("next-up", "Next Up", items);
     }
 
+    public enum NextEpisodeState { Missing, Downloading, Ready }
+
+    public sealed record NextEpisode(NextEpisodeState State, double? Progress = null, string? InfoHash = null, string? FilePath = null);
+
+    /// <summary>
+    /// One show's next episode against the library's records. An episode-scope acquisition target for that season and
+    /// episode decides first; otherwise a video file in a torrent linked to the work whose own name is that episode.
+    /// On disk is Ready, still arriving is Downloading, anything else is Missing.
+    /// </summary>
+    public static NextEpisode ResolveNextEpisode(int season, int episode, IEnumerable<AcquisitionTarget> targets, IEnumerable<EngineTorrent> linked,
+        IReadOnlyDictionary<string, EngineTorrent> torrentByHash, Func<string, TorrentPresence> presence, Func<string, LocalFilePresence> filePresence)
+    {
+        var downloading = (NextEpisode?)null;
+        foreach (var target in targets.Where(a => a.Season == season && a.Episode == episode))
+        {
+            var torrent = target.InfoHash is { } hash ? torrentByHash.GetValueOrDefault(hash.ToLowerInvariant()) : null;
+            if (target.Status == "downloaded" && EngineAvailability(torrent, presence, filePresence) == "ready")
+                return new NextEpisode(NextEpisodeState.Ready, 1, torrent!.Hash, target.FilePath);
+            if (target.Status is "queued" or "downloading" && torrent is not null)
+                downloading ??= new NextEpisode(NextEpisodeState.Downloading, Math.Clamp(Math.Max(target.Progress, torrent.Progress), 0, 1), torrent.Hash, target.FilePath);
+        }
+
+        foreach (var torrent in linked)
+        {
+            var file = EpisodeFiles(torrent).FirstOrDefault(f => f.Season == season && f.Episode == episode);
+            if (file is null) continue;
+            if (EngineAvailability(torrent, presence, filePresence) == "ready")
+                return new NextEpisode(NextEpisodeState.Ready, 1, torrent.Hash, file.Path);
+            if (torrent.Progress < 1 && torrent.Origin is not ("stream" or "prewarm"))
+                downloading ??= new NextEpisode(NextEpisodeState.Downloading, Math.Clamp(torrent.Progress, 0, 1), torrent.Hash, file.Path);
+        }
+        return downloading ?? new NextEpisode(NextEpisodeState.Missing);
+    }
+
+    private sealed record EpisodeFile(int? Season, int Episode, string? Path);
+
+    [GeneratedRegex(@"\bS(\d{1,2})\s*-\s*(\d{1,4})\b", RegexOptions.IgnoreCase)] private static partial Regex SeasonDashEpisode();
+
+    /// <summary>Season/episode of each single-episode video file; a torrent with no recorded files stands for its own name.</summary>
+    private static IEnumerable<EpisodeFile> EpisodeFiles(EngineTorrent torrent)
+    {
+        var fallbackSeason = EpisodeCoordinates(torrent.Name).Season;
+        var videos = LocalFiles.RecordedFilePaths(torrent.VerifiedFilesJson).Where(ReleaseNames.IsSupportedVideoFileName).ToList();
+        if (videos.Count == 0)
+        {
+            var own = EpisodeCoordinates(torrent.Name);
+            if (own.Episode is int single) yield return new EpisodeFile(own.Season ?? fallbackSeason ?? 1, single, null);
+            yield break;
+        }
+        foreach (var path in videos)
+        {
+            var parsed = EpisodeCoordinates(Path.GetFileNameWithoutExtension(path.Replace('\\', '/').Split('/')[^1]));
+            if (parsed.Episode is int ep) yield return new EpisodeFile(parsed.Season ?? fallbackSeason ?? 1, ep, path);
+        }
+    }
+
+    /// <summary>ParseEpisode, plus the fansub "S2 - 03" form it reads as a season range.</summary>
+    private static (int? Season, int? Episode) EpisodeCoordinates(string name)
+    {
+        var parsed = ReleaseNames.ParseEpisode(name);
+        if (parsed.Episode is int ep) return (parsed.Season, ep);
+        var dash = SeasonDashEpisode().Match(name);
+        if (dash.Success) return (int.Parse(dash.Groups[1].Value, CultureInfo.InvariantCulture), int.Parse(dash.Groups[2].Value, CultureInfo.InvariantCulture));
+        return (parsed.Season, null);
+    }
     // ------------------------------------------------------------------ artwork
 
     /// <summary>artwork.ts resolveArtworkForReleases: one lookup per distinct work, 8 s budget, order-preserving, never throws.</summary>

@@ -175,7 +175,15 @@ interface BlockedAction {
   reason: string;
 }
 
-export type CardAction = PlayAction | GetAction | SearchAction | BlockedAction;
+/** The next episode is already on its way. Nothing to press; the card says so. */
+interface DownloadingAction {
+  kind: "downloading";
+  label: string;
+  disabled: true;
+  reason: string;
+}
+
+export type CardAction = PlayAction | GetAction | SearchAction | BlockedAction | DownloadingAction;
 
 /**
  * Default media type for an on-demand grab when the row does not name one.
@@ -211,6 +219,7 @@ const STATE_POLICY: Record<AvailabilityState, "local" | "fetch" | "dead"> = {
  * The single action a card or hero may offer for `item`.
  *
  * Ordering of the rules matters:
+ *  0. The next episode of a followed show that is downloading → "Downloading".
  *  1. Playable *and* we hold the info hash → Play/Resume.
  *  2. Playable but no info hash → treat as not-local. A claim we cannot honour
  *     must never surface as Play; it degrades below.
@@ -227,6 +236,22 @@ export function resolveCardAction(item: RailItem): CardAction {
   const infoHash = item.infoHash?.trim();
   const title = item.title.trim();
 
+  // The next episode is on its way: say so before anything else, so a hash
+  // for the arriving torrent can never read as Play.
+  if (item.watchListItemId && item.nextState === "downloading") {
+    const percent = progressPercent(item.nextProgress);
+    return {
+      kind: "downloading",
+      // The percentage lives in the reason: "Downloading 42%" does not fit a
+      // phone-width card, and a truncated state reads worse than no number.
+      label: "Downloading",
+      disabled: true,
+      reason:
+        percent == null
+          ? "This episode is downloading. It will be ready to play here."
+          : `This episode is ${percent}% downloaded. It will be ready to play here.`,
+    };
+  }
   // Play means play. A hash is enough to press it — if the engine no longer
   // holds that torrent, the click re-fetches and starts. Refusing here is how
   // Continue Watching lost its Play and the player said "download it first".
@@ -248,6 +273,7 @@ export function resolveCardAction(item: RailItem): CardAction {
   // so the card offers to get that exact episode instead of a dead badge or a
   // detour through search; the grab runs the search and says why if it still
   // finds nothing.
+
   const followedEpisode = item.watchListItemId ? episodeRequest(item) : null;
   if (followedEpisode && title) {
     return {
@@ -587,6 +613,7 @@ export function actionLabel(action: CardAction, status: ActionStatus): string {
       return action.label;
     case "search":
     case "blocked":
+    case "downloading":
       return action.label;
     default:
       return assertNever(action, "actionLabel");
