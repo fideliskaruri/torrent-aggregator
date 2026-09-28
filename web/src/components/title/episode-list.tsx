@@ -23,7 +23,7 @@
  * for the loaded season — alongside the season <select>, the episode count and
  * the season-scoped Download button.
  */
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -33,6 +33,8 @@ import {
   Loader2,
   Play,
   RotateCcw,
+  Tv,
+  X,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { PosterImage } from "@/components/browse/poster-image";
@@ -147,6 +149,22 @@ export function EpisodeList({
   const [pendingDownload, setPendingDownload] = useState<PendingDownload | null>(null);
 
   const stripRef = useRef<HTMLUListElement | null>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const updateEdges = useCallback(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const start = el.scrollLeft > 4;
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  }, []);
+  useEffect(() => {
+    const el = stripRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    updateEdges();
+    const observer = new ResizeObserver(updateEdges);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [updateEdges, episodes.length, loadState.status, busy]);
 
   const openPickerFor = useCallback((pending: PendingDownload) => {
     setPendingDownload(pending);
@@ -342,37 +360,52 @@ export function EpisodeList({
       ) : (
         <>
           <div className="relative mt-3">
-            {/* Native horizontal scroll carries the strip; the arrows are a
-                convenience for pointer users on wide viewports and are hidden
-                from assistive tech (the strip is reachable and scrollable on
-                its own). */}
-            <button
-              type="button"
-              aria-hidden
-              tabIndex={-1}
-              data-strip-arrow="left"
-              onClick={() => scrollStrip(-1)}
-              className="absolute -left-3 top-[calc(28%_-_1rem)] z-20 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
-            >
-              <ChevronLeft className="h-4 w-4" aria-hidden />
-            </button>
-            <button
-              type="button"
-              aria-hidden
-              tabIndex={-1}
-              data-strip-arrow="right"
-              onClick={() => scrollStrip(1)}
-              className="absolute -right-3 top-[calc(28%_-_1rem)] z-20 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
-            >
-              <ChevronRight className="h-4 w-4" aria-hidden />
-            </button>
+            {/* Touch, trackpad and keyboard scroll the strip natively. Its
+                scrollbar is hidden: the arrows and the faded edge already say
+                "there is more", and a bar under an arrow said it twice. Each
+                arrow shows only on a side that has more, and both are hidden
+                from assistive tech (the strip scrolls on its own). */}
+            {edges.start ? (
+              <button
+                type="button"
+                aria-hidden
+                tabIndex={-1}
+                data-strip-arrow="left"
+                onClick={() => scrollStrip(-1)}
+                className="absolute -left-3 top-[calc(28%_-_1rem)] z-30 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
+              >
+                <ChevronLeft className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
+            {edges.end ? (
+              <button
+                type="button"
+                aria-hidden
+                tabIndex={-1}
+                data-strip-arrow="right"
+                onClick={() => scrollStrip(1)}
+                className="absolute -right-3 top-[calc(28%_-_1rem)] z-30 hidden h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-secondary)] shadow-[var(--shadow-md)] transition-colors hover:text-[var(--text)] lg:flex"
+              >
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
 
             <ul
               ref={stripRef}
               data-episode-strip
+              onScroll={updateEdges}
               className={cn(
-                "grid grid-cols-1 gap-2 sm:flex sm:snap-x sm:snap-mandatory sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden sm:pb-3",
-                "sm:[scrollbar-width:thin] sm:[-webkit-overflow-scrolling:touch]",
+                "grid grid-cols-1 gap-2 sm:flex sm:snap-x sm:snap-mandatory sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden",
+                "sm:[scrollbar-width:none] sm:[-webkit-overflow-scrolling:touch] sm:[&::-webkit-scrollbar]:hidden",
+                // A card cut at the edge reads as a layout bug; fading the side
+                // that has more makes the cut read as "keep scrolling".
+                edges.start && edges.end
+                  ? "sm:[mask-image:linear-gradient(to_right,transparent,black_40px,black_calc(100%-64px),transparent)]"
+                  : edges.end
+                    ? "sm:[mask-image:linear-gradient(to_right,black_calc(100%-64px),transparent)]"
+                    : edges.start
+                      ? "sm:[mask-image:linear-gradient(to_right,transparent,black_40px)]"
+                      : null,
               )}
             >
               {episodes.map((episode) => (
@@ -468,7 +501,7 @@ function EpisodeSkeletonStrip({
       {/* The visible loading line was removed as noise; the busy region stays
           labelled for assistive tech via aria-busy + aria-label above. */}
       <ul
-        className="grid grid-cols-1 gap-2 sm:flex sm:gap-3 sm:overflow-x-hidden sm:pb-3"
+        className="grid grid-cols-1 gap-2 sm:flex sm:gap-3 sm:overflow-x-hidden"
         aria-label={label}
       >
         {Array.from({ length: count }, (_, i) => (
@@ -593,7 +626,15 @@ function EpisodeCardImpl({
   const progressPct = progressPercent(progressFraction);
   const progressKind = episode.watchedFraction != null ? "watched" : "download";
 
-  const codeAndTitle = meta?.name ? `${episode.label} · ${meta.name}` : episode.label;
+  // The badge on the still already says "E2", so the caption is the episode's
+  // name alone. "S01E02 · Name" under an "E2" badge printed the number twice.
+  const episodeName = meta?.name?.trim() || `Episode ${episode.episode}`;
+  const [synopsisOpen, setSynopsisOpen] = useState(false);
+  const overview = meta?.overview?.trim() || null;
+  // Roughly two caption lines at 300px; anything longer earns a "More".
+  const overviewClamped = overview != null && overview.length > 90;
+  const runtime = meta?.runtimeMin ? `${meta.runtimeMin} min` : null;
+  const desktopFacts = [airDate, runtime].filter(Boolean).join(" · ");
 
   const still = (
     <span
@@ -601,11 +642,15 @@ function EpisodeCardImpl({
       className="relative block h-24 w-16 shrink-0 overflow-hidden bg-[var(--bg-muted)] sm:aspect-video sm:h-auto sm:w-full"
     >
       {meta?.stillUrl ? (
-        <EpisodeStillImage src={meta.stillUrl} title={meta.name ?? episode.label} />
-      ) : null}
+        <EpisodeStillImage src={meta.stillUrl} title={episodeName} />
+      ) : (
+        <span aria-hidden className="absolute inset-0 flex items-center justify-center text-[var(--border-strong)]">
+          <Tv className="h-6 w-6 sm:h-8 sm:w-8" />
+        </span>
+      )}
       <span
         data-episode-badge
-        className="absolute left-2 top-2 rounded-[6px] bg-[color-mix(in_srgb,var(--bg)_72%,transparent)] px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--text)] backdrop-blur-sm"
+        className="absolute left-2 top-2 rounded-[6px] bg-[color-mix(in_srgb,var(--bg)_80%,transparent)] px-1.5 py-0.5 text-[12px] font-semibold tabular-nums text-[var(--text)] backdrop-blur-sm"
       >
         E{episode.episode}
       </span>
@@ -632,26 +677,101 @@ function EpisodeCardImpl({
     .join(" · ");
 
   const caption = (
-    <span className={cn("min-w-0 flex-1 p-3 sm:block sm:p-3", !unaired && "pb-14 sm:pb-3")}>
+    <span className={cn("min-w-0 flex-1 p-3 sm:flex sm:flex-col sm:p-3", !unaired && "pb-14 sm:pb-3")}>
       <span
         data-episode-name
-        title={codeAndTitle}
+        title={episodeName}
         className="line-clamp-2 break-words text-[13px] font-medium text-[var(--text)] sm:block sm:truncate"
       >
-        {codeAndTitle}
+        {episodeName}
       </span>
       {mobileMeta ? (
         <span className="mt-1 block break-words text-[12px] leading-relaxed text-[var(--text-tertiary)] sm:hidden">
           {mobileMeta}
         </span>
       ) : null}
-      {meta?.overview ? (
-        <span className="mt-1 hidden line-clamp-2 text-[12px] leading-relaxed text-[var(--text-tertiary)] sm:block">
-          {meta.overview}
-        </span>
-      ) : null}
+      {/* Two lines, always reserved, so every card in the rail is the same
+          height whether its synopsis is long, short or missing. */}
+      <span
+        data-episode-overview
+        className="mt-1 hidden min-h-[calc(2*1.625*12px)] text-[12px] leading-relaxed text-[var(--text-tertiary)] sm:line-clamp-2"
+      >
+        {overview ?? ""}
+      </span>
+      {/* Plain text when unaired, not a disabled button: there is nothing to
+          press, so there should be nothing to tab to. */}
+      <span
+        data-episode-unaired={unaired || undefined}
+        className="mt-2 hidden min-h-5 items-center text-[12px] tabular-nums text-[var(--text-tertiary)] sm:flex"
+      >
+        {unaired ? (airDate ? `Airs ${airDate}` : "Not aired yet") : desktopFacts}
+      </span>
     </span>
   );
+
+  const synopsisToggle = overviewClamped ? (
+    <button
+      type="button"
+      data-episode-synopsis-toggle
+      aria-expanded={synopsisOpen}
+      aria-label={`Read the synopsis of ${episodeName}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        setSynopsisOpen(true);
+      }}
+      className="absolute bottom-0 right-0 z-10 hidden h-11 items-center px-3 text-[12px] font-medium text-[var(--text-secondary)] underline-offset-2 transition-colors hover:text-[var(--text)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent)] sm:inline-flex"
+    >
+      More
+    </button>
+  ) : null;
+
+  // Closing hands focus back to the "More" toggle so keyboard users land
+  // where they started instead of at the top of the page.
+  const closeSynopsis = (from: HTMLElement) => {
+    const toggle = from
+      .closest("li")
+      ?.querySelector<HTMLButtonElement>("[data-episode-synopsis-toggle]");
+    setSynopsisOpen(false);
+    toggle?.focus();
+  };
+
+  const synopsisPanel = synopsisOpen && overview ? (
+    <div
+      data-episode-synopsis
+      role="region"
+      aria-label={`Synopsis of ${episodeName}`}
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.stopPropagation();
+        closeSynopsis(event.currentTarget);
+      }}
+      // Phone rows are compact and carry no synopsis, so the overlay is
+      // desktop only; a stale open state must not cover the phone row.
+      className="absolute inset-0 z-20 hidden flex-col bg-[var(--bg-elevated)] p-3 sm:flex"
+    >
+      <div className="flex items-start gap-2">
+        <p className="min-w-0 flex-1 text-[13px] font-medium text-[var(--text)]">
+          <span className="tabular-nums text-[var(--text-tertiary)]">E{episode.episode}</span>{" "}
+          {episodeName}
+        </p>
+        <button
+          type="button"
+          aria-label="Close synopsis"
+          onClick={(event) => closeSynopsis(event.currentTarget)}
+          autoFocus
+          className="-mr-2 -mt-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
+      <p className="mt-1 min-h-0 flex-1 overflow-y-auto pr-1 text-[12px] leading-relaxed text-[var(--text-secondary)]">
+        {overview}
+      </p>
+      {desktopFacts ? (
+        <p className="mt-2 text-[12px] tabular-nums text-[var(--text-tertiary)]">{desktopFacts}</p>
+      ) : null}
+    </div>
+  ) : null;
 
   return (
     <li
@@ -668,14 +788,6 @@ function EpisodeCardImpl({
         <div className="flex min-h-[96px] sm:block">
           {still}
           {caption}
-          {/* Plain text, not a disabled button: there is nothing to press, so
-              there should be nothing to tab to. */}
-          <span
-            data-episode-unaired
-            className="hidden px-3 pb-3 text-[12px] text-[var(--text-tertiary)] sm:block"
-          >
-            {airDate ? `Airs ${airDate}` : "Not aired yet"}
-          </span>
         </div>
       ) : (
         <>
@@ -737,18 +849,20 @@ function EpisodeCardImpl({
                 onAction(downloadAction, episode.label, "keep");
               }}
               className={cn(
-                "inline-flex h-11 items-center justify-center gap-1 rounded-full border border-[var(--border)]",
-                "bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] text-[var(--text-secondary)] shadow-sm backdrop-blur-sm",
-                "transition-colors hover:text-[var(--text)] hover:border-[var(--border-strong)]",
+                "inline-flex h-11 items-center justify-center gap-1 rounded-full border border-[color-mix(in_srgb,var(--text)_14%,transparent)]",
+                // Near-opaque canvas under the glyph: on a bright still the
+                // old 82% elevated frost washed the icon out.
+                "bg-[color-mix(in_srgb,var(--bg)_86%,transparent)] text-[var(--text)] shadow-[var(--shadow-sm)] backdrop-blur-sm",
+                "transition-colors hover:bg-[var(--bg)] hover:border-[var(--border-strong)]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
                 // Busy/done states are disabled but still report status, so they stay
                 // fully opaque: fading them let a bright still wash the glyph below AA.
-                "disabled:cursor-default lg:h-8 lg:min-h-[44px] lg:min-w-[44px]",
+                "disabled:cursor-default",
                 // Downloading shows a live percentage, so the pill grows to fit
                 // the digits; every other state is a single glyph in a circle.
                 transfer?.status === "downloading"
-                  ? "w-auto px-2.5 text-[var(--accent-text,var(--accent))] lg:px-2.5"
-                  : "w-11 lg:w-8",
+                  ? "w-auto px-2.5 text-[var(--accent-text,var(--accent))]"
+                  : "w-11",
               )}
             >
               <DownloadGlyph
@@ -769,6 +883,8 @@ function EpisodeCardImpl({
           ) : null}
         </>
       )}
+      {synopsisToggle}
+      {synopsisPanel}
     </li>
   );
 }
