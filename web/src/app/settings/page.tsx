@@ -25,9 +25,23 @@ import { SourcesSettings } from "@/components/settings/sources-settings";
 import { SwarmProbePanel } from "@/components/settings/swarm-probe-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import { TfErrorState } from "@/components/tf/error-state";
@@ -670,7 +684,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="container-app max-w-2xl space-y-5 py-6 pb-24 sm:py-8">
+    <div className={cn("container-app max-w-2xl space-y-5 py-6 pb-24 sm:py-8", (isDirty || saving) && "pb-40 sm:pb-40")}>
       <TfPageHeader
         title="Settings"
         description="Most defaults are ready. Change only what matters to you."
@@ -686,10 +700,10 @@ export default function SettingsPage() {
       {!setupComplete ? (
         <div
           role="status"
-          className="flex min-w-0 items-start gap-3 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
+          className="flex min-w-0 items-start gap-3 rounded-lg border border-brand/30 bg-brand-dim p-3"
         >
-          <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" />
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-[var(--text-secondary)] break-words whitespace-normal">
+          <HardDrive className="mt-0.5 h-4 w-4 shrink-0 text-brand-foreground" />
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground break-words whitespace-normal">
             Choose a download folder and a space limit before saving your first
             download.
           </p>
@@ -701,11 +715,11 @@ export default function SettingsPage() {
         className="space-y-5"
         data-settings-form
       >
-        <div className="surface divide-y divide-[var(--border)] overflow-hidden rounded-xl">
+        <div className="surface divide-y divide-border overflow-hidden rounded-xl">
           <section id="downloads" className="scroll-mt-20 space-y-4 p-4 sm:p-5">
             <div>
-              <h2 className="text-sm font-medium text-[var(--text)]">Downloads</h2>
-              <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+              <h2 className="text-sm font-medium text-foreground">Downloads</h2>
+              <p className="mt-1 text-xs text-subtle-foreground">
                 Choose where files live and how much space TorrentFlow may use.
               </p>
             </div>
@@ -714,17 +728,17 @@ export default function SettingsPage() {
             {visiblePathWarnings.length ? (
               <div
                 role="status"
-                className="flex items-start gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
+                className="flex items-start gap-2 rounded-lg border border-brand/30 bg-brand-dim p-3"
               >
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-brand-foreground" />
                 <div className="space-y-1 text-xs leading-relaxed">
-                  <p className="font-medium text-[var(--text)]">
+                  <p className="font-medium text-foreground">
                     This folder may be cleared by another tool
                   </p>
-                  <p className="break-all text-[var(--text-secondary)]">
+                  <p className="break-all text-muted-foreground">
                     {visiblePathWarnings[0].path}
                   </p>
-                  <p className="text-[var(--text-tertiary)]">
+                  <p className="text-subtle-foreground">
                     {visiblePathWarnings[0].message}
                   </p>
                 </div>
@@ -744,7 +758,7 @@ export default function SettingsPage() {
               spaceInputRef={capInputRef}
             />
             {runningInContainer ? (
-              <p className="break-all text-xs text-[var(--text-tertiary)]" data-container-path>
+              <p className="break-all text-xs text-subtle-foreground" data-container-path>
                 Container paths are used for downloads.{" "}
                 {displayPath(form.baseDownloadPath || "/media") !== (form.baseDownloadPath || "/media")
                   ? `Host location: ${displayPath(form.baseDownloadPath || "/media")}. `
@@ -752,13 +766,7 @@ export default function SettingsPage() {
                 Open the media folder on your computer; folder launching is unavailable in a container.
               </p>
             ) : null}
-            <div className="space-y-1.5">
-              <Label
-                htmlFor="max-active-downloads"
-                className="text-xs text-muted-foreground"
-              >
-                Downloads at once
-              </Label>
+            <FormField label="Downloads at once" htmlFor="max-active-downloads">
               <Input
                 id="max-active-downloads"
                 type="number"
@@ -783,12 +791,12 @@ export default function SettingsPage() {
               />
               <p
                 id="max-active-downloads-help"
-                className="text-xs leading-relaxed text-[var(--text-tertiary)]"
+                className="text-xs leading-relaxed text-subtle-foreground"
               >
                 The rest wait in line. Resume or Download now always starts a
                 download right away.
               </p>
-            </div>
+            </FormField>
             <DownloadWindowsPanel
               windows={form.downloadWindows}
               onChange={(downloadWindows) =>
@@ -805,61 +813,64 @@ export default function SettingsPage() {
 
           <section className="space-y-4 p-4 sm:p-5">
             <fieldset className="min-w-0 space-y-1.5" data-preferred-quality>
-              <legend className="mb-1.5 text-xs font-medium text-[var(--text-secondary)]">
+              <legend className="mb-1.5 text-xs text-subtle-foreground">
                 Minimum download quality
               </legend>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <RadioGroup
+                name="preferred-quality"
+                aria-label="Minimum download quality"
+                value={String(form.preferredResolution)}
+                onValueChange={(value) =>
+                  updateForm((current) => ({
+                    ...current,
+                    preferredResolution: Number(value),
+                  }))
+                }
+                className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+              >
                 {QUALITY_CHOICES.map((choice) => (
-                  <label
+                  <Label
                     key={choice.value}
-                    className="flex min-h-[44px] cursor-pointer flex-col justify-center rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--brand)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--brand)]"
+                    htmlFor={`preferred-quality-${choice.value}`}
+                    className="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-background px-3 py-2.5 font-normal transition-colors hover:border-input has-data-checked:border-brand has-data-checked:bg-brand-dim"
                   >
-                    <input
-                      type="radio"
-                      name="preferred-quality"
-                      value={choice.value}
-                      checked={form.preferredResolution === choice.value}
-                      onChange={() =>
-                        updateForm((current) => ({
-                          ...current,
-                          preferredResolution: choice.value,
-                        }))
-                      }
-                      className="sr-only"
+                    <RadioGroupItem
+                      id={`preferred-quality-${choice.value}`}
+                      value={String(choice.value)}
+                      className="mt-0.5"
                     />
-                    <span className="text-[13px] font-medium text-[var(--text)]">{choice.label}</span>
-                    <span className="text-[12px] text-[var(--text-tertiary)]">{choice.hint}</span>
-                  </label>
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="text-[13px] font-medium text-foreground">{choice.label}</span>
+                      <span className="text-xs text-subtle-foreground">{choice.hint}</span>
+                    </span>
+                  </Label>
                 ))}
-              </div>
+              </RadioGroup>
             </fieldset>
 
             {streaming ? (
-            <div className="space-y-1.5">
-              <label
-                htmlFor="file-behavior"
-                className="text-xs font-medium text-[var(--text-secondary)]"
-              >
-                After watching or downloading
-              </label>
-              <select
-                id="file-behavior"
+            <FormField label="After watching or downloading" htmlFor="file-behavior">
+              <Select
                 value={form.defaultRetentionPolicy}
-                onChange={(event) =>
+                onValueChange={(value) =>
                   updateForm((current) => ({
                     ...current,
-                    defaultRetentionPolicy: event.target.value as RetentionPolicy,
+                    defaultRetentionPolicy: value as RetentionPolicy,
                   }))
                 }
-                className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] sm:text-sm"
               >
-                {FILE_BEHAVIOR_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+                <SelectTrigger id="file-behavior" className="w-full scroll-mb-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FILE_BEHAVIOR_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
             ) : null}
           </section>
 
@@ -869,10 +880,10 @@ export default function SettingsPage() {
           >
             <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:gap-3">
               <div>
-                <h2 className="text-sm font-medium text-[var(--text)]">
+                <h2 className="text-sm font-medium text-foreground">
                   Download app
                 </h2>
-                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                <p className="mt-1 text-xs text-subtle-foreground">
                   TorrentFlow works without installing or connecting anything else.
                 </p>
               </div>
@@ -881,11 +892,19 @@ export default function SettingsPage() {
 
             {externalClientsEnabled ? (
               <>
-                <label
+                <Label
                   htmlFor="use-another-download-app"
-                  className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3"
+                  className="flex min-h-11 cursor-pointer items-center justify-between gap-4 rounded-lg border border-border bg-muted/40 p-3 font-normal"
                 >
-                  <Checkbox
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-foreground">
+                      Use another download app
+                    </span>
+                    <span className="mt-1 block text-xs text-subtle-foreground">
+                      Choose this only if you already use qBittorrent or Transmission.
+                    </span>
+                  </span>
+                  <Switch
                     id="use-another-download-app"
                     aria-label="Use another download app"
                     checked={externalEnabled}
@@ -893,56 +912,54 @@ export default function SettingsPage() {
                       setExternalEnabled(checked === true)
                     }
                   />
-                  <span className="pt-0.5">
-                    <span className="block text-sm font-medium text-[var(--text)]">
-                      Use another download app
-                    </span>
-                    <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
-                      Choose this only if you already use qBittorrent or Transmission.
-                    </span>
-                  </span>
-                </label>
+                </Label>
 
                 {externalEnabled ? (
                   <div
-                    className="space-y-4 border-l-2 border-[var(--accent-ring)] pl-4"
+                    className="space-y-4 border-l-2 border-brand/40 pl-4"
                     data-external-client-fields
                   >
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <label className="space-y-1.5">
-                        <span className="text-xs font-medium text-[var(--text-secondary)]">
-                          Download app
-                        </span>
-                        <select
-                          id="external-download-app"
-                          aria-label="External download app"
+                      <FormField label="Download app" htmlFor="external-download-app">
+                        <Select
                           value={externalKind}
-                          onChange={(event) =>
-                            setExternalKind(event.target.value as ExternalClientType)
+                          onValueChange={(value) =>
+                            setExternalKind(value as ExternalClientType)
                           }
-                          className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
                         >
-                          <option value="qbittorrent">qBittorrent</option>
-                          <option value="transmission">Transmission</option>
-                        </select>
-                      </label>
-                      <label className="space-y-1.5">
-                        <span className="text-xs font-medium text-[var(--text-secondary)]">
-                          How to use it
-                        </span>
-                        <select
-                          id="external-download-mode"
-                          aria-label="How to use the external download app"
+                          <SelectTrigger
+                            id="external-download-app"
+                            aria-label="External download app"
+                            className="w-full scroll-mb-32"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="qbittorrent">qBittorrent</SelectItem>
+                            <SelectItem value="transmission">Transmission</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormField>
+                      <FormField label="How to use it" htmlFor="external-download-mode">
+                        <Select
                           value={externalMode}
-                          onChange={(event) =>
-                            setExternalMode(event.target.value as "instead" | "copy")
+                          onValueChange={(value) =>
+                            setExternalMode(value as "instead" | "copy")
                           }
-                          className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
                         >
-                          <option value="instead">Use instead of TorrentFlow</option>
-                          <option value="copy">Also send a copy</option>
-                        </select>
-                      </label>
+                          <SelectTrigger
+                            id="external-download-mode"
+                            aria-label="How to use the external download app"
+                            className="w-full scroll-mb-32"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="instead">Use instead of TorrentFlow</SelectItem>
+                            <SelectItem value="copy">Also send a copy</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormField>
                     </div>
                     <SettingsField
                       id="external-host"
@@ -982,6 +999,17 @@ export default function SettingsPage() {
                         placeholder="••••••••"
                       />
                     </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={saving}
+                      onClick={(event) =>
+                        void save(event as unknown as FormEvent, true)
+                      }
+                      data-settings-save
+                    >
+                      Save & test app
+                    </Button>
                   </div>
                 ) : null}
               </>
@@ -989,42 +1017,42 @@ export default function SettingsPage() {
           </section>
         </div>
 
-        <div className="surface flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center sm:justify-end">
-          <div className="flex flex-wrap gap-2">
-            {isDirty ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={discardChanges}
-                disabled={saving}
-                data-settings-discard
-              >
-                Discard
-              </Button>
-            ) : null}
-            {externalEnabled ? (
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={saving}
-                onClick={(event) =>
-                  void save(event as unknown as FormEvent, true)
-                }
-                data-settings-save
-              >
-                Save & test app
-              </Button>
-            ) : null}
-            <Button
-              type="submit"
-              disabled={saving || !isDirty}
-              data-settings-save
-            >
-              {saving ? <LoadingGlyph /> : null}
-              Save changes
-            </Button>
+        {isDirty || saving ? (
+          <div
+            role="region"
+            aria-label="Unsaved changes"
+            className="fixed inset-x-0 bottom-[calc(var(--mobile-nav-h)+var(--safe-bottom)+0.5rem)] z-30 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 md:bottom-4"
+            data-settings-save-bar
+          >
+            <div className="container-app max-w-2xl">
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-popover/95 py-2.5 pr-2.5 pl-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-popover/85">
+                <p className="min-w-0 truncate text-sm text-muted-foreground">
+                  <span className="sm:hidden">Unsaved</span>
+                  <span className="max-sm:hidden">Unsaved changes</span>
+                </p>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={discardChanges}
+                    disabled={saving}
+                    data-settings-discard
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={saving || !isDirty}
+                    data-settings-save
+                  >
+                    {saving ? <LoadingGlyph /> : null}
+                    Save changes
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <SettingsDisclosure
           id="advanced-settings"
@@ -1042,10 +1070,10 @@ export default function SettingsPage() {
             <section className="space-y-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-medium text-[var(--text)]">
+                  <h3 className="text-sm font-medium text-foreground">
                     Library automation timing
                   </h3>
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                  <p className="mt-1 text-xs text-subtle-foreground">
                     Rules belong in Library. This only controls when enabled rules run.
                   </p>
                 </div>
@@ -1053,48 +1081,48 @@ export default function SettingsPage() {
                   <Link to="/watchlist">Open Library automation</Link>
                 </Button>
               </div>
-              <label htmlFor="automation-timing" className="sr-only">
-                Library automation timing
-              </label>
-              <select
-                id="automation-timing"
-                value={form.automationIntervalMinutes}
-                onChange={(event) =>
-                  updateForm((current) => ({
-                    ...current,
-                    automationIntervalMinutes: Number(event.target.value),
-                  }))
-                }
-                className="h-11 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] sm:text-sm"
-              >
-                {AUTOMATION_INTERVAL_CHOICES.map((choice) => (
-                  <option key={choice.value} value={choice.value}>
-                    {choice.label}
-                  </option>
-                ))}
-              </select>
+              <FormField label="Run enabled rules" htmlFor="automation-timing">
+                <Select
+                  value={String(form.automationIntervalMinutes)}
+                  onValueChange={(value) =>
+                    updateForm((current) => ({
+                      ...current,
+                      automationIntervalMinutes: Number(value),
+                    }))
+                  }
+                >
+                  <SelectTrigger
+                    id="automation-timing"
+                    aria-label="Library automation timing"
+                    className="w-full"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AUTOMATION_INTERVAL_CHOICES.map((choice) => (
+                      <SelectItem key={choice.value} value={String(choice.value)}>
+                        {choice.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
             </section>
 
             <section id="advanced-categories" className="scroll-mt-20 space-y-4">
               <div className="flex items-start gap-3">
-                <Tags className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" />
+                <Tags className="mt-0.5 h-4 w-4 shrink-0 text-brand-foreground" />
                 <div>
-                  <h3 className="text-sm font-medium text-[var(--text)]">
+                  <h3 className="text-sm font-medium text-foreground">
                     Custom categories and folders
                   </h3>
-                  <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                  <p className="mt-1 text-xs text-subtle-foreground">
                     Leave these alone to sort into the download folder automatically.
                   </p>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="fallback-download-folder"
-                  className="text-xs font-medium text-[var(--text-secondary)]"
-                >
-                  Fallback folder
-                </label>
+              <FormField label="Fallback folder" htmlFor="fallback-download-folder">
                 <div className="flex min-w-0 gap-2">
                   <Input
                     id="fallback-download-folder"
@@ -1105,7 +1133,7 @@ export default function SettingsPage() {
                         savePath: event.target.value,
                       }))
                     }
-                    className="h-11 min-w-0 font-mono text-base sm:text-sm"
+                    className="min-w-0 font-mono placeholder:font-sans placeholder:text-muted-foreground"
                     placeholder="Uses the main download folder when blank"
                   />
                   <Button
@@ -1132,32 +1160,34 @@ export default function SettingsPage() {
                     )}
                   </Button>
                 </div>
-              </div>
+              </FormField>
 
               <div className="flex flex-wrap gap-2">
                 {form.categories.map((category) => (
                   <span
                     key={category}
-                    className="inline-flex items-center rounded-full bg-[var(--bg-muted)] pl-3 text-xs text-[var(--text-secondary)] ring-1 ring-[var(--border)]"
+                    className="inline-flex items-center rounded-full bg-muted pl-3 text-xs text-muted-foreground ring-1 ring-border"
                   >
                     {category}
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={`Remove ${category}`}
                       onClick={() => removeCategory(category)}
-                      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--danger)] lg:min-h-8 lg:min-w-8"
+                      className="rounded-full text-subtle-foreground hover:bg-transparent hover:text-destructive max-lg:min-h-11 max-lg:min-w-11"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   </span>
                 ))}
               </div>
 
               <div className="flex gap-2">
                 <div className="min-w-0 flex-1">
-                  <label htmlFor="new-category" className="sr-only">
+                  <Label htmlFor="new-category" className="sr-only">
                     New category name
-                  </label>
+                  </Label>
                   <Input
                     id="new-category"
                     value={newCategory}
@@ -1168,7 +1198,6 @@ export default function SettingsPage() {
                         addCategory();
                       }
                     }}
-                    className="h-11 text-base sm:text-sm"
                     placeholder="New category name"
                   />
                 </div>
@@ -1178,26 +1207,26 @@ export default function SettingsPage() {
                 </Button>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-[var(--border)]">
-                <button
-                  type="button"
-                  aria-expanded={pathsExpanded}
+              <Collapsible
+                open={pathsExpanded}
+                onOpenChange={setPathsExpanded}
+                className="overflow-hidden rounded-lg border border-border"
+              >
+                <CollapsibleTrigger
                   aria-controls="category-paths"
-                  onClick={() => setPathsExpanded((open) => !open)}
-                  className="flex min-h-[44px] w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-muted)]"
+                  className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
                 >
                   <span className="flex items-center gap-2 font-medium">
-                    {pathsExpanded ? <ChevronDown /> : <ChevronRight />}
+                    {pathsExpanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
                     Folder for each category
                   </span>
-                  <span className="text-xs text-[var(--text-tertiary)]">
+                  <span className="text-xs text-subtle-foreground">
                     {Object.values(form.pathRules).filter((value) => value.trim()).length} custom
                   </span>
-                </button>
-                {pathsExpanded ? (
-                  <div
+                </CollapsibleTrigger>
+                <CollapsibleContent
                     id="category-paths"
-                    className="space-y-2 border-t border-[var(--border)] p-3"
+                    className="space-y-2 border-t border-border p-3"
                   >
                     {form.categories.map((category) => {
                       const open = expandedCategory === category;
@@ -1211,40 +1240,38 @@ export default function SettingsPage() {
                         form.savePath,
                       );
                       return (
-                        <div
+                        <Collapsible
                           key={category}
-                          className="overflow-hidden rounded-md border border-[var(--border)]"
+                          open={open}
+                          onOpenChange={(next) =>
+                            setExpandedCategory(next ? category : null)
+                          }
+                          className="overflow-hidden rounded-md border border-border"
                         >
-                          <button
-                            type="button"
-                            aria-expanded={open}
+                          <CollapsibleTrigger
                             aria-controls={`category-${category}-path`}
-                            onClick={() =>
-                              setExpandedCategory(open ? null : category)
-                            }
-                            className="flex min-h-[44px] w-full min-w-0 items-center gap-2 px-3 text-left"
+                            className="flex min-h-11 w-full min-w-0 items-center gap-2 px-3 text-left outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
                           >
-                            {open ? <ChevronDown /> : <ChevronRight />}
-                            <span className="text-xs font-medium text-[var(--text)]">
+                            {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                            <span className="text-xs font-medium text-foreground">
                               {category}
                             </span>
                             {!open && effective ? (
-                              <span className="ml-auto max-w-[55%] truncate font-mono text-xs text-[var(--text-tertiary)]">
+                              <span className="ml-auto max-w-[55%] truncate font-mono text-xs text-subtle-foreground">
                                 {effective}
                               </span>
                             ) : null}
-                          </button>
-                          {open ? (
-                            <div
+                          </CollapsibleTrigger>
+                          <CollapsibleContent
                               id={`category-${category}-path`}
-                              className="space-y-2 border-t border-[var(--border)] p-3"
+                              className="space-y-2 border-t border-border p-3"
                             >
-                              <label
+                              <Label
                                 htmlFor={`category-path-${category}`}
                                 className="sr-only"
                               >
                                 Folder for {category}
-                              </label>
+                              </Label>
                               <div className="flex min-w-0 gap-2">
                                 <Input
                                   id={`category-path-${category}`}
@@ -1258,7 +1285,7 @@ export default function SettingsPage() {
                                       },
                                     }))
                                   }
-                                  className="h-11 min-w-0 font-mono text-base sm:text-sm"
+                                  className="min-w-0 font-mono placeholder:font-sans placeholder:text-muted-foreground"
                                   placeholder={derived || "Uses the fallback folder"}
                                 />
                                 <Button
@@ -1271,31 +1298,37 @@ export default function SettingsPage() {
                                   <FolderOpen />
                                 </Button>
                               </div>
-                            </div>
-                          ) : null}
-                        </div>
+                          </CollapsibleContent>
+                        </Collapsible>
                       );
                     })}
-                  </div>
-                ) : null}
-              </div>
+                </CollapsibleContent>
+              </Collapsible>
             </section>
 
             {streaming ? (
             <section className="space-y-4">
               <div>
-                <h3 className="text-sm font-medium text-[var(--text)]">
+                <h3 className="text-sm font-medium text-foreground">
                   Troubleshooting
                 </h3>
-                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                <p className="mt-1 text-xs text-subtle-foreground">
                   Status and cleanup tools are here when something needs attention.
                 </p>
               </div>
-              <label
+              <Label
                 htmlFor="verbose-diagnostics"
-                className="flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] p-3"
+                className="flex min-h-11 cursor-pointer items-center justify-between gap-4 rounded-lg border border-border p-3 font-normal"
               >
-                <Checkbox
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    Show detailed playback diagnostics
+                  </span>
+                  <span className="mt-1 block text-xs text-subtle-foreground">
+                    Useful only while investigating playback problems.
+                  </span>
+                </span>
+                <Switch
                   id="verbose-diagnostics"
                   checked={form.verboseDiagnostics}
                   onCheckedChange={(checked) =>
@@ -1305,15 +1338,7 @@ export default function SettingsPage() {
                     }))
                   }
                 />
-                <span className="pt-0.5">
-                  <span className="block text-sm font-medium text-[var(--text)]">
-                    Show detailed playback diagnostics
-                  </span>
-                  <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
-                    Useful only while investigating playback problems.
-                  </span>
-                </span>
-              </label>
+              </Label>
               <SwarmProbePanel />
               <RetentionPanel showPolicy={false} />
             </section>
@@ -1365,22 +1390,16 @@ function SettingsField({
   type?: string;
 }) {
   return (
-    <div className="space-y-1.5">
-      <label
-        htmlFor={id}
-        className="text-xs font-medium text-[var(--text-secondary)]"
-      >
-        {label}
-      </label>
+    <FormField label={label} htmlFor={id}>
       <Input
         id={id}
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-11 scroll-mb-32 text-base sm:text-sm"
+        className="scroll-mb-32"
       />
-    </div>
+    </FormField>
   );
 }
 

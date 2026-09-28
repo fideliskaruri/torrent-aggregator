@@ -32,7 +32,7 @@
  *   - The consequential action is NOT the focused default — Radix focuses the
  *     first tabbable element, and Cancel is rendered first for exactly that
  *     reason (see the footer comment).
- *   - Every target is min-h-[44px].
+ *   - Every target is at least 44px tall on phones and touch screens.
  *   - Existing `AlertDialog` primitives and semantic tokens only; no new pattern.
  */
 
@@ -83,9 +83,9 @@ function blockedBody(facts: StorageOverrideFacts | null): string {
 }
 
 const SWATCH: Record<StorageBreakdownRow["key"], string | null> = {
-  used: "bg-[var(--text-tertiary)]",
-  incoming: "bg-[var(--brand)]",
-  queued: "bg-[var(--brand)] opacity-40",
+  used: "bg-subtle-foreground",
+  incoming: "bg-brand",
+  queued: "bg-brand opacity-40",
   cap: null,
   free: null,
   left: null,
@@ -95,7 +95,7 @@ const SWATCH: Record<StorageBreakdownRow["key"], string | null> = {
 function StorageBarView({ bar }: { bar: StorageBar }) {
   return (
     <div className="relative pt-1" aria-hidden="true" data-storage-bar>
-      <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--bg-muted)]">
+      <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
         {bar.segments.map((segment) => (
           <div
             key={segment.key}
@@ -106,7 +106,7 @@ function StorageBarView({ bar }: { bar: StorageBar }) {
       </div>
       {bar.markerFraction != null ? (
         <div
-          className="absolute top-0 h-4 w-0.5 -translate-x-1/2 rounded-full bg-[var(--text)]"
+          className="absolute top-0 h-4 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
           style={{ left: `${bar.markerFraction * 100}%` }}
           data-storage-bar-cap
         />
@@ -120,18 +120,18 @@ function StorageBreakdown({ rows }: { rows: StorageBreakdownRow[] }) {
     <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm" data-storage-breakdown>
       {rows.map((row) => (
         <div key={row.key} className="contents" data-storage-row={row.key}>
-          <dt className="flex min-w-0 items-center gap-2 text-[var(--text-secondary)]">
+          <dt className="flex min-w-0 items-center gap-2 text-muted-foreground">
             {SWATCH[row.key] ? (
               <span className={cn("h-2 w-2 shrink-0 rounded-full", SWATCH[row.key])} aria-hidden="true" />
             ) : (
-              <span className="h-2 w-2 shrink-0 rounded-full border border-[var(--text)]" aria-hidden="true" />
+              <span className="h-2 w-2 shrink-0 rounded-full border border-foreground" aria-hidden="true" />
             )}
             {row.label}
           </dt>
           <dd
             className={cn(
               "text-right font-medium tabular-nums",
-              row.key === "incoming" ? "text-[var(--accent-text)]" : "text-[var(--text)]",
+              row.key === "incoming" ? "text-brand-foreground" : "text-foreground",
             )}
           >
             {row.value}
@@ -176,13 +176,13 @@ export function StorageCapDialog({ facts, onCancel, onConfirm }: StorageCapDialo
         </AlertDialogHeader>
 
         {facts?.overridable && prompt ? (
-          <div className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3.5">
+          <div className="space-y-3 rounded-lg border border-border bg-background p-3.5">
             {prompt.bar ? <StorageBarView bar={prompt.bar} /> : null}
             <StorageBreakdown rows={prompt.rows} />
           </div>
         ) : null}
         {facts?.overridable && prompt ? (
-          <p className="text-xs text-[var(--text-tertiary)]" data-storage-note>
+          <p className="text-xs text-subtle-foreground" data-storage-note>
             {prompt.note}
           </p>
         ) : null}
@@ -194,20 +194,20 @@ export function StorageCapDialog({ facts, onCancel, onConfirm }: StorageCapDialo
             choice as the default and stops "Download anyway" from being
             triggered by a reflexive Enter at a frustrating moment.
           */}
-          <AlertDialogCancel className="min-h-[44px]">
+          <AlertDialogCancel className="max-md:min-h-11 pointer-coarse:min-h-11">
             {prompt?.cancelLabel ?? "Cancel"}
           </AlertDialogCancel>
 
           <Link
             to={facts?.settingsHref ?? "/settings?tab=folders"}
-            className={cn(buttonVariants({ variant: "secondary" }), "min-h-[44px]")}
+            className={cn(buttonVariants({ variant: "secondary" }), "max-md:min-h-11 pointer-coarse:min-h-11")}
             onClick={onCancel}
           >
             {facts?.overridable ? (prompt?.raiseCapLabel ?? "Raise the cap") : "Open settings"}
           </Link>
 
           {facts?.overridable ? (
-            <AlertDialogAction className="min-h-[44px]" onClick={onConfirm}>
+            <AlertDialogAction className="max-md:min-h-11 pointer-coarse:min-h-11" onClick={onConfirm}>
               {prompt?.confirmLabel ?? "Download anyway"}
             </AlertDialogAction>
           ) : null}

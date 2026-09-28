@@ -5,7 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -52,8 +66,17 @@ interface Rule {
   matchCount: number;
 }
 
-const selectClass =
-  "flex h-11 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1 text-sm text-[var(--text)] shadow-sm transition-colors focus-visible:outline-none focus-visible:border-[var(--primary)] focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-50";
+const sourceChipClass =
+  "h-auto min-h-11 max-w-full shrink rounded-full border border-border bg-muted px-2.5 py-1.5 text-xs font-normal leading-snug whitespace-normal break-words text-center text-muted-foreground hover:text-foreground data-[state=on]:border-brand/50 data-[state=on]:bg-brand-dim data-[state=on]:text-brand-foreground lg:min-h-7";
+
+const RESOLUTION_ANY = "__any";
+
+const RULE_RESOLUTION_OPTIONS = [
+  { value: RESOLUTION_ANY, label: "Any resolution" },
+  { value: "1080p", label: "1080p" },
+  { value: "720p", label: "720p" },
+  { value: "2160p", label: "2160p" },
+] as const;
 
 const RULE_CATEGORY_OPTIONS = [
   { value: "all", label: "All video" },
@@ -260,13 +283,8 @@ export default function RulesPage() {
     }
   }
 
-  function toggleSource(source: string) {
-    setForm((current) => ({
-      ...current,
-      sources: current.sources.includes(source)
-        ? current.sources.filter((value) => value !== source)
-        : [...current.sources, source],
-    }));
+  function setSources(sources: string[]) {
+    setForm((current) => ({ ...current, sources }));
   }
 
   function filtersForRule(rule: Rule): RuleFilterFormState {
@@ -290,16 +308,11 @@ export default function RulesPage() {
     setFilterEditRuleId(rule.id);
   }
 
-  function toggleRuleFilterSource(rule: Rule, source: string) {
+  function setRuleFilterSources(rule: Rule, sources: string[]) {
     const current = filtersForRule(rule);
     setFilterEdits((edits) => ({
       ...edits,
-      [rule.id]: {
-        ...current,
-        sources: current.sources.includes(source)
-          ? current.sources.filter((value) => value !== source)
-          : [...current.sources, source],
-      },
+      [rule.id]: { ...current, sources },
     }));
   }
 
@@ -416,11 +429,11 @@ export default function RulesPage() {
       />
 
       <form onSubmit={onCreate} className="surface p-4 sm:p-5 space-y-3">
-        <p className="text-sm font-medium text-[var(--text)] flex items-center gap-2">
-          <Plus className="h-4 w-4 text-[var(--text-tertiary)]" />
+        <p className="text-sm font-medium text-foreground flex items-center gap-2">
+          <Plus className="h-4 w-4 text-subtle-foreground" />
           New rule
         </p>
-        <div className="grid sm:grid-cols-2 gap-3">
+        <div className="grid items-start gap-3 sm:grid-cols-2">
           <FormField label="Rule name" htmlFor="rule-name">
             <Input
               id="rule-name"
@@ -448,24 +461,45 @@ export default function RulesPage() {
             htmlFor="rule-category"
             hint="Rules only grab video the app can browse and play."
           >
-            <select
-              id="rule-category"
-              className={selectClass}
+            <Select
               value={form.category}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, category: e.target.value }))
+              onValueChange={(value) =>
+                setForm((f) => ({ ...f, category: value }))
               }
             >
-              {RULE_CATEGORY_OPTIONS.map((c) => (
-                <option
-                  key={c.value}
-                  value={c.value}
-                  className="bg-[var(--bg-elevated)]"
-                >
-                  {c.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id="rule-category" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RULE_CATEGORY_OPTIONS.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Resolution" htmlFor="rule-resolution">
+            <Select
+              value={form.resolution || RESOLUTION_ANY}
+              onValueChange={(value) =>
+                setForm((f) => ({
+                  ...f,
+                  resolution: value === RESOLUTION_ANY ? "" : value,
+                }))
+              }
+            >
+              <SelectTrigger id="rule-resolution" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RULE_RESOLUTION_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </FormField>
           <FormField
             label="Min seeders"
@@ -482,59 +516,6 @@ export default function RulesPage() {
               }
             />
           </FormField>
-          <FormField label="Resolution" htmlFor="rule-resolution">
-            <select
-              id="rule-resolution"
-              className={selectClass}
-              value={form.resolution}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, resolution: e.target.value }))
-              }
-            >
-              <option value="" className="bg-[var(--bg-elevated)]">
-                Any resolution
-              </option>
-              <option value="1080p" className="bg-[var(--bg-elevated)]">
-                1080p
-              </option>
-              <option value="720p" className="bg-[var(--bg-elevated)]">
-                720p
-              </option>
-              <option value="2160p" className="bg-[var(--bg-elevated)]">
-                2160p
-              </option>
-            </select>
-          </FormField>
-          <FormField
-            label="Search only these indexers"
-            htmlFor="rule-sources"
-            hint="Leave all unselected to search every enabled source."
-          >
-            <div
-              id="rule-sources"
-              className="flex min-w-0 flex-wrap gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2"
-            >
-              {RULE_SOURCE_OPTIONS.map((source) => {
-                const active = form.sources.includes(source.value);
-                return (
-                  <button
-                    key={source.value}
-                    type="button"
-                    aria-pressed={active}
-                    title={source.label}
-                    onClick={() => toggleSource(source.value)}
-                    className={`inline-flex max-w-full items-center justify-center min-h-[44px] rounded-full px-2.5 py-1.5 text-xs leading-snug whitespace-normal break-words text-center ring-1 transition-colors lg:min-h-0 ${
-                      active
-                        ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                        : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
-                    }`}
-                  >
-                    {source.label}
-                  </button>
-                );
-              })}
-            </div>
-          </FormField>
           <FormField
             label="Skip releases larger than"
             htmlFor="rule-max-size-gb"
@@ -550,10 +531,35 @@ export default function RulesPage() {
                   setForm((f) => ({ ...f, maxSizeGb: e.target.value }))
                 }
               />
-              <span className="shrink-0 text-sm text-[var(--text-tertiary)]">
+              <span className="shrink-0 text-sm text-subtle-foreground">
                 GB
               </span>
             </div>
+          </FormField>
+          <FormField
+            label="Search only these indexers"
+            htmlFor="rule-sources"
+            className="sm:col-span-2"
+            hint="Leave all unselected to search every enabled source."
+          >
+            <ToggleGroup
+              id="rule-sources"
+              type="multiple"
+              value={form.sources}
+              onValueChange={setSources}
+              className="w-full min-w-0 flex-wrap rounded-md border border-border bg-background p-2"
+            >
+              {RULE_SOURCE_OPTIONS.map((source) => (
+                <ToggleGroupItem
+                  key={source.value}
+                  value={source.value}
+                  title={source.label}
+                  className={sourceChipClass}
+                >
+                  {source.label}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
           </FormField>
         </div>
         <Button type="submit" size="sm">
@@ -583,7 +589,7 @@ export default function RulesPage() {
             >
               <div className="flex-1 min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium text-[var(--text)]">{rule.name}</p>
+                  <p className="font-medium text-foreground">{rule.name}</p>
                   <Badge variant={rule.enabled ? "accent" : "secondary"}>
                     {rule.enabled ? "Enabled" : "Disabled"}
                   </Badge>
@@ -591,60 +597,64 @@ export default function RulesPage() {
                     <Badge variant="secondary">Unsupported category</Badge>
                   ) : null}
                 </div>
-                <p className="text-xs text-[var(--text-tertiary)]">
+                <p className="text-xs text-subtle-foreground">
                   “{rule.query}” · {category.label} · ≥{rule.minSeeders} seeders
                   {rule.resolution ? ` · ${rule.resolution}` : ""}
                   {ruleSources.length ? ` · ${sourceSummary}` : ""}
                   {sizeSummary ? ` · ≤${sizeSummary} GB` : ""}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => openFilterEditor(rule)}
-                  className="inline-flex items-center min-h-[44px] text-xs text-[var(--accent-text)] hover:underline lg:min-h-0"
-                  aria-expanded={filterEditRuleId === rule.id}
+                <Collapsible
+                  open={filterEditRuleId === rule.id}
+                  onOpenChange={() => openFilterEditor(rule)}
+                  className="space-y-2"
                 >
-                  {filterEditRuleId === rule.id
-                    ? "Hide filters"
-                    : "Edit source and size filters"}
-                </button>
-                {filterEditRuleId === rule.id ? (
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-xs text-[var(--text-secondary)] space-y-3">
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto px-0 text-xs text-brand-foreground max-md:min-h-11 pointer-coarse:min-h-11"
+                    >
+                      {filterEditRuleId === rule.id
+                        ? "Hide filters"
+                        : "Edit source and size filters"}
+                    </Button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground space-y-3">
                     <div className="space-y-1.5">
-                      <p className="font-medium text-[var(--text)]">
+                      <p className="font-medium text-foreground">
                         Search only these indexers
                       </p>
-                      <p className="text-xs text-[var(--text-tertiary)]">
+                      <p className="text-xs text-subtle-foreground">
                         Leave all unselected to search every enabled source.
                       </p>
-                      <div className="flex flex-wrap gap-2">
-                        {RULE_SOURCE_OPTIONS.map((source) => {
-                          const active = filterEdit.sources.includes(source.value);
-                          return (
-                            <button
-                              key={source.value}
-                              type="button"
-                              aria-pressed={active}
-                              title={source.label}
-                              onClick={() => toggleRuleFilterSource(rule, source.value)}
-                              className={`inline-flex max-w-full items-center justify-center min-h-[44px] rounded-full px-2.5 py-1.5 text-xs leading-snug whitespace-normal break-words text-center ring-1 transition-colors lg:min-h-0 ${
-                                active
-                                  ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                                  : "bg-[var(--bg-elevated)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
-                              }`}
-                            >
-                              {source.label}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <ToggleGroup
+                        type="multiple"
+                        value={filterEdit.sources}
+                        onValueChange={(sources) =>
+                          setRuleFilterSources(rule, sources)
+                        }
+                        className="w-full flex-wrap"
+                      >
+                        {RULE_SOURCE_OPTIONS.map((source) => (
+                          <ToggleGroupItem
+                            key={source.value}
+                            value={source.value}
+                            title={source.label}
+                            className={cn(sourceChipClass, "bg-card")}
+                          >
+                            {source.label}
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
                     </div>
                     <div className="space-y-1.5">
-                      <label
+                      <Label
                         htmlFor={`rule-${rule.id}-max-size`}
-                        className="font-medium text-[var(--text)]"
+                        className="text-xs text-foreground"
                       >
                         Skip releases larger than
-                      </label>
+                      </Label>
                       <div className="flex items-center gap-2">
                         <Input
                           id={`rule-${rule.id}-max-size`}
@@ -661,7 +671,7 @@ export default function RulesPage() {
                             }))
                           }
                         />
-                        <span className="shrink-0 text-sm text-[var(--text-tertiary)]">
+                        <span className="shrink-0 text-sm text-subtle-foreground">
                           GB
                         </span>
                       </div>
@@ -678,37 +688,39 @@ export default function RulesPage() {
                       ) : null}
                       Save filters
                     </Button>
-                  </div>
-                ) : null}
+                  </CollapsibleContent>
+                </Collapsible>
                 {!category.supported ? (
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-xs text-[var(--text-secondary)] space-y-2">
+                  <div className="rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground space-y-2">
                     <p>
                       This legacy rule targets “{category.stored}”, which
                       TorrentFlow cannot browse or play. It is blocked from
                       automation until you retarget it to video or delete it.
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
-                      <select
-                        className={selectClass}
+                      <Select
                         value={selectedRetarget}
-                        onChange={(event) =>
+                        onValueChange={(value) =>
                           setRetargetCategories((current) => ({
                             ...current,
-                            [rule.id]: normalizeRuleCategory(event.target.value),
+                            [rule.id]: normalizeRuleCategory(value),
                           }))
                         }
-                        aria-label={`Retarget ${rule.name}`}
                       >
-                        {RULE_CATEGORY_OPTIONS.map((option) => (
-                          <option
-                            key={option.value}
-                            value={option.value}
-                            className="bg-[var(--bg-elevated)]"
-                          >
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger
+                          aria-label={`Retarget ${rule.name}`}
+                          className="w-44"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RULE_CATEGORY_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button
                         type="button"
                         size="sm"
@@ -725,19 +737,23 @@ export default function RulesPage() {
                   </div>
                 ) : null}
                 {rule.lastMatchTitle ? (
-                  <p className="text-xs text-[var(--accent-text)] line-clamp-1">
+                  <p className="text-xs text-brand-foreground line-clamp-1">
                     Last match: {rule.lastMatchTitle}
                   </p>
                 ) : null}
-                <p className="text-xs text-[var(--text-tertiary)]">
+                <p className="text-xs text-subtle-foreground">
                   {rule.matchCount} sends
                   {rule.lastRunAt
                     ? ` · last run ${new Date(rule.lastRunAt).toLocaleString()}`
                     : ""}
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
-                <Checkbox
+              <Label
+                htmlFor={`rule-${rule.id}-enabled`}
+                className="min-h-8 cursor-pointer text-xs font-normal text-muted-foreground max-md:min-h-11 pointer-coarse:min-h-11"
+              >
+                <Switch
+                  id={`rule-${rule.id}-enabled`}
                   aria-label="Enabled"
                   checked={rule.enabled}
                   disabled={!category.supported}
@@ -746,14 +762,14 @@ export default function RulesPage() {
                   }
                 />
                 Enabled
-              </label>
+              </Label>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => setPendingRemove(rule)}
                 aria-label="Delete rule"
-                className="text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+                className="text-subtle-foreground hover:text-destructive"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
@@ -833,7 +849,7 @@ export default function RulesPage() {
                 void confirmRemove();
               }}
               disabled={removing}
-              className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
+              className="bg-destructive text-white hover:bg-destructive/90"
             >
               {removing ? (
                 <LoadingGlyph className="h-3.5 w-3.5" />

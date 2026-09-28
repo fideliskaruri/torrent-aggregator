@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, RefreshCw, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -130,7 +131,7 @@ function DesktopPanel() {
   return (
     <div className="space-y-5" data-desktop-settings>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-[var(--text-tertiary)]">Version</span>
+        <span className="text-xs text-subtle-foreground">Version</span>
         <Badge variant="outline" className="font-mono" data-desktop-version>
           {status.version === "0.0.0" ? "Local build" : status.version}
         </Badge>
@@ -149,8 +150,8 @@ function DesktopPanel() {
             data-desktop-autostart
           />
           {status.autostart.pointsElsewhere ? (
-            <p className="flex items-start gap-2 text-xs text-[var(--text-secondary)]" role="status">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
+            <p className="flex items-start gap-2 text-xs text-muted-foreground" role="status">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-foreground" aria-hidden="true" />
               The startup entry opens a different copy of TorrentFlow. Turn this off and on to point it here.
             </p>
           ) : null}
@@ -174,7 +175,7 @@ function DesktopPanel() {
           />
         </div>
       ) : (
-        <p className="text-xs leading-relaxed text-[var(--text-tertiary)]" data-desktop-unsupported>
+        <p className="text-xs leading-relaxed text-subtle-foreground" data-desktop-unsupported>
           Start with Windows and automatic updates come with the installed Windows app.
         </p>
       )}
@@ -189,7 +190,7 @@ function DesktopPanel() {
       {message ? (
         <p
           role={message.ok ? "status" : "alert"}
-          className={cn("text-xs", message.ok ? "text-[var(--text-secondary)]" : "text-[var(--danger)]")}
+          className={cn("text-xs", message.ok ? "text-muted-foreground" : "text-destructive")}
           data-desktop-message
         >
           {message.text}
@@ -218,29 +219,30 @@ function ToggleRow({
   onChange: (checked: boolean) => void;
 } & Record<`data-${string}`, boolean | string | undefined>) {
   return (
-    <label
+    <Label
       htmlFor={id}
       className={cn(
-        "flex min-h-11 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3",
+        "flex min-h-11 items-start justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 font-normal leading-normal",
         disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer",
       )}
     >
-      <Checkbox
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+          {label}
+          {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : null}
+        </span>
+        <span className="mt-1 block text-xs text-subtle-foreground">{description}</span>
+      </span>
+      <Switch
         id={id}
         aria-label={label}
         checked={checked}
         disabled={disabled}
         onCheckedChange={(value) => onChange(value === true)}
+        className="mt-0.5"
         {...rest}
       />
-      <span className="min-w-0 pt-0.5">
-        <span className="flex items-center gap-2 text-sm font-medium text-[var(--text)]">
-          {label}
-          {busy ? <LoadingGlyph className="h-3.5 w-3.5" /> : null}
-        </span>
-        <span className="mt-1 block text-xs text-[var(--text-tertiary)]">{description}</span>
-      </span>
-    </label>
+    </Label>
   );
 }
 
@@ -249,7 +251,7 @@ function ProgressLine({ progress, label }: { progress: DownloadProgress; label: 
   const installing = progress.state === "installing";
   return (
     <div className="space-y-1.5" role="status" aria-live="polite">
-      <div className="flex items-center justify-between gap-3 text-xs text-[var(--text-secondary)]">
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span className="min-w-0 truncate">{installing ? `Installing ${label}…` : `Downloading ${label}…`}</span>
         {pct !== null && !installing ? <span className="shrink-0 font-mono tabular-nums">{pct}%</span> : null}
       </div>
@@ -276,37 +278,37 @@ function UpdateStatus({
   const updates = status.updates;
   if (!updates.available) {
     return (
-      <p className="text-xs text-[var(--text-tertiary)]" data-desktop-update-status="local">
+      <p className="text-xs text-subtle-foreground" data-desktop-update-status="local">
         This is a local build, so it does not check for updates.
       </p>
     );
   }
   const install = updates.install;
   return (
-    <div className="space-y-3 rounded-lg border border-[var(--border)] p-3" data-desktop-update-status>
+    <div className="space-y-3 rounded-lg border border-border p-3" data-desktop-update-status>
       {isBusy(install) ? (
         <ProgressLine progress={install} label={`TorrentFlow ${updates.latest?.version ?? ""}`.trim()} />
       ) : (
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-0.5">
-            <p className="flex items-center gap-1.5 text-sm text-[var(--text)]">
+            <p className="flex items-center gap-1.5 text-sm text-foreground">
               {updates.updateAvailable ? (
                 <>
-                  <Download className="h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
+                  <Download className="h-4 w-4 shrink-0 text-brand-foreground" aria-hidden="true" />
                   TorrentFlow {updates.latest?.version} is available
                 </>
               ) : (
                 <>
-                  <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--success)]" aria-hidden="true" />
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
                   {updates.lastError ? "Could not check for updates" : "You're up to date"}
                 </>
               )}
             </p>
-            <p className="text-xs text-[var(--text-tertiary)]">
+            <p className="text-xs text-subtle-foreground">
               {updates.lastError ?? formatChecked(updates.lastCheckedAt)}
             </p>
             {install.state === "failed" && install.error ? (
-              <p className="text-xs text-[var(--danger)]" role="alert">{install.error}</p>
+              <p className="text-xs text-destructive" role="alert">{install.error}</p>
             ) : null}
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -348,7 +350,7 @@ function UpdateStatus({
         </div>
       )}
       {updates.updateAvailable && !isBusy(install) ? (
-        <p className="text-xs text-[var(--text-tertiary)]">
+        <p className="text-xs text-subtle-foreground">
           Updating closes TorrentFlow for a moment; downloads resume when it restarts.
         </p>
       ) : null}
@@ -372,14 +374,14 @@ function FfmpegStatus({
   const busy = isBusy(ff.download);
   const size = formatMegabytes(ff.packageSize);
   return (
-    <div className="space-y-3 rounded-lg border border-[var(--border)] p-3" data-desktop-ffmpeg>
+    <div className="space-y-3 rounded-lg border border-border p-3" data-desktop-ffmpeg>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 space-y-1">
-          <p className="flex items-center gap-1.5 text-sm font-medium text-[var(--text)]">
-            <Wrench className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
+          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <Wrench className="h-4 w-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
             ffmpeg &amp; ffprobe
           </p>
-          <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
+          <p className="text-xs leading-relaxed text-subtle-foreground">
             Used to check finished downloads are real video and to read subtitles and audio tracks.
           </p>
         </div>
@@ -399,12 +401,12 @@ function FfmpegStatus({
       ) : null}
       {busy ? <ProgressLine progress={ff.download} label="ffmpeg" /> : null}
       {ff.download.state === "failed" && ff.download.error ? (
-        <p className="text-xs text-[var(--danger)]" role="alert" data-desktop-ffmpeg-error>{ff.download.error}</p>
+        <p className="text-xs text-destructive" role="alert" data-desktop-ffmpeg-error>{ff.download.error}</p>
       ) : null}
       {!found && !busy ? (
         ff.canDownload ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <p className="min-w-0 text-xs text-[var(--text-tertiary)]">
+            <p className="min-w-0 text-xs text-subtle-foreground">
               {ff.packageLabel}{size ? ` · ${size}` : ""}, checksum-verified, saved in TorrentFlow's data folder.
             </p>
             <Button
@@ -422,7 +424,7 @@ function FfmpegStatus({
             </Button>
           </div>
         ) : (
-          <p className="text-xs text-[var(--text-tertiary)]">
+          <p className="text-xs text-subtle-foreground">
             Install ffmpeg with your package manager (it must be on PATH), or set FFMPEG_PATH and FFPROBE_PATH.
           </p>
         )
@@ -434,8 +436,8 @@ function FfmpegStatus({
 function PathRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 gap-2">
-      <dt className="w-14 shrink-0 text-[var(--text-tertiary)]">{label}</dt>
-      <dd className="min-w-0 break-all font-mono text-[var(--text-secondary)]">{value}</dd>
+      <dt className="w-14 shrink-0 text-subtle-foreground">{label}</dt>
+      <dd className="min-w-0 break-all font-mono text-muted-foreground">{value}</dd>
     </div>
   );
 }
