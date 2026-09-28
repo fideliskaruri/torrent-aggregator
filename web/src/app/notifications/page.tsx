@@ -244,7 +244,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
 
   const filterControls = (
     <div
-      className="inline-flex rounded-full border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-[12px]"
+      className="inline-flex rounded-full border border-[var(--border)] bg-[var(--bg-muted)] p-0.5 text-[12px]"
       aria-label="Activity view"
     >
       <Link
@@ -252,7 +252,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
         aria-current={!sentOnly ? "page" : undefined}
         className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
           !sentOnly
-            ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
+            ? "bg-[var(--bg-hover)] text-[var(--text)] shadow-sm"
             : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
         }`}
       >
@@ -263,7 +263,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
         aria-current={sentOnly ? "page" : undefined}
         className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
           sentOnly
-            ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
+            ? "bg-[var(--bg-hover)] text-[var(--text)] shadow-sm"
             : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
         }`}
       >

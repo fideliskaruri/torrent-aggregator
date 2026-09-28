@@ -26,7 +26,6 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - Browser follow-up for matching diagnostics when Playwright MCP is available (transport closed during both navigation and snapshot). Real isolated API/indexer/persistence checks passed; no browser pass claimed.
 
 - QA pass: owner vs requester vs preview, on phone and desktop, using the simulator.
-- Undefined CSS tokens still in use: `--surface` / `--surface-2` (notifications filter pill), `--text-primary` (inline player). Allow-listed in `web/tests/css-tokens.test.mjs`; map to existing tokens and drop them from the list.
 - MCP-verify the fq-ui batch at 390 and 1280 (owner, requester, preview); screenshots were blocked in that run.
 - "Find another release" on title pages, after the unified UI lands.
 - Auto-swap: notice an unhealthy torrent and switch releases automatically, reusing the swap service.

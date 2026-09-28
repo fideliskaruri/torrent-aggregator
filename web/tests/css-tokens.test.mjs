@@ -16,7 +16,7 @@ const defined = new Set(
     .flatMap((f) => [...readFileSync(f, "utf8").matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1])),
 );
 // Set at runtime by Radix, or undefined leftovers tracked in docs/todo-list.md.
-const allowed = new Set(["--radix-dropdown-menu-content-available-height", "--surface", "--surface-2", "--text-primary"]);
+const allowed = new Set(["--radix-dropdown-menu-content-available-height"]);
 
 test("every CSS variable the UI reads is defined", () => {
   const missing = new Map();

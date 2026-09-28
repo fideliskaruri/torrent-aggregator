@@ -1895,7 +1895,7 @@ class InlinePlayerErrorBoundary extends Component<
         data-inline-player-error
         className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-[12px] text-[var(--text-secondary)]"
       >
-        <p className="font-medium text-[var(--text-primary)]">The player is unavailable.</p>
+        <p className="font-medium text-[var(--text)]">The player is unavailable.</p>
         <p className="mt-1">
           {this.props.title} is still in your library. Retry the player, or use the other title
           actions while this recovers.
@@ -5124,7 +5124,7 @@ function InlineStreamPlayerInner({
       "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2",
       large
         ? "h-11 w-11 text-white/80 hover:bg-white/12 hover:text-white focus-visible:outline-white"
-        : "h-11 w-11 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] focus-visible:outline-[var(--accent)]",
+        : "h-11 w-11 text-[var(--text-tertiary)] hover:text-[var(--text)] focus-visible:outline-[var(--accent)]",
     );
     const playButtonClass = cn(
       "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2",
@@ -5930,7 +5930,7 @@ function InlineStreamPlayerInner({
                     />
                     <span
                       aria-hidden="true"
-                      className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-y-1/2 rounded-full bg-[var(--text-primary)]"
+                      className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-y-1/2 rounded-full bg-[var(--text)]"
                       style={{
                         left: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%`,
                       }}
