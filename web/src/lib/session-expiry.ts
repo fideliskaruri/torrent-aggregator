@@ -131,4 +131,4 @@ export async function sessionAwareFetch(
 }
 
 export const SESSION_EXPIRED_MESSAGE =
-  "Your remote session expired. Reload to sign in again.";
+  "Your sign-in expired. Sign in again to keep going.";

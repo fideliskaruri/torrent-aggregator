@@ -176,7 +176,7 @@ export function RatingMetaLine(input: HeroMetaInput) {
       {score ? (
         <span
           data-title-tmdb-badge
-          className="rounded-[calc(var(--radius)-3px)] border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
+          className="rounded-[calc(var(--radius)-3px)] border border-[var(--border)] px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
         >
           {ratingBadgeLabel(input.ratingSource)}
         </span>

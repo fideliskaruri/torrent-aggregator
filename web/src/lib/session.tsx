@@ -5,7 +5,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { RefreshCw } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApiQuery } from "@/hooks/use-api-query";
 import {
@@ -115,25 +115,26 @@ function SessionExpiredPrompt() {
     <div
       role="alert"
       data-session-expired
-      className="fixed inset-x-0 top-0 z-[70] border-b border-[var(--warning)]/40 bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]"
+      className="fixed inset-x-0 top-0 z-[70] border-b border-[var(--accent-border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]"
       style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       <div className="container-app flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="min-w-0 text-sm text-[var(--text)]">
-          Your remote session expired.{" "}
-          <span className="text-[var(--text-secondary)]">
-            Reload to sign in through Cloudflare again.
+        <p className="flex min-w-0 items-start gap-2 text-sm text-[var(--text)]">
+          <LogIn className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
+          <span>
+            Your sign-in expired.{" "}
+            <span className="text-[var(--text-secondary)]">
+              Sign in again to keep going. Your downloads aren&apos;t affected.
+            </span>
           </span>
         </p>
         <Button
           type="button"
           onClick={() => window.location.reload()}
           className="min-h-[44px] shrink-0"
-          aria-label="Reload to sign in again"
           data-session-reload
         >
-          <RefreshCw className="h-4 w-4" aria-hidden="true" />
-          Reload
+          Sign in again
         </Button>
       </div>
     </div>

@@ -171,7 +171,7 @@ Server-side folder launching is also unavailable through the tunnel: `/api/featu
 - When an Access session expires, `/api` calls are redirected to Cloudflare (a followed redirect, a 401
   with `X-TorrentFlow-Auth: required`, or a rejected fetch). While the page came through the tunnel,
   `sessionAwareFetch` in `web/src/lib/session-expiry.ts` (used by `use-api-query` and the remote access
-  panel) reports that, and `SessionProvider` (`web/src/lib/session.tsx`) shows a "session expired, reload"
+  panel) reports that, and `SessionProvider` (`web/src/lib/session.tsx`) shows a "Your sign-in expired · Sign in again"
   prompt. A rejected fetch only counts when the browser is online and a `redirect: "manual"` probe of
   `/api/me` comes back as an `opaqueredirect`, so a dropped connection or a cloudflared restart is shown as
   an ordinary error. `/api/me` is polled every minute so idle pages notice too, and a successful poll
