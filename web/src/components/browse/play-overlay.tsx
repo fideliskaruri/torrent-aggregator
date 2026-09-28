@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { InlineStreamPlayer } from "@/components/watch/inline-player";
 import type { ProgressEntry } from "@/lib/browse/types";
 import { parseEpisode } from "@/lib/torrents/episodes";
@@ -67,7 +74,6 @@ function EnabledPlayOverlay({
   resumePositionSec,
   onClose,
 }: PlayOverlayProps) {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const parsedEpisode = useMemo(
     () => (subtitle ? parseEpisode(subtitle) : null),
     [subtitle],
@@ -143,115 +149,63 @@ function EnabledPlayOverlay({
     resolvedSeason,
   ]);
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    const restoreTo = document.activeElement as HTMLElement | null;
-
-    // Lock the *document element*, not `body`: `html` carries `overflow-x:
-    // hidden`, which stops the UA propagating body's overflow to the viewport,
-    // so `body { overflow: hidden }` here would be a no-op and the page would
-    // scroll behind the dialog. `scrollbar-gutter: stable` keeps this from
-    // shifting the layout sideways.
-    const root = document.documentElement;
-    const previousOverflow = root.style.overflow;
-    root.style.overflow = "hidden";
-
-    const focusables = () =>
-      Array.from(
-        dialog?.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), video, [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-      ).filter((el) => el.offsetParent !== null);
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const items = focusables();
-      if (items.length === 0) return;
-      const head = items[0];
-      const tail = items[items.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      if (!dialog?.contains(active)) {
-        event.preventDefault();
-        (event.shiftKey ? tail : head).focus();
-      } else if (event.shiftKey && active === head) {
-        event.preventDefault();
-        tail.focus();
-      } else if (!event.shiftKey && active === tail) {
-        event.preventDefault();
-        head.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKey, true);
-
-    focusables()[0]?.focus();
-
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      root.style.overflow = previousOverflow;
-      if (restoreTo && document.contains(restoreTo)) restoreTo.focus();
-    };
-  }, [onClose]);
-
+  // A Radix dialog, always open while mounted: callers mount this component
+  // to play and unmount it to stop. It owns the focus trap, Escape, the scroll
+  // lock and returning focus to whatever pressed Play.
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Play ${title}`}
-      ref={dialogRef}
-      data-play-overlay
-    >
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-label="Close player"
-        onClick={onClose}
-        className="absolute inset-0 bg-black"
-      />
-
-      {/*
-        The frame, and nothing else. `max-h`/`max-w` in viewport units rather
-        than a fixed pixel width: the constraint on a video is the screen it is
-        being watched on, not a breakpoint. A card class here is what made a
-        16:9 picture occupy a third of a 1400px display.
-      */}
-      <div className="relative flex h-full w-full max-h-[100dvh] max-w-[100vw] flex-col justify-center">
-        {/*
-          Chrome sits *over* the picture. Anything in normal flow above the
-          video takes height from it, and height is the whole budget.
-          `pointer-events-none` on the strip with `auto` on the controls keeps
-          the area beside the close button clickable as backdrop-to-dismiss.
-        */}
-        <div className="pointer-events-none absolute right-0 top-0 z-50 flex items-start p-3 sm:p-4">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="pointer-events-auto inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/50 text-white/80 transition-colors hover:bg-black/70 hover:text-white"
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+        <DialogContent
+          data-play-overlay
+          aria-describedby={undefined}
+          showCloseButton={false}
+          className="inset-0 top-0 left-0 z-[60] flex h-dvh w-full max-w-none translate-x-0 translate-y-0 items-center justify-center gap-0 rounded-none bg-black p-0 text-white ring-0 sm:max-w-none data-open:zoom-in-100 data-closed:zoom-out-100"
+        >
+          <DialogTitle className="sr-only">{`Play ${title}`}</DialogTitle>
+          {/*
+            The frame, and nothing else. `max-h`/`max-w` in viewport units rather
+            than a fixed pixel width: the constraint on a video is the screen it
+            is being watched on, not a breakpoint.
+          */}
+          <div
+            className="relative flex h-full w-full max-h-[100dvh] max-w-[100vw] flex-col justify-center"
+            // The black around the picture is the backdrop: a press on it
+            // (not on the player) closes, as it always has.
+            onClick={(event) => {
+              if (event.target === event.currentTarget) onClose();
+            }}
           >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
+            {/*
+              Chrome sits *over* the picture. Anything in normal flow above the
+              video takes height from it, and height is the whole budget.
+            */}
+            <div className="pointer-events-none absolute right-0 top-0 z-50 flex items-start p-3 sm:p-4">
+              <DialogClose asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Close"
+                  className="pointer-events-auto rounded-full bg-black/50 text-white/80 hover:bg-black/70 hover:text-white dark:hover:bg-black/70"
+                >
+                  <X aria-hidden />
+                </Button>
+              </DialogClose>
+            </div>
 
-        <InlineStreamPlayer
-          infoHash={playerInfoHash}
-          title={title}
-          episodeTitle={episodeTitle}
-          episodeTitles={episodeTitles}
-          year={year}
-          season={resolvedSeason}
-          episode={resolvedEpisode}
-          resumeSec={playerResumeSec ?? undefined}
-          chrome="theatre"
-          className="min-h-0"
-        />
-      </div>
-    </div>
+            <InlineStreamPlayer
+              infoHash={playerInfoHash}
+              title={title}
+              episodeTitle={episodeTitle}
+              episodeTitles={episodeTitles}
+              year={year}
+              season={resolvedSeason}
+              episode={resolvedEpisode}
+              resumeSec={playerResumeSec ?? undefined}
+              chrome="theatre"
+              className="min-h-0"
+            />
+          </div>
+        </DialogContent>
+    </Dialog>
   );
 }

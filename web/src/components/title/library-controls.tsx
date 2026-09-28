@@ -14,7 +14,17 @@
 import { useRef, useState } from "react";
 import { Check, Loader2, Plus, X } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -143,6 +153,16 @@ export function LibraryControls({
 
   const busy = phase === "pending";
 
+  const addDescription = title?.trim()
+    ? `Choose which episodes of ${title.trim()} to get and keep up with.`
+    : "Choose which episodes to get and keep up with.";
+  const restoreAddFocus = (event: Event) => {
+    if (addButtonRef.current) {
+      event.preventDefault();
+      addButtonRef.current.focus();
+    }
+  };
+
   const selectedStart =
     answers.startPoint.kind === "season"
       ? `season:${answers.startPoint.season}`
@@ -152,8 +172,8 @@ export function LibraryControls({
     if (next) setAnswers((a) => ({ ...a, startPoint: next }));
   };
 
-  // Styled radios rather than a native select: the choice is the whole point
-  // of the dialog, so every option and what it means stays visible at once.
+  // Radio cards rather than a select: the choice is the whole point of the
+  // dialog, so every option and what it means stays visible at once.
   const questionPanel = (
     <div
       data-add-questions
@@ -166,68 +186,60 @@ export function LibraryControls({
         const bySeason = question.options.filter((o) => o.value.startsWith("season:"));
         return (
           <fieldset key={question.id} data-question={question.id} className="min-w-0 space-y-2">
-            <legend className="mb-2 text-[13px] font-medium text-[var(--text)]">
+            <legend className="mb-2 text-[13px] font-medium text-foreground">
               {question.prompt}
             </legend>
+            {/* One group for both layouts, so arrow keys run through every
+                choice, the season pills included. */}
+            <RadioGroup
+              value={selectedStart}
+              onValueChange={pickStart}
+              aria-label={question.prompt}
+              className="gap-0"
+            >
             <div className="grid gap-2 sm:grid-cols-2">
               {main.map((option) => (
-                <label
+                <Label
                   key={option.value}
                   data-add-option={option.value}
-                  className="relative flex min-h-[44px] cursor-pointer items-start gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] p-3 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--brand)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--brand)]"
+                  className="relative min-h-[44px] cursor-pointer items-start gap-3 rounded-sm border border-border bg-background p-3 font-normal leading-normal transition-colors hover:border-input has-data-checked:border-brand has-data-checked:bg-brand-dim"
                 >
-                  <input
-                    type="radio"
-                    name={`add-${question.id}`}
-                    value={option.value}
-                    checked={selectedStart === option.value}
-                    onChange={() => pickStart(option.value)}
-                    className="peer sr-only"
-                  />
-                  <span
-                    aria-hidden
-                    className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-[var(--border-strong)] peer-checked:border-[var(--brand)] peer-checked:[&>span]:scale-100"
-                  >
-                    <span className="h-2 w-2 scale-0 rounded-full bg-[var(--brand)] transition-transform" />
-                  </span>
+                  <RadioGroupItem value={option.value} className="mt-0.5" />
                   <span className="min-w-0">
-                    <span className="block text-[13px] font-medium text-[var(--text)]">
+                    <span className="block text-[13px] font-medium text-foreground">
                       {option.label}
                     </span>
                     {option.hint ? (
-                      <span className="mt-0.5 block text-[12px] text-[var(--text-tertiary)]">
+                      <span className="mt-0.5 block text-[12px] text-subtle-foreground">
                         {option.hint}
                       </span>
                     ) : null}
                   </span>
-                </label>
+                </Label>
               ))}
             </div>
             {bySeason.length > 1 ? (
-              <div className="pt-1">
-                <p className="mb-2 text-[12px] text-[var(--text-tertiary)]">Or start from a season</p>
+              <div className="pt-3">
+                <p className="mb-2 text-[12px] text-subtle-foreground">Or start from a season</p>
                 <div className="flex flex-wrap gap-2">
                   {bySeason.map((option) => (
-                    <label
+                    <Label
                       key={option.value}
                       data-add-option={option.value}
-                      className="inline-flex h-11 min-w-[44px] cursor-pointer items-center justify-center rounded-full border border-[var(--border)] bg-[var(--bg)] px-3.5 text-[13px] tabular-nums text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] has-[:checked]:border-[var(--brand)] has-[:checked]:bg-[var(--accent-dim)] has-[:checked]:text-[var(--text)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--brand)]"
+                      className="h-11 min-w-[44px] cursor-pointer justify-center rounded-full border border-border bg-background px-3.5 text-[13px] font-normal tabular-nums text-muted-foreground transition-colors hover:border-input hover:text-foreground has-data-checked:border-brand has-data-checked:bg-brand-dim has-data-checked:text-foreground has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50"
                     >
-                      <input
-                        type="radio"
-                        name={`add-${question.id}`}
+                      <RadioGroupItem
                         value={option.value}
-                        checked={selectedStart === option.value}
-                        onChange={() => pickStart(option.value)}
                         aria-label={option.label}
                         className="sr-only"
                       />
                       {option.label.replace(/^From season /, "Season ")}
-                    </label>
+                    </Label>
                   ))}
                 </div>
               </div>
             ) : null}
+            </RadioGroup>
           </fieldset>
         );
       })}
@@ -235,7 +247,7 @@ export function LibraryControls({
       <p
         data-add-summary
         aria-live="polite"
-        className="text-[12px] leading-relaxed text-[var(--text-tertiary)]"
+        className="text-[12px] leading-relaxed text-subtle-foreground"
       >
         {addSummary(subject, answers)}
       </p>
@@ -256,7 +268,7 @@ export function LibraryControls({
           variant="ghost"
           data-add-cancel
           onClick={() => setAsking(false)}
-          className="min-h-[44px] w-full text-[var(--text-secondary)] sm:w-auto"
+          className="min-h-[44px] w-full text-muted-foreground sm:w-auto"
         >
           Cancel
         </Button>
@@ -271,13 +283,13 @@ export function LibraryControls({
     >
       {library.inLibrary ? (
         <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:flex md:w-auto">
-          <span
-            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2 text-[12px] text-[var(--text-secondary)]"
+          <Badge
+            className="min-h-[44px] gap-1.5 rounded-lg bg-card px-3 py-2 font-normal [&>svg]:size-3.5!"
             data-in-library
           >
-            <Check className="h-3.5 w-3.5" aria-hidden />
+            <Check aria-hidden />
             In Library
-          </span>
+          </Badge>
           {itemId ? (
             <Button
               type="button"
@@ -287,7 +299,7 @@ export function LibraryControls({
               aria-label="Remove from library"
               disabled={busy}
               onClick={() => setConfirmingRemove(true)}
-              className="min-h-[44px] text-[var(--text-secondary)]"
+              className="min-h-[44px] text-muted-foreground"
             >
               {busy ? <Loader2 className="animate-spin" aria-hidden /> : <X aria-hidden />}
               Remove
@@ -311,33 +323,38 @@ export function LibraryControls({
       )}
 
       {/* One modal on every width: inline, the questions pushed the poster
-          below the title and put a second "Add to library" beside the first. */}
-      <Dialog open={asking} onOpenChange={setAsking}>
-        <DialogContent
-          data-add-library-dialog
-          className={
-            isMobile
-              ? "top-auto bottom-0 left-0 max-h-[90dvh] max-w-none translate-x-0 translate-y-0 gap-4 overflow-y-auto rounded-none rounded-t-[var(--radius-lg)] p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
-              : "gap-4 overflow-y-auto p-5 sm:max-w-lg"
-          }
-          onCloseAutoFocus={(event) => {
-            if (addButtonRef.current) {
-              event.preventDefault();
-              addButtonRef.current.focus();
-            }
-          }}
-        >
-          <div className="space-y-1 pr-12">
-            <DialogTitle>Add to library</DialogTitle>
-            <DialogDescription>
-              {title?.trim()
-                ? `Choose which episodes of ${title.trim()} to get and keep up with.`
-                : "Choose which episodes to get and keep up with."}
-            </DialogDescription>
-          </div>
-          {questionPanel}
-        </DialogContent>
-      </Dialog>
+          below the title and put a second "Add to library" beside the first.
+          Phones get a bottom sheet, wider screens a centred dialog. */}
+      {isMobile ? (
+        <Sheet open={asking} onOpenChange={setAsking}>
+          <SheetContent
+            side="bottom"
+            data-add-library-dialog
+            className="max-h-[90dvh] gap-4 overflow-y-auto rounded-t-xl p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+            onCloseAutoFocus={restoreAddFocus}
+          >
+            <SheetHeader className="space-y-1 p-0 pr-12">
+              <SheetTitle>Add to library</SheetTitle>
+              <SheetDescription>{addDescription}</SheetDescription>
+            </SheetHeader>
+            {questionPanel}
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={asking} onOpenChange={setAsking}>
+          <DialogContent
+            data-add-library-dialog
+            className="gap-4 overflow-y-auto p-5 sm:max-w-lg"
+            onCloseAutoFocus={restoreAddFocus}
+          >
+            <div className="space-y-1 pr-12">
+              <DialogTitle>Add to library</DialogTitle>
+              <DialogDescription>{addDescription}</DialogDescription>
+            </div>
+            {questionPanel}
+          </DialogContent>
+        </Dialog>
+      )}
 
       <AlertDialog
         open={confirmingRemove}
@@ -361,7 +378,7 @@ export function LibraryControls({
                 event.preventDefault();
                 remove();
               }}
-              className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
+              className="bg-destructive text-white hover:bg-[#e85d66]"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
               Remove, keep files

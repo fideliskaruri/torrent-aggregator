@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils";
 import type { ActionStatus, CardAction } from "./availability";
 import { nextFocusIndex, pageScrollDelta, railEdges } from "./rail-scroll";
 import { TitleCard, TitleCardSkeleton } from "./title-card";
-import { SkeletonBlock } from "@/components/ui/loading";
+import { Button } from "@/components/ui/button";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export interface RailProps {
   rail: RailModel;
@@ -32,7 +34,15 @@ export interface RailProps {
  * reach card 14 without 13 Tab presses.
  */
 export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
-  const scrollerRef = useRef<HTMLUListElement | null>(null);
+  // The scroll container is the ScrollArea viewport, not the list inside it.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const viewport = useCallback(
+    () =>
+      rootRef.current?.querySelector<HTMLElement>(
+        '[data-slot="scroll-area-viewport"]',
+      ) ?? null,
+    [],
+  );
   const [edges, setEdges] = useState({
     atStart: true,
     atEnd: true,
@@ -41,7 +51,7 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
   const reduceMotion = useReducedMotion();
 
   const measure = useCallback(() => {
-    const el = scrollerRef.current;
+    const el = viewport();
     if (!el) return;
     setEdges(
       railEdges({
@@ -50,40 +60,40 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
         scrollWidth: el.scrollWidth,
       }),
     );
-  }, []);
+  }, [viewport]);
 
   useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
+    const el = viewport();
+    const list = el?.querySelector("ul");
+    if (!el || !list) return;
     measure();
     el.addEventListener("scroll", measure, { passive: true });
     // Posters arrive after first paint and the viewport can change under us, so
     // a one-shot measurement would leave the arrows lying about the row.
     const observer = new ResizeObserver(measure);
     observer.observe(el);
-    for (const child of Array.from(el.children)) observer.observe(child);
+    observer.observe(list);
     return () => {
       el.removeEventListener("scroll", measure);
       observer.disconnect();
     };
-  }, [measure, rail.items.length]);
+  }, [measure, viewport, rail.items.length]);
 
   const scrollByPage = useCallback(
     (direction: 1 | -1) => {
-      const el = scrollerRef.current;
+      const el = viewport();
       if (!el) return;
       el.scrollBy({
         left: direction * pageScrollDelta(el.clientWidth),
         behavior: reduceMotion ? "auto" : "smooth",
       });
     },
-    [reduceMotion],
+    [reduceMotion, viewport],
   );
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
-      const el = scrollerRef.current;
-      if (!el) return;
+      const el = event.currentTarget;
       const cards = Array.from(
         el.querySelectorAll<HTMLElement>("[data-rail-card]"),
       );
@@ -128,22 +138,27 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
     >
       <h2
         id={`rail-${rail.id}`}
-        className="mb-2.5 text-[13px] font-medium text-[var(--text-secondary)]"
+        className="mb-2.5 text-[13px] font-medium text-muted-foreground"
       >
         {rail.title}
       </h2>
 
       <div className="relative">
-        <ul
-          ref={scrollerRef}
-          onKeyDown={onKeyDown}
-          // `-my-3` cancels the padding that gives the hover lift and focus
-          // ring room inside a container that now clips both axes.
+        {/* `-my-3` cancels the padding that gives the hover lift and focus
+            ring room inside a viewport that clips both axes. The horizontal
+            bar sits in that bottom padding and only shows on hover. */}
+        <ScrollArea
+          ref={rootRef}
+          data-rail-scroller
           className={cn(
-            "flex gap-2.5 sm:gap-3 overflow-x-auto overscroll-x-contain",
-            "snap-x scroll-pl-1 py-3 -my-3 motion-safe:scroll-smooth",
-            "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+            "-my-3",
+            "[&>[data-slot=scroll-area-viewport]]:snap-x [&>[data-slot=scroll-area-viewport]]:scroll-pl-1",
+            "[&>[data-slot=scroll-area-viewport]]:overscroll-x-contain",
           )}
+        >
+        <ul
+          onKeyDown={onKeyDown}
+          className="flex gap-2.5 py-3 sm:gap-3"
         >
           {rail.items.map((item, i) => (
             <TitleCard
@@ -156,6 +171,8 @@ export function Rail({ rail, index = 0, statuses, onAction }: RailProps) {
             />
           ))}
         </ul>
+        <ScrollBar orientation="horizontal" />
+        </ScrollArea>
 
         {edges.scrollable ? (
           <>
@@ -194,27 +211,34 @@ function RailArrow({
 }) {
   const Icon = direction === "left" ? ChevronLeft : ChevronRight;
   return (
-    <button
-      type="button"
-      tabIndex={-1}
+    <div
       aria-hidden
-      onClick={onClick}
       data-rail-arrow={direction}
       className={cn(
-        "absolute inset-y-0 z-[1] hidden w-12 items-center md:flex",
-        "text-[var(--text)] transition-opacity duration-150",
+        "pointer-events-none absolute inset-y-0 z-[1] hidden w-12 items-center md:flex",
+        "transition-opacity duration-150",
         direction === "left"
-          ? "left-0 justify-start bg-gradient-to-r from-[var(--bg)] via-[var(--bg)]/80 to-transparent pl-1"
-          : "right-0 justify-end bg-gradient-to-l from-[var(--bg)] via-[var(--bg)]/80 to-transparent pr-1",
+          ? "left-0 justify-start bg-gradient-to-r from-background via-background/80 to-transparent pl-1"
+          : "right-0 justify-end bg-gradient-to-l from-background via-background/80 to-transparent pr-1",
         hidden
-          ? "pointer-events-none opacity-0"
+          ? "opacity-0"
           : "opacity-0 group-hover/rail:opacity-100 group-focus-within/rail:opacity-100",
       )}
     >
-      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--bg-elevated)]/90 text-[var(--text-secondary)] shadow-[var(--shadow-sm)] ring-1 ring-[var(--border)]/60 backdrop-blur-sm hover:text-[var(--text)]">
-        <Icon className="h-4 w-4" aria-hidden />
-      </span>
-    </button>
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        tabIndex={-1}
+        onClick={onClick}
+        className={cn(
+          "rounded-full bg-card/90 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground dark:bg-card/90",
+          !hidden && "pointer-events-auto",
+        )}
+      >
+        <Icon aria-hidden />
+      </Button>
+    </div>
   );
 }
 
@@ -222,7 +246,7 @@ function RailArrow({
 export function RailSkeleton({ cards = 6 }: { cards?: number }) {
   return (
     <section className="py-4 sm:py-5" aria-hidden>
-      <SkeletonBlock className="mb-2.5 h-3.5 w-40 rounded" />
+      <Skeleton className="mb-2.5 h-3.5 w-40 rounded" />
       <ul className="flex gap-2.5 overflow-hidden sm:gap-3">
         {Array.from({ length: cards }, (_, i) => (
           <TitleCardSkeleton key={i} />

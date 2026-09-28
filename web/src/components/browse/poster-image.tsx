@@ -127,11 +127,11 @@ function FallbackTile({
     >
       {/* A hairline inside the tile, so a tinted surface still reads as a
           deliberate object next to cards that do have art. */}
-      <span className="absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-[color-mix(in_srgb,var(--text)_7%,transparent)]" />
+      <span className="absolute inset-0 rounded-[inherit] ring-1 ring-inset ring-foreground/7" />
 
       <span
         className={cn(
-          "pointer-events-none absolute select-none font-semibold leading-none text-[var(--text-tertiary)]",
+          "pointer-events-none absolute select-none font-semibold leading-none text-subtle-foreground",
           variant === "card"
             ? "-bottom-[0.18em] -right-[0.06em] text-[5.5rem] opacity-25"
             : "-bottom-[0.16em] -right-[0.04em] text-[12rem] opacity-15",

@@ -15,6 +15,7 @@
  *    order). The month table below is fixed, so "2023-05-04" is always
  *    "May 4, 2023" on both sides.
  */
+import { Badge } from "@/components/ui/badge";
 import { Star } from "lucide-react";
 import { factsLine } from "@/lib/utils";
 
@@ -152,20 +153,21 @@ export function RatingMetaLine(input: HeroMetaInput) {
   return (
     <div
       data-title-meta-line
-      className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-[var(--text-secondary)]"
+      className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground"
     >
       {score ? (
-        <span
+        <Badge
+          variant="outline"
           data-title-tmdb-badge
           role="img"
           title={`Rated ${score} out of 10 on ${source}${votes}`}
           aria-label={`Rated ${score} out of 10 on ${source}${votes}`}
-          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border)] bg-[color-mix(in_srgb,var(--bg)_60%,transparent)] px-2.5 text-[12px]"
+          className="h-7 gap-1.5 rounded-full bg-background/60 px-2.5 font-normal"
         >
-          <Star className="h-3 w-3 fill-[var(--brand)] text-[var(--brand)]" aria-hidden />
-          <span className="font-semibold tabular-nums text-[var(--text)]">{score}</span>
-          <span className="text-[var(--text-tertiary)]">{source}</span>
-        </span>
+          <Star className="fill-brand text-brand" aria-hidden />
+          <span className="font-semibold tabular-nums text-foreground">{score}</span>
+          <span className="text-subtle-foreground">{source}</span>
+        </Badge>
       ) : null}
       {facts ? <span className="tabular-nums">{facts}</span> : null}
     </div>
@@ -179,11 +181,13 @@ export function GenreChips({ genres }: { genres: string[] }) {
   return (
     <ul data-title-genres className="mt-4 flex flex-wrap gap-2">
       {list.map((genre) => (
-        <li
-          key={genre}
-          className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[12px] text-[var(--text-secondary)]"
-        >
-          {genre}
+        <li key={genre}>
+          <Badge
+            variant="outline"
+            className="h-auto rounded-full px-2.5 py-1 font-normal text-muted-foreground"
+          >
+            {genre}
+          </Badge>
         </li>
       ))}
     </ul>
@@ -240,8 +244,8 @@ export function HeroMetaList({
     >
       {rows.map((row) => (
         <div key={row.label} className="contents">
-          <dt className="text-[var(--text-tertiary)]">{row.label}</dt>
-          <dd className="min-w-0 text-[var(--text)]">{row.value}</dd>
+          <dt className="text-subtle-foreground">{row.label}</dt>
+          <dd className="min-w-0 text-foreground">{row.value}</dd>
         </div>
       ))}
     </dl>

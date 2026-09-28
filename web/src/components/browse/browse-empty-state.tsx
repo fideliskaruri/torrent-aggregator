@@ -54,12 +54,12 @@ export function BrowseEmptyState({
         retrying={retrying}
       />
 
-      <p className="mt-4 text-center text-[12px] text-[var(--text-tertiary)]">
+      <p className="mt-4 text-center text-[12px] text-subtle-foreground">
         Search still works if you know what you are looking for:{" "}
         <Link
           to={SEARCH_HREF}
           data-dense-ui
-          className="text-[var(--accent-text)] underline-offset-4 transition-colors hover:text-[var(--accent-hover)] hover:underline"
+          className="text-brand-foreground underline-offset-4 transition-colors hover:text-brand hover:underline"
         >
           open search
         </Link>

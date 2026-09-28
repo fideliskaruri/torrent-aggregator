@@ -207,26 +207,26 @@ function MissingRailsNote({ rails }: { rails: BrowsePayload["rails"] }) {
     <section
       data-missing-rails
       aria-labelledby="missing-rails-title"
-      className="mt-8 border-t border-[var(--border)] pt-6"
+      className="mt-8 border-t border-border pt-6"
     >
       <h2
         id="missing-rails-title"
-        className="text-[13px] font-medium text-[var(--text-secondary)]"
+        className="text-[13px] font-medium text-muted-foreground"
       >
         Not showing yet
       </h2>
       <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {missing.map((preview) => (
           <li key={preview.id} className="surface flex flex-col gap-1.5 p-3.5">
-            <span className="text-[13px] font-medium text-[var(--text)]">
+            <span className="text-[13px] font-medium text-foreground">
               {preview.title}
             </span>
-            <span className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+            <span className="text-[12px] leading-relaxed text-subtle-foreground">
               {preview.blurb}
             </span>
             <Link
               to={preview.href}
-              className="mt-auto inline-flex items-center self-start min-h-[44px] pt-1 text-[12px] text-[var(--accent-text)] underline-offset-4 transition-colors hover:text-[var(--accent-hover)] hover:underline lg:min-h-0"
+              className="mt-auto inline-flex items-center self-start min-h-[44px] pt-1 text-[12px] text-brand-foreground underline-offset-4 transition-colors hover:text-brand hover:underline lg:min-h-0"
             >
               {preview.cta}
             </Link>
