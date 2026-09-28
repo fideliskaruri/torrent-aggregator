@@ -33,7 +33,7 @@ public partial class MediaRequest
 
     public string? Note { get; set; }
 
-    /// <summary>pending | approved | declined | fulfilled | failed | cancelled.</summary>
+    /// <summary>pending | approved | partial | declined | fulfilled | failed | cancelled.</summary>
     public string Status { get; set; } = null!;
 
     public string? DecisionReason { get; set; }

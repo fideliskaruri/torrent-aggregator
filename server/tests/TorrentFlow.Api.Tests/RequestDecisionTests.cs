@@ -307,7 +307,7 @@ public sealed class RequestDecisionTests(DecisionHostFactory factory) : IClassFi
     }
 
     [Fact]
-    public async Task PartialGrabMarksRequestFailedWithHonestReason()
+    public async Task PartialGrabRetainsProgressAndCanRetryMissingEpisodes()
     {
         var (friend, id) = await RequestAsync("Partial Season", "5015",
             new { provider = "tmdb", providerId = "5015", mediaType = "tv", title = "Partial Season", scope = "seasons", seasons = new[] { 1 } });
@@ -321,10 +321,15 @@ public sealed class RequestDecisionTests(DecisionHostFactory factory) : IClassFi
             Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync($"/api/requests/{id}/approve", null)).StatusCode);
             await GrabDone();
             var row = await RowAsync(id);
-            Assert.Equal(MediaRequestStatus.Failed, row.Status);
+            Assert.Equal(MediaRequestStatus.Partial, row.Status);
             Assert.Contains("Only 1 of 3", row.DecisionReason);
             Assert.False(string.IsNullOrEmpty(row.GrabbedHashes));
-            Assert.Equal("failed", (await Mine(friend, id)).GetProperty("status").GetString());
+            Assert.Equal("partial", (await Mine(friend, id)).GetProperty("status").GetString());
+            Assert.Equal(HttpStatusCode.Forbidden, (await friend.PostAsync($"/api/requests/{id}/retry", null)).StatusCode);
+            factory.Grabber.Outcome = r => new([row.GrabbedHashes!, $"next{r.Id[..8]}aa"], null);
+            Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync($"/api/requests/{id}/retry", null)).StatusCode);
+            await GrabDone();
+            Assert.Equal(MediaRequestStatus.Approved, (await RowAsync(id)).Status);
         }
         factory.Grabber.Outcome = previous;
     }

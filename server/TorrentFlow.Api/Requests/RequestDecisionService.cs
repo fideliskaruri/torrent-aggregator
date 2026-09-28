@@ -42,6 +42,22 @@ public sealed class RequestDecisionService(
     internal Task LastGrab { get; private set; } = Task.CompletedTask;
     private readonly ConcurrentDictionary<string, byte> activeGrabs = new(StringComparer.Ordinal);
 
+    public async Task<(DecisionOutcome Outcome, string? Status)> RetryAsync(string id, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var row = await db.MediaRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (row is null) return (DecisionOutcome.NotFound, null);
+        if (row.Status is not (MediaRequestStatus.Partial or MediaRequestStatus.Failed))
+            return (DecisionOutcome.NotPending, row.Status);
+        if (!activeGrabs.TryAdd(id, 0)) return (DecisionOutcome.Done, row.Status);
+        LastGrab = Task.Run(async () =>
+        {
+            try { await GrabCoreAsync(id, lifetime.ApplicationStopping, retry: true); }
+            finally { activeGrabs.TryRemove(id, out _); }
+        }, CancellationToken.None);
+        return (DecisionOutcome.Done, row.Status);
+    }
+
     public async Task<(DecisionOutcome Outcome, string? Status)> ApproveAsync(string id, CancellationToken ct, string? decisionReason = null)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -93,14 +109,16 @@ public sealed class RequestDecisionService(
         finally { activeGrabs.TryRemove(id, out _); }
     }
 
-    private async Task GrabCoreAsync(string id, CancellationToken ct)
+    private async Task GrabCoreAsync(string id, CancellationToken ct, bool retry = false)
     {
         RequestGrabOutcome outcome;
         try
         {
             await using var read = await factory.CreateDbContextAsync(ct);
             var row = await read.MediaRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, ct);
-            if (row is null || row.Status != MediaRequestStatus.Approved || !string.IsNullOrEmpty(row.GrabbedHashes)) return;
+            if (row is null || (retry
+                ? row.Status is not (MediaRequestStatus.Partial or MediaRequestStatus.Failed)
+                : row.Status != MediaRequestStatus.Approved || !string.IsNullOrEmpty(row.GrabbedHashes))) return;
             outcome = await grabber.GrabAsync(row, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
@@ -112,31 +130,35 @@ public sealed class RequestDecisionService(
 
         await using var db = await factory.CreateDbContextAsync(CancellationToken.None);
         var current = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, CancellationToken.None);
-        if (current is null || current.Status != MediaRequestStatus.Approved) return;
+        if (current is null || current.Status is not (MediaRequestStatus.Approved or MediaRequestStatus.Partial or MediaRequestStatus.Failed)) return;
         current.UpdatedAt = time.GetUtcNow().UtcDateTime;
         if (outcome.Hashes.Count == 0)
         {
             logger.LogInformation("Approved request {Id} started no download: {Problem}", id, outcome.Problem);
-            current.Status = MediaRequestStatus.Failed;
-            current.DecisionReason = NoDownloadReason;
+            current.Status = string.IsNullOrEmpty(current.GrabbedHashes) ? MediaRequestStatus.Failed : MediaRequestStatus.Partial;
+            current.DecisionReason = current.Status == MediaRequestStatus.Partial
+                ? "Some episodes have started. Retry to find the missing episodes." : NoDownloadReason;
             await db.SaveChangesAsync(CancellationToken.None);
-            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request could not be downloaded",
-                $"{current.Title}: {NoDownloadReason}", "/requests");
+            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed,
+                current.Status == MediaRequestStatus.Partial ? "Request partly started" : "Request could not be downloaded",
+                $"{current.Title}: {current.DecisionReason}", "/requests");
             return;
         }
         current.GrabbedHashes = string.Join(',', outcome.Hashes.Select(h => h.ToLowerInvariant()).Distinct());
         if (outcome.Partial)
         {
             // Keep the hashes so progress is visible, but do not leave a silent full approval.
-            current.Status = MediaRequestStatus.Failed;
+            current.Status = MediaRequestStatus.Partial;
             current.DecisionReason = string.IsNullOrWhiteSpace(outcome.Problem)
-                ? "Only some of the requested episodes could be downloaded."
+                ? "Only some of the requested episodes could be started. Retry to find the missing episodes."
                 : outcome.Problem.Trim();
             await db.SaveChangesAsync(CancellationToken.None);
-            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request only partly downloaded",
+            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request partly started",
                 $"{current.Title}: {current.DecisionReason}", "/requests");
             return;
         }
+        current.Status = MediaRequestStatus.Approved;
+        if (retry) current.DecisionReason = null;
         await db.SaveChangesAsync(CancellationToken.None);
         await CheckFulfilledAsync(id, CancellationToken.None);
     }
@@ -157,6 +179,8 @@ public sealed class RequestDecisionService(
     public async Task SweepAsync(CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
+        await db.MediaRequests.Where(r => r.Status == MediaRequestStatus.Failed && r.GrabbedHashes != null && r.GrabbedHashes != "")
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, MediaRequestStatus.Partial), ct);
         var rows = await db.MediaRequests.AsNoTracking()
             .Where(r => r.Status == MediaRequestStatus.Approved).Select(r => new { r.Id, r.GrabbedHashes }).ToListAsync(ct);
         foreach (var row in rows)

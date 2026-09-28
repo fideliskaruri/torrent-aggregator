@@ -135,7 +135,7 @@ public sealed class ClientTorrentsController(
         if (wanted.Count > 0)
         {
             var requests = await db.MediaRequests.AsNoTracking()
-                .Where(r => r.GrabbedHashes != null && (r.Status == "approved" || r.Status == "fulfilled"))
+                .Where(r => r.GrabbedHashes != null && (r.Status == "approved" || r.Status == "fulfilled" || r.Status == "partial" || r.Status == "failed"))
                 .OrderByDescending(r => r.CreatedAt)
                 .Select(r => new { r.GrabbedHashes, r.WorkKey, r.Title, r.Year, r.MediaType }).ToListAsync(ct);
             foreach (var request in requests)

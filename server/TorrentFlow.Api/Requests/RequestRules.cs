@@ -27,10 +27,11 @@ public static class MediaRequestStatus
     public const string Declined = "declined";
     public const string Fulfilled = "fulfilled";
     public const string Failed = "failed";
+    public const string Partial = "partial";
     public const string Cancelled = "cancelled";
 
-    public static readonly string[] Open = [Pending, Approved];
-    public static readonly string[] All = [Pending, Approved, Declined, Fulfilled, Failed, Cancelled];
+    public static readonly string[] Open = [Pending, Approved, Partial];
+    public static readonly string[] All = [Pending, Approved, Partial, Declined, Fulfilled, Failed, Cancelled];
 }
 
 public static class MediaRequestScope

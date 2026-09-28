@@ -117,6 +117,13 @@ public static class RequestEndpoints
             return Decided(await decisions.ApproveAsync(id, http.RequestAborted));
         });
 
+        app.MapPost("/api/requests/{id}/retry", async (HttpContext http, RequestDecisionService decisions, string id) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (id.Length > 64) return Error(404, "Request not found.", "not_found");
+            return Decided(await decisions.RetryAsync(id, http.RequestAborted));
+        });
+
         app.MapPost("/api/requests/{id}/decline", async (HttpContext http, RequestDecisionService decisions, string id) =>
         {
             http.Response.Headers.CacheControl = "no-store";

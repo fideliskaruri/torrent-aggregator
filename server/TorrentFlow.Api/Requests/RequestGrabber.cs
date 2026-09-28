@@ -44,6 +44,12 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
         if (seasons.Count == 0) return new([], "No seasons were found for this series.");
 
         var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
+        await using var read = await factory.CreateDbContextAsync(ct);
+        var existing = await read.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id &&
+            t.WorkId == workId && t.Origin == TorrentOrigin.User && t.Status != EngineTorrentStatus.Error &&
+            t.Status != EngineTorrentStatus.Removed && t.QueueKey != null)
+            .Select(t => new { t.Hash, t.QueueKey }).ToListAsync(ct);
+        var byEpisode = existing.GroupBy(t => t.QueueKey!).ToDictionary(g => g.Key, g => g.First().Hash);
         var hashes = new List<string>();
         string? lastProblem = null;
         var wanted = 0;
@@ -55,7 +61,9 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
                 request.Provider == "anilist" && e.AirDate == null && e.HasAired == true).Select(e => e.Episode).ToList();
             wanted += aired.Count;
             var result = await SeasonFanout.Run(aired,
-                (episode, before) => grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct, before), ct);
+                (episode, before) => byEpisode.TryGetValue(new EpisodeCursor(season, episode).QueueKey, out var existingHash)
+                    ? Task.FromResult(new GrabResult(true, "Already started") { InfoHash = existingHash })
+                    : grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct, before), ct);
             foreach (var transfer in result.Transfers)
             {
                 if (transfer.InfoHash is { } hash) { if (!hashes.Contains(hash)) hashes.Add(hash); }
