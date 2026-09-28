@@ -14,6 +14,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 ## Verification
 
 - See what you built. Run the app and check it with Playwright MCP: owner view, requester view (use the remote-access simulator) and mobile. Unit tests alone don't count.
+- Test every feature end to end the way a real person uses it before calling it done. For requests, that means a requester searches, requests, and the owner approves (by hand and with auto-approve). Then check exactly what lands in Downloads: how many rows, releases and GB, and that a repeat request doesn't duplicate anything.
 - Fix the whole class of a problem, not only the example the owner gave.
 - A dedicated QA agent verifies after implementation. Findings are logged as bugs.
 
