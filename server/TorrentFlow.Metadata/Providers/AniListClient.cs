@@ -26,6 +26,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
     private const string MediaFields = """
       id
       title { romaji english native }
+      synonyms
       coverImage { large extraLarge }
       bannerImage
       description(asHtml: false)
@@ -155,6 +156,8 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
         if (!m.TryGetProperty("title", out var t) || t.ValueKind != JsonValueKind.Object) yield break;
         foreach (var k in new[] { "english", "romaji", "native" })
             if (Str(t, k) is { } s && !string.IsNullOrWhiteSpace(s)) yield return s;
+        foreach (var synonym in StrArray(m, "synonyms") ?? [])
+            if (!string.IsNullOrWhiteSpace(synonym)) yield return synonym;
     }
 
     private static bool HasRelevant(string q, IEnumerable<JsonElement> media) => media.Any(m => Relevance.HasRelevantTitle(q, Titles(m)));

@@ -9,6 +9,7 @@ using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
 using TorrentFlow.Library.Features.Storage;
 using TorrentFlow.Library.Features.Automation;
+using System.Text.Json;
 
 namespace TorrentFlow.Library.Features.Grabs;
 
@@ -44,15 +45,28 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         await using var db = await factory.CreateDbContextAsync(ct);
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
         if (settings == null) return new(false, "No torrent client configured") { Query = query };
-        if (input.Cursor is { Season: 1 } && input.EpisodeMapping == null)
+        if (input.Cursor != null)
         {
             var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
+            IReadOnlyList<string> savedAliases = [];
+            try { savedAliases = JsonSerializer.Deserialize<string[]>(work?.AliasesJson ?? "[]") ?? []; }
+            catch (JsonException) { }
+            input = input with { Aliases = (input.Aliases ?? []).Concat(savedAliases).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
             var provider = input.Provider ?? work?.Provider;
             var providerId = input.ProviderId ?? work?.ProviderId;
-            if (provider == "anilist" && providerId != null)
+            if (provider == "anilist" && providerId != null && input.Cursor is { Season: 1 } && input.EpisodeMapping == null)
             {
                 try { input = input with { EpisodeMapping = await anime.GetEpisodeMappingAsync(providerId, ct) }; }
                 catch (Exception) when (!ct.IsCancellationRequested) { }
+            }
+            if (input.EpisodeMapping is { } mapping)
+                input = input with { Aliases = (input.Aliases ?? []).Concat(mapping.EntryTitles).Concat(mapping.FranchiseTitles)
+                    .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
+            if (work != null && input.Aliases is { Count: > 0 })
+            {
+                var aliasesJson = JsonSerializer.Serialize(input.Aliases);
+                await db.Works.Where(w => w.Id == work.Id).ExecuteUpdateAsync(s =>
+                    s.SetProperty(w => w.AliasesJson, aliasesJson), ct);
             }
         }
         int? floor = input.Retention == "stream" ? null : input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
@@ -132,14 +146,34 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         // Unknown media type falls back to "all": a library row can be a film as well as a series.
         var category = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
         // Deliberately no seeder floor: a brand-new episode sits at 0 seeders; the wait below owns that decision.
-        var response = await search.SearchAsync(new() { Query = query, Category = category, Limit = 15, TargetResolution = floor, Enrich = false,
-            SkipCache = true, Background = true, Filters = new() { HasMagnet = true, Season = input.Cursor?.Season, Episode = input.Cursor?.Episode } }, ct);
+        var huntQuery = query;
+        var huntSeason = input.Cursor?.Season;
+        var huntEpisode = input.Cursor?.Episode;
+        if (input.Cursor is { Season: 1 } local && input.EpisodeMapping is { } mapping)
+        {
+            var name = EpisodeLadder.RankAliases(mapping.FranchiseTitles).FirstOrDefault() ?? input.Title;
+            if (mapping.FranchiseSeason is { } sceneSeason)
+            {
+                huntSeason = sceneSeason;
+                huntEpisode = local.Episode + mapping.SeasonEpisodeOffset;
+                huntQuery = new EpisodeCursor(sceneSeason, huntEpisode.Value).Query(name);
+            }
+            else if (mapping.AbsoluteOffset is { } offset)
+            {
+                huntSeason = null;
+                huntEpisode = offset + local.Episode;
+                huntQuery = $"{name} - {huntEpisode:00}";
+            }
+        }
+        var response = await search.SearchAsync(new() { Query = huntQuery, Category = category, Limit = 15, TargetResolution = floor, Enrich = false,
+            SkipCache = true, Background = true, Filters = new() { HasMagnet = true, Season = huntSeason, Episode = huntEpisode } }, ct);
         var eligible = response.Results.Where(x => ReleaseSelection.SameWork(x, input.Title, input.Aliases ?? [])).ToList();
-        var exactBeforeQuality = eligible.Count(x => input.Cursor == null || ReleaseSelection.ExactEpisode(x, input.Cursor.Value));
+        bool Exact(TorrentResult r) => input.Cursor == null || EpisodeLadder.MatchesTargetEpisode(r, input.Cursor.Value, input.EpisodeMapping);
+        var exactBeforeQuality = eligible.Count(Exact);
         var quality = eligible.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor)).ToList();
         var candidates = quality.Where(x => input.Cursor == null ? !EpisodeCursor.IsSeries(x.Metadata?.MediaType) && EpisodeCursor.Parse(x.Title) == null &&
                 (input.Year == null || ReleaseSelection.Year(x.Title) == null || ReleaseSelection.Year(x.Title) == input.Year) :
-                ReleaseSelection.ExactEpisode(x, input.Cursor.Value))
+                Exact(x))
             .Where(x => x.Magnet != null || x.TorrentUrl != null || x.InfoHash != null)
             .OrderByDescending(x => x.Seeders >= Math.Max(1, options.MinimumSeeders)).ThenByDescending(x => ReleaseSelection.Resolution(x.Title) == floor).ThenByDescending(x => x.Score ?? x.Seeders).ToList();
         var attempts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

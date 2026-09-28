@@ -69,7 +69,8 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
         if (existing is not null) return existing.Id;
         var now = time.GetUtcNow().UtcDateTime;
         var work = new Work { Id = Ids.New(), WorkKey = request.WorkKey, CanonicalTitle = request.Title,
-            MediaType = request.MediaType, Year = request.Year, PosterUrl = request.PosterUrl, CreatedAt = now, UpdatedAt = now };
+            MediaType = request.MediaType, Year = request.Year, PosterUrl = request.PosterUrl,
+            Provider = request.Provider, ProviderId = request.ProviderId, CreatedAt = now, UpdatedAt = now };
         db.Works.Add(work);
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException)

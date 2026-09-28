@@ -80,4 +80,63 @@ public sealed class EpisodeMappingTests
         Assert.True(after.Ok, after.Message);
         Assert.Equal("s00001e00005", Assert.Single(host.Engine.Adds).QueueKey);
     }
+
+    [Theory]
+    [InlineData("Frieren: Beyond Journey's End S02E05 1080p", "S02E05")]
+    [InlineData("Sousou no Frieren - 33 [1080p]", "- 33")]
+    [InlineData("Frieren - 33 [1080p]", "- 33")]
+    public async Task BaseFranchiseAliasWorksForSequelWithoutAcceptingSeasonOne(string release, string coordinate)
+    {
+        using var host = new LibraryHost();
+        using var client = host.CreateClient();
+        await host.Settings();
+        host.Anime.Mapping = Frieren with { FranchiseTitles = [.. Frieren.FranchiseTitles, "Frieren"] };
+        host.Search.Respond = o => new()
+        {
+            Query = o.Query, Results = o.Query.EndsWith(coordinate)
+                ? [FakeSearch.Release("Frieren S01E05 1080p") with { InfoHash = new string('b', 40) }, FakeSearch.Release(release)]
+                : []
+        };
+        var result = await host.Services.GetRequiredService<GrabService>().Grab(
+            new(Frieren.EntryTitles[0], "anime", new(1, 5), Provider: "anilist", ProviderId: "182255"), default);
+        Assert.True(result.Ok, result.Message);
+        Assert.Equal(release, Assert.Single(host.Engine.Adds).Name);
+    }
+
+    [Fact]
+    public void EveryDistinctAliasGetsAQueryInsteadOfOnlyTwoSpellings()
+    {
+        string[] aliases = ["Sousou no Frieren", "SousounoFrieren", "葬送のフリーレン", "Frieren"];
+        var rungs = EpisodeLadder.BuildEpisodeRungs("Frieren: Beyond Journey's End", new(1, 5), "anime", aliases);
+        foreach (var alias in aliases.Where(a => a != "SousounoFrieren"))
+            Assert.Contains(rungs, r => r.Query == $"{alias} S01E05");
+        Assert.DoesNotContain(rungs, r => r.Query.StartsWith("SousounoFrieren "));
+    }
+
+    [Fact]
+    public async Task MappingAliasesPersistAndAreReusedByLegacyCallers()
+    {
+        using var host = new LibraryHost();
+        using var client = host.CreateClient();
+        await host.Settings();
+        await host.Seed(db => db.Works.Add(new()
+        {
+            Id = "anime", WorkKey = "frieren-season-2", CanonicalTitle = Frieren.EntryTitles[0], MediaType = "anime",
+            Provider = "anilist", ProviderId = "182255", AliasesJson = "[\"Saved alternate title\"]",
+            CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        }));
+        host.Anime.Mapping = Frieren;
+        var grabs = host.Services.GetRequiredService<GrabService>();
+        await grabs.Grab(new(Frieren.EntryTitles[0], "anime", new(1, 5), WorkId: "anime"), default);
+        await host.Seed(db =>
+        {
+            var work = db.Works.Single(w => w.Id == "anime");
+            Assert.Contains("Sousou no Frieren", work.AliasesJson);
+            Assert.Contains("Saved alternate title", work.AliasesJson);
+        });
+        host.Anime.Mapping = null;
+        host.Search.Requests.Clear();
+        await grabs.Grab(new(Frieren.EntryTitles[0], "anime", new(1, 5), WorkId: "anime"), default);
+        Assert.Contains(host.Search.Requests, r => r.Query.StartsWith("Saved alternate title "));
+    }
 }

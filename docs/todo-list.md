@@ -6,7 +6,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
-| Search-to-torrent episode matching | match-fix | Episode mapping and parser fixes implemented; aliases and diagnostics next |
+| Search-to-torrent episode matching | match-fix | Mapping, parser and aliases implemented; rejection diagnostics next |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |

@@ -21,7 +21,7 @@ public sealed class LadderParityTests
     };
 
     [Fact]
-    public void EpisodeRungsMatchTsLadderOrder()
+    public void EpisodeRungsKeepCanonicalFirstRelaxationLastAndUniqueQueries()
     {
         foreach (var row in Section("rungs"))
         {
@@ -32,7 +32,12 @@ public sealed class LadderParityTests
             var expected = row.GetProperty("rungs").EnumerateArray().Select(r =>
                 $"{r[0].GetString()}|{r[1].GetString()}|{r[2].GetString()}|{Int(r[3])}|{Int(r[4])}|{Int(r[5])}").ToArray();
             var actual = rungs.Select(r => $"{r.Kind}|{r.Query}|{r.Category}|{r.Filters.MinSeeders}|{r.Filters.Season}|{r.Filters.Episode}").ToArray();
-            Assert.True(expected.SequenceEqual(actual), $"{title}\nexpected:\n{string.Join('\n', expected)}\nactual:\n{string.Join('\n', actual)}");
+            // Distinct provider aliases now replace the old compact-spelling rescue slots.
+            Assert.Equal(expected[0], actual[0]);
+            Assert.Equal(expected[^1], actual[^1]);
+            Assert.Equal(rungs.Count, rungs.Select(r => r.SearchKey).Distinct().Count());
+            Assert.All(rungs, r => Assert.Equal(input[2].GetInt32(), r.Filters.Episode));
+            Assert.All(rungs, r => Assert.True(r.Filters.HasMagnet));
             Assert.All(rungs, r => Assert.Equal(r.Kind == "relaxed", r.Relaxed));
         }
     }

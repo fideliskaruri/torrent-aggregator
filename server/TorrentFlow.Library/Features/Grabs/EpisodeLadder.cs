@@ -128,7 +128,8 @@ public static class EpisodeLadder
         // A rescue alias changes the name, not just its punctuation ("FamilyGuy" is not a rescue for "Family Guy").
         static string Squash(string t) => NonAlnum.Replace(t.ToLowerInvariant(), "");
         var primarySquashed = Squash(primaryTitle);
-        var rescues = aliases.Where(a => Squash(a) != primarySquashed || a.Length <= primaryTitle.Length * 0.6).ToList();
+        var rescues = aliases.Where(a => Squash(a) != primarySquashed || a.Length <= primaryTitle.Length * 0.6)
+            .DistinctBy(Squash).ToList();
         var spellings = aliases.Where(a => !rescues.Contains(a)).ToList();
         var bestAlias = rescues.ElementAtOrDefault(0);
         var secondAlias = rescues.ElementAtOrDefault(1) ?? spellings.ElementAtOrDefault(0);
@@ -166,7 +167,8 @@ public static class EpisodeLadder
         Exact(primaryTitle, primaryCat);
         if (mapping != null && season == 1)
         {
-            foreach (var name in new[] { primaryTitle, bestAlias }.Where(n => n != null).Cast<string>())
+            foreach (var name in new[] { primaryTitle, bestAlias }.Where(n => n != null).Cast<string>()
+                .Concat(RankAliases(mapping.FranchiseTitles)).DistinctBy(Squash))
             {
                 if (mapping.FranchiseSeason is { } mappedSeason)
                 {
@@ -200,6 +202,11 @@ public static class EpisodeLadder
         Exact(secondAlias, animeCat);
         Exact(secondAlias, primaryCat);
         AbsoluteRung(secondAlias, animeCat);
+        foreach (var alias in rescues.Skip(2))
+        {
+            Exact(alias, animeCat ?? primaryCat);
+            AbsoluteRung(alias, animeCat ?? primaryCat);
+        }
         foreach (var cat in extraCats)
         {
             Exact(bestAlias ?? primaryTitle, cat);
@@ -225,7 +232,9 @@ public static class EpisodeLadder
             if (mapping.AbsoluteOffset is > 0 || mapping.FranchiseSeason is > 1)
             {
                 var name = ReleaseSelection.Normalize(result.Title);
-                if (!mapping.EntryTitles.Any(t => name.Contains(ReleaseSelection.Normalize(t), StringComparison.Ordinal))) return false;
+                var bases = mapping.FranchiseTitles.Select(ReleaseSelection.Normalize).ToHashSet();
+                if (!mapping.EntryTitles.Select(ReleaseSelection.Normalize)
+                    .Any(t => t.Length > 0 && !bases.Contains(t) && name.Contains(t, StringComparison.Ordinal))) return false;
             }
         }
         if (ep.Episode != target.Episode) return false;

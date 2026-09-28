@@ -13,7 +13,7 @@ public sealed partial class AniListClient
     private const string MappingQuery = """
         query ($id: Int) {
           Media(id: $id, type: ANIME) {
-            id title { english romaji native } format status episodes
+            id title { english romaji native } synonyms format status episodes
             relations { edges { relationType node { id type format } } }
           }
         }
