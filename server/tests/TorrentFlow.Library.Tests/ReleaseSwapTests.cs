@@ -133,7 +133,12 @@ public sealed class ReleaseSwapTests
             Assert.Equal(1, counts["apibay"]);
             Assert.Equal(2, counts["torrentscsv"]);
             Assert.DoesNotContain("1337x", counts.Keys);
-            Assert.All(counts.Values, n => Assert.NotNull(n));
+            Assert.Null(counts["yts"]);
+
+            var none = await client.GetFromJsonAsync<JsonElement>(path + "?source=yts");
+            Assert.Empty(none.GetProperty("alternatives").EnumerateArray());
+            Assert.False(none.TryGetProperty("recommendedToken", out _));
+            Assert.Equal(0, none.GetProperty("sources").EnumerateArray().Single(s => s.GetProperty("id").GetString() == "yts").GetProperty("count").GetInt32());
 
             var only = await client.GetFromJsonAsync<JsonElement>(path + "?source=apibay");
             Assert.Equal(["apibay"], host.Search.Requests.Last().Sources!);

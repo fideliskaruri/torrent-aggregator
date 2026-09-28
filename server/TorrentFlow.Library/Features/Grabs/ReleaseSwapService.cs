@@ -104,8 +104,9 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var counts = source is null ? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, int>(cache.Get<Dictionary<string, int>>(countsKey) ?? [], StringComparer.OrdinalIgnoreCase);
         var ids = searchable ?? sources.Select(s => s.Id).Concat(found.Keys).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        // Duplicate listings collapse onto one source, so an all-source 0 is unproven: only a one-source search reports 0.
         foreach (var id in ids)
-            if (source is null || id.Equals(source, StringComparison.OrdinalIgnoreCase)) counts[id] = found.GetValueOrDefault(id);
+            if (source is null ? found.ContainsKey(id) : id.Equals(source, StringComparison.OrdinalIgnoreCase)) counts[id] = found.GetValueOrDefault(id);
         cache.Set(countsKey, counts, TimeSpan.FromMinutes(10));
         var sourceList = ids.Select(id => new ReleaseSwapSource(id, id, counts.TryGetValue(id, out var n) ? n : null)).ToList();
         return new(info.Health ?? new(null, info.Peers, info.Dlspeed, 0, info.State), alternatives, sourceList,
@@ -162,14 +163,17 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             else if (quality is not null && quality == currentQuality && currentSize is > 0 && ratio is < .9)
                 why = $"Same quality, {Math.Round((1 - ratio!.Value) * 100)}% smaller file";
             else if (quality is not null && currentQuality is not null && quality > currentQuality)
-                why = $"Higher quality ({label}), {r.Seeders} seeders";
+                why = $"Higher quality ({label}), {r.Seeders} seeders{Size(r.SizeBytes)}";
             else if (ratio is < .4 or > 2.5) why = $"Unusual size for {label ?? "this release"}, {r.Seeders} seeders";
             else if (i == 0) why = $"Best balance of quality and seeders ({(label is null ? "" : label + ", ")}{r.Seeders} seeders)";
-            else if (quality is not null && quality == currentQuality) why = $"Same quality, {r.Seeders} seeders";
-            else why = label is null ? $"{r.Seeders} seeders" : $"{r.Seeders} seeders at {label}";
+            else if (quality is not null && quality == currentQuality) why = $"Same quality, {r.Seeders} seeders{Size(r.SizeBytes)}";
+            else why = (label is null ? $"{r.Seeders} seeders" : $"{r.Seeders} seeders at {label}") + Size(r.SizeBytes);
             return new RankedRelease(r, x.Score, why);
         }).ToList();
     }
+
+    private static string Size(long? bytes) => bytes is not > 0 ? "" : bytes >= 1L << 30
+        ? FormattableString.Invariant($", {bytes.Value / (double)(1L << 30):0.#} GB") : $", {Math.Max(1, bytes.Value >> 20)} MB";
 
     public Task<EngineAddResult> Swap(string hash, string token, CancellationToken ct)
     {

@@ -12,8 +12,6 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
 | MOB2-001: mobile nav label 11px, needs 12px or more | req-unify-opus (Opus 5.5) | Running |
 | MOB2-002: first episode row under the bottom nav at the fold | req-unify-opus (Opus 5.5) | Running |
-| "Find another release": server API | swap-release (Astra, server only) | Landed; API contract in docs/dotnet-port.md |
-| "Find another release": Downloads dialog UI | req-unify-opus (Opus 5.5) | API ready; UI owned by specialist |
 | Request dialog: plain-language errors; requests pages on a phone | req-unify-opus (Opus 5.5) | Running |
 | Server QA bugs: keyless title details, Torznab test accepts HTML, Advanced JSON error, Ready to Play rail, send error field, flaky CI test | qa-server (grok-4.5) | Running |
 | Engine RAM: reported 2.2 GB season workload | qa-engine (Astra, server only) | Exact workload still needs reproduction; bounded HTTP buffering and documented/shared-cache regression added |
@@ -37,6 +35,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- "Find another release": source picker (All sources + each enabled source with counts), one-click "Find the best one for me" (`POST {best:true}`), one deterministic ranking with a specific reason per release, and only the recommended card highlighted. API verified live on a real download (best-swap and filtered search); Playwright visual check at 390/1280 still pending (MCP was down).
 - Engine QA: DL-1 verified already fixed in e2cfde7; DL-3 verified already ported in ea1f829.
 - DL-5: save-path write probe before admission; real API returns 400 / `savePath` with no transfer.
 - Season starts: removed send barriers, shared fanout with approved requests, metadata waits moved to monitor.

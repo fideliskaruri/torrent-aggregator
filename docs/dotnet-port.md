@@ -85,7 +85,7 @@ HTTP 200:
   ],
   "sources": [
     { "id": "apibay", "name": "apibay", "count": 1 },
-    { "id": "torrentscsv", "name": "torrentscsv", "count": 0 },
+    { "id": "torrentscsv", "name": "torrentscsv", "count": 2 },
     { "id": "yts", "name": "yts" }
   ],
   "recommendedToken": "2439b06f437f491cb2b3f809fe088c00"
@@ -102,7 +102,7 @@ optional. All other candidate properties are strings. Preserve the array's rank 
 An empty result is HTTP 200 with `"alternatives": []`; it is not an error. `recommendedToken` is the
 token of `alternatives[0]` and is omitted when the list is empty. `sources` lists the enabled torrent sources
 that can search this media type; `count` is how many alternatives that source returned, omitted when that
-source has not been searched in the last ten minutes (after a `?source=` search the other sources keep their
+source has not been confirmed in the last ten minutes. Identical listings collapse onto one source in an all-source search, so `0` is only reported after a `?source=` search of that source found nothing (after a `?source=` search the other sources keep their
 last all-source counts). A `source` that is disabled or unsupported for the category returns HTTP 409.
 Missing/completed/unsupported downloads and all-source outages return HTTP 409:
 
