@@ -32,6 +32,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 ## Agents and models
 
 - UI work goes to Claude Opus 5.5 (medium effort), following the frontend-design skill, and it may start sub-agents. Never use GPT-6 Astra for UI, and never use Claude Opus 5 or Sonnet 5.
+- Keep long-running agents in check. The orchestrator checks every running agent against its timebox. At the timebox it asks for status and a push of the finished slices. At 1.5× the timebox it forces a push, and it splits or reassigns whatever is left. No agent runs past its timebox without the owner hearing about it.
 - Small or mechanical tasks go to grok-4.5. Keep time boxes short and costs low.
 - Break work into dev-spec style tasks, one agent per task. Implementers write code and targeted tests only.
 - Questions and complaints get a text answer. Only run work on an explicit instruction.
