@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useFeatures } from "@/lib/features";
+import { useCapabilities } from "@/lib/capabilities";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
@@ -33,7 +34,9 @@ interface NowPlaying {
  * single place a duplicate grab could be prevented.
  */
 export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
-  const { streaming } = useFeatures();
+  // Watching rails (Continue watching, Next up) belong to people who can play.
+  const { canStream } = useCapabilities();
+  const streaming = useFeatures().streaming && canStream;
   const [statuses, setStatuses] = useState<Record<string, ActionStatus>>({});
   const [playing, setPlaying] = useState<NowPlaying | null>(null);
   const { ensureDownloadSetup } = useDownloadSetup();
@@ -182,7 +185,8 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
  * and a footer listing all five would be saying it twice.
  */
 function MissingRailsNote({ rails }: { rails: BrowsePayload["rails"] }) {
-  const { streaming } = useFeatures();
+  const { canStream } = useCapabilities();
+  const streaming = useFeatures().streaming && canStream;
   const missing = useMemo(() => missingRailPreviews(rails, streaming), [rails, streaming]);
   if (!missing.length || missing.length === RAIL_PREVIEWS.filter((rail) => visibleBrowseRail(rail.id, streaming)).length) return null;
 
