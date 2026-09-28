@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { SettingsDisclosure } from "./settings-disclosure";
 import { TmdbSettings } from "./tmdb-settings";
 import { toast } from "@/lib/toast";
+import { readJsonBody } from "@/lib/api-json";
 
 interface Source {
   id: string; kind: "torrent" | "metadata"; type: string; categories: string[];
@@ -22,17 +23,36 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
   const [timeout, setTimeout] = useState(source.timeoutMs);
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   async function act(action: () => Promise<void>) {
     setBusy(true);
+    setTestResult(null);
     try { await action(); }
     catch { toast.error("Could not update source. Check the values and try again."); }
     finally { setBusy(false); }
   }
   async function test() {
-    const response = await fetch(`/api/settings/sources/${source.id}/test`, { method: "POST" });
-    const result = await response.json();
-    if (response.ok && result.ok) toast.success("Source responded successfully.");
-    else toast.error("Source did not respond successfully. Check its URL and try again.");
+    setTestResult(null);
+    let response: Response;
+    try {
+      response = await fetch(`/api/settings/sources/${encodeURIComponent(source.id)}/test`, { method: "POST" });
+    } catch (err) {
+      const message = err instanceof Error && err.message && !/failed to fetch/i.test(err.message)
+        ? err.message : "Couldn't reach TorrentFlow to run the test. Try again.";
+      setTestResult({ ok: false, message });
+      toast.error(message);
+      return;
+    }
+    const result = await readJsonBody<{ ok?: boolean; message?: string | null; error?: string }>(response);
+    if (response.ok && result?.ok) {
+      setTestResult({ ok: true, message: "Source responded successfully." });
+      toast.success("Source responded successfully.");
+      return;
+    }
+    const message = result?.message?.trim() || result?.error?.trim()
+      || "Source did not respond successfully. Check its URL and try again.";
+    setTestResult({ ok: false, message });
+    toast.error(message);
   }
   return <article className="min-w-0 space-y-4 rounded-lg border border-[var(--border)] p-4" data-source={source.id} aria-busy={busy}>
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -81,6 +101,8 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
     </div>
     {source.type === "tmdb" && <div className="border-t border-[var(--border)] pt-4"><TmdbSettings embedded onChanged={reload} /></div>}
     {busy && <p role="status" className="text-sm">Updating source…</p>}
+    {!busy && testResult && <p role={testResult.ok ? "status" : "alert"} data-source-test-result={testResult.ok ? "ok" : "failed"}
+      className={`text-sm ${testResult.ok ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>{testResult.message}</p>}
   </article>;
 }
 

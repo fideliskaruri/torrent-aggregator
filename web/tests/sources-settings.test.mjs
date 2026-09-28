@@ -18,6 +18,9 @@ test("source action feedback uses the shared toast wrapper", () => {
   assert.match(panel, /import \{ toast \} from "@\/lib\/toast"/);
   assert.match(panel, /toast\.success\("Source settings saved\."\)/);
   assert.match(panel, /toast\.success\("Source responded successfully\."\)/);
-  assert.match(panel, /toast\.error\("Source did not respond successfully/);
+  assert.match(panel, /"Source did not respond successfully/);
+  assert.match(panel, /result\?\.message\?\.trim\(\)/);
+  assert.match(panel, /toast\.error\(message\)/);
+  assert.match(panel, /data-source-test-result/);
   assert.doesNotMatch(panel, /setMessage|setError\("Could not add source/);
 });
