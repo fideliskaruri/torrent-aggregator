@@ -84,6 +84,9 @@ public sealed class PureParityTests
             _ => throw new InvalidOperationException(test.ToString())
         };
         var expected = JsonNode.Parse(test.GetProperty("expected").GetRawText());
+        // The legacy fixture admitted the final episode of this batch; MATCH-BARE-RANGE intentionally rejects it.
+        if (test.GetProperty("method").GetString() == "parseEpisode" && S() == "Frieren Episodes 1-8 720p")
+            expected = JsonNode.Parse("""{"label":"Batch","isBatch":true,"isSeasonPack":true,"isMultiSeason":false}""");
         if (test.GetProperty("method").GetString() == "compareReleases") expected = JsonValue.Create(Math.Sign(test.GetProperty("expected").GetDouble()));
         var actualNode = JsonSerializer.SerializeToNode(actual, SearchCacheStore.Json);
         if (test.GetProperty("method").GetString() == "rankResults")

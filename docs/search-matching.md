@@ -9,7 +9,7 @@
 - MATCH-UNICODE-SLUG: fixed; a native-only identity already had a percent-encoded fallback, but lowercased comparison keys never equaled its uppercase escapes. Comparisons now normalize URI escaping/case (including route-decoded keys), preserving existing stable IDs and exact-name guards; three Japanese-only title regressions pass without requiring an invented alias.
 - MATCH-APPROVAL-RESTART: fixed; startup sweep resumes approved requests with null/empty grab hashes, using a single-flight guard shared with approval. Saved hashes are never re-grabbed. Concurrent and repeat sweeps covered.
 - MATCH-CONCURRENT-TARGETS: fixed; concurrent unique insert losers reuse the winning Work and AcquisitionTarget rows. HTTP regression runs 16 simultaneous grabs with and without a pre-existing Work (both failed before the fix).
-- MATCH-BARE-RANGE: fixed; shared parser classifies bare numeric ranges as batches before interpreting dash singles. Four regressions reproduced the final-episode bug before the fix.
+- MATCH-BARE-RANGE: fixed; shared parser classifies bare numeric ranges as batches before interpreting singles, even when a stale parsed episode is supplied. The legacy TypeScript fixture incorrectly treating `Episodes 1-8` as episode 8 now has an explicit corrected expectation. Four regressions reproduced the original final-episode bug before the fix.
 - MATCH-ANIME-COORDINATES: already fixed by `5c328c2`; sequel mapping regression tests rerun on main successfully.
 - MATCH-QUALITY-PARSER: already fixed by `c52f4e1`; shared resolution tests include `1920x1080`.
 - MATCH-SEASON-RANGE: already fixed by `c52f4e1`; spaced `S2 - 05` singles pass shared search/acquisition tests.

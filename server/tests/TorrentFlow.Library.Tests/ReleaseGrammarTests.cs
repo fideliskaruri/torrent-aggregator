@@ -24,10 +24,15 @@ public sealed class ReleaseGrammarTests
     [InlineData("Frieren 01 - 12 [1080p]", 12)]
     [InlineData("Frieren [01–12] [1080p]", 12)]
     [InlineData("Frieren 01-12.mkv", 12)]
+    [InlineData("Frieren S01E12 [01-12] 1080p", 12)]
     public void BareRangesCannotBeAcquiredAsTheirFinalEpisode(string title, int last)
     {
         Assert.True(EpisodeParser.Parse(title).IsBatch);
         Assert.False(EpisodeLadder.MatchesTargetEpisode(FakeSearch.Release(title), new(1, last)));
+        Assert.False(EpisodeLadder.MatchesTargetEpisode(FakeSearch.Release(title) with
+        {
+            Episode = new() { Season = 1, Episode = last }
+        }, new(1, last)));
     }
 
     [Theory]

@@ -223,8 +223,9 @@ public static class EpisodeLadder
     /// <summary>Port of <c>matchesTargetEpisode</c>: exact SxxEyy, or season-less N while hunting season one.</summary>
     public static bool MatchesTargetEpisode(TorrentResult result, EpisodeCursor target, AnimeEpisodeMapping? mapping = null)
     {
-        var ep = result.Episode ?? ReleaseNames.ParseEpisode(result.Title);
-        if (ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(result.Title)) return false;
+        var parsed = ReleaseNames.ParseEpisode(result.Title);
+        var ep = result.Episode ?? parsed;
+        if (parsed.IsBatch || ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(result.Title)) return false;
         if (mapping != null && target.Season == 1)
         {
             if (mapping.FranchiseSeason is { } season && ep.Season == season &&

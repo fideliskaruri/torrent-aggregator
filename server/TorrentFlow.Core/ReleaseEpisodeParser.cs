@@ -72,18 +72,18 @@ public static class ReleaseEpisodeParser
             var number = M(t, @"\bS(?:eason)?\s*(\d{1,3})\b");
             return Pack(number.Success ? N(number) : null);
         }
-        m = M(t, @"\bS(\d{1,3})[\s._]*E(\d{1,4})(?:v\d+)?\b");
-        if (!m.Success) m = M(t, @"\b(\d{1,2})x(\d{1,4})(?:v\d+)?\b");
-        if (m.Success) return Single(N(m), N(m, 2), true);
         var season = M(t, @"\bS(?:eason)?\s*(\d{1,3})\b");
         int? s = season.Success ? N(season) : null;
-        m = M(t, @"\b(?:episode|ep|e)\s*\.?\s*(\d{1,4})(?:v\d+)?\b");
-        if (m.Success) return Single(s, N(m));
         // Check before dash singles: otherwise "01-12" is read as episode 12.
         var range = M(t, @"(?<![\p{L}\p{N}])(\d{1,4})(?:v\d+)?\s*[-–—~]\s*(\d{1,4})(?:v\d+)?(?=\s|[\])]|$|\.(?:mkv|mp4|avi|m4v|ts)\b)");
         if (range.Success && N(range) > 0 && N(range, 2) > N(range)
             && N(range) is not (>= 1900 and <= 2100))
             return Pack(s);
+        m = M(t, @"\bS(\d{1,3})[\s._]*E(\d{1,4})(?:v\d+)?\b");
+        if (!m.Success) m = M(t, @"\b(\d{1,2})x(\d{1,4})(?:v\d+)?\b");
+        if (m.Success) return Single(N(m), N(m, 2), true);
+        m = M(t, @"\b(?:episode|ep|e)\s*\.?\s*(\d{1,4})(?:v\d+)?\b");
+        if (m.Success) return Single(s, N(m));
         // Bracket numbers and spaced dash numbers are episodes, not the unspaced S01-S03 season range.
         m = M(t, @"[-–—]\s*(\d{1,4})(?:v\d+)?\s*(?=\.(?:mkv|mp4|avi|m4v|ts)\s*$|[\[(]|$|\b(?:480p|720p|1080p|2160p|4k|web-?dl|webrip|bluray|hdtv)\b)");
         if (!m.Success) m = M(t, @"\[(\d{1,4})(?:v\d+)?\](?=\s*(?:[\[(]|\.(?:mkv|mp4|avi)|$))");
