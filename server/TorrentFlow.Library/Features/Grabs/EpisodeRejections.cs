@@ -51,6 +51,7 @@ internal static class EpisodeRejections
             "below_floor" => $"were below {floor}p",
             "no_link" => "had no download link",
             "no_seeders" => "had no seeders",
+            "dub_not_preferred" => "were dubbed-only releases",
             "unsafe" => "were unsafe files",
             "query_filter" => "did not fit the search",
             "not_selected" => "were not selected",

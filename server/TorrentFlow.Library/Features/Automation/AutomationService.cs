@@ -78,15 +78,34 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                         if (candidate.Magnet == rule.LastMatchMagnet) message = "Already sent this release";
                         else
                         {
-                            send = await engine.AddAsync(new() { Magnet = candidate.Magnet, InfoHash = candidate.InfoHash, Name = candidate.Title,
-                                Source = candidate.Source, SearchCategory = rule.Category, Metadata = candidate.Metadata,
-                                Purpose = "keep", ExpectedSizeBytes = candidate.SizeBytes, Lane = TorrentLane.Automation }, ct);
+                            var triggerMagnet = candidate.Magnet;
+                            var episode = EpisodeCursor.Parse(candidate.Title);
+                            if (episode != null)
+                            {
+                                var releaseIdentity = ReleaseNames.IdentityFor(candidate.Title);
+                                var grabbed = await grabs.Grab(new(releaseIdentity.Name,
+                                    rule.Category == "anime" || candidate.Source == "nyaa" ? "anime" : candidate.Metadata?.MediaType ?? "tv",
+                                    episode, PreferredResolution: ReleaseSelection.Resolution(rule.Resolution ?? "") ?? preferredResolution,
+                                    Background: true, Year: releaseIdentity.Year, Constraints: new()
+                                    { MinSeeders = rule.MinSeeders, MaxSizeBytes = rule.MaxSizeBytes, Resolution = rule.Resolution },
+                                    Sources: rule.Sources?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
+                                    Provider: candidate.Metadata?.Source, ProviderId: candidate.Metadata?.ExternalId,
+                                    Aliases: candidate.Metadata?.Aliases), ct);
+                                send = new(grabbed.Ok, grabbed.Message, Hash: grabbed.InfoHash);
+                                if (grabbed.Ok)
+                                    candidate = candidate with { Title = grabbed.Title ?? candidate.Title, Magnet = grabbed.Magnet ?? candidate.Magnet,
+                                        InfoHash = grabbed.InfoHash, Source = grabbed.Source ?? candidate.Source };
+                            }
+                            else
+                                send = await engine.AddAsync(new() { Magnet = candidate.Magnet, InfoHash = candidate.InfoHash, Name = candidate.Title,
+                                    Source = candidate.Source, SearchCategory = rule.Category, Metadata = candidate.Metadata,
+                                    Purpose = "keep", ExpectedSizeBytes = candidate.SizeBytes, Lane = TorrentLane.Automation, RequireMetadata = true }, ct);
                             message = EngineAddMessages.Format(send);
                             status = send.Ok ? "sent" : "failed";
                             if (send.Ok)
                             {
-                                rule.LastMatchTitle = candidate.Title; rule.LastMatchMagnet = candidate.Magnet; rule.MatchCount++;
-                                db.DownloadHistories.Add(new() { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Magnet = candidate.Magnet,
+                                rule.LastMatchTitle = candidate.Title; rule.LastMatchMagnet = triggerMagnet; rule.MatchCount++;
+                                if (episode == null) db.DownloadHistories.Add(new() { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Magnet = candidate.Magnet,
                                     InfoHash = send.Hash, Source = candidate.Source, Status = status, Message = message, CreatedAt = DateTime.UtcNow,
                                     Context = $"Auto-rule: {rule.Name}", ClientType = "builtin", SendKind = "magnet", Retention = "keep" });
                             }

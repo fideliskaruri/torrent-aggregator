@@ -165,6 +165,13 @@ public static class EpisodeLadder
             if (t != null && season == 1 && minimumResolution == null) Push("absolute", $"{Absolute(t)} 1080p", cat, absFilters);
         }
 
+        if (mapping is { FranchiseSeason: { } mappedFirst } && season == 1 &&
+            RankAliases(mapping.FranchiseTitles.Take(2)).FirstOrDefault() is { } franchiseName)
+        {
+            var mapped = new EpisodeCursor(mappedFirst, episode + mapping.SeasonEpisodeOffset);
+            Push("mapped-season", mapped.Query(franchiseName), primaryCat,
+                new() { HasMagnet = true, MinSeeders = 1, Season = mapped.Season, Episode = mapped.Episode });
+        }
         if (preferRequestedQuality && minimumResolution is { } preferred)
             Push("preferred-quality", $"{cursor.Query(primaryTitle)} {preferred}p", primaryCat, epFilters);
         Exact(primaryTitle, primaryCat);
@@ -279,7 +286,7 @@ public static class EpisodeLadder
         AnimeEpisodeMapping? mapping = null)
     {
         var open = results.Where(r => !attempted.Contains(CandidateKey(r)) && !string.IsNullOrEmpty(r.Magnet) && MatchesTargetEpisode(r, target, mapping));
-        return rung.Relaxed ? open.OrderByDescending(r => r.Seeders).FirstOrDefault() : open.FirstOrDefault(r => r.Seeders > 0);
+        return open.FirstOrDefault(r => r.Seeders > 0) ?? (rung.Relaxed ? open.FirstOrDefault() : null);
     }
 
     /// <summary>Stable identity for cross-rung dedupe: infohash, else magnet, else id.</summary>

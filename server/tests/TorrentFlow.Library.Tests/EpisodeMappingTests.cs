@@ -142,7 +142,7 @@ public sealed class EpisodeMappingTests
             Aliases: Frieren.EntryTitles, Provider: "anilist", ProviderId: "182255");
         var before = await grabs.Grab(input, default);
         Assert.False(before.Ok);
-        Assert.Equal(10, host.Search.Requests.Count);
+        Assert.Equal(11, host.Search.Requests.Count);
         Assert.Empty(host.Engine.Adds);
 
         host.Anime.Mapping = Frieren;

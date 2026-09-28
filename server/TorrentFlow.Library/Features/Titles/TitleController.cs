@@ -14,7 +14,7 @@ namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class TitleController(TitleService titles, GrabService grabs, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
-    EpisodeSearchIdentity identity, IHostApplicationLifetime lifetime) : ControllerBase
+    IHostApplicationLifetime lifetime) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(string workKey, [FromQuery] string? t, [FromQuery] int? y,
@@ -113,12 +113,6 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         await db.CatalogEntries.Where(x => x.WorkKey == workKey).ExecuteUpdateAsync(x => x.SetProperty(c => c.WorkId, work.Id), ct);
         var input = new GrabInput(title, type, null, watchId, work.Id, resolution, retention, cap, detail["aliases"] as string[], Year: work.Year, WorkKey: workKey,
             Provider: verified?.Source ?? work.Provider, ProviderId: verified?.ExternalId ?? work.ProviderId);
-        if (scope != "title")
-        {
-            // Episode ladders search under recovered AniList names too; the page's own identity stays untouched.
-            var (searchType, searchAliases) = await identity.ResolveAsync(title, detail["year"] as int?, detail["mediaType"] as string, input.Aliases, ct);
-            input = input with { MediaType = searchType, Aliases = searchAliases };
-        }
         // Target keys this request owns, by episode (null for a single title/episode scope).
         var tracked = new Dictionary<string, int?>(StringComparer.Ordinal);
         if (retention == "keep")

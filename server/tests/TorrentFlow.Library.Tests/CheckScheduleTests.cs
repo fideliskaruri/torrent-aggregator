@@ -117,7 +117,7 @@ public sealed class CheckScheduleTests
         await using var db = await host.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>().CreateDbContextAsync();
         await db.RunLocks.ExecuteDeleteAsync();
         await automation.Run(new[] { "due", "future" }, default);
-        Assert.Single(host.Search.Requests);
+        Assert.Single(host.Search.Requests.Select(r => r.Filters!.Episode).Distinct());
         Assert.Empty(await db.RunLocks.ToListAsync());
     }
 
@@ -166,7 +166,8 @@ public sealed class CheckScheduleTests
                 lock (host.Search.Requests) { if (host.Search.Requests.Count > 0) break; }
                 await Task.Delay(20);
             }
-            Assert.Single(host.Search.Requests);
+            Assert.NotEmpty(host.Search.Requests);
+            Assert.All(host.Search.Requests, r => Assert.Equal(2, r.Filters!.Episode));
             Assert.Contains("S01E02", host.Search.Requests[0].Query);
         }
         finally { await scheduler.StopAsync(default); }
@@ -208,10 +209,11 @@ public sealed class CheckScheduleTests
         await host.Settings();
         await host.Seed(db => { var item = LibraryHost.Watch(); item.NextCheckAt = DateTime.UtcNow.AddDays(1); db.WatchListItems.Add(item); });
         (await client.PostAsync("/api/automation/run", null)).EnsureSuccessStatusCode();
-        Assert.Single(host.Search.Requests);
+        Assert.NotEmpty(host.Search.Requests);
+        var searches = host.Search.Requests.Count;
         host.AirDates.Resolve = (_, _) => DateTime.UtcNow.AddDays(1);
         (await client.PostAsync("/api/automation/run", null)).EnsureSuccessStatusCode();
-        Assert.Single(host.Search.Requests);
+        Assert.Equal(searches, host.Search.Requests.Count);
     }
 
     [Theory]
@@ -248,7 +250,10 @@ public sealed class CheckScheduleTests
             var future = LibraryHost.Watch("future"); future.ExternalId = "future"; future.NextCheckAt = DateTime.UtcNow.AddDays(1); db.WatchListItems.Add(future);
         });
         var starts = new List<long>();
-        host.Search.Respond = o => { starts.Add(System.Diagnostics.Stopwatch.GetTimestamp()); return new() { Query = o.Query }; };
+        host.Search.Respond = o => {
+            if (o.Query == "Example Show S01E01 1080p") starts.Add(System.Diagnostics.Stopwatch.GetTimestamp());
+            return new() { Query = o.Query };
+        };
         await host.Services.GetRequiredService<AutomationService>().Run(new[] { "one", "two", "future" }, default);
         Assert.Equal(2, starts.Count);
         Assert.True(System.Diagnostics.Stopwatch.GetElapsedTime(starts[0], starts[1]) >= TimeSpan.FromMilliseconds(90));
@@ -262,11 +267,11 @@ public sealed class CheckScheduleTests
         host.AirDates.Resolve = (_, _) => DateTime.UtcNow.AddHours(-1);
         await host.Seed(db => { var item = LibraryHost.Watch(); item.CursorMisses = 9; db.WatchListItems.Add(item); });
         await host.Services.GetRequiredService<AutomationService>().Run(default);
-        Assert.Single(host.Search.Requests);
+        Assert.Single(host.Search.Requests.Select(r => r.Filters!.Episode).Distinct());
         host.AirDates.Resolve = (_, _) => throw new HttpRequestException("offline");
         (await client.PatchAsJsonAsync("/api/watchlist", new { id = "watch", cursorSeason = 1, cursorEpisode = 2 })).EnsureSuccessStatusCode();
         await host.Services.GetRequiredService<AutomationService>().Run(default);
-        Assert.Equal(2, host.Search.Requests.Count);
+        Assert.Equal([1, 2], host.Search.Requests.Select(r => r.Filters!.Episode).Distinct());
     }
 
     [Fact]

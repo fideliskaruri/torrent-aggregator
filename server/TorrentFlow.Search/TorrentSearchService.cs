@@ -56,7 +56,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         if (pool == null)
         {
             // Deadline and freshness policies must not coalesce with automation.
-            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}|{options.IncludeRejectedResults}";
+            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}|{options.IncludeRejectedResults}|{options.WaitForBudget}";
             Task<SearchResponse> work;
             lock (flightGate)
             {
@@ -98,6 +98,11 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     {
         token.ThrowIfCancellationRequested();
         var retry = cache.Spend(options.Background);
+        while (retry > 0 && options.WaitForBudget)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(retry), token);
+            retry = cache.Spend(options.Background);
+        }
         if (retry > 0)
         {
             var stale = options.SkipCache || options.IncludeRejectedResults ? null : await cache.GetAsync(key, true, token);

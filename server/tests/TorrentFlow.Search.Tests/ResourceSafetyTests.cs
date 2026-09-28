@@ -61,6 +61,31 @@ public sealed class ResourceSafetyTests
     }
 
     [Theory]
+    [InlineData(false, 40)]
+    [InlineData(true, 15)]
+    public async Task AcquisitionWaitsForBudgetWithoutChangingInteractiveThrottleAndCanBeCancelled(bool background, int limit)
+    {
+        using var harness = new SearchHarness();
+        using var lifetime = new TestLifetime();
+        using var caller = new CancellationTokenSource();
+        var adapter = new CancellableAdapter();
+        var service = new TorrentSearchService([adapter], harness.Cache, new NoOpSearchResultEnricher(), harness,
+            Options.Create(new SearchModuleOptions()), NullLogger<TorrentSearchService>.Instance, lifetime);
+        for (var i = 0; i < limit; i++) Assert.Equal(0, harness.Cache.Spend(background));
+        var options = new SearchOptions { Query = "Episode S06E25", Background = background, SkipCache = true, WaitForBudget = true };
+        var acquisition = service.SearchAsync(options, caller.Token);
+        try
+        {
+            await Assert.ThrowsAsync<SearchThrottledException>(() => service.SearchAsync(options with { WaitForBudget = false }));
+            Assert.False(acquisition.IsCompleted);
+            Assert.False(adapter.Started.Task.IsCompleted);
+            caller.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => acquisition);
+        }
+        finally { lifetime.StopApplication(); }
+    }
+
+    [Theory]
     [InlineData("MaxConcurrentAdapters", "0")]
     [InlineData("MaxConcurrentSearches", "257")]
     [InlineData("AdapterLifetimeMs", "-1")]

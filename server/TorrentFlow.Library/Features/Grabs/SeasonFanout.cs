@@ -11,6 +11,7 @@ public sealed record GrabResult(bool Ok, string Message)
     public string? Title { get; init; }
     public string? InfoHash { get; init; }
     public string? Magnet { get; init; }
+    public string? Source { get; init; }
     public string? SavePath { get; init; }
     public object? Storage { get; init; }
     public bool Queued { get; init; }

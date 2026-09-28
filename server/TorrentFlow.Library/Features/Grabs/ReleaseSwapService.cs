@@ -18,7 +18,9 @@ public sealed record RankedRelease(TorrentResult Result, double Score, string Wh
 
 /// <summary>Manual selection today; a future recovery policy can consume the same alternatives and swap command.</summary>
 public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search,
-    ITorrentEngine engine, IMemoryCache cache, TorrentFlow.Core.Sources.SourceRegistry? registry = null)
+    ITorrentEngine engine, IMemoryCache cache, TorrentFlow.Core.Sources.SourceRegistry? registry = null,
+    EpisodeSearchIdentity? searchIdentity = null, TorrentFlow.Core.Contracts.Library.ILibraryAnimeLookup? anime = null,
+    Microsoft.Extensions.Options.IOptions<TorrentFlow.Library.Features.Automation.AutomationOptions>? options = null)
 {
     private sealed record Choice(string CurrentHash, EngineReleaseSwap Swap);
 
@@ -51,10 +53,10 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var workKey = row.Work?.WorkKey ?? previousWorkKey ?? ReleaseNames.WorkKeyFor(identity.Name, identity.Year);
         var episode = ReleaseNames.ParseEpisode(releaseName);
         var target = await db.AcquisitionTargets.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.InfoHash == hash, ct);
-        EpisodeCursor? cursor = target?.Episode is { } e && target.Season is { } s ? new(s, e)
-            : episode.Episode is { } parsedEpisode ? new(episode.Season ?? 1, parsedEpisode) : null;
+        EpisodeCursor? cursor = target?.Episode is { } e && target.Season is { } s ? new(s, e) : null;
         if (cursor is null && row.QueueKey is { Length: 12 } key && key[0] == 's' && key[6] == 'e'
             && int.TryParse(key.AsSpan(1, 5), out var qs) && int.TryParse(key.AsSpan(7, 5), out var qe)) cursor = new(qs, qe);
+        cursor ??= episode.Episode is { } parsedEpisode ? new(episode.Season ?? 1, parsedEpisode) : null;
         if (episode.IsMultiSeason == true || episode.IsBatch && !episode.IsSeasonPack)
             throw new InvalidOperationException("This release has an ambiguous scope. Choose a single episode from its title page.");
         if (cursor is null && !episode.IsSeasonPack && (identity.IsSeries || row.Work?.MediaType is "tv" or "anime"))
@@ -69,8 +71,14 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         IReadOnlyList<string> aliases = [];
         try { aliases = JsonSerializer.Deserialize<string[]>(row.Work?.AliasesJson ?? "[]") ?? []; }
         catch (JsonException) { }
+        if (cursor != null && searchIdentity != null)
+            (mediaType, aliases) = await searchIdentity.ResolveAsync(title, row.Work?.Year, mediaType, aliases, ct,
+                row.Work?.Provider, row.Work?.ProviderId);
+        TorrentFlow.Core.Contracts.Library.AnimeEpisodeMapping? mapping = null;
+        if (cursor is { Season: 1 } && row.Work?.Provider == "anilist" && row.Work.ProviderId is { } providerId && anime != null)
+            mapping = await anime.GetEpisodeMappingAsync(providerId, ct);
         var query = cursor?.Query(title) ?? (scope.StartsWith("season:", StringComparison.Ordinal) ? $"{title} S{episode.Season:00}" : title);
-        var rungs = cursor is { } targetEpisode ? EpisodeLadder.BuildEpisodeRungs(title, targetEpisode, mediaType, aliases, floor)
+        var rungs = cursor is { } targetEpisode ? EpisodeLadder.BuildEpisodeRungs(title, targetEpisode, mediaType, aliases, floor, mapping, preferRequestedQuality: true)
             : [new LadderRung("exact", query, EpisodeLadder.SearchCategory(mediaType) ?? "all",
                 new() { HasMagnet = true, MinSeeders = 1, Season = episode.Season })];
         // The registry's enabled torrent sources for this category are what the search fan-out would query anyway.
@@ -85,7 +93,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
                 Limit = EpisodeLadder.SearchLimit, PageSize = EpisodeLadder.SearchLimit, Enrich = false, SkipCache = true,
                 TargetResolution = floor, Filters = rung.Filters, Sources = source is null ? null : [source] }, ct);
             sources.AddRange(response.Sources);
-            selected = Select(response.Results, workKey, title, cursor, episode.IsSeasonPack ? episode.Season : null, floor, tried, aliases);
+            selected = Select(response.Results.Where(r => AnimeAudio.Allowed(r.Title, mediaType, options?.Value.PreferAnimeDub == true)),
+                workKey, title, cursor, episode.IsSeasonPack ? episode.Season : null, floor, tried, aliases, mapping);
             if (selected.Count > 0) break;
         }
         if (selected.Count == 0 && FilmSelection.SourceOutageMessage(sources) is { } outage) throw new InvalidOperationException(outage);
@@ -190,7 +199,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
     }
 
     public static IReadOnlyList<TorrentResult> Select(IEnumerable<TorrentResult> ranked, string workKey, string title,
-        EpisodeCursor? cursor, int? seasonPack, int? floor, ISet<string> excluded, IReadOnlyList<string>? aliases = null)
+        EpisodeCursor? cursor, int? seasonPack, int? floor, ISet<string> excluded, IReadOnlyList<string>? aliases = null,
+        TorrentFlow.Core.Contracts.Library.AnimeEpisodeMapping? mapping = null)
     {
         var seen = new HashSet<string>(excluded, StringComparer.OrdinalIgnoreCase);
         var titles = (aliases ?? []).Prepend(title).SelectMany(EpisodeLadder.AliasTitleForms).ToList();
@@ -198,7 +208,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         {
             var hash = LibraryJson.Hash(r.InfoHash) ?? LibraryJson.Hash(r.Magnet);
             if (hash is null || LibraryJson.Hash(r.Magnet) != hash || !seen.Add(hash) || !ReleaseSelection.MeetsFloor(r.Title, floor)) return false;
-            if (cursor is { } ep) return EpisodeLadder.ReleaseMatchesWork(r, titles) && EpisodeLadder.MatchesTargetEpisode(r, ep);
+            if (cursor is { } ep) return EpisodeLadder.ReleaseMatchesWork(r, titles) && EpisodeLadder.MatchesTargetEpisode(r, ep, mapping);
             if (seasonPack is { } season)
             {
                 var parsed = r.Episode ?? ReleaseNames.ParseEpisode(r.Title);

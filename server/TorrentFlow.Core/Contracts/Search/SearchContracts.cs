@@ -29,6 +29,8 @@ public sealed record SearchOptions
     public bool SkipCache { get; init; }
     public bool Enrich { get; init; } = true;
     public bool Background { get; init; }
+    /// <summary>Acquisition jobs wait for the existing indexer budget instead of losing episodes to a burst limit.</summary>
+    public bool WaitForBudget { get; init; }
     public bool IncludeRejectedResults { get; init; }
     public int? AdapterDeadlineMs { get; init; }
     public SearchRoutingPreferences? Routing { get; init; }

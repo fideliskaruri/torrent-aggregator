@@ -36,7 +36,7 @@ public sealed class LadderRouteTests
         var add = Assert.Single(host.Engine.Adds);
         Assert.Equal("s00001e00003", add.QueueKey);
         // The canonical English rung runs first, then the recovered romaji name on the anime category wins.
-        Assert.Equal([$"{Slime} S01E03|anime", "Tensei Shitara Slime Datta Ken S01E03|anime"], host.Search.Requests.Select(r => $"{r.Query}|{r.Category}"));
+        Assert.Equal([$"{Slime} S01E03 1080p|anime", $"{Slime} S01E03|anime", "Tensei Shitara Slime Datta Ken S01E03|anime"], host.Search.Requests.Select(r => $"{r.Query}|{r.Category}"));
         Assert.All(host.Search.Requests, r => Assert.Equal(EpisodeLadder.SearchLimit, r.PageSize));
     }
 
@@ -109,7 +109,7 @@ public sealed class LadderRouteTests
         host.Search.Respond = o => new() { Query = o.Query, Results = [FakeSearch.Release("Example Show S01 1080p"), FakeSearch.Release("Other Show S01E01 1080p")] };
         await client.PostAsJsonAsync("/api/library/ondemand", new { watchListItemId = "watch", season = 1, episode = 1 });
         Assert.Empty(host.Engine.Adds);
-        var expected = EpisodeLadder.BuildEpisodeRungs("Example Show", new(1, 1), "tv", minimumResolution: 1080).Select(r => r.SearchKey).Distinct().Count();
+        var expected = EpisodeLadder.BuildEpisodeRungs("Example Show", new(1, 1), "tv", minimumResolution: 1080, preferRequestedQuality: true).Select(r => r.SearchKey).Distinct().Count();
         Assert.Equal(expected, host.Search.Requests.Count);
     }
 
