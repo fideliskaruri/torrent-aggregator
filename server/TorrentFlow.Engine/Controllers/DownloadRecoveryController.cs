@@ -14,10 +14,14 @@ public sealed class DownloadRecoveryController(ClientSettingsStore settings, IOp
 {
     // The host authenticates both listeners before routing. Socket checks are only a fallback for hosts
     // without that identity; proxy headers never grant ownership.
-    internal static bool IsOwner(HttpContext context, string? ownerUrls = null) =>
-        context.User.Identity?.IsAuthenticated == true
-        ? context.User.FindFirst("tf:role")?.Value == "owner"
-        : (context.Connection.RemoteIpAddress is null || IPAddress.IsLoopback(context.Connection.RemoteIpAddress))
+    internal static bool IsOwner(HttpContext context, string? ownerUrls = null)
+    {
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            if (context.User.FindFirst("tf:role")?.Value != "owner") return false;
+            if (context.User.FindFirst("tf:via")?.Value == "tunnel") return true;
+        }
+        return (context.Connection.RemoteIpAddress is null || IPAddress.IsLoopback(context.Connection.RemoteIpAddress))
         && !context.Request.Headers.ContainsKey("Forwarded")
         && !context.Request.Headers.ContainsKey("CF-Connecting-IP")
         && !context.Request.Headers.Keys.Any(k => k.StartsWith("X-Forwarded-", StringComparison.OrdinalIgnoreCase))
@@ -25,6 +29,7 @@ public sealed class DownloadRecoveryController(ClientSettingsStore settings, IOp
             || ownerUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Any(url => Uri.TryCreate(url.Replace("://*:", "://localhost:").Replace("://+:", "://localhost:"), UriKind.Absolute, out var uri)
                     && uri.Port == context.Connection.LocalPort));
+    }
 
     private bool OwnerRequest() => IsOwner(HttpContext, configuration["urls"]
         ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS") ?? "http://127.0.0.1:3000");
