@@ -68,10 +68,18 @@ import { QualityPicker } from "./quality-picker";
 import { shouldAskForQuality } from "./quality-picker-state";
 import { usePreferredQuality } from "./use-preferred-quality";
 import type { TitleRetention, TitleSeason } from "./types";
+import {
+  isSeasonComplete,
+  seasonProgressLabel,
+  seasonProgressShort,
+  type SeasonProgress,
+} from "./season-progress";
 import { useFeatures } from "@/lib/features";
 
 export interface EpisodeListProps {
   seasons: TitleSeason[];
+  /** Downloaded progress per season number; see `season-progress.ts`. */
+  seasonProgress?: Record<number, SeasonProgress>;
   season: number | null;
   episodes: EpisodeRowModel[];
   truncated: boolean;
@@ -122,6 +130,7 @@ function watchedProgressLabel(episodes: EpisodeRowModel[]): string {
 
 export function EpisodeList({
   seasons,
+  seasonProgress = {},
   season,
   episodes,
   truncated,
@@ -230,6 +239,9 @@ export function EpisodeList({
   // "Watched 0 of 0 (0%)" over a spinner is noise, not progress.
   // Watched counts are the owner's playback history; people who can't play have none.
   const showWatched = canStream && view.kind === "rows" && episodes.length > 0;
+  const activeProgress =
+    season != null && !busy && view.kind !== "loading" ? seasonProgress[season] ?? null : null;
+  const activeProgressLabel = activeProgress ? seasonProgressLabel(activeProgress) : null;
 
   return (
     <section aria-labelledby="title-episodes-heading" data-title-episodes>
@@ -258,11 +270,16 @@ export function EpisodeList({
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
                   )}
                 >
-                  {seasons.map((s) => (
-                    <option key={s.season} value={s.season}>
-                      Season {s.season}
-                    </option>
-                  ))}
+                  {seasons.map((s) => {
+                    const short = seasonProgress[s.season]
+                      ? seasonProgressShort(seasonProgress[s.season])
+                      : null;
+                    return (
+                      <option key={s.season} value={s.season}>
+                        {short ? `Season ${s.season} \u00b7 ${short}` : `Season ${s.season}`}
+                      </option>
+                    );
+                  })}
                 </select>
                 <ChevronDown
                   className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[var(--text-tertiary)]"
@@ -278,7 +295,7 @@ export function EpisodeList({
               </span>
             ) : null}
 
-            {seasonCountLabel ? (
+            {seasonCountLabel && !(activeProgressLabel && activeProgress?.aired != null) ? (
               <p
                 data-season-count
                 className="text-[12px] tabular-nums text-[var(--text-tertiary)]"
@@ -295,6 +312,10 @@ export function EpisodeList({
                 <Check className="h-3.5 w-3.5 text-[var(--accent-text,var(--accent))]" aria-hidden />
                 {watchedProgressLabel(episodes)}
               </p>
+            ) : null}
+
+            {activeProgress && activeProgressLabel ? (
+              <SeasonProgressMeter progress={activeProgress} label={activeProgressLabel} />
             ) : null}
           </div>
 
@@ -1004,4 +1025,66 @@ function DownloadGlyph({
 function formatTransferProgress(progress: number): string {
   const percent = Math.min(100, Math.max(0, progress * 100));
   return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
+}
+
+/**
+ * The season header's "X of Y episodes downloaded". A ring fills with the
+ * downloaded share of aired episodes and turns into a check once every aired
+ * episode is on disk. In-flight episodes are a muted count beside it, never
+ * part of the ring.
+ */
+function SeasonProgressMeter({
+  progress,
+  label,
+}: {
+  progress: SeasonProgress;
+  label: string;
+}) {
+  const complete = isSeasonComplete(progress);
+  const fraction =
+    progress.aired && progress.aired > 0
+      ? Math.min(1, progress.downloaded / progress.aired)
+      : 0;
+  const radius = 6.5;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <p
+      data-season-progress
+      data-complete={complete ? "true" : undefined}
+      className="inline-flex items-center gap-1.5 text-[12px] tabular-nums text-[var(--text-secondary)]"
+    >
+      {complete ? (
+        <span
+          aria-hidden
+          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[var(--success)] text-[var(--bg)]"
+        >
+          <Check className="h-3 w-3" strokeWidth={3} />
+        </span>
+      ) : progress.aired != null && progress.aired > 0 ? (
+        <svg aria-hidden viewBox="0 0 16 16" className="h-4 w-4 shrink-0 -rotate-90">
+          <circle cx="8" cy="8" r={radius} fill="none" strokeWidth="2.5" className="stroke-[var(--border-strong,var(--border))]" />
+          {fraction > 0 ? (
+            <circle
+              cx="8"
+              cy="8"
+              r={radius}
+              fill="none"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={`${fraction * circumference} ${circumference}`}
+              className="stroke-[var(--accent)]"
+            />
+          ) : null}
+        </svg>
+      ) : (
+        <Download className="h-3.5 w-3.5 shrink-0 text-[var(--text-tertiary)]" aria-hidden />
+      )}
+      <span>{label}</span>
+      {progress.downloading > 0 ? (
+        <span data-season-downloading className="text-[var(--text-tertiary)]">
+          +{progress.downloading} downloading
+        </span>
+      ) : null}
+    </p>
+  );
 }

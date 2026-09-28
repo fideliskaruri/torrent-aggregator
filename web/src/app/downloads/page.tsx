@@ -67,6 +67,7 @@ import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
 import {
   groupDownloads,
+  seriesEpisodeTally,
   canStreamTransfer,
   isDownloading,
   isError,
@@ -1782,6 +1783,7 @@ function SeriesOverviewRow({
     transferIds.length > 0 &&
     transferIds.every((transferId) => selected.has(transferId));
   const chip = rollupChip(group);
+  const tally = seriesEpisodeTally(group);
   const barTone = isDownloaded(group.state)
     ? "bg-[var(--success)]"
     : isError(group.state) || chip.failing
@@ -1847,7 +1849,19 @@ function SeriesOverviewRow({
                 {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"}
                 {" · "}
                 {formatBytes(group.sizeBytes)}
+                {tally.downloaded > 0 || tally.downloading > 0 ? " · " : null}
               </span>
+              {tally.downloaded > 0 || tally.downloading > 0 ? (
+                <span
+                  data-group-episodes
+                  className="inline-flex items-center gap-1 text-[12px] tabular-nums text-[var(--text-secondary)]"
+                >
+                  {tally.downloaded} {tally.downloaded === 1 ? "episode" : "episodes"} downloaded
+                  {tally.downloading > 0 ? (
+                    <span className="text-[var(--text-tertiary)]">+{tally.downloading} downloading</span>
+                  ) : null}
+                </span>
+              ) : null}
             </div>
             {groupErrorMessage ? (
               <p
