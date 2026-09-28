@@ -3,9 +3,12 @@ import { TfPageHeader } from "@/components/tf/page-header";
 import { InstallAppCard } from "@/components/pwa/install-app-card";
 import { Button } from "@/components/ui/button";
 import { useDocumentTitle } from "@/hooks/use-document-title";
+import { useCapabilities } from "@/lib/capabilities";
 
 export default function AboutPage() {
   useDocumentTitle("About");
+  // Shared page: requesters get install, legal and keys, never how the owner's machine is set up.
+  const { canManage } = useCapabilities();
 
   return (
     <div className="container-app max-w-xl py-8 sm:py-12 space-y-8 min-w-0">
@@ -22,7 +25,8 @@ export default function AboutPage() {
           You are responsible for complying with copyright and other laws where
           you live. Only download content you have the right to access.
         </p>
-        <p className="break-words whitespace-normal">
+        {canManage ? (
+        <p className="break-words whitespace-normal" data-about-owner-config>
           Indexer availability and bot-protection are controlled by third
           parties. Client credentials are encrypted at rest when{" "}
           <code className="break-all text-[12px] text-[var(--accent-text)]">
@@ -30,6 +34,7 @@ export default function AboutPage() {
           </code>{" "}
           is set.
         </p>
+        ) : null}
       </section>
 
       <section className="surface min-w-0 p-4 sm:p-5 space-y-3">
@@ -60,7 +65,9 @@ export default function AboutPage() {
           <div className="min-w-0 sm:contents">
             <dt className="font-mono text-[var(--text-secondary)]">g then …</dt>
             <dd className="break-words text-[var(--text-tertiary)] sm:font-mono">
-              h browse · s search · w watchlist · c downloads · a notifications · r rules · d download log · t settings
+              {canManage
+                ? "h browse · s search · w watchlist · c downloads · a notifications · r rules · d download log · t settings"
+                : "h browse · s search · w watchlist · a notifications"}
             </dd>
           </div>
         </dl>
