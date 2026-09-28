@@ -666,6 +666,32 @@ public class ExtrasTests
     }
 
     [Theory]
+    [InlineData(1180, 1180)]
+    [InlineData(5000, 5000)]
+    public async Task Long_running_anime_exposes_absolute_episodes_with_a_bounded_list(int count, int expected)
+    {
+        var media = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            data = new { Media = new { id = 21, title = new { english = "ONE PIECE" },
+                format = "TV", status = "FINISHED", episodes = count, seasonYear = 1999 } }
+        });
+        var f = new FakeHttpFactory(new FakeHandler(_ => Task.FromResult(FakeHandler.Json(media))));
+        var time = new ManualTime();
+        var tmdb = new TmdbClient(f, Fixtures.Options(), time);
+        var anilist = new AniListClient(f, time);
+        var keyless = new KeylessClients(f);
+        var service = new TitleExtrasService(tmdb, anilist, keyless, new ArtworkResolver(tmdb, anilist, keyless, Fixtures.Options(), time),
+            new RecommendationService(f, tmdb, null!, time, NullLogger<RecommendationService>.Instance), time, NullLogger<TitleExtrasService>.Instance);
+
+        var payload = await service.GetAsync(new("one-piece", "ONE PIECE", 1999, "anime", 1, "anilist", "21", null, true));
+
+        Assert.Equal(expected, payload.Episodes.Count);
+        Assert.Contains(payload.Episodes, e => e.Episode == 1100 && e.HasAired == true);
+        Assert.Contains(payload.Episodes, e => e.Episode == 1180 && e.HasAired == true);
+        Assert.Equal(expected, payload.Episodes[^1].Episode);
+    }
+
+    [Theory]
     [InlineData(null, null)]
     [InlineData("  <p> </p> ", null)]
     [InlineData("a<br/>b<li>c</li>", "a\nb\nc")]

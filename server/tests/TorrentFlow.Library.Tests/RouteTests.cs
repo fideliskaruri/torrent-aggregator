@@ -18,6 +18,22 @@ public sealed class RouteTests
 {
     private static async Task<JsonElement> Json(HttpResponseMessage response) =>
         JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
+
+    [Fact]
+    public async Task LongRunningAnimeTitleKeepsAbsoluteEpisodeTargetsVisible()
+    {
+        using var host = new LibraryHost();
+        using var client = host.CreateClient();
+        await host.Seed(db => db.AcquisitionTargets.Add(new()
+        {
+            Id = "one-piece-1100", UserId = LocalUser.Id, TargetKey = "one-piece:episode:1:1100",
+            WorkKey = "one-piece", Scope = "episode", Season = 1, Episode = 1100,
+            Status = "failed", Error = "No release", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+        }));
+        var payload = await Json(await client.GetAsync("/api/title/one-piece?t=ONE%20PIECE&type=anime&s=1"));
+        Assert.Contains(payload.GetProperty("episodes").EnumerateArray(), e => e.GetProperty("episode").GetInt32() == 1100);
+        Assert.False(payload.GetProperty("episodesTruncated").GetBoolean());
+    }
     [Theory]
     [InlineData("/api/watchlist", "items")]
     [InlineData("/api/history", "items")]

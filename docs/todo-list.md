@@ -6,6 +6,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
+| Live anime episode matrix and automation | anime-live | 22 live baseline grabs completed; investigating wrong-cour/remake selections and three watchlist misses. Isolated port 3928. |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
@@ -24,7 +25,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - Shared matcher consolidation across acquisition, automation, replacement and playback (deferred from matching fixes).
 - Explicit opt-in below-quality-floor fallback (deferred; selected quality remains a hard minimum).
 - Browser follow-up for matching diagnostics when Playwright MCP is available (transport closed during both navigation and snapshot). Real isolated API/indexer/persistence checks passed; no browser pass claimed.
-- Long-running AniList request pagination beyond the existing 200 episode placeholder cap; aired-evidence fix does not expand that cap.
+- Virtualized/paginated long-running anime episode presentation; server now exposes verified counts up to 5,000 rather than hiding everything after episode 200.
 
 - QA pass: owner vs requester vs preview, on phone and desktop, using the simulator.
 - MCP-verify the fq-ui batch at 390 and 1280 (owner, requester, preview); screenshots were blocked in that run.
@@ -41,6 +42,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 ## Done recently
 
 - Series download dialog status: the header and overview chips count members once anything fails ("1 downloading · 30 need attention", error-toned when most failed) instead of one member's "Finding files"; the repeated header error line is gone; season tabs show "N failed"; error cards show one line (tap or hover for the full text) and a visible Find another release button. Swap reasons say "1 seeder". Node and ReleaseSwap tests pass; browser pass pending (MCP transport closed).
+- Live One Piece title reachability: removed anime-only 200-episode truncation in provider extras and local targets. Real 1,180-episode payload now includes E1100/E1180; western placeholder bound unchanged.
 - Server remainder completed and pushed: seven fixes, four already-fixed items reverified, and the webtorrent.io transport blocker documented with improved plain error handling. Final solution validation: **10,152 passed / 9 skipped / 0 failed**. Per-item commit map and verification limits are in `search-matching.md`.
 - FQ-DL-005 error handling: removed TLS/SSL jargon from secure-connection failures; regression tests cover remote HTTP errors and working magnet fallback.
 - FQ-SET-006: extended `a863a9b`'s shared quality/size preference to both watchlist and auto-rule downloads; selected quality and swarm safeguards remain intact.

@@ -158,7 +158,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var coverage = selected is { } selectedSeason ? PackCoverage(playable, selectedSeason) : [];
         var maxEpisode = coordinates.Where(x => x.Season == selected).Select(x => x.Episode).Concat(coverage.Keys).DefaultIfEmpty(0).Max();
         var episodes = new List<object>();
-        for (var ep = 1; ep <= Math.Min(200, maxEpisode); ep++)
+        var episodeLimit = type == "anime" ? 5000 : 200;
+        for (var ep = 1; ep <= Math.Min(episodeLimit, maxEpisode); ep++)
         {
             var cursor = new EpisodeCursor(selected!.Value, ep);
             var p = progress.FirstOrDefault(x => x.Season == cursor.Season && x.Episode == ep);
@@ -202,7 +203,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("posterUrl", poster), ("backdropUrl", backdrop),
             ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)), ("resume", resume),
             ("transfer", targets.FirstOrDefault(x => x.Scope == "title") is { } tt ? Transfer(tt) : null),
-            ("seasons", seasons), ("season", selected), ("episodes", episodes), ("episodesTruncated", maxEpisode > 200),
+            ("seasons", seasons), ("season", selected), ("episodes", episodes), ("episodesTruncated", maxEpisode > episodeLimit),
             ("library", library), ("known", cat != null || query.Provider != null || watch != null || local.Count > 0 || progress.Count > 0 || releases.Length > 0 || cached != null),
             ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));
     }

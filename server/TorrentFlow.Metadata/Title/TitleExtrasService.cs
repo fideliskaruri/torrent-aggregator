@@ -68,6 +68,7 @@ public sealed class TitleExtrasService(
 {
     public const int ExtrasTimeoutMs = 4_000;
     public const int EpisodePlaceholderCap = 200;
+    public const int AnimeEpisodePlaceholderCap = 5000;
     private static readonly HashSet<string> HomeReleaseTypes = ["4", "5", "6"];
     private readonly BoundedTtlCache<TitleExtrasPayload> _memo = new(400, time);
 
@@ -115,7 +116,7 @@ public sealed class TitleExtrasService(
             int? animeSeason = series ? (q.Season is >= 1 ? q.Season : 1) : null;
             var count = series ? work!.EpisodeCount : null;
             var animeEpisodes = count is { } c && animeSeason == 1
-                ? Enumerable.Range(1, Math.Min(c, EpisodePlaceholderCap))
+                ? Enumerable.Range(1, Math.Min(c, AnimeEpisodePlaceholderCap))
                     .Select(i => new TitleEpisodeMeta(i, null, null, null, null, null, HasAired: i <= (work!.AiredEpisodeCount ?? 0))).ToList()
                 : [];
             return empty with
