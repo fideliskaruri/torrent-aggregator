@@ -14,6 +14,10 @@ Follow-up FQ-REQ-001: AniList placeholders now carry explicit `HasAired` evidenc
 
 Follow-up FQ-REQ-002: request-lane acquisitions try a quality-specific query first and prefer the closest eligible resolution, non-remux, then smaller known size among candidates returned. Higher quality remains allowed when the preference is unavailable; lower quality and episode packs remain excluded. This is not an arbitrary size cap or a guarantee across unseen indexer pages. The QA evidence was 13 large singles totaling ~88 GB, not an admitted season pack.
 
+Follow-up FQ-DL-006: title GET and POST both validate a provider entry against the route's work key (canonical title or provider-supplied aliases). GET no longer shows an unrelated TVMaze show under an anime URL. POST cannot bypass verification by omitting optional title/sourceType hints, and valid AniList claims retain their provider ID for mapped season fanout. Invalid IDs are rejected, not guessed or translated across providers.
+
+Follow-up verification: `dotnet test TorrentFlow.slnx -p:SkipWebBuild=true` passed **10,123**, skipped **9**; offline web install, typecheck and **133** web tests passed. Real request-grabber tests cover finished/releasing/future/unknown AniList entries; HTTP route tests cover rejected mismatches and mapped two-episode sequel fanout. Metadata unavailable on GET still permits local-title display, while POST rejects an unverified claim. Existing 200-episode placeholder limit is unchanged; browser verification is still outstanding due to MCP transport failure.
+
 | Coverage | Result |
 |---|---|
 | Every Frieren S1 absolute episode 1–28; One Piece 1100/1180 | Table-driven exact-episode checks; neighboring episodes rejected |

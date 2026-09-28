@@ -22,6 +22,7 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
     public FakeArtwork Artwork { get; } = new();
     public FakeAnimeLookup Anime { get; } = new();
     public FakeAirDates AirDates { get; } = new();
+    public FakeMetadata Metadata { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         Directory.CreateDirectory(directory);
@@ -42,7 +43,7 @@ public sealed class LibraryHost : WebApplicationFactory<Program>
             services.RemoveAll<ICatalogLookup>();
             services.AddSingleton<ITorrentEngine>(Engine);
             services.AddSingleton<ITorrentSearchService>(Search);
-            services.AddSingleton<IMetadataResolver, FakeMetadata>();
+            services.AddSingleton<IMetadataResolver>(Metadata);
             services.AddSingleton<ICatalogLookup, FakeCatalog>();
             services.Replace(ServiceDescriptor.Singleton<ILibraryArtworkResolver>(Artwork));
             services.Replace(ServiceDescriptor.Singleton<ILibraryAnimeLookup>(Anime));
@@ -133,8 +134,11 @@ internal sealed class FakeCatalog : ICatalogLookup
 {
     public Task<CatalogWork?> FindByWorkKeyAsync(string workKey, CancellationToken cancellationToken = default) => Task.FromResult<CatalogWork?>(null);
 }
-internal sealed class FakeMetadata : IMetadataResolver
+public sealed class FakeMetadata : IMetadataResolver
 {
+    public Func<string, string, string, MediaMetadata?> ById { get; set; } = (_, _, _) => null;
+    public Task<MediaMetadata?> GetByIdAsync(string provider, string mediaType, string id, CancellationToken cancellationToken = default) =>
+        Task.FromResult(ById(provider, mediaType, id));
     public Task<MediaMetadata?> ResolveMetadataAsync(string rawTitle, string? category, CancellationToken cancellationToken = default) => Task.FromResult<MediaMetadata?>(null);
     public Task<IReadOnlyList<MediaMetadata?>> EnrichAsync(IReadOnlyList<MetadataEnrichmentInput> inputs, string query, string? category, MediaMetadata? primary = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<MediaMetadata?>>(inputs.Select(_ => (MediaMetadata?)null).ToArray());
     public Task<MediaMetadata?> GetAniListByIdAsync(string id, CancellationToken cancellationToken = default) => Task.FromResult<MediaMetadata?>(null);

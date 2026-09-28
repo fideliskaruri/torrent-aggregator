@@ -19,13 +19,18 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
     public async Task<IActionResult> Get(string workKey, [FromQuery] string? t, [FromQuery] int? y,
         [FromQuery] string? type, [FromQuery] int? s, [FromQuery] int? remembered, CancellationToken ct)
     {
-        var provider = Request.Query["provider"].ToString();
+        var provider = Request.Query["provider"].ToString().Trim().ToLowerInvariant();
         var external = Request.Query["providerId"].ToString();
         if (external.Length == 0) external = Request.Query["externalId"].ToString();
         MediaMetadata? resolved = null;
         if (provider.Length > 0 && !IMetadataResolver.SupportsProvider(provider)) return BadRequest(new { error = "Unsupported title provider" });
         if (external.Length > 0)
+        {
+            if (!IMetadataResolver.SupportsProvider(provider)) return BadRequest(new { error = "A supported title provider is required." });
             resolved = await metadata.GetByIdAsync(provider, type == "movie" ? "movie" : "tv", external, ct);
+            if (resolved != null && !MatchesProvider(workKey, resolved))
+                return BadRequest(new { error = "Provider identity does not match this title." });
+        }
         return Ok(await titles.Detail(new(workKey, t, y, type, s, remembered, resolved), ct));
     }
     [HttpGet("progress")]
@@ -59,17 +64,18 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
             return BadRequest(new { ok = false, message = "Preferred resolution must be 480p, 720p, 1080p, or 2160p." });
         var retention = f.Enum("retention", ["keep", "stream"]) ?? "keep";
         var cap = f.Bool("overrideStorageCap") == true;
-        // acquisitionIdentityParams: a claim needs provider, providerId, sourceType and title as non-empty strings;
-        // anything else (null, a discovery-only provider) is no claim at all and the work resolves locally.
+        // Provider IDs are authoritative claims even when optional display hints are absent.
         string? Claim(string name) => f.Raw(name) is { ValueKind: JsonValueKind.String } v && v.GetString()!.Trim() is { Length: > 0 and <= 200 } s ? s : null;
         var claimedProvider = Claim("provider")?.ToLowerInvariant();
         var externalId = Claim("providerId");
-        var sourceType = Claim("sourceType")?.ToLowerInvariant();
+        var sourceType = (Claim("sourceType") ?? Claim("mediaType"))?.ToLowerInvariant();
         MediaMetadata? verified = null;
-        if (claimedProvider != null && IMetadataResolver.SupportsProvider(claimedProvider) && externalId != null && sourceType != null && Claim("title") != null)
+        if (externalId != null)
         {
+            if (claimedProvider == null || !IMetadataResolver.SupportsProvider(claimedProvider))
+                return BadRequest(new { ok = false, message = "A supported title provider is required." });
             verified = await metadata.GetByIdAsync(claimedProvider, sourceType == "movie" ? "movie" : "tv", externalId, ct);
-            if (verified == null || !ReleaseSelection.MatchesWork(workKey, verified.Title, verified.Year))
+            if (verified == null || !MatchesProvider(workKey, verified))
                 return BadRequest(new { ok = false, message = "Provider identity does not match this title." });
         }
         var detail = await titles.Detail(new(workKey, f.String("title", nullable: true), (int?)f.Number("year", nullable: true), f.String("mediaType", nullable: true), Provider: verified), ct);
@@ -87,6 +93,13 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
                 PosterUrl = detail["posterUrl"] as string, AliasesJson = JsonSerializer.Serialize(detail["aliases"]),
                 Provider = verified?.Source, ProviderId = verified?.ExternalId, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
             db.Works.Add(work);
+            await db.SaveChangesAsync(ct);
+        }
+        else if (verified != null && work.ProviderId == null)
+        {
+            work.Provider = verified.Source;
+            work.ProviderId = verified.ExternalId;
+            work.UpdatedAt = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
         }
         if (watchId != null)
@@ -164,6 +177,10 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
             ("title", single.Title), ("savePath", single.SavePath), ("infoHash", single.InfoHash), ("storage", single.Storage),
             ("queued", single.Queued), ("queuePosition", single.QueuePosition), ("noReleaseFound", single.NoReleaseFound)));
     }
+
+    private static bool MatchesProvider(string workKey, MediaMetadata resolved) =>
+        (resolved.Aliases ?? []).Prepend(resolved.Title).Any(title =>
+            ReleaseSelection.MatchesWork(workKey.Trim().ToLowerInvariant(), title, resolved.Year));
 
     /// <summary>
     /// Port of TS settleSeasonEpisodeTargets / failQueuedSeasonEpisodeTargets. An outcome applies only to a row that is still

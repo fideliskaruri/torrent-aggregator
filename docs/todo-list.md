@@ -6,7 +6,6 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
-| FQ-REQ-001/002, FQ-DL-006 follow-up | match-fix | Fixing AniList aired placeholders, preferred-quality selection, and provider mismatch guards |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
@@ -24,6 +23,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - Shared matcher consolidation across acquisition, automation, replacement and playback (deferred from matching fixes).
 - Explicit opt-in below-quality-floor fallback (deferred; selected quality remains a hard minimum).
 - Browser follow-up for matching diagnostics when Playwright MCP is available (transport closed during both navigation and snapshot). Real isolated API/indexer/persistence checks passed; no browser pass claimed.
+- Long-running AniList request pagination beyond the existing 200 episode placeholder cap; aired-evidence fix does not expand that cap.
 
 - QA pass: owner vs requester vs preview, on phone and desktop, using the simulator.
 - MCP-verify the fq-ui batch at 390 and 1280 (owner, requester, preview); screenshots were blocked in that run.
@@ -37,6 +37,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- FQ-REQ-001/002 and FQ-DL-006: aired AniList episodes can be requested without invented dates; request grabs prefer selected resolution/non-remux/smaller encodes while retaining the quality floor; title GET/POST reject mismatched provider identities and valid AniList season fanout keeps mapped coordinates. Full .NET suite: 10,123 passed / 9 skipped; web: 133 passed + typecheck. Browser verification remains blocked by MCP transport.
 - "Find another release": source picker (All sources + each enabled source with counts), one-click "Find the best one for me" (`POST {best:true}`), one deterministic ranking with a specific reason per release, and only the recommended card highlighted. API verified live on a real download (best-swap and filtered search); Playwright visual check at 390/1280 still pending (MCP was down).
 - Flow QA server (FQ-DL/REQ/SET): movie year folders; list prefers durable queued/error; forced/verified flags; torrent URL plain errors; fulfilled blocks re-request; partial grab honesty; QueueKey season/episode; Amazon posters; create rate-limit after validate; source test messages; TMDB key shape; build version; decline empty body.
 - FQ UI batch (fq-ui): Sintel and other IMDb shorts now found by keyless title search (FQ-UI-101); SxxEyy releases never classify as films and downloads prefer the server's canonical media type (Frieren duplicates); search overlay inside `<main>` (FQ-UI-103); requester search cards show request status (UNI-003); one "View as requester" control per surface (FQ-UI-102); preview shows the season picker with sending off (UNI-004); /about stays shared but hides owner setup (UNI-005); nav badges 12px (UNI-006); title actions follow transfer state and library add/remove is always visible (FQ-UI-104); errored transfers show Error with the server's `error` text, forced rows say Starting now instead of offering Download now again, and verified finished rows get a Verified badge (FQ-DL-004); magnet field validates inline (FQ-UI-040). Unit/source tests only: Playwright MCP was unavailable ("Transport closed"), so MCP verification at 390/1280 is still owed.
