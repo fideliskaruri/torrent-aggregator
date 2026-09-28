@@ -233,7 +233,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             result = await engine.AddAsync(new() { Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = input.Retention,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
-                Metadata = CatalogMetadata(input.MediaType, input.Title),
+                Metadata = CatalogMetadata(input.MediaType, input.Title, input.Year),
                 QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
@@ -282,12 +282,12 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     }
 
     /// <summary>catalogMetadata({ mediaType, title }) as grab.ts passes it to resolveSmartSendTarget.</summary>
-    private static TorrentFlow.Core.Contracts.Metadata.MediaMetadata? CatalogMetadata(string? mediaType, string? title)
+    private static TorrentFlow.Core.Contracts.Metadata.MediaMetadata? CatalogMetadata(string? mediaType, string? title, int? year = null)
     {
         var type = (mediaType ?? "").Trim().ToLowerInvariant();
         var name = (title ?? "").Trim();
         if (type is not ("anime" or "movie" or "tv") || name.Length == 0) return null;
-        return new() { Source = type == "anime" ? "anilist" : "tmdb", MediaType = type, ExternalId = "", Title = name };
+        return new() { Source = type == "anime" ? "anilist" : "tmdb", MediaType = type, ExternalId = "", Title = name, Year = year };
     }
 
     private static async Task LogSkip(TorrentFlowDbContext db, GrabInput input, string query, string message, CancellationToken ct)

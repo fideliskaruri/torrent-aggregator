@@ -36,7 +36,16 @@ public static class EngineModule
         services.AddHttpClient(TorrentEngineService.HttpClientName, c =>
         {
             c.Timeout = TimeSpan.FromSeconds(30);
-            c.DefaultRequestHeaders.UserAgent.ParseAdd("TorrentFlow/1.0");
+            // Browser-like agent: some torrent hosts (and their CDNs) 403 bare library clients.
+            c.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 TorrentFlow/1.0");
+            c.DefaultRequestHeaders.Accept.ParseAdd("application/x-bittorrent, application/octet-stream, */*;q=0.8");
+        })
+        .ConfigurePrimaryHttpMessageHandler(() => new System.Net.Http.HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            MaxAutomaticRedirections = 8,
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
         });
         services.AddHttpClient(TrackerListRefreshService.HttpClientName, c =>
         {

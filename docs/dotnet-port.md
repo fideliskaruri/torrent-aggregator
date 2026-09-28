@@ -146,6 +146,19 @@ a body with neither `token` nor `best: true` returns HTTP 400 `{ "message" }`. O
 not an empty alternatives list. The successful swap currently omits nullable `details` and
 `storageLimit`; failure responses also omit nullable `hash`.
 
+## Downloads list JSON (`GET /api/client/torrents`)
+
+Built-in rows follow the Next `ClientTorrent` shape plus:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `state` | string | `downloaded` \| `downloading` \| `stalledDL` \| `metaDL` \| `checkingDL` \| `paused` \| `queued` \| **`error`** |
+| `error` | string? | Plain message when `state` is `error` (metadata timeout, client fault, layout refusal). **Not** a paused state — UI must group `error` separately from paused. |
+| `forced` | bool | `true` when the owner pressed Download now (`ForcedAt` set). |
+| `verified` | bool | `true` after on-disk verification (`VerifiedAt`); survives restart without a live client. |
+| `progress` | 0..1 | For verified/parked rows stays `1` after restart. |
+| `workKey` / `season` / `episode` | string? / int? / int? | Acquisition intent when known (owner targets or request-lane `QueueKey`). |
+
 ## Project layout
 
 ```text

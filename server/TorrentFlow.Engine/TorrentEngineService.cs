@@ -115,7 +115,12 @@ internal sealed partial class TorrentEngineService(
             {
                 logger.LogInformation(ex, "Fetching .torrent failed; falling back to magnet if present");
                 if (string.IsNullOrWhiteSpace(request.Magnet) && string.IsNullOrWhiteSpace(request.InfoHash))
-                    return new EngineAddResult(false, "Could not download the .torrent file. Try another release.");
+                {
+                    var plain = ex.Message is { Length: > 0 and < 240 } m && !m.Contains("HttpRequestException", StringComparison.Ordinal)
+                        ? m
+                        : "Could not download the .torrent file. Try another release or a magnet link.";
+                    return new EngineAddResult(false, plain);
+                }
             }
         }
 
@@ -286,9 +291,44 @@ internal sealed partial class TorrentEngineService(
     private async Task<byte[]> FetchTorrentAsync(string url, CancellationToken ct)
     {
         var client = httpFactory.CreateClient(HttpClientName);
-        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        return await TorrentHttpLimits.ReadMetadataAsync(response.Content, ct);
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        // Some hosts (CDN frontends) refuse non-browser agents or bare clients without Accept.
+        request.Headers.TryAddWithoutValidation("Accept", "application/x-bittorrent, application/octet-stream, */*");
+        request.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
+        try
+        {
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var code = (int)response.StatusCode;
+                throw new HttpRequestException(
+                    code is 403 or 401
+                        ? "That torrent link refused the download. Try another host or paste the magnet instead."
+                        : code is 404
+                            ? "That torrent link was not found. It may have expired — try another release."
+                            : $"Could not download the .torrent file (HTTP {code}). Try another release or a magnet link.",
+                    null, response.StatusCode);
+            }
+            return await TorrentHttpLimits.ReadMetadataAsync(response.Content, ct);
+        }
+        catch (InvalidDataException)
+        {
+            throw new InvalidDataException("That link did not return a .torrent file. Check the URL or try a magnet link.");
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new HttpRequestException("Timed out downloading the .torrent file. Try again or use a magnet link.");
+        }
+        catch (HttpRequestException ex) when (ex.InnerException is System.IO.IOException or System.Security.Authentication.AuthenticationException
+            || (ex.Message?.Contains("SSL", StringComparison.OrdinalIgnoreCase) ?? false)
+            || (ex.Message?.Contains("TLS", StringComparison.OrdinalIgnoreCase) ?? false)
+            || (ex.InnerException?.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase) ?? false)
+            || (ex.InnerException?.Message.Contains("TLS", StringComparison.OrdinalIgnoreCase) ?? false)
+            || (ex.InnerException?.Message.Contains("badly formatted", StringComparison.OrdinalIgnoreCase) ?? false))
+        {
+            throw new HttpRequestException(
+                "Could not reach that torrent host securely (TLS/SSL failed). Try another host or paste the magnet instead.", ex);
+        }
     }
 
     private string TorrentFilePath(string hash) => Path.Combine(Options.EngineDirectory, "torrents", hash + ".torrent");
@@ -733,7 +773,12 @@ internal sealed partial class TorrentEngineService(
             TorrentOrigin.Prewarm => "prewarm",
             _ => "unknown",
         };
-        if (live is not null && row.Status != EngineTorrentStatus.Paused)
+        // Prefer durable non-live statuses so list reads after pause/error/cap demotion match the DB immediately
+        // (FQ-DL-002/004). Queued wins over a still-attached backend mid-detach; active Downloading still uses live.
+        var durable = row.Status is EngineTorrentStatus.Paused or EngineTorrentStatus.Queued
+            or EngineTorrentStatus.Error or EngineTorrentStatus.Parked
+            || string.Equals(row.Status, "seeding", StringComparison.OrdinalIgnoreCase);
+        if (live is not null && !durable)
         {
             var state = live.State switch
             {
@@ -767,6 +812,8 @@ internal sealed partial class TorrentEngineService(
                 Lane = lane,
                 WorkId = row.WorkId,
                 QueueKey = row.QueueKey,
+                Forced = row.ForcedAt is not null,
+                Verified = row.VerifiedAt is not null,
                 Files = includeFiles ? live.Files.Select(f => new EngineFileInfo(f.Index, f.Path, f.Length, f.Selected, f.Progress, f.FullPath)).ToList() : null,
                 BytesReceived = live.BytesReceived,
             };
@@ -776,7 +823,8 @@ internal sealed partial class TorrentEngineService(
         {
             Hash = row.Hash,
             Name = row.Name,
-            Progress = row.Progress,
+            // Parked/complete rows keep their verified progress after restart (no live client).
+            Progress = IsDownloaded(row) ? 1 : row.Progress,
             SizeBytes = row.SizeBytes,
             State = display,
             Peers = 0,
@@ -790,6 +838,8 @@ internal sealed partial class TorrentEngineService(
             WaitReason = display == "queued" && view.Reasons.TryGetValue(row.Hash, out var why) ? why : null,
             WorkId = row.WorkId,
             QueueKey = row.QueueKey,
+            Forced = row.ForcedAt is not null,
+            Verified = row.VerifiedAt is not null,
             Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, true, IsDownloaded(row) ? 1 : 0, f.FullPath)).ToList() : null,
         };
     }

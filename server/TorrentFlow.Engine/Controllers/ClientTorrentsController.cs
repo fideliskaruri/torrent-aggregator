@@ -118,13 +118,17 @@ public sealed class ClientTorrentsController(
         var byHash = IntentByHash(targets);
         var targetHashes = byHash.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         // Request grabs have a canonical work but no owner-created acquisition target.
+        // QueueKey (sNNNNNeNNNNN) carries season/episode when the grab knew them.
         var requestTransfers = await db.EngineTorrents.AsNoTracking()
             .Where(t => t.UserId == LocalUser.Id && hashes.Contains(t.Hash) && t.Work != null)
-            .Select(t => new { t.Hash, t.WorkId, t.Work!.WorkKey, t.Work.CanonicalTitle, t.Work.Year, t.Work.MediaType })
+            .Select(t => new { t.Hash, t.WorkId, t.Work!.WorkKey, t.Work.CanonicalTitle, t.Work.Year, t.Work.MediaType, t.QueueKey })
             .ToListAsync(ct);
         foreach (var transfer in requestTransfers)
-            byHash.TryAdd(transfer.Hash.ToLowerInvariant(), new(transfer.Hash, transfer.WorkId, transfer.WorkKey, "title",
-                null, null, transfer.CanonicalTitle, transfer.Year, transfer.MediaType));
+        {
+            var (scope, season, episode) = ScopeFromQueueKey(transfer.QueueKey);
+            byHash.TryAdd(transfer.Hash.ToLowerInvariant(), new(transfer.Hash, transfer.WorkId, transfer.WorkKey, scope,
+                season, episode, transfer.CanonicalTitle, transfer.Year, transfer.MediaType));
+        }
         // Older request downloads predate the work link. Their recorded hashes still provide exact identity,
         // without merging unrelated shows that merely have similar release names.
         var wanted = hashes.Except(byHash.Keys, StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -156,13 +160,30 @@ public sealed class ClientTorrentsController(
             torrent["workYear"] = target.Year ?? entry?.Year;
             torrent["workMediaType"] = (target.MediaType != "unknown" ? target.MediaType : null)
                 ?? entry?.MediaType ?? torrent["category"]?.GetValue<string>();
+            // Acquisition targets own the full scope triple. Request-lane rows only get season/episode when QueueKey carried them.
             if (targetHashes.Contains(hash))
             {
                 torrent["targetScope"] = target.Scope;
                 torrent["season"] = target.Season;
                 torrent["episode"] = target.Episode;
             }
+            else if (target.Season is not null || target.Episode is not null)
+            {
+                if (target.Scope is "episode" or "season") torrent["targetScope"] = target.Scope;
+                if (target.Season is not null) torrent["season"] = target.Season;
+                if (target.Episode is not null) torrent["episode"] = target.Episode;
+            }
         }
+    }
+
+    /// <summary>s00001e00002 → episode scope; missing/unparsed keys leave season/episode unknown.</summary>
+    internal static (string Scope, int? Season, int? Episode) ScopeFromQueueKey(string? queueKey)
+    {
+        if (string.IsNullOrWhiteSpace(queueKey)) return ("title", null, null);
+        var m = Regex.Match(queueKey.Trim(), @"^s(\d{1,5})e(\d{1,5})$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!m.Success) return ("title", null, null);
+        return ("episode", int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+            int.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture));
     }
 
     internal sealed record AcquisitionIntent(string InfoHash, string? WorkId, string WorkKey, string Scope, int? Season, int? Episode,

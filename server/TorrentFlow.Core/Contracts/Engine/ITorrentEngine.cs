@@ -247,6 +247,10 @@ public sealed record EngineTorrentInfo
     public string? WaitReason { get; init; }
     public string? WorkId { get; init; }
     public string? QueueKey { get; init; }
+    /// <summary>True when the owner pressed Download now (ForcedAt is set). Distinct from queue position.</summary>
+    public bool Forced { get; init; }
+    /// <summary>True after the engine verified the payload on disk (parked/complete). Survives restart without a live client.</summary>
+    public bool Verified { get; init; }
     public IReadOnlyList<EngineFileInfo>? Files { get; init; }
     /// <summary>Shareable magnet built server-side: the transfer's own trackers plus the public list (never for private torrents).</summary>
     public string? Magnet { get; init; }

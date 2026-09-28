@@ -153,7 +153,8 @@ public class EngineRouteTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var result = await engine.AddAsync(new() { Magnet = EngineHarness.Magnet(9203), Name = "Tears of Steel 2012 1080p", Purpose = "keep", SearchCategory = "movies" });
 
         Assert.True(result.Ok, result.Message);
-        Assert.True(Directory.Exists(Path.Combine(factory.Root, "downloads", "Movies", "Tears of Steel")));
+        // Movies nest as Title (Year) when the release name carries a year (FQ-DL-001).
+        Assert.True(Directory.Exists(Path.Combine(factory.Root, "downloads", "Movies", "Tears of Steel (2012)")));
         await engine.RemoveAsync(EngineHarness.Hash(9203), false);
     }
 
