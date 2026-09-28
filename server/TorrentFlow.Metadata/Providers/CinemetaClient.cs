@@ -42,6 +42,9 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         var suggest = SuggestAsync(query, type, ct);
         var rows = await List($"/catalog/{Kind(type)}/top/search={Uri.EscapeDataString(query.Trim())}.json", type, limit, ct);
         var suggested = await suggest;
+        // IMDb's exact title wins for the same id: Cinemeta lists tt1160419 as "Dune: Part One", IMDb as "Dune".
+        var imdbTitles = suggested.Where(s => s.ExternalId is not null).GroupBy(s => s.ExternalId!).ToDictionary(g => g.Key, g => g.First().Title);
+        rows = rows.Select(r => r.ExternalId is { } id && imdbTitles.TryGetValue(id, out var t) && !SameTitle(r.Title, query) ? r with { Title = t } : r).ToList();
         if (rows.Any(r => SameTitle(r.Title, query))) return rows;
         var extra = suggested.Where(s => rows.All(r => r.ExternalId != s.ExternalId));
         return extra.Concat(rows).Take(limit).ToList();

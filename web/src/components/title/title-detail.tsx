@@ -1603,8 +1603,8 @@ function TitleContent({
 
         {!payload.known ? (
           <p className="text-[12px] text-subtle-foreground">
-            Nothing local knows this title yet. Everything above comes from
-            the link you followed.
+            Not in your library yet. Download it or add it to your library to
+            keep track of it here.
           </p>
         ) : null}
       </div>

@@ -153,10 +153,22 @@ public sealed class TitleExtrasService(
         var result = empty;
         if (cinemeta is not null && (q.Provider == "cinemeta" || !isSeries))
         {
-            var metadata = q.Provider == "cinemeta" && q.ProviderId is { } imdb
-                ? await cinemeta.GetByIdAsync(imdb, isSeries ? "tv" : "movie", ct)
-                : (await cinemeta.SearchAsync(q.Title, isSeries ? "tv" : "movie", 5, ct))
-                    .FirstOrDefault(m => ArtworkMatching.MatchTier(q.Title, m.Title) >= ArtworkMatching.MinAccept);
+            var kind = isSeries ? "tv" : "movie";
+            TorrentFlow.Core.Contracts.Metadata.MediaMetadata? metadata;
+            if (q.Provider == "cinemeta" && q.ProviderId is { } imdb)
+                metadata = await cinemeta.GetByIdAsync(imdb, kind, ct);
+            else
+            {
+                var hits = (await cinemeta.SearchAsync(q.Title, kind, 5, ct))
+                    .Where(m => ArtworkMatching.MatchTier(q.Title, m.Title) >= ArtworkMatching.MinAccept).ToList();
+                metadata = q.Year is { } year
+                    ? hits.FirstOrDefault(m => m.Year == year) ?? hits.FirstOrDefault(m => m.Year is { } y && Math.Abs(y - year) == 1)
+                        ?? hits.FirstOrDefault(m => m.Year is null)
+                    : hits.FirstOrDefault();
+                // Search rows carry only id, name and poster; the synopsis, rating and genres live on /meta/{id}.
+                if (metadata is { Synopsis: null, ExternalId: { } hitId })
+                    metadata = await cinemeta.GetByIdAsync(hitId, kind, ct) ?? metadata;
+            }
             if (metadata is not null) result = result with { Overview = metadata.Synopsis, Rating = metadata.Rating,
                 RatingSource = metadata.Rating is null ? null : "cinemeta", ReleaseDate = metadata.ReleaseDate,
                 Genres = metadata.Genres ?? [], Resolved = true };
