@@ -38,6 +38,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- Server remainder completed and pushed: seven fixes, four already-fixed items reverified, and the webtorrent.io transport blocker documented with improved plain error handling. Final solution validation: **10,152 passed / 9 skipped / 0 failed**. Per-item commit map and verification limits are in `search-matching.md`.
 - FQ-DL-005 error handling: removed TLS/SSL jargon from secure-connection failures; regression tests cover remote HTTP errors and working magnet fallback.
 - FQ-SET-006: extended `a863a9b`'s shared quality/size preference to both watchlist and auto-rule downloads; selected quality and swarm safeguards remain intact.
 - MAGNET-NOMETA server: no-metadata magnets keep their display name after timeout and expose a plain error explaining how to recover; no UI changes.

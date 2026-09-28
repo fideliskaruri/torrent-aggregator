@@ -14,6 +14,28 @@
 - MATCH-QUALITY-PARSER: already fixed by `c52f4e1`; shared resolution tests include `1920x1080`.
 - MATCH-SEASON-RANGE: already fixed by `c52f4e1`; spaced `S2 - 05` singles pass shared search/acquisition tests.
 - MATCH-DIAGNOSTICS: already fixed by `964ecf8`; HTTP regression verifies `noReleaseFound`, the exact short message, persisted target error and grab-job message (98 matching regression cases passed together).
+
+### Server remainder verification
+
+Completed from isolated `fix/srv-left` worktree on September 28, 2026. Changes pushed to main; no `web/` or `ReleaseSwap*.cs` changes and no live-instance access. Final `dotnet test TorrentFlow.slnx -p:SkipWebBuild=true`: **10,152 passed, 9 skipped, 0 failed**. The existing unread-parameter warning in `FlowQaRequestSettingsTests` remains. Verification used real HTTP TestServer routes, SQLite databases, fake search/engine seams and clock-driven timeout tests; no browser verification is claimed.
+
+| Item | Outcome / commit |
+|---|---|
+| MATCH-ANIME-COORDINATES | Already fixed by `5c328c2` |
+| MATCH-QUALITY-PARSER | Already fixed by `c52f4e1` |
+| MATCH-SEASON-RANGE | Already fixed by `c52f4e1` |
+| MATCH-DIAGNOSTICS | Already fixed by `964ecf8` |
+| MATCH-BARE-RANGE | Fixed by `e2bb0cd`, strengthened against stale episode hints in `2a6cdac` |
+| MATCH-CONCURRENT-TARGETS | Fixed by `5e98978` |
+| MATCH-APPROVAL-RESTART | Fixed by `31174db` |
+| MATCH-UNICODE-SLUG | Fixed by `40888a1` |
+| MAGNET-NOMETA (server) | Fixed by `6939109` |
+| UNI-007 | Fixed by `941fe02`; local forwarded-request safeguard retained in `7fa5578` |
+| FQ-SET-006 (automation) | Fixed by `4df1f50` |
+| FQ-DL-005 | Transport still blocked by peer TLS handshake refusal from this machine; plain error/fallback regression and retry evidence in `0ef5862` |
+
+Final review caught and corrected two integration issues before completion: the old TypeScript parity fixture encoded the bare-range bug, and the first tunnel-owner change loosened the existing local forwarded-request check. Full solution passes after both corrections.
+
 - Episode mapping implemented: cached AniList PREQUEL traversal, explicit franchise season labels and completed-prequel totals; provider coordinates remain the persisted queue identity. Split cours do not increment the season by chain length. Ambiguous/movie/special chains and unknown totals do not receive guessed offsets.
 - Parser fixes implemented: shared server episode grammar handles spaced season/dash singles, version suffixes and bracket-number fansubs; ranges/packs stay excluded. One shared resolution parser now serves Search, Library, playback and prewarm (including pixel dimensions, FHD, interlaced labels and 4k).
 - Aliases implemented: AniList English/romaji/native/synonyms plus verified prequel root titles feed queries and exact title matching; distinct names replace duplicate compact spellings. Aliases persist on Works for legacy/automation callers, and request-created works retain provider identity.
