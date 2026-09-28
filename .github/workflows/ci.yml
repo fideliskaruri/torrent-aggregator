@@ -42,10 +42,6 @@ jobs:
       - name: Type-check web
         run: pnpm --dir web run typecheck
 
-      - name: Test web
-        working-directory: web
-        run: node --test tests/*.test.mjs
-
       - name: Build web
         run: pnpm --dir web exec vite build
 

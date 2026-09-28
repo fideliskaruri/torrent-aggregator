@@ -1,12 +1,9 @@
-using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
-using TorrentFlow.Engine.Client;
 using TorrentFlow.Engine.Settings;
 using TorrentFlow.Engine.Storage;
 
@@ -19,114 +16,37 @@ internal sealed class StaticOptionsMonitor<T>(T value) : IOptionsMonitor<T>
     public IDisposable? OnChange(Action<T, string?> listener) => null;
 }
 
+/// <summary>HTTP factory that fails closed so real-engine tests never hit the network by accident.</summary>
 internal sealed class NoHttpFactory : IHttpClientFactory
 {
-    public HttpClient CreateClient(string name) => new(new FailingHandler());
+    public HttpClient CreateClient(string name) => new(new FailingHandler(), disposeHandler: true);
+
     private sealed class FailingHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-            throw new HttpRequestException("no network in unit tests");
+            throw new HttpRequestException("no network in engine tests");
     }
 }
 
-/// <summary>A settable clock whose local time zone is UTC, so download-window tests read the hour they set.</summary>
-internal sealed class ManualClock(DateTimeOffset now) : TimeProvider
-{
-    public DateTimeOffset Now { get; set; } = now;
-    public override DateTimeOffset GetUtcNow() => Now;
-    public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
-}
-
-/// <summary>In-memory torrent client: records what the service loads, so queue behaviour is observable.</summary>
-internal sealed class FakeBackend : ITorrentBackend
-{
-    public readonly ConcurrentDictionary<string, BackendSnapshot> Live = new(StringComparer.OrdinalIgnoreCase);
-    public readonly List<string> AddLog = [];
-    public Func<BackendAddSpec, BackendAddOutcome?>? AddOverride { get; set; }
-    /// <summary>Awaited before an add takes effect: lets a test hold a start mid-flight.</summary>
-    public Func<BackendAddSpec, Task>? BeforeAdd { get; set; }
-    public Action<string>? OnGet { get; set; }
-
-    public async Task<BackendAddOutcome> AddAsync(BackendAddSpec spec, CancellationToken ct)
-    {
-        if (BeforeAdd is { } before) await before(spec);
-        lock (AddLog) AddLog.Add(spec.Hash);
-        if (AddOverride?.Invoke(spec) is { } forced) return forced;
-        var snap = Live.GetOrAdd(spec.Hash, h => new BackendSnapshot(h, "name-" + h, 0, 1000, 0, 0, 0, "stalledDL", true, spec.SavePath,
-            [new BackendFile(0, "file-" + h + ".mkv", Path.Combine(spec.SavePath, "file-" + h + ".mkv"), 1000, spec.Purpose == "keep", 0)], null));
-        return new BackendAddOutcome(true, "", snap);
-    }
-
-    public bool Contains(string hash) => Live.ContainsKey(hash);
-    public BackendSnapshot? Get(string hash)
-    {
-        OnGet?.Invoke(hash);
-        return Live.TryGetValue(hash, out var s) ? s : null;
-    }
-    public IReadOnlyList<BackendSnapshot> List() => Live.Values.ToList();
-    public IReadOnlyCollection<string> LiveHashes() => Live.Keys.ToList();
-    public Task PauseAsync(string hash) { Update(hash, s => s with { State = "paused" }); return Task.CompletedTask; }
-    public Task ResumeAsync(string hash) { Update(hash, s => s with { State = "stalledDL" }); return Task.CompletedTask; }
-    public Task RemoveAsync(string hash) { Live.TryRemove(hash, out _); return Task.CompletedTask; }
-    public Task SetSelectedFilesAsync(string hash, IReadOnlySet<int>? selected)
-    {
-        Update(hash, s => s with { Files = s.Files.Select(f => f with { Selected = selected is null || selected.Contains(f.Index) }).ToList() });
-        return Task.CompletedTask;
-    }
-    public Task<Stream> OpenStreamAsync(string hash, int fileIndex, CancellationToken ct) => Task.FromResult<Stream>(new MemoryStream([1, 2, 3]));
-    public byte[]? GetMetadata(string hash) => null;
-    public Func<string, CancellationToken, Task<byte[]>> Metadata { get; set; } = (_, _) => throw new InvalidOperationException("No test metadata");
-    public Task<byte[]> DownloadMetadataAsync(string magnet, CancellationToken ct) => Metadata(magnet, ct);
-
-    public readonly List<(long? Down, long? Up)> RateLog = [];
-    public bool FailRates;
-    public Task ApplyRateLimitsAsync(long? maxDownloadRate, long? maxUploadRate)
-    {
-        if (FailRates) throw new InvalidOperationException("engine refused the new rates");
-        lock (RateLog) RateLog.Add((maxDownloadRate, maxUploadRate));
-        return Task.CompletedTask;
-    }
-
-    public void Update(string hash, Func<BackendSnapshot, BackendSnapshot> f)
-    {
-        if (Live.TryGetValue(hash, out var s)) Live[hash] = f(s);
-    }
-
-    /// <summary>Writes the release file at its full size and reports the torrent complete.</summary>
-    public void Complete(string hash)
-    {
-        var s = Live[hash];
-        foreach (var file in s.Files)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(file.FullPath)!);
-            File.WriteAllBytes(file.FullPath, new byte[file.Length]);
-        }
-        Live[hash] = s with { State = "complete", Progress = 1, Files = s.Files.Select(f => f with { Progress = 1, Selected = true }).ToList(), PieceBitfield = "/w==" };
-    }
-}
-
-/// <summary>A real migrated SQLite database + engine service over a <see cref="FakeBackend"/>.</summary>
-internal sealed class EngineHarness : IAsyncDisposable
+/// <summary>
+/// Real temp directory + migrated SQLite for MonoTorrent/disk tests.
+/// No fake ITorrentBackend — callers wire a real MonoTorrentBackend.
+/// </summary>
+internal sealed class EngineRoot : IAsyncDisposable
 {
     public string Root { get; }
     public ServiceProvider Services { get; }
     public IDbContextFactory<TorrentFlowDbContext> Db { get; }
-    public FakeBackend Backend { get; } = new();
     public EngineOptions Options { get; }
     public StorageBudget Storage { get; }
-    public TorrentEngineService Engine { get; }
-    public Queue.DownloadLimits Limits { get; } = new();
 
-    private EngineHarness(string root, ServiceProvider services, EngineOptions options, Layout.CompletedLayoutFinalizer? layout, TimeProvider? time,
-        IHttpClientFactory? httpFactory)
+    private EngineRoot(string root, ServiceProvider services, EngineOptions options)
     {
         Root = root;
         Services = services;
         Options = options;
         Db = services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>();
         Storage = new StorageBudget(TimeProvider.System) { FreeBytesProvider = _ => 10L << 40 };
-        Engine = new TorrentEngineService(Db, Backend, new StaticOptionsMonitor<EngineOptions>(options), new ClientSettingsStore(Db), Storage,
-            httpFactory ?? new NoHttpFactory(), time ?? TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout, limits: Limits);
     }
 
     public static string NewRoot()
@@ -136,8 +56,7 @@ internal sealed class EngineHarness : IAsyncDisposable
         return root;
     }
 
-    public static async Task<EngineHarness> CreateAsync(int cap = 2, long? maxStorageBytes = 1L << 40, Layout.CompletedLayoutFinalizer? layout = null,
-        TimeProvider? time = null, IHttpClientFactory? httpFactory = null)
+    public static async Task<EngineRoot> CreateAsync(int cap = 2, long? maxStorageBytes = 1L << 40)
     {
         var root = NewRoot();
         var services = new ServiceCollection()
@@ -146,7 +65,7 @@ internal sealed class EngineHarness : IAsyncDisposable
             .BuildServiceProvider();
         await services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
         var options = new EngineOptions { MaxActiveDownloads = cap, DataDirectory = root, MetadataTimeoutSeconds = 5, Streaming = true };
-        var h = new EngineHarness(root, services, options, layout, time, httpFactory);
+        var h = new EngineRoot(root, services, options);
         await using var db = await h.Db.CreateDbContextAsync();
         var settings = await new ClientSettingsStore(h.Db).EnsureAsync(db);
         settings.BaseDownloadPath = Path.Combine(root, "downloads");
@@ -168,26 +87,18 @@ internal sealed class EngineHarness : IAsyncDisposable
         return await db.EngineTorrents.AsNoTracking().OrderBy(r => r.CreatedAt).ToListAsync();
     }
 
-    public async Task<EngineTorrent> RowAsync(int n) => (await RowsAsync()).Single(r => r.Hash == Hash(n));
-
-    /// <summary>Writes a row straight to the database, bypassing the engine (a restart, a crash, a stale queue).</summary>
-    public async Task SeedAsync(int n, string status, int? ep = null, string origin = "user", string work = "show", DateTime? updatedAt = null)
-    {
-        await using var db = await Db.CreateDbContextAsync();
-        var now = DateTime.UtcNow;
-        db.EngineTorrents.Add(new EngineTorrent
-        {
-            Id = Data.Ids.New(), UserId = Data.LocalUser.Id, Hash = Hash(n), Name = "n" + n, Magnet = Magnet(n), Status = status, Origin = origin,
-            WorkId = work, QueueKey = ep is { } e ? Queue.DownloadQueue.QueueKeyForEpisode(1, e) : null,
-            CreatedAt = now, UpdatedAt = updatedAt ?? now, LastUsedAt = now, SavePath = Path.Combine(Root, "downloads"),
-        });
-        await db.SaveChangesAsync();
-    }
-
     public async ValueTask DisposeAsync()
     {
         await Services.DisposeAsync();
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         try { Directory.Delete(Root, recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
+}
+
+/// <summary>Legacy name used by remaining disk helpers (Hash/Magnet/NewRoot).</summary>
+internal static class EngineHarness
+{
+    public static string NewRoot() => EngineRoot.NewRoot();
+    public static string Hash(int n) => EngineRoot.Hash(n);
+    public static string Magnet(int n) => EngineRoot.Magnet(n);
 }

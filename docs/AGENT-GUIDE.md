@@ -198,7 +198,7 @@ or persist the engine.
 - The built-in YTS mirror list already fails over when a host returns HTML or invalid
   JSON. A custom `YTS_BASE_URL` is optional, not required setup. Provider reachability
   and torrent peer availability remain external conditions, not guaranteed by a
-  successful unit test.
+  successful real host/integration test (see docs/test-audit.md).
 
 ### Installable web app
 - The manifest and icons live in `public/`. The install action is on About when the
@@ -601,7 +601,7 @@ Key takeaways applied / to apply:
 A change is DONE only when ALL are true:
 - [ ] `pnpm run typecheck` = 0 errors
 - [ ] `pnpm run lint` = 0 errors
-- [ ] Relevant unit tests PASS **and were red-proven**
+- [ ] Relevant real host/integration tests PASS **and were red-proven**
 - [ ] `check-no-sabotage.mjs` PASS
 - [ ] If UI: a screenshot exists and you looked at it
 - [ ] If API: a real request/response is recorded

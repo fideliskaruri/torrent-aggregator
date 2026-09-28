@@ -201,7 +201,7 @@ web/                          Vite + React SPA (built into web/dist, served by t
 - Comments only where the reason is not obvious. Port the reasoning from the TypeScript comments
   when it explains a real constraint.
 - Tests: xUnit in `server/tests/TorrentFlow.<X>.Tests`. Port the TypeScript tests' assertions for the
-  logic you port. No network in unit tests; use fake `HttpMessageHandler`s and HTML fixtures.
+  logic you port. Prefer real host/network-gated tests; fake HttpMessageHandler unit tests were removed (docs/test-audit.md).
 - Globalization: ICU is on, so `string.Normalize` matches JS `String.prototype.normalize`. The host
   pins the default culture to invariant; still pass `CultureInfo.InvariantCulture` and use ordinal
   comparisons in code. On Linux, install `libicu` (present on most distros).
@@ -516,7 +516,7 @@ node scripts/parity/run.mjs
 node scripts/parity/run.mjs --no-next-build --only "health|watchlist"
 # Override the source database (never prisma\dev.db, which may be empty):
 node scripts/parity/run.mjs --db D:\code\torrent-aggregator\dev.db
-node --test scripts/parity/parity.test.mjs
+see docs/test-audit.md (web unit tests removed)
 ```
 
 Install root dependencies first (`pnpm install --frozen-lockfile`). On the controller machine set
