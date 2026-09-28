@@ -51,7 +51,8 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
         foreach (var season in seasons)
         {
             var payload = await Extras(request, season, ct);
-            var aired = payload.Episodes.Where(e => Aired(e.AirDate, today)).Select(e => e.Episode).ToList();
+            var aired = payload.Episodes.Where(e => Aired(e.AirDate, today) ||
+                request.Provider == "anilist" && e.AirDate == null && e.HasAired == true).Select(e => e.Episode).ToList();
             wanted += aired.Count;
             var result = await SeasonFanout.Run(aired,
                 (episode, before) => grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct, before), ct);

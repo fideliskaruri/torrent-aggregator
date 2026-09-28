@@ -6,6 +6,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
+| FQ-REQ-001/002, FQ-DL-006 follow-up | match-fix | Fixing AniList aired placeholders, preferred-quality selection, and provider mismatch guards |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |

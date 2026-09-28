@@ -104,6 +104,7 @@ public sealed class FakeEngine : ITorrentEngine
     public List<EngineAddRequest> Adds { get; } = [];
     public List<string> Removed { get; } = [];
     public EngineAddResult Result { get; set; } = new(true, "Started", new("started", 0, 0), new string('a', 40));
+    public Func<EngineAddRequest, EngineAddResult>? AddResult { get; set; }
     public List<(string Hash, EngineReleaseSwap Request)> Swaps { get; } = [];
     public EngineAddResult SwapResult { get; set; } = new(true, "Using the new release.", Hash: new string('b', 40));
     public Task<EngineAddResult> SwapAsync(string hash, EngineReleaseSwap request, CancellationToken ct = default)
@@ -115,7 +116,7 @@ public sealed class FakeEngine : ITorrentEngine
     public Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default)
     {
         lock (Adds) Adds.Add(request);
-        return Task.FromResult(Result);
+        return Task.FromResult(AddResult?.Invoke(request) ?? Result);
     }
     public Task<IReadOnlyList<EngineTorrentInfo>> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<EngineTorrentInfo>>([]);
     public Func<string, EngineTorrentInfo?> Info { get; set; } = _ => null;

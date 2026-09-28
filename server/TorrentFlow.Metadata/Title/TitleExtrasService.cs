@@ -18,7 +18,7 @@ public sealed record TitleEpisodeMeta(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? AirDate,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? RuntimeMin,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? StillUrl,
-    string? AirStamp = null);
+    string? AirStamp = null, bool? HasAired = null);
 
 public sealed record TitleSimilar(
     string WorkKey, string Href, string Title,
@@ -115,7 +115,8 @@ public sealed class TitleExtrasService(
             int? animeSeason = series ? (q.Season is >= 1 ? q.Season : 1) : null;
             var count = series ? work!.EpisodeCount : null;
             var animeEpisodes = count is { } c && animeSeason == 1
-                ? Enumerable.Range(1, Math.Min(c, EpisodePlaceholderCap)).Select(i => new TitleEpisodeMeta(i, null, null, null, null, null)).ToList()
+                ? Enumerable.Range(1, Math.Min(c, EpisodePlaceholderCap))
+                    .Select(i => new TitleEpisodeMeta(i, null, null, null, null, null, HasAired: i <= (work!.AiredEpisodeCount ?? 0))).ToList()
                 : [];
             return empty with
             {
