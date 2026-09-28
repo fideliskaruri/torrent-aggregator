@@ -246,7 +246,7 @@ function SeasonRail({
                   style={{ width: `${pct}%` }}
                 />
               </span>
-              <span className="shrink-0 text-[10px] tabular-nums text-[var(--text-tertiary)]">
+              <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
                 {pct}%
               </span>
             </span>
@@ -382,7 +382,7 @@ function EpisodeCard({
               <Badge variant="outline">{display.qualityChip}</Badge>
             ) : null}
             {source ? (
-              <span className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">
+              <span className="text-[12px] uppercase tracking-wide text-[var(--text-tertiary)]">
                 {source}
               </span>
             ) : null}
@@ -400,13 +400,13 @@ function EpisodeCard({
             {t.imported && <Badge variant="outline">Imported</Badge>}
             {waitReasonLabel(t.state, t.waitReason) ? (
               <span
-                className="text-[11px] text-[var(--text-tertiary)]"
+                className="text-[12px] text-[var(--text-tertiary)]"
                 data-wait-reason={t.waitReason ?? undefined}
               >
                 {waitReasonLabel(t.state, t.waitReason)}
               </span>
             ) : null}
-            <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
+            <span className="text-[12px] tabular-nums text-[var(--text-tertiary)]">
               {formatBytes(t.sizeBytes)}
               {t.peers != null ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : ""}
               {showEta ? ` · ETA ${formatDuration(t.eta as number)}` : ""}
@@ -422,44 +422,57 @@ function EpisodeCard({
           className="h-1.5 flex-1"
           indicatorClassName={barTone(t.state)}
         />
-        <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
+        <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
           {pct}%
         </span>
         {speed ? (
-          <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+          <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
             ↓ {speed}
           </span>
         ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-2 pt-0.5">
-        {streaming && isBuiltin ? (
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            disabled={!canPlay}
-            onClick={() =>
-              onPlay({
-                hash: t.hash,
-                title: t.workTitle?.trim() || display.title,
-                workKey: t.workKey ?? null,
-                mediaType: t.workMediaType ?? t.category ?? null,
-                year: t.workYear ?? null,
-                season: entry.season ?? season.season,
-                episode: entry.episode,
-              })
-            }
-            aria-label={canPlay ? `Play ${epLabel}` : `Play ${epLabel} — nothing to play yet`}
-            title={canPlay ? "Play" : "Nothing to play yet"}
-            data-episode-play
-          >
-            <Play className="h-3.5 w-3.5" />
-            Play
-          </Button>
-        ) : (
-          <span />
-        )}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {isQueued(t.state) && isBuiltin ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => onAction("force", t)}
+              aria-label={`Download ${epLabel} now`}
+              data-episode-force-now
+            >
+              <Zap className="h-3.5 w-3.5" />
+              Download now
+            </Button>
+          ) : null}
+          {streaming && isBuiltin ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={!canPlay}
+              onClick={() =>
+                onPlay({
+                  hash: t.hash,
+                  title: t.workTitle?.trim() || display.title,
+                  workKey: t.workKey ?? null,
+                  mediaType: t.workMediaType ?? t.category ?? null,
+                  year: t.workYear ?? null,
+                  season: entry.season ?? season.season,
+                  episode: entry.episode,
+                })
+              }
+              aria-label={canPlay ? `Play ${epLabel}` : `Play ${epLabel} — nothing to play yet`}
+              title={canPlay ? "Play" : "Nothing to play yet"}
+              data-episode-play
+            >
+              <Play className="h-3.5 w-3.5" />
+              Play
+            </Button>
+          ) : null}
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -479,7 +492,7 @@ function EpisodeCard({
               away here — the same rule the compact page row already follows.
             */}
             <div
-              className="px-2 py-1.5 text-[11px] leading-relaxed text-[var(--text-tertiary)]"
+              className="px-2 py-1.5 text-[12px] leading-relaxed text-[var(--text-tertiary)]"
               data-torrent-details
             >
               <p className="font-medium text-[var(--text-secondary)]">Details</p>
@@ -671,12 +684,12 @@ export function SeriesDownloadDialog({
             >
               {stateLabel(group.state, leadQueuePosition(group.torrents))}
             </Badge>
-            <span className="min-w-0 flex-1 truncate text-[11px] tabular-nums text-[var(--text-tertiary)]">
+            <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-[var(--text-tertiary)]">
               {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
               {formatBytes(group.sizeBytes)} · {pct}%
             </span>
             {isDownloading(group.state) && speed ? (
-              <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+              <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
                 ↓ {speed}
               </span>
             ) : null}
@@ -734,7 +747,7 @@ export function SeriesDownloadDialog({
                 >
                   {stateLabel(group.state, leadQueuePosition(group.torrents))}
                 </Badge>
-                <span className="text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="text-[12px] tabular-nums text-[var(--text-tertiary)]">
                   {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"} ·{" "}
                   {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
                   {formatBytes(group.sizeBytes)}
@@ -747,11 +760,11 @@ export function SeriesDownloadDialog({
                   className="h-1.5 flex-1 max-w-[16rem]"
                   indicatorClassName={barTone(group.state)}
                 />
-                <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
                   {pct}%
                 </span>
                 {isDownloading(group.state) && speed ? (
-                  <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
                     ↓ {speed}
                   </span>
                 ) : null}

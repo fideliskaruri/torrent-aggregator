@@ -46,3 +46,11 @@ test("Find another release is a row action on films and episode cards, and succe
   assert.match(page, /if \(act === "swap"\) \{ setSwapTorrent\(torrent\); return; \}/);
   assert.match(page, /onSwapped=\{[\s\S]*?invalidateInFlight\(\);[\s\S]*?void load\(\);/);
 });
+
+test("Downloads rows and episode cards keep text at 12px or larger and show Download now on the card", () => {
+  for (const [name, source] of [["page.tsx", page], ["series-download-dialog.tsx", series]]) {
+    assert.doesNotMatch(source, /text-\[(9|10|11)px\]/, `${name} has text under 12px`);
+  }
+  assert.match(series, /data-episode-force-now/);
+  assert.match(series, /aria-label=\{`Download \$\{epLabel\} now`\}/);
+});

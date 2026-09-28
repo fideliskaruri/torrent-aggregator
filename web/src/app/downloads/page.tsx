@@ -1241,7 +1241,7 @@ export default function ClientPage() {
             <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
               Details
             </summary>
-            <p className="mt-1 break-words font-mono text-[11px]">{error}</p>
+            <p className="mt-1 break-words font-mono text-[12px]">{error}</p>
           </details>
           <Button
             type="button"
@@ -1281,7 +1281,7 @@ export default function ClientPage() {
               <summary className="cursor-pointer font-medium text-[var(--text-secondary)]">
                 Details
               </summary>
-              <p className="mt-1 break-words font-mono text-[11px]">{error}</p>
+              <p className="mt-1 break-words font-mono text-[12px]">{error}</p>
             </details>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1505,7 +1505,7 @@ export default function ClientPage() {
             ) : null}
             <div className="surface overflow-hidden" data-client-table>
               {/* Header row */}
-              <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3 items-center px-3 py-2 border-b border-[var(--border)] text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+              <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3 items-center px-3 py-2 border-b border-[var(--border)] text-[12px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
                 <Checkbox
                   checked={allVisibleSelected}
                   onCheckedChange={() => toggleSelectAll()}
@@ -1676,7 +1676,7 @@ export default function ClientPage() {
                         : `${pendingDelete[0].name} and ${pendingDelete.length - 1} more`}
                     </p>
                     {pendingDelete[0].savePath ? (
-                      <p className="text-[11px] font-mono text-[var(--text-tertiary)] break-all">
+                      <p className="text-[12px] font-mono text-[var(--text-tertiary)] break-all">
                         {displayPath(pendingDelete[0].savePath)}
                       </p>
                     ) : null}
@@ -1819,7 +1819,7 @@ function SeriesOverviewRow({
               >
                 {stateLabel(group.state, leadQueuePosition(group.torrents))}
               </Badge>
-              <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
+              <span className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
                 {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}
                 {" · "}
                 {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"}
@@ -1834,11 +1834,11 @@ function SeriesOverviewRow({
                 className="h-1.5 flex-1 max-w-[18rem]"
                 indicatorClassName={barTone}
               />
-              <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
+              <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
                 {pct}%
               </span>
               {isDownloading(group.state) && speedLabel(group.dlspeed) ? (
-                <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+                <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
                   ↓ {speedLabel(group.dlspeed)}
                 </span>
               ) : null}
@@ -2034,7 +2034,7 @@ function FilmRow({
                 {t.imported && <Badge variant="outline">Imported</Badge>}
                 {waitReasonLabel(t.state, t.waitReason) ? (
                   <span
-                    className="text-[11px] text-[var(--text-tertiary)]"
+                    className="text-[12px] text-[var(--text-tertiary)]"
                     data-wait-reason={t.waitReason ?? undefined}
                   >
                     {waitReasonLabel(t.state, t.waitReason)}
@@ -2047,7 +2047,7 @@ function FilmRow({
                   overflow's Details.
                 */}
                 {display.qualityChip ? <Badge variant="outline">{display.qualityChip}</Badge> : null}
-                <span className="text-[11px] text-[var(--text-tertiary)] tabular-nums">
+                <span className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
                   {formatBytes(t.sizeBytes)}
                   {isDownloading(t.state) && t.eta != null && t.eta > 0
                     ? ` · ETA ${formatDuration(t.eta)}`
@@ -2061,11 +2061,11 @@ function FilmRow({
                   className="h-1.5 flex-1 max-w-[18rem]"
                   indicatorClassName={barTone}
                 />
-                <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
                   {pct}%
                 </span>
                 {isDownloading(t.state) && speedLabel(t.dlspeed) ? (
-                  <span className="shrink-0 text-[11px] tabular-nums font-mono text-[var(--accent-text)]">
+                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
                     ↓ {speedLabel(t.dlspeed)}
                   </span>
                 ) : null}
@@ -2160,7 +2160,7 @@ function FilmRow({
               one keystroke away rather than gone.
             */}
             <div
-              className="px-2 py-1.5 text-[11px] leading-relaxed text-[var(--text-tertiary)]"
+              className="px-2 py-1.5 text-[12px] leading-relaxed text-[var(--text-tertiary)]"
               data-torrent-details
             >
               <p className="font-medium text-[var(--text-secondary)]">Details</p>
