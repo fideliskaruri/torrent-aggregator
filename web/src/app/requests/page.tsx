@@ -3,6 +3,16 @@ import { Ban, Check, Inbox, Loader2, Plus, RotateCw, X } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -154,14 +164,14 @@ export default function RequestsPage() {
   return (
     <div className="container-app max-w-4xl space-y-6 py-6" data-requests-page={reviewing ? "inbox" : "mine"} {...(reviewing ? { "data-owner-requests": "" } : {})}>
       <div className="space-y-2">
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-[var(--text)]">Requests</h1>
-        <p className="max-w-prose text-sm leading-relaxed text-[var(--text-secondary)]">
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Requests</h1>
+        <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
           {reviewing
             ? "What friends asked for. Approving starts the download."
             : "What you asked for. The owner decides, and you can cancel while it's waiting."}
         </p>
         {caps.previewing ? (
-          <p className="max-w-prose text-sm text-[var(--text-secondary)]" data-requests-preview-note>
+          <p className="max-w-prose text-sm text-muted-foreground" data-requests-preview-note>
             Preview: this lists every friend&apos;s request and Cancel is off. A friend sees only their own.
           </p>
         ) : null}
@@ -170,8 +180,8 @@ export default function RequestsPage() {
       {reviewing ? (
       <section className="surface space-y-3 p-3 sm:p-4" data-auto-approve>
         <div className="space-y-0.5">
-          <h2 className="text-sm font-semibold text-[var(--text)]">Auto-approve</h2>
-          <p className="text-xs text-[var(--text-secondary)]">
+          <h2 className="text-sm font-semibold text-foreground">Auto-approve</h2>
+          <p className="text-xs text-muted-foreground">
             Skip the inbox for trusted friends. Movies only still asks you about series.
           </p>
         </div>
@@ -182,45 +192,48 @@ export default function RequestsPage() {
         ) : (
           <ul className="space-y-2" data-auto-approve-list>
             {autoRows.length === 0 ? (
-              <li className="text-xs text-[var(--text-tertiary)]">No requesters yet. Add an email below.</li>
+              <li className="text-xs text-subtle-foreground">No requesters yet. Add an email below.</li>
             ) : (
               autoRows.map((row) => (
                 <li
                   key={row.email}
-                  className="flex flex-col gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+                  className="flex flex-col gap-2 rounded-md border border-border bg-background p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                   data-auto-approve-row={row.email}
                 >
-                  <span className="min-w-0 truncate text-sm text-[var(--text)]" title={row.email}>
+                  <span className="min-w-0 truncate text-sm text-foreground" title={row.email}>
                     {row.email}
                   </span>
-                  <label className="sr-only" htmlFor={`auto-mode-${row.email}`}>
-                    Auto-approve for {row.email}
-                  </label>
-                  <select
-                    id={`auto-mode-${row.email}`}
+                  <Select
                     value={row.mode}
                     disabled={autoBusy}
-                    onChange={(e) => void setMode(row.email, e.target.value as AutoApproveMode)}
-                    className="min-h-[44px] w-full shrink-0 rounded-md border border-[var(--border)] bg-[var(--bg-muted)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] sm:w-44 sm:text-sm"
-                    data-auto-approve-mode={row.email}
-                    aria-label={`Auto-approve mode for ${row.email}`}
+                    onValueChange={(value) => void setMode(row.email, value as AutoApproveMode)}
                   >
-                    {AUTO_MODES.map((mode) => (
-                      <option key={mode} value={mode}>
-                        {autoApproveModeLabel(mode)}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      id={`auto-mode-${row.email}`}
+                      className="w-full shrink-0 sm:w-44"
+                      data-auto-approve-mode={row.email}
+                      aria-label={`Auto-approve mode for ${row.email}`}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AUTO_MODES.map((mode) => (
+                        <SelectItem key={mode} value={mode}>
+                          {autoApproveModeLabel(mode)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </li>
               ))
             )}
           </ul>
         )}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <label htmlFor="auto-approve-add" className="sr-only">
+          <Label htmlFor="auto-approve-add" className="sr-only">
             Add requester email
-          </label>
-          <input
+          </Label>
+          <Input
             id="auto-approve-add"
             type="email"
             value={draftEmail}
@@ -232,14 +245,13 @@ export default function RequestsPage() {
               }
             }}
             placeholder="friend@example.com"
-            className="min-h-[44px] min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] sm:text-sm"
+            className="min-w-0 flex-1"
             data-auto-approve-add-email
           />
           <Button
             type="button"
             size="sm"
             variant="secondary"
-            className="min-h-[44px]"
             disabled={autoBusy}
             onClick={addEmail}
             aria-label="Add email to auto-approve list"
@@ -284,31 +296,31 @@ export default function RequestsPage() {
             const busy = busyId === request.id;
             return (
               <li key={request.id} className="surface flex gap-3 p-3 sm:gap-4" data-owner-request-row={request.status}>
-                <div className="relative aspect-[2/3] w-12 shrink-0 self-start overflow-hidden rounded-md bg-[var(--bg-muted)] sm:w-14">
+                <div className="relative aspect-[2/3] w-12 shrink-0 self-start overflow-hidden rounded-md bg-muted sm:w-14">
                   <PosterImage src={request.posterUrl} title={request.title} sizes="56px" />
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 space-y-1">
-                    <p className="line-clamp-2 text-sm font-medium text-[var(--text)]">
+                    <p className="line-clamp-2 text-sm font-medium text-foreground">
                       {request.title}
                       {request.year ? (
-                        <span className="ml-1.5 font-normal tabular-nums text-[var(--text-tertiary)]">{request.year}</span>
+                        <span className="ml-1.5 font-normal tabular-nums text-subtle-foreground">{request.year}</span>
                       ) : null}
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge variant={statusTone(request.status)} data-owner-request-status={request.status}>
                         {request.status === "pending" && reviewing ? "Waiting for you" : statusLabel(request.status)}
                       </Badge>
-                      <span className="text-xs text-[var(--text-tertiary)]">{scopeLabel(request)}</span>
+                      <span className="text-xs text-subtle-foreground">{scopeLabel(request)}</span>
                     </div>
                     {reviewing ? (
-                      <p className="truncate text-xs text-[var(--text-tertiary)]" title={request.requestedBy}>
+                      <p className="truncate text-xs text-subtle-foreground" title={request.requestedBy}>
                         From {request.requestedBy || "someone"}
                       </p>
                     ) : null}
-                    {request.note ? <p className="line-clamp-3 text-xs text-[var(--text-secondary)]">“{request.note}”</p> : null}
+                    {request.note ? <p className="line-clamp-3 text-xs text-muted-foreground">“{request.note}”</p> : null}
                     {request.decisionReason ? (
-                      <p className="text-xs text-[var(--text-secondary)]">Reason: {request.decisionReason}</p>
+                      <p className="text-xs text-muted-foreground">Reason: {request.decisionReason}</p>
                     ) : null}
                   </div>
                   {request.status === "pending" && !reviewing ? (
@@ -385,16 +397,16 @@ export default function RequestsPage() {
             <AlertDialogDescription>They'll see it was declined, and your reason if you give one.</AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-1.5">
-            <label htmlFor="decline-reason" className="text-xs font-medium text-[var(--text-secondary)]">
-              Reason <span className="font-normal text-[var(--text-tertiary)]">(optional)</span>
-            </label>
-            <textarea
+            <Label htmlFor="decline-reason" className="text-xs text-muted-foreground">
+              Reason <span className="font-normal text-subtle-foreground">(optional)</span>
+            </Label>
+            <Textarea
               id="decline-reason"
               value={reason}
               maxLength={REASON_MAX}
               onChange={(e) => setReason(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] sm:text-sm"
+              className="min-h-20"
               placeholder="Already on a streaming service, for example"
               data-owner-decline-reason
             />

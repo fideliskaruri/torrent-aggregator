@@ -27,8 +27,17 @@ import { Button } from "@/components/ui/button";
 import { useDownloadSetup } from "@/components/setup/download-setup";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1074,18 +1083,14 @@ export default function ClientPage() {
             >
               {offline && !isBuiltin ? "Unavailable" : "Connected"}
             </Badge>
-            <span className="text-[var(--text-tertiary)]">
+            <span className="text-subtle-foreground">
               {offline && !isBuiltin ? "Retrying automatically" : "Updates automatically"}
             </span>
-            <details
-              className="group/details text-xs text-[var(--text-tertiary)]"
+            <DetailsDisclosure
+              className="text-xs text-subtle-foreground"
+              contentClassName="mt-1 space-y-0.5"
               data-client-connection-details
             >
-              <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-1 font-medium text-[var(--text-secondary)] hover:text-[var(--text)] lg:min-h-0 [&::-webkit-details-marker]:hidden">
-                Details
-                <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" />
-              </summary>
-              <div className="mt-1 space-y-0.5">
                 <p>
                   {isBuiltin
                     ? "Built-in downloader"
@@ -1102,8 +1107,7 @@ export default function ClientPage() {
                   <p className="break-all font-mono">{clientHost}</p>
                 ) : null}
                 <DownloadRecovery mode="paths" />
-              </div>
-            </details>
+            </DetailsDisclosure>
           </span>
         }
         actions={
@@ -1112,7 +1116,6 @@ export default function ClientPage() {
               type="button"
               variant="secondary"
               size="sm"
-              className="min-h-[44px]"
               onClick={() => void load()}
               aria-label="Refresh downloads"
               data-downloads-refresh
@@ -1128,7 +1131,6 @@ export default function ClientPage() {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="min-h-[44px] min-w-[44px]"
                   aria-label="More download actions"
                   data-downloads-more
                 >
@@ -1140,7 +1142,6 @@ export default function ClientPage() {
                 {isBuiltin ? (
                   <DropdownMenuItem
                     disabled={tidying}
-                    className="min-h-[44px]"
                     onClick={() => void tidyFolders()}
                     data-tidy-folders
                   >
@@ -1148,7 +1149,7 @@ export default function ClientPage() {
                     {tidying ? "Tidying…" : "Tidy folders"}
                   </DropdownMenuItem>
                 ) : null}
-                <DropdownMenuItem asChild className="min-h-[44px]">
+                <DropdownMenuItem asChild>
                   <Link to="/settings?tab=connection">Settings</Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -1159,18 +1160,15 @@ export default function ClientPage() {
 
       <div className="surface space-y-3 p-4" data-raw-torrent-send>
         <div className="min-w-0 space-y-1">
-          <p className="text-[13px] font-medium text-[var(--text)]">
+          <p className="text-[13px] font-medium text-foreground">
             Add a magnet or .torrent URL
           </p>
-          <p className="text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+          <p className="text-[12px] leading-relaxed text-subtle-foreground">
             Paste a magnet link or a direct .torrent URL, then add it to your downloads.
           </p>
         </div>
-        <textarea
-          className={cn(
-            "min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--brand)]",
-            (rawSendInvalid || rawSendError?.field === "source") && "border-[var(--danger)]",
-          )}
+        <Textarea
+          className="min-h-24"
           value={rawSendValue}
           onChange={(event) => {
             setRawSendValue(event.target.value);
@@ -1185,7 +1183,7 @@ export default function ClientPage() {
         {rawSendInvalid ? (
           <p
             id="raw-torrent-send-error"
-            className="text-[12px] leading-relaxed text-[var(--danger)]"
+            className="text-[12px] leading-relaxed text-destructive"
             data-raw-torrent-send-error="source"
             data-raw-torrent-invalid
           >
@@ -1195,7 +1193,7 @@ export default function ClientPage() {
           <p
             id="raw-torrent-send-error"
             role="alert"
-            className="text-[12px] leading-relaxed text-[var(--danger)]"
+            className="text-[12px] leading-relaxed text-destructive"
             data-raw-torrent-send-error={rawSendError.field ?? "send"}
           >
             {rawSendError.message}
@@ -1204,7 +1202,7 @@ export default function ClientPage() {
                 {" "}
                 <Link
                   to="/settings"
-                  className="inline-flex min-h-[44px] items-center font-medium text-[var(--accent-text)] underline underline-offset-2 lg:min-h-0"
+                  className="inline-flex min-h-[44px] items-center font-medium text-brand-foreground underline underline-offset-2 lg:min-h-0"
                 >
                   Open Settings
                 </Link>
@@ -1218,7 +1216,7 @@ export default function ClientPage() {
             size="sm"
             onClick={() => void sendRawTorrent()}
             disabled={sendingRaw || !rawSendTrimmed || rawSendInvalid}
-            className="min-h-[44px] w-full shrink-0 sm:w-auto"
+            className="w-full shrink-0 sm:w-auto"
             data-raw-torrent-send-button
           >
             {sendingRaw ? <LoadingGlyph className="h-3.5 w-3.5" /> : <Magnet aria-hidden />}
@@ -1240,21 +1238,17 @@ export default function ClientPage() {
           role="status"
           data-client-stale
         >
-          <span className="font-medium text-[var(--text)]">
+          <span className="font-medium text-foreground">
             {offline && !isBuiltin
               ? "Torrent client unavailable"
               : "Could not refresh downloads"}
           </span>
-          <span className="min-w-0 flex-1 text-[var(--text-secondary)]">
+          <span className="min-w-0 flex-1 text-muted-foreground">
             Showing the last known state. Your downloads are unchanged.
           </span>
-          <details className="group/details min-w-0 text-[var(--text-tertiary)]" data-client-error-details>
-            <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-1 font-medium text-[var(--text-secondary)] hover:text-[var(--text)] lg:min-h-0 [&::-webkit-details-marker]:hidden">
-              Details
-              <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" />
-            </summary>
+          <DetailsDisclosure className="min-w-0 text-subtle-foreground" data-client-error-details>
             <p className="mt-1 break-words font-mono text-[12px]">{error}</p>
-          </details>
+          </DetailsDisclosure>
           <Button
             type="button"
             variant="secondary"
@@ -1275,27 +1269,23 @@ export default function ClientPage() {
           data-client-engine-error={isBuiltin || !offline ? "true" : undefined}
         >
           <div className="space-y-1">
-            <p className="font-medium text-[var(--text)]">
+            <p className="font-medium text-foreground">
               {isBuiltin
                 ? "Downloads are temporarily unavailable"
                 : offline
                   ? "Torrent client unavailable"
                   : "Downloads could not load"}
             </p>
-            <p className="text-[var(--text-secondary)] leading-relaxed">
+            <p className="text-muted-foreground leading-relaxed">
               {isBuiltin
                 ? "Retry now. If this keeps happening, check the download connection settings."
                 : offline
                   ? "Reconnect the client, or switch to the built-in downloader."
                   : "Retry now, or check the download connection settings."}
             </p>
-            <details className="group/details text-[var(--text-tertiary)]" data-client-error-details>
-              <summary className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-1 font-medium text-[var(--text-secondary)] hover:text-[var(--text)] lg:min-h-0 [&::-webkit-details-marker]:hidden">
-                Details
-                <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" />
-              </summary>
+            <DetailsDisclosure className="text-subtle-foreground" data-client-error-details>
               <p className="mt-1 break-words font-mono text-[12px]">{error}</p>
-            </details>
+            </DetailsDisclosure>
           </div>
           <div className="flex flex-wrap gap-2">
             {!isBuiltin ? (
@@ -1324,7 +1314,7 @@ export default function ClientPage() {
               Retry now
             </Button>
           </div>
-          <p className="text-[12px] text-[var(--text-tertiary)]">
+          <p className="text-[12px] text-subtle-foreground">
             {isBuiltin
               ? "Check that the saved download folder is available, then retry."
               : "Switch to the built-in downloader, or reconnect your external client and retry."}
@@ -1382,62 +1372,65 @@ export default function ClientPage() {
             season and episode of the show it was opened for, regardless of
             what these narrow the main list down to (see `allGroups` above).
           */}
-          <div
-            className="flex flex-wrap items-center gap-1 border-b border-[var(--border)] pb-1"
-            role="tablist"
-            aria-label="Media type"
-            data-media-tabs
+          <Tabs
+            value={mediaTab}
+            onValueChange={(value) => setMediaTab(value as DownloadTab)}
+            className="min-w-0 gap-4"
           >
-            {DOWNLOAD_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                role="tab"
-                onClick={() => setMediaTab(tab)}
-                aria-selected={mediaTab === tab}
-                data-media-tab={tab}
-                className={cn(
-                  "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-3 py-1 text-[12px] font-medium transition-colors lg:min-h-0 lg:py-1.5",
-                  mediaTab === tab
-                    ? "bg-[var(--bg-muted)] text-[var(--text)]"
-                    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
-                )}
-              >
-                {DOWNLOAD_TAB_LABELS[tab]}
-              </button>
-            ))}
-          </div>
+          <ScrollArea className="min-w-0">
+            <TabsList aria-label="Media type" className="group-data-horizontal/tabs:h-auto" data-media-tabs>
+              {DOWNLOAD_TABS.map((tab) => (
+                <TabsTrigger
+                  key={tab}
+                  value={tab}
+                  data-media-tab={tab}
+                  className="h-8 flex-none px-3 text-[13px] max-md:h-11 pointer-coarse:h-11"
+                >
+                  {DOWNLOAD_TAB_LABELS[tab]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
 
+          <TabsContent value={mediaTab} className="min-w-0 space-y-4">
           {/* Toolbar */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-tertiary)]" />
-              <Input
+            <InputGroup className="h-auto max-w-sm flex-1">
+              <InputGroupAddon>
+                <Search aria-hidden className="size-3.5" />
+              </InputGroupAddon>
+              <InputGroupInput
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder="Filter torrents…"
-                className="pl-8 h-8 text-[13px]"
+                aria-label="Filter downloads"
                 data-client-filter
               />
-            </div>
-            <div className="flex flex-wrap items-center gap-1">
+            </InputGroup>
+            <ToggleGroup
+              type="single"
+              value={statusFilter}
+              onValueChange={(value) => {
+                if (value) setStatusFilter(value as StatusFilter);
+              }}
+              aria-label="Status"
+              spacing={1}
+              className="flex-wrap"
+              data-status-filters
+            >
               {statusChips.map((c) => (
-                <button
+                <ToggleGroupItem
                   key={c.id}
-                  type="button"
-                  onClick={() => setStatusFilter(c.id)}
-                  aria-pressed={statusFilter === c.id}
-                  className={cn(
-                    "inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md px-2 py-1 text-xs font-medium transition-colors lg:min-h-0 lg:min-w-0",
-                    statusFilter === c.id
-                      ? "bg-[var(--bg-muted)] text-[var(--text)]"
-                      : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
-                  )}
+                  value={c.id}
+                  size="sm"
+                  data-status-filter={c.id}
+                  className="px-2.5 text-xs text-subtle-foreground hover:text-muted-foreground data-[state=on]:text-foreground max-md:h-11 max-md:min-w-11 pointer-coarse:h-11 pointer-coarse:min-w-11"
                 >
                   {c.label}
-                </button>
+                </ToggleGroupItem>
               ))}
-            </div>
+            </ToggleGroup>
           </div>
 
           {selected.size > 0 ? (
@@ -1445,7 +1438,7 @@ export default function ClientPage() {
               className="surface flex flex-wrap items-center gap-2 px-3 py-2"
               data-bulk-bar
             >
-              <span className="text-[12px] text-[var(--text-secondary)] mr-1">
+              <span className="text-[12px] text-muted-foreground mr-1">
                 {selected.size} selected
               </span>
               <Button
@@ -1519,7 +1512,7 @@ export default function ClientPage() {
             torrents.every(
               (t) => t.progress < 0.01 && /meta|stall/i.test(t.state),
             ) ? (
-              <p className="text-[12px] text-[var(--text-tertiary)] px-1 mb-2">
+              <p className="text-[12px] text-subtle-foreground px-1 mb-2">
                 These downloads have not started yet. Give them a minute to find
                 available copies; if they stay at 0%, try another version with
                 more sources.
@@ -1527,7 +1520,7 @@ export default function ClientPage() {
             ) : null}
             <div className="surface overflow-hidden" data-client-table>
               {/* Header row */}
-              <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3 items-center px-3 py-2 border-b border-[var(--border)] text-[12px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+              <div className="hidden sm:grid grid-cols-[auto_minmax(0,1fr)_auto] gap-3 items-center px-3 py-2 border-b border-border text-[12px] font-medium uppercase tracking-wide text-subtle-foreground">
                 <Checkbox
                   checked={allVisibleSelected}
                   onCheckedChange={() => toggleSelectAll()}
@@ -1545,7 +1538,7 @@ export default function ClientPage() {
                 list here — that disclosure lives entirely in
                 `SeriesDownloadDialog` now.
               */}
-              <div className="divide-y divide-[var(--border)]">
+              <div className="divide-y divide-border">
                 {grouped.map((group) => {
                   if (group.kind === "series") {
                     return (
@@ -1591,13 +1584,15 @@ export default function ClientPage() {
               </div>
 
               {filtered.length === 0 && torrents.length > 0 ? (
-                <p className="px-4 py-8 text-center text-[13px] text-[var(--text-tertiary)]">
+                <p className="px-4 py-8 text-center text-[13px] text-subtle-foreground">
                   No torrents match this filter.
                 </p>
               ) : null}
             </div>
             </>
           )}
+          </TabsContent>
+          </Tabs>
         </>
       )}
 
@@ -1691,21 +1686,21 @@ export default function ClientPage() {
                     : "its client"}.
                 </p>
                 {pendingDelete?.[0] ? (
-                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 space-y-1">
-                    <p className="text-sm text-[var(--text)] font-medium line-clamp-2">
+                  <div className="rounded-lg border border-border bg-muted p-3 space-y-1">
+                    <p className="text-sm text-foreground font-medium line-clamp-2">
                       {pendingDelete.length === 1
                         ? pendingDelete[0].name
                         : `${pendingDelete[0].name} and ${pendingDelete.length - 1} more`}
                     </p>
                     {pendingDelete[0].savePath ? (
-                      <p className="text-[12px] font-mono text-[var(--text-tertiary)] break-all">
+                      <p className="text-[12px] font-mono text-subtle-foreground break-all">
                         {displayPath(pendingDelete[0].savePath)}
                       </p>
                     ) : null}
                   </div>
                 ) : null}
-                <p className="text-[13px] text-[var(--text-secondary)]">
-                  <strong className="font-medium text-[var(--danger)]">
+                <p className="text-[13px] text-muted-foreground">
+                  <strong className="font-medium text-destructive">
                     Delete + files
                   </strong>{" "}
                   permanently removes the downloaded data from disk. This cannot
@@ -1728,7 +1723,7 @@ export default function ClientPage() {
               Remove only
             </Button>
             <AlertDialogAction
-              className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
+              className="bg-destructive text-white hover:bg-destructive/90"
               disabled={deleting}
               onClick={(e) => {
                 e.preventDefault();
@@ -1785,12 +1780,12 @@ function SeriesOverviewRow({
   const chip = rollupChip(group);
   const tally = seriesEpisodeTally(group);
   const barTone = isDownloaded(group.state)
-    ? "bg-[var(--success)]"
+    ? "bg-success"
     : isError(group.state) || chip.failing
-      ? "bg-[var(--danger)]"
+      ? "bg-destructive"
       : isPaused(group.state) || isQueued(group.state)
-        ? "bg-[var(--text-tertiary)]"
-        : "bg-[var(--primary)]";
+        ? "bg-subtle-foreground"
+        : "bg-primary";
   const titleHref = downloadTitleHref(head);
   // Once several members failed the chip carries the count; repeating one
   // member's error text would read as if it were the whole series' story.
@@ -1803,7 +1798,7 @@ function SeriesOverviewRow({
     <div
       className={cn(
         "grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-start sm:items-center px-3 py-2.5 transition-colors",
-        allSelected ? "bg-[var(--accent-dim)]" : "hover:bg-[var(--bg-muted)]/60",
+        allSelected ? "bg-brand-dim" : "hover:bg-muted/60",
       )}
       data-download-group
       data-group-key={group.key}
@@ -1828,14 +1823,14 @@ function SeriesOverviewRow({
             {titleHref ? (
               <Link
                 to={titleHref}
-                className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:block lg:min-h-0"
+                className="flex items-center min-h-[44px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:block lg:min-h-0"
               >
-                <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
+                <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug hover:text-brand-foreground">
                   {group.title}
                 </p>
               </Link>
             ) : (
-              <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug">
+              <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug">
                 {group.title}
               </p>
             )}
@@ -1843,7 +1838,7 @@ function SeriesOverviewRow({
               <Badge variant={chip.variant} data-group-state>
                 {chip.label}
               </Badge>
-              <span className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
+              <span className="text-[12px] text-subtle-foreground tabular-nums">
                 {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}
                 {" · "}
                 {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"}
@@ -1854,19 +1849,19 @@ function SeriesOverviewRow({
             {tally.downloaded > 0 || tally.downloading > 0 ? (
               <p
                 data-group-episodes
-                className="flex flex-wrap items-center gap-x-1 text-[12px] tabular-nums text-[var(--text-secondary)]"
+                className="flex flex-wrap items-center gap-x-1 text-[12px] tabular-nums text-muted-foreground"
               >
                 <span>
                   {tally.downloaded} {tally.downloaded === 1 ? "episode" : "episodes"} downloaded
                 </span>
                 {tally.downloading > 0 ? (
-                  <span className="text-[var(--text-tertiary)]">+{tally.downloading} downloading</span>
+                  <span className="text-subtle-foreground">+{tally.downloading} downloading</span>
                 ) : null}
               </p>
             ) : null}
             {groupErrorMessage ? (
               <p
-                className="text-[12px] leading-snug text-[var(--danger)]"
+                className="text-[12px] leading-snug text-destructive"
                 data-group-error-message
               >
                 {groupErrorMessage}
@@ -1879,11 +1874,11 @@ function SeriesOverviewRow({
                 className="h-1.5 flex-1 max-w-[18rem]"
                 indicatorClassName={barTone}
               />
-              <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
+              <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
                 {pct}%
               </span>
               {isDownloading(group.state) && speedLabel(group.dlspeed) ? (
-                <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
+                <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
                   ↓ {speedLabel(group.dlspeed)}
                 </span>
               ) : null}
@@ -1919,21 +1914,19 @@ function SeriesOverviewRow({
           <DropdownMenuContent align="end">
             <DropdownMenuItem
               onClick={() => onActionMany("pause", group.torrents)}
-              className="min-h-[44px] lg:min-h-0"
             >
               <Pause />
               Pause all
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onActionMany("resume", group.torrents)}
-              className="min-h-[44px] lg:min-h-0"
             >
               <Play />
               Resume all
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
+              variant="destructive"
               onClick={(event) => onDeleteRequest([...group.torrents], event.currentTarget)}
               data-group-delete
             >
@@ -1991,12 +1984,12 @@ function FilmRow({
   const parsedEpisode = parseEpisode(t.name);
   const art = artwork[query.key];
   const barTone = isDownloaded(t.state)
-    ? "bg-[var(--success)]"
+    ? "bg-success"
     : isError(t.state)
-      ? "bg-[var(--danger)]"
+      ? "bg-destructive"
       : isPaused(t.state) || isQueued(t.state)
-        ? "bg-[var(--text-tertiary)]"
-        : "bg-[var(--primary)]";
+        ? "bg-subtle-foreground"
+        : "bg-primary";
   const titleHref = downloadTitleHref(t);
   const isBuiltin = t.ownerClientType === "builtin";
   const errorMessage = transferErrorMessage(t);
@@ -2005,7 +1998,7 @@ function FilmRow({
     <div
       className={cn(
         "group grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
-        isSelected ? "bg-[var(--accent-dim)]" : "hover:bg-[var(--bg-muted)]/60",
+        isSelected ? "bg-brand-dim" : "hover:bg-muted/60",
       )}
       data-client-torrent
       role="button"
@@ -2056,14 +2049,14 @@ function FilmRow({
               {titleHref ? (
                 <Link
                   to={titleHref}
-                  className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:block lg:min-h-0"
+                  className="flex items-center min-h-[44px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:block lg:min-h-0"
                 >
-                  <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
+                  <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug hover:text-brand-foreground">
                     {display.title}
                   </p>
                 </Link>
               ) : (
-                <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug">
+                <p className="text-[13px] font-medium text-foreground line-clamp-2 leading-snug">
                   {display.title}
                 </p>
               )}
@@ -2079,12 +2072,12 @@ function FilmRow({
                 ) : null}
                 {t.imported && <Badge variant="outline">Imported</Badge>}
                 {forcedStartLabel(t) ? (
-                  <span className="text-[12px] text-[var(--text-secondary)]" data-torrent-forced>
+                  <span className="text-[12px] text-muted-foreground" data-torrent-forced>
                     {forcedStartLabel(t)}
                   </span>
                 ) : waitReasonLabel(t.state, t.waitReason) ? (
                   <span
-                    className="text-[12px] text-[var(--text-tertiary)]"
+                    className="text-[12px] text-subtle-foreground"
                     data-wait-reason={t.waitReason ?? undefined}
                   >
                     {waitReasonLabel(t.state, t.waitReason)}
@@ -2097,7 +2090,7 @@ function FilmRow({
                   overflow's Details.
                 */}
                 {display.qualityChip ? <Badge variant="outline">{display.qualityChip}</Badge> : null}
-                <span className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
+                <span className="text-[12px] text-subtle-foreground tabular-nums">
                   {formatBytes(t.sizeBytes)}
                   {isDownloading(t.state) && t.eta != null && t.eta > 0
                     ? ` · ETA ${formatDuration(t.eta)}`
@@ -2106,7 +2099,7 @@ function FilmRow({
               </div>
               {errorMessage ? (
                 <p
-                  className="text-[12px] leading-snug text-[var(--danger)]"
+                  className="text-[12px] leading-snug text-destructive"
                   data-torrent-error-message
                 >
                   {errorMessage}
@@ -2119,11 +2112,11 @@ function FilmRow({
                   className="h-1.5 flex-1 max-w-[18rem]"
                   indicatorClassName={barTone}
                 />
-                <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
                   {pct}%
                 </span>
                 {isDownloading(t.state) && speedLabel(t.dlspeed) ? (
-                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
+                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
                     ↓ {speedLabel(t.dlspeed)}
                   </span>
                 ) : null}
@@ -2232,10 +2225,10 @@ function FilmRow({
               one keystroke away rather than gone.
             */}
             <div
-              className="px-2 py-1.5 text-[12px] leading-relaxed text-[var(--text-tertiary)]"
+              className="px-2 py-1.5 text-[12px] leading-relaxed text-subtle-foreground"
               data-torrent-details
             >
-              <p className="font-medium text-[var(--text-secondary)]">Details</p>
+              <p className="font-medium text-muted-foreground">Details</p>
               {(() => {
                 const facts = [
                   sourceTierChip(t.name),
@@ -2252,7 +2245,6 @@ function FilmRow({
               onClick={() => onCopyMagnet(t)}
               disabled={t.imported}
               data-copy-magnet
-              className="min-h-[44px] lg:min-h-0"
             >
               <Magnet />
               Copy magnet link
@@ -2262,7 +2254,6 @@ function FilmRow({
                 <DropdownMenuItem
                   onClick={() => onCopyStreamUrl(t)}
                   data-copy-stream-url
-                  className="min-h-[44px] lg:min-h-0"
                 >
                   <Copy />
                   Copy stream URL
@@ -2274,7 +2265,6 @@ function FilmRow({
               onClick={() => onOpenFolder(t)}
               disabled={!openFolder || openingHash === t.transferId}
               data-open-folder
-              className="min-h-[44px] lg:min-h-0"
             >
               {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
               Open folder
@@ -2283,7 +2273,6 @@ function FilmRow({
             {canDownloadNow(t) ? (
               <DropdownMenuItem
                 onClick={() => onAction("force", t)}
-                className="min-h-[44px] lg:min-h-0"
                 data-torrent-force
               >
                 <Zap />
@@ -2293,7 +2282,6 @@ function FilmRow({
             {canFindAnotherRelease(t) ? (
               <DropdownMenuItem
                 onClick={() => onAction("swap", t)}
-                className="min-h-[44px] lg:min-h-0"
                 data-find-release
               >
                 <Search />
@@ -2302,21 +2290,19 @@ function FilmRow({
             ) : null}
             <DropdownMenuItem
               onClick={() => onAction("pause", t)}
-              className="min-h-[44px] lg:min-h-0"
             >
               <Pause />
               Pause
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onAction("resume", t)}
-              className="min-h-[44px] lg:min-h-0"
             >
               <Play />
               Resume
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
+              variant="destructive"
               onClick={(event) => onDeleteRequest([t], event.currentTarget)}
               data-delete-torrent
             >
@@ -2327,6 +2313,27 @@ function FilmRow({
         </DropdownMenu>
       </div>
     </div>
+  );
+}
+
+/** "Details" disclosure for connection and error facts; closed by default. */
+function DetailsDisclosure({
+  className,
+  contentClassName,
+  children,
+  ...props
+}: React.ComponentProps<typeof Collapsible> & { contentClassName?: string }) {
+  return (
+    <Collapsible className={cn("group/details", className)} {...props}>
+      <CollapsibleTrigger className="inline-flex cursor-pointer items-center gap-1 rounded-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 pointer-coarse:min-h-11">
+        Details
+        <ChevronDown
+          aria-hidden
+          className="h-3.5 w-3.5 transition-transform group-data-[state=open]/details:rotate-180"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className={contentClassName}>{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
 

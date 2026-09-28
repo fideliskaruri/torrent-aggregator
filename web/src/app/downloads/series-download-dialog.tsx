@@ -21,7 +21,6 @@ import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
   Check,
-  ChevronDown,
   Copy,
   Magnet,
   FolderOpen,
@@ -51,6 +50,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { TfWorkThumb } from "@/components/tf/work-thumb";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
@@ -114,12 +123,12 @@ export interface SeriesDownloadDialogProps {
 
 function barTone(state: string): string {
   return isDownloaded(state)
-    ? "bg-[var(--success)]"
+    ? "bg-success"
     : isError(state)
-      ? "bg-[var(--danger)]"
+      ? "bg-destructive"
       : isPaused(state) || isQueued(state)
-        ? "bg-[var(--text-tertiary)]"
-        : "bg-[var(--primary)]";
+        ? "bg-subtle-foreground"
+        : "bg-primary";
 }
 
 function seasonLabelFor(season: Pick<SeasonBucket<ClientTorrent>, "season" | "label">) {
@@ -127,151 +136,129 @@ function seasonLabelFor(season: Pick<SeasonBucket<ClientTorrent>, "season" | "la
 }
 
 /**
- * The season chapter rail — the signature of this redesign. It is an
- * arrow-key button group with roving focus: the rail can hold twenty seasons
- * and a mouse should never be required to move through it.
+ * The season chapter rail, the signature of this redesign. It is the
+ * `TabsList` of the dialog's `Tabs`, so arrow keys, Home and End move through
+ * the seasons (and select them) and a mouse is never required.
  */
 function SeasonRail({
   group,
   selectedSeasonKey,
-  onSelectSeason,
-  panelId,
 }: {
   group: SeriesGroup<ClientTorrent>;
   selectedSeasonKey: string | null;
-  onSelectSeason: (key: string) => void;
-  panelId: string;
 }) {
   const railRef = useRef<HTMLDivElement | null>(null);
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const selectedSeasonKeyRef = useRef(selectedSeasonKey);
 
+  // Keeps the selected season in view inside the scroll viewport as seasons
+  // arrive, the dialog resizes, or the season changes from the phone picker.
   const ensureSelectedSeasonVisible = useCallback(() => {
-    const rail = railRef.current;
-    const selectedKey = selectedSeasonKeyRef.current;
-    if (!rail || !selectedKey || rail.clientWidth === 0) return;
-
-    const activeTab = [...rail.querySelectorAll<HTMLElement>("[data-season-tab-key]")].find(
-      (tab) => tab.dataset.seasonTabKey === selectedKey,
+    const viewport = railRef.current?.querySelector<HTMLElement>(
+      "[data-slot=scroll-area-viewport]",
+    );
+    if (!viewport || viewport.clientWidth === 0) return;
+    const activeTab = viewport.querySelector<HTMLElement>(
+      '[data-season-tab-active="true"]',
     );
     if (!activeTab) return;
-
-    const railRect = rail.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
     const tabRect = activeTab.getBoundingClientRect();
-    if (tabRect.left < railRect.left) {
-      rail.scrollLeft -= railRect.left - tabRect.left;
-    } else if (tabRect.right > railRect.right) {
-      rail.scrollLeft += tabRect.right - railRect.right;
+    if (tabRect.left < viewportRect.left) {
+      viewport.scrollLeft -= viewportRect.left - tabRect.left;
+    } else if (tabRect.right > viewportRect.right) {
+      viewport.scrollLeft += tabRect.right - viewportRect.right;
     }
   }, []);
 
   useEffect(() => {
-    selectedSeasonKeyRef.current = selectedSeasonKey;
-    ensureSelectedSeasonVisible();
-  }, [ensureSelectedSeasonVisible, group.key, selectedSeasonKey]);
-
-  useEffect(() => {
     const rail = railRef.current;
     if (!rail || typeof ResizeObserver === "undefined") return;
-
     const observer = new ResizeObserver(ensureSelectedSeasonVisible);
-    const observeRailAndTabs = () => {
-      observer.disconnect();
-      observer.observe(rail);
-      rail
-        .querySelectorAll<HTMLElement>("[data-season-tab-key]")
-        .forEach((tab) => observer.observe(tab));
-      ensureSelectedSeasonVisible();
-    };
-    observeRailAndTabs();
-
+    observer.observe(rail);
     const mutationObserver =
       typeof MutationObserver === "undefined"
         ? null
-        : new MutationObserver(observeRailAndTabs);
-    mutationObserver?.observe(rail, { childList: true });
-
+        : new MutationObserver(ensureSelectedSeasonVisible);
+    mutationObserver?.observe(rail, {
+      subtree: true,
+      childList: true,
+      attributeFilter: ["data-season-tab-active"],
+    });
+    ensureSelectedSeasonVisible();
     return () => {
       mutationObserver?.disconnect();
       observer.disconnect();
     };
   }, [ensureSelectedSeasonVisible]);
 
-  function onKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
-    const seasons = group.seasons;
-    if (!seasons.length) return;
-    let nextIndex: number | null = null;
-    if (event.key === "ArrowRight") nextIndex = (index + 1) % seasons.length;
-    else if (event.key === "ArrowLeft") nextIndex = (index - 1 + seasons.length) % seasons.length;
-    else if (event.key === "Home") nextIndex = 0;
-    else if (event.key === "End") nextIndex = seasons.length - 1;
-    if (nextIndex == null) return;
-    event.preventDefault();
-    const next = seasons[nextIndex];
-    onSelectSeason(next.key);
-    tabRefs.current[nextIndex]?.focus();
-  }
-
   return (
-    <div
-      ref={railRef}
-      role="group"
-      aria-label={`Seasons of ${group.title}`}
-      data-season-rail
-      className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-[var(--border)] px-4 py-2 sm:px-5"
-    >
-      {group.seasons.map((season, index) => {
-        const active = season.key === selectedSeasonKey;
-        const pct = progressPercent(season.progress);
-        const label = seasonLabelFor(season);
-        const chip = rollupChip(season);
-        const failed = season.counts.error;
-        return (
-          <button
-            key={season.key}
-            ref={(el) => {
-              tabRefs.current[index] = el;
-            }}
-            type="button"
-            aria-pressed={active}
-            aria-controls={panelId}
-            tabIndex={active ? 0 : -1}
-            onClick={() => onSelectSeason(season.key)}
-            onKeyDown={(event) => onKeyDown(event, index)}
-            data-season-tab
-            data-season-tab-key={season.key}
-            data-season-tab-active={active ? "true" : "false"}
-            className={cn(
-              "flex min-h-[44px] shrink-0 flex-col items-start justify-center gap-1 rounded-md px-3 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:min-h-0",
-              active
-                ? "bg-[var(--bg-muted)] text-[var(--text)]"
-                : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
-            )}
-          >
-            <span className="whitespace-nowrap text-[12px] font-medium">{label}</span>
-            <span className="flex w-full items-center gap-1.5">
-              <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--border)]">
-                <span
-                  className={cn("block h-full", chip.failing ? "bg-[var(--danger)]" : barTone(season.state))}
-                  style={{ width: `${pct}%` }}
-                />
-              </span>
-              <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
-                {pct}%
-              </span>
-              {failed > 0 ? (
-                <span
-                  className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-[var(--danger)]"
-                  data-season-tab-failed={failed}
-                >
-                  · {failed} failed
-                </span>
-              ) : null}
-            </span>
-          </button>
-        );
-      })}
+    <div ref={railRef} className="shrink-0 border-b border-border" data-season-rail>
+      <ScrollArea className="w-full">
+        <TabsList
+          aria-label={`Seasons of ${group.title}`}
+          className="mx-4 my-2 group-data-horizontal/tabs:h-auto sm:mx-5"
+        >
+          {group.seasons.map((season) => {
+            const pct = progressPercent(season.progress);
+            const chip = rollupChip(season);
+            const failed = season.counts.error;
+            return (
+              <SeasonTab
+                key={season.key}
+                seasonKey={season.key}
+                active={season.key === selectedSeasonKey}
+                label={seasonLabelFor(season)}
+                pct={pct}
+                failed={failed}
+                tone={chip.failing ? "bg-destructive" : barTone(season.state)}
+              />
+            );
+          })}
+        </TabsList>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
     </div>
+  );
+}
+
+function SeasonTab({
+  seasonKey,
+  active,
+  label,
+  pct,
+  failed,
+  tone,
+}: {
+  seasonKey: string;
+  active: boolean;
+  label: string;
+  pct: number;
+  failed: number;
+  tone: string;
+}) {
+  return (
+    <TabsTrigger
+      value={seasonKey}
+      data-season-tab
+      data-season-tab-key={seasonKey}
+      data-season-tab-active={active ? "true" : "false"}
+      className="group/season h-auto flex-none flex-col items-start gap-1 px-3 py-1.5 text-left max-md:min-h-11 pointer-coarse:min-h-11"
+    >
+      <span className="whitespace-nowrap text-[12px] font-medium">{label}</span>
+      <span className="flex w-full items-center gap-1.5">
+        <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-border">
+          <span className={cn("block h-full", tone)} style={{ width: `${pct}%` }} />
+        </span>
+        <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">{pct}%</span>
+        {failed > 0 ? (
+          <span
+            className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-destructive"
+            data-season-tab-failed={failed}
+          >
+            · {failed} failed
+          </span>
+        ) : null}
+      </span>
+    </TabsTrigger>
   );
 }
 
@@ -303,21 +290,19 @@ function SeriesActionsMenu({
       <DropdownMenuContent align="end">
         <DropdownMenuItem
           onClick={() => onActionMany("pause", group.torrents)}
-          className="min-h-[44px] lg:min-h-0"
         >
           <Pause />
           Pause all
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => onActionMany("resume", group.torrents)}
-          className="min-h-[44px] lg:min-h-0"
         >
           <Play />
           Resume all
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
+          variant="destructive"
           onClick={(event) => onDeleteRequest([...group.torrents], event.currentTarget)}
           data-group-delete
         >
@@ -379,8 +364,8 @@ function EpisodeCard({
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-col gap-2 rounded-lg border border-[var(--border)] p-3 transition-colors",
-        isSelected ? "bg-[var(--accent-dim)]" : "bg-[var(--bg-muted)]/40",
+        "flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3 transition-colors",
+        isSelected ? "bg-brand-dim" : "bg-muted/40",
       )}
       data-episode-card
       data-hash={t.hash}
@@ -396,14 +381,14 @@ function EpisodeCard({
         />
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[13px] font-semibold tabular-nums text-[var(--text)]">
+            <span className="text-[13px] font-semibold tabular-nums text-foreground">
               {epLabel}
             </span>
             {display.qualityChip ? (
               <Badge variant="outline">{display.qualityChip}</Badge>
             ) : null}
             {source ? (
-              <span className="text-[12px] uppercase tracking-wide text-[var(--text-tertiary)]">
+              <span className="text-[12px] uppercase tracking-wide text-subtle-foreground">
                 {source}
               </span>
             ) : null}
@@ -423,18 +408,18 @@ function EpisodeCard({
             ) : null}
             {t.imported && <Badge variant="outline">Imported</Badge>}
             {forcedStartLabel(t) ? (
-              <span className="text-[12px] text-[var(--text-secondary)]" data-episode-forced>
+              <span className="text-[12px] text-muted-foreground" data-episode-forced>
                 {forcedStartLabel(t)}
               </span>
             ) : waitReasonLabel(t.state, t.waitReason) ? (
               <span
-                className="text-[12px] text-[var(--text-tertiary)]"
+                className="text-[12px] text-subtle-foreground"
                 data-wait-reason={t.waitReason ?? undefined}
               >
                 {waitReasonLabel(t.state, t.waitReason)}
               </span>
             ) : null}
-            <span className="text-[12px] tabular-nums text-[var(--text-tertiary)]">
+            <span className="text-[12px] tabular-nums text-subtle-foreground">
               {formatBytes(t.sizeBytes)}
               {t.peers != null ? ` · ${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : ""}
               {showEta ? ` · ETA ${formatDuration(t.eta as number)}` : ""}
@@ -443,19 +428,15 @@ function EpisodeCard({
           {errorMessage ? (
             // One line keeps a grid of failed cards scannable; the full text
             // is on hover and one tap away.
-            <button
-              type="button"
-              onClick={() => setErrorExpanded((value) => !value)}
-              aria-expanded={errorExpanded}
-              title={errorMessage}
-              className={cn(
-                "block w-full min-h-[44px] rounded-sm text-left text-[12px] leading-snug text-[var(--danger)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:min-h-0",
-                errorExpanded ? "whitespace-normal" : "truncate",
-              )}
-              data-episode-error-message
-            >
-              {errorMessage}
-            </button>
+            <Collapsible open={errorExpanded} onOpenChange={setErrorExpanded}>
+              <CollapsibleTrigger
+                title={errorMessage}
+                className="block w-full truncate rounded-sm text-left text-[12px] leading-snug text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:whitespace-normal max-md:min-h-11 pointer-coarse:min-h-11"
+                data-episode-error-message
+              >
+                {errorMessage}
+              </CollapsibleTrigger>
+            </Collapsible>
           ) : null}
         </div>
       </div>
@@ -467,11 +448,11 @@ function EpisodeCard({
           className="h-1.5 flex-1"
           indicatorClassName={barTone(t.state)}
         />
-        <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
+        <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
           {pct}%
         </span>
         {speed ? (
-          <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
+          <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
             ↓ {speed}
           </span>
         ) : null}
@@ -550,10 +531,10 @@ function EpisodeCard({
               away here — the same rule the compact page row already follows.
             */}
             <div
-              className="px-2 py-1.5 text-[12px] leading-relaxed text-[var(--text-tertiary)]"
+              className="px-2 py-1.5 text-[12px] leading-relaxed text-subtle-foreground"
               data-torrent-details
             >
-              <p className="font-medium text-[var(--text-secondary)]">Details</p>
+              <p className="font-medium text-muted-foreground">Details</p>
               {(() => {
                 const facts = [
                   source,
@@ -571,7 +552,6 @@ function EpisodeCard({
               onClick={() => onCopyMagnet(t)}
               disabled={t.imported}
               data-copy-magnet
-              className="min-h-[44px] lg:min-h-0"
             >
               <Magnet />
               Copy magnet link
@@ -579,7 +559,6 @@ function EpisodeCard({
             {streaming && isBuiltin ? (
               <DropdownMenuItem
                 onClick={() => onCopyStreamUrl(t)}
-                className="min-h-[44px] lg:min-h-0"
               >
                 <Copy />
                 Copy stream URL
@@ -589,7 +568,6 @@ function EpisodeCard({
             <DropdownMenuItem
               onClick={() => onOpenFolder(t)}
               disabled={!openFolder || openingHash === t.transferId}
-              className="min-h-[44px] lg:min-h-0"
             >
               {openingHash === t.transferId ? <LoadingGlyph className="h-4 w-4" /> : <FolderOpen />}
               Open folder
@@ -598,7 +576,6 @@ function EpisodeCard({
             {canDownloadNow(t) ? (
               <DropdownMenuItem
                 onClick={() => onAction("force", t)}
-                className="min-h-[44px] lg:min-h-0"
                 data-episode-force
               >
                 <Zap />
@@ -608,7 +585,6 @@ function EpisodeCard({
             {canFindAnotherRelease(t) ? (
               <DropdownMenuItem
                 onClick={() => onAction("swap", t)}
-                className="min-h-[44px] lg:min-h-0"
                 data-find-release
               >
                 <Search />
@@ -618,7 +594,6 @@ function EpisodeCard({
             {!isError(t.state) ? (
               <DropdownMenuItem
                 onClick={() => onAction("pause", t)}
-                className="min-h-[44px] lg:min-h-0"
               >
                 <Pause />
                 Pause
@@ -626,7 +601,6 @@ function EpisodeCard({
             ) : null}
             <DropdownMenuItem
               onClick={() => onAction("resume", t)}
-              className="min-h-[44px] lg:min-h-0"
               data-episode-retry={isError(t.state) ? "true" : undefined}
             >
               <Play />
@@ -634,7 +608,7 @@ function EpisodeCard({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="min-h-[44px] text-[var(--danger)] focus:text-[var(--danger)] lg:min-h-0"
+              variant="destructive"
               onClick={(event) => onDeleteRequest([t], event.currentTarget)}
               data-episode-delete
             >
@@ -684,12 +658,11 @@ export function SeriesDownloadDialog({
   if (!group) return null;
 
   const pct = progressPercent(group.progress);
-  const seasonPanelId = `series-season-panel-${group.key}`;
   const query = artworkQueryForRelease(group.torrents[0].name, group.torrents[0].category);
   const art = artwork[query.key];
   const speed = speedLabel(group.dlspeed);
   const chip = rollupChip(group);
-  const headerBarTone = chip.failing ? "bg-[var(--danger)]" : barTone(group.state);
+  const headerBarTone = chip.failing ? "bg-destructive" : barTone(group.state);
   // No bulk swap endpoint exists yet (see docs/todo-list.md), so the header
   // links to the per-episode action on the first failed episode instead.
   const firstFailed = group.seasons
@@ -739,14 +712,14 @@ export function SeriesDownloadDialog({
         </DialogDescription>
 
         <DialogHeader
-          className="shrink-0 gap-2 border-b border-[var(--border)] px-4 pb-3 pr-14 pt-3 sm:hidden"
+          className="shrink-0 gap-2 border-b border-border px-4 pb-3 pr-14 pt-3 sm:hidden"
           data-mobile-series-header
         >
-          <h2 className="truncate pr-1 text-[15px] font-semibold text-[var(--text)]">
+          <h2 className="truncate pr-1 text-[15px] font-semibold text-foreground">
             {titleHref ? (
               <Link
                 to={titleHref}
-                className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+                className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-mobile-dialog-title-link
               >
                 {group.title}
@@ -763,12 +736,12 @@ export function SeriesDownloadDialog({
             >
               {chip.label}
             </Badge>
-            <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-[var(--text-tertiary)]">
+            <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-subtle-foreground">
               {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
               {formatBytes(group.sizeBytes)} · {pct}%
             </span>
             {isDownloading(group.state) && speed ? (
-              <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
+              <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
                 ↓ {speed}
               </span>
             ) : null}
@@ -788,7 +761,7 @@ export function SeriesDownloadDialog({
           {attention ? <div className="flex">{attention}</div> : null}
         </DialogHeader>
 
-        <DialogHeader className="hidden shrink-0 gap-3 border-b border-[var(--border)] px-5 pb-3 pr-14 pt-4 sm:flex">
+        <DialogHeader className="hidden shrink-0 gap-3 border-b border-border px-5 pb-3 pr-14 pt-4 sm:flex">
           <div className="flex items-start gap-3">
             {titleHref ? (
               <Link to={titleHref} tabIndex={-1} aria-hidden data-dense-ui className="shrink-0">
@@ -798,14 +771,14 @@ export function SeriesDownloadDialog({
               poster
             )}
             <div className="min-w-0 flex-1 space-y-1.5">
-              <h2 className="line-clamp-2 pr-1 text-base font-semibold text-[var(--text)]">
+              <h2 className="line-clamp-2 pr-1 text-base font-semibold text-foreground">
                 {titleHref ? (
                   // The poster above is decorative (aria-hidden, not
                   // focusable) so the same destination is not announced twice;
                   // this is the real, keyboard-reachable way to the title page.
                   <Link
                     to={titleHref}
-                    className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+                    className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     data-dialog-title-link
                   >
                     {group.title}
@@ -821,7 +794,7 @@ export function SeriesDownloadDialog({
                 >
                   {chip.label}
                 </Badge>
-                <span className="text-[12px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="text-[12px] tabular-nums text-subtle-foreground">
                   {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"} ·{" "}
                   {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
                   {formatBytes(group.sizeBytes)}
@@ -834,11 +807,11 @@ export function SeriesDownloadDialog({
                   className="h-1.5 flex-1 max-w-[16rem]"
                   indicatorClassName={headerBarTone}
                 />
-                <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
+                <span className="shrink-0 text-[12px] tabular-nums text-subtle-foreground">
                   {pct}%
                 </span>
                 {isDownloading(group.state) && speed ? (
-                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-[var(--accent-text)]">
+                  <span className="shrink-0 text-[12px] tabular-nums font-mono text-brand-foreground">
                     ↓ {speed}
                   </span>
                 ) : null}
@@ -853,48 +826,43 @@ export function SeriesDownloadDialog({
           </div>
         </DialogHeader>
 
+        <Tabs
+          value={selectedSeasonKey ?? ""}
+          onValueChange={onSelectSeason}
+          className="min-h-0 flex-1 gap-0"
+        >
         <div
-          className="shrink-0 border-b border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2 sm:hidden"
+          className="shrink-0 border-b border-border bg-card px-4 py-2 sm:hidden"
           data-mobile-season-picker
         >
-          <label className="relative flex min-w-0 items-center">
-            <span className="sr-only">Season</span>
-            <select
+          <Select value={selectedSeasonKey ?? undefined} onValueChange={onSelectSeason}>
+            <SelectTrigger
+              aria-label="Season"
+              className="h-11 w-full bg-muted text-[13px] font-medium"
               data-mobile-season-select
-              value={selectedSeasonKey ?? ""}
-              onChange={(event) => onSelectSeason(event.target.value)}
-              aria-controls={seasonPanelId}
-              className="h-11 min-h-[44px] w-full cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
             >
+              <SelectValue placeholder="Choose a season" />
+            </SelectTrigger>
+            <SelectContent position="popper">
               {group.seasons.map((season) => (
-                <option key={season.key} value={season.key}>
+                <SelectItem key={season.key} value={season.key} className="min-h-11">
                   {`${seasonLabelFor(season)} · ${progressPercent(season.progress)}%${
                     season.counts.error > 0 ? ` · ${season.counts.error} failed` : ""
                   }`}
-                </option>
+                </SelectItem>
               ))}
-            </select>
-            <ChevronDown
-              className="pointer-events-none absolute right-3 h-4 w-4 text-[var(--text-tertiary)]"
-              aria-hidden
-            />
-          </label>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="hidden shrink-0 sm:block">
-          <SeasonRail
-            group={group}
-            selectedSeasonKey={selectedSeasonKey}
-            onSelectSeason={onSelectSeason}
-            panelId={seasonPanelId}
-          />
+          <SeasonRail group={group} selectedSeasonKey={selectedSeasonKey} />
         </div>
 
-        <div
-          className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5"
+        <TabsContent
+          value={selectedSeasonKey ?? ""}
+          className="min-h-0 overflow-y-auto px-4 py-3 sm:px-5"
           data-season-panel
-          role="region"
-          id={seasonPanelId}
           aria-label={
             selectedSeason ? `${seasonLabelFor(selectedSeason)} downloads` : "Season downloads"
           }
@@ -919,18 +887,19 @@ export function SeriesDownloadDialog({
               ))}
             </div>
           ) : (
-            <p className="px-1 py-8 text-center text-[13px] text-[var(--text-tertiary)]">
+            <p className="px-1 py-8 text-center text-[13px] text-subtle-foreground">
               No seasons to show.
             </p>
           )}
-        </div>
+        </TabsContent>
+        </Tabs>
 
         {selectedTransferIdsInGroup.length > 0 ? (
           <div
-            className="flex shrink-0 flex-wrap items-center gap-2 border-t border-[var(--border)] bg-[var(--bg-elevated)] px-4 pb-[calc(0.5rem+var(--safe-bottom))] pt-2 shadow-[var(--shadow-md)] sm:px-5 sm:pb-2 sm:shadow-none"
+            className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-4 pb-[calc(0.5rem+var(--safe-bottom))] pt-2 shadow-[var(--shadow-md)] sm:px-5 sm:pb-2 sm:shadow-none"
             data-dialog-bulk-bar
           >
-            <span className="mr-1 text-[12px] text-[var(--text-secondary)]">
+            <span className="mr-1 text-[12px] text-muted-foreground">
               {selectedTransferIdsInGroup.length} selected
             </span>
             <Button

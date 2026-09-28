@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import {
   ArrowDownToLine,
   ArrowRight,
+  ChevronDown,
   Radar,
   Search,
   Send,
@@ -17,6 +18,22 @@ import { SEARCH_HREF } from "@/lib/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -693,7 +710,7 @@ export default function WatchlistPage() {
       <p
         id={automationStateId}
         data-dense-ui
-        className="max-w-xl text-sm leading-relaxed text-[var(--text-tertiary)]"
+        className="max-w-xl text-sm leading-relaxed text-subtle-foreground"
       >
         Checks monitored titles and may download matching releases.{" "}
         {automationStateCopy(autoIntervalMinutes)}
@@ -711,7 +728,7 @@ export default function WatchlistPage() {
             */}
             <Link
               to="/settings"
-              className="inline-flex min-h-[44px] items-center whitespace-nowrap py-2 align-middle text-[var(--accent-text)] underline underline-offset-2 lg:min-h-0 lg:py-0"
+              className="inline-flex min-h-[44px] items-center whitespace-nowrap py-2 align-middle text-brand-foreground underline underline-offset-2 lg:min-h-0 lg:py-0"
             >
               Turn on automatic checks
             </Link>
@@ -722,14 +739,14 @@ export default function WatchlistPage() {
 
       {lastAuto && !readOnly ? (
         <div className="surface px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
-          <span className="text-[var(--text-secondary)]">
+          <span className="text-muted-foreground">
             Last automation
             {lastAuto.offline ? (
               <Badge variant="danger" className="ml-1.5 align-middle">
                 offline
               </Badge>
             ) : null}
-            <span className="text-[var(--text-tertiary)]">
+            <span className="text-subtle-foreground">
               {" "}
               · {lastAuto.sent} sent · {lastAuto.skipped} skipped ·{" "}
               {lastAuto.failed} failed
@@ -737,7 +754,7 @@ export default function WatchlistPage() {
           </span>
           <Link
             to="/notifications"
-            className="inline-flex items-center gap-1 min-h-[44px] font-medium text-[var(--accent-text)] hover:underline lg:min-h-0"
+            className="inline-flex items-center gap-1 min-h-[44px] font-medium text-brand-foreground hover:underline lg:min-h-0"
           >
             View in Activity
             <ArrowRight className="h-3 w-3" />
@@ -750,33 +767,29 @@ export default function WatchlistPage() {
           Status is a property of one title and now lives on that title's card;
           it was never the question people arrive with. You open the Library to
           find a film or to find a show. */}
-      <div
-        className="flex flex-wrap items-center gap-1.5 pt-1"
-        role="tablist"
-        aria-label="Library"
-        data-library-tabs
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setTab(value as LibraryTab)}
+        className="min-w-0 gap-6"
       >
-        {tabs.map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === id}
-            data-library-tab={id}
-            onClick={() => setTab(id)}
-            className={cn(
-              "inline-flex items-center justify-center gap-1.5 min-h-[44px] min-w-[44px] rounded-md px-2.5 py-1 text-xs font-medium transition-colors ring-1 lg:min-h-0 lg:min-w-0",
-              activeTab === id
-                ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
-            )}
-          >
-            {LIBRARY_TAB_LABELS[id]}
-            <span className="tabular-nums opacity-70">{counts[id]}</span>
-          </button>
-        ))}
-      </div>
+      <ScrollArea className="min-w-0">
+        <TabsList aria-label="Library" className="group-data-horizontal/tabs:h-auto" data-library-tabs>
+          {tabs.map((id) => (
+            <TabsTrigger
+              key={id}
+              value={id}
+              data-library-tab={id}
+              className="h-8 flex-none gap-1.5 px-3 text-[13px] max-md:h-11 pointer-coarse:h-11"
+            >
+              {LIBRARY_TAB_LABELS[id]}
+              <span className="tabular-nums text-subtle-foreground">{counts[id]}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
 
+      <TabsContent value={activeTab} className="min-w-0">
       {error ? (
         <TfErrorState
           title="Could not load your library"
@@ -859,7 +872,7 @@ export default function WatchlistPage() {
                     column behind it is a blurred blow-up of the same image.
                     Same URL, so it is one request, and the card reads as
                     designed rather than as a broken crop. */}
-                <div className="relative w-[4.75rem] sm:w-[5.5rem] shrink-0 self-stretch min-h-[7.25rem] overflow-hidden bg-[var(--bg-muted)]">
+                <div className="relative w-[4.75rem] sm:w-[5.5rem] shrink-0 self-stretch min-h-[7.25rem] overflow-hidden bg-muted">
                   {item.posterUrl && !brokenPosters.has(item.id) ? (
                     <>
                       <img
@@ -888,7 +901,7 @@ export default function WatchlistPage() {
                           same fallback Plex/Jellyfin use. */}
                       <span
                         aria-hidden
-                        className="select-none text-2xl font-semibold text-[var(--text-tertiary)]"
+                        className="select-none text-2xl font-semibold text-subtle-foreground"
                       >
                         {item.title.trim().charAt(0).toUpperCase() || "?"}
                       </span>
@@ -899,7 +912,7 @@ export default function WatchlistPage() {
                       to={titleHref}
                       data-library-card-link
                       aria-label={`Open ${item.title}`}
-                      className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand)]"
+                      className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
                     />
                   ) : null}
                 </div>
@@ -912,12 +925,12 @@ export default function WatchlistPage() {
                         <Link
                           to={titleHref}
                           data-library-card-link
-                          className="block min-w-0 min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:min-h-0"
+                          className="block min-w-0 min-h-[44px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0"
                         >
-                          <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]">
+                          <h2 className="font-medium text-[15px] text-foreground leading-snug line-clamp-2 hover:text-brand-foreground">
                             {item.title}
                           </h2>
-                          <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)] capitalize">
+                          <p className="mt-0.5 text-[12px] text-subtle-foreground capitalize">
                             {typeLabel}
                             {readOnly
                               ? null
@@ -928,10 +941,10 @@ export default function WatchlistPage() {
                         </Link>
                       ) : (
                         <>
-                          <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2">
+                          <h2 className="font-medium text-[15px] text-foreground leading-snug line-clamp-2">
                             {item.title}
                           </h2>
-                                                    <p className="mt-0.5 text-[12px] text-[var(--text-tertiary)] capitalize">
+                                                    <p className="mt-0.5 text-[12px] text-subtle-foreground capitalize">
                             {typeLabel}
                             {readOnly
                               ? null
@@ -948,7 +961,7 @@ export default function WatchlistPage() {
                       size="icon-sm"
                       onClick={() => setPendingRemove(item)}
                       aria-label="Remove from library"
-                      className="shrink-0 text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+                      className="shrink-0 text-subtle-foreground hover:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>}
@@ -957,17 +970,17 @@ export default function WatchlistPage() {
                   {readOnly ? null : (<>
                   {/* One clear “what happens next” block */}
                   {isSeries ? (
-                    <div className="rounded-md border border-[var(--border)] bg-[var(--bg-muted)]/50 px-3 py-2.5 space-y-1">
-                      <p className="text-[13px] font-medium text-[var(--text)]">
+                    <div className="rounded-md border border-border bg-muted/50 px-3 py-2.5 space-y-1">
+                      <p className="text-[13px] font-medium text-foreground">
                         {itemState.label}
                       </p>
-                      <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
+                      <p className="text-xs leading-relaxed text-subtle-foreground">
                         {itemState.detail}
                       </p>
                       {item.lastEpisode ? (
-                        <p className="text-xs text-[var(--text-tertiary)]">
+                        <p className="text-xs text-subtle-foreground">
                           Previous:{" "}
-                          <span className="text-[var(--text-secondary)] tabular-nums">
+                          <span className="text-muted-foreground tabular-nums">
                             {item.lastEpisode}
                           </span>
                           {item.fromSeason != null ? (
@@ -979,18 +992,18 @@ export default function WatchlistPage() {
                           ) : null}
                         </p>
                       ) : item.fromSeason != null ? (
-                        <p className="text-xs text-[var(--text-tertiary)]">
+                        <p className="text-xs text-subtle-foreground">
                           Started from season{" "}
                           {String(item.fromSeason).padStart(2, "0")}
                         </p>
                       ) : null}
                     </div>
                   ) : (
-                    <div className="rounded-md border border-[var(--border)] bg-[var(--bg-muted)]/50 px-3 py-2.5 space-y-1">
-                      <p className="text-[13px] font-medium text-[var(--text)]">
+                    <div className="rounded-md border border-border bg-muted/50 px-3 py-2.5 space-y-1">
+                      <p className="text-[13px] font-medium text-foreground">
                         {itemState.label}
                       </p>
-                      <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
+                      <p className="text-xs leading-relaxed text-subtle-foreground">
                         {itemState.detail}
                       </p>
                     </div>
@@ -1050,12 +1063,17 @@ export default function WatchlistPage() {
 
                     {/* Secondary: season reset + space — not competing with primary */}
                     {isSeries ? (
-                      <details className="w-full sm:w-auto">
-                        <summary className="cursor-pointer list-none text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] px-1 py-1.5 min-h-[44px] inline-flex items-center gap-1 lg:min-h-0">
+                      <Collapsible className="group/more w-full sm:w-auto" data-library-more>
+                        <CollapsibleTrigger className="inline-flex cursor-pointer items-center gap-1 rounded-sm px-1 py-1.5 text-xs text-subtle-foreground outline-none hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 pointer-coarse:min-h-11">
                           More options
-                        </summary>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2">
-                          <label className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+                          <ChevronDown
+                            aria-hidden
+                            className="h-3.5 w-3.5 transition-transform group-data-[state=open]/more:rotate-180"
+                          />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-border bg-background p-2">
+                          <Label className="gap-1.5 text-xs font-normal text-subtle-foreground">
                             Jump to season
                             <Input
                               type="number"
@@ -1076,7 +1094,7 @@ export default function WatchlistPage() {
                                 }
                               }}
                             />
-                          </label>
+                          </Label>
                           {item.latestReleaseMagnet ? (
                             <Button
                               type="button"
@@ -1091,20 +1109,26 @@ export default function WatchlistPage() {
                               Re-send last
                             </Button>
                           ) : null}
-                          <select
+                          <Select
                             value={item.status}
-                            onChange={(e) =>
-                              updateStatus(item.id, e.target.value)
-                            }
-                            className="h-8 min-h-[44px] rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 text-xs text-[var(--text)] capitalize lg:min-h-0"
-                            aria-label="Status"
+                            onValueChange={(value) => updateStatus(item.id, value)}
                           >
-                            {STATUSES.map((s) => (
-                              <option key={s} value={s}>
-                                {s}
-                              </option>
-                            ))}
-                          </select>
+                            <SelectTrigger
+                              size="sm"
+                              aria-label="Status"
+                              className="text-xs capitalize"
+                              data-library-status
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {STATUSES.map((s) => (
+                                <SelectItem key={s} value={s} className="capitalize">
+                                  {s}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           {/* Deleting files lives here, one level away from the
                               primary actions and separate from the bin icon at
                               the top of the card. Those are different decisions:
@@ -1115,7 +1139,7 @@ export default function WatchlistPage() {
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-8 text-xs text-[var(--text-tertiary)] hover:text-[var(--danger)]"
+                            className="h-8 text-xs text-subtle-foreground hover:text-destructive"
                             onClick={() => openDeleteFiles(item)}
                             data-delete-files
                             title={`Delete downloaded files for ${item.title}`}
@@ -1136,12 +1160,12 @@ export default function WatchlistPage() {
                         className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs"
                       >
                         {cardPosition ? (
-                          <span className="tabular-nums text-[var(--text-secondary)]">
+                          <span className="tabular-nums text-muted-foreground">
                             {cardPosition}
                           </span>
                         ) : null}
                         {cardPosition && cardActivity ? (
-                          <span aria-hidden className="text-[var(--text-tertiary)]">
+                          <span aria-hidden className="text-subtle-foreground">
                             ·
                           </span>
                         ) : null}
@@ -1149,8 +1173,8 @@ export default function WatchlistPage() {
                           <span
                             className={
                               cardActivity.kind === "update"
-                                ? "font-medium text-[var(--accent-text)]"
-                                : "text-[var(--text-tertiary)]"
+                                ? "font-medium text-brand-foreground"
+                                : "text-subtle-foreground"
                             }
                           >
                             {cardActivity.text}
@@ -1158,7 +1182,8 @@ export default function WatchlistPage() {
                         ) : null}
                       </p>
                     ) : null}
-                      </details>
+                        </CollapsibleContent>
+                      </Collapsible>
                     ) : null}
                   </div>
 
@@ -1175,6 +1200,8 @@ export default function WatchlistPage() {
           })}
         </div>
       )}
+      </TabsContent>
+      </Tabs>
 
       {readOnly ? null : (
         <RecommendationRailSection
@@ -1243,7 +1270,7 @@ export default function WatchlistPage() {
                 void confirmRemove();
               }}
               disabled={removing}
-              className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
+              className="bg-destructive text-white hover:bg-destructive/90"
             >
               {removing ? (
                 <LoadingGlyph className="h-3.5 w-3.5" />
@@ -1286,51 +1313,51 @@ export default function WatchlistPage() {
                   isSeriesMediaType(pendingDelete.mediaType),
                 );
                 return options.length > 1 ? (
-                  <div
-                    className="flex flex-wrap items-center gap-1"
-                    role="group"
+                  <ToggleGroup
+                    type="single"
+                    variant="outline"
+                    spacing={1}
+                    value={options.findIndex((option) => sameScope(option.scope, deleteScope)).toString()}
+                    onValueChange={(value) => {
+                      const option = options[Number(value)];
+                      if (value && option) chooseDeleteScope(pendingDelete, option.scope);
+                    }}
+                    disabled={deleting}
                     aria-label="How much to delete"
+                    className="flex-wrap"
+                    data-delete-scope
                   >
-                    {options.map((option) => (
-                      <button
+                    {options.map((option, index) => (
+                      <ToggleGroupItem
                         key={option.label}
-                        type="button"
-                        disabled={deleting}
-                        aria-pressed={sameScope(option.scope, deleteScope)}
-                        onClick={() =>
-                          chooseDeleteScope(pendingDelete, option.scope)
-                        }
-                        className={cn(
-                          "inline-flex min-h-[44px] items-center rounded-md px-2.5 py-1 text-xs font-medium ring-1 transition-colors lg:min-h-0",
-                          sameScope(option.scope, deleteScope)
-                            ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                            : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]",
-                        )}
+                        value={index.toString()}
+                        size="sm"
+                        className="px-2.5 text-xs data-[state=on]:border-brand/35 data-[state=on]:bg-brand-dim data-[state=on]:text-brand-foreground max-md:h-11 pointer-coarse:h-11"
                       >
                         {option.label}
-                      </button>
+                      </ToggleGroupItem>
                     ))}
-                  </div>
+                  </ToggleGroup>
                 ) : null;
               })()}
 
               <div
-                className="rounded-md border border-[var(--border)] bg-[var(--bg-muted)]/50 px-3 py-2.5 text-[12px]"
+                className="rounded-md border border-border bg-muted/50 px-3 py-2.5 text-[12px]"
                 data-delete-plan
               >
                 {deletePlanError ? (
-                  <p className="text-[var(--danger)]">{deletePlanError}</p>
+                  <p className="text-destructive">{deletePlanError}</p>
                 ) : !deletePlan ? (
-                  <p className="flex items-center gap-1.5 text-[var(--text-tertiary)]">
+                  <p className="flex items-center gap-1.5 text-subtle-foreground">
                     <LoadingGlyph className="h-3.5 w-3.5" />
                     Checking what is on disk…
                   </p>
                 ) : (
                   <>
                     {/* The server's sentence, not a locally re-derived one. */}
-                    <p className="text-[var(--text)]">{deletePlan.summary}</p>
+                    <p className="text-foreground">{deletePlan.summary}</p>
                     {deletePlan.releases.length ? (
-                      <ul className="mt-2 space-y-0.5 text-xs text-[var(--text-tertiary)]">
+                      <ul className="mt-2 space-y-0.5 text-xs text-subtle-foreground">
                         {deletePlan.releases.map((release) => (
                           <li key={release.name} className="truncate">
                             {release.name}
@@ -1339,7 +1366,7 @@ export default function WatchlistPage() {
                       </ul>
                     ) : null}
                     {deletePlan.blocked.length ? (
-                      <ul className="mt-2 space-y-0.5 text-xs text-[var(--text-tertiary)]">
+                      <ul className="mt-2 space-y-0.5 text-xs text-subtle-foreground">
                         {deletePlan.blocked.map((entry) => (
                           <li key={entry.name} className="truncate">
                             Kept: {entry.name} · covers {entry.covers}
@@ -1361,7 +1388,7 @@ export default function WatchlistPage() {
                 void confirmDeleteFiles();
               }}
               disabled={deleting || deletePlan?.outcome !== "deletes"}
-              className="bg-[var(--destructive)] text-white hover:bg-[#e85d66]"
+              className="bg-destructive text-white hover:bg-destructive/90"
             >
               {deleting ? <LoadingGlyph className="h-3.5 w-3.5" /> : null}
               {/* The button restates the quantity, so the number is in front of

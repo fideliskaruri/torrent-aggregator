@@ -11,10 +11,13 @@
  * Nullable properties are omitted by the server, so every optional field is
  * `?:` here. Alternatives are rendered in the order the server ranked them.
  */
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
@@ -73,6 +76,8 @@ export function canFindAnotherRelease(t: ClientTorrent): boolean {
 }
 
 const CHOICES_TTL_MS = 10 * 60_000;
+/** RadioGroup value for "no source filter"; Radix values must be strings. */
+const ALL_SOURCES = "all";
 
 function alternativesEndpoint(hash: string): string {
   return `/api/client/torrents/${encodeURIComponent(hash.toLowerCase())}/alternatives`;
@@ -258,7 +263,7 @@ export function ReleaseSwapDialog({
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent mobileFullscreen className="sm:max-w-2xl" data-release-swap-dialog aria-busy={state.kind === "loading" || switching}>
-        <DialogHeader className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4 pr-14 sm:px-5">
+        <DialogHeader className="shrink-0 border-b border-border px-4 pb-3 pt-4 pr-14 sm:px-5">
           <DialogTitle>Find another release</DialogTitle>
           <DialogDescription className="break-words">
             {torrent.name}
@@ -284,7 +289,7 @@ export function ReleaseSwapDialog({
                 {findingBest ? <LoadingGlyph /> : null}
                 {findingBest ? "Finding the best release…" : "Find the best one for me"}
               </Button>
-              <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 {nothingToPick
                   ? "There's nothing better to switch to here."
                   : `Picks the best release on ${selectedLabel ?? "any source"} and switches to it.`}
@@ -292,14 +297,14 @@ export function ReleaseSwapDialog({
             </div>
           </section>
 
-          <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
+          <p className="text-[13px] leading-relaxed text-muted-foreground">
             Switching removes this release&apos;s partial files. Completed files and other downloads are kept.
           </p>
 
           {swapError ? (
             <p
               role="alert"
-              className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--danger)] break-words"
+              className="rounded-sm border border-border bg-muted px-3 py-2 text-[13px] text-destructive break-words"
               data-release-swap-error
             >
               {swapError}
@@ -310,7 +315,7 @@ export function ReleaseSwapDialog({
             <Button
               type="button"
               variant="secondary"
-              className="min-h-[44px] w-full sm:w-auto"
+              className="w-full sm:w-auto"
               onClick={retry}
               data-release-refresh
             >
@@ -320,13 +325,13 @@ export function ReleaseSwapDialog({
 
           {state.kind === "loading" ? (
             <div role="status" aria-live="polite" aria-label={`Searching ${selectedLabel ?? "all sources"}`} data-release-alternatives-loading>
-              <p className="mb-3 flex items-center gap-2 text-[13px] text-[var(--text-secondary)]">
+              <p className="mb-3 flex items-center gap-2 text-[13px] text-muted-foreground">
                 <LoadingGlyph className="h-3.5 w-3.5" />
                 Searching {selectedLabel ?? "all sources"}…
               </p>
               <ul className="space-y-2" aria-hidden>
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <li key={i} className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] p-3">
+                  <li key={i} className="space-y-2 rounded-lg border border-border p-3">
                     <SkeletonBlock className="h-4 w-4/5" />
                     <SkeletonBlock className="h-3 w-1/2" />
                     <SkeletonBlock className="h-3 w-2/3" />
@@ -359,7 +364,7 @@ export function ReleaseSwapDialog({
             )
           ) : (
             <div className="space-y-2">
-              <h3 className="text-xs font-medium text-[var(--text-secondary)]">Or choose one yourself</h3>
+              <h3 className="text-xs font-medium text-muted-foreground">Or choose one yourself</h3>
               <ol className="space-y-2" aria-label="Other releases, best first" data-release-alternatives>
                 {state.data.alternatives.map((candidate, index) => {
                   const pending = switchingToken === candidate.token;
@@ -368,8 +373,8 @@ export function ReleaseSwapDialog({
                     <li
                       key={candidate.token}
                       className={cn(
-                        "min-w-0 space-y-2 rounded-[var(--radius)] border bg-[var(--bg-elevated)] p-3",
-                        recommended ? "border-[var(--brand)]" : "border-[var(--border)]",
+                        "min-w-0 space-y-2 rounded-lg border bg-card p-3",
+                        recommended ? "border-brand" : "border-border",
                       )}
                       data-release-alternative
                       data-swap-card
@@ -378,8 +383,8 @@ export function ReleaseSwapDialog({
                       data-alternative-rank={index + 1}
                     >
                       {recommended ? <Badge variant="accent" data-best-match>Best match</Badge> : null}
-                      <p className="break-words text-sm font-medium text-[var(--text)]">{candidate.title}</p>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--text-secondary)] tabular-nums">
+                      <p className="break-words text-sm font-medium text-foreground">{candidate.title}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums">
                         {candidate.quality ? <Badge variant="outline">{candidate.quality}p</Badge> : null}
                         <span>{candidate.seeders} {candidate.seeders === 1 ? "seeder" : "seeders"}</span>
                         <span aria-hidden>·</span>
@@ -392,14 +397,14 @@ export function ReleaseSwapDialog({
                         ) : null}
                       </div>
                       {candidate.why ? (
-                        <p className="text-[13px] leading-relaxed text-[var(--text-secondary)] break-words" data-alternative-reason>
+                        <p className="text-[13px] leading-relaxed text-muted-foreground break-words" data-alternative-reason>
                           {candidate.why}
                         </p>
                       ) : null}
                       <Button
                         type="button"
                         variant={recommended ? "default" : "secondary"}
-                        className="min-h-[44px] w-full sm:w-auto"
+                        className="w-full sm:w-auto"
                         disabled={switching || stale}
                         aria-busy={pending}
                         aria-label={`Use this release: ${candidate.title}`}
@@ -423,8 +428,9 @@ export function ReleaseSwapDialog({
 }
 
 /**
- * Single-choice source filter. Roving tabindex with arrow/Home/End keys;
- * sources that were searched and found nothing stay focusable but can't be picked.
+ * Single-choice source filter. Arrow, Home and End keys move through the
+ * sources and pick them; sources that were searched and found nothing can't
+ * be picked.
  */
 function SourcePicker({
   sources,
@@ -437,72 +443,62 @@ function SourcePicker({
   disabled: boolean;
   onSelect: (id: string | null) => void;
 }) {
-  const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const options: Array<{ id: string | null; label: string; count?: number }> = [
     { id: null, label: "All sources" },
     ...sources.map((entry) => ({ id: entry.id, label: sourceLabel(entry.id, entry.name), count: entry.count })),
   ];
-  const activeIndex = Math.max(0, options.findIndex((option) => option.id === selected));
+  const valueOf = (id: string | null) => id ?? ALL_SOURCES;
+  const current = options.some((option) => option.id === selected) ? valueOf(selected) : ALL_SOURCES;
   const unavailable = (option: { id: string | null; count?: number }) => option.id !== null && option.count === 0 && option.id !== selected;
-
-  function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    let next: number;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (index + 1) % options.length;
-    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (index - 1 + options.length) % options.length;
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = options.length - 1;
-    else return;
-    event.preventDefault();
-    refs.current[next]?.focus();
-    if (!disabled && !unavailable(options[next])) onSelect(options[next].id);
-  }
 
   return (
     <div className="space-y-1.5">
-      <p id="swap-source-label" className="text-xs font-medium text-[var(--text-secondary)]">Look on</p>
-      <div
-        role="radiogroup"
-        aria-labelledby="swap-source-label"
-        className="-mx-1 flex gap-1.5 overflow-x-auto px-1 py-1"
-        data-swap-sources
-      >
-        {options.map((option, index) => {
-          const checked = index === activeIndex;
-          const empty = unavailable(option);
-          return (
-            <button
-              key={option.id ?? "all"}
-              ref={(el) => { refs.current[index] = el; }}
-              type="button"
-              role="radio"
-              aria-checked={checked}
-              aria-disabled={empty || disabled || undefined}
-              aria-label={option.count === 0 ? `${option.label}, nothing found` : undefined}
-              tabIndex={checked ? 0 : -1}
-              onClick={() => { if (!empty && !disabled) onSelect(option.id); }}
-              onKeyDown={(event) => onKeyDown(event, index)}
-              data-swap-source={option.id ?? "all"}
-              data-swap-source-count={option.count}
-              className={cn(
-                "flex min-h-[44px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-xs font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
-                checked
-                  ? "border-[var(--accent-border)] bg-[var(--accent-dim)] text-[var(--text)]"
-                  : empty
-                    ? "cursor-not-allowed border-[var(--border)] text-[var(--text-tertiary)] opacity-60"
-                    : "border-[var(--border)] text-[var(--text-secondary)] hover:bg-[var(--bg-muted)] hover:text-[var(--text)]",
-              )}
-            >
-              <span>{option.label}</span>
-              {option.count != null ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>{option.count}</span>
-                </>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+      <p id="swap-source-label" className="text-xs font-medium text-muted-foreground">Look on</p>
+      <ScrollArea className="-mx-1">
+        <RadioGroup
+          value={current}
+          onValueChange={(value) => onSelect(value === ALL_SOURCES ? null : value)}
+          disabled={disabled}
+          orientation="horizontal"
+          aria-labelledby="swap-source-label"
+          className="flex w-max gap-1.5 px-1 py-1"
+          data-swap-sources
+        >
+          {options.map((option) => {
+            const value = valueOf(option.id);
+            const empty = unavailable(option);
+            const id = `swap-source-${value}`;
+            return (
+              <Label
+                key={value}
+                htmlFor={id}
+                className={cn(
+                  "h-9 shrink-0 cursor-pointer gap-2 whitespace-nowrap rounded-md border border-border px-3 text-xs tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-foreground max-md:min-h-11 pointer-coarse:min-h-11",
+                  "has-data-[state=checked]:border-brand/25 has-data-[state=checked]:bg-brand-dim has-data-[state=checked]:text-foreground",
+                  (empty || disabled) && "cursor-not-allowed opacity-60 hover:bg-transparent",
+                )}
+              >
+                <RadioGroupItem
+                  id={id}
+                  value={value}
+                  disabled={empty}
+                  aria-label={option.count === 0 ? `${option.label}, nothing found` : undefined}
+                  data-swap-source={value}
+                  data-swap-source-count={option.count}
+                />
+                <span>{option.label}</span>
+                {option.count != null ? (
+                  <>
+                    <span aria-hidden>·</span>
+                    <span>{option.count}</span>
+                  </>
+                ) : null}
+              </Label>
+            );
+          })}
+        </RadioGroup>
+        <ScrollBar orientation="horizontal" />
+      </ScrollArea>
     </div>
   );
 }
@@ -525,22 +521,22 @@ function HealthSummary({ torrent, health, checking }: { torrent: ClientTorrent; 
   return (
     <section
       aria-label="Current release health"
-      className="rounded-[var(--radius)] bg-[var(--bg-muted)] p-3"
+      className="rounded-lg bg-muted p-3"
       data-release-health
     >
-      <p className="mb-2 text-xs font-medium text-[var(--text-secondary)]">Current release · {status}</p>
+      <p className="mb-2 text-xs font-medium text-muted-foreground">Current release · {status}</p>
       <dl className="grid grid-cols-3 gap-3 text-sm tabular-nums">
         <div className="min-w-0">
-          <dt className="text-xs text-[var(--text-tertiary)]">Peers</dt>
-          <dd className="break-words text-[var(--text)]" data-health-peers>{peersText}</dd>
+          <dt className="text-xs text-subtle-foreground">Peers</dt>
+          <dd className="break-words text-foreground" data-health-peers>{peersText}</dd>
         </div>
         <div className="min-w-0">
-          <dt className="text-xs text-[var(--text-tertiary)]">Speed</dt>
-          <dd className="text-[var(--text)]" data-health-speed>{formatBytes(speed)}/s</dd>
+          <dt className="text-xs text-subtle-foreground">Speed</dt>
+          <dd className="text-foreground" data-health-speed>{formatBytes(speed)}/s</dd>
         </div>
         <div className="min-w-0">
-          <dt className="text-xs text-[var(--text-tertiary)]">Stalled for</dt>
-          <dd className="text-[var(--text)]" data-health-stalled>{stalledText}</dd>
+          <dt className="text-xs text-subtle-foreground">Stalled for</dt>
+          <dd className="text-foreground" data-health-stalled>{stalledText}</dd>
         </div>
       </dl>
     </section>

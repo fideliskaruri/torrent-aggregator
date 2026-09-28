@@ -3,6 +3,10 @@ import { Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FormField } from "@/components/ui/form-field";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { TfErrorState } from "@/components/tf/error-state";
 import { useApiQuery } from "@/hooks/use-api-query";
-import { cn } from "@/lib/utils";
 import {
   formatSeasons,
   parseSeasons,
@@ -104,27 +107,29 @@ export function RequestDialog({
 
         {title?.isSeries ? (
           <fieldset className="space-y-2" data-request-scope>
-            <legend className="mb-1 text-xs font-medium text-[var(--text-secondary)]">What to get</legend>
-            <ScopeOption
-              name="scope"
-              value="series"
-              checked={scope === "series"}
-              onSelect={() => setScope("series")}
-              label="Whole series"
-              hint="Every season, including new ones."
-            />
-            <ScopeOption
-              name="scope"
-              value="seasons"
-              checked={scope === "seasons"}
-              onSelect={() => setScope("seasons")}
-              label="Pick seasons"
-              hint={seasons.length > 0 ? formatSeasons(seasons) : "Choose one or more below."}
-            />
+            <legend className="mb-1 text-xs font-medium text-muted-foreground">What to get</legend>
+            <RadioGroup
+              value={scope}
+              onValueChange={(value) => setScope(value as RequestScope)}
+              aria-label="What to get"
+            >
+              <ScopeOption
+                id={`${noteId}-scope-series`}
+                value="series"
+                label="Whole series"
+                hint="Every season, including new ones."
+              />
+              <ScopeOption
+                id={`${noteId}-scope-seasons`}
+                value="seasons"
+                label="Pick seasons"
+                hint={seasons.length > 0 ? formatSeasons(seasons) : "Choose one or more below."}
+              />
+            </RadioGroup>
             {scope === "seasons" ? (
               <div className="pt-1" data-request-seasons>
                 {seasonQuery.loading ? (
-                  <p className="flex items-center gap-2 text-sm text-[var(--text-tertiary)]">
+                  <p className="flex items-center gap-2 text-sm text-subtle-foreground">
                     <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                     Loading seasons…
                   </p>
@@ -136,7 +141,7 @@ export function RequestDialog({
                     retrying={seasonQuery.refreshing}
                   />
                 ) : seasonList.length === 0 ? (
-                  <p className="text-sm text-[var(--text-tertiary)]">
+                  <p className="text-sm text-subtle-foreground">
                     No season list for this one. Ask for the whole series instead.
                   </p>
                 ) : (
@@ -144,10 +149,10 @@ export function RequestDialog({
                     {seasonList.map((season) => {
                       const id = `${noteId}-season-${season}`;
                       return (
-                        <label
+                        <Label
                           key={season}
                           htmlFor={id}
-                          className="flex min-h-11 cursor-pointer items-center gap-1 rounded-md px-1 text-sm text-[var(--text)] hover:bg-[var(--bg-muted)] lg:min-h-9 lg:gap-2 lg:px-2"
+                          className="min-h-11 cursor-pointer gap-2 rounded-md px-2 font-normal text-foreground hover:bg-muted lg:min-h-9"
                         >
                           <Checkbox
                             id={id}
@@ -156,7 +161,7 @@ export function RequestDialog({
                             data-request-season={season}
                           />
                           Season {season}
-                        </label>
+                        </Label>
                       );
                     })}
                   </div>
@@ -166,30 +171,27 @@ export function RequestDialog({
           </fieldset>
         ) : null}
 
-        <div className="space-y-1.5">
-          <label htmlFor={noteId} className="text-xs font-medium text-[var(--text-secondary)]">
-            Note for the owner <span className="text-[var(--text-tertiary)]">(optional)</span>
-          </label>
-          <textarea
+        <FormField label="Note for the owner (optional)" htmlFor={noteId}>
+          <Textarea
             id={noteId}
             rows={2}
             maxLength={NOTE_MAX}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="Anything they should know"
-            className="w-full min-w-0 scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] sm:text-sm"
+            className="min-w-0 scroll-mb-32"
             data-request-note
           />
-        </div>
+        </FormField>
 
         {previewing ? (
-          <p className="text-sm text-[var(--text-secondary)]" data-request-preview-note>
+          <p className="text-sm text-muted-foreground" data-request-preview-note>
             Preview: requests aren&apos;t sent. Exit preview to go back to your own view.
           </p>
         ) : null}
 
         {error ? (
-          <p role="alert" className="text-sm text-[var(--danger)]" data-request-error>
+          <p role="alert" className="text-sm text-destructive" data-request-error>
             {error}
           </p>
         ) : null}
@@ -209,40 +211,26 @@ export function RequestDialog({
 }
 
 function ScopeOption({
-  name,
+  id,
   value,
-  checked,
-  onSelect,
   label,
   hint,
 }: {
-  name: string;
-  value: string;
-  checked: boolean;
-  onSelect: () => void;
+  id: string;
+  value: RequestScope;
   label: string;
   hint: string;
 }) {
   return (
-    <label
-      className={cn(
-        "flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border p-3",
-        checked ? "border-[var(--accent-border)] bg-[var(--accent-dim)]" : "border-[var(--border)]",
-      )}
+    <Label
+      htmlFor={id}
+      className="min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-border p-3 font-normal has-data-[state=checked]:border-brand/25 has-data-[state=checked]:bg-brand-dim"
     >
-      <input
-        type="radio"
-        name={name}
-        value={value}
-        checked={checked}
-        onChange={onSelect}
-        className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
-        data-request-scope-option={value}
-      />
-      <span>
-        <span className="block text-sm font-medium text-[var(--text)]">{label}</span>
-        <span className="block text-xs text-[var(--text-tertiary)]">{hint}</span>
+      <RadioGroupItem id={id} value={value} className="mt-0.5" data-request-scope-option={value} />
+      <span className="space-y-0.5">
+        <span className="block text-sm font-medium text-foreground">{label}</span>
+        <span className="block text-xs leading-snug text-subtle-foreground">{hint}</span>
       </span>
-    </label>
+    </Label>
   );
 }

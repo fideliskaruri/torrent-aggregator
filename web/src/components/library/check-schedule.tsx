@@ -1,3 +1,5 @@
+import { Badge } from "@/components/ui/badge";
+
 type CheckScheduleProps = {
   nextCheckAt?: string | null;
   nextCheckReason?: string | null;
@@ -15,8 +17,11 @@ export function CheckSchedule({ nextCheckAt, nextCheckReason, monitored, status,
     nextCheckReason === "waiting for seeders" ? "Waiting for seeders" : null;
   const timing = at.getTime() <= Date.now() ? "Check due" : "Next check";
   return (
-    <p data-check-schedule className="mt-1 min-w-0 text-[12px] text-[var(--text-tertiary)]">
-      {reason ? `${reason} · ` : ""}{timing} <time dateTime={at.toISOString()} title={at.toLocaleString()}>{label}</time>
+    <p data-check-schedule className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-subtle-foreground">
+      {reason ? <Badge variant="outline" data-check-reason>{reason}</Badge> : null}
+      <span>
+        {timing} <time dateTime={at.toISOString()} title={at.toLocaleString()}>{label}</time>
+      </span>
     </p>
   );
 }
