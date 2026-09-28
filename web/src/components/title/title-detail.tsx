@@ -26,7 +26,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { CheckCircle2, Download, Loader2, Play, Search } from "lucide-react";
+import { CheckCircle2, Download, ListVideo, Loader2, Play, Search } from "lucide-react";
 import { Link } from "react-router";
 import { useFeatures } from "@/lib/features";
 import { toast } from "@/lib/toast";
@@ -1100,11 +1100,23 @@ function TitleContent({
   const downloadCanRun = downloadControl.canRun && !gated;
   const downloadLabelTarget = title;
 
+  // A film with no similar titles has nothing under the hero once the extras
+  // settle. Rendering the empty bottom section left a bordered band of dead
+  // page between the hero and the footer, so the hero takes that height
+  // instead; its content stays top-aligned, so nothing moves under the cursor.
+  const similarLoading = extrasLoading && !extrasError;
+  const nothingBelowHero =
+    !payload.isSeries && payload.known && similar.length === 0 && !similarLoading;
+
   return (
     <article aria-labelledby="title-heading" className="flex min-w-0 grow flex-col">
       <header
         data-title-hero
-        className="relative isolate flex flex-col justify-end overflow-hidden border-b border-[var(--border)] bg-[var(--bg-elevated)]"
+        data-hero-fills={nothingBelowHero || undefined}
+        className={cn(
+          "relative isolate flex flex-col overflow-hidden bg-[var(--bg-elevated)]",
+          nothingBelowHero ? "grow justify-start" : "justify-end border-b border-[var(--border)]",
+        )}
       >
         <div
           className="absolute inset-0 -z-10"
@@ -1233,7 +1245,28 @@ function TitleContent({
                       onRequested={onLibraryChanged}
                     />
                   )
-                ) : gated || (!streaming && primary.kind !== "discover") ? null : (
+                ) : gated || (!streaming && primary.kind !== "discover") ? (
+                  // With no Play to offer, a series still needs an obvious next
+                  // step above the fold: its episodes (and season download) live
+                  // below the hero, so the primary action takes the user there.
+                  payload.isSeries && !gated ? (
+                    <Button
+                      type="button"
+                      size="lg"
+                      data-title-episodes-jump
+                      onClick={() => {
+                        const target = document.querySelector<HTMLElement>("[data-title-episodes]");
+                        if (!target) return;
+                        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                        target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+                      }}
+                      className="relative w-full min-w-0 md:w-auto md:min-w-[9rem]"
+                    >
+                      <ListVideo aria-hidden />
+                      Episodes
+                    </Button>
+                  ) : null
+                ) : (
                 <Button
                   type="button"
                   size="lg"
@@ -1420,6 +1453,7 @@ function TitleContent({
       />
       ) : null}
 
+      {nothingBelowHero ? null : (
       <div className="container-app space-y-7 py-6 md:space-y-10 md:py-8">
         {payload.isSeries ? (
           <EpisodeList
@@ -1448,16 +1482,17 @@ function TitleContent({
             clicking Play silently navigated to the wrong film (Task 1). */}
         <MoreLikeThis
           items={similar}
-          loading={extrasLoading && !extrasError}
+          loading={similarLoading}
         />
 
         {!payload.known ? (
           <p className="text-[12px] text-[var(--text-tertiary)]">
-            Nothing local knows this title yet — everything above comes from
+            Nothing local knows this title yet. Everything above comes from
             the link you followed.
           </p>
         ) : null}
       </div>
+      )}
     </article>
   );
 }
