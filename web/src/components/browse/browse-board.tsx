@@ -34,7 +34,7 @@ interface NowPlaying {
  * single place a duplicate grab could be prevented.
  */
 export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
-  // Watching rails (Continue watching, Next up) belong to people who can play.
+  // Continue watching belongs to people who can play.
   const { canStream } = useCapabilities();
   const streaming = useFeatures().streaming && canStream;
   const [statuses, setStatuses] = useState<Record<string, ActionStatus>>({});
@@ -47,6 +47,19 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
     [payload.rails, streaming],
   );
   const hero = useMemo(() => pickHeroItem(rails), [rails]);
+  // The hero already features its title, so the rail it came from drops that
+  // card and keeps the rest in order. A rail left empty is hidden.
+  const shownRails = useMemo(
+    () =>
+      rails
+        .map((rail) =>
+          hero && rail.id === hero.railId
+            ? { ...rail, items: rail.items.filter((item) => item.id !== hero.item.id) }
+            : rail,
+        )
+        .filter((rail) => rail.items.length > 0),
+    [rails, hero],
+  );
 
   const runAction = useCallback(
     async (item: RailItem, action: CardAction) => {
@@ -143,7 +156,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
       ) : null}
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
-        {rails.map((rail, index) => (
+        {shownRails.map((rail, index) => (
           <Rail
             key={rail.id}
             rail={rail}
@@ -176,13 +189,13 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
  * An empty rail is omitted rather than drawn, because a rail heading is a
  * promise of contents and a title over blank space is both a broken promise
  * and pure vertical noise between two rows that do have something. But
- * omitting it silently teaches nothing — the user cannot tell whether "Next
- * Up" is empty or does not exist — so the rails that are missing are named
+ * omitting it silently teaches nothing (the user cannot tell whether a rail
+ * is empty or does not exist), so the rails that are missing are named
  * once, compactly, at the bottom, where they cannot interrupt real content.
  *
  * Renders nothing when every rail is populated, and nothing on a first run
  * either: with no rails at all the whole page is already the first-run state,
- * and a footer listing all five would be saying it twice.
+ * and a footer listing every rail would be saying it twice.
  */
 function MissingRailsNote({ rails }: { rails: BrowsePayload["rails"] }) {
   const { canStream } = useCapabilities();

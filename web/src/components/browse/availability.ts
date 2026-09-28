@@ -139,10 +139,10 @@ interface PlayAction {
   resumePositionSec: number | null;
 }
 
-/** Asks the on-demand grabber for one specific episode. */
+/** Asks the on-demand grabber for one specific episode, named on the button ("Get S02E01"). */
 interface GetAction {
   kind: "get";
-  label: "Download";
+  label: string;
   disabled: false;
   reason: null;
   request: {
@@ -175,7 +175,15 @@ interface BlockedAction {
   reason: string;
 }
 
-export type CardAction = PlayAction | GetAction | SearchAction | BlockedAction;
+/** The next episode is already on its way. Nothing to press; the card says so. */
+interface DownloadingAction {
+  kind: "downloading";
+  label: string;
+  disabled: true;
+  reason: string;
+}
+
+export type CardAction = PlayAction | GetAction | SearchAction | BlockedAction | DownloadingAction;
 
 /**
  * Default media type for an on-demand grab when the row does not name one.
@@ -211,21 +219,39 @@ const STATE_POLICY: Record<AvailabilityState, "local" | "fetch" | "dead"> = {
  * The single action a card or hero may offer for `item`.
  *
  * Ordering of the rules matters:
+ *  0. The next episode of a followed show that is downloading → "Downloading".
  *  1. Playable *and* we hold the info hash → Play/Resume.
  *  2. Playable but no info hash → treat as not-local. A claim we cannot honour
  *     must never surface as Play; it degrades below.
- *  3. `unavailable` → blocked, with the reason spoken. The *only* dead end.
- *  4. No title at all → blocked; there is not even a string to look up.
- *  5. `null` → Check. Nobody has searched, so the honest offer is to go and
+ *  3. The next episode of a followed show that is not on disk → "Get S02E01".
+ *  4. `unavailable` → blocked, with the reason spoken. The *only* dead end.
+ *  5. No title at all → blocked; there is not even a string to look up.
+ *  6. `null` → Check. Nobody has searched, so the honest offer is to go and
  *     find out, not to promise a grab we have no evidence can succeed.
- *  6. Enough to name one episode → Download (on-demand grab).
- *  7. Otherwise → Find it (search). Always executable.
+ *  7. Enough to name one episode → "Get S02E01" (on-demand grab).
+ *  8. Otherwise → Find it (search). Always executable.
  */
 export function resolveCardAction(item: RailItem): CardAction {
   const state = item.availability;
   const infoHash = item.infoHash?.trim();
   const title = item.title.trim();
 
+  // The next episode is on its way: say so before anything else, so a hash
+  // for the arriving torrent can never read as Play.
+  if (item.watchListItemId && item.nextState === "downloading") {
+    const percent = progressPercent(item.nextProgress);
+    return {
+      kind: "downloading",
+      // The percentage lives in the reason: "Downloading 42%" does not fit a
+      // phone-width card, and a truncated state reads worse than no number.
+      label: "Downloading",
+      disabled: true,
+      reason:
+        percent == null
+          ? "This episode is downloading. It will be ready to play here."
+          : `This episode is ${percent}% downloaded. It will be ready to play here.`,
+    };
+  }
   // Play means play. A hash is enough to press it — if the engine no longer
   // holds that torrent, the click re-fetches and starts. Refusing here is how
   // Continue Watching lost its Play and the player said "download it first".
@@ -239,6 +265,29 @@ export function resolveCardAction(item: RailItem): CardAction {
       infoHash,
       filePath: item.filePath,
       resumePositionSec: item.resumePositionSec,
+    };
+  }
+
+  // A show you follow always has a way forward to its next episode. Neither
+  // "nobody checked yet" nor "nothing viable at the last check" is a verdict,
+  // so the card offers to get that exact episode instead of a dead badge or a
+  // detour through search; the grab runs the search and says why if it still
+  // finds nothing.
+
+  const followedEpisode = item.watchListItemId ? episodeRequest(item) : null;
+  if (followedEpisode && title) {
+    return {
+      kind: "get",
+      label: `Get ${episodeCode(followedEpisode.season, followedEpisode.episode)}`,
+      disabled: false,
+      reason: null,
+      request: {
+        watchListItemId: item.watchListItemId,
+        title,
+        mediaType: normalizeMediaType(item.mediaType),
+        season: followedEpisode.season,
+        episode: followedEpisode.episode,
+      },
     };
   }
 
@@ -279,7 +328,7 @@ export function resolveCardAction(item: RailItem): CardAction {
   if (episode) {
     return {
       kind: "get",
-      label: "Download",
+      label: `Get ${episodeCode(episode.season, episode.episode)}`,
       disabled: false,
       reason: null,
       request: {
@@ -351,6 +400,10 @@ function episodeRequest(
   if (!Number.isInteger(season) || !Number.isInteger(episode)) return null;
   if (season < 1 || episode < 1) return null;
   return { season, episode };
+}
+
+function episodeCode(season: number, episode: number): string {
+  return `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
 }
 
 function searchHref(title: string, category?: string | null): string {
@@ -560,6 +613,7 @@ export function actionLabel(action: CardAction, status: ActionStatus): string {
       return action.label;
     case "search":
     case "blocked":
+    case "downloading":
       return action.label;
     default:
       return assertNever(action, "actionLabel");

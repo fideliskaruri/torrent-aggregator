@@ -83,7 +83,7 @@ export interface RailItem {
   posterUrl: string | null;
   backdropUrl: string | null;
   availability: AvailabilityState | null;
-  /** 0–1 watch progress fraction (Continue Watching / Ready to Play). */
+  /** 0–1 watch progress fraction (Continue watching). */
   progressFraction: number | null;
   /** Resume position in seconds (Continue Watching). */
   resumePositionSec: number | null;
@@ -93,6 +93,14 @@ export interface RailItem {
   filePath: string | null;
   /** WatchListItem id for library / next-up navigation. */
   watchListItemId: string | null;
+  /**
+   * Next-episode cards only: whether that episode is on disk ("ready"),
+   * arriving ("downloading") or neither ("missing"), from the library's own
+   * episode records for the work. Absent on every other card.
+   */
+  nextState?: "ready" | "downloading" | "missing";
+  /** 0–1 download progress of the next episode while `nextState` is "downloading". */
+  nextProgress?: number | null;
   /** Media type for routing (anime | tv | movie). */
   mediaType: string | null;
   /**

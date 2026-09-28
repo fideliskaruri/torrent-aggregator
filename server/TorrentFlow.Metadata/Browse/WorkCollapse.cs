@@ -13,7 +13,11 @@ public sealed record CollapsibleRelease<T>(string? Name, DateTime SortAt, T Valu
 }
 
 /// <summary>collapse.ts CollapsedWork.</summary>
-public sealed record CollapsedWork<T>(string WorkKey, string Title, T Value, string Name, int ReleaseCount);
+public sealed record CollapsedWork<T>(string WorkKey, string Title, T Value, string Name, int ReleaseCount)
+{
+    /// <summary>Every release folded into this work, representative included.</summary>
+    public IReadOnlyList<T> Members { get; init; } = [Value];
+}
 
 /// <summary>src/lib/browse/collapse.ts: releases → works, first-seen order, prefer &gt; artwork &gt; recency.</summary>
 public static partial class WorkCollapse
@@ -32,6 +36,7 @@ public static partial class WorkCollapse
         public DateTime SortAt;
         public bool HasArtwork;
         public bool Prefer;
+        public List<T> Members = [];
     }
 
     public static List<CollapsedWork<T>> CollapseReleasesByWork<T>(IEnumerable<CollapsibleRelease<T>> releases)
@@ -64,6 +69,7 @@ public static partial class WorkCollapse
                 {
                     IdentityKey = identityKey, Aliases = aliases, WorkKey = workKey, Title = title, Value = release.Value,
                     Name = name, ReleaseCount = 1, SortAt = release.SortAt, HasArtwork = release.HasArtwork, Prefer = release.Prefer,
+                    Members = [release.Value],
                 });
                 continue;
             }
@@ -73,6 +79,7 @@ public static partial class WorkCollapse
                 if (ReferenceEquals(match, existing)) continue;
                 existing.Aliases.UnionWith(match.Aliases);
                 existing.ReleaseCount += match.ReleaseCount;
+                existing.Members.AddRange(match.Members);
                 if (Preferred(match.Prefer, match.HasArtwork, match.SortAt, existing))
                 {
                     existing.Value = match.Value; existing.Name = match.Name; existing.Title = match.Title;
@@ -84,13 +91,14 @@ public static partial class WorkCollapse
             if (identityKey != null && existing.IdentityKey is null) existing.IdentityKey = identityKey;
             if (identityKey != null && !string.IsNullOrEmpty(explicitKey)) existing.WorkKey = explicitKey;
             existing.ReleaseCount += 1;
+            existing.Members.Add(release.Value);
             if (Preferred(release.Prefer, release.HasArtwork, release.SortAt, existing))
             {
                 existing.Value = release.Value; existing.Name = name; existing.Title = title;
                 existing.SortAt = release.SortAt; existing.HasArtwork = release.HasArtwork; existing.Prefer = release.Prefer;
             }
         }
-        return works.Select(w => new CollapsedWork<T>(w.WorkKey, w.Title, w.Value, w.Name, w.ReleaseCount)).ToList();
+        return works.Select(w => new CollapsedWork<T>(w.WorkKey, w.Title, w.Value, w.Name, w.ReleaseCount) { Members = w.Members }).ToList();
     }
 
     private static bool Preferred<T>(bool prefer, bool hasArtwork, DateTime sortAt, Bucket<T> current)
