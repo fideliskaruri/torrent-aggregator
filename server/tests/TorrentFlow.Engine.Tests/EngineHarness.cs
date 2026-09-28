@@ -115,7 +115,8 @@ internal sealed class EngineHarness : IAsyncDisposable
     public TorrentEngineService Engine { get; }
     public Queue.DownloadLimits Limits { get; } = new();
 
-    private EngineHarness(string root, ServiceProvider services, EngineOptions options, Layout.CompletedLayoutFinalizer? layout, TimeProvider? time)
+    private EngineHarness(string root, ServiceProvider services, EngineOptions options, Layout.CompletedLayoutFinalizer? layout, TimeProvider? time,
+        IHttpClientFactory? httpFactory)
     {
         Root = root;
         Services = services;
@@ -123,7 +124,7 @@ internal sealed class EngineHarness : IAsyncDisposable
         Db = services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>();
         Storage = new StorageBudget(TimeProvider.System) { FreeBytesProvider = _ => 10L << 40 };
         Engine = new TorrentEngineService(Db, Backend, new StaticOptionsMonitor<EngineOptions>(options), new ClientSettingsStore(Db), Storage,
-            new NoHttpFactory(), time ?? TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout, limits: Limits);
+            httpFactory ?? new NoHttpFactory(), time ?? TimeProvider.System, NullLogger<TorrentEngineService>.Instance, layout, limits: Limits);
     }
 
     public static string NewRoot()
@@ -134,7 +135,7 @@ internal sealed class EngineHarness : IAsyncDisposable
     }
 
     public static async Task<EngineHarness> CreateAsync(int cap = 2, long? maxStorageBytes = 1L << 40, Layout.CompletedLayoutFinalizer? layout = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null, IHttpClientFactory? httpFactory = null)
     {
         var root = NewRoot();
         var services = new ServiceCollection()
@@ -143,7 +144,7 @@ internal sealed class EngineHarness : IAsyncDisposable
             .BuildServiceProvider();
         await services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
         var options = new EngineOptions { MaxActiveDownloads = cap, DataDirectory = root, MetadataTimeoutSeconds = 5, Streaming = true };
-        var h = new EngineHarness(root, services, options, layout, time);
+        var h = new EngineHarness(root, services, options, layout, time, httpFactory);
         await using var db = await h.Db.CreateDbContextAsync();
         var settings = await new ClientSettingsStore(h.Db).EnsureAsync(db);
         settings.BaseDownloadPath = Path.Combine(root, "downloads");

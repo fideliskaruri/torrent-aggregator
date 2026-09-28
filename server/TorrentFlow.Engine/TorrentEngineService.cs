@@ -319,7 +319,8 @@ internal sealed partial class TorrentEngineService(
         {
             throw new HttpRequestException("Timed out downloading the .torrent file. Try again or use a magnet link.");
         }
-        catch (HttpRequestException ex) when (ex.InnerException is System.IO.IOException or System.Security.Authentication.AuthenticationException
+        catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.SecureConnectionError
+            || ex.InnerException is System.IO.IOException or System.Security.Authentication.AuthenticationException
             || (ex.Message?.Contains("SSL", StringComparison.OrdinalIgnoreCase) ?? false)
             || (ex.Message?.Contains("TLS", StringComparison.OrdinalIgnoreCase) ?? false)
             || (ex.InnerException?.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase) ?? false)
@@ -327,7 +328,7 @@ internal sealed partial class TorrentEngineService(
             || (ex.InnerException?.Message.Contains("badly formatted", StringComparison.OrdinalIgnoreCase) ?? false))
         {
             throw new HttpRequestException(
-                "Could not reach that torrent host securely (TLS/SSL failed). Try another host or paste the magnet instead.", ex);
+                "That torrent host could not establish a secure connection. Try another host or paste the magnet instead.", ex);
         }
     }
 

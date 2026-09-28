@@ -20,6 +20,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Next
 
+- FQ-DL-005 remote link remains blocked: webtorrent.io Sintel metadata rejects secure connection from this Windows host across HTTP/TLS variants; HTTP returns 403. Plain host-failure guidance and magnet fallback are covered. Use another host or magnet; no transport workaround is claimed.
 - Shared matcher consolidation across acquisition, automation, replacement and playback (deferred from matching fixes).
 - Explicit opt-in below-quality-floor fallback (deferred; selected quality remains a hard minimum).
 - Browser follow-up for matching diagnostics when Playwright MCP is available (transport closed during both navigation and snapshot). Real isolated API/indexer/persistence checks passed; no browser pass claimed.
@@ -37,6 +38,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- FQ-DL-005 error handling: removed TLS/SSL jargon from secure-connection failures; regression tests cover remote HTTP errors and working magnet fallback.
 - FQ-SET-006: extended `a863a9b`'s shared quality/size preference to both watchlist and auto-rule downloads; selected quality and swarm safeguards remain intact.
 - MAGNET-NOMETA server: no-metadata magnets keep their display name after timeout and expose a plain error explaining how to recover; no UI changes.
 - UNI-007: tunnel owners have download-recovery access (including real Cloudflare headers); requester GET/POST recovery routes remain 403. Table-driven HTTP role regressions cover both.
