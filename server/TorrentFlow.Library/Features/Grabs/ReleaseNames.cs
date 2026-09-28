@@ -270,6 +270,9 @@ public static class ReleaseNames
         return legacy == wanted ? [wanted] : [wanted, legacy];
     }
 
+    internal static bool SameKey(string left, string right) =>
+        string.Equals(Uri.UnescapeDataString(left), Uri.UnescapeDataString(right), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Port of <c>workKeyMatches</c>: exact key/alias match, or a yearless name that cannot contradict a dated key.</summary>
     public static bool WorkKeyMatches(string key, string name, int? year)
     {
@@ -277,8 +280,8 @@ public static class ReleaseNames
         if (candidates.Length == 0) return false;
         var withYear = WorkKeyFor(name, year);
         var bare = WorkKeyFor(name);
-        if (candidates.Any(c => c == withYear || c == bare)) return true;
+        if (candidates.Any(c => SameKey(c, withYear) || SameKey(c, bare))) return true;
         if (year != null) return false;
-        return bare.Length > 0 && candidates.Any(c => KeyTrailingYear.Replace(c, "") == bare);
+        return bare.Length > 0 && candidates.Any(c => SameKey(KeyTrailingYear.Replace(c, ""), bare));
     }
 }

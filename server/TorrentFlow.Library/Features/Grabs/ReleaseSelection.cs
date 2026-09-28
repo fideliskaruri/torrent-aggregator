@@ -36,7 +36,8 @@ public static class ReleaseSelection
     public static bool MatchesWork(string key, string title, int? year = null)
     {
         var plain = WorkKey(title);
-        return key == WorkKey(title, year) || key == plain || (year == null && Regex.IsMatch(key, $"^{Regex.Escape(plain)}-(?:19|20)\\d{{2}}$"));
+        return ReleaseNames.SameKey(key, WorkKey(title, year)) || ReleaseNames.SameKey(key, plain) ||
+            (year == null && ReleaseNames.SameKey(Regex.Replace(key, @"-(?:19|20)\d{2}$", ""), plain));
     }
     public static int? Resolution(string title) => TorrentFlow.Core.ReleaseResolution.Parse(title);
     public static bool MeetsFloor(string title, int? floor) => floor == null || Resolution(title) >= floor;

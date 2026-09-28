@@ -6,6 +6,20 @@ namespace TorrentFlow.Library.Tests;
 public sealed class ReleaseGrammarTests
 {
     [Theory]
+    [InlineData("葬送のフリーレン")]
+    [InlineData("進撃の巨人")]
+    [InlineData("ダンダダン")]
+    public void NativeOnlyWorkIdentityMatchesExactRelease(string title)
+    {
+        var key = ReleaseNames.WorkKeyFor(title);
+        Assert.NotEmpty(key);
+        Assert.True(EpisodeLadder.ReleaseMatchesWork(FakeSearch.Release($"{title} - 05 [1080p]"), [title]));
+        Assert.True(ReleaseSelection.MatchesWork(key.ToLowerInvariant(), title));
+        Assert.True(ReleaseSelection.MatchesWork(Uri.UnescapeDataString(key), title));
+        Assert.False(EpisodeLadder.ReleaseMatchesWork(FakeSearch.Release("別の番組 - 05 [1080p]"), [title]));
+    }
+
+    [Theory]
     [InlineData("Frieren 01-12 [1080p]", 12)]
     [InlineData("Frieren 01 - 12 [1080p]", 12)]
     [InlineData("Frieren [01–12] [1080p]", 12)]
