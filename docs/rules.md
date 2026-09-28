@@ -21,6 +21,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 
 ## Engineering
 
+- CI runs only by hand for now (owner request); validate locally before pushing.
 - Reuse existing services and components. No duplicate logic, such as a second ranking or a second provider list.
 - New server endpoints are owner-only by default. Requesters get read-only data with magnets, paths and engine state stripped.
 - Settings changes take effect immediately. For example, lowering the download cap re-queues running downloads.
