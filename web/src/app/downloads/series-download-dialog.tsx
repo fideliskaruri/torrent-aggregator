@@ -16,7 +16,7 @@
  * component would be lost the moment it unmounted; state the parent holds
  * survives the round trip.
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { Link } from "react-router";
 import {
@@ -62,7 +62,6 @@ import {
   isError,
   isPaused,
   isQueued,
-  leadQueuePosition,
   type GroupEntry,
   type SeasonBucket,
   type SeriesGroup,
@@ -75,6 +74,7 @@ import {
   sourceTierChip,
   stateBadgeVariant,
   stateLabel,
+  rollupChip,
   transferErrorMessage,
   waitReasonLabel,
 } from "./release-display";
@@ -224,6 +224,8 @@ function SeasonRail({
         const active = season.key === selectedSeasonKey;
         const pct = progressPercent(season.progress);
         const label = seasonLabelFor(season);
+        const chip = rollupChip(season);
+        const failed = season.counts.error;
         return (
           <button
             key={season.key}
@@ -250,13 +252,21 @@ function SeasonRail({
             <span className="flex w-full items-center gap-1.5">
               <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--border)]">
                 <span
-                  className={cn("block h-full", barTone(season.state))}
+                  className={cn("block h-full", chip.failing ? "bg-[var(--danger)]" : barTone(season.state))}
                   style={{ width: `${pct}%` }}
                 />
               </span>
               <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
                 {pct}%
               </span>
+              {failed > 0 ? (
+                <span
+                  className="shrink-0 whitespace-nowrap text-[12px] tabular-nums text-[var(--danger)]"
+                  data-season-tab-failed={failed}
+                >
+                  · {failed} failed
+                </span>
+              ) : null}
             </span>
           </button>
         );
@@ -362,6 +372,9 @@ function EpisodeCard({
   const canPlay = streaming && isBuiltin && canStreamTransfer(t);
   const speed = speedLabel(t.dlspeed);
   const showEta = isDownloading(t.state) && t.eta != null && t.eta > 0;
+  const errorMessage = transferErrorMessage(t);
+  const [errorExpanded, setErrorExpanded] = useState(false);
+  const offerSwap = isError(t.state) && canFindAnotherRelease(t);
 
   return (
     <div
@@ -427,13 +440,22 @@ function EpisodeCard({
               {showEta ? ` · ETA ${formatDuration(t.eta as number)}` : ""}
             </span>
           </div>
-          {transferErrorMessage(t) ? (
-            <p
-              className="text-[12px] leading-snug text-[var(--danger)]"
+          {errorMessage ? (
+            // One line keeps a grid of failed cards scannable; the full text
+            // is on hover and one tap away.
+            <button
+              type="button"
+              onClick={() => setErrorExpanded((value) => !value)}
+              aria-expanded={errorExpanded}
+              title={errorMessage}
+              className={cn(
+                "block w-full min-h-[44px] rounded-sm text-left text-[12px] leading-snug text-[var(--danger)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0",
+                errorExpanded ? "whitespace-normal" : "truncate",
+              )}
               data-episode-error-message
             >
-              {transferErrorMessage(t)}
-            </p>
+              {errorMessage}
+            </button>
           ) : null}
         </div>
       </div>
@@ -457,6 +479,19 @@ function EpisodeCard({
 
       <div className="flex items-center justify-between gap-2 pt-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {offerSwap ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => onAction("swap", t)}
+              aria-label={`Find another release for ${epLabel}`}
+              data-episode-find-release
+            >
+              <Search className="h-3.5 w-3.5" />
+              Find another release
+            </Button>
+          ) : null}
           {canDownloadNow(t) && isBuiltin ? (
             <Button
               type="button"
@@ -653,6 +688,28 @@ export function SeriesDownloadDialog({
   const query = artworkQueryForRelease(group.torrents[0].name, group.torrents[0].category);
   const art = artwork[query.key];
   const speed = speedLabel(group.dlspeed);
+  const chip = rollupChip(group);
+  const headerBarTone = chip.failing ? "bg-[var(--danger)]" : barTone(group.state);
+  // No bulk swap endpoint exists yet (see docs/todo-list.md), so the header
+  // links to the per-episode action on the first failed episode instead.
+  const firstFailed = group.seasons
+    .flatMap((season) => season.entries)
+    .find((entry) => isError(entry.torrent.state) && canFindAnotherRelease(entry.torrent));
+  const firstFailedLabel = firstFailed
+    ? (firstFailed.episodeLabel ?? releaseDisplayFacts(firstFailed.torrent).title)
+    : null;
+  const attention = firstFailed ? (
+    <Button
+      type="button"
+      variant="secondary"
+      size="sm"
+      onClick={() => onAction("swap", firstFailed.torrent)}
+      data-group-find-release
+    >
+      <Search className="h-3.5 w-3.5" />
+      Find another release for {firstFailedLabel}
+    </Button>
+  ) : null;
 
   const poster = (
     <TfWorkThumb title={group.title} posterUrl={art?.posterUrl} sizePx={52} />
@@ -699,10 +756,11 @@ export function SeriesDownloadDialog({
           </h2>
           <div className="flex min-w-0 items-center gap-2">
             <Badge
-              variant={stateBadgeVariant(group.state)}
+              variant={chip.variant}
               data-mobile-group-state
+              className="min-w-0 max-w-[65%] truncate"
             >
-              {stateLabel(group.state, leadQueuePosition(group.torrents))}
+              {chip.label}
             </Badge>
             <span className="min-w-0 flex-1 truncate text-[12px] tabular-nums text-[var(--text-tertiary)]">
               {group.seasonCount} {group.seasonCount === 1 ? "season" : "seasons"} ·{" "}
@@ -724,8 +782,9 @@ export function SeriesDownloadDialog({
             value={pct}
             aria-label={`${group.title} combined download progress`}
             className="h-1"
-            indicatorClassName={barTone(group.state)}
+            indicatorClassName={headerBarTone}
           />
+          {attention ? <div className="flex">{attention}</div> : null}
         </DialogHeader>
 
         <DialogHeader className="hidden shrink-0 gap-3 border-b border-[var(--border)] px-5 pb-3 pr-14 pt-4 sm:flex">
@@ -756,10 +815,10 @@ export function SeriesDownloadDialog({
               </h2>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Badge
-                  variant={stateBadgeVariant(group.state)}
+                  variant={chip.variant}
                   data-group-state
                 >
-                  {stateLabel(group.state, leadQueuePosition(group.torrents))}
+                  {chip.label}
                 </Badge>
                 <span className="text-[12px] tabular-nums text-[var(--text-tertiary)]">
                   {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"} ·{" "}
@@ -767,25 +826,12 @@ export function SeriesDownloadDialog({
                   {formatBytes(group.sizeBytes)}
                 </span>
               </div>
-              {(() => {
-                const msg = transferErrorMessage(
-                  group.torrents.find((row) => isError(row.state)) ?? { state: group.state },
-                );
-                return msg ? (
-                  <p
-                    className="text-[12px] leading-snug text-[var(--danger)]"
-                    data-group-error-message
-                  >
-                    {msg}
-                  </p>
-                ) : null;
-              })()}
               <div className="flex items-center gap-2">
                 <Progress
                   value={pct}
                   aria-label={`${group.title} combined download progress`}
                   className="h-1.5 flex-1 max-w-[16rem]"
-                  indicatorClassName={barTone(group.state)}
+                  indicatorClassName={headerBarTone}
                 />
                 <span className="shrink-0 text-[12px] tabular-nums text-[var(--text-tertiary)]">
                   {pct}%
@@ -796,6 +842,7 @@ export function SeriesDownloadDialog({
                   </span>
                 ) : null}
               </div>
+              {attention}
             </div>
             <SeriesActionsMenu
               group={group}
@@ -820,7 +867,9 @@ export function SeriesDownloadDialog({
             >
               {group.seasons.map((season) => (
                 <option key={season.key} value={season.key}>
-                  {seasonLabelFor(season)} · {progressPercent(season.progress)}%
+                  {`${seasonLabelFor(season)} · ${progressPercent(season.progress)}%${
+                    season.counts.error > 0 ? ` · ${season.counts.error} failed` : ""
+                  }`}
                 </option>
               ))}
             </select>

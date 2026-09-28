@@ -72,7 +72,6 @@ import {
   isPaused,
   isQueued,
   isDownloaded,
-  leadQueuePosition,
   type SeriesGroup,
 } from "./grouping";
 import {
@@ -90,6 +89,7 @@ import {
   isVerifiedDownload,
   stateBadgeVariant,
   stateLabel,
+  rollupChip,
   transferErrorMessage,
   waitReasonLabel,
 } from "./release-display";
@@ -1777,18 +1777,21 @@ function SeriesOverviewRow({
   const allSelected =
     transferIds.length > 0 &&
     transferIds.every((transferId) => selected.has(transferId));
+  const chip = rollupChip(group);
   const barTone = isDownloaded(group.state)
     ? "bg-[var(--success)]"
-    : isError(group.state)
+    : isError(group.state) || chip.failing
       ? "bg-[var(--danger)]"
       : isPaused(group.state) || isQueued(group.state)
         ? "bg-[var(--text-tertiary)]"
         : "bg-[var(--primary)]";
   const titleHref = downloadTitleHref(head);
+  // Once several members failed the chip carries the count; repeating one
+  // member's error text would read as if it were the whole series' story.
   const groupErrorMessage =
-    transferErrorMessage(
-      group.torrents.find((t) => isError(t.state)) ?? { state: group.state },
-    ) ?? null;
+    group.counts.error === 1
+      ? transferErrorMessage(group.torrents.find((t) => isError(t.state)) ?? { state: group.state })
+      : null;
 
   return (
     <div
@@ -1798,7 +1801,7 @@ function SeriesOverviewRow({
       )}
       data-download-group
       data-group-key={group.key}
-      data-group-error={isError(group.state) ? "true" : undefined}
+      data-group-error={isError(group.state) || chip.failing ? "true" : undefined}
     >
       <Checkbox
         checked={allSelected}
@@ -1831,8 +1834,8 @@ function SeriesOverviewRow({
               </p>
             )}
             <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant={stateBadgeVariant(group.state)} data-group-state>
-                {stateLabel(group.state, leadQueuePosition(group.torrents))}
+              <Badge variant={chip.variant} data-group-state>
+                {chip.label}
               </Badge>
               <span className="text-[12px] text-[var(--text-tertiary)] tabular-nums">
                 {group.releaseCount} {group.releaseCount === 1 ? "release" : "releases"}

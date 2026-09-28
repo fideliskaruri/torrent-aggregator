@@ -16,7 +16,9 @@ import {
   isError,
   isPaused,
   isQueued,
+  leadQueuePosition,
 } from "./grouping";
+import { summarizeStatus, type StatusCounts } from "./status-rollup";
 import type { ClientTorrent } from "./types";
 
 /**
@@ -91,6 +93,25 @@ export function transferErrorMessage(
 ): string | null {
   if (!isError(torrent.state)) return null;
   return torrent.error?.trim() || null;
+}
+
+/**
+ * The status chip for a series or season. Once any member has failed it reads
+ * as counts ("1 downloading · 30 need attention") rather than one member's
+ * state, and turns error-toned when most members failed.
+ */
+export function rollupChip(
+  set: { state: string; counts: StatusCounts; torrents?: readonly ClientTorrent[] },
+): { label: string; variant: "accent" | "success" | "danger" | "default"; failing: boolean } {
+  const summary = summarizeStatus(set.counts);
+  if (summary.label) {
+    return { label: summary.label, variant: summary.tone, failing: summary.tone === "danger" };
+  }
+  return {
+    label: stateLabel(set.state, set.torrents ? leadQueuePosition(set.torrents) : null),
+    variant: stateBadgeVariant(set.state),
+    failing: isError(set.state),
+  };
 }
 
 /** Offer Download now only on a queued row the owner hasn't already pushed. */

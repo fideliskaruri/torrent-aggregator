@@ -35,6 +35,7 @@ import { workIdentityFor } from "@/components/title/work-key";
 import { formatEpisodeLabel } from "@/lib/library/cursor";
 import { parseEpisode, seasonFolderSegment } from "@/lib/torrents/episodes";
 import { isSeriesDownload } from "./media-filter";
+import { emptyStatusCounts, type StatusCounts } from "./status-rollup";
 
 /** The fields grouping needs. The page's own row type is a superset. */
 export interface TransferRow {
@@ -265,6 +266,8 @@ interface CombinedTotals {
   upspeed: number;
   /** A member's own raw state; see `combinedState`. */
   state: string;
+  /** How many members are in each state, over every member; see `summarizeStatus`. */
+  counts: StatusCounts;
 }
 
 export interface GroupEntry<T> {
@@ -340,7 +343,25 @@ function totalsFor<T extends TransferRow>(
     dlspeed: all.reduce((sum, t) => sum + (Number(t.dlspeed) || 0), 0),
     upspeed: all.reduce((sum, t) => sum + (Number(t.upspeed) || 0), 0),
     state: combinedState(all),
+    counts: statusCounts(all),
   };
+}
+
+/** Per-state member counts, so a rollup can say "1 downloading · 30 need attention". */
+export function statusCounts(
+  members: readonly Pick<TransferRow, "state">[],
+): StatusCounts {
+  const counts = emptyStatusCounts();
+  for (const member of members) {
+    const state = member.state ?? "";
+    counts.total += 1;
+    if (isError(state)) counts.error += 1;
+    else if (isDownloaded(state)) counts.done += 1;
+    else if (isDownloading(state)) counts.downloading += 1;
+    else if (isQueued(state)) counts.queued += 1;
+    else if (isPaused(state)) counts.paused += 1;
+  }
+  return counts;
 }
 
 /**

@@ -30,6 +30,8 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - MCP-verify the fq-ui batch at 390 and 1280 (owner, requester, preview); screenshots were blocked in that run.
 - "Find another release" on title pages, after the unified UI lands.
 - Auto-swap: notice an unhealthy torrent and switch releases automatically, reusing the swap service.
+- Bulk "Find other releases for failed episodes" in the series dialog. There's no bulk swap endpoint yet (only `POST /api/client/torrents/{hash}/alternatives` per torrent), so the header links to the per-episode action on the first failed episode. Add a server bulk swap (owner-only, reusing `ReleaseSwapService`), then one header button.
+- MCP-verify the series dialog rollup ("1 downloading · 30 need attention", season "N failed", compact error line, visible Find another release) at 390 and 1280; Playwright MCP transport was closed in that run.
 - Frontend code audit: one grok agent per area (shell, title, downloads and library, settings and requests), after the unified UI lands.
 
 ## Closed
@@ -38,6 +40,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 ## Done recently
 
+- Series download dialog status: the header and overview chips count members once anything fails ("1 downloading · 30 need attention", error-toned when most failed) instead of one member's "Finding files"; the repeated header error line is gone; season tabs show "N failed"; error cards show one line (tap or hover for the full text) and a visible Find another release button. Swap reasons say "1 seeder". Node and ReleaseSwap tests pass; browser pass pending (MCP transport closed).
 - Server remainder completed and pushed: seven fixes, four already-fixed items reverified, and the webtorrent.io transport blocker documented with improved plain error handling. Final solution validation: **10,152 passed / 9 skipped / 0 failed**. Per-item commit map and verification limits are in `search-matching.md`.
 - FQ-DL-005 error handling: removed TLS/SSL jargon from secure-connection failures; regression tests cover remote HTTP errors and working magnet fallback.
 - FQ-SET-006: extended `a863a9b`'s shared quality/size preference to both watchlist and auto-rule downloads; selected quality and swarm safeguards remain intact.
