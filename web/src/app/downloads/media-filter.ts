@@ -17,7 +17,7 @@
  * type out of a torrent, which carries a raw release name rather than a
  * catalogue field.
  */
-import { workIdentityFor } from "@/components/title/work-key";
+import { hasSeasonEpisodeMarker, workIdentityFor } from "@/components/title/work-key";
 import {
   DEFAULT_LIBRARY_TAB,
   LIBRARY_TABS,
@@ -58,6 +58,8 @@ export const DEFAULT_DOWNLOAD_TAB: DownloadTab = DEFAULT_LIBRARY_TAB;
 export interface DownloadRow {
   name: string;
   category?: string | null;
+  /** The server's canonical work media type, when the row is linked to a work. */
+  workMediaType?: string | null;
 }
 
 /**
@@ -85,7 +87,10 @@ export interface DownloadRow {
  * where every row lives regardless, it is still there.
  */
 function downloadMediaType(row: DownloadRow): MediaType | null {
-  const stated = normalizeMediaType(row.category);
+  // The server's canonical work identity outranks the stored category, and an
+  // explicit SxxEyy is never a film, whatever either of them says.
+  const stated = normalizeMediaType(row.workMediaType) ?? normalizeMediaType(row.category);
+  if (stated === "movie" && hasSeasonEpisodeMarker(row.name ?? "")) return "tv";
   if (stated) return stated;
   return workIdentityFor(row.name ?? "").isSeries ? "tv" : null;
 }

@@ -80,7 +80,26 @@ export function workIdentityFor(
   releaseName: string,
   metadata?: MediaMetadata | null,
 ) {
-  return workIdentity(cleanDisplayTitle(releaseName ?? ""), metadata);
+  const raw = releaseName ?? "";
+  const cleaned = cleanDisplayTitle(raw);
+  const identity = workIdentity(cleaned, metadata);
+  const marker = raw.match(SEASON_EPISODE_MARKER);
+  if (identity.isSeries || !marker) return identity;
+  // The release states SxxEyy but the cleaned name lost it (`[SubsPlease]
+  // Frieren - S02E03 (1080p)` cleans to "Sousou no Frieren") or the parser
+  // missed a suffix (`S01E01v2`). Such a name is never a film: classifying it
+  // as one split a single anime into a film row and a series row.
+  const base = cleaned.split(SEASON_EPISODE_MARKER)[0].replace(/[\s\-–—_:|.]+$/, "").trim() || cleaned;
+  return workIdentity(`${base} S${marker[1].padStart(2, "0")}E${marker[2].padStart(2, "0")}`, metadata);
+}
+
+/** An explicit season+episode marker: `S01E05`, `s2e103`, `S01.E03`, `S01E01v2`. */
+const SEASON_EPISODE_MARKER =
+  /(?<![a-z0-9])s(\d{1,2})[\s._-]?e(\d{1,4})(?:v\d)?(?![a-z0-9])/i;
+
+/** Does this release name state an explicit season and episode? */
+export function hasSeasonEpisodeMarker(releaseName: string): boolean {
+  return SEASON_EPISODE_MARKER.test(releaseName ?? "");
 }
 
 /**
