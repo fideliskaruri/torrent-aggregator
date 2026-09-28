@@ -5,7 +5,23 @@
 - Episode mapping implemented: cached AniList PREQUEL traversal, explicit franchise season labels and completed-prequel totals; provider coordinates remain the persisted queue identity. Split cours do not increment the season by chain length. Ambiguous/movie/special chains and unknown totals do not receive guessed offsets.
 - Parser fixes implemented: shared server episode grammar handles spaced season/dash singles, version suffixes and bracket-number fansubs; ranges/packs stay excluded. One shared resolution parser now serves Search, Library, playback and prewarm (including pixel dimensions, FHD, interlaced labels and 4k).
 - Aliases implemented: AniList English/romaji/native/synonyms plus verified prequel root titles feed queries and exact title matching; distinct names replace duplicate compact spellings. Aliases persist on Works for legacy/automation callers, and request-created works retain provider identity.
-- Rejection diagnostics in progress. The investigation below remains historical evidence.
+- Rejection diagnostics implemented: per-candidate reason codes and source failures survive into the owner title response; counts deduplicate releases across query shapes and include search-filter rejections. The two-sentence summary persists in `GrabJob.Message` and the existing `AcquisitionTarget.Error` / request error path. Internal rejected-result pools are neither exposed by public search responses nor retained in the shared search cache.
+- The investigation below remains historical evidence.
+
+### Verification of the fix
+
+| Coverage | Result |
+|---|---|
+| Every Frieren S1 absolute episode 1–28; One Piece 1100/1180 | Table-driven exact-episode checks; neighboring episodes rejected |
+| Frieren AniList sequel: provider E05, S02E05, absolute 33 | Real GrabService regression reproduces the old ten-query/zero-send failure with mapping unavailable, then admits the seeded fixture when mapping is supplied |
+| Solo Leveling `S2 - 05`, Mushoku Tensei S3 / split cours | Parser and mapping tests; unknown split-cour counts do not guess a season episode |
+| Bracket fansubs, `E05v2`, Shōgun/Pokémon, western S01E05 vs S01E50/S10E05 | Golden-name tests; packs/ranges remain excluded |
+| AniList aliases, PREQUEL traversal, cache/single-flight, ambiguous/movie/special chains | Mock-HTTP provider tests; unavailable/ambiguous offsets fail closed |
+| Real API → real search → synthetic local RSS → persisted grab failure | Port 3931 host, port 3932 synthetic indexer, data in `D:\code\memtest\match-fix\ui`; returned 409 with “12 results checked: 9 were a different episode; 3 were below 1080p”; the same message persisted on the acquisition target; **zero engine rows** |
+| Web error transport | Existing title action preserves the precise two-sentence summary; typecheck and Node test suite pass |
+| Browser click verification | **Blocked:** Playwright MCP `browser_navigate` and `browser_snapshot` both returned “Transport closed”; no browser interaction or payload transfer is claimed |
+
+The synthetic RSS contained invented “Matching Verification” release names and no payload endpoint. Both QA servers were stopped afterward. Full solution / web test results are recorded in the completion report. This closes the matching slices, not the deferred shared-matcher refactor, opt-in quality fallback, explicit mapping-provider crosswalks, or source pagination/budget work.
 
 Investigated September 28, 2026, against `6f65b0a` (`origin/main` when the detached `match-trace` worktree was created). **Investigation only; no product code changed.** Line references below describe that revision, not a promise that line numbers will survive later edits.
 

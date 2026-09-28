@@ -33,7 +33,10 @@ public sealed class RungDiagnostic
     public int Fetched { get; init; }
     public int WorkEligible { get; init; }
     public int QualityEligible { get; init; }
+    public int EpisodeEligible { get; init; }
     public int Attempted { get; set; }
+    public IReadOnlyList<SourceStatus> Sources { get; init; } = [];
+    public IReadOnlyList<CandidateRejection> Candidates { get; set; } = [];
 }
 
 public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
@@ -84,21 +87,44 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var memo = new Dictionary<string, SearchResponse>(StringComparer.Ordinal);
         var attempted = new HashSet<string>(StringComparer.Ordinal);
         var diagnostics = new List<RungDiagnostic>();
+        var decisions = new Dictionary<string, CandidateRejection>(StringComparer.Ordinal);
+        var searchFailed = false;
         GrabResult? lastFailure = null;
         foreach (var rung in rungs)
         {
+            var queryFailed = false;
             if (!memo.TryGetValue(rung.SearchKey, out var raw))
             {
                 // `Limit` caps what is fetched and `PageSize` what is returned; both must be 40 or the single is paged away.
-                raw = await search.SearchAsync(new() { Query = rung.Query, Category = rung.Category, Limit = EpisodeLadder.SearchLimit,
-                    PageSize = EpisodeLadder.SearchLimit, TargetResolution = floor ?? input.PreferredResolution, Enrich = false,
-                    SkipCache = true, Background = false, Filters = rung.Filters }, ct);
+                try
+                {
+                    raw = await search.SearchAsync(new() { Query = rung.Query, Category = rung.Category, Limit = EpisodeLadder.SearchLimit,
+                        PageSize = EpisodeLadder.SearchLimit, TargetResolution = floor ?? input.PreferredResolution, Enrich = false,
+                        SkipCache = true, Background = false, Filters = rung.Filters, IncludeRejectedResults = true }, ct);
+                }
+                catch (Exception error) when (!ct.IsCancellationRequested)
+                {
+                    queryFailed = true;
+                    raw = new() { Query = rung.Query, Sources = [new("search", 0, error.Message)] };
+                }
                 memo[rung.SearchKey] = raw;
             }
+            searchFailed |= raw.Sources.Any(s => s.Error != null);
             var work = raw.Results.Where(x => EpisodeLadder.ReleaseMatchesWork(x, accepted)).ToList();
             var quality = floor == null ? work : work.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor)).ToList();
+            var rungCandidates = new Dictionary<string, CandidateRejection>(StringComparer.Ordinal);
+            foreach (var row in raw.RejectedResults.Concat(raw.Results.Select(r => new SearchRejectedResult(r, ""))))
+            {
+                var key = EpisodeLadder.CandidateKey(row.Result);
+                var decision = attempted.Contains(key) && decisions.TryGetValue(key, out var previous)
+                    ? previous : EpisodeRejections.Explain(row.Result, accepted, cursor, input.EpisodeMapping, floor, rung.Relaxed,
+                        row.Reason.Length > 0 ? row.Reason : null);
+                rungCandidates[key] = decisions[key] = decision;
+            }
             var diagnostic = new RungDiagnostic { Kind = rung.Kind, Query = rung.Query, Category = rung.Category, MinSeeders = rung.Filters.MinSeeders,
-                Fetched = raw.Results.Count, WorkEligible = work.Count, QualityEligible = quality.Count };
+                Fetched = raw.Results.Count, WorkEligible = work.Count, QualityEligible = quality.Count,
+                EpisodeEligible = quality.Count(r => EpisodeLadder.MatchesTargetEpisode(r, cursor, input.EpisodeMapping)),
+                Sources = raw.Sources, Candidates = rungCandidates.Values.ToArray() };
             diagnostics.Add(diagnostic);
             while (EpisodeLadder.Select(rung, quality, cursor, attempted, input.EpisodeMapping) is { } candidate)
             {
@@ -106,17 +132,26 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 diagnostic.Attempted++;
                 var result = await Send(db, settings, input, query, candidate, beforeSend, rung.Relaxed, ct);
                 if (result.Ok) return result;
+                var key = EpisodeLadder.CandidateKey(candidate);
+                rungCandidates[key] = decisions[key] = new(candidate.Title, candidate.Source, ["send_failed"]);
+                diagnostic.Candidates = rungCandidates.Values.ToArray();
                 // One bad pick no longer ends the attempt: fall through to the next candidate, then the next rung.
                 lastFailure = result;
             }
+            if (queryFailed) break;
         }
         var searches = memo.Count;
-        object Report(string reason) => new { reason, searches, triedSeasonPacks = false, manualSearchQuery = query, rungs = diagnostics };
-        if (lastFailure != null) return lastFailure with { NoReleaseFound = Report("send_failed") };
-        var qualityLabel = floor == null ? "" : $" at {floor}p or higher";
-        var message = $"Couldn't find a working release for {cursor.Label}{qualityLabel} after {searches} distinct query shape{(searches == 1 ? "" : "s")}. Try again in a bit — another eligible release may show up.";
+        object Report(string reason) => new { reason, searches, triedSeasonPacks = false, manualSearchQuery = query,
+            mapping = input.EpisodeMapping, candidates = decisions.Values.ToArray(), rungs = diagnostics };
+        var message = EpisodeRejections.Message(cursor, floor, decisions.Values, searchFailed);
+        if (lastFailure != null)
+        {
+            if (lastFailure.Storage != null) return lastFailure with { NoReleaseFound = Report("send_failed") };
+            await LogSkip(db, input, query, message, ct);
+            return lastFailure with { Message = message, NoReleaseFound = Report("send_failed") };
+        }
         await LogSkip(db, input, query, message, ct);
-        return new(false, message) { Query = query, Skipped = true, NoReleaseFound = Report("no_release") };
+        return new(false, message) { Query = query, Skipped = true, NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release") };
     }
 
     /// <summary>Port of the title page's grabWholeWork: one search, identity-checked first survivor, one send.</summary>
@@ -166,7 +201,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             }
         }
         var response = await search.SearchAsync(new() { Query = huntQuery, Category = category, Limit = 15, TargetResolution = floor, Enrich = false,
-            SkipCache = true, Background = true, Filters = new() { HasMagnet = true, Season = huntSeason, Episode = huntEpisode } }, ct);
+            SkipCache = true, Background = true, IncludeRejectedResults = input.Cursor != null,
+            Filters = new() { HasMagnet = true, Season = huntSeason, Episode = huntEpisode } }, ct);
         var eligible = response.Results.Where(x => ReleaseSelection.SameWork(x, input.Title, input.Aliases ?? [])).ToList();
         bool Exact(TorrentResult r) => input.Cursor == null || EpisodeLadder.MatchesTargetEpisode(r, input.Cursor.Value, input.EpisodeMapping);
         var exactBeforeQuality = eligible.Count(Exact);
@@ -214,12 +250,29 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         }
         var label = input.Cursor?.Label ?? input.Title;
         var qualityLabel = floor == null ? "" : $" at {floor}p or higher";
-        var noRelease = $"Couldn't find a working release for {label}{qualityLabel} after 1 distinct query shape. Try again in a bit — another eligible release may show up.";
-        if (lastError == null) await LogSkip(db, input, query, noRelease, ct);
-        var rungs = new[] { new RungDiagnostic { Kind = "exact", Query = query, Category = category, Fetched = response.Results.Count,
-            WorkEligible = eligible.Count, QualityEligible = quality.Count, Attempted = attempts.Count } };
-        return new(false, lastError ?? noRelease) { Query = query, HuntMiss = lastError == null && exactBeforeQuality == 0, Skipped = lastError == null,
-            NoReleaseFound = new { reason = lastError == null ? "no_release" : "send_failed", searches = 1, triedSeasonPacks = false, manualSearchQuery = query, rungs } };
+        var accepted = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToArray();
+        var decisions = input.Cursor is { } target
+            ? response.RejectedResults.Concat(response.Results.Select(r => new SearchRejectedResult(r, "")))
+                .DistinctBy(r => EpisodeLadder.CandidateKey(r.Result))
+                .Select(r =>
+                {
+                    var decision = EpisodeRejections.Explain(r.Result, accepted, target, input.EpisodeMapping, floor, true,
+                        r.Reason.Length > 0 ? r.Reason : null);
+                    var identity = LibraryJson.Hash(r.Result.InfoHash) ?? LibraryJson.Hash(r.Result.Magnet) ?? r.Result.TorrentUrl ?? r.Result.Id;
+                    return lastError != null && attempts.Contains(identity)
+                        ? decision with { Reasons = ["send_failed"] } : decision;
+                }).ToArray() : [];
+        var noRelease = input.Cursor is { } episode
+            ? EpisodeRejections.Message(episode, floor, decisions, response.Sources.Any(s => s.Error != null))
+            : $"Couldn't find a release for {label}{qualityLabel}. Try again later.";
+        var finalMessage = input.Cursor != null ? noRelease : lastError ?? noRelease;
+        await LogSkip(db, input, query, finalMessage, ct);
+        var rungs = new[] { new RungDiagnostic { Kind = "exact", Query = huntQuery, Category = category, Fetched = response.Results.Count,
+            WorkEligible = eligible.Count, QualityEligible = quality.Count, EpisodeEligible = quality.Count(Exact),
+            Attempted = attempts.Count, Sources = response.Sources, Candidates = decisions } };
+        return new(false, finalMessage) { Query = query, HuntMiss = lastError == null && exactBeforeQuality == 0 && !response.Sources.Any(s => s.Error != null), Skipped = lastError == null,
+            NoReleaseFound = new { reason = lastError != null ? "send_failed" : response.Sources.Any(s => s.Error != null) ? "search_incomplete" : "no_release",
+                searches = 1, triedSeasonPacks = false, manualSearchQuery = query, rungs } };
     }
 
     /// <summary>Sends one pinned candidate and records the attempt; the recorded query stays the canonical one.</summary>

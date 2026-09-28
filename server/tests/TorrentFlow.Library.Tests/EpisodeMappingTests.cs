@@ -45,6 +45,29 @@ public sealed class EpisodeMappingTests
         Assert.False(EpisodeLadder.MatchesTargetEpisode(FakeSearch.Release("The Bear S10E05 1080p"), new(1, 5)));
     }
 
+    public static IEnumerable<object[]> FrierenSeasonOne =>
+        Enumerable.Range(1, 28).Select(episode => new object[] { episode });
+
+    [Theory]
+    [MemberData(nameof(FrierenSeasonOne))]
+    public void EveryFrierenFirstSeasonAbsoluteEpisodeRemainsExact(int episode)
+    {
+        var release = FakeSearch.Release($"[SubsPlease] Sousou no Frieren - {episode:00} (1080p) [ABC12345].mkv");
+        Assert.True(EpisodeLadder.MatchesTargetEpisode(release, new(1, episode)));
+        Assert.False(EpisodeLadder.MatchesTargetEpisode(release, new(1, episode + 1)));
+    }
+
+    [Theory]
+    [InlineData("Mushoku Tensei 3rd Season", "Mushoku Tensei", 3, 47, "Mushoku Tensei S03E05 1080p")]
+    [InlineData("Mushoku Tensei 3rd Season", "Mushoku Tensei", 3, 47, "Mushoku Tensei - 52 [1080p]")]
+    [InlineData("Solo Leveling Season 2", "Solo Leveling", 2, 12, "Solo Leveling S2 - 05 [1080p]")]
+    public void OtherSequelFranchisesUseMappedReleaseCoordinates(string entry, string franchise, int season, int offset, string release)
+    {
+        var mapping = new AnimeEpisodeMapping(season, offset, [entry], [franchise]);
+        Assert.True(EpisodeLadder.MatchesTargetEpisode(FakeSearch.Release(release), new(1, 5), mapping));
+        Assert.False(EpisodeLadder.MatchesTargetEpisode(FakeSearch.Release(release), new(1, 6), mapping));
+    }
+
     [Fact]
     public void QueryLadderIncludesMappedCoordinates()
     {

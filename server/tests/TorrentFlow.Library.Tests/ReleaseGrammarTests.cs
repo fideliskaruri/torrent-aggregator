@@ -71,5 +71,6 @@ public sealed class ReleaseGrammarTests
         Assert.Equal(expected, ReleaseQuality.ParseResolution(title));
         Assert.Equal(expected, TorrentFlow.Media.Playback.Releases.ParseResolution(title));
         Assert.Equal(expected >= 1080, ReleaseSelection.MeetsFloor(title, 1080));
+        Assert.Equal(expected == 1080, TorrentFilters.Apply([FakeSearch.Release(title)], new() { Resolution = "1080p" }).Count == 1);
     }
 }

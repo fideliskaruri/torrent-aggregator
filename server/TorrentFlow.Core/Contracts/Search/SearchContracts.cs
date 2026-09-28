@@ -29,6 +29,7 @@ public sealed record SearchOptions
     public bool SkipCache { get; init; }
     public bool Enrich { get; init; } = true;
     public bool Background { get; init; }
+    public bool IncludeRejectedResults { get; init; }
     public int? AdapterDeadlineMs { get; init; }
     public SearchRoutingPreferences? Routing { get; init; }
 }
@@ -102,6 +103,7 @@ public sealed record DownloadRoute(string Kind, string Category, string Confiden
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? SavePath = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? RelativePath = null);
 public sealed record SourceStatus(string Id, int Count, string? Error = null);
+public sealed record SearchRejectedResult(TorrentResult Result, string Reason);
 public sealed record AvailableSource(string Id, string Name, bool EnabledByDefault);
 public sealed record ReleaseGroup(string Key, string Label, TorrentResult Best, IReadOnlyList<TorrentResult> Alternatives);
 
@@ -117,5 +119,7 @@ public sealed record SearchResponse
     public int PageSize { get; init; } = 20;
     public int TotalPages { get; init; }
     public IReadOnlyList<SourceStatus> Sources { get; init; } = [];
+    [JsonIgnore]
+    public IReadOnlyList<SearchRejectedResult> RejectedResults { get; init; } = [];
     public IReadOnlyList<AvailableSource>? AvailableSources { get; init; }
 }

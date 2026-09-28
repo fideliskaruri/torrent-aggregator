@@ -6,7 +6,6 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
-| Search-to-torrent episode matching | match-fix | Mapping, parser and aliases implemented; rejection diagnostics next |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
@@ -23,6 +22,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 - Shared matcher consolidation across acquisition, automation, replacement and playback (deferred from matching fixes).
 - Explicit opt-in below-quality-floor fallback (deferred; selected quality remains a hard minimum).
+- Browser follow-up for matching diagnostics when Playwright MCP is available (transport closed during both navigation and snapshot). Real isolated API/indexer/persistence checks passed; no browser pass claimed.
 
 - QA pass: owner vs requester vs preview, on phone and desktop, using the simulator.
 - MCP-verify the fq-ui batch at 390 and 1280 (owner, requester, preview); screenshots were blocked in that run.
@@ -40,6 +40,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - Flow QA server (FQ-DL/REQ/SET): movie year folders; list prefers durable queued/error; forced/verified flags; torrent URL plain errors; fulfilled blocks re-request; partial grab honesty; QueueKey season/episode; Amazon posters; create rate-limit after validate; source test messages; TMDB key shape; build version; decline empty body.
 - FQ UI batch (fq-ui): Sintel and other IMDb shorts now found by keyless title search (FQ-UI-101); SxxEyy releases never classify as films and downloads prefer the server's canonical media type (Frieren duplicates); search overlay inside `<main>` (FQ-UI-103); requester search cards show request status (UNI-003); one "View as requester" control per surface (FQ-UI-102); preview shows the season picker with sending off (UNI-004); /about stays shared but hides owner setup (UNI-005); nav badges 12px (UNI-006); title actions follow transfer state and library add/remove is always visible (FQ-UI-104); errored transfers show Error with the reason (FQ-DL-004); magnet field validates inline (FQ-UI-040). Unit/source tests only: Playwright MCP was unavailable ("Transport closed"), so MCP verification at 390/1280 is still owed.
 - MOB2-002b: shell already pads `main` for the bottom nav + safe area; no title-page change made. Needs an MCP look at 390 to confirm whether the complaint is the first row at the fold (would need a shorter mobile hero).
+- Search-to-torrent matching: cached AniList episode offsets and franchise seasons, parser/quality consistency, distinct provider/franchise aliases, and persisted two-sentence rejection summaries. Regression corpus and real isolated API test cover the reproduced sequel failure; see `search-matching.md`.
 
 - Engine QA: DL-1 verified already fixed in e2cfde7; DL-3 verified already ported in ea1f829.
 - DL-5: save-path write probe before admission; real API returns 400 / `savePath` with no transfer.

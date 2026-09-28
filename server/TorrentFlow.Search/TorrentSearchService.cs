@@ -51,12 +51,12 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
             : settings?.PreferredResolution is 480 or 720 or 1080 or 2160 ? settings.PreferredResolution.Value : 1080;
         if (options.Enrich && options.Page <= 1) enricher.Prime(options.Query, options.Category);
         var key = SearchCacheStore.Key(options, target) + (credentials is null ? "" : $":credentials:{credentials.Revision}") + (registry is null ? "" : $":sources:{registry.Revision}");
-        var pool = options.SkipCache ? null : await cache.GetAsync(key, token: cancellationToken);
+        var pool = options.SkipCache || options.IncludeRejectedResults ? null : await cache.GetAsync(key, token: cancellationToken);
         var cached = pool != null;
         if (pool == null)
         {
             // Deadline and freshness policies must not coalesce with automation.
-            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}";
+            var flightKey = $"{key}|{options.SkipCache}|{options.Background}|{(options.Background ? null : options.AdapterDeadlineMs)}|{options.PageSize}|{options.IncludeRejectedResults}";
             Task<SearchResponse> work;
             lock (flightGate)
             {
@@ -100,7 +100,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var retry = cache.Spend(options.Background);
         if (retry > 0)
         {
-            var stale = options.SkipCache ? null : await cache.GetAsync(key, true, token);
+            var stale = options.SkipCache || options.IncludeRejectedResults ? null : await cache.GetAsync(key, true, token);
             return stale != null ? stale with { Cached = true } : throw new SearchThrottledException(retry);
         }
         var selected = registered is not null
@@ -135,12 +135,14 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         var deduped = await WithLiveSwarmsAsync(ReleaseRanking.Dedupe(outcomes.SelectMany(o => o.Results)), options, target, token);
         logger.LogInformation("Torrent search fan-out: indexers {IndexerMs}ms, tracker scrape {ScrapeMs}ms",
             indexerMs, stageWatch.ElapsedMilliseconds - indexerMs);
-        var filtered = TorrentFilters.Apply(deduped, options.Filters ?? new());
+        var decisions = deduped.Select(r => new SearchRejectedResult(r, TorrentFilters.RejectReason(r, options.Filters ?? new()) ?? "")).ToArray();
+        var filtered = decisions.Where(d => d.Reason.Length == 0).Select(d => d.Result);
         IReadOnlyList<TorrentResult> ranked = ReleaseRanking.Rank(filtered.Select(r => DownloadRouting.Attach(r, options.Category)), options.Query, target, options.Category)
             .Select(WithPublicTrackers).ToArray();
         if (options.Limit != null) ranked = ranked.Take(Math.Max(0, options.Limit.Value)).ToArray();
-        var response = new SearchResponse { Query = options.Query, Results = ranked, TotalCount = ranked.Count, Sources = outcomes.Select(o => o.Status).ToArray() };
-        if (!outcomes.Any(o => o.Truncated)) await cache.SetAsync(key, response, token);
+        var response = new SearchResponse { Query = options.Query, Results = ranked, TotalCount = ranked.Count, Sources = outcomes.Select(o => o.Status).ToArray(),
+            RejectedResults = options.IncludeRejectedResults ? decisions.Where(d => d.Reason.Length > 0).ToArray() : [] };
+        if (!outcomes.Any(o => o.Truncated)) await cache.SetAsync(key, response with { RejectedResults = [] }, token);
         return response;
     }
     /// <summary>Sources whose listed counts come from their own live tracker, so a scrape of public trackers may undercount them.</summary>

@@ -27,22 +27,27 @@ public static class TorrentFilters
         return video.OrderBy(f => IsExtras(f.File.Name ?? f.File.Path ?? "") ? 1 : 0)
             .ThenByDescending(f => Math.Max(0, f.File.Length ?? 0)).FirstOrDefault();
     }
-    public static IReadOnlyList<TorrentResult> Apply(IEnumerable<TorrentResult> results, SearchFilters f) => results.Where(r =>
+    public static IReadOnlyList<TorrentResult> Apply(IEnumerable<TorrentResult> results, SearchFilters f) =>
+        results.Where(r => RejectReason(r, f) == null).ToArray();
+
+    public static string? RejectReason(TorrentResult r, SearchFilters f)
     {
-        if (IsUnsafeExecutable(r.Title)) return false;
-        if (f.MinSeeders is { } min && r.Seeders < min || f.MaxSeeders is { } max && r.Seeders > max) return false;
-        if (f.MinSizeBytes is { } minSize && (r.SizeBytes == null || r.SizeBytes < minSize)) return false;
-        if (f.MaxSizeBytes is { } maxSize && (r.SizeBytes == null || r.SizeBytes > maxSize)) return false;
+        if (IsUnsafeExecutable(r.Title)) return "unsafe";
+        if (f.MinSeeders is { } min && r.Seeders < min) return "no_seeders";
+        if (f.MaxSeeders is { } max && r.Seeders > max) return "seeder_filter";
+        if (f.MinSizeBytes is { } minSize && (r.SizeBytes == null || r.SizeBytes < minSize)) return "size_filter";
+        if (f.MaxSizeBytes is { } maxSize && (r.SizeBytes == null || r.SizeBytes > maxSize)) return "size_filter";
         var hay = $"{r.Title} {string.Join(' ', r.Tags)}".ToLowerInvariant();
-        if (f.Resolution is { } res && !(res is "2160p" or "4k" ? new[] { "2160p", "4k", "uhd" }.Any(hay.Contains) : hay.Contains(res))) return false;
-        if (f.Codec is { } codec && !(codec is "hevc" or "x265" ? new[] { "hevc", "x265", "h.265" }.Any(hay.Contains) : hay.Contains(codec))) return false;
-        if (f.HasMagnet == true && string.IsNullOrEmpty(r.Magnet)) return false;
+        if (f.Resolution is { } res && (TorrentFlow.Core.ReleaseResolution.Parse(res) is { } wanted
+                ? TorrentFlow.Core.ReleaseResolution.Parse(hay) != wanted : !hay.Contains(res))) return "resolution_filter";
+        if (f.Codec is { } codec && !(codec is "hevc" or "x265" ? new[] { "hevc", "x265", "h.265" }.Any(hay.Contains) : hay.Contains(codec))) return "codec_filter";
+        if (f.HasMagnet == true && string.IsNullOrEmpty(r.Magnet)) return "no_link";
         var ep = r.Episode ?? Parse(r.Title);
         var pack = ep.IsBatch || ep.IsSeasonPack;
-        if (f.ReleaseKind == "packs" && !pack || f.ReleaseKind == "episodes" && pack) return false;
+        if (f.ReleaseKind == "packs" && !pack || f.ReleaseKind == "episodes" && pack) return "release_kind";
         var parsed = Parse(r.Title);
-        if (f.Season != null && parsed.Season != null && f.Season != parsed.Season) return false;
-        if (f.Episode != null && parsed.Episode != null && f.Episode != parsed.Episode) return false;
-        return true;
-    }).ToArray();
+        if (f.Season != null && parsed.Season != null && f.Season != parsed.Season) return "episode_filter";
+        if (f.Episode != null && parsed.Episode != null && f.Episode != parsed.Episode) return "episode_filter";
+        return null;
+    }
 }

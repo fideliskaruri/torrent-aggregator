@@ -46,6 +46,33 @@ internal sealed class FakeAdapter(string id, Func<Task<IReadOnlyList<TorrentResu
 
 public sealed class SearchServiceTests
 {
+    [Fact]
+    public async Task AcquisitionDiagnosticsRetainFilterRejectionsWithoutCachingOrExposingThem()
+    {
+        using var h = new SearchHarness();
+        var adapter = new FakeAdapter("nyaa", () => Task.FromResult<IReadOnlyList<TorrentResult>>([
+            Result("right") with { Title = "Frieren S02E05 1080p" },
+            Result("wrong") with { Title = "Frieren S02E50 1080p", SizeBytes = 1000000001 }
+        ]));
+        var service = h.Service(adapter);
+        var options = new SearchOptions
+        {
+            Query = "Frieren S02E05", Enrich = false, Filters = new() { Season = 2, Episode = 5 }
+        };
+        var normal = await service.SearchAsync(options);
+        Assert.Single(normal.Results);
+        Assert.Empty(normal.RejectedResults);
+        var detailed = await service.SearchAsync(options with { IncludeRejectedResults = true });
+        Assert.Equal("episode_filter", Assert.Single(detailed.RejectedResults).Reason);
+        Assert.Equal("Frieren S02E50 1080p", detailed.RejectedResults[0].Result.Title);
+        Assert.DoesNotContain("S02E50", System.Text.Json.JsonSerializer.Serialize(detailed));
+        Assert.Equal(2, adapter.Calls);
+        var cached = await service.SearchAsync(options);
+        Assert.True(cached.Cached);
+        Assert.Empty(cached.RejectedResults);
+        Assert.Equal(2, adapter.Calls);
+    }
+
     private sealed class CountingEnricher : ISearchResultEnricher
     {
         public int Primes;

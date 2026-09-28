@@ -57,7 +57,8 @@ public sealed partial class AniListClient
                     numeric = next;
                 }
                 // Explicit season labels remain useful even when a complete absolute mapping isn't available.
-                result ??= chain.Count > 0 ? new(ExplicitSeason(chain[0]), null, Titles(chain[0]).ToArray(), []) : null;
+                result ??= chain.Count > 0 ? new(HasLaterPart(chain[0]) ? null : ExplicitSeason(chain[0]), null,
+                    Titles(chain[0]).ToArray(), BaseTitles(chain[0])) : null;
             }
             catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException) { }
             _mappings.Set(id, result, result?.AbsoluteOffset != null ? TimeSpan.FromHours(12) : TimeSpan.FromMinutes(5));
@@ -75,7 +76,7 @@ public sealed partial class AniListClient
         {
             var previous = chain[i];
             if (Str(previous, "status") != "FINISHED" || Int(previous, "episodes") is not (>= 1 and <= 5000))
-                return new(explicitSeason, null, Titles(current).ToArray(), []);
+                return new(HasLaterPart(current) ? null : explicitSeason, null, Titles(current).ToArray(), BaseTitles(current));
             offset += Int(previous, "episodes")!.Value;
             if (explicitSeason != null && ExplicitSeason(previous) == explicitSeason)
                 seasonOffset += Int(previous, "episodes")!.Value;
@@ -96,4 +97,13 @@ public sealed partial class AniListClient
         }
         return null;
     }
+
+    private static bool HasLaterPart(JsonElement media) => Titles(media).Any(title =>
+        Regex.IsMatch(title, @"\b(?:Part|Cour)\s*(?:[2-9]|\d{2})\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1)));
+
+    private static string[] BaseTitles(JsonElement media) => Titles(media).Select(title => (Title: title,
+            Base: Regex.Replace(title, @"\s+(?:Season\s*\d{1,2}|\d{1,2}(?:st|nd|rd|th)\s+Season|S\d{1,2})(?:\s+(?:Part|Cour)\s*\d+)?\b",
+                "", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)).Trim()))
+        .Where(n => n.Base.Length > 1 && n.Base != n.Title).Select(n => n.Base).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 }

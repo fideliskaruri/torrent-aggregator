@@ -162,7 +162,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         }
         return StatusCode(single!.Ok ? 200 : 409, LibraryJson.Object(("ok", single.Ok), ("message", single.Message),
             ("title", single.Title), ("savePath", single.SavePath), ("infoHash", single.InfoHash), ("storage", single.Storage),
-            ("queued", single.Queued), ("queuePosition", single.QueuePosition)));
+            ("queued", single.Queued), ("queuePosition", single.QueuePosition), ("noReleaseFound", single.NoReleaseFound)));
     }
 
     /// <summary>

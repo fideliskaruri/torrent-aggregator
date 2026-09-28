@@ -45,6 +45,16 @@ public sealed class AnimeEpisodeMappingTests
         Assert.Equal(35, mapping.AbsoluteOffset);
     }
 
+    [Fact]
+    public void SplitCourWithoutKnownCountsDoesNotMapToTheFirstCoursEpisode()
+    {
+        var mapping = AniListClient.MapEpisodeChain([
+            Entry("Mushoku Tensei 2nd Season Part 2", 12),
+            Entry("Mushoku Tensei 2nd Season", null)]);
+        Assert.Null(mapping.FranchiseSeason);
+        Assert.Null(mapping.AbsoluteOffset);
+    }
+
     [Theory]
     [InlineData(null, "FINISHED")]
     [InlineData(12, "RELEASING")]
@@ -117,6 +127,7 @@ public sealed class AnimeEpisodeMappingTests
         var result = await client.GetEpisodeMappingAsync("2");
         Assert.Equal(2, result!.FranchiseSeason);
         Assert.Null(result.AbsoluteOffset);
+        Assert.Contains("Frieren", result.FranchiseTitles);
         Assert.Single(handler.Requests);
     }
 }
