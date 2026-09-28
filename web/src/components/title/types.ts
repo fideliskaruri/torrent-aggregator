@@ -88,6 +88,13 @@ export interface TitleSeason {
    * complete, and the episode contract forbids claims nobody made.
    */
   transfer: TitleEpisodeTransfer | null;
+  /**
+   * Distinct episodes of this season with a finished file on disk. Optional:
+   * seasons only the provider knows about carry none.
+   */
+  downloadedEpisodes?: number;
+  /** Distinct episodes queued or transferring, not already downloaded. */
+  downloadingEpisodes?: number;
 }
 
 /** Where this work stands in the user's library. */
@@ -260,6 +267,11 @@ export interface TitleExtrasPayload {
   seasonCount: number | null;
   /** Every season number the provider knows about, ascending. */
   seasons: number[];
+  /**
+   * Aired episode count per season number (JSON keys are strings). A season
+   * missing from the map has an unknown aired count.
+   */
+  airedEpisodes?: Record<string, number>;
   episodes: TitleEpisodeMeta[];
   moreLikeThis: TitleSimilar[];
   /**

@@ -45,6 +45,12 @@ import { EpisodeList, episodeIntentKey } from "./episode-list";
 import { extrasRequestPending } from "./episode-list-state";
 import { LibraryControls } from "./library-controls";
 import { mergeEpisodes, mergeSeasons, isUnaired } from "./merge-extras";
+import {
+  providerAiredFor,
+  seasonProgressFromRows,
+  seasonProgressFromSummary,
+  type SeasonProgress,
+} from "./season-progress";
 import { MoreLikeThis } from "./more-like-this";
 import { RequestAction } from "@/components/requests/request-action";
 import { useCapabilities } from "@/lib/capabilities";
@@ -1058,6 +1064,14 @@ function TitleContent({
     transfers: progress?.episodeTransfers,
     truncated: onKnownSeason && payload.episodesTruncated,
   });
+  const seasonProgress: Record<number, SeasonProgress> = {};
+  for (const s of seasons) {
+    const aired = providerAiredFor(extras?.airedEpisodes, s.season);
+    seasonProgress[s.season] =
+      s.season === activeSeason && rows.length > 0
+        ? seasonProgressFromRows(rows, aired)
+        : seasonProgressFromSummary(s, aired);
+  }
 
   // The hero means watch only when the payload can name what to watch.
   // Provider-complete rows let a series name a real first/next episode; when
@@ -1556,6 +1570,7 @@ function TitleContent({
         {payload.isSeries ? (
           <EpisodeList
             seasons={seasons}
+            seasonProgress={seasonProgress}
             season={activeSeason}
             episodes={rows}
             truncated={truncated}

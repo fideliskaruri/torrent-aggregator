@@ -212,6 +212,7 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
                 {
                     ["season"] = s["season"]?.DeepClone(),
                     ["knownEpisodes"] = s["knownEpisodes"]?.DeepClone(),
+                    ["downloadedEpisodes"] = s["downloadedEpisodes"]?.DeepClone(),
                 });
             }
             next["seasons"] = projected;
