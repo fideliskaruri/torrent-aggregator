@@ -234,6 +234,10 @@ public sealed class MediaRequestService(
                 .Select(w => new { w.MediaType, w.ExternalId, w.Title }).ToListAsync(ct);
             var keys = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.Status != "failed")
                 .Select(t => t.WorkKey).Distinct().Take(5000).ToListAsync(ct);
+            // Fulfilled requests are already in the library even when no acquisition target row was written.
+            var fulfilled = await db.MediaRequests.AsNoTracking().Where(r => r.Status == MediaRequestStatus.Fulfilled)
+                .Select(r => r.WorkKey).Distinct().Take(5000).ToListAsync(ct);
+            foreach (var key in fulfilled) keys.Add(key);
             return new LibraryIndex(watches.Select(w => (w.MediaType, w.ExternalId, w.Title)).ToList(), keys.ToHashSet(StringComparer.Ordinal));
         }
 

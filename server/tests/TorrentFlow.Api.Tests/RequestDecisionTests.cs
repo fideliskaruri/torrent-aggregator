@@ -273,6 +273,65 @@ public sealed class RequestDecisionTests(DecisionHostFactory factory) : IClassFi
     }
 
     [Fact]
+    public async Task DeclineAcceptsEmptyJsonBodyWithout415()
+    {
+        var (friend, id) = await RequestAsync("Empty Decline", "5014");
+        using (friend)
+        using (var owner = factory.Local())
+        {
+            using var empty = new StringContent("", System.Text.Encoding.UTF8, "application/json");
+            var declined = await owner.PostAsync($"/api/requests/{id}/decline", empty);
+            Assert.Equal(HttpStatusCode.OK, declined.StatusCode);
+            Assert.Equal("declined", (await Mine(friend, id)).GetProperty("status").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task PartialGrabMarksRequestFailedWithHonestReason()
+    {
+        var (friend, id) = await RequestAsync("Partial Season", "5015",
+            new { provider = "tmdb", providerId = "5015", mediaType = "tv", title = "Partial Season", scope = "seasons", seasons = new[] { 1 } });
+        var previous = factory.Grabber.Outcome;
+        factory.Grabber.Outcome = r => r.Id == id
+            ? new([$"partial{r.Id[..8]}aa"], "Only 1 of 3 episodes could be started. Storage limit.", Partial: true)
+            : previous(r);
+        using (friend)
+        using (var owner = factory.Local())
+        {
+            Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync($"/api/requests/{id}/approve", null)).StatusCode);
+            await GrabDone();
+            var row = await RowAsync(id);
+            Assert.Equal(MediaRequestStatus.Failed, row.Status);
+            Assert.Contains("Only 1 of 3", row.DecisionReason);
+            Assert.False(string.IsNullOrEmpty(row.GrabbedHashes));
+            Assert.Equal("failed", (await Mine(friend, id)).GetProperty("status").GetString());
+        }
+        factory.Grabber.Outcome = previous;
+    }
+
+    [Fact]
+    public async Task FulfilledTitleBlocksDuplicateCreateAsInLibrary()
+    {
+        var (friend, id) = await RequestAsync("Matrix Library", "603");
+        using (friend)
+        using (var owner = factory.Local())
+        {
+            Assert.Equal(HttpStatusCode.OK, (await owner.PostAsync($"/api/requests/{id}/approve", null)).StatusCode);
+            await GrabDone();
+            var hash = (await RowAsync(id)).GrabbedHashes!;
+            factory.Transfers.Done[hash] = true;
+            await factory.Services.GetRequiredService<RequestDecisionService>()
+                .OnTorrentCompletedAsync(hash, CancellationToken.None);
+            Assert.Equal(MediaRequestStatus.Fulfilled, (await RowAsync(id)).Status);
+
+            var again = await friend.PostAsJsonAsync("/api/requester/requests",
+                new { provider = "tmdb", providerId = "603", mediaType = "movie", title = "Matrix Library", year = 2000, scope = "movie" });
+            Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+            Assert.Equal("in_library", (await Json(again)).GetProperty("code").GetString());
+        }
+    }
+
+    [Fact]
     public async Task RequestersCannotDecideAndTheLibraryOmitsUnfinishedTitles()
     {
         var (friend, id) = await RequestAsync("Self Approve", "5005");

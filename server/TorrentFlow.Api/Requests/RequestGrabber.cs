@@ -9,7 +9,8 @@ using TorrentFlow.Metadata.Title;
 namespace TorrentFlow.Api.Requests;
 
 /// <summary>What one approval started: the transfers to watch, or why nothing started.</summary>
-public sealed record RequestGrabOutcome(IReadOnlyList<string> Hashes, string? Problem);
+/// <param name="Partial">True when some but not all wanted episodes started (storage/cap/miss).</param>
+public sealed record RequestGrabOutcome(IReadOnlyList<string> Hashes, string? Problem, bool Partial = false);
 
 /// <summary>Turns an approved request into downloads; a seam so tests never search indexers.</summary>
 public interface IRequestGrabber
@@ -45,18 +46,32 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
         var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
         var hashes = new List<string>();
         string? lastProblem = null;
+        var wanted = 0;
+        var failed = 0;
         foreach (var season in seasons)
         {
             var payload = await Extras(request, season, ct);
-            var result = await SeasonFanout.Run(payload.Episodes.Where(e => Aired(e.AirDate, today)).Select(e => e.Episode),
+            var aired = payload.Episodes.Where(e => Aired(e.AirDate, today)).Select(e => e.Episode).ToList();
+            wanted += aired.Count;
+            var result = await SeasonFanout.Run(aired,
                 (episode, before) => grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct, before), ct);
             foreach (var transfer in result.Transfers)
             {
                 if (transfer.InfoHash is { } hash) { if (!hashes.Contains(hash)) hashes.Add(hash); }
-                else lastProblem = transfer.Error;
+                else { failed++; lastProblem = transfer.Error; }
             }
         }
-        return hashes.Count > 0 ? new(hashes, null) : new([], lastProblem ?? "No aired episodes were found for those seasons.");
+        if (hashes.Count == 0)
+            return new([], lastProblem ?? "No aired episodes were found for those seasons.");
+        // Some episodes started but others failed (storage, no release): report honestly instead of a silent full approve.
+        if (wanted > 0 && (failed > 0 || hashes.Count < wanted))
+        {
+            var reason = lastProblem is { Length: > 0 }
+                ? $"Only {hashes.Count} of {wanted} episodes could be started. {lastProblem}"
+                : $"Only {hashes.Count} of {wanted} episodes could be started.";
+            return new(hashes, reason, Partial: true);
+        }
+        return new(hashes, null);
     }
 
     private Task<TitleExtrasPayload> Extras(MediaRequest r, int? season, CancellationToken ct) =>

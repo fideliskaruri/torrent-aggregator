@@ -66,8 +66,7 @@ public static class RequestEndpoints
         requester.MapPost("/requests", async (HttpContext http, MediaRequestService service, RequestAutoApproveService autoApprove,
             RateLimiter limiter, Microsoft.Extensions.Options.IOptions<MetadataOptions> metadata) =>
         {
-            if (!limiter.Allow($"requester-create:{EmailOf(http)}", service.Options.CreatesPerMinute))
-                return Error(429, "You're sending requests too quickly. Wait a minute and try again.", "rate_limited");
+            // Validate first so typos and schema errors return 400 without burning the create quota.
             var (body, readError) = await ReadObjectAsync(http);
             if (readError is not null) return readError;
             var (fields, fieldError) = CreateFields.Parse(body);
@@ -76,6 +75,8 @@ public static class RequestEndpoints
             var (draft, problem) = RequestRules.Validate(fields!.Provider, fields.ProviderId, fields.MediaType, fields.Title, fields.Year,
                 fields.PosterUrl, fields.Scope, fields.Seasons, fields.Note, tmdbImageHost);
             if (problem is not null) return Error(400, problem);
+            if (!limiter.Allow($"requester-create:{EmailOf(http)}", service.Options.CreatesPerMinute))
+                return Error(429, "You're sending requests too quickly. Wait a minute and try again.", "rate_limited");
             var userId = UserIdOf(http);
             var (outcome, created) = await service.CreateAsync(userId, draft!, http.RequestAborted);
             if (outcome == CreateOutcome.Created && created is not null)
@@ -120,16 +121,28 @@ public static class RequestEndpoints
         {
             http.Response.Headers.CacheControl = "no-store";
             if (id.Length > 64) return Error(404, "Request not found.", "not_found");
+            // Empty body is always fine (any Content-Type). Optional JSON { reason } or plain-text reason.
             string? reason = null;
-            if (http.Request.ContentLength is > 0 || http.Request.ContentType is not null)
+            if (http.Request.ContentLength is not 0)
             {
-                var (body, readError) = await ReadObjectAsync(http);
-                if (readError is not null) return readError;
-                foreach (var p in body.EnumerateObject())
+                var contentType = http.Request.ContentType ?? "";
+                if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase) || contentType.Length == 0)
                 {
-                    if (p.Name != "reason") return Error(400, $"Unknown field `{(p.Name.Length > 40 ? p.Name[..40] : p.Name)}`");
-                    if (p.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) return Error(400, "reason must be a string");
-                    reason = p.Value.GetString();
+                    var (body, readError) = await ReadObjectOrEmptyAsync(http);
+                    if (readError is not null) return readError;
+                    if (body.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var p in body.EnumerateObject())
+                        {
+                            if (p.Name != "reason") return Error(400, $"Unknown field `{(p.Name.Length > 40 ? p.Name[..40] : p.Name)}`");
+                            if (p.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null)) return Error(400, "reason must be a string");
+                            reason = p.Value.GetString();
+                        }
+                    }
+                }
+                else
+                {
+                    reason = await ReadTextBodyAsync(http);
                 }
             }
             if (reason?.Trim().Length > RequestDecisionService.MaxReasonLength)
@@ -208,6 +221,43 @@ public static class RequestEndpoints
         {
             return (default, Error(400, "The request body could not be read"));
         }
+    }
+
+    /// <summary>Like <see cref="ReadObjectAsync"/> but an empty body is success with default (no properties).</summary>
+    private static async Task<(JsonElement Body, IResult? Error)> ReadObjectOrEmptyAsync(HttpContext http)
+    {
+        if (http.Request.ContentLength > MaxBodyBytes) return (default, Error(413, "Request body is too large"));
+        try
+        {
+            var buffer = new byte[MaxBodyBytes + 1];
+            var length = 0;
+            int read;
+            while (length < buffer.Length && (read = await http.Request.Body.ReadAsync(buffer.AsMemory(length), http.RequestAborted)) > 0)
+                length += read;
+            if (length > MaxBodyBytes) return (default, Error(413, "Request body is too large"));
+            if (length == 0) return (default, null);
+            using var doc = JsonDocument.Parse(buffer.AsMemory(0, length));
+            if (doc.RootElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return (default, null);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return (default, Error(400, "JSON body must be an object"));
+            return (doc.RootElement.Clone(), null);
+        }
+        catch (JsonException) { return (default, Error(400, "Request body is not valid JSON")); }
+        catch (Exception ex) when (ex is IOException or BadHttpRequestException && !http.RequestAborted.IsCancellationRequested)
+        {
+            return (default, Error(400, "The request body could not be read"));
+        }
+    }
+
+    private static async Task<string?> ReadTextBodyAsync(HttpContext http)
+    {
+        if (http.Request.ContentLength > MaxBodyBytes) return null;
+        var buffer = new byte[MaxBodyBytes + 1];
+        var length = 0;
+        int read;
+        while (length < buffer.Length && (read = await http.Request.Body.ReadAsync(buffer.AsMemory(length), http.RequestAborted)) > 0)
+            length += read;
+        if (length == 0 || length > MaxBodyBytes) return null;
+        return System.Text.Encoding.UTF8.GetString(buffer, 0, length);
     }
 
     private sealed record CreateFields(string? Provider, string? ProviderId, string? MediaType, string? Title, int? Year,

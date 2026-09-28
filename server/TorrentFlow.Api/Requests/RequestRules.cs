@@ -59,8 +59,18 @@ public static partial class RequestRules
     public static readonly string[] Providers = IMetadataResolver.Providers;
     public static readonly string[] MediaTypes = ["movie", "tv", "anime"];
 
-    private static readonly string[] PosterHosts = ["image.tmdb.org", "s4.anilist.co", "static.tvmaze.com", "images.metahub.space"];
-    private static readonly string[] PosterHostSuffixes = [".anilist.co", ".tvmaze.com", ".mzstatic.com", ".metahub.space"];
+    private static readonly string[] PosterHosts =
+    [
+        "image.tmdb.org", "s4.anilist.co", "static.tvmaze.com", "images.metahub.space",
+        // Cinemeta / Stremio metahub often serves Amazon CDN poster URLs.
+        "images-na.ssl-images-amazon.com", "m.media-amazon.com", "ia.media-amazon.com",
+        "images-eu.ssl-images-amazon.com", "images.amazon.com",
+    ];
+    private static readonly string[] PosterHostSuffixes =
+    [
+        ".anilist.co", ".tvmaze.com", ".mzstatic.com", ".metahub.space",
+        ".ssl-images-amazon.com", ".media-amazon.com", ".images-amazon.com",
+    ];
 
     /// <summary>Only https artwork from the catalogs the search uses; anything else is dropped so the owner's inbox never loads an arbitrary URL.</summary>
     public static string? SafePosterUrl(string? raw, string? extraHost = null)

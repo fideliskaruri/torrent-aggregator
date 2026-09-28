@@ -116,6 +116,18 @@ public sealed class RequestDecisionService(
             return;
         }
         current.GrabbedHashes = string.Join(',', outcome.Hashes.Select(h => h.ToLowerInvariant()).Distinct());
+        if (outcome.Partial)
+        {
+            // Keep the hashes so progress is visible, but do not leave a silent full approval.
+            current.Status = MediaRequestStatus.Failed;
+            current.DecisionReason = string.IsNullOrWhiteSpace(outcome.Problem)
+                ? "Only some of the requested episodes could be downloaded."
+                : outcome.Problem.Trim();
+            await db.SaveChangesAsync(CancellationToken.None);
+            await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request only partly downloaded",
+                $"{current.Title}: {current.DecisionReason}", "/requests");
+            return;
+        }
         await db.SaveChangesAsync(CancellationToken.None);
         await CheckFulfilledAsync(id, CancellationToken.None);
     }
