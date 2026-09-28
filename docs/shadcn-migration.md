@@ -13,13 +13,40 @@ it, then splits the work into five slices that do not share files.
 
 - Read `web/src/components/ui/README.md` first. Import from
   `@/components/ui`. Add missing primitives with the CLI, not by hand.
-- Keep `data-*` hooks and `aria-*` names that tests assert; update the test
-  when markup must change, never delete the assertion.
+- Keep existing `data-*` hooks and `aria-*` names; other code and the
+  browser checks select on them.
+- No unit tests and no mock-based tests. Do not add any.
 - Replace `bg-[var(--x)]` / `text-[var(--x)]` classes with theme utilities
   in the files you touch (`bg-card`, `text-muted-foreground`, ...).
-- Verify: `tsc --noEmit`, `vite build`, `node --test tests/*.test.mjs`, then
-  `tests/screenshots.ts` at 390, 1024, 1240 and 1440 against an isolated
-  instance. Look at every shot.
+- Build: `pnpm --dir web typecheck`, `pnpm --dir web build`, and
+  `dotnet build server/TorrentFlow.Api/TorrentFlow.Api.csproj`.
+
+## Verification (real server, real data, real screens)
+
+Evidence in a slice report is real API responses and real screenshots, not
+test counts.
+
+1. Copy the stable data SQLite-safely into the slice folder (never copy a
+   live `.db` file directly):
+   `python -c "import sqlite3; s=sqlite3.connect(r'D:\code\memtest\stable\data\torrentflow.db'); d=sqlite3.connect(r'D:\code\memtest\shadcn-<slice>\data\torrentflow.db'); s.backup(d)"`.
+   Also copy `push-vapid.json` and `trackers_best.txt`. Point the download
+   folder settings at `D:\code\memtest\shadcn-<slice>\data\downloads`,
+   never `D:\Torrents` or `C:\Torrents`.
+2. Build `web/dist`, then run the API from the slice worktree on the slice
+   port: `ASPNETCORE_URLS=http://127.0.0.1:<port>`,
+   `TorrentFlow__DataDirectory=D:\code\memtest\shadcn-<slice>\data`,
+   `dotnet run --project server/TorrentFlow.Api`.
+3. Call the real endpoints the slice's pages use (for example `/api/health`,
+   `/api/me`, `/api/requests`, `/api/notifications`) with curl and paste the
+   status and body excerpt into the report.
+4. Take viewport screenshots of every page the slice touched at 390, 1024
+   and 1440 with `pnpm --dir web screens` (`BASE_URL`, `SHOTS_DIR`, and
+   `PW_ROOT` pointing at a scratch folder with `playwright` installed; channel
+   `msedge`). Open the menus, sheets and dialogs you changed and shoot them
+   too. Look at every image; fix overflow, clipping, native controls and
+   misalignment, then shoot again.
+5. Stop the server when done. Never use ports 3000, 3930, 3960 or 3941 to
+   3945, `%LOCALAPPDATA%\TorrentFlow` or `C:\Torrents`.
 
 ## Inventory by area
 
@@ -68,7 +95,7 @@ Counts are from a grep of the current code (`<select`, `role="tab"`,
 
 | File | Bespoke control | Replace with |
 | --- | --- | --- |
-| `app/settings/page.tsx` | Four native `<select>`, radio cards (minimum quality), two custom disclosures, label/input rows that wrap badly ("Downloads at once") | `Select`, `RadioGroup` cards or `ToggleGroup`, `Collapsible`, `FormField` |
+| `app/settings/page.tsx` | Four native `<select>`, radio cards (minimum quality), two custom disclosures, raw `<label>` elements (use `Label` or `FormField`) | `Select`, `RadioGroup` cards or `ToggleGroup`, `Collapsible`, `FormField` |
 | `settings/settings-disclosure.tsx` | Custom disclosure with chevron | `Collapsible` (or `Accordion` for the section list) |
 | `settings/download-windows-panel.tsx` | Two native `<select>` (days, hours), `aria-pressed` day toggles | `Select`, `ToggleGroup type="multiple"` |
 | `settings/retention-panel.tsx` | `aria-pressed` segmented toggle | `ToggleGroup` |
@@ -98,14 +125,16 @@ Each slice owns its files. No two slices edit the same file. Shared files
 `components/layout/mobile-nav.tsx`, `components/tf/*`) are frozen for the
 wave; ask the foundation owner for changes there.
 
-| Slice | Owns | Main primitives | Size |
-| --- | --- | --- | --- |
-| 1. Browse and title | `components/browse/*`, `components/tf/recommendation-rail.tsx`, `components/title/*`, `app/title/*`, `app/everything/*` | Carousel, ScrollArea, Select, RadioGroup, Collapsible, Badge, Skeleton | Medium |
-| 2. Player | `components/watch/*` | Select or DropdownMenu radio items, Slider, Popover, Tooltip, Button | Medium (one big file) |
-| 3. Downloads, library, requests | `app/downloads/*`, `app/watchlist/*`, `app/requests/*`, `components/requests/*`, `components/library/*` | Tabs, ToggleGroup, Select, Collapsible, RadioGroup, Textarea, DropdownMenu | Large |
-| 4. Settings and rules | `app/settings/*`, `app/rules/*`, `components/settings/*`, `components/setup/*`, `components/storage/*` | Select, ToggleGroup, Collapsible, Checkbox or Switch, Popover + Command, FormField | Large |
-| 5. Search, notifications, small pages | `components/search/*`, `app/search/*`, `app/notifications/*`, `components/notifications/notification-feed.tsx` (feed and push toggle only; leave `NotificationBell`), `app/activity/*`, `app/history/*`, `app/upcoming/*`, `app/about/*`, `app/share/*`, `app/client/*`, `components/pwa/*`, `components/layout/update-banner.tsx`, `components/layout/preview-banner.tsx`, `app/layout.tsx` footer | Command, Tabs, Card, Empty, Switch, Badge, Button, Kbd | Medium |
+| Slice | Port | Data folder | Owns | Main primitives | Size |
+| --- | --- | --- | --- | --- | --- |
+| 1. Browse and title | 3950 | `D:\code\memtest\shadcn-browse\data` | `components/browse/*`, `components/tf/recommendation-rail.tsx`, `components/title/*`, `app/title/*`, `app/everything/*` | Carousel, ScrollArea, Select, RadioGroup, Collapsible, Badge, Skeleton | Medium |
+| 2. Player | 3951 | `D:\code\memtest\shadcn-player\data` | `components/watch/*` | Select or DropdownMenu radio items, Slider, Popover, Tooltip, Button | Medium (one big file) |
+| 3. Downloads, library, requests | 3952 | `D:\code\memtest\shadcn-downloads\data` | `app/downloads/*`, `app/watchlist/*`, `app/requests/*`, `components/requests/*`, `components/library/*` | Tabs, ToggleGroup, Select, Collapsible, RadioGroup, Textarea, DropdownMenu | Large |
+| 4. Settings and rules | 3953 | `D:\code\memtest\shadcn-settings\data` | `app/settings/*`, `app/rules/*`, `components/settings/*`, `components/setup/*`, `components/storage/*` | Select, ToggleGroup, Collapsible, Checkbox or Switch, Popover + Command, FormField | Large |
+| 5. Search, notifications, small pages | 3954 | `D:\code\memtest\shadcn-search\data` | `components/search/*`, `app/search/*`, `app/notifications/*`, `components/notifications/notification-feed.tsx` (feed and push toggle only; leave `NotificationBell`), `app/activity/*`, `app/history/*`, `app/upcoming/*`, `app/about/*`, `app/share/*`, `app/client/*`, `components/pwa/*`, `components/layout/update-banner.tsx`, `components/layout/preview-banner.tsx`, `app/layout.tsx` footer | Command, Tabs, Card, Empty, Switch, Badge, Button, Kbd | Medium |
 
-Tests that pin markup in these areas live in `web/tests/*.test.mjs` and
-`web/src/**/**.test.ts`; each slice runs the whole suite, since some tests
-read several files.
+Settings note: the foundation already fixed the "Downloads at once" label,
+the import buttons and the download folder / space limit field heights in
+`app/settings/page.tsx`, `components/settings/download-location-fields.tsx`
+and `components/settings/download-recovery.tsx`. Slice 4 still owns those
+files.

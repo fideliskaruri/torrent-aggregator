@@ -177,12 +177,12 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
           : "Recover media already in the saved download folder. Files without torrent metadata are imported as completed, non-seeding downloads."}
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="secondary" className="min-h-[44px]" disabled={busy || !info.downloadDirectory}
+        <Button type="button" variant="secondary" disabled={busy || !info.downloadDirectory}
           aria-label="Import existing downloads" data-import-downloads onClick={() => void importFiles()}>
           {busy && <LoadingGlyph className="h-4 w-4" />}
           {busy ? "Scanning and importing…" : "Import existing downloads"}
         </Button>
-        <Button type="button" variant="outline" className="min-h-[44px]" aria-label="Import from another torrent client"
+        <Button type="button" variant="secondary" aria-label="Import from another torrent client"
           data-import-other-client onClick={openSourceImport}>
           Import from another client
         </Button>
