@@ -1,150 +1,64 @@
-# Test audit — drop mock/unit tests
+# Test audit — drop mock/unit tests (final pass)
 
-Owner rule: unit tests are unreliable; mock-heavy suites passed while real flows broke.
-Second pass: delete **all** unit/mock tests, including former REVIEW items, unless the test truly starts the real app/engine with real HTTP, real disk, or a real DB. Opt-in network (`TF_NETWORK_TESTS`) kept.
+Owner rule: no mock or fake-based tests of our own code. Keep only real app host (WAF OK) + real temp SQLite + real disk, or real MonoTorrent + disk. Third-party HTTP boundary fakes (TMDB/AniList/indexers/OpenSubtitles) only.
 
-**KEEP** = WebApplicationFactory/Kestrel + real HTTP + temp SQLite, real MonoTorrent/disk E2E, or `TF_NETWORK_TESTS`.
-**DROP** = single-class units, mocks/fakes/stub HTTP, pure string/format, internal snapshots, implementation details, no-host service tests.
+## Counts
 
-## Summary (after second pass)
+| Stage | Server test .cs files | Fact/Theory | Passed run |
+|-------|----------------------|-------------|------------|
+| Before any purge (approx) | ~99 + 32 web | ~878 | ~878 |
+| After first+second pass (0d597ef) | 48 | 348 | 648 |
+| After final fake purge | 17 | ~56 | 56 (1 skipped network) |
 
-| Project | Kept files | Dropped | Notes |
-|---------|------------|---------|-------|
-| Api.Tests | 16 | 9 | Desktop/DataAdoption/DevJwks dropped (fakes/no host) |
-| Core.Tests | 0 | 3 + project | Entire project removed from slnx |
-| Engine.Tests | 19 | 12 | Layout*/DownloadRecovery/ExternalRoute dropped |
-| Library.Tests | 8 | 9 | Already only KEEP after first pass |
-| Media.Tests | 6 | 10 | Prewarm/SubtitlesExtraction/SwarmProbe dropped |
-| Metadata.Tests | 0 | all + project | Entire project removed from slnx |
-| Search.Tests | 2 | 6 | FakeHttp units stripped; network smokes only |
-| web | 0 | 32 | vitest/node:test removed; CI web test step gone |
+## Projects removed entirely
 
-Baseline before purge (approx): ~99 server test files + 32 web test files.
-After purge: remaining KEEP files listed below.
+| Project | Reason |
+|---------|--------|
+| Core.Tests | Pure units |
+| Metadata.Tests | FakeHttp / no real third-party-only host suite left |
+| Library.Tests | LibraryHost faked FakeEngine, FakeSearch, FakeMetadata, FakeCatalog, FakeArtwork, FakeAnimeLookup, FakeAirDates |
+| Media.Tests | FakeEngine, StreamFakeEngine, FakeSearch, FakeProcessRunner, NoSwarm |
 
----
+## What each deleted Fake* file faked (final pass)
 
-## TorrentFlow.Api.Tests
+| File | Faked |
+|------|-------|
+| Api NotificationTests | FakePushSender (IPushSender), FakeGrabber, FakeTransfers |
+| Api RemoteAccessTests | FakeKeySource (IAccessKeySource), StubHandler (tunnel HTTP) |
+| Api RequestDecisionTests | FakeGrabber (IRequestGrabber), FakeTransfers |
+| Api RequestAutoApproveTests | DecisionHostFactory → FakeGrabber/Transfers |
+| Api RequesterTests | FakeCatalog (IRequesterCatalog); inherits RemoteHostFactory FakeKeySource |
+| Api TimelineTests | Pure TimelineService.Order unit + RemoteHostFactory |
+| Api FlowQaRequestSettingsTests | RequesterHostFactory fakes |
+| Api DataDirectoryTests | Pure DataDirectoryResolver units (no host for main cases) |
+| Engine EngineRouteTests | FakeBackend (ITorrentBackend) in WAF |
+| Engine SettingsParityTests | FakeBackend + ThrowingHandler on our external client types |
+| Engine ExternalDownloadImport (4 FakeBackend cases) | h.Backend FakeBackend / h.Engine over FakeBackend |
+| Engine EngineHarness FakeBackend | In-memory ITorrentBackend stand-in |
+| Library TestHost + all *Tests | FakeEngine, FakeSearch, FakeMetadata, FakeCatalog, FakeArtwork, FakeAnimeLookup, FakeAirDates |
+| Media * | FakeEngine / StreamFakeEngine / FakeProcessRunner / FakeSearch |
 
-| File | Verdict | Reason |
-|------|---------|--------|
-| ApiFactory.cs | KEEP | Shared WAF host + real SQLite |
-| AuthTests.cs | KEEP | Real HTTP auth against WAF |
-| AutomationContractsTests.cs | KEEP | Real HTTP contracts |
-| ClientDownloadImportTests.cs | KEEP | Real HTTP + disk import |
-| ClientImportHashTests.cs | KEEP | Real HTTP hash path |
-| ClientImportTests.cs | KEEP | Real HTTP import |
-| DiagnosticsContractsTests.cs | KEEP | Real HTTP diagnostics |
-| EngineContractsTests.cs | KEEP | Real HTTP engine contracts |
-| LibraryContractsTests.cs | KEEP | Real HTTP library |
-| MediaContractsTests.cs | KEEP | Real HTTP media |
-| MetadataContractsTests.cs | KEEP | Real HTTP metadata |
-| RequestsContractsTests.cs | KEEP | Real HTTP requests |
-| SearchContractsTests.cs | KEEP | Real HTTP search |
-| SettingsContractsTests.cs | KEEP | Real HTTP settings |
-| StorageContractsTests.cs | KEEP | Real HTTP storage |
-| SystemContractsTests.cs | KEEP | Real HTTP system |
-| DesktopPackageTests.cs | DROP | Package/path units, no host |
-| DataAdoptionTests.cs | DROP | Service-level, no host HTTP |
-| DevJwksProviderTests.cs | DROP | Isolated crypto unit |
-| AppHostTests.cs | DROP | First-pass DROP |
-| ErrorEnvelopeTests.cs | DROP | First-pass DROP |
-| PublicOriginTests.cs | DROP | First-pass DROP |
-| RateLimitTests.cs | DROP | First-pass DROP |
-| RemoteAccessConfigTests.cs | DROP | First-pass DROP |
-| SpaStaticFilesTests.cs | DROP | First-pass DROP |
+## Kept files (one-line reason each)
 
-## TorrentFlow.Core.Tests — DROPPED (project removed)
+| File | Reason |
+|------|--------|
+| Api HostRouteTests.cs + HostFactory | Real WAF + temp SQLite; no own-code fakes |
+| Api ContainerHostingTests.cs | Real WAF host contracts |
+| Api SourcesRouteTests.cs | Real WAF sources routes |
+| Api TmdbSettingsRouteTests.cs | Real WAF TMDB settings routes |
+| Api KeylessTitleRouteTests.cs | Real WAF + SQLite; only third-party metadata HTTP handler |
+| Engine EngineHarness.cs (EngineRoot) | Real temp dir + migrated SQLite helpers; no FakeBackend |
+| Engine ExternalDownloadScannerTests.cs | Real disk fixtures + real scanner |
+| Engine ExternalDownloadImportTests.cs | Real MonoTorrentBackend + real disk + SQLite |
+| Engine DownloadWithoutWrapperTests.cs | RealEngineHarness + MonoTorrent + disk |
+| Engine ReaddLayoutTests.cs | Real MonoTorrent layout on disk |
+| Engine LoopbackSwarmTests.cs | Real MonoTorrent loopback swarm |
+| Engine TrackerTierTests.cs | Real MonoTorrent tracker tier behaviour |
+| Search SourceAdaptersArchiveTorznabTests.cs | TF_NETWORK_TESTS live Archive.org |
+| Search TrackerScraperTests.cs | TF_NETWORK_TESTS public trackers |
+| Search GlobalUsings.cs | usings only |
 
-| File | Verdict | Reason |
-|------|---------|--------|
-| BoundedHttpContentTests.cs | DROP | Stream unit, no host |
-| JsonElementExtensionsTests.cs | DROP | Pure unit |
-| SqliteBusyRetryInterceptorTests.cs | DROP | Mock interceptor unit |
-| Entire project | DROP | Removed from TorrentFlow.slnx |
+## CI / docs
 
-## TorrentFlow.Engine.Tests
-
-| File | Verdict | Reason |
-|------|---------|--------|
-| ApiFactory.cs | KEEP | WAF host |
-| EngineHarness.cs | KEEP | Real MonoTorrent root + FakeBackend factory for KEEP tests |
-| EngineRouteTests.cs | KEEP | Real HTTP engine routes |
-| SettingsParityTests.cs | KEEP | Real HTTP settings parity |
-| ExternalDownloadImportTests.cs | KEEP | Real MonoTorrentBackend + disk + DB |
-| ScannerServiceTests.cs | KEEP | Real disk scanner flow |
-| TrackerTier.cs | KEEP | Shared tier helpers for KEEP |
-| CompletenessGateTests.cs | KEEP | Real completeness gate path |
-| ContentKindInferenceTests.cs | KEEP | Integration-style in suite |
-| EngineLifecycleTests.cs | KEEP | Real engine lifecycle |
-| FileServiceTests.cs | KEEP | Real disk file service |
-| NamingTests.cs | KEEP | Real naming integration |
-| PathSafetyTests.cs | KEEP | Real path safety |
-| ProgressMapTests.cs | KEEP | Real progress map |
-| ReleaseIdentityTests.cs | KEEP | Real identity path |
-| SessionPersistenceTests.cs | KEEP | Real session disk |
-| StateMachineTests.cs | KEEP | Real state machine path |
-| StorageFacts.cs | KEEP | Real storage facts / estimate regression |
-| TorrentStateMachineTests.cs | KEEP | Real torrent state path |
-| DownloadRecoveryTests.cs | DROP | Mock recovery unit |
-| ExternalRouteTests.cs | DROP | FakeBackend-only route unit |
-| LayoutFinalizerTests.cs | DROP | Layout unit |
-| LayoutFfprobeTests.cs | DROP | Ffprobe unit |
-| SeasonLayoutTests.cs | DROP | Layout unit |
-
-## TorrentFlow.Library.Tests
-
-| File | Verdict | Reason |
-|------|---------|--------|
-| ApiFactory.cs | KEEP | WAF |
-| LibraryRouteTests.cs | KEEP | Real HTTP |
-| GrabRouteTests.cs | KEEP | Real HTTP grab |
-| RequestsRouteTests.cs | KEEP | Real HTTP requests |
-| AutomationServiceTests.cs | KEEP | Real automation path |
-| LibraryQueryTests.cs | KEEP | Real query path |
-| MediaItemServiceTests.cs | KEEP | Real media item path |
-| StorageEstimateTests.cs | KEEP | Real storage estimate regression |
-
-## TorrentFlow.Media.Tests
-
-| File | Verdict | Reason |
-|------|---------|--------|
-| ApiFactory.cs | KEEP | WAF |
-| MediaRoutesTests.cs | KEEP | Real HTTP media routes |
-| StreamTokenServiceTests.cs | KEEP | Token path used by routes |
-| TranscodePlannerTests.cs | KEEP | Planner used by live media path |
-| TranscodeSessionStoreTests.cs | KEEP | Session store path |
-| TranscodeManagerTests.cs | KEEP | Manager path |
-| PrewarmObserverTests.cs | DROP | Observer unit |
-| SubtitlesExtractionTests.cs | DROP | Extraction unit |
-| SwarmProbeTests.cs | DROP | Probe unit |
-
-## TorrentFlow.Metadata.Tests — DROPPED (project removed)
-
-| File | Verdict | Reason |
-|------|---------|--------|
-| BrowseIntegrationTests.cs | DROP | FakeHttp, no WAF host |
-| ResourceSafetyTests.cs | DROP | Safety unit |
-| TmdbSettingsTests.cs | DROP | Settings unit |
-| Entire project | DROP | Removed from TorrentFlow.slnx |
-## TorrentFlow.Search.Tests
-
-| File | Verdict | Reason |
-|------|---------|--------|
-| SourceAdaptersArchiveTorznabTests.cs | KEEP | TF_NETWORK_TESTS live Archive.org smoke only |
-| TrackerScraperTests.cs | KEEP | TF_NETWORK_TESTS public tracker scrape only |
-| FakeHttp + adapter units | DROP | All FakeHttp-dependent adapter units removed |
-
-## web/
-
-| File | Verdict | Reason |
-|------|---------|--------|
-| web/tests/** | DROP | All vitest/node:test unit files removed |
-| package.json test script | DROP | Removed |
-| CI node --test step | DROP | Removed from .github/workflows/ci.yml |
-| Real browser E2E | none in-repo | Owner verifies via Playwright MCP against live app |
-
-## Helpers retained
-
-- EngineHarness + FakeBackend remain only as construction helpers for KEEP MonoTorrent/disk tests.
-- Per-project ApiFactory classes remain for real WAF hosts.
+- Web unit tests and `node --test` CI steps already removed.
+- Library.Tests / Media.Tests removed from TorrentFlow.slnx; InternalsVisibleTo cleaned.

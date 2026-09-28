@@ -6,6 +6,5 @@
     <ProjectReference Include="..\TorrentFlow.Data\TorrentFlow.Data.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="TorrentFlow.Media.Tests" />
   </ItemGroup>
 </Project>
