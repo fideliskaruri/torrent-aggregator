@@ -227,7 +227,7 @@ public sealed class RouteTests
         var body = await Json(response);
         Assert.Equal(4, body.GetProperty("report").GetProperty("coveredEpisodes").GetInt32());
         Assert.False(body.TryGetProperty("episodeTransfers", out _));
-        Assert.Equal(["s00001e00001", "s00001e00002", "s00001e00003", "s00001e00004"], host.Engine.Adds.Select(x => x.QueueKey));
+        Assert.Equal(["s00001e00001", "s00001e00002", "s00001e00003", "s00001e00004"], host.Engine.Adds.Select(x => x.QueueKey).Order());
         Assert.All(host.Engine.Adds, x => Assert.NotNull(x.WorkId));
         await using var db = await host.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>().CreateDbContextAsync();
         Assert.Equal(4, await db.AcquisitionTargets.CountAsync(x => x.Scope == "episode" && x.Status == "downloading"));

@@ -19,7 +19,7 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     string Retention = "keep", bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null)
+    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -45,12 +45,47 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime, ILogger<GrabService>? logger = null,
     EpisodeSearchIdentity? searchIdentity = null)
 {
+    private readonly object episodeGate = new();
+    private readonly Dictionary<string, Task<GrabResult>> episodeFlights = [];
+
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
+    {
+        if (!input.ReuseExisting || input.WorkId == null || input.Cursor == null)
+            return await GrabCore(input, ct, beforeSend);
+        var key = $"{input.WorkId}:{input.Cursor.Value.QueueKey}:{input.Retention}:{input.PreferredResolution}";
+        Task<GrabResult> work;
+        lock (episodeGate)
+        {
+            if (!episodeFlights.TryGetValue(key, out work!))
+            {
+                work = Task.Run(() => GrabCore(input, ct, beforeSend), CancellationToken.None);
+                episodeFlights[key] = work;
+                _ = work.ContinueWith(completed =>
+                {
+                    if (completed.IsFaulted) logger?.LogWarning(completed.Exception, "Season episode attempt failed");
+                    lock (episodeGate) episodeFlights.Remove(key);
+                }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            }
+        }
+        return await work.WaitAsync(ct);
+    }
+
+    private async Task<GrabResult> GrabCore(GrabInput input, CancellationToken ct, Func<Task>? beforeSend)
     {
         var query = input.Cursor?.Query(input.Title) ?? input.Title;
         await using var db = await factory.CreateDbContextAsync(ct);
+        if (input.ReuseExisting && input.WorkId != null && input.Cursor is { } requested && input.Retention == "keep")
+        {
+            var existing = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id &&
+                t.WorkId == input.WorkId && t.QueueKey == requested.QueueKey && t.Origin == TorrentOrigin.User &&
+                t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed, ct);
+            if (existing != null)
+                return new(true, "This episode has already started.") { InfoHash = existing.Hash, Title = existing.Name,
+                    Queued = existing.Status == EngineTorrentStatus.Queued, Query = query };
+        }
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
-        if (settings == null) return new(false, "No torrent client configured") { Query = query };
+        if (settings == null) return new(false, "Set up your download folder in Settings first.") { Query = query,
+            Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") };
         if (input.Cursor != null)
         {
             var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
@@ -98,6 +133,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var diagnostics = new List<RungDiagnostic>();
         var decisions = new Dictionary<string, CandidateRejection>(StringComparer.Ordinal);
         var searchFailed = false;
+        GrabFailure? searchFailure = null;
         GrabResult? lastFailure = null;
         foreach (var rung in rungs)
         {
@@ -116,6 +152,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 }
                 catch (Exception error) when (!ct.IsCancellationRequested)
                 {
+                    logger?.LogWarning(error, "Episode search failed for {Query}", rung.Query);
+                    searchFailure = GrabFailure.FromException(error);
                     queryFailed = true;
                     raw = new() { Query = rung.Query, Sources = [new("search", 0, error.Message)] };
                 }
@@ -159,6 +197,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                     return waiting;
                 var result = await Send(db, settings, input, query, candidate, beforeSend, rung.Relaxed, ct);
                 if (result.Ok) return result;
+                if (result.Storage != null || result.Failure?.Code == "download_folder") return result;
                 var key = EpisodeLadder.CandidateKey(candidate);
                 rungCandidates[key] = decisions[key] = new(candidate.Title, candidate.Source, ["send_failed"]);
                 diagnostic.Candidates = rungCandidates.Values.ToArray();
@@ -181,7 +220,11 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         return new(false, message) { Query = query, Skipped = true,
             HuntMiss = input.Background && !searchFailed && !decisions.Values.Any(d =>
                 !d.Reasons.Contains("other_work") && !d.Reasons.Contains("different_episode") && !d.Reasons.Contains("unknown_episode") && !d.Reasons.Contains("pack")),
-            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release") };
+            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release"),
+            Failure = searchFailure ?? (memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
+                ? new GrabFailure("no_sources", "No search sources are enabled for this title.",
+                    "Enable a suitable source in Settings, then retry.")
+                : GrabFailure.FromCandidates(floor, decisions.Values, searchFailed)) };
     }
 
     private static int? PremiereYear(GrabInput input) => input.Cursor is { Season: 1 }
@@ -294,7 +337,17 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         {
             var storage = result.StorageLimit == null ? null : StorageFacts.Refusal(settings, result.StorageLimit, result.Message,
                 candidate.SizeBytes, await engine.QueuedReservedBytesAsync(ct));
-            return new(false, result.Message) { Query = query, Title = candidate.Title, Magnet = candidate.Magnet, Source = candidate.Source, Storage = storage };
+            var failure = storage != null ? GrabFailure.Storage
+                : result.InvalidField == "savePath" ? new GrabFailure("download_folder", "The download folder cannot be used.",
+                    "Choose a writable download folder in Settings, then retry.")
+                : result.Message.Contains("file list", StringComparison.OrdinalIgnoreCase)
+                    ? candidate.Seeders <= 0
+                        ? new GrabFailure("no_seeders", "The available releases have no seeders and supplied no file list.",
+                            "Retry later when seeders are online, or choose another release.")
+                        : GrabFailure.Metadata
+                    : GrabFailure.Unknown;
+            return new(false, result.Message) { Query = query, Title = candidate.Title, Magnet = candidate.Magnet,
+                Source = candidate.Source, Storage = storage, Failure = failure };
         }
         // Honestly label the provenance when the ladder had to relax to win.
         var notes = new List<string>();

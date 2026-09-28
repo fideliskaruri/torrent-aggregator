@@ -83,7 +83,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         var title = (string)detail["title"]!;
         var type = detail["mediaType"] as string ?? ((bool)detail["isSeries"]! ? "tv" : "movie");
         if (scope == "title" && (bool)detail["isSeries"]!)
-            return Conflict(new { ok = false, message = "Series title acquisition needs an episode — choose or find one first." });
+            return Conflict(new { ok = false, message = "Choose an episode or season to download first." });
         var library = (Dictionary<string, object?>)detail["library"]!;
         var watchId = library["watchListItemId"] as string;
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -157,7 +157,8 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         try
         {
             if (scope == "season")
-                seasonResult = await SeasonFanout.Run(episodes, (ep, before) => grabs.Grab(input with { Cursor = new EpisodeCursor(season!.Value, ep) }, workToken, before), workToken);
+                seasonResult = await SeasonFanout.Run(episodes, (ep, before) => grabs.Grab(input with
+                    { Cursor = new EpisodeCursor(season!.Value, ep), ReuseExisting = true }, workToken, before), workToken);
             else
                 single = await grabs.Grab(input with { Cursor = season != null && episode != null ? new EpisodeCursor(season.Value, episode.Value) : null }, workToken);
         }
@@ -169,17 +170,21 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         {
             if (tracked.Count > 0) await SettleTargets(tracked, scope == "season", work.Id, seasonResult, single, crash, CancellationToken.None);
         }
-        if (crash != null) return StatusCode(500, new { ok = false, message = crash.Message });
+        if (crash != null)
+        {
+            var problem = GrabFailure.FromException(crash);
+            return StatusCode(500, new { ok = false, message = $"{problem.Message} {problem.Action}" });
+        }
         if (seasonResult is { } result)
         {
             var ok = result.CoveredEpisodes.Count > 0;
-            var body = LibraryJson.Object(("ok", ok), ("message", ok ? $"{result.CoveredEpisodes.Count} of {episodes.Length} episodes started" :
-                "No episode downloads started — try again shortly."),
+            var summary = SeasonFailureSummary.From(result);
+            var body = LibraryJson.Object(("ok", ok), ("message", summary.Message),
                 ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = result.CoveredEpisodes.Count,
                     strategy = "singles", coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
-                        LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Error)) :
+                        LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Failure?.Message ?? GrabFailure.Unknown.Message)) :
                         LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
-                    planReason = "Each episode used the same acquisition path as its individual Download button." }));
+                    planReason = summary.Action, failureReasons = summary.Reasons, retryable = summary.Retryable }));
             if (result.Storage != null) body["storage"] = result.Storage;
             return StatusCode(ok ? 200 : 409, body);
         }

@@ -4,7 +4,8 @@ namespace TorrentFlow.Library.Features.Grabs;
 
 public sealed record EpisodeTransfer(int Episode, string Status,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? InfoHash,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Error);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Error,
+    GrabFailure? Failure = null);
 public sealed record GrabResult(bool Ok, string Message)
 {
     public string? Query { get; init; }
@@ -22,6 +23,7 @@ public sealed record GrabResult(bool Ok, string Message)
     public int? CursorEpisode { get; init; }
     public string? NextEpisodeHint { get; init; }
     public object? NoReleaseFound { get; init; }
+    public GrabFailure? Failure { get; init; }
     [JsonIgnore]
     public bool HuntMiss { get; init; }
     [JsonIgnore]
@@ -59,9 +61,13 @@ public static class SeasonFanout
                     var result = await grab(wanted[i], BeforeSend);
                     results[i] = result;
                     transfers[i] = new(wanted[i], result.Ok ? result.Queued ? "queued" : "downloading" : "failed",
-                        result.Ok ? result.InfoHash : null, result.Ok ? null : result.Message);
+                        result.Ok ? result.InfoHash : null, result.Ok ? null : result.Message, result.Failure);
                 }
-                catch (Exception error) when (!ct.IsCancellationRequested) { transfers[i] = new(wanted[i], "failed", null, error.Message); }
+                catch (Exception error) when (!ct.IsCancellationRequested)
+                {
+                    var failure = GrabFailure.FromException(error);
+                    transfers[i] = new(wanted[i], "failed", null, error.Message, failure);
+                }
             }
         }
         await Task.WhenAll(Enumerable.Range(0, Math.Min(Math.Max(1, concurrency), wanted.Length)).Select(_ => Worker()));
