@@ -127,7 +127,7 @@ export function RecommendationRailSection({
                                   {titleHref ? (
                                     <Link
                                       to={titleHref}
-                                      className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                                      className="block rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
                                     >
                                       <p
                                         className="text-[12px] font-medium text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]"

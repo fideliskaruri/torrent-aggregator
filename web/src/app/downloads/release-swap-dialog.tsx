@@ -257,7 +257,7 @@ export function ReleaseSwapDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl" data-release-swap-dialog aria-busy={state.kind === "loading" || switching}>
+      <DialogContent mobileFullscreen className="sm:max-w-2xl" data-release-swap-dialog aria-busy={state.kind === "loading" || switching}>
         <DialogHeader className="shrink-0 border-b border-[var(--border)] px-4 pb-3 pt-4 pr-14 sm:px-5">
           <DialogTitle>Find another release</DialogTitle>
           <DialogDescription className="break-words">
@@ -369,7 +369,7 @@ export function ReleaseSwapDialog({
                       key={candidate.token}
                       className={cn(
                         "min-w-0 space-y-2 rounded-[var(--radius)] border bg-[var(--bg-elevated)] p-3",
-                        recommended ? "border-[var(--accent)]" : "border-[var(--border)]",
+                        recommended ? "border-[var(--brand)]" : "border-[var(--border)]",
                       )}
                       data-release-alternative
                       data-swap-card

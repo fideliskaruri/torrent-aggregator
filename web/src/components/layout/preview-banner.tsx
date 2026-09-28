@@ -20,7 +20,7 @@ export function PreviewBanner() {
           type="button"
           onClick={() => setPreviewAsRequester(false)}
           data-preview-exit
-          className="inline-flex min-h-[44px] shrink-0 items-center rounded-md px-2.5 font-medium text-[var(--text)] underline-offset-2 hover:underline outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] md:min-h-8"
+          className="inline-flex min-h-[44px] shrink-0 items-center rounded-md px-2.5 font-medium text-[var(--text)] underline-offset-2 hover:underline outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] md:min-h-8"
         >
           Exit preview
         </button>

@@ -74,7 +74,7 @@ export function MoreLikeThis({
             <Link
               to={item.href}
               data-similar-card
-              className="group block rounded-[var(--radius)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              className="group block rounded-[var(--radius)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
             >
               <div
                 className="relative aspect-[2/3] w-full overflow-hidden rounded-[var(--radius)] border border-[var(--border)] transition-colors group-hover:border-[var(--border-strong)]"

@@ -242,7 +242,7 @@ function SeasonRail({
             data-season-tab-key={season.key}
             data-season-tab-active={active ? "true" : "false"}
             className={cn(
-              "flex min-h-[44px] shrink-0 flex-col items-start justify-center gap-1 rounded-md px-3 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0",
+              "flex min-h-[44px] shrink-0 flex-col items-start justify-center gap-1 rounded-md px-3 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:min-h-0",
               active
                 ? "bg-[var(--bg-muted)] text-[var(--text)]"
                 : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]",
@@ -449,7 +449,7 @@ function EpisodeCard({
               aria-expanded={errorExpanded}
               title={errorMessage}
               className={cn(
-                "block w-full min-h-[44px] rounded-sm text-left text-[12px] leading-snug text-[var(--danger)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0",
+                "block w-full min-h-[44px] rounded-sm text-left text-[12px] leading-snug text-[var(--danger)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:min-h-0",
                 errorExpanded ? "whitespace-normal" : "truncate",
               )}
               data-episode-error-message
@@ -727,6 +727,7 @@ export function SeriesDownloadDialog({
         // (min(88dvh, 54rem) tall, min(100%-2rem, 68rem) wide) keeps it big on
         // a desktop monitor without becoming an unreadable full-bleed wall.
         // Mobile keeps the primitive's full-height sheet.
+        mobileFullscreen
         className="max-h-[100dvh] p-0 sm:h-[min(88dvh,54rem)] sm:max-h-[88dvh] sm:w-[min(100%-2rem,68rem)] sm:max-w-[68rem]"
         data-series-dialog
       >
@@ -745,7 +746,7 @@ export function SeriesDownloadDialog({
             {titleHref ? (
               <Link
                 to={titleHref}
-                className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
                 data-mobile-dialog-title-link
               >
                 {group.title}
@@ -804,7 +805,7 @@ export function SeriesDownloadDialog({
                   // this is the real, keyboard-reachable way to the title page.
                   <Link
                     to={titleHref}
-                    className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+                    className="rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
                     data-dialog-title-link
                   >
                     {group.title}
@@ -863,7 +864,7 @@ export function SeriesDownloadDialog({
               value={selectedSeasonKey ?? ""}
               onChange={(event) => onSelectSeason(event.target.value)}
               aria-controls={seasonPanelId}
-              className="h-11 min-h-[44px] w-full cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+              className="h-11 min-h-[44px] w-full cursor-pointer appearance-none rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-muted)] py-1.5 pl-3 pr-9 text-[13px] font-medium text-[var(--text)] shadow-sm transition-colors hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
             >
               {group.seasons.map((season) => (
                 <option key={season.key} value={season.key}>

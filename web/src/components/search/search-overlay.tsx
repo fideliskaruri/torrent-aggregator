@@ -450,7 +450,7 @@ export function SearchOverlay() {
         <div className="border-b border-[var(--border)] p-3">
           <div
             role="search"
-            className="flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_var(--accent-dim)]"
+            className="flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 transition-[border-color,box-shadow] duration-200 ease-out motion-reduce:transition-none focus-within:border-[var(--brand)] focus-within:shadow-[0_0_0_3px_var(--accent-dim)]"
           >
             <Search
               className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]"
@@ -505,7 +505,7 @@ export function SearchOverlay() {
                   className={cn(
                     "min-h-11 shrink-0 touch-manipulation whitespace-nowrap rounded-full border px-3 text-[13px] transition-colors duration-200 ease-out motion-reduce:transition-none sm:min-h-8 sm:px-3",
                     active
-                      ? "border-[var(--accent)] bg-[var(--accent-dim)] font-medium text-[var(--text)]"
+                      ? "border-[var(--brand)] bg-[var(--accent-dim)] font-medium text-[var(--text)]"
                       : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text)]",
                   )}
                 >
@@ -532,7 +532,7 @@ export function SearchOverlay() {
               data-partial-notice
             >
               <AlertTriangle
-                className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]"
+                className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]"
                 aria-hidden
               />
               <p className="min-w-0 text-[12px] text-[var(--text-secondary)]">

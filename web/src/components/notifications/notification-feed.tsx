@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { Link, useLocation } from "react-router";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
-import { formatRelativeTime } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { withTimeout } from "@/lib/with-timeout";
 
 const PUSH_ENABLE_TIMEOUT_MS = 15_000;
@@ -38,17 +39,20 @@ export function NotificationBell() {
   const pathname = useLocation().pathname;
   const active = ["/notifications", "/activity", "/history"].some((href) => pathname === href || pathname.startsWith(`${href}/`));
   return (
-    <Link to="/notifications" aria-label={`Notifications${count ? `, ${count} unread` : ""}`}
-      aria-current={active ? "page" : undefined}
-      data-notification-bell
-      className={`relative hidden md:flex h-11 min-w-[44px] shrink-0 items-center justify-center rounded-md ${badge ? "gap-0.5 pl-2 pr-1.5" : "w-11"} outline-none transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${active ? "bg-[var(--bg-muted)] text-[var(--text)]" : "text-[var(--text-secondary)]"}`}>
-      <Bell className="h-5 w-5" aria-hidden />
-      {/* Phones carry the count on the Alerts tab, so the bell is desktop only.
-          In flow beside the bell, raised like a superscript: hung off the
-          corner it lost its top half to the header and covered the glyph. */}
-      {badge && <span data-notification-badge aria-hidden
-        className="-mt-4 h-[18px] min-w-[18px] rounded-full bg-[var(--accent)] px-1 text-center text-[12px] font-semibold leading-[18px] tabular-nums text-[var(--primary-foreground)]">{badge}</span>}
-    </Link>
+    <Button asChild variant="ghost"
+      className={cn("relative hidden md:inline-flex h-9 min-w-9 pointer-coarse:h-11 pointer-coarse:min-w-11 shrink-0", badge ? "gap-0.5 pl-2 pr-1.5" : "w-9 pointer-coarse:w-11 px-0",
+        active ? "bg-muted text-foreground" : "text-muted-foreground")}>
+      <Link to="/notifications" aria-label={`Notifications${count ? `, ${count} unread` : ""}`}
+        aria-current={active ? "page" : undefined}
+        data-notification-bell>
+        <Bell className="size-5" aria-hidden />
+        {/* Phones carry the count on the Alerts tab, so the bell is desktop only.
+            In flow beside the bell, raised like a superscript: hung off the
+            corner it lost its top half to the header and covered the glyph. */}
+        {badge && <Badge variant="solid" data-notification-badge aria-hidden
+          className="-mt-4 h-[18px] min-h-[18px] min-w-[18px] rounded-full px-1 text-[12px] font-semibold leading-[18px] tabular-nums">{badge}</Badge>}
+      </Link>
+    </Button>
   );
 }
 

@@ -811,7 +811,7 @@ export default function SettingsPage() {
                 {QUALITY_CHOICES.map((choice) => (
                   <label
                     key={choice.value}
-                    className="flex min-h-[44px] cursor-pointer flex-col justify-center rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--accent)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent)]"
+                    className="flex min-h-[44px] cursor-pointer flex-col justify-center rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--brand)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--brand)]"
                   >
                     <input
                       type="radio"

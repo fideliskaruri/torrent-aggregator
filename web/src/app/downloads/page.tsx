@@ -1167,7 +1167,7 @@ export default function ClientPage() {
         </div>
         <textarea
           className={cn(
-            "min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--accent)]",
+            "min-h-24 w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-muted)] px-3 py-2 text-[13px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-strong)] focus:ring-2 focus:ring-[var(--brand)]",
             (rawSendInvalid || rawSendError?.field === "source") && "border-[var(--danger)]",
           )}
           value={rawSendValue}
@@ -1826,7 +1826,7 @@ function SeriesOverviewRow({
             {titleHref ? (
               <Link
                 to={titleHref}
-                className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
+                className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:block lg:min-h-0"
               >
                 <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
                   {group.title}
@@ -2041,7 +2041,7 @@ function FilmRow({
               {titleHref ? (
                 <Link
                   to={titleHref}
-                  className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:block lg:min-h-0"
+                  className="flex items-center min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:block lg:min-h-0"
                 >
                   <p className="text-[13px] font-medium text-[var(--text)] line-clamp-2 leading-snug hover:text-[var(--accent-text)]">
                     {display.title}

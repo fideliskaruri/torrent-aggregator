@@ -201,7 +201,7 @@ export default function RequestsPage() {
                     value={row.mode}
                     disabled={autoBusy}
                     onChange={(e) => void setMode(row.email, e.target.value as AutoApproveMode)}
-                    className="min-h-[44px] w-full shrink-0 rounded-md border border-[var(--border)] bg-[var(--bg-muted)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] sm:w-44 sm:text-sm"
+                    className="min-h-[44px] w-full shrink-0 rounded-md border border-[var(--border)] bg-[var(--bg-muted)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] sm:w-44 sm:text-sm"
                     data-auto-approve-mode={row.email}
                     aria-label={`Auto-approve mode for ${row.email}`}
                   >
@@ -232,7 +232,7 @@ export default function RequestsPage() {
               }
             }}
             placeholder="friend@example.com"
-            className="min-h-[44px] min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] sm:text-sm"
+            className="min-h-[44px] min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] sm:text-sm"
             data-auto-approve-add-email
           />
           <Button
@@ -394,7 +394,7 @@ export default function RequestsPage() {
               maxLength={REASON_MAX}
               onChange={(e) => setReason(e.target.value)}
               rows={3}
-              className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] sm:text-sm"
+              className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--text)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--brand)] sm:text-sm"
               placeholder="Already on a streaming service, for example"
               data-owner-decline-reason
             />

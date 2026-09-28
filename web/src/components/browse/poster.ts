@@ -56,7 +56,7 @@ export function posterInitial(title: string): string {
  * inside the theme — no raw hex, and no decorative gradient.
  */
 const POSTER_TINTS = [
-  "color-mix(in srgb, var(--accent) 12%, var(--bg-muted))",
+  "color-mix(in srgb, var(--brand) 12%, var(--bg-muted))",
   "color-mix(in srgb, var(--info) 14%, var(--bg-muted))",
   "color-mix(in srgb, var(--success) 11%, var(--bg-muted))",
   "color-mix(in srgb, var(--danger) 11%, var(--bg-muted))",

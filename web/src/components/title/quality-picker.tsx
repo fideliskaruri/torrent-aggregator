@@ -97,7 +97,7 @@ function QualityPickerDialog({
                 className={cn(
                   "flex min-h-[44px] cursor-pointer items-center gap-3 rounded-[var(--radius)] border px-3 py-2 transition-colors",
                   isSelected
-                    ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]"
+                    ? "border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_8%,transparent)]"
                     : "border-[var(--border)] hover:border-[var(--border-strong)]",
                 )}
               >
@@ -116,7 +116,7 @@ function QualityPickerDialog({
                   className={cn(
                     "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
                     isSelected
-                      ? "border-[var(--accent)] bg-[var(--accent)]"
+                      ? "border-[var(--brand)] bg-[var(--brand)]"
                       : "border-[var(--border-strong)] bg-[var(--bg)]",
                   )}
                 >

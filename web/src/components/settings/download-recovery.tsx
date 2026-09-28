@@ -213,7 +213,7 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
               <Button type="button" variant="ghost" disabled={sourceBusy} onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
               <Button type="button" variant="ghost" disabled={sourceBusy} onClick={() => void scanSources()}>Scan again</Button>
             </div>
-            {sourceScan?.warnings.map((warning, index) => <p key={index} className="break-words rounded-md border border-[var(--accent)]/40 bg-[var(--bg-muted)] p-3 text-[var(--text-secondary)]" data-source-warning>{warning}</p>)}
+            {sourceScan?.warnings.map((warning, index) => <p key={index} className="break-words rounded-md border border-[var(--brand)]/40 bg-[var(--bg-muted)] p-3 text-[var(--text-secondary)]" data-source-warning>{warning}</p>)}
             {groupedSources.length === 0 && <p className="rounded-md border border-dashed border-[var(--border)] p-4 text-[var(--text-secondary)]">No other-client downloads were found. You can retry the scan or use the local-folder import.</p>}
             {groupedSources.map(([source, candidates]) => (
               <section key={source} className="space-y-2" data-source-group={source}>

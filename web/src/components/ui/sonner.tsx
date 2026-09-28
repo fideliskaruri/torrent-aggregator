@@ -1,7 +1,17 @@
-import { Toaster as Sonner, type ToasterProps } from "sonner";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { Toaster as Sonner, type ToasterProps } from "sonner"
+import {
+  CircleCheckIcon,
+  InfoIcon,
+  TriangleAlertIcon,
+  OctagonXIcon,
+  Loader2Icon,
+} from "lucide-react"
+import { useMediaQuery } from "@/hooks/use-media-query"
 
-function Toaster({
+// TorrentFlow is dark only, so the theme is fixed instead of read from
+// next-themes. Phones get top-center toasts under the header so they never
+// sit on the bottom nav.
+const Toaster = ({
   position,
   visibleToasts = 5,
   expand = true,
@@ -11,14 +21,14 @@ function Toaster({
   offset = "calc(1rem + var(--safe-bottom))",
   mobileOffset = "var(--header-h)",
   ...props
-}: ToasterProps) {
-  const isMobile = useMediaQuery("(max-width: 639px)");
+}: ToasterProps) => {
+  const isMobile = useMediaQuery("(max-width: 639px)")
 
   return (
     <Sonner
       theme="dark"
       className="toaster group"
-      position={isMobile ? "top-center" : position ?? "bottom-right"}
+      position={isMobile ? "top-center" : (position ?? "bottom-right")}
       visibleToasts={visibleToasts}
       expand={expand}
       closeButton={closeButton}
@@ -26,21 +36,32 @@ function Toaster({
       duration={duration}
       offset={offset}
       mobileOffset={mobileOffset}
+      icons={{
+        success: <CircleCheckIcon className="size-4" />,
+        info: <InfoIcon className="size-4" />,
+        warning: <TriangleAlertIcon className="size-4" />,
+        error: <OctagonXIcon className="size-4" />,
+        loading: <Loader2Icon className="size-4 animate-spin" />,
+      }}
+      style={
+        {
+          "--normal-bg": "var(--popover)",
+          "--normal-text": "var(--popover-foreground)",
+          "--normal-border": "var(--border)",
+          "--border-radius": "var(--radius)",
+        } as React.CSSProperties
+      }
       toastOptions={{
         classNames: {
-          toast:
-            "group toast border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text)] shadow-[var(--shadow-md)]",
-          description: "text-[var(--text-secondary)]",
-          actionButton:
-            "bg-[var(--primary)] text-[var(--primary-foreground)]",
-          cancelButton: "bg-[var(--bg-muted)] text-[var(--text-secondary)]",
-          success: "border-[rgba(62,207,142,0.3)]",
-          error: "border-[rgba(240,113,120,0.35)]",
+          toast: "cn-toast shadow-[var(--shadow-md)]",
+          description: "text-muted-foreground",
+          actionButton: "bg-primary text-primary-foreground",
+          cancelButton: "bg-muted text-muted-foreground",
         },
       }}
       {...props}
     />
-  );
+  )
 }
 
-export { Toaster };
+export { Toaster }

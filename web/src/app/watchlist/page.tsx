@@ -899,7 +899,7 @@ export default function WatchlistPage() {
                       to={titleHref}
                       data-library-card-link
                       aria-label={`Open ${item.title}`}
-                      className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)]"
+                      className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand)]"
                     />
                   ) : null}
                 </div>
@@ -912,7 +912,7 @@ export default function WatchlistPage() {
                         <Link
                           to={titleHref}
                           data-library-card-link
-                          className="block min-w-0 min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] lg:min-h-0"
+                          className="block min-w-0 min-h-[44px] rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] lg:min-h-0"
                         >
                           <h2 className="font-medium text-[15px] text-[var(--text)] leading-snug line-clamp-2 hover:text-[var(--accent-text)]">
                             {item.title}

@@ -7,6 +7,7 @@ import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { DownloadSetupProvider } from "@/components/setup/download-setup";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { FeaturesProvider } from "@/lib/features";
 import { SessionProvider } from "@/lib/session";
 import { ShellGate } from "@/components/layout/shell-gate";
@@ -32,6 +33,7 @@ export default function RootLayout() {
   return (
     <>
       <ScrollRestoration getKey={scrollKey} />
+      <TooltipProvider delayDuration={300}>
       <AuthSessionProvider>
         <SessionProvider>
         <ShellGate>
@@ -89,6 +91,7 @@ export default function RootLayout() {
         </ShellGate>
         </SessionProvider>
       </AuthSessionProvider>
+      </TooltipProvider>
     </>
   );
 }

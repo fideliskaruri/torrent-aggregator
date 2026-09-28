@@ -162,7 +162,7 @@ export function TitleCard({
       {fraction != null ? (
         <span className="absolute inset-x-0 bottom-0 z-[2] h-[3px] bg-[var(--border-strong)]">
           <span
-            className="block h-full bg-[var(--accent)]"
+            className="block h-full bg-[var(--brand)]"
             style={{ width: `${Math.round(fraction * 100)}%` }}
           />
         </span>
@@ -176,7 +176,7 @@ export function TitleCard({
     "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[6px] border px-1.5 py-1 text-[12px] font-medium leading-none",
     blocked || unreleased
       ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
-      : "border-transparent bg-[var(--accent)] text-[var(--primary-foreground)]",
+      : "border-transparent bg-[var(--brand)] text-[var(--primary-foreground)]",
   );
   const badgeInner = (
     <>
@@ -246,7 +246,7 @@ export function TitleCard({
   // it from being clipped by the scroll container.
   const controlClass = cn(
     "block w-full rounded-[var(--radius)] text-left outline-none",
-    "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+    "focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
     "focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]",
   );
 

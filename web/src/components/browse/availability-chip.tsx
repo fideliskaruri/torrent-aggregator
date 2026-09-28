@@ -23,7 +23,7 @@ const TONE_CLASS: Record<AvailabilityTone, string> = {
   success:
     "text-[var(--success)] [background:color-mix(in_srgb,var(--success)_16%,var(--bg-elevated))] [border-color:color-mix(in_srgb,var(--success)_28%,var(--border))]",
   accent:
-    "text-[var(--accent-text)] [background:color-mix(in_srgb,var(--accent)_18%,var(--bg-elevated))] [border-color:var(--accent-border)]",
+    "text-[var(--accent-text)] [background:color-mix(in_srgb,var(--brand)_18%,var(--bg-elevated))] [border-color:var(--accent-border)]",
   info: "text-[var(--info)] [background:color-mix(in_srgb,var(--info)_14%,var(--bg-elevated))] [border-color:color-mix(in_srgb,var(--info)_26%,var(--border))]",
   secondary:
     "text-[var(--text-secondary)] bg-[var(--bg-elevated)] border-[var(--border-strong)]",

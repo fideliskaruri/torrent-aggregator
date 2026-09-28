@@ -1594,7 +1594,7 @@ function TimelineBands({
           <span
             key={`downloaded-${range.start}-${range.end}`}
             data-stream-downloaded-range
-            className="absolute top-0 h-full rounded-full bg-[var(--accent)]/35"
+            className="absolute top-0 h-full rounded-full bg-[var(--brand)]/35"
             style={{
               left: `${(range.start / sourceDuration) * 100}%`,
               width: `${((range.end - range.start) / sourceDuration) * 100}%`,
@@ -5124,13 +5124,13 @@ function InlineStreamPlayerInner({
       "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2",
       large
         ? "h-11 w-11 text-white/80 hover:bg-white/12 hover:text-white focus-visible:outline-white"
-        : "h-11 w-11 text-[var(--text-tertiary)] hover:text-[var(--text)] focus-visible:outline-[var(--accent)]",
+        : "h-11 w-11 text-[var(--text-tertiary)] hover:text-[var(--text)] focus-visible:outline-[var(--brand)]",
     );
     const playButtonClass = cn(
       "grid shrink-0 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2",
       large
         ? "h-11 w-11 bg-white text-black hover:scale-105 focus-visible:outline-white"
-        : "h-11 w-11 bg-[var(--accent)] text-black hover:brightness-110 focus-visible:outline-[var(--accent)]",
+        : "h-11 w-11 bg-[var(--brand)] text-black hover:brightness-110 focus-visible:outline-[var(--brand)]",
     );
     const iconClass = large ? "h-5 w-5" : "h-4 w-4";
     return (
@@ -5182,7 +5182,7 @@ function InlineStreamPlayerInner({
           <span className={cn("relative flex min-w-0 flex-1 basis-full items-center sm:basis-auto", large ? "sm:min-w-[200px]" : "sm:min-w-[180px]")}>
             <span aria-hidden="true" className={cn("pointer-events-none absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full", large ? "bg-white/18" : "bg-[var(--border)]")} />
             <TimelineBands sourceDuration={sourceDuration} bufferedRanges={bufferedRanges} downloadedRanges={downloadedRanges} currentSourceTime={currentSourceTime} />
-            <span aria-hidden="true" className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--accent)]" style={{ width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%` }} />
+            <span aria-hidden="true" className="pointer-events-none absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[var(--brand)]" style={{ width: `${Math.max(0, Math.min(100, (currentSourceTime / sourceDuration) * 100))}%` }} />
             <input
               type="range"
               aria-label="Seek"
@@ -5419,7 +5419,7 @@ function InlineStreamPlayerInner({
             width: 13px;
             margin-top: -5px;
             border-radius: 999px;
-            background: var(--accent);
+            background: var(--brand);
             border: none;
             opacity: 0;
             transition: opacity 160ms ease, transform 160ms ease;
@@ -5446,7 +5446,7 @@ function InlineStreamPlayerInner({
             width: 13px;
             border: none;
             border-radius: 999px;
-            background: var(--accent);
+            background: var(--brand);
             opacity: 0;
           }
           [data-player-chrome="theatre"] [data-stream-seek]:hover::-moz-range-thumb,
@@ -5457,7 +5457,7 @@ function InlineStreamPlayerInner({
           }
           [data-player-chrome="theatre"] [data-stream-seek]:focus-visible,
           [data-inline-player] [data-stream-volume]:focus-visible {
-            outline: 2px solid var(--accent);
+            outline: 2px solid var(--brand);
             outline-offset: 2px;
             border-radius: 999px;
           }
@@ -5758,7 +5758,7 @@ function InlineStreamPlayerInner({
               width: 11px;
               margin-top: -3.5px;
               border-radius: 999px;
-              background: var(--accent);
+              background: var(--brand);
               border: none;
             }
             [data-inline-player] [data-stream-seek]::-moz-range-track {
@@ -5771,10 +5771,10 @@ function InlineStreamPlayerInner({
               width: 11px;
               border: none;
               border-radius: 999px;
-              background: var(--accent);
+              background: var(--brand);
             }
             [data-inline-player] [data-stream-seek]:focus-visible {
-              outline: 2px solid var(--accent);
+              outline: 2px solid var(--brand);
               outline-offset: 2px;
               border-radius: 999px;
             }

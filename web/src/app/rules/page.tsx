@@ -4,7 +4,7 @@ import { Play, Plus, Trash2, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Field } from "@/components/ui/field";
+import { FormField } from "@/components/ui/form-field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
@@ -421,7 +421,7 @@ export default function RulesPage() {
           New rule
         </p>
         <div className="grid sm:grid-cols-2 gap-3">
-          <Field label="Rule name" htmlFor="rule-name">
+          <FormField label="Rule name" htmlFor="rule-name">
             <Input
               id="rule-name"
               placeholder="Weekly anime"
@@ -429,8 +429,8 @@ export default function RulesPage() {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               required
             />
-          </Field>
-          <Field
+          </FormField>
+          <FormField
             label="Search query"
             htmlFor="rule-query"
             hint="Run against every enabled indexer"
@@ -442,8 +442,8 @@ export default function RulesPage() {
               onChange={(e) => setForm((f) => ({ ...f, query: e.target.value }))}
               required
             />
-          </Field>
-          <Field
+          </FormField>
+          <FormField
             label="What to watch"
             htmlFor="rule-category"
             hint="Rules only grab video the app can browse and play."
@@ -466,8 +466,8 @@ export default function RulesPage() {
                 </option>
               ))}
             </select>
-          </Field>
-          <Field
+          </FormField>
+          <FormField
             label="Min seeders"
             htmlFor="rule-min-seeders"
             hint="Skip releases with fewer"
@@ -481,8 +481,8 @@ export default function RulesPage() {
                 setForm((f) => ({ ...f, minSeeders: e.target.value }))
               }
             />
-          </Field>
-          <Field label="Resolution" htmlFor="rule-resolution">
+          </FormField>
+          <FormField label="Resolution" htmlFor="rule-resolution">
             <select
               id="rule-resolution"
               className={selectClass}
@@ -504,8 +504,8 @@ export default function RulesPage() {
                 2160p
               </option>
             </select>
-          </Field>
-          <Field
+          </FormField>
+          <FormField
             label="Search only these indexers"
             htmlFor="rule-sources"
             hint="Leave all unselected to search every enabled source."
@@ -534,8 +534,8 @@ export default function RulesPage() {
                 );
               })}
             </div>
-          </Field>
-          <Field
+          </FormField>
+          <FormField
             label="Skip releases larger than"
             htmlFor="rule-max-size-gb"
             hint="Optional. Leave blank to allow any size."
@@ -554,7 +554,7 @@ export default function RulesPage() {
                 GB
               </span>
             </div>
-          </Field>
+          </FormField>
         </div>
         <Button type="submit" size="sm">
           Create rule

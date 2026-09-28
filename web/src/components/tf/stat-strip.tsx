@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
 
 export interface TfStatItem {
   label: string;
@@ -60,9 +61,9 @@ export function TfStatStrip({
      * the last stat alone on its own row at a different width from the rest.
      * The 1px gap over a border-coloured background draws the dividers.
      */
-    <div
+    <Card
       className={cn(
-        "grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-[var(--border)] sm:grid-cols-3 lg:grid-cols-5",
+        "grid grid-cols-2 gap-px overflow-hidden rounded-[var(--radius)] bg-border py-0 ring-border sm:grid-cols-3 lg:grid-cols-5",
         className,
       )}
       data-stat-strip
@@ -73,7 +74,7 @@ export function TfStatStrip({
           <div
             key={item.label}
             className={cn(
-              "flex min-w-0 flex-col gap-0.5 bg-[var(--bg-elevated)] px-3.5 py-2.5 sm:px-4",
+              "flex min-w-0 flex-col gap-0.5 bg-card px-3.5 py-2.5 sm:px-4",
               isLast && [
                 SPAN_CLASS.base[lastItemSpan(items.length, COLUMNS.base)],
                 SPAN_CLASS.sm[lastItemSpan(items.length, COLUMNS.sm)],
@@ -81,7 +82,7 @@ export function TfStatStrip({
               ],
             )}
           >
-            <span className="truncate text-xs font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+            <span className="truncate text-xs font-medium uppercase tracking-wide text-subtle-foreground">
               {item.label}
             </span>
             <span
@@ -89,10 +90,10 @@ export function TfStatStrip({
               className={cn(
                 "truncate text-sm font-semibold tabular-nums",
                 item.mono && "font-mono text-[12px] font-medium",
-                item.tone === "accent" && "text-[var(--accent-text)]",
-                item.tone === "success" && "text-[var(--success)]",
-                item.tone === "muted" && "text-[var(--text-secondary)]",
-                (!item.tone || item.tone === "default") && "text-[var(--text)]",
+                item.tone === "accent" && "text-brand-foreground",
+                item.tone === "success" && "text-success",
+                item.tone === "muted" && "text-muted-foreground",
+                (!item.tone || item.tone === "default") && "text-foreground",
               )}
             >
               {item.value}
@@ -100,6 +101,6 @@ export function TfStatStrip({
           </div>
         );
       })}
-    </div>
+    </Card>
   );
 }
