@@ -82,6 +82,14 @@ function sourceLabel(id: string, name?: string): string {
   return RULE_SOURCE_OPTIONS.find((option) => option.value === id)?.label ?? (name?.trim() || id);
 }
 
+/** Server messages name sources by id ("on apibay"); show the same names the chips use. */
+function withSourceLabels(message: string): string {
+  return message.replace(/\bon ([a-z0-9][a-z0-9_-]*)\b/gi, (match, id: string) => {
+    const label = RULE_SOURCE_OPTIONS.find((option) => option.value === id.toLowerCase())?.label;
+    return label ? `on ${label}` : match;
+  });
+}
+
 /** Keep chips stable across refetches: keep every known source and only overwrite counts the server reported. */
 function mergeSources(previous: ReleaseSwapSource[], next: ReleaseSwapSource[] | undefined): ReleaseSwapSource[] {
   if (!next?.length) return previous;
@@ -222,7 +230,7 @@ export function ReleaseSwapDialog({
       const body = await readJsonBody<{ ok?: boolean; message?: string; title?: string; hash?: string }>(res);
       if (!res.ok || !body?.ok) {
         if (!mounted.current) return;
-        const message = failureMessage(body, res.status, "No better release was found. Your current download was kept.");
+        const message = withSourceLabels(failureMessage(body, res.status, "No better release was found. Your current download was kept."));
         retry();
         setSwapError(message);
         return;

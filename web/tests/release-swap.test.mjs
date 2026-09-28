@@ -107,3 +107,10 @@ test("every unfinished built-in row offers Find another release, including queue
   assert.match(dialog, /refused: res\.status === 409/);
   assert.match(dialog, /This release can't be replaced/);
 });
+
+test("best-pick refusals name sources the way the chips do", () => {
+  const dialog = read("release-swap-dialog.tsx");
+  assert.match(dialog, /function withSourceLabels\(message: string\)/);
+  assert.match(dialog, /withSourceLabels\(failureMessage\(body, res\.status, "No better release was found/);
+  assert.match(dialog, /RULE_SOURCE_OPTIONS\.find\(\(option\) => option\.value === id\.toLowerCase\(\)\)/);
+});
