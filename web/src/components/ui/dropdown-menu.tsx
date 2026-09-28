@@ -50,13 +50,16 @@ DropdownMenuSubContent.displayName =
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 6, ...props }, ref) => (
+>(({ className, sideOffset = 6, collisionPadding = 8, ...props }, ref) => (
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      collisionPadding={collisionPadding}
       className={cn(
-        "z-[100] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[11rem] overflow-x-hidden overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 text-[var(--text)] shadow-[var(--shadow-md)]",
+        // Capped so long unbreakable text (release names, paths) wraps instead
+        // of widening the menu past the viewport, where it can't be positioned.
+        "z-[100] max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[11rem] max-w-[min(20rem,calc(100vw-1rem))] overflow-x-hidden overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 text-[var(--text)] shadow-[var(--shadow-md)]",
         className,
       )}
       {...props}

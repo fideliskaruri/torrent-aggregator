@@ -54,3 +54,11 @@ test("Downloads rows and episode cards keep text at 12px or larger and show Down
   assert.match(series, /data-episode-force-now/);
   assert.match(series, /aria-label=\{`Download \$\{epLabel\} now`\}/);
 });
+
+test("menus cap their width so long release names wrap instead of pushing the menu off screen", () => {
+  const menu = readFileSync(new URL("../src/components/ui/dropdown-menu.tsx", import.meta.url), "utf8");
+  assert.match(menu, /max-w-\[min\(20rem,calc\(100vw-1rem\)\)\]/);
+  assert.match(menu, /collisionPadding=\{collisionPadding\}/);
+  assert.match(series, /data-find-release/);
+  assert.match(page, /data-find-release/);
+});
