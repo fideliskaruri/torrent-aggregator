@@ -73,10 +73,12 @@ export interface StorageOverrideFacts {
   capBytes: number | null;
   /** Free space on the volume, when it could be measured. */
   freeBytes: number | null;
-  /** Size of the release, when known. */
+  /** Size of THIS chosen release only (never other candidates, never the queue). */
   incomingBytes: number | null;
   /** True when `incomingBytes` is an assumed reserve, not a measured size. */
   incomingEstimated?: boolean;
+  /** Bytes already promised by queued downloads, counted separately from this download. */
+  reservedQueuedBytes?: number | null;
   /** Deep link to the control that changes the cap. */
   settingsHref: string;
   /** The plain refusal text, for surfaces with no room for a dialog. */
@@ -108,22 +110,44 @@ export interface StorageOverridePrompt {
  * what is left afterwards instead of reassuring them that free space is
  * protected, which for that case would be false.
  */
-export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverridePrompt {
-  const needs =
-    facts.incomingBytes != null && facts.incomingBytes > 0
-      ? formatBytesShort(facts.incomingBytes)
-      : null;
+/** Claimed bytes for free-space wording: this download plus anything already queued. */
+function claimedBytes(facts: StorageOverrideFacts): number | null {
+  const incoming = facts.incomingBytes != null && facts.incomingBytes > 0 ? facts.incomingBytes : 0;
+  const queued =
+    facts.reservedQueuedBytes != null && facts.reservedQueuedBytes > 0 ? facts.reservedQueuedBytes : 0;
+  const total = incoming + queued;
+  return total > 0 ? total : null;
+}
 
+/** "This download: X. Already queued: Y." — figures stay separate so a 1 GB pick never looks like 45 GB. */
+function downloadAndQueueCopy(facts: StorageOverrideFacts): string {
+  const parts: string[] = [];
+  if (facts.incomingBytes != null && facts.incomingBytes > 0) {
+    const size = formatBytesShort(facts.incomingBytes);
+    parts.push(
+      facts.incomingEstimated
+        ? `This download: ${size} (size unknown).`
+        : `This download: ${size}.`,
+    );
+  }
+  if (facts.reservedQueuedBytes != null && facts.reservedQueuedBytes > 0) {
+    parts.push(`Already queued: ${formatBytesShort(facts.reservedQueuedBytes)}.`);
+  }
+  return parts.length > 0 ? ` ${parts.join(" ")}` : "";
+}
+
+export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverridePrompt {
   if (facts.limit === "reserve") {
     const free = facts.freeBytes != null ? formatBytesShort(facts.freeBytes) : "the space";
+    const claim = claimedBytes(facts);
     const after =
-      facts.freeBytes != null && facts.incomingBytes != null && facts.incomingBytes > 0
-        ? ` That would leave about ${formatBytesShort(Math.max(0, facts.freeBytes - facts.incomingBytes))} free.`
+      facts.freeBytes != null && claim != null
+        ? ` That would leave about ${formatBytesShort(Math.max(0, facts.freeBytes - claim))} free.`
         : "";
     return {
       title: "This will use most of your free space",
       body:
-        `Your drive has ${free} free${needs ? ` and this needs about ${needs}` : ""}. ` +
+        `Your drive has ${free} free.${downloadAndQueueCopy(facts)} ` +
         `It fits, but it goes into the safety margin this app normally keeps spare.${after} ` +
         `Downloading anyway is fine if you know the drive has room to work in.`,
       confirmLabel: "Download anyway",
@@ -136,20 +160,13 @@ export function capOverridePrompt(facts: StorageOverrideFacts): StorageOverrideP
   const used = formatBytesShort(facts.usedBytes);
   const cap = facts.capBytes != null ? formatBytesShort(facts.capBytes) : "your cap";
   // Why the arithmetic looks the way it does. Without this the dialog could
-  // read "You are using 0 B of 1 MB" — measured verbatim — which reports a
-  // library that is plainly not full as the reason it is full. The release
-  // being added is the missing term, and when its size is unknown the app's own
-  // reserve is what tipped the balance, so say which of the two it is.
-  const reason = needs
-    ? facts.incomingEstimated
-      ? ` This release does not report its size, so ${needs} is set aside for it.`
-      : ` This download needs about ${needs} more.`
-    : "";
+  // read "You are using 0 B of 1 MB" when a large queue tip the cap. Keep this
+  // download and already-queued reservations as separate sentences.
   return {
     title: "This exceeds your storage cap",
     body:
-      `You are using ${used} of ${cap} under the download folder.${reason} ` +
-      `Downloading anyway will go over the cap you set — nothing else is deleted, ` +
+      `You are using ${used} of ${cap} under the download folder.${downloadAndQueueCopy(facts)} ` +
+      `Downloading anyway will go over the cap you set. Nothing else is deleted, ` +
       `and your free disk space is still protected.`,
     confirmLabel: "Download anyway",
     raiseCapLabel: "Raise the cap",
@@ -184,6 +201,7 @@ export function parseStorageOverrideFacts(value: unknown): StorageOverrideFacts 
     freeBytes: num(v.freeBytes),
     incomingBytes: num(v.incomingBytes),
     incomingEstimated: v.incomingEstimated === true,
+    reservedQueuedBytes: num(v.reservedQueuedBytes),
     settingsHref:
       typeof v.settingsHref === "string" && v.settingsHref.startsWith("/settings")
         ? v.settingsHref

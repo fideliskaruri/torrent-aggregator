@@ -71,7 +71,7 @@ function blockedBody(facts: StorageOverrideFacts | null): string {
   // part the numbers cannot say: why there is no "anyway" button here when the
   // other storage prompts have one.
   return (
-    `${message} This is the one limit that cannot be waived — the file is ` +
+    `${message} This is the one limit that cannot be waived. The file is ` +
     `larger than the space that exists, and forcing it would corrupt the ` +
     `download partway through.`
   );

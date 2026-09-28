@@ -1,3 +1,4 @@
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
 
@@ -5,7 +6,12 @@ namespace TorrentFlow.Library.Features.Storage;
 
 internal static class StorageFacts
 {
-    internal const long UnknownIncomingReserve = 2L * 1024 * 1024 * 1024;
+    internal const long UnknownIncomingReserve = StorageEstimate.DefaultIncomingReserveBytes;
+
+    /// <summary>
+    /// Storage refusal payload for grab/title/request surfaces.
+    /// <paramref name="expected"/> is the chosen release only; queued reservations stay in their own field.
+    /// </summary>
     public static object Refusal(ClientSetting settings, string limit, string message, long? expected, long reserved)
     {
         var root = settings.BaseDownloadPath ?? settings.SavePath;
@@ -25,9 +31,16 @@ internal static class StorageFacts
             catch (UnauthorizedAccessException) { }
             catch (ArgumentException) { }
         }
-        var incoming = expected is > 0 ? expected.Value : UnknownIncomingReserve;
-        return LibraryJson.Object(("limit", limit), ("overridable", limit is "cap" or "reserve"), ("message", message),
+        var incoming = StorageEstimate.FromRelease(expected);
+        var estimated = StorageEstimate.IsEstimated(expected);
+        var queued = Math.Max(0, reserved);
+        // Prefer a message that already separates the figures; rebuild cap copy when the engine only sent a limit.
+        var text = limit == "cap"
+            ? StorageEstimate.CapMessage(used, settings.MaxStorageBytes ?? 0, incoming, estimated, queued)
+            : message;
+        return LibraryJson.Object(("limit", limit), ("overridable", limit is "cap" or "reserve"), ("message", text),
             ("settingsHref", "/settings?tab=folders&focus=cap"), ("usedBytes", used), ("capBytes", settings.MaxStorageBytes),
-            ("freeBytes", free), ("incomingBytes", incoming + Math.Max(0, reserved)), ("incomingEstimated", expected is not > 0));
+            ("freeBytes", free), ("incomingBytes", incoming), ("incomingEstimated", estimated),
+            ("reservedQueuedBytes", queued));
     }
 }

@@ -391,6 +391,8 @@ public class EngineQueueTests
         var refused = await h.Engine.AddAsync(Keep(4, size: 5 * gb));
         Assert.False(refused.Ok);
         Assert.Equal("cap", refused.StorageLimit);
+        Assert.Contains("This download: 5.0 GB", refused.Message);
+        Assert.Contains("Already queued: 6.0 GB", refused.Message);
         var overridden = await h.Engine.AddAsync(Keep(4, size: 5 * gb) with { OverrideStorageCap = true });
         Assert.True(overridden.Ok);
     }

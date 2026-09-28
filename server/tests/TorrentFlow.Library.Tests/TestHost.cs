@@ -128,7 +128,8 @@ public sealed class FakeEngine : ITorrentEngine
     public Task<EngineActionResult> RemoveAsync(string infoHash, bool deleteFiles, CancellationToken ct = default) { Removed.Add(infoHash); return PauseAsync(infoHash, ct); }
     public Task<EngineActionResult> SelectFilesAsync(string infoHash, IReadOnlyCollection<int> fileIndices, CancellationToken ct = default) => PauseAsync(infoHash, ct);
     public Task<Stream> OpenFileStreamAsync(string infoHash, string fileIndexOrPath, CancellationToken ct = default) => throw new NotSupportedException();
-    public Task<long> QueuedReservedBytesAsync(CancellationToken ct = default) => Task.FromResult(0L);
+    public long QueuedReservedBytes { get; set; }
+    public Task<long> QueuedReservedBytesAsync(CancellationToken ct = default) => Task.FromResult(QueuedReservedBytes);
 }
 internal sealed class FakeCatalog : ICatalogLookup
 {

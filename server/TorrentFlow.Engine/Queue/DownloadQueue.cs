@@ -215,5 +215,5 @@ public static class DownloadQueue
     /// default the storage gate assumes for an unknown incoming release (disk-space DEFAULT_INCOMING_RESERVE_BYTES).
     /// </summary>
     public static long QueuedReservedBytes(IEnumerable<QueueRow> rows) =>
-        rows.Where(IsQueued).Sum(r => r.SizeBytes is > 0 ? r.SizeBytes.Value : Storage.StorageBudget.DefaultIncomingReserveBytes);
+        rows.Where(IsQueued).Sum(r => Core.Contracts.Engine.StorageEstimate.FromRelease(r.SizeBytes));
 }

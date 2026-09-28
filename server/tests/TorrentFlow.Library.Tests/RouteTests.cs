@@ -184,9 +184,20 @@ public sealed class RouteTests
         await host.Settings(); await host.Seed(db => db.WatchListItems.Add(LibraryHost.Watch()));
         host.Search.Respond = o => new() { Query = o.Query, Results = [FakeSearch.Release("Example Show S01E01 1080p")] };
         host.Engine.Result = new(false, "Storage refused") { StorageLimit = limit };
+        host.Engine.QueuedReservedBytes = 44_600_000_000;
         var response = await client.PostAsJsonAsync("/api/library/ondemand", new { watchListItemId = "watch", season = 1, episode = 1 });
         Assert.Equal((HttpStatusCode)507, response.StatusCode);
-        Assert.Equal(overridable, (await Json(response)).GetProperty("storage").GetProperty("overridable").GetBoolean());
+        var storage = (await Json(response)).GetProperty("storage");
+        Assert.Equal(overridable, storage.GetProperty("overridable").GetBoolean());
+        // Chosen release size stays in incomingBytes; queue reservations stay separate.
+        Assert.Equal(1_000_000, storage.GetProperty("incomingBytes").GetInt64());
+        Assert.Equal(44_600_000_000, storage.GetProperty("reservedQueuedBytes").GetInt64());
+        if (limit == "cap")
+        {
+            var message = storage.GetProperty("message").GetString()!;
+            Assert.Contains("This download:", message);
+            Assert.Contains("Already queued:", message);
+        }
         await using var db = await host.Services.GetRequiredService<IDbContextFactory<TorrentFlowDbContext>>().CreateDbContextAsync();
         Assert.Equal(1, (await db.WatchListItems.SingleAsync()).CursorEpisode);
     }

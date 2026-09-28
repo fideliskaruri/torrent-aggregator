@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using System.Globalization;
+using TorrentFlow.Core.Contracts.Engine;
 
 namespace TorrentFlow.Engine.Storage;
 
@@ -13,9 +13,10 @@ public sealed record StorageCheck
     public long? FreeBytes { get; init; }
     public long? MaxStorageBytes { get; init; }
     public long? RemainingBudgetBytes { get; init; }
+    /// <summary>Size of the chosen release only (or the default reserve when unknown).</summary>
     public long IncomingBytes { get; init; }
     public bool IncomingEstimated { get; init; }
-    /// <summary>Queued downloads' promised bytes that were counted on top of the incoming release.</summary>
+    /// <summary>Queued downloads' promised bytes counted on top of this release — never folded into IncomingBytes.</summary>
     public long ReservedQueuedBytes { get; init; }
 
     /// <summary>cap and reserve are the owner's own guardrails; wont-fit, setup and inventory are hard stops.</summary>
@@ -26,10 +27,10 @@ public sealed record StorageCheck
 public sealed class StorageBudget(TimeProvider time)
 {
     public const long MinFreeBytes = 500L * 1024 * 1024;
-    public const long DefaultIncomingReserveBytes = 2L * 1024 * 1024 * 1024;
+    public const long DefaultIncomingReserveBytes = StorageEstimate.DefaultIncomingReserveBytes;
     public static readonly TimeSpan DirSizeTtl = TimeSpan.FromSeconds(30);
     public const string SetupRequiredMessage =
-        "Downloads need setup first — choose a download folder and set a storage cap in Settings → Downloads.";
+        "Downloads need setup first. Choose a download folder and set a storage cap in Settings → Downloads.";
 
     private readonly ConcurrentDictionary<string, (DateTimeOffset At, long Bytes, bool Complete)> _sizes = new(StringComparer.OrdinalIgnoreCase);
 
@@ -51,52 +52,40 @@ public sealed class StorageBudget(TimeProvider time)
                 Message = "The download folder could not be fully measured, so the storage cap cannot be checked. Try again in a moment.",
             };
 
-        var estimated = incomingBytes is not > 0;
-        var requested = estimated ? DefaultIncomingReserveBytes : incomingBytes!.Value;
+        // Estimate from the chosen release only. Queued rows are a separate term.
+        var estimated = StorageEstimate.IsEstimated(incomingBytes);
+        var requested = StorageEstimate.FromRelease(incomingBytes);
+        var reserved = Math.Max(0, reservedQueuedBytes);
         // Queued downloads have claimed space but written none of it, so the folder measurement cannot see them.
-        var incoming = requested + Math.Max(0, reservedQueuedBytes);
+        var budgetClaim = requested + reserved;
         var free = FreeBytesProvider(root);
         var remaining = Math.Max(0, maxStorageBytes.Value - used);
         StorageCheck Fail(string limit, string message) => new()
         {
             Ok = false, Limit = limit, Message = message, UsedBytes = used, FreeBytes = free, MaxStorageBytes = maxStorageBytes,
-            RemainingBudgetBytes = remaining, IncomingBytes = requested, IncomingEstimated = estimated, ReservedQueuedBytes = reservedQueuedBytes,
+            RemainingBudgetBytes = remaining, IncomingBytes = requested, IncomingEstimated = estimated, ReservedQueuedBytes = reserved,
         };
 
-        if (free is { } f && incoming > f)
-            return Fail("wont-fit", $"This release needs about {FormatBytes(incoming)}, but the drive only has {FormatBytes(f)} free.");
+        if (free is { } f && budgetClaim > f)
+            return Fail("wont-fit", StorageEstimate.WontFitMessage(requested, estimated, reserved, f));
         if (!overrideCap)
         {
-            if (used + incoming > maxStorageBytes.Value)
-                return Fail("cap", CapMessage(used, maxStorageBytes.Value, incoming, estimated));
-            if (free is { } f2 && f2 - incoming < MinFreeBytes)
-                return Fail("reserve", $"This release fits, but would leave less than {FormatBytes(MinFreeBytes)} free on the drive.");
+            if (used + budgetClaim > maxStorageBytes.Value)
+                return Fail("cap", CapMessage(used, maxStorageBytes.Value, requested, estimated, reserved));
+            if (free is { } f2 && f2 - budgetClaim < MinFreeBytes)
+                return Fail("reserve", StorageEstimate.ReserveMessage(MinFreeBytes));
         }
         return new StorageCheck
         {
             Ok = true, UsedBytes = used, FreeBytes = free, MaxStorageBytes = maxStorageBytes, RemainingBudgetBytes = remaining,
-            IncomingBytes = requested, IncomingEstimated = estimated, ReservedQueuedBytes = reservedQueuedBytes,
+            IncomingBytes = requested, IncomingEstimated = estimated, ReservedQueuedBytes = reserved,
         };
     }
 
-    public static string CapMessage(long used, long cap, long incoming, bool estimated)
-    {
-        var free = FormatBytes(Math.Max(0, cap - used));
-        const string advice = "Raise the cap in Settings → Downloads, or free space there with \"Delete reclaimable stream-only files\".";
-        if (estimated)
-            return $"Not enough space for this release. We're reserving {FormatBytes(incoming)} for it (size unknown), but only {free} is available ({FormatBytes(used)} already in use). {advice}";
-        return $"This release needs about {FormatBytes(incoming)}, but only {free} is available ({FormatBytes(used)} already in use). {advice}";
-    }
+    public static string CapMessage(long used, long cap, long thisDownload, bool estimated, long reservedQueued = 0) =>
+        StorageEstimate.CapMessage(used, cap, thisDownload, estimated, reservedQueued);
 
-    public static string FormatBytes(long n)
-    {
-        var c = CultureInfo.InvariantCulture;
-        if (n < 0) return "?";
-        if (n >= 1_000_000_000_000) return (n / 1e12).ToString("0.0", c) + " TB";
-        if (n >= 1_000_000_000) return (n / 1e9).ToString("0.0", c) + " GB";
-        if (n >= 1_000_000) return (n / 1e6).ToString("0", c) + " MB";
-        return n.ToString(c) + " B";
-    }
+    public static string FormatBytes(long n) => StorageEstimate.FormatBytes(n);
 
     /// <summary>Recursive byte count under the download root, cached for 30 seconds.</summary>
     public (long Bytes, bool Complete) DirectorySize(string root)
