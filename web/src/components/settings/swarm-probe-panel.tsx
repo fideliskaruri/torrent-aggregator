@@ -3,6 +3,7 @@ import { useFeatures } from "@/lib/features";
 import { Loader2, Radar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { readJsonBody } from "@/lib/api-json";
 import type { SwarmVerdict } from "@/lib/torrents/swarm-probe";
@@ -62,7 +63,7 @@ function toneBadge(tone: VerdictTone): {
       return {
         variant: "outline",
         className:
-          "border-[rgba(245,181,90,0.28)] bg-[rgba(245,181,90,0.12)] text-[var(--accent-text)]",
+          "border-brand/30 bg-brand-dim text-brand-foreground",
       };
     case "neutral":
     default:
@@ -129,7 +130,7 @@ function EnabledSwarmProbePanel() {
         throw new Error(body?.error || "Couldn't save availability checks. Try again.");
       }
       setData((prev) => (prev ? { ...prev, scope: body.scope ?? next } : prev));
-      // Refresh the measured list — switching scope may change what is relevant.
+      // Refresh the measured list: switching scope may change what is relevant.
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -146,12 +147,12 @@ function EnabledSwarmProbePanel() {
   return (
     <section className="surface rounded-xl p-5 sm:p-6 space-y-5">
       <div className="flex items-start gap-3">
-        <Radar className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
+        <Radar className="h-5 w-5 text-brand-foreground shrink-0 mt-0.5" />
         <div>
-          <h2 className="text-sm font-medium text-[var(--text)]">
+          <h2 className="text-sm font-medium text-foreground">
             Check download availability
           </h2>
-          <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
+          <p className="text-xs text-subtle-foreground mt-1 leading-relaxed">
             Check likely next episodes ahead of time so TorrentFlow can avoid
             downloads that are unavailable. Safe to leave on.
           </p>
@@ -159,55 +160,61 @@ function EnabledSwarmProbePanel() {
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-[var(--text-tertiary)]">
+        <div className="flex items-center gap-2 text-sm text-subtle-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading availability checks…
         </div>
       ) : unavailable ? (
-        <p className="text-xs text-[var(--text-secondary)] leading-relaxed" data-swarm-probe-unavailable>
+        <p className="text-xs text-muted-foreground leading-relaxed" data-swarm-probe-unavailable>
           Availability checks aren't available on this version of TorrentFlow. Update TorrentFlow to turn them on.
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={scope}
+            onValueChange={(value) => {
+              if (value && value !== scope) void setScope(value as Scope);
+            }}
+            disabled={saving !== null}
+            aria-label="Availability checks scope"
+            className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3"
+          >
             {choices.map((choice) => {
-              const active = scope === choice.value;
               const isDefault = data?.defaultScope === choice.value;
               return (
-                <Button
+                <ToggleGroupItem
                   key={choice.value}
-                  type="button"
-                  variant={active ? "default" : "secondary"}
-                  disabled={saving !== null}
-                  onClick={() => void setScope(choice.value)}
-                  className="justify-center min-h-[44px] lg:min-h-0"
+                  value={choice.value}
+                  className="w-full justify-center max-md:min-h-11 pointer-coarse:min-h-11 data-[state=on]:border-brand/40 data-[state=on]:bg-brand-dim data-[state=on]:text-brand-foreground"
                 >
                   {saving === choice.value ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : null}
                   <span className="truncate">{choice.label}</span>
                   {isDefault ? (
-                    <span className="text-xs text-[var(--text-tertiary)]">
+                    <span className="text-xs text-subtle-foreground">
                       · default
                     </span>
                   ) : null}
-                </Button>
+                </ToggleGroupItem>
               );
             })}
-          </div>
+          </ToggleGroup>
 
           <div className="space-y-2">
             <div className="flex items-baseline justify-between">
-              <h3 className="text-xs font-medium text-[var(--text-secondary)]">
+              <h3 className="text-xs font-medium text-muted-foreground">
                 Recent checks
               </h3>
-              <span className="text-xs text-[var(--text-tertiary)]">
+              <span className="text-xs text-subtle-foreground">
                 Results can change over time.
               </span>
             </div>
 
             {measurements.length === 0 ? (
-              <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
+              <p className="text-xs text-subtle-foreground leading-relaxed">
                 {scope === "off"
                   ? "Availability checks are off."
                   : "No checks yet. TorrentFlow checks likely next episodes in the background."}
@@ -222,11 +229,11 @@ function EnabledSwarmProbePanel() {
                   return (
                     <li
                       key={m.infoHash}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 px-3 py-2"
+                      className="rounded-lg border border-border bg-muted/40 px-3 py-2"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <span
-                          className="min-w-0 truncate text-xs text-[var(--text-secondary)]"
+                          className="min-w-0 truncate text-xs text-muted-foreground"
                           title={m.name ?? m.infoHash}
                         >
                           {m.name ?? m.infoHash}
@@ -239,7 +246,7 @@ function EnabledSwarmProbePanel() {
                           {display.label}
                         </Badge>
                       </div>
-                      <div className="mt-1 text-xs text-[var(--text-tertiary)]">
+                      <div className="mt-1 text-xs text-subtle-foreground">
                         {fresh}
                       </div>
                     </li>
@@ -253,7 +260,7 @@ function EnabledSwarmProbePanel() {
 
       {error ? (
         <div className="flex flex-wrap items-center gap-2" role="alert">
-          <p className="text-xs text-[var(--danger)]">{error}</p>
+          <p className="text-xs text-destructive">{error}</p>
           <Button type="button" variant="secondary" size="sm" onClick={() => void load()}>
             Try again
           </Button>

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -154,24 +155,24 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
     return [...groups.entries()];
   }, [sourceScan]);
 
-  if (error) return <div role="status" className="text-xs text-[var(--text-secondary)]">
+  if (error) return <div role="status" className="text-xs text-muted-foreground">
     Storage details unavailable.{" "}
     <Button type="button" variant="ghost" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry storage details</Button>
   </div>;
   if (!info) return null;
   return <div className="min-w-0 space-y-3 text-xs" data-download-recovery>
-    {mode !== "empty" && <dl className="min-w-0 space-y-2 text-[var(--text-secondary)]" data-storage-paths>
+    {mode !== "empty" && <dl className="min-w-0 space-y-2 text-muted-foreground" data-storage-paths>
       <div className="min-w-0 space-y-0.5">
-        <dt className="text-[var(--text-tertiary)]">App data folder</dt>
+        <dt className="text-subtle-foreground">App data folder</dt>
         <dd className="w-full break-all font-mono leading-relaxed">{info.dataDirectory}</dd>
       </div>
       {mode === "paths" || !info.downloadDirectory ? <div className="min-w-0 space-y-0.5">
-        <dt className="text-[var(--text-tertiary)]">Download folder</dt>
+        <dt className="text-subtle-foreground">Download folder</dt>
         <dd className="w-full break-all font-mono leading-relaxed">{info.downloadDirectory || "Not configured. Choose and save a folder below."}</dd>
       </div> : null}
     </dl>}
     {mode !== "paths" && <div className="space-y-2">
-      <p className="text-[var(--text-secondary)]">
+      <p className="text-muted-foreground">
         {mode === "empty" && info.hasMedia ? "Media files already exist in your download folder. Recover them without downloading again."
           : mode === "empty" ? "Recover downloads already held by another torrent client, or scan your local folder for media."
           : "Recover media already in the saved download folder. Files without torrent metadata are imported as completed, non-seeding downloads."}
@@ -196,16 +197,16 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
             Select downloads to add here. Torrent data is never copied or moved, and the other client is never edited.
           </DialogDescription>
         </DialogHeader>
-        <div className="shrink-0 rounded-md border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-[var(--text-secondary)]">
-          <p><strong className="text-[var(--text)]">Before importing:</strong> close the other client or remove these torrents from it without deleting their data.</p>
-          <label className="mt-3 flex min-h-[44px] items-center gap-2 text-[var(--text)]">
+        <div className="shrink-0 rounded-md border border-border bg-muted p-3 text-muted-foreground">
+          <p><strong className="text-foreground">Before importing:</strong> close the other client or remove these torrents from it without deleting their data.</p>
+          <Label className="mt-3 min-h-11 text-xs font-normal leading-normal text-foreground">
             <Checkbox checked={acknowledged} disabled={sourceBusy} onCheckedChange={(checked) => setAcknowledged(checked === true)}
               aria-label="Acknowledge other client is closed or torrents were removed without deleting data" data-source-acknowledgment />
             I understand the other client must be closed or have these torrents removed without deleting data.
-          </label>
+          </Label>
         </div>
-        {sourceState === "loading" && <div role="status" className="flex items-center gap-2 text-[var(--text-secondary)]"><LoadingGlyph className="h-4 w-4" /> Scanning configured torrent clients…</div>}
-        {sourceState === "error" && <div role="alert" className="space-y-2 text-[var(--text-secondary)]"><p>Source scan failed.</p><Button type="button" variant="ghost" onClick={() => void scanSources()} data-source-scan-retry>Retry scan</Button></div>}
+        {sourceState === "loading" && <div role="status" className="flex items-center gap-2 text-muted-foreground"><LoadingGlyph className="h-4 w-4" /> Scanning configured torrent clients…</div>}
+        {sourceState === "error" && <div role="alert" className="space-y-2 text-muted-foreground"><p>Source scan failed.</p><Button type="button" variant="ghost" onClick={() => void scanSources()} data-source-scan-retry>Retry scan</Button></div>}
         {sourceState === "ready" && (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1" data-source-candidates>
             <div className="flex flex-wrap gap-2">
@@ -213,13 +214,13 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
               <Button type="button" variant="ghost" disabled={sourceBusy} onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
               <Button type="button" variant="ghost" disabled={sourceBusy} onClick={() => void scanSources()}>Scan again</Button>
             </div>
-            {sourceScan?.warnings.map((warning, index) => <p key={index} className="break-words rounded-md border border-[var(--brand)]/40 bg-[var(--bg-muted)] p-3 text-[var(--text-secondary)]" data-source-warning>{warning}</p>)}
-            {groupedSources.length === 0 && <p className="rounded-md border border-dashed border-[var(--border)] p-4 text-[var(--text-secondary)]">No other-client downloads were found. You can retry the scan or use the local-folder import.</p>}
+            {sourceScan?.warnings.map((warning, index) => <p key={index} className="break-words rounded-md border border-brand/40 bg-muted p-3 text-muted-foreground" data-source-warning>{warning}</p>)}
+            {groupedSources.length === 0 && <p className="rounded-md border border-dashed border-border p-4 text-muted-foreground">No other-client downloads were found. You can retry the scan or use the local-folder import.</p>}
             {groupedSources.map(([source, candidates]) => (
               <section key={source} className="space-y-2" data-source-group={source}>
-                <h3 className="font-medium text-[var(--text)]">{source}</h3>
+                <h3 className="font-medium text-foreground">{source}</h3>
                 {candidates.map((candidate) => (
-                  <label key={candidate.id} className="flex gap-3 rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] p-3" data-source-candidate={candidate.id}>
+                  <Label key={candidate.id} className="items-start gap-3 rounded-md border border-border bg-card p-3 text-xs font-normal leading-normal" data-source-candidate={candidate.id}>
                     <Checkbox checked={selectedIds.has(candidate.id)} disabled={sourceBusy || candidate.alreadyImported}
                       onCheckedChange={(checked) => setSelectedIds((current) => {
                         const next = new Set(current);
@@ -227,18 +228,18 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
                         return next;
                       })} aria-label={`Select ${candidate.name}`} />
                     <span className="min-w-0 flex-1 space-y-1">
-                      <span className="block break-words font-medium text-[var(--text)]">{candidate.name}</span>
-                      <span className="block text-[var(--text-secondary)]">{formatBytes(candidate.sizeBytes)} · {candidate.complete ? "Complete (advisory)" : "Partial"} · {candidate.dataExists ? "Data found" : "Data missing"}</span>
-                      <span className="block break-all font-mono text-[var(--text-tertiary)]">{candidate.savePath}</span>
-                      <span className="block text-[var(--text-tertiary)]">{candidate.dataExists ? "Hash will be rechecked" : "Will import paused until you restore the files or resume"}{candidate.alreadyImported ? " · Already imported" : ""}</span>
+                      <span className="block break-words font-medium text-foreground">{candidate.name}</span>
+                      <span className="block text-muted-foreground">{formatBytes(candidate.sizeBytes)} · {candidate.complete ? "Complete (advisory)" : "Partial"} · {candidate.dataExists ? "Data found" : "Data missing"}</span>
+                      <span className="block break-all font-mono text-subtle-foreground">{candidate.savePath}</span>
+                      <span className="block text-subtle-foreground">{candidate.dataExists ? "Hash will be rechecked" : "Will import paused until you restore the files or resume"}{candidate.alreadyImported ? " · Already imported" : ""}</span>
                     </span>
-                  </label>
+                  </Label>
                 ))}
               </section>
             ))}
           </div>
         )}
-        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-3">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border pt-3">
           <Button type="button" variant="ghost" onClick={() => setSourceOpen(false)} data-source-import-cancel>Cancel</Button>
           <Button type="button" disabled={sourceBusy || !acknowledged || selectedIds.size === 0 || sourceState !== "ready"}
             onClick={() => void importSources()} data-source-import-submit>

@@ -31,6 +31,12 @@ export interface TitleCardProps {
   onAction: (item: RailItem, action: CardAction) => void;
   /** Eager-load the first screenful; everything else is lazy. */
   priority?: boolean;
+  /**
+   * Keep the action row visible at rest on hover pointers too. Continue
+   * watching sets it: the state of the next episode (Play, Get, Downloading)
+   * is the point of that rail and must read at a glance.
+   */
+  persistentAction?: boolean;
 }
 
 /**
@@ -60,6 +66,7 @@ export function TitleCard({
   status = "idle",
   onAction,
   priority = false,
+  persistentAction = false,
 }: TitleCardProps) {
   const { streaming } = useFeatures();
   // Future primary dates and confirmed cinema-only movies share one Browse
@@ -83,6 +90,9 @@ export function TitleCard({
     ? (releaseGate.label ?? "Coming soon")
     : !streaming && action.kind === "play" ? "Downloaded" : actionLabel(action, status);
   const blocked = action.disabled;
+  // Downloading is disabled but not a dead end: the card stays at full
+  // strength and its badge keeps the accent.
+  const arriving = action.kind === "downloading";
 
   // Every card goes to the same place: the page about this work. Null only
   // when the row has no usable title — then the card falls back to being the
@@ -100,9 +110,8 @@ export function TitleCard({
     !blocked &&
     ((streaming && action.kind === "play") || action.kind === "get");
 
-  // A row id is not unique on the page — the same episode legitimately appears
-  // in Continue Watching and Ready to Play — and two elements sharing an id
-  // break `aria-describedby` for whichever one loses.
+  // A row id is not unique across every surface on the page, and two elements
+  // sharing an id break `aria-describedby` for whichever one loses.
   const reactId = useId();
   const describedBy =
     unreleased || blocked ? `${reactId}-reason` : undefined;
@@ -133,7 +142,7 @@ export function TitleCard({
         // Future art is present but inert: greyscale + muted so it never reads
         // as something you can press Play on. Matches the title-page hero gate.
         unreleased && "grayscale opacity-80",
-        !unreleased && blocked && "opacity-75",
+        !unreleased && blocked && !arriving && "opacity-75",
       )}
     >
       <PosterImage
@@ -154,7 +163,9 @@ export function TitleCard({
           >
             {releaseGate.label ?? "Coming soon"}
           </span>
-        ) : (
+        ) : action.kind === "get" || arriving ? null : (
+          // A card offering "Get S02E01" or "Downloading" already says the
+          // episode is not here yet; a second badge saying so would only repeat it.
           <AvailabilityChip state={item.availability} compact />
         )}
       </span>
@@ -174,7 +185,7 @@ export function TitleCard({
   // over artwork we have never seen.
   const badgeClass = cn(
     "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[6px] border px-1.5 py-1 text-[12px] font-medium leading-none",
-    blocked || unreleased
+    (blocked && !arriving) || unreleased
       ? "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--text-tertiary)]"
       : "border-transparent bg-[var(--brand)] text-[var(--primary-foreground)]",
   );
@@ -196,7 +207,8 @@ export function TitleCard({
     // the query never matches, so the chip stays visible at every width and a
     // tablet user never faces an invisible Play control; mouse/trackpad keeps the
     // reveal-on-hover feel. Screen width is not a proxy for input capability.
-    "[@media(hover:hover)_and_(pointer:fine)]:md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+    !persistentAction &&
+      "[@media(hover:hover)_and_(pointer:fine)]:md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
     // The row is a transparent strip across the poster. Without this it would
     // swallow every click that lands beside the badge — the card would look
     // clickable and do nothing, which is the exact defect being fixed.
@@ -230,7 +242,7 @@ export function TitleCard({
         <span className={badgeClass}>{badgeInner}</span>
       </button>
     </span>
-  ) : action.kind === "blocked" ? (
+  ) : action.kind === "blocked" || arriving ? (
     <span className={actionRowClass} aria-hidden>
       <span className={badgeClass}>{badgeInner}</span>
     </span>

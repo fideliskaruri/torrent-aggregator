@@ -1,6 +1,15 @@
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   DAY_LABELS,
   MAX_DOWNLOAD_WINDOWS,
@@ -20,8 +29,6 @@ interface DownloadWindowsPanelProps {
   open: boolean | null;
 }
 
-const SELECT_CLASS =
-  "h-11 w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] sm:text-sm";
 
 const START_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const END_HOURS = Array.from({ length: 24 }, (_, index) => index + 1);
@@ -29,18 +36,21 @@ const END_HOURS = Array.from({ length: 24 }, (_, index) => index + 1);
 export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindowsPanelProps) {
   const update = (index: number, patch: Partial<DownloadWindowDraft>) =>
     onChange(windows.map((w, i) => (i === index ? { ...w, ...patch } : w)));
-  const toggleDay = (index: number, day: number) => {
+  // Apply only the toggled day so the saved day order matches click order.
+  const setDays = (index: number, next: string[]) => {
     const days = windows[index].days;
+    const picked = next.map(Number);
+    const added = picked.filter((d) => !days.includes(d));
     update(index, {
-      days: days.includes(day) ? days.filter((d) => d !== day) : [...days, day],
+      days: [...days.filter((d) => picked.includes(d)), ...added],
     });
   };
 
   return (
     <div className="space-y-3" data-download-windows>
       <div className="space-y-1">
-        <p className="text-xs font-medium text-[var(--text-secondary)]">Download hours</p>
-        <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
+        <p className="text-xs font-medium text-muted-foreground">Download hours</p>
+        <p className="text-xs leading-relaxed text-subtle-foreground">
           {windows.length
             ? "New downloads only start inside these hours (this computer's time). Running downloads keep going, and Resume or Download now always starts one right away."
             : "Downloads can start at any time. Add hours to only start new downloads at night or on weekends."}
@@ -49,7 +59,7 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
           <p
             className={cn(
               "text-xs font-medium",
-              open ? "text-[var(--success)]" : "text-[var(--accent-text)]",
+              open ? "text-success" : "text-brand-foreground",
             )}
             data-download-window-status={open ? "open" : "closed"}
           >
@@ -64,12 +74,12 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
         return (
           <fieldset
             key={index}
-            className="space-y-3 rounded-lg border border-[var(--border)] p-3"
+            className="space-y-3 rounded-lg border border-border p-3"
             data-download-window={index}
           >
             <legend className="sr-only">Download hours rule {index + 1}</legend>
             <div className="flex items-start justify-between gap-2">
-              <p className="min-w-0 pt-2 text-sm font-medium text-[var(--text)]" data-download-window-summary>
+              <p className="min-w-0 pt-2 text-sm font-medium text-foreground" data-download-window-summary>
                 {describeWindow(window)}
               </p>
               <Button
@@ -84,75 +94,68 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
               </Button>
             </div>
 
-            <div role="group" aria-label="Days" className="grid grid-cols-7 gap-1">
-              {DAY_LABELS.map((day) => {
-                const on = window.days.includes(day.value);
-                return (
-                  <button
-                    key={day.value}
-                    type="button"
-                    aria-pressed={on}
-                    aria-label={day.long}
-                    onClick={() => toggleDay(index, day.value)}
-                    className={cn(
-                      "min-h-[44px] rounded-md border text-xs font-medium transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
-                      on
-                        ? "border-[var(--primary)] bg-[var(--accent-dim)] text-[var(--text)]"
-                        : "border-[var(--border)] text-[var(--text-tertiary)] hover:bg-[var(--bg-muted)]",
-                    )}
-                    data-download-window-day={day.value}
-                  >
-                    {day.short}
-                  </button>
-                );
-              })}
-            </div>
+            <ToggleGroup
+              type="multiple"
+              variant="outline"
+              spacing={1}
+              aria-label="Days"
+              value={window.days.map(String)}
+              onValueChange={(next) => setDays(index, next)}
+              className="grid w-full grid-cols-7"
+            >
+              {DAY_LABELS.map((day) => (
+                <ToggleGroupItem
+                  key={day.value}
+                  value={String(day.value)}
+                  aria-label={day.long}
+                  className="w-full rounded-md max-md:min-h-11 pointer-coarse:min-h-11 text-xs text-subtle-foreground data-[state=on]:border-primary data-[state=on]:bg-brand-dim data-[state=on]:text-foreground motion-reduce:transition-none"
+                  data-download-window-day={day.value}
+                >
+                  {day.short}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label htmlFor={`${idPrefix}-start`} className="text-xs font-medium text-[var(--text-secondary)]">
-                  From
-                </label>
-                <select
-                  id={`${idPrefix}-start`}
-                  value={window.startHour}
-                  onChange={(event) => update(index, { startHour: Number(event.target.value) })}
-                  className={SELECT_CLASS}
-                  data-download-window-start
+              <FormField label="From" htmlFor={`${idPrefix}-start`}>
+                <Select
+                  value={String(window.startHour)}
+                  onValueChange={(value) => update(index, { startHour: Number(value) })}
                 >
-                  {START_HOURS.map((hour) => (
-                    <option key={hour} value={hour}>
-                      {formatHour(hour)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor={`${idPrefix}-end`} className="text-xs font-medium text-[var(--text-secondary)]">
-                  Until
-                </label>
-                <select
-                  id={`${idPrefix}-end`}
-                  value={window.endHour}
-                  onChange={(event) => update(index, { endHour: Number(event.target.value) })}
-                  className={SELECT_CLASS}
-                  data-download-window-end
+                  <SelectTrigger id={`${idPrefix}-start`} className="w-full" data-download-window-start>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {START_HOURS.map((hour) => (
+                      <SelectItem key={hour} value={String(hour)}>
+                        {formatHour(hour)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label="Until" htmlFor={`${idPrefix}-end`}>
+                <Select
+                  value={String(window.endHour)}
+                  onValueChange={(value) => update(index, { endHour: Number(value) })}
                 >
-                  {END_HOURS.map((hour) => (
-                    <option key={hour} value={hour}>
-                      {hour === 24 ? "24:00 (midnight)" : formatHour(hour)}
-                      {hour <= window.startHour ? " next day" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <SelectTrigger id={`${idPrefix}-end`} className="w-full" data-download-window-end>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {END_HOURS.map((hour) => (
+                      <SelectItem key={hour} value={String(hour)}>
+                        {hour === 24 ? "24:00 (midnight)" : formatHour(hour)}
+                        {hour <= window.startHour ? " next day" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <label htmlFor={`${idPrefix}-active`} className="text-xs font-medium text-[var(--text-secondary)]">
-                  Downloads at once
-                </label>
+              <FormField label="Downloads at once" htmlFor={`${idPrefix}-active`}>
                 <Input
                   id={`${idPrefix}-active`}
                   type="number"
@@ -163,14 +166,11 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
                   placeholder="Usual"
                   value={window.maxActiveDownloads}
                   onChange={(event) => update(index, { maxActiveDownloads: event.target.value })}
-                  className="h-11 text-base sm:text-sm"
+                  className="text-base sm:text-sm"
                   data-download-window-active
                 />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor={`${idPrefix}-down`} className="text-xs font-medium text-[var(--text-secondary)]">
-                  Download limit (MB/s)
-                </label>
+              </FormField>
+              <FormField label="Download limit (MB/s)" htmlFor={`${idPrefix}-down`}>
                 <Input
                   id={`${idPrefix}-down`}
                   type="number"
@@ -180,14 +180,11 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
                   placeholder="No limit"
                   value={window.maxDownloadMbps}
                   onChange={(event) => update(index, { maxDownloadMbps: event.target.value })}
-                  className="h-11 text-base sm:text-sm"
+                  className="text-base sm:text-sm"
                   data-download-window-down
                 />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor={`${idPrefix}-up`} className="text-xs font-medium text-[var(--text-secondary)]">
-                  Upload limit (MB/s)
-                </label>
+              </FormField>
+              <FormField label="Upload limit (MB/s)" htmlFor={`${idPrefix}-up`}>
                 <Input
                   id={`${idPrefix}-up`}
                   type="number"
@@ -197,14 +194,13 @@ export function DownloadWindowsPanel({ windows, onChange, open }: DownloadWindow
                   placeholder="No limit"
                   value={window.maxUploadMbps}
                   onChange={(event) => update(index, { maxUploadMbps: event.target.value })}
-                  className="h-11 text-base sm:text-sm"
+                  className="text-base sm:text-sm"
                   data-download-window-up
                 />
-              </div>
+              </FormField>
             </div>
-
             {problem ? (
-              <p role="alert" className="text-xs text-[var(--destructive)]" data-download-window-error>
+              <p role="alert" className="text-xs text-destructive" data-download-window-error>
                 Fix this rule: {problem}.
               </p>
             ) : null}
