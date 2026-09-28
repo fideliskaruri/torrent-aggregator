@@ -11,7 +11,10 @@ import { useDisplayPath } from "@/lib/features";
 import { buildInbox } from "./inbox";
 import { NotificationFeed } from "@/components/notifications/notification-feed";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
-import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
+import { PageSkeletonFrame } from "@/components/ui/loading";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import {
   ACTIVITY_BATCH_SIZE,
@@ -243,35 +246,33 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       "Finished downloads and failures that need you. Everything else is in the download log.";
 
   const filterControls = (
-    <div
-      className="inline-flex rounded-full border border-[var(--border)] bg-[var(--bg-muted)] p-0.5 text-[12px]"
+    <nav
+      className="inline-flex rounded-lg bg-muted p-[3px]"
       aria-label="Activity view"
     >
-      <Link
-        to="/notifications"
-        aria-current={!sentOnly ? "page" : undefined}
-        className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
-          !sentOnly
-            ? "bg-[var(--bg-hover)] text-[var(--text)] shadow-sm"
-            : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
-        }`}
-      >
-        Inbox
-      </Link>
-      <Link
-        to="/history"
-        aria-current={sentOnly ? "page" : undefined}
-        className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-full px-3 py-1 transition-colors lg:min-h-0 lg:min-w-0 ${
-          sentOnly
-            ? "bg-[var(--bg-hover)] text-[var(--text)] shadow-sm"
-            : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
-        }`}
-      >
-        Download log
-      </Link>
-    </div>
+      {[
+        { href: "/notifications", label: "Inbox", active: !sentOnly },
+        { href: "/history", label: "Download log", active: sentOnly },
+      ].map((view) => (
+        <Button
+          key={view.href}
+          asChild
+          size="sm"
+          variant="ghost"
+          className={cn(
+            "min-w-11 px-3 text-[13px] max-lg:min-h-11",
+            view.active
+              ? "bg-background text-foreground shadow-sm hover:bg-background"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Link to={view.href} aria-current={view.active ? "page" : undefined}>
+            {view.label}
+          </Link>
+        </Button>
+      ))}
+    </nav>
   );
-
   if (loading && data == null && !error) return <ActivitySkeleton visible={showLoading} />;
 
   return (
@@ -310,11 +311,12 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
             <section key={group.key} aria-labelledby={`activity-day-${group.key}`}>
               <h2
                 id={`activity-day-${group.key}`}
-                className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-tertiary)]"
+                className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
               >
                 {group.label}
               </h2>
-              <ul className="surface divide-y divide-[var(--border)] overflow-hidden">
+              <Card className="gap-0 py-0">
+              <ul className="divide-y divide-border">
                 {group.items.map((item) => {
                   const location = formatSaveLocation(item.savePath ? displayPath(item.savePath) : null, item.category);
                   const kindLabel = activityKindLabel(item);
@@ -327,27 +329,27 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                     >
                       <Badge
                         variant={statusVariant(item.status)}
-                        className="mt-0.5"
+                        className="mt-0.5 self-start"
                       >
                         {statusLabel(item.status)}
                       </Badge>
                       <div className="min-w-0">
-                        <p className="truncate text-[13px] font-medium text-[var(--text)]">
+                        <p className="truncate text-[13px] font-medium text-foreground">
                           {item.title}
                         </p>
-                        <p className="truncate text-xs text-[var(--text-tertiary)]">
+                        <p className="truncate text-xs text-subtle-foreground">
                           {[kindLabel, item.source, item.category]
                             .filter(Boolean)
                             .join(" · ")}
                         </p>
                         {item.message ? (
-                          <p className="truncate text-xs text-[var(--text-secondary)]">
+                          <p className="truncate text-xs text-muted-foreground">
                             {item.message}
                           </p>
                         ) : null}
                         {location ? (
                           <p
-                            className="truncate font-mono text-xs text-[var(--text-tertiary)]"
+                            className="truncate font-mono text-xs text-subtle-foreground"
                             title={item.savePath ? displayPath(item.savePath) : undefined}
                             data-save-path
                           >
@@ -357,7 +359,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                       </div>
                       <time
                         dateTime={item.createdAt}
-                        className="col-start-2 whitespace-nowrap text-xs text-[var(--text-tertiary)] sm:col-start-3 sm:row-start-1"
+                        className="col-start-2 whitespace-nowrap text-xs text-subtle-foreground sm:col-start-3 sm:row-start-1"
                       >
                         {formatRelativeTime(item.createdAt)}
                       </time>
@@ -365,6 +367,7 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                   );
                 })}
               </ul>
+              </Card>
             </section>
           ))}
           {hasOlder ? (
@@ -372,22 +375,22 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
               {olderError ? (
                 <p
                   role="status"
-                  className="text-[12px] text-[var(--danger)]"
+                  className="text-[12px] text-destructive"
                   data-older-error
                 >
                   {olderError}
                 </p>
               ) : null}
-              <button
-                type="button"
-                className="btn btn-secondary btn-md"
+              <Button
+                variant="secondary"
+                className="max-md:min-h-11"
                 disabled={loadingOlder}
                 aria-busy={loadingOlder || undefined}
                 onClick={() => void loadOlder()}
                 data-load-older
               >
                 {loadingOlder ? "Loading…" : "Show older activity"}
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>
@@ -419,23 +422,26 @@ function ActivitySkeleton({ visible = true }: { visible?: boolean }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-2">
-          <SkeletonBlock className="h-8 w-32" />
-          <SkeletonBlock className="h-4 w-64 max-w-full" />
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-4 w-64 max-w-full" />
         </div>
-        <SkeletonBlock className="h-8 w-28 rounded-full" />
+        <Skeleton className="h-8 w-44 rounded-lg" />
       </div>
-      <ul className="space-y-2">
-        {Array.from({ length: 6 }, (_, i) => (
-          <li key={i} className="surface flex items-start gap-3 px-3.5 py-3">
-            <SkeletonBlock className="h-[38px] w-[38px] shrink-0 rounded-md" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <SkeletonBlock className="h-4 w-4/5" />
-              <SkeletonBlock className="h-3 w-2/3" />
-              <SkeletonBlock className="h-3 w-1/2" />
-            </div>
-          </li>
-        ))}
-      </ul>
+      <Skeleton className="h-3 w-20" />
+      <Card className="gap-0 py-0">
+        <ul className="divide-y divide-border">
+          {Array.from({ length: 6 }, (_, i) => (
+            <li key={i} className="flex items-start gap-2.5 px-3 py-2.5" aria-hidden>
+              <Skeleton className="h-5 w-14 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-4/5" />
+                <Skeleton className="h-3 w-2/3" />
+              </div>
+              <Skeleton className="hidden h-3 w-12 shrink-0 sm:block" />
+            </li>
+          ))}
+        </ul>
+      </Card>
     </PageSkeletonFrame>
   );
 }

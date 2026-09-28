@@ -4,6 +4,8 @@ import type { TitleResult } from "./group-titles";
 import { cn } from "@/lib/utils";
 import { PosterImage } from "@/components/browse/poster-image";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { requestViewFor } from "@/lib/requests";
 
 interface TitleResultCardProps {
@@ -53,7 +55,7 @@ export function TitleResultCard({
     <div className="flex gap-3 sm:gap-4">
       <div
         className={cn(
-          "relative aspect-[2/3] shrink-0 self-start overflow-hidden rounded-md bg-[var(--bg-muted)]",
+          "relative aspect-[2/3] shrink-0 self-start overflow-hidden rounded-md bg-muted",
           featured ? "w-20 sm:w-24" : "w-14 sm:w-16",
         )}
       >
@@ -67,11 +69,11 @@ export function TitleResultCard({
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="min-w-0 space-y-1">
           {featured ? (
-            <span className="badge badge-accent">Best match</span>
+            <Badge variant="accent">Best match</Badge>
           ) : null}
           <h2
             className={cn(
-              "font-medium leading-snug text-[var(--text)] break-words",
+              "font-medium leading-snug text-foreground break-words",
               featured
                 ? "text-base line-clamp-2 sm:text-lg"
                 : "text-sm line-clamp-2",
@@ -81,12 +83,12 @@ export function TitleResultCard({
             {title.year ? (
               <>
                 <span
-                  className="mx-1.5 text-[var(--border-strong)]"
+                  className="mx-1.5 text-subtle-foreground"
                   aria-hidden
                 >
                   ·
                 </span>
-                <span className="font-normal tabular-nums text-[var(--text-tertiary)]">
+                <span className="font-normal tabular-nums text-subtle-foreground">
                   {title.year}
                 </span>
               </>
@@ -94,10 +96,10 @@ export function TitleResultCard({
           </h2>
           <div className="flex flex-wrap items-center gap-1.5">
             {typeLabel ? (
-              <span className="badge text-[12px] text-[var(--text-tertiary)]">{typeLabel}</span>
+              <Badge variant="outline" className="text-[12px] text-muted-foreground">{typeLabel}</Badge>
             ) : null}
             {title.status.comingLabel ? (
-              <span className="text-[12px] font-medium text-[var(--text-tertiary)]">
+              <span className="text-[12px] font-medium text-subtle-foreground">
                 {title.status.comingLabel}
               </span>
             ) : null}
@@ -116,7 +118,7 @@ export function TitleResultCard({
           </div>
         </div>
         {title.overview ? (
-          <p className="hidden line-clamp-2 text-[12px] leading-snug text-[var(--text-tertiary)] sm:block">
+          <p className="hidden line-clamp-2 text-[12px] leading-snug text-subtle-foreground sm:block">
             {title.overview}
           </p>
         ) : null}
@@ -130,11 +132,20 @@ export function TitleResultCard({
   );
 
   const shellClass = cn(
-    "surface group relative block scroll-mt-24 transition-colors motion-reduce:transition-none",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]",
-    featured ? "border-[var(--brand)]/60 p-3 sm:p-4" : "p-3 sm:p-4",
+    "group relative block scroll-mt-24 rounded-xl outline-none",
+    "focus-visible:ring-2 focus-visible:ring-ring",
     title.status.unreleased && "opacity-60 saturate-[0.35]",
-    title.href && "hover:border-[var(--border-strong)]",
+  );
+  const card = (
+    <Card
+      className={cn(
+        "gap-0 py-0 p-3 transition-shadow motion-reduce:transition-none sm:p-4",
+        featured && "ring-brand/60",
+        title.href && "group-hover:ring-foreground/25",
+      )}
+    >
+      {body}
+    </Card>
   );
 
   if (!title.href) {
@@ -146,7 +157,7 @@ export function TitleResultCard({
         data-unreleased={title.status.unreleased ? "true" : undefined}
         aria-label={accessibleName}
       >
-        {body}
+        {card}
       </article>
     );
   }
@@ -161,11 +172,10 @@ export function TitleResultCard({
       data-unreleased={title.status.unreleased ? "true" : undefined}
       className={shellClass}
     >
-      {body}
+      {card}
     </Link>
   );
 }
-
 function mediaTypeLabel(
   mediaType: string | null | undefined,
   isSeries: boolean,
@@ -192,24 +202,24 @@ export function TitleResultCardSkeleton({
   featured?: boolean;
 }) {
   return (
-    <div
-      className={cn("surface p-3 sm:p-4", featured && "border-[var(--brand)]/30")}
+    <Card
+      className={cn("gap-0 py-0 p-3 sm:p-4", featured && "ring-brand/30")}
       aria-hidden
       data-title-card-skeleton
     >
       <div className="flex gap-3 sm:gap-4">
-        <div
+        <Skeleton
           className={cn(
-            "skeleton aspect-[2/3] shrink-0 rounded-md",
+            "aspect-[2/3] shrink-0",
             featured ? "w-20 sm:w-24" : "w-14 sm:w-16",
           )}
         />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="skeleton h-4 w-3/5 rounded" />
-          <div className="skeleton h-3 w-1/4 rounded" />
-          <div className="skeleton h-3 w-4/5 rounded" />
+          <Skeleton className="h-4 w-3/5" />
+          <Skeleton className="h-3 w-1/4" />
+          <Skeleton className="h-3 w-4/5" />
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

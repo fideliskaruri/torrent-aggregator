@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { resolveInstallState, type InstallState } from "./install-state";
 import { installStore } from "./install-store";
 
@@ -33,20 +34,23 @@ export function InstallAppCard() {
   if (state === "unsupported") return null;
 
   return (
-    <section
+    <Card
       data-install-card
       data-install-state={state}
-      className="surface p-4 sm:p-5 space-y-3"
+      className="sm:[--card-spacing:--spacing(5)]"
     >
-      <h2 className="text-[13px] font-medium text-[var(--text)]">Install</h2>
+      <CardHeader>
+        <CardTitle className="text-[13px]" role="heading" aria-level={2}>Install</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
 
       {state === "installed" ? (
-        <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
           TorrentFlow is installed on this device. It still needs your server
-          running — the app window is a shortcut, not a copy.
+          running. The app window is a shortcut, not a copy.
         </p>
       ) : (
-        <p className="text-[13px] leading-relaxed text-[var(--text-secondary)]">
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
           Add TorrentFlow to this device to open it in its own window, without
           browser chrome. It still talks to your server for everything; nothing
           plays offline.
@@ -82,7 +86,7 @@ export function InstallAppCard() {
       {state === "declined" || state === "error" ? (
         <div className="space-y-3">
           <p
-            className="text-[12px] leading-relaxed text-[var(--text-tertiary)]"
+            className="text-[12px] leading-relaxed text-subtle-foreground"
             data-install-note
           >
             {state === "error"
@@ -105,12 +109,13 @@ export function InstallAppCard() {
       ) : null}
 
       {state === "ios" ? (
-        <ol className="list-decimal pl-5 space-y-1 text-[12px] leading-relaxed text-[var(--text-tertiary)]">
+        <ol className="list-decimal pl-5 space-y-1 text-[12px] leading-relaxed text-subtle-foreground">
           <li>Tap the Share button in Safari&apos;s toolbar.</li>
           <li>Choose &ldquo;Add to Home Screen&rdquo;.</li>
           <li>Confirm. TorrentFlow opens full-screen from then on.</li>
         </ol>
       ) : null}
-    </section>
+      </CardContent>
+    </Card>
   );
 }

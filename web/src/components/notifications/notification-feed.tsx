@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
-import { Bell } from "lucide-react";
+import { AlertTriangle, Bell } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PageSkeletonFrame, SkeletonBlock } from "@/components/ui/loading";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { PageSkeletonFrame } from "@/components/ui/loading";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { TfEmptyState } from "@/components/tf/empty-state";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
@@ -75,33 +81,55 @@ export function NotificationFeed() {
   return (
     <section className="mx-auto w-full max-w-3xl space-y-4 py-6" data-notification-feed>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-[var(--text)]">Notifications</h1>
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Notifications</h1>
         <Button variant="outline" disabled={busy || !data?.unreadCount} onClick={() => void read()}
-          aria-label="Mark all notifications read" data-notifications-read-all className="min-h-[44px]">Mark all read</Button>
+          aria-label="Mark all notifications read" data-notifications-read-all className="min-h-11">Mark all read</Button>
       </div>
       <PushToggle />
-      {actionError && <p role="alert" className="text-sm text-[var(--danger)]">{actionError}</p>}
-      {error ? <div role="alert"><p>{error}</p><Button variant="outline" onClick={refetch} aria-label="Retry notifications" data-notifications-retry>Retry</Button></div>
-        : loading && !data ? <NotificationFeedSkeleton />
-        : data && !data.items.length ? <div className="space-y-3 rounded-lg border border-[var(--border)] p-6" data-notifications-empty>
-          <p>You&apos;re all caught up. New requests and download updates will appear here.</p><Link to="/" className="underline">Back to browse</Link>
-        </div> : (
-          <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]">
-            {data?.items.map(item => <li key={item.id} data-notification-id={item.id} data-unread={!item.readAt}
-              className="flex min-w-0 flex-wrap items-start gap-3 p-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className={item.readAt ? "text-[var(--text-secondary)]" : "font-semibold"}>{item.title}</p>
-                {item.body && <p className="break-words text-sm text-[var(--text-secondary)]">{item.body}</p>}
-                <time className="text-xs text-[var(--text-tertiary)]" dateTime={item.createdAt}>{formatRelativeTime(item.createdAt)}</time>
-                {item.link && <Link to={item.link} onClick={() => { if (!item.readAt) void read(item.id); }}
-                  aria-label={`Open ${item.title}`} data-notification-open className="flex min-h-[44px] items-center text-sm underline">View details</Link>}
-              </div>
-              {!item.readAt && <Button variant="ghost" disabled={busy} onClick={() => void read(item.id)}
-                aria-label={`Mark ${item.title} read`} data-notification-read className="min-h-[44px]">Mark read</Button>}
-            </li>)}
-          </ul>
+      {actionError && (
+        <Alert variant="destructive">
+          <AlertTriangle aria-hidden />
+          <AlertDescription className="text-destructive">{actionError}</AlertDescription>
+        </Alert>
+      )}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTriangle aria-hidden />
+          <AlertTitle>Could not load notifications</AlertTitle>
+          <AlertDescription className="text-destructive">{error}</AlertDescription>
+          <AlertAction>
+            <Button variant="outline" size="sm" onClick={refetch} aria-label="Retry notifications" data-notifications-retry>Retry</Button>
+          </AlertAction>
+        </Alert>
+      ) : loading && !data ? <NotificationFeedSkeleton />
+        : data && !data.items.length ? (
+          <div data-notifications-empty>
+            <TfEmptyState icon={Bell} title="You're all caught up"
+              description="New requests and download updates will appear here."
+              actionLabel="Back to browse" actionHref="/" />
+          </div>
+        ) : (
+          <Card className="gap-0 py-0">
+            <ul className="divide-y divide-border">
+              {data?.items.map(item => <li key={item.id} data-notification-id={item.id} data-unread={!item.readAt}
+                className="flex min-w-0 flex-wrap items-start gap-3 p-4">
+                <span aria-hidden className={cn("mt-2 size-2 shrink-0 rounded-full", item.readAt ? "bg-transparent" : "bg-brand")} />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className={item.readAt ? "text-muted-foreground" : "font-semibold text-foreground"}>{item.title}</p>
+                  {item.body && <p className="break-words text-sm text-muted-foreground">{item.body}</p>}
+                  <time className="block text-xs text-subtle-foreground" dateTime={item.createdAt}>{formatRelativeTime(item.createdAt)}</time>
+                  {item.link && <Button asChild variant="link" className="h-auto min-h-11 px-0">
+                    <Link to={item.link} onClick={() => { if (!item.readAt) void read(item.id); }}
+                      aria-label={`Open ${item.title}`} data-notification-open>View details</Link>
+                  </Button>}
+                </div>
+                {!item.readAt && <Button variant="ghost" disabled={busy} onClick={() => void read(item.id)}
+                  aria-label={`Mark ${item.title} read`} data-notification-read className="min-h-11">Mark read</Button>}
+              </li>)}
+            </ul>
+          </Card>
         )}
-      {data && data.items.length === 100 && <p className="text-xs text-[var(--text-tertiary)]">Showing the latest 100 notifications. Mark all read also clears older unread entries.</p>}
+      {data && data.items.length === 100 && <p className="text-xs text-subtle-foreground">Showing the latest 100 notifications. Mark all read also clears older unread entries.</p>}
     </section>
   );
 }
@@ -112,22 +140,23 @@ function NotificationFeedSkeleton() {
       aria-label="Loading notifications"
       className="space-y-2"
     >
-      <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)]">
-        {Array.from({ length: 6 }, (_, i) => (
-          <li key={i} className="flex items-start gap-3 p-4" aria-hidden>
-            <div className="min-w-0 flex-1 space-y-2">
-              <SkeletonBlock className="h-4 w-3/5" />
-              <SkeletonBlock className="h-3 w-4/5" />
-              <SkeletonBlock className="h-3 w-1/3" />
-            </div>
-            <SkeletonBlock className="h-11 w-20 shrink-0 rounded-md" />
-          </li>
-        ))}
-      </ul>
+      <Card className="gap-0 py-0">
+        <ul className="divide-y divide-border">
+          {Array.from({ length: 6 }, (_, i) => (
+            <li key={i} className="flex items-start gap-3 p-4" aria-hidden>
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-3/5" />
+                <Skeleton className="h-3 w-4/5" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+              <Skeleton className="h-11 w-20 shrink-0" />
+            </li>
+          ))}
+        </ul>
+      </Card>
     </PageSkeletonFrame>
   );
 }
-
 function PushToggle() {
   const supported = typeof window !== "undefined" && window.isSecureContext
     && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
@@ -190,15 +219,20 @@ function PushToggle() {
       throw e;
     }
   }
-  return <div className="space-y-2 rounded-lg border border-[var(--border)] p-4">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="text-sm font-medium">Browser notifications</p>
-        <p className="text-xs text-[var(--text-tertiary)]">{supported ? "Optional alerts on this device, even when the app is closed." : "Push needs a supported browser and HTTPS (or localhost). On iOS, install the app first."}</p></div>
-      <Button variant="outline" role="switch" aria-checked={enabled} aria-label="Browser push notifications" data-push-toggle
-        disabled={!supported || checking || busy} onClick={() => void toggle()} className="min-h-[44px]">
-        {busy ? "Saving…" : checking ? "Checking…" : enabled ? "Disable push" : "Enable push"}
-      </Button>
+  const stateLabel = busy ? "Saving…" : checking ? "Checking…" : enabled ? "On" : "Off";
+  return <Card size="sm" className="gap-2 px-4 py-3">
+    <div className="flex min-h-11 items-center justify-between gap-3">
+      <div className="min-w-0">
+        <Label htmlFor="push-toggle" className="text-sm font-medium text-foreground">Browser notifications</Label>
+        <p className="text-xs text-subtle-foreground">{supported ? "Optional alerts on this device, even when the app is closed." : "Push needs a supported browser and HTTPS (or localhost). On iOS, install the app first."}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2.5">
+        <span className="text-xs tabular-nums text-muted-foreground" aria-hidden>{stateLabel}</span>
+        <Switch id="push-toggle" checked={enabled} aria-label="Browser push notifications" data-push-toggle
+          aria-busy={busy || checking || undefined}
+          disabled={!supported || checking || busy} onCheckedChange={() => void toggle()} />
+      </div>
     </div>
-    {error && <p role="alert" className="text-sm text-[var(--danger)]">{error}</p>}
-  </div>;
+    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+  </Card>;
 }

@@ -73,20 +73,20 @@ export function UpdateBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="border-b border-[var(--border)] bg-[var(--bg-elevated)]"
+      className="border-b border-border bg-card"
       data-update-banner
     >
       <div className="container-app flex min-h-[52px] flex-wrap items-center gap-x-3 gap-y-2 py-2">
-        <Download className="h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
-        <p className="min-w-0 flex-1 text-sm text-[var(--text)]">
+        <Download className="h-4 w-4 shrink-0 text-brand-foreground" aria-hidden="true" />
+        <p className="min-w-0 flex-1 text-sm text-foreground">
           {busy
             ? install?.state === "installing"
               ? `Installing TorrentFlow ${version}. It will reopen in a moment.`
               : `Downloading TorrentFlow ${version}${pct !== null ? ` · ${pct}%` : ""}`
             : failed
-              ? <span className="text-[var(--danger)]">{install?.error ?? "The update failed."}</span>
+              ? <span className="text-destructive">{install?.error ?? "The update failed."}</span>
               : `TorrentFlow ${version} is available.`}
-          {error ? <span className="ml-2 text-[var(--danger)]">{error}</span> : null}
+          {error ? <span className="ml-2 text-destructive">{error}</span> : null}
         </p>
         {busy ? (
           <Progress
