@@ -741,8 +741,9 @@ function EpisodeCardImpl({
                 "bg-[color-mix(in_srgb,var(--bg-elevated)_82%,transparent)] text-[var(--text-secondary)] shadow-sm backdrop-blur-sm",
                 "transition-colors hover:text-[var(--text)] hover:border-[var(--border-strong)]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
-                "disabled:cursor-default disabled:opacity-70 lg:h-8 lg:min-h-[44px] lg:min-w-[44px]",
-                !streaming && "bg-[var(--accent)] text-[var(--primary-foreground)]",
+                // Busy/done states are disabled but still report status, so they stay
+                // fully opaque: fading them let a bright still wash the glyph below AA.
+                "disabled:cursor-default lg:h-8 lg:min-h-[44px] lg:min-w-[44px]",
                 // Downloading shows a live percentage, so the pill grows to fit
                 // the digits; every other state is a single glyph in a circle.
                 transfer?.status === "downloading"
