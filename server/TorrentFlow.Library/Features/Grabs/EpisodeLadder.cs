@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Search;
+using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
 
@@ -114,7 +115,7 @@ public static class EpisodeLadder
 
     /// <summary>Port of <c>buildEpisodeRungs</c>, in relaxation order.</summary>
     public static IReadOnlyList<LadderRung> BuildEpisodeRungs(string title, EpisodeCursor cursor, string? mediaType,
-        IReadOnlyList<string>? extraTitles = null, int? minimumResolution = null)
+        IReadOnlyList<string>? extraTitles = null, int? minimumResolution = null, AnimeEpisodeMapping? mapping = null)
     {
         var (season, episode) = (cursor.Season, cursor.Episode);
         var titles = SearchTitleVariants(title);
@@ -163,6 +164,21 @@ public static class EpisodeLadder
         }
 
         Exact(primaryTitle, primaryCat);
+        if (mapping != null && season == 1)
+        {
+            foreach (var name in new[] { primaryTitle, bestAlias }.Where(n => n != null).Cast<string>())
+            {
+                if (mapping.FranchiseSeason is { } mappedSeason)
+                {
+                    var mapped = new EpisodeCursor(mappedSeason, episode + mapping.SeasonEpisodeOffset);
+                    Push("mapped-season", mapped.Query(name), primaryCat,
+                        new() { HasMagnet = true, MinSeeders = 1, Season = mapped.Season, Episode = mapped.Episode });
+                }
+                if (mapping.AbsoluteOffset is { } offset)
+                    Push("mapped-absolute", $"{name} - {offset + episode:00}", animeCat ?? primaryCat,
+                        new() { HasMagnet = true, MinSeeders = 1, Episode = offset + episode });
+            }
+        }
         if (bestAlias != null)
         {
             // Anime-shaped title: the catalog string is often a zero-hit query, so the rescue name comes second.
@@ -195,10 +211,23 @@ public static class EpisodeLadder
     }
 
     /// <summary>Port of <c>matchesTargetEpisode</c>: exact SxxEyy, or season-less N while hunting season one.</summary>
-    public static bool MatchesTargetEpisode(TorrentResult result, EpisodeCursor target)
+    public static bool MatchesTargetEpisode(TorrentResult result, EpisodeCursor target, AnimeEpisodeMapping? mapping = null)
     {
         var ep = result.Episode ?? ReleaseNames.ParseEpisode(result.Title);
         if (ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(result.Title)) return false;
+        if (mapping != null && target.Season == 1)
+        {
+            if (mapping.FranchiseSeason is { } season && ep.Season == season &&
+                ep.Episode == target.Episode + mapping.SeasonEpisodeOffset) return true;
+            if (mapping.AbsoluteOffset is { } offset &&
+                (ep.AbsoluteEpisode == offset + target.Episode || ep.Season == null && ep.Episode == offset + target.Episode)) return true;
+            // A base-franchise S01E05 isn't the sequel's local E05. Only an entry-qualified name may use local numbering.
+            if (mapping.AbsoluteOffset is > 0 || mapping.FranchiseSeason is > 1)
+            {
+                var name = ReleaseSelection.Normalize(result.Title);
+                if (!mapping.EntryTitles.Any(t => name.Contains(ReleaseSelection.Normalize(t), StringComparison.Ordinal))) return false;
+            }
+        }
         if (ep.Episode != target.Episode) return false;
         return ep.Season == target.Season || ep.Season == null && target.Season == 1;
     }
@@ -211,9 +240,10 @@ public static class EpisodeLadder
     }
 
     /// <summary>The TS rung selectors: seeded exact episode in rank order, or (relaxed) any exact episode, healthiest first.</summary>
-    public static TorrentResult? Select(LadderRung rung, IEnumerable<TorrentResult> results, EpisodeCursor target, ISet<string> attempted)
+    public static TorrentResult? Select(LadderRung rung, IEnumerable<TorrentResult> results, EpisodeCursor target, ISet<string> attempted,
+        AnimeEpisodeMapping? mapping = null)
     {
-        var open = results.Where(r => !attempted.Contains(CandidateKey(r)) && !string.IsNullOrEmpty(r.Magnet) && MatchesTargetEpisode(r, target));
+        var open = results.Where(r => !attempted.Contains(CandidateKey(r)) && !string.IsNullOrEmpty(r.Magnet) && MatchesTargetEpisode(r, target, mapping));
         return rung.Relaxed ? open.OrderByDescending(r => r.Seeders).FirstOrDefault() : open.FirstOrDefault(r => r.Seeders > 0);
     }
 

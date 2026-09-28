@@ -152,5 +152,7 @@ public sealed class FakeArtwork : ILibraryArtworkResolver
 public sealed class FakeAnimeLookup : ILibraryAnimeLookup
 {
     public Func<string, IReadOnlyList<MediaMetadata>> Respond { get; set; } = _ => [];
+    public AnimeEpisodeMapping? Mapping { get; set; }
+    public Task<AnimeEpisodeMapping?> GetEpisodeMappingAsync(string providerId, CancellationToken cancellationToken) => Task.FromResult(Mapping);
     public Task<IReadOnlyList<MediaMetadata>> SearchAsync(string title, int limit, CancellationToken cancellationToken) => Task.FromResult(Respond(title));
 }

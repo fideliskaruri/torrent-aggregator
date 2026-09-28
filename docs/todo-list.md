@@ -6,6 +6,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 
 | Item | Owner (model) | Status |
 |---|---|---|
+| Search-to-torrent episode matching | match-fix | Episode mapping implemented; parser, aliases and diagnostics next |
 | One UI for all roles: delete RequesterShell, capability helper, requester read endpoints | req-unify-opus (Opus 5.5) | Running |
 | Owner-only "View as requester" toggle | req-unify-opus (Opus 5.5) | Running |
 | Episode card download button: restore neutral pill, fix contrast (regressed in 156877b) | req-unify-opus (Opus 5.5) | Running |
@@ -21,6 +22,9 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 | One request made two Frieren download groups (38 releases, 58 GB) | req-dup-grab (Astra, server) | Fixed and simulator/MCP verified: 38 distinct episodes, not duplicate grabs; canonical request identity merges both groups. Approval/decline/cancel races are guarded. |
 
 ## Next
+
+- Shared matcher consolidation across acquisition, automation, replacement and playback (deferred from matching fixes).
+- Explicit opt-in below-quality-floor fallback (deferred; selected quality remains a hard minimum).
 
 - QA pass: owner vs requester vs preview, on phone and desktop, using the simulator.
 - "Find another release" on title pages, after the unified UI lands.

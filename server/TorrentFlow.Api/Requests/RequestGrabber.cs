@@ -30,7 +30,7 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
     {
         var workId = await EnsureWorkAsync(request, ct);
         var input = new GrabInput(request.Title, request.MediaType, WorkId: workId,
-            Year: request.Year, WorkKey: request.WorkKey, Lane: TorrentLane.Request);
+            Year: request.Year, WorkKey: request.WorkKey, Lane: TorrentLane.Request, Provider: request.Provider, ProviderId: request.ProviderId);
         if (request.Scope == MediaRequestScope.Movie)
         {
             var film = await grabs.Grab(input, ct);

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -14,7 +15,8 @@ namespace TorrentFlow.Library.Features.Grabs;
 public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cursor = null,
     string? WatchListItemId = null, string? WorkId = null, int? PreferredResolution = null,
     string Retention = "keep", bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
-    bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null)
+    bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
+    string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -34,7 +36,7 @@ public sealed class RungDiagnostic
 }
 
 public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
-    IOptions<AutomationOptions> automationOptions)
+    IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime)
 {
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
     {
@@ -42,6 +44,17 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         await using var db = await factory.CreateDbContextAsync(ct);
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
         if (settings == null) return new(false, "No torrent client configured") { Query = query };
+        if (input.Cursor is { Season: 1 } && input.EpisodeMapping == null)
+        {
+            var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
+            var provider = input.Provider ?? work?.Provider;
+            var providerId = input.ProviderId ?? work?.ProviderId;
+            if (provider == "anilist" && providerId != null)
+            {
+                try { input = input with { EpisodeMapping = await anime.GetEpisodeMappingAsync(providerId, ct) }; }
+                catch (Exception) when (!ct.IsCancellationRequested) { }
+            }
+        }
         int? floor = input.Retention == "stream" ? null : input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
         if (input.Background) return await Hunt(db, settings, input, query, floor, ct);
         if (input.Cursor is { } cursor) return await Episode(db, settings, input, cursor, query, floor, beforeSend, ct);
@@ -52,7 +65,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     private async Task<GrabResult> Episode(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, EpisodeCursor cursor,
         string query, int? floor, Func<Task>? beforeSend, CancellationToken ct)
     {
-        var rungs = EpisodeLadder.BuildEpisodeRungs(input.Title, cursor, input.MediaType, input.Aliases, floor);
+        var rungs = EpisodeLadder.BuildEpisodeRungs(input.Title, cursor, input.MediaType, input.Aliases, floor, input.EpisodeMapping);
         var accepted = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToList();
         var memo = new Dictionary<string, SearchResponse>(StringComparer.Ordinal);
         var attempted = new HashSet<string>(StringComparer.Ordinal);
@@ -73,7 +86,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             var diagnostic = new RungDiagnostic { Kind = rung.Kind, Query = rung.Query, Category = rung.Category, MinSeeders = rung.Filters.MinSeeders,
                 Fetched = raw.Results.Count, WorkEligible = work.Count, QualityEligible = quality.Count };
             diagnostics.Add(diagnostic);
-            while (EpisodeLadder.Select(rung, quality, cursor, attempted) is { } candidate)
+            while (EpisodeLadder.Select(rung, quality, cursor, attempted, input.EpisodeMapping) is { } candidate)
             {
                 attempted.Add(EpisodeLadder.CandidateKey(candidate));
                 diagnostic.Attempted++;

@@ -8,4 +8,6 @@ internal sealed class LibraryAnimeLookup(AniListClient anilist) : ILibraryAnimeL
 {
     public async Task<IReadOnlyList<MediaMetadata>> SearchAsync(string title, int limit, CancellationToken cancellationToken) =>
         await anilist.SearchAsync(title, limit, cancellationToken).ConfigureAwait(false);
+    public Task<AnimeEpisodeMapping?> GetEpisodeMappingAsync(string providerId, CancellationToken cancellationToken) =>
+        anilist.GetEpisodeMappingAsync(providerId, cancellationToken);
 }
