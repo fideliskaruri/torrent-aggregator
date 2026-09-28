@@ -341,26 +341,65 @@ export function createRequestBody(title: RequesterTitle, choice: RequestChoice) 
   };
 }
 
-/** A short, friendly message for a failed request call. */
-export function requestErrorMessage(code: string | null | undefined, fallback?: string | null): string {
-  switch (code) {
-    case "in_library":
-      return "That one is already in the library.";
-    case "duplicate":
-      return "You've already asked for this.";
-    case "too_many_open":
-      return "You have too many open requests. Wait for some to be handled or cancel one.";
-    case "rate_limited":
-      return "Slow down a little and try again in a minute.";
-    case "not_pending":
-      return "Only requests still waiting for approval can be cancelled.";
-    case "not_found":
-      return "That request no longer exists.";
-    default:
-      return fallback && fallback.length <= 200 ? fallback : "Something went wrong. Try again.";
-  }
+/** Why a request call failed, as far as the UI can tell. */
+export interface RequestFailure {
+  /** The server's machine-readable `code`, when it sent one. */
+  code?: string | null;
+  /** HTTP status; omitted when the call never reached the server. */
+  status?: number;
 }
 
+/**
+ * Plain-language copy for a failed request call: what happened and what to do
+ * next. The server's own `error` text is never shown — it is written for
+ * developers (field names, limits) — so unknown codes fall back by status.
+ */
+export function requestErrorMessage(failure: RequestFailure | string | null | undefined): string {
+  const { code, status } = typeof failure === "string" ? { code: failure, status: undefined } : failure ?? {};
+  switch (code) {
+    case "in_library":
+      return "That's already in the library. Open Library to find it.";
+    case "duplicate":
+      return "You've already asked for this. Follow it under Requests.";
+    case "too_many_open":
+      return "You have too many open requests. Cancel one under Requests, or wait for the owner to answer some.";
+    case "rate_limited":
+      return "You're sending requests too quickly. Wait a minute, then try again.";
+    case "not_pending":
+      return "The owner has already answered this request, so it can't be cancelled.";
+    case "not_found":
+      return "That request no longer exists. Refresh Requests to see the current list.";
+    case "requester_only":
+    case "requester_forbidden":
+      return "Requests can only be sent from a friend's account. Sign in with the email the owner shared TorrentFlow with.";
+    case "remote_sign_in_required":
+      return "Your sign-in has expired. Reload the page to sign in again.";
+    case "remote_access_off":
+    case "remote_access_not_enabled":
+      return "The owner has turned off remote access. Ask them to turn it back on.";
+  }
+  if (status === undefined) return "Couldn't reach TorrentFlow. Check your connection and try again.";
+  if (status === 400) return "This title couldn't be requested. Open it again from Search and send the request once more.";
+  if (status === 401) return "Your sign-in has expired. Reload the page to sign in again.";
+  if (status === 403) return "Your account can't send requests. Ask the owner to check that your email is allowed.";
+  if (status >= 500) return "TorrentFlow couldn't save the request. Try again in a moment.";
+  return "The request didn't go through. Try again, and ask the owner if it keeps happening.";
+}
+/** Owner inbox copy for a failed approve/decline or auto-approve save. */
+export function ownerRequestErrorMessage(
+  action: "approve" | "decline" | "auto-approve",
+  failure: RequestFailure,
+): string {
+  if (failure.code === "not_pending") return "This request was already answered. The list now shows where it stands.";
+  if (failure.code === "not_found") return "That request no longer exists. The list now shows the current requests.";
+  if (failure.status === undefined) return "Couldn't reach TorrentFlow. Check your connection and try again.";
+  if (action === "auto-approve" && failure.status === 400) {
+    return "Auto-approve wasn't saved. Check that each entry is a full email address, then try again.";
+  }
+  const verb = action === "auto-approve" ? "save auto-approve" : action;
+  if (failure.status >= 500) return `Couldn't ${verb} right now. Try again in a moment.`;
+  return `Couldn't ${verb}. Reload the page and try again.`;
+}
 /** Movies can be asked for once; a series can take more requests for other seasons. */
 export function canRequest(title: RequesterTitle): boolean {
   if (title.inLibrary || title.providerId == null) return false;
@@ -420,10 +459,10 @@ export async function cancelRequest(id: string): Promise<string | null> {
   try {
     const res = await sessionAwareFetch(`/api/requester/requests/${encodeURIComponent(id)}/cancel`, { method: "POST" });
     if (res.ok) return null;
-    const body = (await res.json().catch(() => null)) as { code?: string; error?: string } | null;
-    return requestErrorMessage(body?.code, body?.error);
-  } catch (err) {
-    return requestErrorMessage(null, (err as Error)?.message);
+    const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+    return requestErrorMessage({ code: typeof body?.code === "string" ? body.code : null, status: res.status });
+  } catch {
+    return requestErrorMessage({});
   }
 }
 
@@ -436,9 +475,9 @@ export async function sendRequest(title: RequesterTitle, choice: RequestChoice):
       body: JSON.stringify(createRequestBody(title, choice)),
     });
     if (res.ok) return null;
-    const body = (await res.json().catch(() => null)) as { code?: string; error?: string } | null;
-    return requestErrorMessage(body?.code, body?.error);
-  } catch (err) {
-    return requestErrorMessage(null, (err as Error)?.message);
+    const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+    return requestErrorMessage({ code: typeof body?.code === "string" ? body.code : null, status: res.status });
+  } catch {
+    return requestErrorMessage({});
   }
 }

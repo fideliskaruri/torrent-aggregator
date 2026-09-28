@@ -29,6 +29,7 @@ import {
   myRequestRows,
   parseOwnerRequests,
   parseRequests,
+  ownerRequestErrorMessage,
   scopeLabel,
   statusLabel,
   statusTone,
@@ -82,12 +83,12 @@ export default function RequestsPage() {
           ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: declineReason?.trim() || null }) }
           : {}),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      if (!res.ok) toast.error(body?.error ?? `Couldn't ${action} ${request.title}.`);
+      const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
+      if (!res.ok) toast.error(ownerRequestErrorMessage(action, { code: typeof body?.code === "string" ? body.code : null, status: res.status }));
       else if (action === "approve") toast.success(`Approved ${request.title}`, { description: "It's downloading on the request lane." });
       else toast.success(`Declined ${request.title}`);
-    } catch (err) {
-      toast.error((err as Error)?.message || `Couldn't ${action} ${request.title}.`);
+    } catch {
+      toast.error(ownerRequestErrorMessage(action, {}));
     } finally {
       setBusyId(null);
       list.refetch();
@@ -116,15 +117,15 @@ export default function RequestsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rules: next }),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
       if (!res.ok) {
-        toast.error(body?.error ?? "Couldn't save auto-approve rules.");
+        toast.error(ownerRequestErrorMessage("auto-approve", { code: typeof body?.code === "string" ? body.code : null, status: res.status }));
         return;
       }
       toast.success("Auto-approve updated");
       auto.refetch();
-    } catch (err) {
-      toast.error((err as Error)?.message || "Couldn't save auto-approve rules.");
+    } catch {
+      toast.error(ownerRequestErrorMessage("auto-approve", {}));
     } finally {
       setAutoBusy(false);
     }

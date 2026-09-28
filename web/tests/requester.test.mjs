@@ -230,7 +230,6 @@ test("pure request helpers", () => {
   assert.equal(requests.createRequestBody(arrival, { scope: "seasons", seasons: [1], note: "hi" }).scope, "movie");
   assert.deepEqual(requests.createRequestBody(arrival, { scope: "seasons", seasons: [1], note: "hi" }).seasons, []);
   assert.deepEqual(requests.parseSeasons({ seasons: [3, 1, 0, 1, 2.5, 501, "4"] }), [1, 3]);
-  assert.equal(requests.requestErrorMessage("duplicate"), "You've already asked for this.");
   assert.deepEqual(requests.parseLibrary({ titles: [{ key: "k" }, { key: "k2", title: "T" }] }).map((t) => t.key), ["k2"]);
 });
 test("pending badge: nothing at zero or unknown, capped at 99+", () => {
@@ -280,4 +279,30 @@ test("auto-approve: parse rules, drop none, merge known emails, labels", () => {
   assert.equal(requests.autoApproveModeLabel("none"), "Off");
   assert.equal(requests.autoApproveModeLabel("moviesOnly"), "Movies only");
   assert.equal(requests.autoApproveModeLabel("everything"), "Everything");
+});
+
+test("request errors: plain copy per code and status, never the server's raw text", () => {
+  const m = requests.requestErrorMessage;
+  assert.equal(m("duplicate"), "You've already asked for this. Follow it under Requests.");
+  assert.match(m({ code: "in_library", status: 409 }), /already in the library\. Open Library/);
+  assert.match(m({ code: "too_many_open", status: 409 }), /Cancel one under Requests/);
+  assert.match(m({ code: "rate_limited", status: 429 }), /Wait a minute/);
+  assert.match(m({ code: "not_pending", status: 409 }), /already answered/);
+  assert.match(m({ code: "requester_forbidden", status: 403 }), /Sign in with the email/);
+  assert.match(m({ code: null, status: 400 }), /couldn't be requested\. Open it again from Search/);
+  assert.match(m({ code: "something_new", status: 403 }), /Ask the owner/);
+  assert.match(m({ status: 503 }), /Try again in a moment/);
+  assert.match(m({ status: 418 }), /didn't go through\. Try again/);
+  assert.match(m({}), /Couldn't reach TorrentFlow\. Check your connection/);
+  assert.match(m(null), /Couldn't reach TorrentFlow/);
+  // Developer-facing validation text must never leak into the UI.
+  for (const f of [{ status: 400 }, { status: 409 }, { status: 500 }, {}]) {
+    assert.doesNotMatch(m(f), /providerId|mediaType|must be|Unknown field/);
+  }
+  const o = requests.ownerRequestErrorMessage;
+  assert.match(o("approve", { code: "not_pending", status: 409 }), /already answered/);
+  assert.match(o("decline", { code: "not_found", status: 404 }), /no longer exists/);
+  assert.match(o("auto-approve", { status: 400 }), /full email address/);
+  assert.match(o("approve", { status: 500 }), /^Couldn't approve right now/);
+  assert.match(o("decline", {}), /Check your connection/);
 });
