@@ -38,7 +38,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 - Season-download failures aggregate the actual per-episode causes and next steps. No em dash or internal wording such as "acquisition path". Recovery toasts keep a Retry action visible; it retries only missing episodes and preserves the selected quality.
 - Styling is Tailwind CSS with shadcn/ui components, always. No plain CSS beyond the Tailwind entry file (new projects; existing apps migrate when touched with owner approval).
 - All code must be type-checked: TypeScript (strict) for JS-land code, no plain `.js`/`.mjs` source files.
-- No UI change ships without a real visual check at 390 and 1280. If the browser tool is down, stop UI work and tell the owner; don't push "verified by unit tests" UI.
+- No UI change ships without a real visual check at 390 and 1280. If the browser tool is down, stop UI work and tell the owner; don't push UI verified only by deleted unit tests; use Playwright MCP.
 - One pipeline per action. A season, series or request grab is just the title-page episode download run for each episode (with bounded concurrency). Never a separate search or ranking path.
 - The owner's screenshots come from their main machine over remote desktop, not the agent machine. Don't assume a local instance or build matches what they see; reproduce on a fresh instance built from `main`.
 - Investigation-only agents stop the moment their report is in. Don't send them follow-up work meant for other agents; stop them explicitly if they keep going.

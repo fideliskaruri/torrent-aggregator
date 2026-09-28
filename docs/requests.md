@@ -179,5 +179,5 @@ tricks, requester JWT flows, search flags and leak checks, duplicate/overlap, in
 rate limit, cancel, validation), `RequestDecisionTests.cs` (approve/decline, request-lane grab seam, fulfilment
 for films and multi-transfer series, safe failure reason, requester library leak checks),
 `RequestAutoApproveTests.cs` (rule matching, owner-only CRUD, movies-only vs everything on create, none leaves
-pending) and `web/tests/requester.test.mjs` (role-aware shell, requester views and library, inbox ordering,
+pending) and `(removed; see docs/test-audit.md) (role-aware shell, requester views and library, inbox ordering,
 badge count, auto-approve parse/rows/labels).

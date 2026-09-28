@@ -565,7 +565,7 @@ dotnet test server\tests\TorrentFlow.Search.Tests -p:SkipWebBuild=true
 # In web:
 npm install --ignore-scripts --no-package-lock --registry=https://registry.npmjs.org
 npm run build
-node --test tests/*.test.mjs
+see docs/test-audit.md (web unit tests removed)
 ```
 
 The disposable harness used `LibraryHost`, `FakeSearch`, and `FakeEngine` from

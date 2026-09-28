@@ -11,11 +11,9 @@
   </Folder>
   <Folder Name="/server/tests/">
     <Project Path="server/tests/TorrentFlow.Api.Tests/TorrentFlow.Api.Tests.csproj" />
-    <Project Path="server/tests/TorrentFlow.Core.Tests/TorrentFlow.Core.Tests.csproj" />
     <Project Path="server/tests/TorrentFlow.Engine.Tests/TorrentFlow.Engine.Tests.csproj" />
     <Project Path="server/tests/TorrentFlow.Library.Tests/TorrentFlow.Library.Tests.csproj" />
     <Project Path="server/tests/TorrentFlow.Media.Tests/TorrentFlow.Media.Tests.csproj" />
-    <Project Path="server/tests/TorrentFlow.Metadata.Tests/TorrentFlow.Metadata.Tests.csproj" />
     <Project Path="server/tests/TorrentFlow.Search.Tests/TorrentFlow.Search.Tests.csproj" />
   </Folder>
 </Solution>

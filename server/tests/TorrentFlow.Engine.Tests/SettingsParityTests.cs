@@ -169,7 +169,8 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
     [Fact]
     public async Task DisabledExternalClientsStayBuiltInAndRejectExternalRequests()
     {
-        var handler = new ExternalHandler(_ => throw new InvalidOperationException("external client should not be contacted"));
+        // Guard: external clients must never be contacted when disabled (real host + SQLite).
+        var handler = new ThrowingHandler();
         using var disabledFactory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseSetting("TorrentFlow:ExternalClients:Enabled", "false");
@@ -432,6 +433,16 @@ public sealed class SettingsParityTests(ApiFactory factory) : IClassFixture<ApiF
             var result = await Read(response);
             Assert.Equal(path, result.GetProperty("path").GetString());
             Assert.False(result.GetProperty("revealed").GetBoolean());
+        }
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        public List<HttpRequestMessage> Requests { get; } = [];
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            throw new InvalidOperationException("external client should not be contacted");
         }
     }
 }

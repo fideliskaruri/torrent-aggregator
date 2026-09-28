@@ -115,7 +115,7 @@ Tailwind defaults: `sm 640` · `md 768` · `lg 1024` · `xl 1280`. **Design mobi
 - [ ] Stable `data-*` hooks preserved (grep the page's `*-source.test.ts` and keep every asserted attr).
 
 ### G. Verification (this repo)
-- [ ] Verified live via **Playwright MCP** (resize + screenshot + drive the real control), not just unit tests.
+- [ ] Verified live via **Playwright MCP** (resize + screenshot + drive the real control), not just isolated unit tests (removed; see docs/test-audit.md).
 - [ ] `& node_modules\.bin\tsc.cmd --noEmit` clean.
 - [ ] `node scripts/run-unit-tests.mjs` full suite green (report the count).
 - [ ] Did NOT restart the dev server; did NOT disturb the one real download.

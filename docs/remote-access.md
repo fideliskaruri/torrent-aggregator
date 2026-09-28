@@ -274,5 +274,5 @@ and an in-memory RSA key replaces the Cloudflare key source. The production buil
 One test starts real Kestrel on two ephemeral loopback ports (owner and tunnel) and checks the split over
 real sockets. `RequesterTests.cs` covers the requester role, the allow-list table and the request rules.
 `DevJwksPathTests.cs` asserts the Development-only JWKS file override is ignored outside Development.
-`web/tests/session-expiry.test.mjs` covers the SPA's expiry detection and `web/tests/requester.test.mjs`
+`(removed; see docs/test-audit.md) covers the SPA's expiry detection and `(removed; see docs/test-audit.md)
 the role-aware shell.

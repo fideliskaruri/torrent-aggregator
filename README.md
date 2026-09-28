@@ -149,7 +149,6 @@ pnpm --dir web install --frozen-lockfile
 pnpm --dir web run typecheck
 pnpm --dir web run build
 # from web/:
-node --test tests/*.test.mjs
 ```
 
 Do not use `npm ci` or Yarn for `web/`.
@@ -161,7 +160,6 @@ CI (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs:
 ```powershell
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web run typecheck
-# from web/: node --test tests/*.test.mjs
 pnpm --dir web exec vite build
 dotnet build TorrentFlow.slnx -c Release -p:SkipWebBuild=true
 dotnet test TorrentFlow.slnx -c Release --no-build -p:SkipWebBuild=true
