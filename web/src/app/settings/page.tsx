@@ -657,7 +657,7 @@ export default function SettingsPage() {
       <div className="container-app max-w-2xl py-6 sm:py-8">
         <TfErrorState
           title="Could not load your settings"
-          message={`${loadError} — the form stays hidden so saved values cannot be overwritten.`}
+          message={`${loadError.replace(/\.?\s*$/, ".")} The form stays hidden so saved values cannot be overwritten.`}
           onRetry={() => {
             setLoadError(null);
             setLoading(true);
@@ -803,31 +803,35 @@ export default function SettingsPage() {
           </section>
 
           <section className="space-y-4 p-4 sm:p-5">
-            <div className="space-y-1.5">
-              <label
-                htmlFor="preferred-quality"
-                className="text-xs font-medium text-[var(--text-secondary)]"
-              >
+            <fieldset className="min-w-0 space-y-1.5" data-preferred-quality>
+              <legend className="mb-1.5 text-xs font-medium text-[var(--text-secondary)]">
                 Minimum download quality
-              </label>
-              <select
-                id="preferred-quality"
-                value={form.preferredResolution}
-                onChange={(event) =>
-                  updateForm((current) => ({
-                    ...current,
-                    preferredResolution: Number(event.target.value),
-                  }))
-                }
-                className="h-11 w-full scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 text-base text-[var(--text)] focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] sm:text-sm"
-              >
+              </legend>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {QUALITY_CHOICES.map((choice) => (
-                  <option key={choice.value} value={choice.value}>
-                    {choice.label} — {choice.hint}
-                  </option>
+                  <label
+                    key={choice.value}
+                    className="flex min-h-[44px] cursor-pointer flex-col justify-center rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 transition-colors hover:border-[var(--border-strong)] has-[:checked]:border-[var(--accent)] has-[:checked]:bg-[var(--accent-dim)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent)]"
+                  >
+                    <input
+                      type="radio"
+                      name="preferred-quality"
+                      value={choice.value}
+                      checked={form.preferredResolution === choice.value}
+                      onChange={() =>
+                        updateForm((current) => ({
+                          ...current,
+                          preferredResolution: choice.value,
+                        }))
+                      }
+                      className="sr-only"
+                    />
+                    <span className="text-[13px] font-medium text-[var(--text)]">{choice.label}</span>
+                    <span className="text-[12px] text-[var(--text-tertiary)]">{choice.hint}</span>
+                  </label>
                 ))}
-              </select>
-            </div>
+              </div>
+            </fieldset>
 
             {streaming ? (
             <div className="space-y-1.5">

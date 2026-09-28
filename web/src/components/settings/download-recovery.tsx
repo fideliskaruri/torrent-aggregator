@@ -165,10 +165,10 @@ export function DownloadRecovery({ mode = "all", onImported, revision }: {
         <dt className="text-[var(--text-tertiary)]">App data folder</dt>
         <dd className="w-full break-all font-mono leading-relaxed">{info.dataDirectory}</dd>
       </div>
-      <div className="min-w-0 space-y-0.5">
+      {mode === "paths" || !info.downloadDirectory ? <div className="min-w-0 space-y-0.5">
         <dt className="text-[var(--text-tertiary)]">Download folder</dt>
-        <dd className="w-full break-all font-mono leading-relaxed">{info.downloadDirectory || "Not configured — choose and save a folder below."}</dd>
-      </div>
+        <dd className="w-full break-all font-mono leading-relaxed">{info.downloadDirectory || "Not configured. Choose and save a folder below."}</dd>
+      </div> : null}
     </dl>}
     {mode !== "paths" && <div className="space-y-2">
       <p className="text-[var(--text-secondary)]">

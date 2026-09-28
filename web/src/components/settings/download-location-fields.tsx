@@ -60,7 +60,9 @@ export function DownloadLocationFields({
         </div>
         {folder.trim() ? (
           <p
-            className="break-all font-mono text-xs leading-relaxed text-[var(--text-tertiary)]"
+            // Phones clip the input, so the full path is repeated under it;
+            // wider screens show the whole path in the field itself.
+            className="break-all font-mono text-xs leading-relaxed text-[var(--text-tertiary)] sm:hidden"
             data-download-folder-path
           >
             {folder}
