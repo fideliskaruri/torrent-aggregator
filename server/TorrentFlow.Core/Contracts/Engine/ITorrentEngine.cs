@@ -191,6 +191,8 @@ public sealed record EngineAddRequest
     public bool OverrideStorageCap { get; init; }
     /// <summary>Queue lane (<see cref="TorrentLane"/>); null is the owner's lane. Automation must pass Automation.</summary>
     public string? Lane { get; init; }
+    /// <summary>Resolve magnet metadata before admitting an automatically selected release, including queued downloads.</summary>
+    public bool RequireMetadata { get; init; }
 }
 
 public sealed record EngineReleaseSwap(string WorkKey, string Scope, string Hash, string Name, string? Magnet,

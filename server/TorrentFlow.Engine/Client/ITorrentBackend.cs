@@ -63,6 +63,8 @@ internal interface ITorrentBackend
     Task<Stream> OpenStreamAsync(string hash, int fileIndex, CancellationToken ct);
     /// <summary>Raw .torrent metadata once known, so a later rehydrate never needs the network.</summary>
     byte[]? GetMetadata(string hash);
+    /// <summary>Fetches only torrent metadata from peers; never admits or downloads payload files.</summary>
+    Task<byte[]> DownloadMetadataAsync(string magnet, CancellationToken ct);
 
     /// <summary>Verified, file-relative byte ranges (end exclusive) for one live file; empty when unknown.</summary>
     IReadOnlyList<(long Start, long End)> DownloadedRanges(string hash, int fileIndex) => [];

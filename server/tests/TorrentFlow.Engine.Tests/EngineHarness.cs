@@ -75,6 +75,8 @@ internal sealed class FakeBackend : ITorrentBackend
     }
     public Task<Stream> OpenStreamAsync(string hash, int fileIndex, CancellationToken ct) => Task.FromResult<Stream>(new MemoryStream([1, 2, 3]));
     public byte[]? GetMetadata(string hash) => null;
+    public Func<string, CancellationToken, Task<byte[]>> Metadata { get; set; } = (_, _) => throw new InvalidOperationException("No test metadata");
+    public Task<byte[]> DownloadMetadataAsync(string magnet, CancellationToken ct) => Metadata(magnet, ct);
 
     public readonly List<(long? Down, long? Up)> RateLog = [];
     public bool FailRates;

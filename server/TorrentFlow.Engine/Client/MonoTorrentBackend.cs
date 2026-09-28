@@ -35,6 +35,9 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
 
     public ClientEngine Engine { get; }
 
+    public async Task<byte[]> DownloadMetadataAsync(string magnet, CancellationToken ct) =>
+        (await Engine.DownloadMetadataAsync(MagnetLink.Parse(magnet), ct)).ToArray();
+
     internal static EngineSettings BuildSettings(EngineOptions o)
     {
         // Port 0 would be announced verbatim: trackers drop "port=0" peers and DHT cannot bind it, so resolve a real port.

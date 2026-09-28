@@ -41,6 +41,7 @@ internal sealed partial class TorrentEngineService(
     public const string NotFound = "Torrent not found in engine.";
 
     private readonly SemaphoreSlim _queueGate = new(1, 1);
+    private readonly SemaphoreSlim _metadataGate = new(4, 4);
     private readonly TransferHealthTracker _health = new();
     // Lock order: a hash lock is always taken before _queueGate, and never while holding another hash lock, except by
     // RemoveManyAsync, which holds _removeGate and takes its hashes in ordinal order.
@@ -126,6 +127,10 @@ internal sealed partial class TorrentEngineService(
 
         string? hash = bytes is not null ? TorrentSource.HashFromTorrent(bytes) : null;
         string? magnet = request.Magnet?.Trim();
+        var pinnedHash = TorrentSource.NormalizeInfoHash(request.InfoHash) ??
+            (string.IsNullOrEmpty(magnet) ? null : TorrentSource.HashFromMagnet(magnet));
+        if (request.RequireMetadata && bytes != null && pinnedHash != null && hash != pinnedHash)
+            return new(false, "The torrent's file list did not match this release.", Hash: pinnedHash);
         if (hash is null && !string.IsNullOrEmpty(magnet)) hash = TorrentSource.HashFromMagnet(magnet);
         if (hash is null && TorrentSource.NormalizeInfoHash(request.InfoHash) is { } ih)
         {
@@ -146,6 +151,31 @@ internal sealed partial class TorrentEngineService(
         var failed = false;
         using (await LockHashAsync(hash, ct))
         {
+            if (request.RequireMetadata && bytes == null && backend.Get(hash)?.HasMetadata != true)
+            {
+                bytes = LoadTorrentFile(hash);
+                if (bytes == null)
+                {
+                    await _metadataGate.WaitAsync(ct);
+                    try
+                    {
+                        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        budget.CancelAfter(TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds));
+                        bytes = await backend.DownloadMetadataAsync(magnet ?? TorrentSource.BuildMagnet(hash, request.Name, []), budget.Token);
+                        if (TorrentSource.HashFromTorrent(bytes) != hash)
+                            return new(false, "The torrent's file list did not match this release.", Hash: hash);
+                        SaveTorrentFile(hash, bytes);
+                    }
+                    catch (Exception error) when (!ct.IsCancellationRequested)
+                    {
+                        logger.LogInformation(error, "Candidate {Hash} supplied no usable metadata; trying another release", hash);
+                        return new(false, "Couldn't get this release's file list from peers. Trying another release.", Hash: hash);
+                    }
+                    finally { _metadataGate.Release(); }
+                }
+            }
+            if (request.RequireMetadata && bytes != null && TorrentSource.HashFromTorrent(bytes) != hash)
+                return new(false, "The torrent's file list did not match this release.", Hash: hash);
             await _queueGate.WaitAsync(ct);
             try { admission = await AdmitAsync(request, hash, magnet, purpose, origin, config, target, savePath, ct); }
             finally { _queueGate.Release(); }
