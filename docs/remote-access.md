@@ -112,10 +112,19 @@ Access and is not in `OwnerEmails` becomes a requester while `AllowRequesters` i
 
 - On first sight a `User` row is created for the lowercase email; request rows point at it. Owner data
   keeps using the local user and is never shared with requesters.
-- A requester reaches **only** this allow-list: `/api/requester/*`, `/api/me`, `/api/health`,
-  `/api/features`, static assets and the SPA fallback (`index.html`). Everything else, on any method,
-  gets 403 `{ code: "requester_forbidden" }`: library, browse, indexer search, downloads, streaming,
-  settings, the owner's `/api/requests` list, deletion.
+- A requester reaches **only** this allow-list (one table, `RequesterAllowList.Rules` in
+  `server/TorrentFlow.Api/RemoteAccess/RequesterAllowList.cs`, method-specific): `GET /api/me`,
+  `/api/health`, `/api/features`; `/api/requester/**`; `/api/notifications/**`; and the read-only
+  catalog that the shared pages use: `GET /api/search/titles`, `GET /api/suggest`,
+  `GET /api/title/{workKey}`, `GET /api/title/{workKey}/extras`, `GET /api/browse`,
+  `GET /api/recommendations`, `POST /api/artwork`. Plus static assets and the SPA fallback. Everything
+  else, and any other method on those paths, gets 403 `{ code: "requester_forbidden" }`: title
+  progress, library, watchlist, indexer search, downloads, streaming, settings, the owner's
+  `/api/requests` list, deletion.
+- Catalog answers to a requester go through `RequesterCatalogProjectionMiddleware`: magnets, info
+  hashes, releases/torrents, file paths, stream URLs and progress/transfer state are removed, and
+  `inLibrary`, `requestStatus` and `requestId` (the caller's own request only) are added. Owner answers
+  are unchanged.
 - Enforcement is two layers. `RemoteAccessMiddleware` checks the path before static files and routing
   (so a requester cannot reach an `/api` path that routes nowhere, and odd spellings such as `/API`,
   `//api`, `/api.` or `/%61pi` are treated as `/api`). After routing,
@@ -123,10 +132,12 @@ Access and is not in `OwnerEmails` becomes a requester while `AllowRequesters` i
   metadata. **New endpoints are therefore owner-only by default**; a test builds the full list from
   `EndpointDataSource` and asserts that every endpoint except the allow-list answers 403 to a requester.
 - Requester endpoints refuse the owner (403 `requester_only`); they only ever touch the caller's own rows.
-- The SPA reads `role` from `/api/me` and renders a trimmed shell for requesters (title search with
-  Request buttons, My requests). Owner navigation and pages are never mounted for them. On a non-loopback
-  host the SPA waits for `/api/me` before choosing a shell, and offers a retry if it fails. This is presentation only; the server
-  enforces the boundary.
+- The SPA reads `role` from `/api/me` and renders the **same app** for everyone; requesters just see fewer
+  actions and pages (see the capability table in [requests.md](requests.md#what-a-requester-sees)). The
+  SPA waits for `/api/me` before mounting any page, so no page fires a call the role cannot make; a
+  loopback page still renders as the owner if `/api/me` fails, and a remote page offers a retry. The
+  owner-only **View as requester** preview is client-side rendering only. All of this is presentation;
+  the server enforces the boundary.
 - Turning `AllowRequesters` off applies immediately and restores the 403 "not enabled yet" answer.
   **Upgrading turns requesters on** (a settings file without the key uses the default `true`). If your
   Access policy admits more people than you want asking for titles (for example a whole email domain),

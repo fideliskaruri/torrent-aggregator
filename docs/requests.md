@@ -6,20 +6,47 @@ approves or declines in the **Requests** inbox; an approval downloads the title 
 
 ## What a requester sees
 
-The SPA reads `role` from `GET /api/me`. A requester gets a trimmed shell with three views:
+Everyone uses the **same app**: one shell, one set of pages and components. A role only decides which
+actions and pages you see. The SPA reads `role` from `GET /api/me` and turns it into capabilities with
+`useCapabilities()` (`web/src/lib/capabilities.ts`); screens ask for a capability, never for a role.
 
-- **Search** (`/`): title search (movies, series, anime) with a **Request** button per result. Series open
-  a picker: the whole series, or specific seasons from the catalog's season list, plus an optional note.
-  Results already in the library show "In the library"; titles the requester already asked for show the
-  request status (a series can still take a request for other seasons).
-- **My requests** (`/requests`): every request with its status, scope, the owner's reason when there is
-  one, and **Cancel** while it is still pending.
-- **Library** (`/library`; the owner's `/watchlist` link lands here too): posters, titles and years of what
-  has finished downloading. Read-only: no playback, no folders, no file paths. Any other path shows Search.
+| Capability | Owner | Requester |
+| --- | --- | --- |
+| `canDownload` (Download, Download season, quality) | yes | no |
+| `canManage` (Settings, Rules, automation, delete, Add to library) | yes | no |
+| `canStream` (Play, stream URLs, watched progress) | yes | no |
+| `canSeePaths` (file paths, open folder, raw release names) | yes | no |
+| `canSeeTransfers` (speed, peers, per-episode progress) | yes | no |
+| `canReviewRequests` (approve, decline, auto-approve) | yes | no |
+| `canSeeUpcoming` | yes | no |
+| `canRequest` (Request button) | no | yes |
 
-No owner navigation, page, search palette, download dialog or player is mounted for a requester, and the
-server refuses every owner API for this role anyway.
+- **Navigation** (`web/src/lib/navigation.ts`): each entry names the capability it needs. Requesters see
+  Browse, Library, Notifications (Alerts on mobile), Requests and the search box. Downloads, Upcoming,
+  Settings and the share target are hidden, and opening one of those routes directly shows
+  "Not available" with a way back to Browse (one guard in the router).
+- **Browse, Search and title pages** are the owner's pages. Where the owner has Download / Download season
+  / Play, a requester has **Request** in the same place. Series open the request dialog (whole series or
+  specific seasons, plus an optional note). After sending, the button reads **Requested**; later states
+  are "Approved", "Available" (already in the library) or "Declined" with a way to ask again.
+- **Library** (`/watchlist`) is the owner's Library page, read-only: it is fed from
+  `GET /api/requester/library` and has no delete, paths, folders, playback or automation.
+- **Requests** (`/requests`) is one page. The owner sees the inbox of everyone's requests; a requester
+  sees their own, with **Cancel request** while it is pending.
 
+The server still enforces the boundary: requesters only reach the catalog reads listed in
+[remote-access.md](remote-access.md#requesters), and those answers are stripped of magnets, hashes,
+releases, file paths and transfer state and carry the caller's own `inLibrary`, `requestStatus` and
+`requestId` instead.
+
+### Previewing as a requester
+
+The owner can check what friends see without a second account: **View as requester** in the desktop
+header (eye icon) or at the bottom of the mobile **More** sheet. It stores `tf_preview_role=requester` in
+`sessionStorage` (this tab only) and shows a slim "Previewing as a requester · Exit preview" banner.
+It changes rendering only: a real requester never sees the toggle (the stored value is ignored unless the
+real role is owner), and the server grants nothing extra. While previewing, the owner's own data is shown
+read-only and Request/Cancel are not sent.
 ## Data
 
 `MediaRequest` (migration `AddMediaRequests`):
