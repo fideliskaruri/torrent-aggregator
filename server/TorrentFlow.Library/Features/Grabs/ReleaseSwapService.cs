@@ -162,8 +162,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             else if (quality is not null && quality == currentQuality && currentSize is > 0 && ratio is < .9)
                 why = $"Same quality, {Math.Round((1 - ratio!.Value) * 100)}% smaller file";
             else if (quality is not null && currentQuality is not null && quality > currentQuality)
-                why = $"Higher quality ({label}), larger download";
-            else if (ratio is < .4 or > 2.5) why = $"File size looks unusual for {label ?? "this release"}";
+                why = $"Higher quality ({label}), {r.Seeders} seeders";
+            else if (ratio is < .4 or > 2.5) why = $"Unusual size for {label ?? "this release"}, {r.Seeders} seeders";
             else if (i == 0) why = $"Best balance of quality and seeders ({(label is null ? "" : label + ", ")}{r.Seeders} seeders)";
             else if (quality is not null && quality == currentQuality) why = $"Same quality, {r.Seeders} seeders";
             else why = label is null ? $"{r.Seeders} seeders" : $"{r.Seeders} seeders at {label}";
