@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { SettingsDisclosure } from "./settings-disclosure";
 import { TmdbSettings } from "./tmdb-settings";
 import { toast } from "@/lib/toast";
@@ -24,6 +28,7 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const fieldId = useId();
   async function act(action: () => Promise<void>) {
     setBusy(true);
     setTestResult(null);
@@ -54,55 +59,56 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
     setTestResult({ ok: false, message });
     toast.error(message);
   }
-  return <article className="min-w-0 space-y-4 rounded-lg border border-[var(--border)] p-4" data-source={source.id} aria-busy={busy}>
+  return <article className="min-w-0 space-y-4 rounded-lg border border-border p-4" data-source={source.id} aria-busy={busy}>
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="min-w-0"><h4 className="break-words font-medium">{source.id}</h4>
-        <p className="text-xs text-[var(--text-tertiary)]">{source.type} · Priority {source.priority}{!source.active && source.enabled ? " · Credential required" : ""}</p></div>
-      <label className="flex min-h-[44px] items-center gap-2 text-sm">
-        <input type="checkbox" checked={source.enabled} disabled={busy}
+        <p className="text-xs text-subtle-foreground">{source.type} · Priority {source.priority}{!source.active && source.enabled ? " · Credential required" : ""}</p></div>
+      <div className="flex min-h-[44px] items-center gap-2">
+        <Switch id={`${fieldId}-enabled`} checked={source.enabled} disabled={busy}
           aria-label={`Enable ${source.id}`} data-source-enable
-          onChange={e => void act(() => update(source.id, { enabled: e.target.checked }))} /> Enabled
-      </label>
+          onCheckedChange={v => void act(() => update(source.id, { enabled: v === true }))} />
+        <Label htmlFor={`${fieldId}-enabled`} className="font-normal">Enabled</Label>
+      </div>
     </div>
-    <label className="block space-y-1 text-sm">Base URL
-      <Input value={url} onChange={e => setUrl(e.target.value)} aria-label={`${source.id} base URL`} data-source-url
-        className="min-h-[44px] min-w-0" disabled={busy} />
-    </label>
-    <label className="block space-y-1 text-sm">Mirrors, one URL per line
-      <textarea value={mirrors} onChange={e => setMirrors(e.target.value)} aria-label={`${source.id} mirrors`} data-source-mirrors
-        rows={2} disabled={busy} className="block min-h-[44px] w-full min-w-0 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2 text-sm" />
-    </label>
+    <FormField label="Base URL" htmlFor={`${fieldId}-url`}>
+      <Input id={`${fieldId}-url`} value={url} onChange={e => setUrl(e.target.value)} aria-label={`${source.id} base URL`} data-source-url
+        className="min-w-0" disabled={busy} />
+    </FormField>
+    <FormField label="Mirrors, one URL per line" htmlFor={`${fieldId}-mirrors`}>
+      <Textarea id={`${fieldId}-mirrors`} value={mirrors} onChange={e => setMirrors(e.target.value)} aria-label={`${source.id} mirrors`} data-source-mirrors
+        rows={2} disabled={busy} className="min-w-0" />
+    </FormField>
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-      <label className="block space-y-1 text-sm">Categories
-        <Input value={categories} disabled={busy} onChange={e => setCategories(e.target.value)} aria-label={`${source.id} categories`} className="min-h-[44px]" />
-      </label>
-      <label className="block space-y-1 text-sm">Timeout (milliseconds)
-        <Input type="number" min={500} max={60000} value={timeout} disabled={busy} onChange={e => setTimeout(Number(e.target.value))}
-          aria-label={`${source.id} timeout`} className="min-h-[44px]" />
-      </label>
+      <FormField label="Categories" htmlFor={`${fieldId}-categories`}>
+        <Input id={`${fieldId}-categories`} value={categories} disabled={busy} onChange={e => setCategories(e.target.value)} aria-label={`${source.id} categories`} />
+      </FormField>
+      <FormField label="Timeout (milliseconds)" htmlFor={`${fieldId}-timeout`}>
+        <Input id={`${fieldId}-timeout`} type="number" min={500} max={60000} value={timeout} disabled={busy} onChange={e => setTimeout(Number(e.target.value))}
+          aria-label={`${source.id} timeout`} />
+      </FormField>
     </div>
-    {source.type === "torznab" && <label className="block space-y-1 text-sm">Indexer API key {source.credential.hint}
-      <Input type="password" autoComplete="new-password" value={credential} disabled={busy}
-        onChange={e => setCredential(e.target.value)} aria-label={`${source.id} credential`} className="min-h-[44px]" />
-    </label>}
+    {source.type === "torznab" && <FormField label={`Indexer API key ${source.credential.hint}`.trim()} htmlFor={`${fieldId}-credential`}>
+      <Input id={`${fieldId}-credential`} type="password" autoComplete="new-password" value={credential} disabled={busy}
+        onChange={e => setCredential(e.target.value)} aria-label={`${source.id} credential`} />
+    </FormField>}
     <div className="flex flex-wrap gap-2">
-      <Button type="button" disabled={busy} data-source-save className="min-h-[44px]" onClick={() => void act(async () => {
+      <Button type="button" disabled={busy} data-source-save onClick={() => void act(async () => {
         await update(source.id, { baseUrl: url.trim(), mirrors: mirrors.split("\n").map(v => v.trim()).filter(Boolean),
           categories: categories.split(",").map(v => v.trim()).filter(Boolean), timeoutMs: timeout,
           ...(credential ? { credential } : {}) }); setCredential(""); toast.success("Source settings saved.");
       })}>Save source</Button>
-      <Button type="button" variant="secondary" disabled={busy} data-source-test className="min-h-[44px]" onClick={() => void act(test)}>Test</Button>
-      <Button type="button" variant="ghost" disabled={busy || first} className="min-h-[44px]" aria-label={`Move ${source.id} up`}
+      <Button type="button" variant="secondary" disabled={busy} data-source-test onClick={() => void act(test)}>Test</Button>
+      <Button type="button" variant="ghost" disabled={busy || first} aria-label={`Move ${source.id} up`}
         onClick={() => void act(() => move(source.id, -1))}>↑</Button>
-      <Button type="button" variant="ghost" disabled={busy || last} className="min-h-[44px]" aria-label={`Move ${source.id} down`}
+      <Button type="button" variant="ghost" disabled={busy || last} aria-label={`Move ${source.id} down`}
         onClick={() => void act(() => move(source.id, 1))}>↓</Button>
-      {source.custom && <Button type="button" variant="ghost" disabled={busy} className="min-h-[44px]" data-source-remove
+      {source.custom && <Button type="button" variant="ghost" disabled={busy} data-source-remove
         onClick={() => { if (window.confirm(`Remove ${source.id}?`)) void act(() => remove(source.id)); }}>Remove</Button>}
     </div>
-    {source.type === "tmdb" && <div className="border-t border-[var(--border)] pt-4"><TmdbSettings embedded onChanged={reload} /></div>}
+    {source.type === "tmdb" && <div className="border-t border-border pt-4"><TmdbSettings embedded onChanged={reload} /></div>}
     {busy && <p role="status" className="text-sm">Updating source…</p>}
     {!busy && testResult && <p role={testResult.ok ? "status" : "alert"} data-source-test-result={testResult.ok ? "ok" : "failed"}
-      className={`text-sm ${testResult.ok ? "text-[var(--success)]" : "text-[var(--danger)]"}`}>{testResult.message}</p>}
+      className={`text-sm ${testResult.ok ? "text-success" : "text-destructive"}`}>{testResult.message}</p>}
   </article>;
 }
 
@@ -145,29 +151,35 @@ export function SourcesSettings() {
   return <SettingsDisclosure id="sources-settings" title="Sources" summary="Keyless metadata, torrent indexers, and optional credentials."
     open={open} onToggle={() => setOpen(!open)}>
     <div className="min-w-0 space-y-6" data-sources-settings>
-      <p className="text-sm text-[var(--text-secondary)]">TVmaze, Cinemeta and AniList work without an API key. Changes apply immediately.</p>
+      <p className="text-sm text-muted-foreground">TVmaze, Cinemeta and AniList work without an API key. Changes apply immediately.</p>
       {!sources && !error && <p role="status">Loading sources…</p>}
-      {error && <div role="alert"><p className="text-sm text-[var(--danger)]">{error}</p>
-        <Button type="button" variant="secondary" className="mt-2 min-h-[44px]" onClick={() => void load()}>Retry</Button></div>}
+      {error && <div role="alert"><p className="text-sm text-destructive">{error}</p>
+        <Button type="button" variant="secondary" className="mt-2" onClick={() => void load()}>Retry</Button></div>}
       {(["metadata", "torrent"] as const).map(kind => {
         const group = sources?.filter(s => s.kind === kind) ?? [];
         return <section key={kind} className="space-y-4" aria-label={`${kind} sources`}>
           <h3 className="font-semibold">{kind === "metadata" ? "Metadata" : "Torrent indexers"}</h3>
           {[...new Set(group.map(s => s.categories.join(", ")))].map(category => <div key={category} className="space-y-3">
-            <h4 className="text-sm text-[var(--text-secondary)] first-letter:uppercase">{category}</h4>
+            <h4 className="text-sm text-muted-foreground first-letter:uppercase">{category}</h4>
             {group.filter(s => s.categories.join(", ") === category).map(source =>
               <SourceCard key={source.id} source={source} update={update} remove={remove} move={move}
                 first={group[0]?.id === source.id} last={group.at(-1)?.id === source.id} reload={() => void load()} />)}
           </div>)}
         </section>;
       })}
-      <div className="space-y-3 border-t border-[var(--border)] pt-4" data-add-torznab>
+      <div className="space-y-3 border-t border-border pt-4" data-add-torznab>
         <h3 className="font-medium">Add a Torznab indexer</h3>
-        <p className="text-sm text-[var(--text-secondary)]">Use the API endpoint from Jackett or Prowlarr. Add the credential after creating the source.</p>
-        <Input aria-label="New source id" placeholder="my-indexer" value={newId} onChange={e => setNewId(e.target.value)} className="min-h-[44px]" />
-        <Input aria-label="New Torznab URL" placeholder="http://localhost:9117/api/v2.0/indexers/all/results/torznab/api"
-          value={newUrl} onChange={e => setNewUrl(e.target.value)} className="min-h-[44px] min-w-0" />
-        <Button type="button" disabled={adding || !newId || !newUrl} className="min-h-[44px]" data-source-add onClick={() => {
+        <p className="text-sm text-muted-foreground">Use the API endpoint from Jackett or Prowlarr. Add the credential after creating the source.</p>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <FormField label="New source id" htmlFor="new-source-id" hint="Lowercase, unique">
+            <Input id="new-source-id" aria-label="New source id" placeholder="my-indexer" value={newId} onChange={e => setNewId(e.target.value)} />
+          </FormField>
+          <FormField label="New Torznab URL" htmlFor="new-torznab-url">
+            <Input id="new-torznab-url" aria-label="New Torznab URL" placeholder="http://localhost:9117/api/v2.0/indexers/all/results/torznab/api"
+              value={newUrl} onChange={e => setNewUrl(e.target.value)} className="min-w-0" />
+          </FormField>
+        </div>
+        <Button type="button" disabled={adding || !newId || !newUrl} data-source-add onClick={() => {
           setAdding(true); void update(newId, { kind: "torrent", type: "torznab", baseUrl: newUrl,
             categories: ["movie", "series", "anime"], enabled: true, priority: 50, mirrors: [], timeoutMs: 15000, options: {} })
             .then(() => { setNewId(""); setNewUrl(""); toast.success("Indexer added."); })

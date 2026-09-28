@@ -9,6 +9,18 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export interface FolderPickerEntry {
   name: string;
@@ -89,42 +101,29 @@ export function FolderPicker({
     void load(initialPath || "");
   }, [open, initialPath, load]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   const canSelect = Boolean(currentPath);
   const showUp = parent !== null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
     >
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/60"
-        aria-label="Close"
-        onClick={onClose}
-      />
-      <div className="relative z-10 flex w-full sm:max-w-lg max-h-[85dvh] flex-col rounded-t-2xl sm:rounded-2xl surface shadow-md overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 shrink-0">
+      <DialogContent
+        showCloseButton={false}
+        aria-label={title}
+        className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3 shrink-0">
           <div className="min-w-0">
-            <h3 className="text-sm font-medium text-[var(--text)] truncate">
+            <DialogTitle className="text-sm font-medium text-foreground truncate">
               {title}
-            </h3>
-            <p className="text-xs text-[var(--text-tertiary)] font-mono truncate mt-0.5">
+            </DialogTitle>
+            <DialogDescription className="text-xs text-subtle-foreground font-mono truncate mt-0.5">
               {currentPath || "Select a drive or folder"}
-            </p>
+            </DialogDescription>
           </div>
           <Button
             type="button"
@@ -138,7 +137,7 @@ export function FolderPicker({
           </Button>
         </div>
 
-        <div className="flex items-center gap-1.5 border-b border-[var(--border)] px-3 py-2 shrink-0">
+        <div className="flex items-center gap-1.5 border-b border-border px-3 py-2 shrink-0">
           <Button
             type="button"
             variant="ghost"
@@ -165,48 +164,52 @@ export function FolderPicker({
 
         <div className="flex-1 min-h-0 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-[var(--text-tertiary)] text-sm">
+            <div className="flex items-center justify-center gap-2 py-16 text-subtle-foreground text-sm">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading…
             </div>
           ) : error ? (
-            <div className="px-4 py-8 text-center text-sm text-[var(--danger)]">
+            <div className="px-4 py-8 text-center text-sm text-destructive">
               {error}
             </div>
-          ) : entries.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-[var(--text-tertiary)]">
-              No subfolders here
-            </div>
           ) : (
-            <ul className="py-1">
-              {entries.map((entry) => {
-                const isDrive =
-                  /^[a-zA-Z]:\\?$/.test(entry.path) ||
-                  /^[a-zA-Z]:$/.test(entry.name);
-                return (
-                  <li key={entry.path}>
-                    <button
-                      type="button"
-                      onClick={() => void load(entry.path)}
-                      className="flex w-full items-center gap-2.5 px-4 py-2.5 min-h-[44px] text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text)] transition-colors lg:min-h-0"
+            <Command
+              shouldFilter={false}
+              aria-label="Folders"
+              className="rounded-none! bg-transparent p-0"
+            >
+              <CommandList className="max-h-none py-1">
+                <CommandEmpty className="px-4 py-8 text-subtle-foreground">
+                  No subfolders here
+                </CommandEmpty>
+                {entries.map((entry) => {
+                  const isDrive =
+                    /^[a-zA-Z]:\\?$/.test(entry.path) ||
+                    /^[a-zA-Z]:$/.test(entry.name);
+                  return (
+                    <CommandItem
+                      key={entry.path}
+                      value={entry.path}
+                      onSelect={() => void load(entry.path)}
+                      className="min-h-[44px] cursor-pointer gap-2.5 rounded-none px-4 py-2.5 text-muted-foreground data-selected:bg-accent lg:min-h-0"
                     >
                       {isDrive ? (
-                        <HardDrive className="h-4 w-4 shrink-0 text-[var(--accent-text)]" />
+                        <HardDrive className="h-4 w-4 shrink-0 text-brand-foreground" />
                       ) : (
-                        <Folder className="h-4 w-4 shrink-0 text-[var(--info)]" />
+                        <Folder className="h-4 w-4 shrink-0 text-info" />
                       )}
                       <span className="truncate font-mono text-[13px]">
                         {entry.name}
                       </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                    </CommandItem>
+                  );
+                })}
+              </CommandList>
+            </Command>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3 shrink-0">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -221,7 +224,7 @@ export function FolderPicker({
             Use this folder
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

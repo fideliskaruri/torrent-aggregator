@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { toast } from "@/lib/toast";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import {
@@ -362,10 +363,10 @@ export function RetentionPanel({
   return (
     <section className="surface rounded-xl p-5 sm:p-6 space-y-5">
       <div className="flex items-start gap-3">
-        <ShieldCheck className="h-5 w-5 text-[var(--accent-text)] shrink-0 mt-0.5" />
+        <ShieldCheck className="h-5 w-5 text-brand-foreground shrink-0 mt-0.5" />
         <div>
-          <h2 className="text-sm font-medium text-[var(--text)]">Storage cleanup</h2>
-          <p className="text-xs text-[var(--text-tertiary)] mt-1 leading-relaxed">
+          <h2 className="text-sm font-medium text-foreground">Storage cleanup</h2>
+          <p className="text-xs text-subtle-foreground mt-1 leading-relaxed">
             Review storage use and remove temporary streams. Files you chose to
             keep are not removed here.
           </p>
@@ -373,26 +374,28 @@ export function RetentionPanel({
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-[var(--text-tertiary)]">
+        <div className="flex items-center gap-2 text-sm text-subtle-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading storage details…
         </div>
       ) : (
         <>
           {showPolicy ? (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <ToggleGroup
+            type="single"
+            aria-label="Storage cleanup policy"
+            value={policy}
+            disabled={saving !== null}
+            onValueChange={(value) => {
+              if (value) void save(value as RetentionPolicy);
+            }}
+            className="grid w-full grid-cols-1 sm:grid-cols-2"
+          >
             {RETENTION_OPTIONS.map((option) => (
-              <button
-                type="button"
+              <ToggleGroupItem
                 key={option.value}
-                aria-pressed={policy === option.value}
-                disabled={saving !== null}
-                onClick={() => void save(option.value)}
-                className={`min-h-[44px] rounded-lg px-3 py-2.5 text-left text-sm transition-colors ring-1 disabled:opacity-40 lg:min-h-0 ${
-                  policy === option.value
-                    ? "bg-[var(--accent-dim)] text-[var(--accent-text)] ring-[var(--accent-ring)]"
-                    : "bg-[var(--bg-muted)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text)]"
-                }`}
+                value={option.value}
+                className="block h-auto min-h-[44px] w-full rounded-lg bg-muted px-3 py-2.5 text-left text-sm font-normal whitespace-normal text-muted-foreground ring-1 ring-border hover:bg-muted hover:text-foreground disabled:opacity-40 data-[state=on]:bg-brand-dim data-[state=on]:text-brand-foreground data-[state=on]:ring-brand/35 lg:min-h-0"
               >
                 <span className="flex items-center gap-1.5 font-medium">
                   {saving === option.value ? (
@@ -400,16 +403,16 @@ export function RetentionPanel({
                   ) : null}
                   {option.label}
                 </span>
-                <span className="mt-1 block text-xs leading-relaxed text-[var(--text-tertiary)]">
+                <span className="mt-1 block text-xs leading-relaxed text-subtle-foreground">
                   {option.hint}
                 </span>
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
           ) : null}
  
           {showPolicy && !persisted ? (
-            <p className="text-xs text-[var(--color-warning)] leading-relaxed">
+            <p className="text-xs text-warning leading-relaxed">
               The app needs the pending database migration before this default can be saved persistently.
             </p>
           ) : null}
@@ -418,7 +421,7 @@ export function RetentionPanel({
             <Button
               type="button"
               variant="secondary"
-              className="h-auto min-h-[44px] whitespace-normal py-2 text-center lg:min-h-9"
+              className="h-auto whitespace-normal py-2 text-center max-md:min-h-11 pointer-coarse:min-h-11"
               disabled={sweeping !== null || usage?.budgetBytes == null}
               onClick={() => void runSweep("preview")}
             >
@@ -428,7 +431,7 @@ export function RetentionPanel({
             <Button
               type="button"
               variant="destructive"
-              className="h-auto min-h-[44px] whitespace-normal py-2 text-center lg:min-h-9"
+              className="h-auto whitespace-normal py-2 text-center max-md:min-h-11 pointer-coarse:min-h-11"
               disabled={sweeping !== null || usage?.budgetBytes == null}
               onClick={() => void runSweep("delete")}
             >
@@ -438,16 +441,16 @@ export function RetentionPanel({
           </div>
 
           {usage?.budgetBytes == null ? (
-            <p className="text-xs leading-relaxed text-[var(--color-warning)]">
+            <p className="text-xs leading-relaxed text-warning">
               Set a storage cap in Downloads before cache reclamation can run.
             </p>
           ) : null}
 
           {sweepResult ? (
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3 text-xs text-[var(--text-secondary)] space-y-2">
+            <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-2">
               <p>
                 {sweepResult.mode === "preview" ? "Would reclaim" : "Reclaimed"}{" "}
-                <span className="font-medium text-[var(--text)]">
+                <span className="font-medium text-foreground">
                   {formatBytes(sweepResult.reclaimedBytes)}
                 </span>
                 {" from "}
@@ -458,7 +461,7 @@ export function RetentionPanel({
                 item(s). {sweepResult.satisfied ? "Budget satisfied." : "Budget still exceeded."}
               </p>
               {sweepResult.skipped.length ? (
-                <p className="text-[var(--text-tertiary)]">
+                <p className="text-subtle-foreground">
                   Skipped {sweepResult.skipped.length}: {sweepResult.skipped.slice(0, 3).map((s) => s.reason).join(", ")}
                 </p>
               ) : null}
@@ -466,11 +469,11 @@ export function RetentionPanel({
           ) : null}
 
           {usage ? (
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3 space-y-3">
+            <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
               {usage.disk && !usage.disk.authoritative ? (
                 <div
                   role="status"
-                  className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs leading-relaxed text-[var(--text-secondary)]"
+                  className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs leading-relaxed text-muted-foreground"
                 >
                   Download-folder usage is unavailable because the scan was
                   incomplete. Check folder access and try again.
@@ -478,22 +481,22 @@ export function RetentionPanel({
               ) : usage.diskBytes != null && usage.disk ? (
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                    <span className="text-xs text-[var(--text-tertiary)]">
+                    <span className="text-xs text-subtle-foreground">
                       Download folder on disk
                     </span>
-                    <span className="text-sm font-medium text-[var(--text)]">
+                    <span className="text-sm font-medium text-foreground">
                       {formatBytes(usage.diskBytes)}
                     </span>
                   </div>
                   {/* The identity the cap is enforced on, spelled out. The exact
                       byte count is what makes it checkable against Explorer,
                       whose "GB" is binary while this app's is decimal. */}
-                  <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
+                  <p className="text-xs leading-relaxed text-subtle-foreground">
                     {formatBytes(usage.disk.trackedBytes)} tracked by transfers ·{" "}
                     <span
                       className={
                         usage.orphanBytes > 0
-                          ? "text-[var(--color-warning)]"
+                          ? "text-warning"
                           : undefined
                       }
                     >
@@ -514,8 +517,8 @@ export function RetentionPanel({
                 <ul className="space-y-1.5">
                   {topItems.map((item) => (
                     <li key={item.hash} className="flex items-center justify-between gap-3 text-xs">
-                      <span className="min-w-0 truncate text-[var(--text-secondary)]">{item.name}</span>
-                      <span className="shrink-0 text-[var(--text-tertiary)]">
+                      <span className="min-w-0 truncate text-muted-foreground">{item.name}</span>
+                      <span className="shrink-0 text-subtle-foreground">
                         {retentionLabel(item.retentionPolicy)} · {formatBytes(item.sizeBytes)}
                       </span>
                     </li>
@@ -536,7 +539,7 @@ export function RetentionPanel({
       )}
 
       {loadError ? (
-        <p role="alert" className="text-xs leading-relaxed text-[var(--danger)]">
+        <p role="alert" className="text-xs leading-relaxed text-destructive">
           {loadError}
         </p>
       ) : null}
@@ -554,7 +557,7 @@ export function RetentionPanel({
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
-                <p className="break-all font-medium text-[var(--text)]">
+                <p className="break-all font-medium text-foreground">
                   {pendingDelete?.label}
                 </p>
                 <p>
@@ -565,7 +568,7 @@ export function RetentionPanel({
                   will be removed from your download folder. This deletes the
                   files on disk and cannot be undone.
                 </p>
-                <p className="text-[var(--text-tertiary)]">
+                <p className="text-subtle-foreground">
                   TorrentFlow re-checks on the server that no live transfer owns
                   this before removing anything.
                 </p>
@@ -577,7 +580,7 @@ export function RetentionPanel({
             <Button
               type="button"
               variant="destructive"
-              className="min-h-[44px] lg:min-h-0"
+              className="max-md:min-h-11 pointer-coarse:min-h-11"
               disabled={deleting !== null}
               onClick={() => void confirmDelete()}
               data-untracked-delete-confirm
@@ -598,12 +601,12 @@ export function RetentionPanel({
 
 function UsageStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md bg-[var(--bg-elevated)] px-3 py-2 ring-1 ring-[var(--border)]">
-      <div className="flex items-center gap-1.5 text-[var(--text-tertiary)]">
+    <div className="rounded-md bg-card px-3 py-2 ring-1 ring-border">
+      <div className="flex items-center gap-1.5 text-subtle-foreground">
         <HardDrive className="h-3.5 w-3.5" />
         {label}
       </div>
-      <div className="mt-1 font-medium text-[var(--text)]">{value}</div>
+      <div className="mt-1 font-medium text-foreground">{value}</div>
     </div>
   );
 }
@@ -644,13 +647,13 @@ function UntrackedFiles({
   const busy = deleting !== null;
 
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3 space-y-3">
+    <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-        <h3 className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-secondary)]">
+        <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <FileWarning className="h-3.5 w-3.5" />
           Untracked files
         </h3>
-        <span className="text-xs text-[var(--text-tertiary)]">
+        <span className="text-xs text-subtle-foreground">
           {groups.length
             ? `${formatBytes(usage.orphanBytes)} · ${scan.orphanFileCount} file${
                 scan.orphanFileCount === 1 ? "" : "s"
@@ -660,7 +663,7 @@ function UntrackedFiles({
       </div>
 
       {scan.truncated ? (
-        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--color-warning)]">
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             The folder is deeper or larger than one scan covers
@@ -674,13 +677,13 @@ function UntrackedFiles({
       ) : null}
 
       {scan.unreadablePaths.length ? (
-        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--color-warning)]">
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-warning">
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             {scan.unreadablePaths.length} location
             {scan.unreadablePaths.length === 1 ? "" : "s"} could not be read, so
             anything inside is not counted, starting with{" "}
-            <span className="break-all text-[var(--text-secondary)]">
+            <span className="break-all text-muted-foreground">
               {scan.unreadablePaths[0]}
             </span>
             .
@@ -689,18 +692,18 @@ function UntrackedFiles({
       ) : null}
 
       {groups.length === 0 ? (
-        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--success)]" />
+        <p className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
           <span>
             Every one of the {formatBytes(usage.diskBytes)} in{" "}
-            <span className="break-all text-[var(--text-tertiary)]">{displayPath(scan.root)}</span>{" "}
+            <span className="break-all text-subtle-foreground">{displayPath(scan.root)}</span>{" "}
             is accounted for by a transfer or by TorrentFlow itself. Nothing here
             is holding space you cannot explain.
           </span>
         </p>
       ) : (
         <>
-          <p className="text-xs leading-relaxed text-[var(--text-tertiary)]">
+          <p className="text-xs leading-relaxed text-subtle-foreground">
             These sit under your download folder and count against the storage
             cap, but no live transfer owns them. Removing one deletes it from
             disk.
@@ -719,7 +722,7 @@ function UntrackedFiles({
             ))}
           </ul>
           {scan.groupsTruncated ? (
-            <p className="text-xs text-[var(--text-tertiary)]">
+            <p className="text-xs text-subtle-foreground">
               Showing the largest {groups.length}. Remove some and re-open this
               page to see the rest.
             </p>
@@ -756,13 +759,13 @@ function UntrackedGroupRow({
   const perFile = !group.folderDeletable;
 
   return (
-    <li className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2">
+    <li className="rounded-lg border border-border bg-card px-3 py-2">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-[var(--text)]" title={title}>
+          <p className="truncate text-xs font-medium text-foreground" title={title}>
             {title}
           </p>
-          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+          <p className="mt-0.5 text-xs text-subtle-foreground">
             {formatBytes(group.bytes)} · {group.fileCount} file
             {group.fileCount === 1 ? "" : "s"}
             {group.loose ? "" : ` · ${group.relativePath}`}
@@ -773,7 +776,7 @@ function UntrackedGroupRow({
             type="button"
             variant="secondary"
             size="sm"
-            className="min-h-[44px] lg:min-h-0"
+            className="max-md:min-h-11 pointer-coarse:min-h-11"
             disabled={!openFolder || revealing === key}
             onClick={() => onReveal(group.path, key)}
           >
@@ -789,7 +792,7 @@ function UntrackedGroupRow({
               type="button"
               variant="destructive"
               size="sm"
-              className="min-h-[44px] lg:min-h-0"
+              className="max-md:min-h-11 pointer-coarse:min-h-11"
               disabled={busy}
               onClick={() =>
                 onRequestDelete({
@@ -813,26 +816,26 @@ function UntrackedGroupRow({
       </div>
 
       {perFile ? (
-        <ul className="mt-2 space-y-1 border-t border-[var(--border)] pt-2">
+        <ul className="mt-2 space-y-1 border-t border-border pt-2">
           {group.files.map((file) => (
             <li
               key={file.relativePath}
               className="flex flex-wrap items-center justify-between gap-2"
             >
               <span
-                className="min-w-0 flex-1 truncate text-xs text-[var(--text-secondary)]"
+                className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
                 title={file.relativePath}
               >
                 {file.name}
               </span>
-              <span className="shrink-0 text-xs text-[var(--text-tertiary)]">
+              <span className="shrink-0 text-xs text-subtle-foreground">
                 {formatBytes(file.bytes)}
               </span>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="min-h-[44px] shrink-0 text-[var(--danger)] hover:text-[var(--danger)] lg:min-h-0"
+                className="min-h-[44px] shrink-0 text-destructive hover:text-destructive lg:min-h-0"
                 disabled={busy}
                 onClick={() =>
                   onRequestDelete({
@@ -854,12 +857,12 @@ function UntrackedGroupRow({
             </li>
           ))}
           {group.filesTruncated ? (
-            <li className="text-xs text-[var(--text-tertiary)]">
+            <li className="text-xs text-subtle-foreground">
               Showing the largest {group.files.length} of {group.fileCount}.
             </li>
           ) : null}
           {!group.loose ? (
-            <li className="text-xs leading-relaxed text-[var(--text-tertiary)]">
+            <li className="text-xs leading-relaxed text-subtle-foreground">
               This folder still holds files a live transfer owns, so it can only
               be cleared one file at a time.
             </li>

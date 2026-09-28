@@ -9,8 +9,11 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { TfErrorState } from "@/components/tf/error-state";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
@@ -58,7 +61,7 @@ interface RemoteAccessForm {
   allowRequesters: boolean;
 }
 
-const inputClass = "h-11 scroll-mb-32 text-base sm:text-sm";
+const inputClass = "scroll-mb-32";
 
 function toForm(settings: RemoteAccessSettings): RemoteAccessForm {
   return {
@@ -249,7 +252,7 @@ function RemoteAccessPanel() {
       <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
         <p
           id="remote-access-intro"
-          className="min-w-0 text-xs leading-relaxed text-[var(--text-tertiary)] sm:flex-1"
+          className="min-w-0 text-xs leading-relaxed text-subtle-foreground sm:flex-1"
         >
           Cloudflare Tunnel carries the connection and Cloudflare Access decides
           who may sign in, so TorrentFlow never stores a password. Only the owner
@@ -272,10 +275,10 @@ function RemoteAccessPanel() {
         <div
           role="status"
           data-remote-access-warnings
-          className="flex items-start gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
+          className="flex items-start gap-2 rounded-lg border border-brand/25 bg-brand-dim p-3"
         >
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
-          <ul className="min-w-0 space-y-0.5 text-xs leading-relaxed text-[var(--text-secondary)]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-brand-foreground" aria-hidden="true" />
+          <ul className="min-w-0 space-y-0.5 text-xs leading-relaxed text-muted-foreground">
             {settings.warnings.map((warning) => (
               <li key={warning} className="break-words">{warning}</li>
             ))}
@@ -287,12 +290,12 @@ function RemoteAccessPanel() {
         <div
           role="status"
           data-remote-access-readonly
-          className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3"
+          className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3"
         >
-          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-[var(--text-tertiary)]" aria-hidden="true" />
-          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-subtle-foreground" aria-hidden="true" />
+          <p className="text-xs leading-relaxed text-muted-foreground">
             You're connected remotely, so these settings are read-only. Change them
-            on the computer running TorrentFlow — a remote session must never be
+            on the computer running TorrentFlow. A remote session must never be
             able to widen who can get in.
           </p>
         </div>
@@ -302,25 +305,33 @@ function RemoteAccessPanel() {
         <div
           role="status"
           data-remote-access-restart
-          className="flex items-start gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-dim)] p-3"
+          className="flex items-start gap-2 rounded-lg border border-brand/25 bg-brand-dim p-3"
         >
-          <RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
-          <p className="text-xs leading-relaxed text-[var(--text-secondary)]">
-            <span className="font-medium text-[var(--text)]">Restart needed.</span>{" "}
+          <RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-brand-foreground" aria-hidden="true" />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Restart needed.</span>{" "}
             Turning remote access on or off and changing its port take effect the
             next time TorrentFlow starts. Team, AUD tag and owner emails already apply.
           </p>
         </div>
       ) : null}
 
-      <label
+      <Label
         htmlFor="remote-access-enabled"
         className={cn(
-          "flex min-h-11 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3",
+          "flex min-h-11 items-start justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 font-normal leading-normal",
           readOnly ? "cursor-not-allowed opacity-70" : "cursor-pointer",
         )}
       >
-        <Checkbox
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">
+            Turn on remote access
+          </span>
+          <span className="mt-1 block text-xs text-subtle-foreground">
+            Opens a second listener on this computer for cloudflared only.
+          </span>
+        </span>
+        <Switch
           id="remote-access-enabled"
           aria-label="Turn on remote access"
           checked={form.enabled}
@@ -328,23 +339,13 @@ function RemoteAccessPanel() {
           onCheckedChange={(checked) =>
             setForm((current) => current && { ...current, enabled: checked === true })
           }
+          className="mt-0.5"
           data-remote-access-enabled
         />
-        <span className="pt-0.5">
-          <span className="block text-sm font-medium text-[var(--text)]">
-            Turn on remote access
-          </span>
-          <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
-            Opens a second listener on this computer for cloudflared only.
-          </span>
-        </span>
-      </label>
+      </Label>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <label htmlFor="remote-access-team" className="text-xs font-medium text-[var(--text-secondary)]">
-            Team domain
-          </label>
+        <FormField label="Team domain" htmlFor="remote-access-team">
           <Input
             id="remote-access-team"
             value={form.teamDomain}
@@ -358,11 +359,8 @@ function RemoteAccessPanel() {
             className={inputClass}
             data-remote-access-team
           />
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="remote-access-port" className="text-xs font-medium text-[var(--text-secondary)]">
-            Tunnel port
-          </label>
+        </FormField>
+        <FormField label="Tunnel port" htmlFor="remote-access-port">
           <div className="flex flex-wrap items-center gap-2">
             <Input
               id="remote-access-port"
@@ -380,26 +378,23 @@ function RemoteAccessPanel() {
               aria-describedby="remote-access-port-help"
               data-remote-access-port
             />
-            <span className="text-xs text-[var(--text-tertiary)]">on</span>
+            <span className="text-xs text-subtle-foreground">on</span>
             <Input
               id="remote-access-bind"
               value={settings.tunnelBindAddress}
               readOnly
               aria-label="Bind address (set in the settings file)"
-              className={cn(inputClass, "w-auto max-w-[12rem] font-mono text-[var(--text-secondary)]")}
+              className={cn(inputClass, "w-auto max-w-[12rem] font-mono text-muted-foreground")}
               data-remote-access-bind
             />
           </div>
-          <p id="remote-access-port-help" className="text-xs text-[var(--text-tertiary)]">
+          <p id="remote-access-port-help" className="text-xs text-subtle-foreground">
             Not the port you open TorrentFlow on here.
           </p>
-        </div>
+        </FormField>
       </div>
 
-      <div className="space-y-1.5">
-        <label htmlFor="remote-access-audience" className="text-xs font-medium text-[var(--text-secondary)]">
-          Application Audience (AUD) tag
-        </label>
+      <FormField label="Application Audience (AUD) tag" htmlFor="remote-access-audience">
         <Input
           id="remote-access-audience"
           value={form.audience}
@@ -413,13 +408,10 @@ function RemoteAccessPanel() {
           className={cn(inputClass, "font-mono")}
           data-remote-access-audience
         />
-      </div>
+      </FormField>
 
-      <div className="space-y-1.5">
-        <label htmlFor="remote-access-owners" className="text-xs font-medium text-[var(--text-secondary)]">
-          Owner emails
-        </label>
-        <textarea
+      <FormField label="Owner emails" htmlFor="remote-access-owners">
+        <Textarea
           id="remote-access-owners"
           rows={3}
           value={form.ownerEmails}
@@ -431,22 +423,30 @@ function RemoteAccessPanel() {
           autoComplete="off"
           spellCheck={false}
           aria-describedby="remote-access-owners-help"
-          className="w-full min-w-0 scroll-mb-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-base text-[var(--text)] placeholder:text-[var(--text-tertiary)] focus-visible:border-[var(--primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dim)] disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+          className="min-w-0 scroll-mb-32"
           data-remote-access-owners
         />
-        <p id="remote-access-owners-help" className="text-xs text-[var(--text-tertiary)]">
+        <p id="remote-access-owners-help" className="text-xs text-subtle-foreground">
           One per line. Everyone else Cloudflare lets in is a requester, or refused if requests are off.
         </p>
-      </div>
+      </FormField>
 
-      <label
+      <Label
         htmlFor="remote-access-requesters"
         className={cn(
-          "flex min-h-11 items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--bg-muted)]/40 p-3",
+          "flex min-h-11 items-start justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 font-normal leading-normal",
           readOnly ? "cursor-not-allowed opacity-70" : "cursor-pointer",
         )}
       >
-        <Checkbox
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">
+            Let friends request titles
+          </span>
+          <span className="mt-1 block text-xs text-subtle-foreground">
+            Other signed-in emails can search titles, ask for them and follow their own requests. Nothing else.
+          </span>
+        </span>
+        <Switch
           id="remote-access-requesters"
           aria-label="Let friends request titles"
           checked={form.allowRequesters}
@@ -454,31 +454,24 @@ function RemoteAccessPanel() {
           onCheckedChange={(checked) =>
             setForm((current) => current && { ...current, allowRequesters: checked === true })
           }
+          className="mt-0.5"
           data-remote-access-requesters
         />
-        <span className="pt-0.5">
-          <span className="block text-sm font-medium text-[var(--text)]">
-            Let friends request titles
-          </span>
-          <span className="mt-1 block text-xs text-[var(--text-tertiary)]">
-            Other signed-in emails can search titles, ask for them and follow their own requests. Nothing else.
-          </span>
-        </span>
-      </label>
+      </Label>
 
-      <div className="space-y-3 rounded-lg border border-[var(--border)] p-3" data-remote-access-steps>
-        <h3 className="flex items-center gap-2 text-sm font-medium text-[var(--text)]">
-          <Globe className="h-4 w-4 text-[var(--text-tertiary)]" aria-hidden="true" />
+      <div className="space-y-3 rounded-lg border border-border p-3" data-remote-access-steps>
+        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Globe className="h-4 w-4 text-subtle-foreground" aria-hidden="true" />
           Set it up in Cloudflare Zero Trust
         </h3>
-        <ol className="list-decimal space-y-2 pl-5 text-xs leading-relaxed text-[var(--text-secondary)]">
+        <ol className="list-decimal space-y-2 pl-5 text-xs leading-relaxed text-muted-foreground">
           <li>
             Create a tunnel (Networks → Tunnels) and install <code className="font-mono">cloudflared</code> on
             this computer with the command Cloudflare shows.
           </li>
           <li>
             Add a public hostname to the tunnel with the service{" "}
-            <code className="break-all font-mono text-[var(--text)]">{serviceUrl}</code>.
+            <code className="break-all font-mono text-foreground">{serviceUrl}</code>.
           </li>
           <li>
             Create a self-hosted Access application for that hostname, with a policy
@@ -499,33 +492,33 @@ function RemoteAccessPanel() {
             className={cn(
               "space-y-1 rounded-lg border p-3 text-xs leading-relaxed",
               check.ok
-                ? "border-[var(--success)]/40 bg-[var(--success)]/5"
-                : "border-[var(--accent-border)] bg-[var(--accent-dim)]",
+                ? "border-success/40 bg-success/5"
+                : "border-brand/25 bg-brand-dim",
             )}
           >
-            <p className="flex items-start gap-2 font-medium text-[var(--text)]">
+            <p className="flex items-start gap-2 font-medium text-foreground">
               {check.ok ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--success)]" aria-hidden="true" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
               ) : (
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]" aria-hidden="true" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-brand-foreground" aria-hidden="true" />
               )}
               {check.ok
                 ? `Ready. Cloudflare published ${check.keyCount ?? 0} signing key${check.keyCount === 1 ? "" : "s"} for your team.`
                 : "Not ready yet"}
             </p>
             {check.problems.length ? (
-              <ul className="list-disc space-y-0.5 pl-6 text-[var(--text-secondary)]">
+              <ul className="list-disc space-y-0.5 pl-6 text-muted-foreground">
                 {check.problems.map((problem) => (
                   <li key={problem}>{problem}</li>
                 ))}
               </ul>
             ) : null}
             {check.keysError ? (
-              <p className="break-words pl-6 text-[var(--text-tertiary)]">{check.keysError}</p>
+              <p className="break-words pl-6 text-subtle-foreground">{check.keysError}</p>
             ) : null}
           </div>
         ) : checkError ? (
-          <p role="alert" className="flex items-start gap-2 text-sm text-[var(--danger)]">
+          <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
             <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{checkError}</span>
           </p>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SettingsDisclosure } from "./settings-disclosure";
 import { toast } from "@/lib/toast";
 
@@ -56,17 +57,17 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
   }
 
   const content = <div className="min-w-0 space-y-4" data-tmdb-settings aria-busy={busy}>
-      <p className="text-sm text-[var(--text-secondary)]">Optional. AniList and keyless sources work without it.</p>
+      <p className="text-sm text-muted-foreground">Optional. AniList and keyless sources work without it.</p>
       {!status && busy && <p role="status">Loading TMDB settings…</p>}
-      {status && <p className="text-sm text-[var(--text-secondary)]" data-tmdb-status>
+      {status && <p className="text-sm text-muted-foreground" data-tmdb-status>
         {status.configured ? `${status.hint} · ${status.source === "settings" ? "Saved in Settings" : "Environment / configuration"}` : "No TMDB key configured."}
       </p>}
       <div className="space-y-2">
-        <label htmlFor="tmdb-api-key" className="block text-sm font-medium">TMDB API key</label>
+        <Label htmlFor="tmdb-api-key">TMDB API key</Label>
         <Input id="tmdb-api-key" data-tmdb-key type="password" autoComplete="new-password"
           value={key} onChange={(event) => setKey(event.target.value)} disabled={busy}
-          maxLength={4096} className="min-h-[44px] w-full min-w-0" aria-describedby="tmdb-help" />
-        <p id="tmdb-help" className="text-xs text-[var(--text-tertiary)]">
+          maxLength={4096} className="w-full min-w-0" aria-describedby="tmdb-help" />
+        <p id="tmdb-help" className="text-xs text-subtle-foreground">
           Your saved key is never sent back to this page.{" "}
           <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer"
             data-tmdb-key-link className="underline underline-offset-4">Get a TMDB API key</a>
@@ -74,16 +75,16 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
       </div>
       <div className="flex flex-wrap gap-2">
         <Button type="button" data-tmdb-save disabled={busy || !key.trim() || !status}
-          className="min-h-[44px]" onClick={() => void update("save")}>Save</Button>
+          onClick={() => void update("save")}>Save</Button>
         <Button type="button" variant="secondary" data-tmdb-test disabled={busy || (!key.trim() && !status?.configured)}
-          className="min-h-[44px]" onClick={() => void update("test")}>Test</Button>
+          onClick={() => void update("test")}>Test</Button>
         <Button type="button" variant="ghost" data-tmdb-remove disabled={busy || status?.source !== "settings"}
-          className="min-h-[44px]" onClick={() => void update("remove")}>Remove</Button>
+          onClick={() => void update("remove")}>Remove</Button>
       </div>
       {busy && status && <p role="status" className="text-sm">Updating TMDB settings…</p>}
-      {error && <div role="alert" className="space-y-2 text-sm text-[var(--danger)]">
+      {error && <div role="alert" className="space-y-2 text-sm text-destructive">
         <p>{error}</p>
-        <Button type="button" variant="secondary" className="min-h-[44px]" disabled={busy} onClick={() => void load()}>Retry</Button>
+        <Button type="button" variant="secondary" disabled={busy} onClick={() => void load()}>Retry</Button>
       </div>}
     </div>;
   return embedded ? content : <SettingsDisclosure id="metadata-settings" title="Metadata"

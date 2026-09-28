@@ -60,7 +60,7 @@ export function DownloadLocationFields({
           <p
             // Phones clip the input, so the full path is repeated under it;
             // wider screens show the whole path in the field itself.
-            className="break-all font-mono text-xs leading-relaxed text-[var(--text-tertiary)] sm:hidden"
+            className="break-all font-mono text-xs leading-relaxed text-subtle-foreground sm:hidden"
             data-download-folder-path
           >
             {folder}
@@ -85,11 +85,11 @@ export function DownloadLocationFields({
             className="w-full min-w-0 scroll-mb-32"
             aria-describedby={`${limitId}-help`}
           />
-          <span className="shrink-0 text-sm text-[var(--text-secondary)]">GB</span>
+          <span className="shrink-0 text-sm text-muted-foreground">GB</span>
         </div>
         <p
           id={`${limitId}-help`}
-          className="text-xs leading-relaxed text-[var(--text-tertiary)] break-words"
+          className="text-xs leading-relaxed text-subtle-foreground break-words"
         >
           Downloads pause before going beyond this amount.
         </p>
