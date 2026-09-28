@@ -76,17 +76,16 @@ export function isSeasonComplete(p: SeasonProgress): boolean {
   return p.aired != null && p.aired > 0 && p.downloaded >= p.aired;
 }
 
-/** Short form for the season picker: `8/10`, `10/10 ✓`, `5/9 +2`, `3 downloaded`. */
+/**
+ * Short form for the season picker: `5 of 9`, `✓ 8 of 8`, or nothing for a
+ * season with no downloads. In-flight episodes live in the header only.
+ */
 export function seasonProgressShort(p: SeasonProgress): string | null {
-  const base = seasonProgressBase(p);
-  if (p.downloading === 0) return base;
-  return `${base ?? "0 downloaded"} +${p.downloading}`;
-}
-
-function seasonProgressBase(p: SeasonProgress): string | null {
-  if (p.aired == null) return p.downloaded > 0 ? `${p.downloaded} downloaded` : null;
-  if (p.aired === 0) return p.downloaded > 0 ? `${p.downloaded} downloaded` : "not aired";
-  return isSeasonComplete(p) ? `${p.downloaded}/${p.aired} \u2713` : `${p.downloaded}/${p.aired}`;
+  if (p.downloaded === 0) return null;
+  if (p.aired == null || p.aired === 0) return `${p.downloaded} downloaded`;
+  return isSeasonComplete(p)
+    ? `\u2713 ${p.downloaded} of ${p.aired}`
+    : `${p.downloaded} of ${p.aired}`;
 }
 
 /** Long form for the season header: `8 of 10 episodes downloaded`. */
