@@ -42,6 +42,8 @@ export interface HeroBannerProps {
  * largest button on the page can never be a Play that does not play. When there
  * is nothing to offer, the button is disabled and the reason is printed next to
  * it — a greyed control with no explanation is the thing users file bugs about.
+ * With streaming off there is no Play, and a title that would have offered it
+ * is one we already hold, so the hero offers its page instead.
  */
 export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps) {
   const { streaming } = useFeatures();
@@ -59,6 +61,9 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
   const label = releaseGate.gated
     ? (releaseGate.label ?? "Coming soon")
     : actionLabel(action, status);
+  // One Details button. The "Download" that stood here pointed at a file we
+  // already hold and led to the same page as the Details beside it.
+  const pageOnly = !releaseGate.gated && !streaming && action.kind === "play";
   const image = item.backdropUrl ?? item.posterUrl;
   const reduceMotion = useReducedMotion();
 
@@ -151,9 +156,9 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
           ) : null}
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
-            {!releaseGate.gated && !streaming && action.kind === "play" ? (
+            {pageOnly ? (
               <Button asChild size="lg" data-hero-primary>
-                <Link to={titleHref ?? "/downloads"}>{titleHref ? "Download" : "Downloads"}</Link>
+                <Link to={titleHref ?? "/downloads"}>{titleHref ? "Details" : "Downloads"}</Link>
               </Button>
             ) : releaseGate.gated ? (
               titleHref ? (
@@ -184,7 +189,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
                 {label}
               </Button>
             )}
-            {!releaseGate.gated && titleHref && action.kind !== "search" ? (
+            {!releaseGate.gated && !pageOnly && titleHref && action.kind !== "search" ? (
               <Button asChild size="lg" variant="secondary">
                 <Link to={titleHref} data-hero-details>
                   Details
