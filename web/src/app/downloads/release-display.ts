@@ -193,3 +193,9 @@ export function releaseDisplayFacts(
     qualityChip: resolutionChip(torrent.name),
   };
 }
+
+/** How a toast or announcement names one download: its title, plus its episode when it has one. */
+export function transferLabel(torrent: ClientTorrent): string {
+  const { title, episodeLabel } = releaseDisplayFacts(torrent);
+  return episodeLabel ? `${title} ${episodeLabel}` : title;
+}

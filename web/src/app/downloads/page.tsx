@@ -101,6 +101,7 @@ import {
   stateLabel,
   rollupChip,
   transferErrorMessage,
+  transferLabel,
   waitReasonLabel,
 } from "./release-display";
 import {
@@ -224,6 +225,40 @@ type TidyResult = {
 
 function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+type RowActionOutcome = { ok: true } | { ok: false; reason: string };
+
+/**
+ * One pause/resume/start, read to the end. A refusal comes back as an error
+ * status: the built-in engine says why in `detail` ("Downloaded files cannot be
+ * paused."), an external client only in a generic `message`, and a dropped
+ * connection not at all, so the reason falls back in that order.
+ */
+async function postRowAction(
+  act: "pause" | "resume" | "force",
+  torrent: ClientTorrent,
+): Promise<RowActionOutcome> {
+  const res = await fetch("/api/client/torrents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: act,
+      hash: torrent.hash,
+      ownerClientType: torrent.ownerClientType,
+    }),
+  }).catch(() => null);
+  if (!res) return { ok: false, reason: "Couldn't reach TorrentFlow. Try again." };
+  const data = await readJsonBody<{ ok?: boolean; message?: string; detail?: string; error?: string }>(res);
+  if (res.ok && data?.ok !== false) return { ok: true };
+  return {
+    ok: false,
+    reason:
+      data?.detail?.trim() ||
+      data?.message?.trim() ||
+      data?.error?.trim() ||
+      `TorrentFlow answered HTTP ${res.status}. Try again.`,
+  };
 }
 export default function ClientPage() {
   const { streaming } = useFeatures();
@@ -625,28 +660,25 @@ export default function ClientPage() {
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
     invalidateInFlight();
-    const res = await fetch("/api/client/torrents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: act,
-        hash: torrent.hash,
-        ownerClientType: torrent.ownerClientType,
-      }),
-    }).catch(() => null);
+    const label = transferLabel(torrent);
+    // Resume on a failed row is the row's "Retry".
+    const verb =
+      act === "force" ? "start" : act === "resume" && isError(torrent.state) ? "retry" : act;
+    const outcome = await postRowAction(act, torrent);
     void load();
-    if (act === "force") {
-      if (!res?.ok) {
-        const data = res ? await readJsonBody<{ message?: string; error?: string }>(res) : null;
-        toast.error(data?.message || data?.error || `Couldn't start ${torrent.name} now. Try again.`);
-        setAnnouncement("Could not start the download.");
-        return;
-      }
-      toast.success(`Started ${torrent.name}`);
-      setAnnouncement(`Started ${torrent.name}.`);
+    if (!outcome.ok) {
+      toast.error(`Couldn't ${verb} ${label}`, { description: outcome.reason });
+      setAnnouncement(`Couldn't ${verb} ${label}.`);
       return;
     }
-    setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
+    if (act === "force") {
+      toast.success(`Started ${label}`);
+      setAnnouncement(`Started ${label}.`);
+      return;
+    }
+    setAnnouncement(
+      `${act === "pause" ? "Paused" : verb === "retry" ? "Retrying" : "Resumed"} ${label}.`,
+    );
   }
 
   async function sendRawTorrent() {
@@ -695,28 +727,28 @@ export default function ClientPage() {
   ) {
     if (!transfers.length) return;
     invalidateInFlight();
-    await Promise.all(
-      transfers.map((torrent) =>
-        fetch("/api/client/torrents", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: act,
-            hash: torrent.hash,
-            ownerClientType: torrent.ownerClientType,
-          }),
-        }),
-      ),
-    );
-    toast.success(
-      act === "pause"
-        ? `Paused ${transfers.length} torrent(s)`
-        : `Resumed ${transfers.length} torrent(s)`,
-    );
-    setAnnouncement(
-      `${act === "pause" ? "Paused" : "Resumed"} ${transfers.length} downloads.`,
+    const outcomes = await Promise.all(
+      transfers.map((torrent) => postRowAction(act, torrent)),
     );
     void load();
+    const reasons = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.reason]));
+    const done = transfers.length - reasons.length;
+    const verbed = act === "pause" ? "Paused" : "Resumed";
+    const what =
+      transfers.length === 1 ? transferLabel(transfers[0]) : plural(transfers.length, "download");
+    if (!reasons.length) {
+      toast.success(`${verbed} ${what}`);
+      setAnnouncement(`${verbed} ${what}.`);
+    } else if (done > 0) {
+      const summary = `${verbed} ${done} of ${transfers.length} downloads`;
+      toast.warning(summary, {
+        description: `${plural(reasons.length, "download")} couldn't ${act}: ${reasons[0]}`,
+      });
+      setAnnouncement(`${summary}.`);
+    } else {
+      toast.error(`Couldn't ${act} ${what}`, { description: reasons[0] });
+      setAnnouncement(`Couldn't ${act} ${what}.`);
+    }
   }
 
   async function bulkAction(act: "pause" | "resume") {
