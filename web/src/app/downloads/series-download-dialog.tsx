@@ -80,7 +80,7 @@ import {
   forcedStartLabel,
   isVerifiedDownload,
   releaseDisplayFacts,
-  sourceTierChip,
+  sourceChip,
   stateBadgeVariant,
   stateLabel,
   rollupChip,
@@ -344,7 +344,7 @@ function EpisodeCard({
   const done = isDownloaded(t.state);
   const query = artworkQueryForRelease(t.name, t.category);
   const display = releaseDisplayFacts(t, query);
-  const source = sourceTierChip(t.name);
+  const source = sourceChip(t.name);
   const epLabel =
     entry.episode != null
       ? `E${String(entry.episode).padStart(2, "0")}`

@@ -93,7 +93,7 @@ import {
 } from "./media-filter";
 import {
   releaseDisplayFacts,
-  sourceTierChip,
+  sourceChip,
   canDownloadNow,
   forcedStartLabel,
   isVerifiedDownload,
@@ -2246,7 +2246,7 @@ function FilmRow({
               <p className="font-medium text-muted-foreground">Details</p>
               {(() => {
                 const facts = [
-                  sourceTierChip(t.name),
+                  sourceChip(t.name),
                   t.ownerClientLabel,
                   t.category,
                   t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,

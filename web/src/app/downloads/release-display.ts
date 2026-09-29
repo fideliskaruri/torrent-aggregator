@@ -9,7 +9,7 @@
  */
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { parseEpisode } from "@/lib/torrents/episodes";
-import { parseResolution, parseSourceTier, SOURCE_TIER } from "@/lib/torrents/quality";
+import { parseResolution, parseSource, type ReleaseSource } from "@/lib/torrents/quality";
 import {
   isDownloaded,
   isDownloading,
@@ -149,12 +149,17 @@ function resolutionChip(raw: string): string | null {
   return resolution ? `${resolution}p` : null;
 }
 
-export function sourceTierChip(raw: string): string | null {
-  const tier = parseSourceTier(raw);
-  if (tier === SOURCE_TIER.WEBDL) return "WEB-DL";
-  if (tier === SOURCE_TIER.HDTV) return "HDTV";
-  if (tier === SOURCE_TIER.BLURAY) return "Blu-ray";
-  return null;
+const SOURCE_CHIPS: Record<ReleaseSource, string | null> = {
+  BLURAY: "Blu-ray",
+  WEBDL: "WEB-DL",
+  WEBRIP: "WEBRip",
+  HDTV: "HDTV",
+  UNKNOWN: null,
+};
+
+/** The source a release name states (Blu-ray, WEB-DL, …), or null when it names none. */
+export function sourceChip(raw: string): string | null {
+  return SOURCE_CHIPS[parseSource(raw)];
 }
 
 export interface ReleaseDisplayFacts {
@@ -167,7 +172,7 @@ export interface ReleaseDisplayFacts {
    *
    * Source/scene tags (WEB-DL, HDTV) are torrent mechanics the product rule
    * hides; they are kept out of the row and surfaced only in the overflow's
-   * Details, via `sourceTierChip`.
+   * Details, via `sourceChip`.
    */
   qualityChip: string | null;
 }
