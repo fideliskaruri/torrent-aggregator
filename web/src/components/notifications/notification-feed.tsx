@@ -82,7 +82,8 @@ export function NotificationFeed() {
     finally { setBusy(false); }
   }
   return (
-    <section className="mx-auto w-full max-w-3xl space-y-4 py-6" data-notification-feed>
+    // The page column (`ActivityColumn`) is the caller's.
+    <section className="space-y-4" data-notification-feed>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Notifications</h1>
         {/* aria-disabled, not disabled: this button has focus when it runs out of work, and a disabled one drops it to <body>. */}
