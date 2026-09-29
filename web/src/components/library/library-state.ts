@@ -6,6 +6,8 @@ export interface LibraryStateItem {
   monitored?: boolean | null;
   cursorSeason?: number | null;
   cursorEpisode?: number | null;
+  /** The season a series was asked to start from. `null` means new episodes only. */
+  fromSeason?: number | null;
   nextEpisodeHint?: string | null;
   latestReleaseMagnet?: string | null;
 }
@@ -33,7 +35,7 @@ export function libraryPageSummary(items: LibraryStateItem[]): string {
       isSeriesMediaType(item.mediaType) &&
       item.monitored !== false &&
       !item.latestReleaseMagnet &&
-      Boolean(nextEpisodeLabel(item)),
+      (Boolean(nextEpisodeLabel(item)) || newEpisodesOnly(item)),
   ).length;
   const paused = items.filter((item) => item.monitored === false).length;
 
@@ -92,6 +94,26 @@ export function libraryItemState(
     };
   }
 
+  // "New episodes only" deliberately stores no start (see
+  // `answersToPayload`), so there is no episode to name yet. That is the
+  // user's answer, not a missing one; asking again would contradict it.
+  if (!nextLabel && newEpisodesOnly(item)) {
+    if (item.monitored === false) {
+      return {
+        kind: "paused",
+        label: "Paused",
+        detail: "Paused. New episodes won't be added until you resume.",
+        nextLabel: null,
+      };
+    }
+    return {
+      kind: "waiting",
+      label: "Waiting for new episodes",
+      detail: "Set to new episodes only. Episodes that already aired are skipped.",
+      nextLabel: null,
+    };
+  }
+
   if (!nextLabel) {
     return {
       kind: "not-set",
@@ -122,6 +144,20 @@ export function automationStateCopy(minutes: number | null): string {
   if (minutes == null) return "Checking schedule…";
   if (minutes <= 0) return "New episodes won't download automatically";
   return "Automatic checks follow each title's schedule";
+}
+
+/**
+ * A series added with "New episodes only": the row says it has no start season
+ * and has no position yet. `null` is that answer; a requester's identity-only
+ * row leaves the field out entirely, which says nothing either way.
+ */
+function newEpisodesOnly(item: LibraryStateItem): boolean {
+  return (
+    isSeriesMediaType(item.mediaType) &&
+    item.fromSeason === null &&
+    item.cursorSeason == null &&
+    !item.nextEpisodeHint?.trim()
+  );
 }
 
 function nextEpisodeLabel(item: LibraryStateItem): string | null {
