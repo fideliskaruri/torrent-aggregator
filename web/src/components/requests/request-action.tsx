@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,11 +31,16 @@ export function RequestAction({
     title?.isSeries === true,
   );
   const canAsk = title?.providerId != null;
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const statusRef = useRef<HTMLSpanElement>(null);
 
   return (
     <>
       {view.label ? (
         <Badge
+          ref={statusRef}
+          // Focus lands here after a request when no button is left to hold it.
+          tabIndex={-1}
           variant={view.tone}
           data-request-status={state.inLibrary ? "available" : (state.requestStatus ?? "pending")}
           className="self-center justify-self-start px-2 py-1 text-[13px]"
@@ -45,6 +50,7 @@ export function RequestAction({
       ) : null}
       {view.action ? (
         <Button
+          ref={buttonRef}
           type="button"
           size={size}
           variant={view.label ? "secondary" : "default"}
@@ -61,6 +67,7 @@ export function RequestAction({
       <RequestDialog
         title={asking}
         onClose={() => setAsking(null)}
+        returnFocusTo={() => buttonRef.current ?? statusRef.current}
         onCreated={() => {
           setSent(true);
           onRequested?.();
