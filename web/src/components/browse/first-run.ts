@@ -47,7 +47,7 @@ export const RAIL_PREVIEWS: readonly RailPreview[] = [
   },
   {
     id: "your-library",
-    title: "Your library",
+    title: "Downloaded",
     blurb: "Series and films that are downloaded and ready to play, newest first.",
     href: "/downloads",
     cta: "Open downloads",
