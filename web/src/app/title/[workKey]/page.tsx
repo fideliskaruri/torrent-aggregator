@@ -44,7 +44,6 @@ export default function TitlePage() {
       sourceType={sp.get("sourceType")}
       format={sp.get("format")}
       seriesHint={sp.get("series")}
-      aliases={sp.getAll("alias")}
       rememberedSeason={rememberedSeason}
     />
   );

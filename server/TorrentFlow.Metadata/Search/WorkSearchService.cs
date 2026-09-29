@@ -88,7 +88,6 @@ public sealed class WorkSearchService
         extra.Add(("sourceType", mediaType));
         if (normalizedFormat != null) extra.Add(("format", normalizedFormat));
         extra.Add(("series", isSeries ? "1" : "0"));
-        extra.AddRange(aliases.Select(a => ("alias", a)));
         return new WorkSearchHit
         {
             WorkKey = workKey, Title = title, Year = year, Category = category, Provider = provider, ProviderId = providerId, Aliases = aliases,

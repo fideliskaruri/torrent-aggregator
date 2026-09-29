@@ -124,7 +124,6 @@ export interface TitleDetailProps {
   sourceType?: string | null;
   format?: string | null;
   seriesHint?: string | null;
-  aliases?: string[];
   /**
    * A season the user picked by hand on a previous visit, read server-side
    * from the durable `tf_season` cookie (see
@@ -285,7 +284,6 @@ export function TitleDetail(props: TitleDetailProps) {
       props.sourceType,
       props.format,
       props.seriesHint,
-      props.aliases,
       props.rememberedSeason,
       season,
     ],
@@ -387,7 +385,6 @@ export function TitleDetail(props: TitleDetailProps) {
       props.sourceType,
       props.format,
       props.seriesHint,
-      props.aliases,
       data?.title,
       data?.year,
       data?.mediaType,
@@ -1702,7 +1699,6 @@ function buildDetailUrl(
   if (props.sourceType) params.set("sourceType", props.sourceType);
   if (props.format) params.set("format", props.format);
   if (props.seriesHint) params.set("series", props.seriesHint);
-  for (const alias of props.aliases ?? []) params.append("alias", alias);
   // Threaded through so `pickSeason` can fall back to a manual pick from a
   // previous visit, even on a fresh link with no `?s=`. Server-side only
   // (read from the cookie in the page component) — see
@@ -1809,7 +1805,6 @@ function buildExtrasUrl(
   if (props.sourceType) params.set("sourceType", props.sourceType);
   if (props.format) params.set("format", props.format);
   if (props.seriesHint) params.set("series", props.seriesHint);
-  for (const alias of props.aliases ?? []) params.append("alias", alias);
 
   return `/api/title/${encodeURIComponent(props.workKey)}/extras?${params.toString()}`;
 }
