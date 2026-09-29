@@ -9,8 +9,11 @@ using static TorrentFlow.Metadata.Providers.TmdbClient;
 
 namespace TorrentFlow.Metadata.Providers;
 
+/// <param name="Weight">TVmaze popularity weight (0–100).</param>
+/// <param name="Type">TVmaze show type such as Scripted or Animation.</param>
 public sealed record TvmazeCandidate(int Id, string Title, int? Year, string? PosterUrl, double Score, string? Summary,
-    IReadOnlyList<string> Genres, double? Rating, string? Premiered, int? RuntimeMin, string? ImdbId = null, int? TvdbId = null);
+    IReadOnlyList<string> Genres, double? Rating, string? Premiered, int? RuntimeMin, string? ImdbId = null, int? TvdbId = null,
+    int? Weight = null, string? Type = null);
 
 public sealed record TvmazeEpisode(int Season, int Episode, string? Name, string? AirDate, int? RuntimeMin, string? StillUrl, string? AirStamp = null);
 
@@ -85,7 +88,8 @@ public sealed partial class KeylessClients(IHttpClientFactory httpFactory, Sourc
                 Optional(Str(show, "summary")), StrArray(show, "genres").Where(g => g.Trim().Length > 0).ToList(), rating,
                 DateOnlyString(premiered), PositiveInt(show, "runtime") ?? PositiveInt(show, "averageRuntime"),
                 show.TryGetProperty("externals", out var external) && external.ValueKind == JsonValueKind.Object ? Str(external, "imdb") : null,
-                external.ValueKind == JsonValueKind.Object ? Int(external, "thetvdb") : null));
+                external.ValueKind == JsonValueKind.Object ? Int(external, "thetvdb") : null,
+                Int(show, "weight"), Str(show, "type")));
         }
         return output;
     }

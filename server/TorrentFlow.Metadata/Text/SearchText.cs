@@ -48,6 +48,14 @@ public static partial class QueryVariants
         return joined.Length > 0 ? joined : normalized;
     }
 
+    /// <summary>Years typed next to a title ("dune 1984"); empty when the year is the title itself ("1917").</summary>
+    public static IReadOnlyList<int> QueryYears(string raw)
+    {
+        if (YearToken().IsMatch(SearchIntentQuery(raw))) return [];
+        return Spaces(NonAlnum().Replace(Canonicalize(raw), " ").Trim()).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(t => YearToken().IsMatch(t)).Select(t => int.Parse(t, CultureInfo.InvariantCulture)).Distinct().ToList();
+    }
+
     public static List<string> SearchTitleVariants(string title)
     {
         var raw = (title ?? "").Trim();
@@ -196,6 +204,42 @@ public static partial class Relevance
     }
 
     public static bool HasRelevantTitle(string query, IEnumerable<string?> names) => BestTier(query, names) < 6;
+
+    /// <summary>
+    /// How closely the best of a work's names matches the query, 0–1. Within a tier, a name the query covers more of
+    /// scores higher ("dune" is all of "Dune" but a third of "Dune: Part Two"). A fuzzy match only scores well in
+    /// <paramref name="typoMode"/>, when nothing matched the typed text literally ("the baer" → The Bear).
+    /// </summary>
+    public static double MatchScore(string query, IEnumerable<string?> names, bool typoMode)
+    {
+        var best = 0.0;
+        foreach (var name in names)
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            var tier = QueryRelevanceTier(query, name);
+            var coverage = tier is >= 1 and <= 4 ? Coverage(query, name) : 0;
+            best = Math.Max(best, tier switch
+            {
+                0 => 1.0,
+                1 => 0.7 + 0.3 * coverage,
+                2 => 0.5 + 0.3 * coverage,
+                3 => 0.4 + 0.2 * coverage,
+                4 => 0.3 + 0.2 * coverage,
+                5 => typoMode ? 0.75 : 0.3,
+                _ => 0,
+            });
+        }
+        return best;
+    }
+
+    private static double Coverage(string query, string name)
+    {
+        var nameLength = TextUtil.CodePoints(CompactBare(name)).Length;
+        if (nameLength == 0) return 0;
+        return Math.Min(1, (double)TextUtil.CodePoints(CompactBare(QueryVariants.SearchIntentQuery(query))).Length / nameLength);
+    }
+
+    private static string CompactBare(string value) => LeadingArticle().Replace(NormalizeForMatch(value), "").Replace(" ", "");
 
     /// <summary>Port of rankTitleHitsByRelevance (components/search/title-search.ts).</summary>
     public static List<T> RankTitleHits<T>(IReadOnlyList<T> hits, string query, Func<T, string> title, Func<T, IEnumerable<string>?> aliases)

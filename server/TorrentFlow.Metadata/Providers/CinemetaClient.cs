@@ -11,6 +11,7 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
 {
     public const string Base = "https://v3-cinemeta.strem.io";
     private readonly BoundedTtlCache<JsonElement> cache = new(400, TimeProvider.System);
+    private readonly SingleFlight<JsonElement?> suggestFlight = new();
 
     private async Task<JsonElement?> Get(string path, CancellationToken ct)
     {
@@ -55,27 +56,8 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
 
     private async Task<List<MediaMetadata>> SuggestAsync(string query, string type, CancellationToken ct)
     {
-        var term = query.Trim().ToLowerInvariant();
-        if (term.Length < 2 || term.Length > 120) return [];
-        if (registry is not null && !registry.Active("metadata").Any(e => e.Type == "cinemeta")) return [];
-        var key = $"suggest:{Kind(type)}:{term}";
-        JsonElement root;
-        if (!cache.TryGet(key, out root))
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            try
-            {
-                using var client = http.CreateClient(HttpClientName);
-                using var response = await client.GetAsync(ImdbSuggest + Uri.EscapeDataString(term) + ".json", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-                if (!response.IsSuccessStatusCode) return [];
-                using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, timeout.Token);
-                root = doc.RootElement.Clone();
-                cache.Set(key, root, TimeSpan.FromMinutes(15));
-            }
-            catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or OperationCanceledException or JsonException) { return []; }
-        }
-        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array) return [];
+        if (await SuggestRootAsync(query, ct) is not { ValueKind: JsonValueKind.Object } root ||
+            !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array) return [];
         var kinds = Kind(type) == "series" ? SeriesKinds : MovieKinds;
         var list = new List<MediaMetadata>();
         foreach (var hit in hits.EnumerateArray())
@@ -94,6 +76,57 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
             });
         }
         return list;
+    }
+
+    /// <summary>
+    /// IMDb popularity rank per title id (1 = most popular) for the works IMDb suggests for this query.
+    /// Search ranking uses it to put the work people mean ahead of obscure namesakes; empty when unavailable.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, int>> ImdbRanksAsync(string query, CancellationToken ct = default)
+    {
+        var ranks = new Dictionary<string, int>(StringComparer.Ordinal);
+        JsonElement? payload;
+        try { payload = await SuggestRootAsync(query, ct); }
+        catch (Exception) when (!ct.IsCancellationRequested) { return ranks; }
+        if (payload is not { ValueKind: JsonValueKind.Object } root || !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array)
+            return ranks;
+        foreach (var hit in hits.EnumerateArray())
+        {
+            if (hit.ValueKind != JsonValueKind.Object || Str(hit, "id") is not { } id || !id.StartsWith("tt", StringComparison.Ordinal)) continue;
+            if (hit.TryGetProperty("rank", out var rank) && rank.ValueKind == JsonValueKind.Number && rank.TryGetInt32(out var value) && value > 0)
+                ranks.TryAdd(id, value);
+        }
+        return ranks;
+    }
+
+    /// <summary>
+    /// IMDb's suggestion payload for a query. Movie search, series search and search ranking all ask for the same term
+    /// at once, so one detached fetch serves every caller and is cached.
+    /// </summary>
+    private async Task<JsonElement?> SuggestRootAsync(string query, CancellationToken ct)
+    {
+        var term = query.Trim().ToLowerInvariant();
+        if (term.Length < 2 || term.Length > 120) return null;
+        if (registry is not null && !registry.Active("metadata").Any(e => e.Type == "cinemeta")) return null;
+        var key = $"suggest:{term}";
+        if (cache.TryGet(key, out var cached)) return cached;
+        return await suggestFlight.RunAsync(key, () => FetchSuggestAsync(term, key), ct);
+    }
+
+    private async Task<JsonElement?> FetchSuggestAsync(string term, string key)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        try
+        {
+            using var client = http.CreateClient(HttpClientName);
+            using var response = await client.GetAsync(ImdbSuggest + Uri.EscapeDataString(term) + ".json", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (!response.IsSuccessStatusCode) return null;
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, timeout.Token);
+            var root = doc.RootElement.Clone();
+            cache.Set(key, root, TimeSpan.FromMinutes(15));
+            return root;
+        }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException) { return null; }
     }
 
     private static bool SameTitle(string? a, string b) =>
