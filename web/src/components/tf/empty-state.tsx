@@ -11,13 +11,19 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 
-/** "There is nothing here yet", built on the shadcn `Empty` parts. */
+/**
+ * "There is nothing here yet", built on the shadcn `Empty` parts.
+ *
+ * `headingLevel` exposes the title as a heading when the empty state is the
+ * whole page.
+ */
 export function TfEmptyState({
   icon: Icon,
   title,
   description,
   actionLabel,
   actionHref,
+  headingLevel,
   className,
 }: {
   icon?: LucideIcon;
@@ -25,6 +31,7 @@ export function TfEmptyState({
   description?: string;
   actionLabel?: string;
   actionHref?: string;
+  headingLevel?: 1 | 2 | 3;
   className?: string;
 }) {
   return (
@@ -38,7 +45,13 @@ export function TfEmptyState({
             <Icon className="size-5" strokeWidth={1.75} />
           </EmptyMedia>
         ) : null}
-        <EmptyTitle className="text-foreground">{title}</EmptyTitle>
+        <EmptyTitle
+          className="text-foreground"
+          role={headingLevel ? "heading" : undefined}
+          aria-level={headingLevel}
+        >
+          {title}
+        </EmptyTitle>
         {description ? (
           <EmptyDescription className="text-[13px] text-subtle-foreground">
             {description}
