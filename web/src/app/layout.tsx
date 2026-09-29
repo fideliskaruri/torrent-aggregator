@@ -13,6 +13,7 @@ import { FeaturesProvider } from "@/lib/features";
 import { SessionProvider } from "@/lib/session";
 import { ShellGate } from "@/components/layout/shell-gate";
 import { PreviewBanner } from "@/components/layout/preview-banner";
+import { useRouteDocumentTitle } from "@/hooks/use-document-title";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./fonts.css";
@@ -31,6 +32,7 @@ const scrollKey = (location: Location) =>
  * shell; what each person sees comes from `useCapabilities()`.
  */
 export default function RootLayout() {
+  useRouteDocumentTitle();
   return (
     <>
       <ScrollRestoration getKey={scrollKey} />
