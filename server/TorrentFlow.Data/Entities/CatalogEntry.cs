@@ -23,6 +23,9 @@ public partial class CatalogEntry
 
     public double? Rating { get; set; }
 
+    /// <summary>The provider that supplied <see cref="Rating"/> ("cinemeta", "tmdb", ...), or null when unknown.</summary>
+    public string? RatingSource { get; set; }
+
     public string Source { get; set; } = null!;
 
     public int Rank { get; set; }

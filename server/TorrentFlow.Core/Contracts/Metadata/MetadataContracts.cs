@@ -61,7 +61,7 @@ public interface IMetadataResolver
         };
 }
 
-/// <summary>A catalog row as used by the title page and browse rails.</summary>
+/// <summary>A catalog row as used by the title page and browse rails. <paramref name="RatingSource"/> names who supplied <paramref name="Rating"/>, or null when unknown.</summary>
 public sealed record CatalogWork(
     string Id,
     string WorkKey,
@@ -75,7 +75,8 @@ public sealed record CatalogWork(
     string Source,
     int Rank,
     string? ReleaseDate,
-    string? WorkId);
+    string? WorkId,
+    string? RatingSource = null);
 
 /// <summary>Catalog / work lookups for the title page.</summary>
 public interface ICatalogLookup

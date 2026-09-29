@@ -332,6 +332,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("REAL")
                         .HasColumnName("rating");
 
+                    b.Property<string>("RatingSource")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("ratingSource");
+
                     b.Property<string>("RefreshedAt")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
