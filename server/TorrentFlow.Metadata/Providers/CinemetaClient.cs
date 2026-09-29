@@ -44,7 +44,7 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         var suggested = await suggest;
         // IMDb's exact title wins for the same id: Cinemeta lists tt1160419 as "Dune: Part One", IMDb as "Dune".
         var imdbTitles = suggested.Where(s => s.ExternalId is not null).GroupBy(s => s.ExternalId!).ToDictionary(g => g.Key, g => g.First().Title);
-        rows = rows.Select(r => r.ExternalId is { } id && imdbTitles.TryGetValue(id, out var t) && !SameTitle(r.Title, query) ? r with { Title = t } : r).ToList();
+        rows = rows.Select(r => r.ExternalId is { } id && imdbTitles.TryGetValue(id, out var t) && !SameTitle(r.Title, query) ? WithImdbTitle(r, t) : r).ToList();
         if (rows.Any(r => SameTitle(r.Title, query))) return rows;
         var extra = suggested.Where(s => rows.All(r => r.ExternalId != s.ExternalId));
         return extra.Concat(rows).Take(limit).ToList();
@@ -57,25 +57,8 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
     {
         var term = query.Trim().ToLowerInvariant();
         if (term.Length < 2 || term.Length > 120) return [];
-        if (registry is not null && !registry.Active("metadata").Any(e => e.Type == "cinemeta")) return [];
-        var key = $"suggest:{Kind(type)}:{term}";
-        JsonElement root;
-        if (!cache.TryGet(key, out root))
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            try
-            {
-                using var client = http.CreateClient(HttpClientName);
-                using var response = await client.GetAsync(ImdbSuggest + Uri.EscapeDataString(term) + ".json", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-                if (!response.IsSuccessStatusCode) return [];
-                using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, timeout.Token);
-                root = doc.RootElement.Clone();
-                cache.Set(key, root, TimeSpan.FromMinutes(15));
-            }
-            catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or OperationCanceledException or JsonException) { return []; }
-        }
-        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array) return [];
+        if (await Suggestions(term, ct) is not { ValueKind: JsonValueKind.Object } root ||
+            !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array) return [];
         var kinds = Kind(type) == "series" ? SeriesKinds : MovieKinds;
         var list = new List<MediaMetadata>();
         foreach (var hit in hits.EnumerateArray())
@@ -96,6 +79,43 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
         return list;
     }
 
+    /// <summary>IMDb's suggestion index for a search term or a bare tt id, shared by search and by-id lookups.</summary>
+    private async Task<JsonElement?> Suggestions(string term, CancellationToken ct)
+    {
+        if (registry is not null && !registry.Active("metadata").Any(e => e.Type == "cinemeta")) return null;
+        var key = $"suggest:{term}";
+        if (cache.TryGet(key, out var cached)) return cached;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            using var client = http.CreateClient(HttpClientName);
+            using var response = await client.GetAsync(ImdbSuggest + Uri.EscapeDataString(term) + ".json", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            if (!response.IsSuccessStatusCode) return null;
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, timeout.Token);
+            var root = doc.RootElement.Clone();
+            cache.Set(key, root, TimeSpan.FromMinutes(15));
+            return root;
+        }
+        catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or OperationCanceledException or JsonException) { return null; }
+    }
+
+    /// <summary>The title IMDb shows for an id, or null when IMDb does not answer.</summary>
+    private async Task<string?> ImdbTitleAsync(string id, CancellationToken ct)
+    {
+        if (await Suggestions(id, ct) is not { ValueKind: JsonValueKind.Object } root ||
+            !root.TryGetProperty("d", out var hits) || hits.ValueKind != JsonValueKind.Array) return null;
+        foreach (var hit in hits.EnumerateArray())
+            if (hit.ValueKind == JsonValueKind.Object && Str(hit, "id") == id && Str(hit, "l") is { } label && label.Trim().Length > 0)
+                return label.Trim();
+        return null;
+    }
+
+    /// <summary>IMDb's title becomes the name and Cinemeta's differing one stays as an alias, so either still identifies the work.</summary>
+    private static MediaMetadata WithImdbTitle(MediaMetadata row, string? imdbTitle) =>
+        imdbTitle is null || SameTitle(row.Title, imdbTitle) ? row
+            : row with { Title = imdbTitle, Aliases = [.. row.Aliases ?? [], row.Title] };
+
     private static bool SameTitle(string? a, string b) =>
         a is not null && string.Equals(Fold(a), Fold(b), StringComparison.Ordinal);
 
@@ -113,8 +133,13 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
     public async Task<MediaMetadata?> GetByIdAsync(string id, string type, CancellationToken ct = default)
     {
         if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^tt[0-9]+$")) return null;
+        // Search names an id the way IMDb does (see SearchAsync), so the record for that id must answer to the same name:
+        // a "dune-2021" link built from the "Dune" hit is checked against tt1160419, which Cinemeta calls "Dune: Part One".
+        var imdbTitle = ImdbTitleAsync(id, ct);
         var root = await Get($"/meta/{Kind(type)}/{id}.json", ct);
-        return root is { ValueKind: JsonValueKind.Object } obj && obj.TryGetProperty("meta", out var meta) ? Map(meta, type) : null;
+        var meta = root is { ValueKind: JsonValueKind.Object } obj && obj.TryGetProperty("meta", out var row) ? Map(row, type) : null;
+        var title = await imdbTitle;
+        return meta is null ? null : WithImdbTitle(meta, title);
     }
     private static string Kind(string type) => type is "tv" or "series" ? "series" : "movie";
     private static MediaMetadata? Map(JsonElement row, string type)
