@@ -1,3 +1,4 @@
+import type { MouseEventHandler } from "react";
 import { Link } from "react-router";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,8 @@ import {
  * "There is nothing here yet", built on the shadcn `Empty` parts.
  *
  * `headingLevel` exposes the title as a heading when the empty state is the
- * whole page.
+ * whole page. `onAction` lets the action do more than follow its link, such as
+ * opening the search overlay; the link still works when the handler lets it.
  */
 export function TfEmptyState({
   icon: Icon,
@@ -23,6 +25,7 @@ export function TfEmptyState({
   description,
   actionLabel,
   actionHref,
+  onAction,
   headingLevel,
   className,
 }: {
@@ -31,6 +34,7 @@ export function TfEmptyState({
   description?: string;
   actionLabel?: string;
   actionHref?: string;
+  onAction?: MouseEventHandler<HTMLAnchorElement>;
   headingLevel?: 1 | 2 | 3;
   className?: string;
 }) {
@@ -61,7 +65,9 @@ export function TfEmptyState({
       {actionLabel && actionHref ? (
         <EmptyContent>
           <Button asChild size="sm">
-            <Link to={actionHref}>{actionLabel}</Link>
+            <Link to={actionHref} onClick={onAction}>
+              {actionLabel}
+            </Link>
           </Button>
         </EmptyContent>
       ) : null}
