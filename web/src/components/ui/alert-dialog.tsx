@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
+import { useFocusReturn } from "@/components/ui/focus-return"
 
 function AlertDialog({
   ...props
@@ -47,10 +48,15 @@ function AlertDialogOverlay({
 function AlertDialogContent({
   className,
   size = "default",
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
 }) {
+  // Radix focuses Cancel on open and nothing on close; this sends focus back
+  // to whatever opened the dialog (see `focus-return.ts`).
+  const focusReturn = useFocusReturn(onOpenAutoFocus, onCloseAutoFocus)
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -62,6 +68,7 @@ function AlertDialogContent({
           className
         )}
         {...props}
+        {...focusReturn}
       />
     </AlertDialogPortal>
   )

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
+import { keepFocusNear } from "@/components/ui/focus-return";
 import { Label } from "@/components/ui/label";
 import { PageSkeletonFrame } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -68,7 +69,9 @@ export function NotificationFeed() {
   });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const nothingUnread = !data?.unreadCount;
   async function read(id?: string) {
+    if (busy) return;
     setBusy(true);
     setActionError(null);
     try {
@@ -82,7 +85,8 @@ export function NotificationFeed() {
     <section className="mx-auto w-full max-w-3xl space-y-4 py-6" data-notification-feed>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-foreground">Notifications</h1>
-        <Button variant="outline" disabled={busy || !data?.unreadCount} onClick={() => void read()}
+        {/* aria-disabled, not disabled: this button has focus when it runs out of work, and a disabled one drops it to <body>. */}
+        <Button variant="outline" aria-disabled={busy || nothingUnread || undefined} onClick={() => { if (!nothingUnread) void read(); }}
           aria-label="Mark all notifications read" data-notifications-read-all className="min-h-11">Mark all read</Button>
       </div>
       <PushToggle />
@@ -123,7 +127,12 @@ export function NotificationFeed() {
                       aria-label={`Open ${item.title}`} data-notification-open>View details</Link>
                   </Button>}
                 </div>
-                {!item.readAt && <Button variant="ghost" disabled={busy} onClick={() => void read(item.id)}
+                {!item.readAt && <Button variant="ghost" aria-disabled={busy || undefined} onClick={(event) => {
+                  if (busy) return;
+                  // The button goes once the item is read; keep focus in the list rather than on <body>.
+                  keepFocusNear(event.currentTarget);
+                  void read(item.id);
+                }}
                   aria-label={`Mark ${item.title} read`} data-notification-read className="min-h-11">Mark read</Button>}
               </li>)}
             </ul>

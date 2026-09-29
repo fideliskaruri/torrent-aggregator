@@ -3,6 +3,7 @@ import { cn } from "@/lib/utils"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { Button } from "@/components/ui/button"
+import { useFocusReturn } from "@/components/ui/focus-return"
 import { XIcon } from "lucide-react"
 
 function Dialog({
@@ -50,6 +51,8 @@ function DialogContent({
   children,
   showCloseButton = true,
   mobileFullscreen = false,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -61,6 +64,8 @@ function DialogContent({
    */
   mobileFullscreen?: boolean
 }) {
+  // Closing returns focus to whatever opened the dialog (see `focus-return.ts`).
+  const focusReturn = useFocusReturn(onOpenAutoFocus, onCloseAutoFocus)
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -73,6 +78,7 @@ function DialogContent({
           className
         )}
         {...props}
+        {...focusReturn}
       >
         {children}
         {showCloseButton && (

@@ -270,7 +270,8 @@ export default function ClientPage() {
     if (!streaming) setPlaying(null);
   }, [streaming]);
   const [announcement, setAnnouncement] = useState("");
-  const deleteOpenerRef = useRef<HTMLElement | null>(null);
+  // The series dialog also remounts when playback ends, and nothing on the
+  // page has focus then; this is the row its close still belongs to.
   const seriesDialogOpenerRef = useRef<HTMLElement | null>(null);
   const [openGroupTitle, setOpenGroupTitle] = useState("");
   const showLoading = useStableLoading(loading && !torrents.length && !error);
@@ -819,8 +820,6 @@ export default function ClientPage() {
           ? `Removed ${results.length} downloads and their files.`
           : `Removed ${results.length} downloads; files were kept.`,
       );
-      const opener = deleteOpenerRef.current;
-      if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
       void load();
     } catch {
       toast.error("Network error deleting torrent(s)");
@@ -976,11 +975,7 @@ export default function ClientPage() {
     });
   }
 
-  function openDeleteDialog(
-    torrentsToDelete: ClientTorrent[],
-    opener?: EventTarget | null,
-  ) {
-    if (opener instanceof HTMLElement) deleteOpenerRef.current = opener;
+  function openDeleteDialog(torrentsToDelete: ClientTorrent[]) {
     setPendingDelete(torrentsToDelete);
   }
 
@@ -1473,10 +1468,9 @@ export default function ClientPage() {
               <Button
                 size="sm"
                 variant="destructive"
-                onClick={(event) =>
+                onClick={() =>
                   openDeleteDialog(
                     torrents.filter((t) => selected.has(t.transferId)),
-                    event.currentTarget,
                   )
                 }
                 data-bulk-delete
@@ -1668,11 +1662,7 @@ export default function ClientPage() {
       <AlertDialog
         open={!!pendingDelete}
         onOpenChange={(open) => {
-          if (!open && !deleting) {
-            setPendingDelete(null);
-            const opener = deleteOpenerRef.current;
-            if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
-          }
+          if (!open && !deleting) setPendingDelete(null);
         }}
       >
         <AlertDialogContent data-delete-dialog>
@@ -1780,7 +1770,7 @@ function SeriesOverviewRow({
   onToggleGroupSelect: (transferIds: string[]) => void;
   onOpenDetails: (key: string, opener?: EventTarget | null) => void;
   onActionMany: (act: "pause" | "resume", transfers: ClientTorrent[]) => void;
-  onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
+  onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
   const pct = progressPercent(group.progress);
   const head = group.torrents[0];
@@ -1949,7 +1939,7 @@ function SeriesOverviewRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onClick={(event) => onDeleteRequest([...group.torrents], event.currentTarget)}
+              onClick={() => onDeleteRequest([...group.torrents])}
               data-group-delete
             >
               <Trash2 />
@@ -1996,7 +1986,7 @@ function FilmRow({
   onOpenFolder: (t: ClientTorrent) => void;
   onCopyStreamUrl: (t: ClientTorrent) => void;
   onCopyMagnet: (t: ClientTorrent) => void;
-  onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
+  onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
   const pct = progressPercent(t.progress);
   const query = artworkQueryForRelease(t.name, t.category);
@@ -2328,7 +2318,7 @@ function FilmRow({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onClick={(event) => onDeleteRequest([t], event.currentTarget)}
+              onClick={() => onDeleteRequest([t])}
               data-delete-torrent
             >
               <Trash2 />

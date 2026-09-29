@@ -118,7 +118,7 @@ export interface SeriesDownloadDialogProps {
   onOpenFolder: (torrent: ClientTorrent) => void;
   onCopyStreamUrl: (torrent: ClientTorrent) => void;
   onCopyMagnet: (torrent: ClientTorrent) => void;
-  onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
+  onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }
 
 function barTone(state: string): string {
@@ -303,7 +303,7 @@ function SeriesActionsMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
-          onClick={(event) => onDeleteRequest([...group.torrents], event.currentTarget)}
+          onClick={() => onDeleteRequest([...group.torrents])}
           data-group-delete
         >
           <Trash2 />
@@ -609,7 +609,7 @@ function EpisodeCard({
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onClick={(event) => onDeleteRequest([t], event.currentTarget)}
+              onClick={() => onDeleteRequest([t])}
               data-episode-delete
             >
               <Trash2 />
@@ -935,12 +935,11 @@ export function SeriesDownloadDialog({
             <Button
               size="sm"
               variant="destructive"
-              onClick={(event) =>
+              onClick={() =>
                 onDeleteRequest(
                   group.torrents.filter((torrent) =>
                     selectedTransferIdsInGroup.includes(torrent.transferId),
                   ),
-                  event.currentTarget,
                 )
               }
             >
