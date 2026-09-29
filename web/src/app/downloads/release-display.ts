@@ -228,3 +228,8 @@ export function transferLabel(torrent: ClientTorrent): string {
   const { title, episodeLabel } = releaseDisplayFacts(torrent);
   return episodeLabel ? `${title} ${episodeLabel}` : title;
 }
+
+/** How a message names a set of downloads: a lone one by its label, more than one as "N downloads". */
+export function transfersLabel(torrents: readonly ClientTorrent[]): string {
+  return torrents.length === 1 ? transferLabel(torrents[0]) : `${torrents.length} downloads`;
+}

@@ -104,6 +104,7 @@ import {
   rollupChip,
   transferErrorMessage,
   transferLabel,
+  transfersLabel,
   waitReasonLabel,
 } from "./release-display";
 import {
@@ -742,8 +743,7 @@ export default function ClientPage() {
     const reasons = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.reason]));
     const done = transfers.length - reasons.length;
     const verbed = act === "pause" ? "Paused" : "Resumed";
-    const what =
-      transfers.length === 1 ? transferLabel(transfers[0]) : plural(transfers.length, "download");
+    const what = transfersLabel(transfers);
     if (!reasons.length) {
       toast.success(`${verbed} ${what}`);
       setAnnouncement(`${verbed} ${what}.`);
@@ -765,6 +765,8 @@ export default function ClientPage() {
 
   async function confirmDelete(deleteFiles: boolean) {
     if (!pendingDelete?.length) return;
+    const what = transfersLabel(pendingDelete);
+    const their = pendingDelete.length === 1 ? "its" : "their";
     setDeleting(true);
     // A poll that started before this delete would answer from a pre-delete
     // snapshot and resurrect the rows; discard anything already in flight.
@@ -816,9 +818,10 @@ export default function ClientPage() {
               : {
                   ok: false,
                   name: t.name,
-                  msg: data
-                    ? data.message || data.error || `HTTP ${res.status}`
-                    : "Bad response",
+                  msg:
+                    data?.message ||
+                    data?.error ||
+                    `TorrentFlow answered HTTP ${res.status}. Try again.`,
                 },
           );
         }
@@ -835,31 +838,43 @@ export default function ClientPage() {
                 name: t.name,
                 msg: data.message || data.error,
               }
-            : { ok: false, name: t.name, msg: "Bad response" },
+            : {
+                ok: false,
+                name: t.name,
+                msg: `TorrentFlow answered HTTP ${res.status}. Try again.`,
+              },
         );
       }
       const failed = results.filter((r) => !r.ok);
-      if (failed.length) {
-        toast.error(
-          `Failed to delete ${failed.length}: ${failed[0].msg || "error"}`,
-        );
+      const removed = results.length - failed.length;
+      if (!failed.length) {
+        const summary = deleteFiles
+          ? `Removed ${what} and ${their} files`
+          : `Removed ${what} but kept ${their} files`;
+        toast.success(summary);
+        setAnnouncement(`${summary}.`);
       } else {
-        toast.success(
-          deleteFiles
-            ? `Removed ${results.length} torrent(s) and files`
-            : `Removed ${results.length} from client (files kept)`,
-        );
+        const reason = failed[0].msg?.trim() || "TorrentFlow couldn't remove it. Try again.";
+        const summary = removed
+          ? `Removed ${removed} of ${results.length} downloads`
+          : `Couldn't remove ${what}`;
+        if (removed) {
+          toast.warning(summary, {
+            description: `${plural(failed.length, "download")} couldn't be removed: ${reason}`,
+          });
+        } else {
+          toast.error(summary, { description: reason });
+        }
+        setAnnouncement(`${summary}.`);
       }
       setSelected(new Set());
       setPendingDelete(null);
-      setAnnouncement(
-        deleteFiles
-          ? `Removed ${results.length} downloads and their files.`
-          : `Removed ${results.length} downloads; files were kept.`,
-      );
       void load();
     } catch {
-      toast.error("Network error deleting torrent(s)");
+      toast.error(`Couldn't remove ${what}`, {
+        description: "Couldn't reach TorrentFlow. Try again.",
+      });
+      setAnnouncement(`Couldn't remove ${what}.`);
     } finally {
       setDeleting(false);
     }
@@ -1718,11 +1733,7 @@ export default function ClientPage() {
         <AlertDialogContent data-delete-dialog>
           <AlertDialogHeader>
             <AlertDialogTitle id="delete-dialog-title">
-              Delete{" "}
-              {pendingDelete && pendingDelete.length > 1
-                ? `${pendingDelete.length} torrents`
-                : "torrent"}
-              ?
+              {pendingDelete ? `Delete ${transfersLabel(pendingDelete)}?` : "Delete download?"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
@@ -1743,7 +1754,7 @@ export default function ClientPage() {
                     <p className="text-sm text-foreground font-medium line-clamp-2">
                       {pendingDelete.length === 1
                         ? pendingDelete[0].name
-                        : `${pendingDelete[0].name} and ${pendingDelete.length - 1} more`}
+                        : `${transferLabel(pendingDelete[0])} and ${pendingDelete.length - 1} more`}
                     </p>
                     {pendingDelete[0].savePath ? (
                       <p className="text-[12px] font-mono text-subtle-foreground break-all">
