@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from "react-router";
 import { Lock } from "lucide-react";
 import { TfEmptyState } from "@/components/tf/empty-state";
+import { useDocumentTitle } from "@/hooks/use-document-title";
 import { useCapabilities } from "@/lib/capabilities";
 import { routeRequirement } from "@/lib/navigation";
 
@@ -18,6 +19,7 @@ export function CapabilityGuard() {
 }
 
 export function NotAvailable() {
+  useDocumentTitle("Not available");
   return (
     <div className="container-app max-w-xl py-8 sm:py-12 min-w-0" data-not-available>
       <TfEmptyState

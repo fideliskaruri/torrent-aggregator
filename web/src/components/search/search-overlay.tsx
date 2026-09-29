@@ -30,6 +30,8 @@ import {
 } from "@/components/ui/input-group";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { documentTitleFor } from "@/hooks/use-document-title";
+import { SEARCH_HREF } from "@/lib/navigation";
 import { TitleResultsList } from "./title-results-list";
 import { titlesFromSearchHits } from "./title-search";
 import { partialResultsNotice } from "./partial-results-notice";
@@ -193,6 +195,19 @@ export function SearchOverlay() {
     const frame = requestAnimationFrame(close);
     return () => cancelAnimationFrame(frame);
   }, [open, pathname, close]);
+
+  // The overlay puts /search in the address bar without a router navigation,
+  // so the route title never changes. Name the tab while it is open, and give
+  // the page underneath its title back unless something renamed the tab since.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.title;
+    const applied = documentTitleFor(SEARCH_HREF);
+    document.title = applied;
+    return () => {
+      if (document.title === applied) document.title = previous;
+    };
+  }, [open]);
 
   function runSearch(q: string, scope: WorkSearchScope) {
     if (!mountedRef.current || !activeRef.current) return;

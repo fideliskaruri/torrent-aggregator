@@ -63,6 +63,9 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
         var source = registry.Find(id);
         if (source is null) return NotFound();
         var credential = registry.Credential(source);
+        // Without a key TMDB answers 401, which read as "check its URL". Name the real cause instead.
+        if (source.Type == "tmdb" && !TmdbCredentials.IsUsable(credential))
+            return Ok(new { ok = false, status = "credential_required", message = "TMDB needs an API key. Add one, or turn TMDB off." });
         try
         {
             return await SourceExecution.RunAsync<IActionResult>(source, async token =>
@@ -104,6 +107,7 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
                     if (!ok)
                         message = "That address answered, but not as a Torznab indexer.";
                 }
+                if (!response.IsSuccessStatusCode) message = FailureMessage(source.Type, (int)response.StatusCode);
                 return Ok(new { ok, status = ok ? "ok" : "unavailable", message });
             }, ct);
         }
@@ -120,7 +124,7 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
                 var detail = http.InnerException?.Message ?? http.Message;
                 message = detail.Contains("refused", StringComparison.OrdinalIgnoreCase)
                         || detail.Contains("actively refused", StringComparison.OrdinalIgnoreCase)
-                    ? "Could not connect — the host refused the connection."
+                    ? "Could not connect. The host refused the connection."
                     : detail.Contains("No such host", StringComparison.OrdinalIgnoreCase)
                         || detail.Contains("not known", StringComparison.OrdinalIgnoreCase)
                         || detail.Contains("Name or service not known", StringComparison.OrdinalIgnoreCase)
@@ -137,4 +141,19 @@ public sealed class SourcesController(SourceRegistry registry, IHttpClientFactor
             return Ok(new { ok = false, status = "unavailable", message });
         }
     }
+
+    /// <summary>Why a source that answered did not pass, in words that point at the fix.</summary>
+    internal static string FailureMessage(string type, int status) => status switch
+    {
+        401 or 403 => type switch
+        {
+            "tmdb" => "TMDB did not accept the API key. Check the key and try again.",
+            "torznab" => "The indexer did not accept the API key. Check the key and try again.",
+            _ => "The source refused the request. It may need a key, or it may block this network.",
+        },
+        404 => "The source answered, but that address was not found. Check the base URL.",
+        429 => "The source is limiting requests. Wait a minute and try again.",
+        >= 500 => "The source is having problems right now. Try again later.",
+        _ => $"The source answered with HTTP {status}. Check its settings and try again.",
+    };
 }

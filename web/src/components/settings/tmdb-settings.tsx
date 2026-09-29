@@ -74,11 +74,11 @@ export function TmdbSettings({ embedded = false, onChanged }: { embedded?: boole
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" data-tmdb-save disabled={busy || !key.trim() || !status}
+        <Button type="button" data-tmdb-save aria-label="Save TMDB key" disabled={busy || !key.trim() || !status}
           onClick={() => void update("save")}>Save</Button>
-        <Button type="button" variant="secondary" data-tmdb-test disabled={busy || (!key.trim() && !status?.configured)}
+        <Button type="button" variant="secondary" data-tmdb-test aria-label="Test TMDB key" disabled={busy || (!key.trim() && !status?.configured)}
           onClick={() => void update("test")}>Test</Button>
-        <Button type="button" variant="ghost" data-tmdb-remove disabled={busy || status?.source !== "settings"}
+        <Button type="button" variant="ghost" data-tmdb-remove aria-label="Remove saved TMDB key" disabled={busy || status?.source !== "settings"}
           onClick={() => void update("remove")}>Remove</Button>
       </div>
       {busy && status && <p role="status" className="text-sm">Updating TMDB settings…</p>}

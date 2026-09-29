@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
+import { useLocation } from "react-router";
 import { titleForRoute } from "@/lib/navigation";
 
 const DEFAULT_DOCUMENT_TITLE = "TorrentFlow";
@@ -23,13 +24,31 @@ export function documentTitleFor(
 }
 
 /**
- * The SPA's replacement for Next.js `metadata.title`: the root layout's
- * `template: "%s · TorrentFlow"` / `default: "TorrentFlow"`, applied on mount
- * and reset when the page unmounts. `absolute` matches Next.js metadata on the
- * root segment (`src/app/page.tsx`), where the layout template does not apply.
+ * Name the tab after the current route, for every page.
  *
- * When `title` is omitted, pass `pathname` (from `useLocation`) so the tab
- * title still tracks the route via {@link titleForRoute}.
+ * Mounted once in the root layout. It runs as a layout effect, so it lands
+ * before any page's own {@link useDocumentTitle} (a passive effect) and a page
+ * that names itself still wins. Pages that have nothing better to say need no
+ * code to stop showing a bare "TorrentFlow" or the previous page's title.
+ */
+export function useRouteDocumentTitle() {
+  const pathname = useLocation().pathname;
+  useLayoutEffect(() => {
+    document.title = documentTitleFor(pathname);
+  }, [pathname]);
+}
+
+/**
+ * The SPA's replacement for Next.js `metadata.title`: the root layout's
+ * `template: "%s · TorrentFlow"` / `default: "TorrentFlow"`, applied on mount.
+ * `absolute` matches Next.js metadata on the root segment (`src/app/page.tsx`),
+ * where the layout template does not apply.
+ *
+ * When `title` is omitted the current route's title is used, via
+ * {@link titleForRoute}. On unmount the title goes back to the route's, but
+ * only while it is still this page's: by then the next route or page has
+ * usually named the tab, and resetting it would leave the old page's name or
+ * a bare "TorrentFlow" behind.
  */
 export function useDocumentTitle(
   title?: string | null,
@@ -39,12 +58,17 @@ export function useDocumentTitle(
     pathname,
   }: { absolute?: boolean; pathname?: string } = {},
 ) {
+  const routePathname = useLocation().pathname;
+  const path = pathname ?? routePathname;
   useEffect(() => {
-    document.title = documentTitleFor(pathname ?? "/", title, { absolute });
+    const applied = documentTitleFor(path, title, { absolute });
+    document.title = applied;
     return () => {
-      document.title = DEFAULT_DOCUMENT_TITLE;
+      if (document.title === applied) {
+        document.title = documentTitleFor(window.location.pathname);
+      }
     };
-  }, [title, absolute, pathname]);
+  }, [title, absolute, path]);
 
   useEffect(() => {
     if (description == null) return;

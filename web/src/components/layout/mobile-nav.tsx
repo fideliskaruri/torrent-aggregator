@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 import {
   Activity,
@@ -26,6 +26,7 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
+  SheetTrigger,
 } from "@/components/ui/sheet";
 import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import {
@@ -80,6 +81,7 @@ export function MobileNav() {
   const showPreviewToggle = caps.canPreview;
   const showMore = MORE_ITEMS.length > 0 || showPreviewToggle;
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreNavRef = useRef<HTMLElement>(null);
   const activePrimaryHref = navActiveHref(PRIMARY_TABS, pathname);
   const activeMoreHref = navActiveHref(MORE_ITEMS, pathname);
 
@@ -97,85 +99,93 @@ export function MobileNav() {
   const moreTabActive = moreRouteActive || moreOpen;
 
   return (
-    <>
-      {/* Radix owns focus trap, Escape, scroll lock and focus return. */}
-      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent
-          side="bottom"
-          data-mobile-more-sheet
-          className="md:hidden gap-0 max-h-[calc(100dvh-var(--header-h))] overflow-y-auto overscroll-contain rounded-t-xl"
-          style={{ paddingBottom: "var(--safe-bottom)" }}
-        >
-          <div className="flex justify-center pt-2 pb-1" aria-hidden>
-            <span className="h-1 w-9 rounded-full bg-input" />
-          </div>
-          <SheetHeader className="px-4 pt-1 pb-2">
-            <SheetTitle className="text-sm">More</SheetTitle>
-            <SheetDescription className="sr-only">Other pages and options</SheetDescription>
-          </SheetHeader>
+    // The Sheet wraps the tab bar too, so the More tab can be its trigger.
+    // Radix then owns the focus trap, Escape, scroll lock, and returning focus
+    // to More on close; a sheet opened from plain state has nothing to return to.
+    <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+      <SheetContent
+        side="bottom"
+        data-mobile-more-sheet
+        className="md:hidden gap-0 max-h-[calc(100dvh-var(--header-h))] overflow-y-auto overscroll-contain rounded-t-xl"
+        style={{ paddingBottom: "var(--safe-bottom)" }}
+        onOpenAutoFocus={(event) => {
+          // Radix skips links when it picks what to focus, which lands on the
+          // last control. Start on the first page in the list instead.
+          const first = moreNavRef.current?.querySelector<HTMLElement>("a[href]");
+          if (!first) return;
+          event.preventDefault();
+          first.focus();
+        }}
+      >
+        <div className="flex justify-center pt-2 pb-1" aria-hidden>
+          <span className="h-1 w-9 rounded-full bg-input" />
+        </div>
+        <SheetHeader className="px-4 pt-1 pb-2">
+          <SheetTitle className="text-sm">More</SheetTitle>
+          <SheetDescription className="sr-only">Other pages and options</SheetDescription>
+        </SheetHeader>
 
-          <nav className="px-2 pb-1" aria-label="Secondary">
-            <ul className="flex flex-col gap-0.5">
-              {MORE_ITEMS.map(({ href, label, icon: Icon }) => {
-                const active = href === activeMoreHref;
-                return (
-                  <li key={href}>
-                    <Link
-                      to={href}
-                      aria-current={active ? "page" : undefined}
-                      onClick={() => setMoreOpen(false)}
-                      className={cn(
-                        "flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-                        active
-                          ? "bg-brand-dim text-brand-foreground"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                      )}
-                    >
-                      <Icon
-                        className={cn("size-4 shrink-0", active ? "text-brand" : "text-subtle-foreground")}
-                        strokeWidth={active ? 2.25 : 1.75}
-                      />
-                      {label}
-                      {href === REQUESTS_HREF && requestsBadge ? (
-                        <Badge
-                          variant="solid"
-                          data-nav-requests-pending
-                          aria-label={`${requestsBadge} pending`}
-                          className="ml-auto min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
-                        >
-                          {requestsBadge}
-                        </Badge>
-                      ) : null}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </nav>
+        <nav ref={moreNavRef} className="px-2 pb-1" aria-label="Secondary">
+          <ul className="flex flex-col gap-0.5">
+            {MORE_ITEMS.map(({ href, label, icon: Icon }) => {
+              const active = href === activeMoreHref;
+              return (
+                <li key={href}>
+                  <Link
+                    to={href}
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => setMoreOpen(false)}
+                    className={cn(
+                      "flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                      active
+                        ? "bg-brand-dim text-brand-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
+                  >
+                    <Icon
+                      className={cn("size-4 shrink-0", active ? "text-brand" : "text-subtle-foreground")}
+                      strokeWidth={active ? 2.25 : 1.75}
+                    />
+                    {label}
+                    {href === REQUESTS_HREF && requestsBadge ? (
+                      <Badge
+                        variant="solid"
+                        data-nav-requests-pending
+                        aria-label={`${requestsBadge} pending`}
+                        className="ml-auto min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
+                      >
+                        {requestsBadge}
+                      </Badge>
+                    ) : null}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
 
-          {showPreviewToggle ? (
-            <>
-              <Separator />
-              <div className="px-2 pt-1 pb-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  data-preview-toggle
-                  aria-label="View as requester"
-                  onClick={() => {
-                    setPreviewAsRequester(true);
-                    setMoreOpen(false);
-                  }}
-                  className="h-auto min-h-[44px] w-full justify-start gap-3 px-3 py-2.5 text-[13px] text-muted-foreground"
-                >
-                  <Eye className="size-4 shrink-0 text-subtle-foreground" strokeWidth={1.75} aria-hidden />
-                  View as requester
-                </Button>
-              </div>
-            </>
-          ) : null}
-        </SheetContent>
-      </Sheet>
+        {showPreviewToggle ? (
+          <>
+            <Separator />
+            <div className="px-2 pt-1 pb-2">
+              <Button
+                type="button"
+                variant="ghost"
+                data-preview-toggle
+                aria-label="View as requester"
+                onClick={() => {
+                  setPreviewAsRequester(true);
+                  setMoreOpen(false);
+                }}
+                className="h-auto min-h-[44px] w-full justify-start gap-3 px-3 py-2.5 text-[13px] text-muted-foreground"
+              >
+                <Eye className="size-4 shrink-0 text-subtle-foreground" strokeWidth={1.75} aria-hidden />
+                View as requester
+              </Button>
+            </div>
+          </>
+        ) : null}
+      </SheetContent>
 
       <nav
         className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background"
@@ -237,42 +247,41 @@ export function MobileNav() {
           })}
 
           {showMore ? (
-            <button
-              type="button"
-              data-mobile-more
-              aria-label="More"
-              aria-haspopup="dialog"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((o) => !o)}
-              className={cn(
-                "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[12px] leading-tight font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                moreTabActive
-                  ? "text-brand-foreground"
-                  : "text-subtle-foreground",
-              )}
-            >
-              <MoreHorizontal
+            <SheetTrigger asChild>
+              <button
+                type="button"
+                data-mobile-more
+                aria-label="More"
                 className={cn(
-                  "h-5 w-5 shrink-0",
-                  moreTabActive && "text-brand",
+                  "relative flex min-h-[44px] flex-col items-center justify-center gap-0.5 px-0.5 text-[12px] leading-tight font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  moreTabActive
+                    ? "text-brand-foreground"
+                    : "text-subtle-foreground",
                 )}
-                strokeWidth={moreTabActive ? 2.25 : 1.75}
-              />
-              {requestsBadge ? (
-                <Badge
-                  variant="solid"
-                  data-nav-more-pending
-                  aria-label={`${requestsBadge} pending requests`}
-                  className="absolute top-0.5 translate-x-3.5 ring-2 ring-background min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
-                >
-                  {requestsBadge}
-                </Badge>
-              ) : null}
-              <span className="whitespace-nowrap">More</span>
-            </button>
+              >
+                <MoreHorizontal
+                  className={cn(
+                    "h-5 w-5 shrink-0",
+                    moreTabActive && "text-brand",
+                  )}
+                  strokeWidth={moreTabActive ? 2.25 : 1.75}
+                />
+                {requestsBadge ? (
+                  <Badge
+                    variant="solid"
+                    data-nav-more-pending
+                    aria-label={`${requestsBadge} pending requests`}
+                    className="absolute top-0.5 translate-x-3.5 ring-2 ring-background min-w-5 rounded-full px-1.5 text-[12px] font-semibold tabular-nums"
+                  >
+                    {requestsBadge}
+                  </Badge>
+                ) : null}
+                <span className="whitespace-nowrap">More</span>
+              </button>
+            </SheetTrigger>
           ) : null}
         </div>
       </nav>
-    </>
+    </Sheet>
   );
 }
