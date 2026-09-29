@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
@@ -61,9 +62,9 @@ public sealed class ActivityService(IDbContextFactory<TorrentFlowDbContext> fact
         }
         return result.Concat(history).OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id, StringComparer.Ordinal).ToList();
     }
-    private static ActivityRow Map(GrabJob x) => new($"grab-{x.Id}", "grab", x.Title, x.Status, x.Message, x.Source, x.Kind, x.Query,
+    private static ActivityRow Map(GrabJob x) => new($"grab-{x.Id}", "grab", x.Title, x.Status, EngineAddMessages.LoggedOutcome(x.Message), x.Source, x.Kind, x.Query,
         x.Magnet, LibraryJson.Hash(x.InfoHash) ?? LibraryJson.Hash(x.Magnet), x.SavePath, x.Category, null, null, null, x.CreatedAt);
-    private static ActivityRow Map(DownloadHistory x) => new($"hist-{x.Id}", "history", x.Title, x.Status, x.Message, x.Source, null, null,
+    private static ActivityRow Map(DownloadHistory x) => new($"hist-{x.Id}", "history", x.Title, x.Status, EngineAddMessages.LoggedOutcome(x.Message), x.Source, null, null,
         x.Magnet, LibraryJson.Hash(x.InfoHash) ?? LibraryJson.Hash(x.Magnet), x.SavePath, x.Category, x.Context, x.ClientType, x.SendKind, x.CreatedAt);
 
     public async Task<object> Page(string? filter, string? rawLimit, string? rawCursor, CancellationToken ct)
