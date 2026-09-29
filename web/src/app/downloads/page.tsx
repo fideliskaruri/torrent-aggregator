@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "@/lib/toast";
 import {
   Check,
@@ -123,6 +123,12 @@ import {
   type SnapshotState,
 } from "./snapshot-sync";
 import { SeriesDownloadDialog } from "./series-download-dialog";
+import {
+  downloadLinkFrom,
+  downloadLinkKey,
+  findLinkedDownload,
+  withoutDownloadLink,
+} from "./download-link";
 import { ReleaseSwapDialog, canFindAnotherRelease } from "./release-swap-dialog";
 import { isDownloadRow, type ClientTorrent, type NowPlaying, type StreamManifestFile, type TorrentRowAction } from "./types";
 import {
@@ -312,6 +318,12 @@ export default function ClientPage() {
   // page has focus then; this is the row its close still belongs to.
   const seriesDialogOpenerRef = useRef<HTMLElement | null>(null);
   const [openGroupTitle, setOpenGroupTitle] = useState("");
+  // A notification's "View details" names one download (see `download-link.ts`);
+  // this is the row it pointed at, ringed until the user moves on.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const downloadLink = useMemo(() => downloadLinkFrom(searchParams), [searchParams]);
+  const resolvedLinkRef = useRef<string | null>(null);
+  const [linkedTransferId, setLinkedTransferId] = useState<string | null>(null);
   const showLoading = useStableLoading(loading && !torrents.length && !error);
 
   // Every read of the client takes a generation, and a response may only be
@@ -593,6 +605,60 @@ export default function ClientPage() {
     const resolvedSeasonKey = resolveSelectedSeasonKey(openGroup.seasons, selectedSeasonKey);
     if (resolvedSeasonKey !== selectedSeasonKey) setSelectedSeasonKey(resolvedSeasonKey);
   }
+
+  // Arriving from a notification's "View details": find that download in a
+  // real read of the client (a failed poll proves nothing about what is gone),
+  // show it, then take the link out of the address so a refresh doesn't replay it.
+  useEffect(() => {
+    if (!downloadLink) {
+      resolvedLinkRef.current = null;
+      return;
+    }
+    if (!authoritative) return;
+    const key = downloadLinkKey(downloadLink);
+    if (resolvedLinkRef.current === key) return;
+    resolvedLinkRef.current = key;
+    setSearchParams(withoutDownloadLink, { replace: true, preventScrollReset: true });
+    const target = findLinkedDownload(downloadable, downloadLink);
+    if (!target) {
+      toast.info("That download was removed");
+      setAnnouncement("That download was removed.");
+      return;
+    }
+    if (!filtered.includes(target)) {
+      setFilter("");
+      setStatusFilter("all");
+      setMediaTab(DEFAULT_DOWNLOAD_TAB);
+    }
+    setLinkedTransferId(target.transferId);
+    setAnnouncement(`Showing ${transferLabel(target)}.`);
+    const series = allGroups.find(
+      (group): group is SeriesGroup<ClientTorrent> =>
+        group.kind === "series" && group.torrents.includes(target),
+    );
+    if (series) {
+      // Nothing on this page opened the dialog; closing it returns focus to the show's row.
+      seriesDialogOpenerRef.current = null;
+      setOpenSeriesKey(series.key);
+      setSelectedSeasonKey(
+        series.seasons.find((season) => season.entries.some((entry) => entry.torrent === target))
+          ?.key ?? null,
+      );
+    }
+  }, [downloadLink, authoritative, downloadable, filtered, allGroups, setSearchParams]);
+
+  // The ring says "this is the one you came for"; it goes once the user does anything else.
+  useEffect(() => {
+    if (!linkedTransferId) return;
+    const clear = () => setLinkedTransferId(null);
+    const options = { capture: true, once: true } as const;
+    window.addEventListener("pointerdown", clear, options);
+    window.addEventListener("keydown", clear, options);
+    return () => {
+      window.removeEventListener("pointerdown", clear, options);
+      window.removeEventListener("keydown", clear, options);
+    };
+  }, [linkedTransferId]);
 
   // Artwork is looked up for the whole table at once, keyed by work — the poll
   // runs every five seconds and three episodes of one show are one lookup.
@@ -1049,10 +1115,16 @@ export default function ClientPage() {
   }
 
   function closeSeriesDialog() {
+    const key = openSeriesKey;
     setOpenSeriesKey(null);
     setSelectedSeasonKey(null);
-    const opener = seriesDialogOpenerRef.current;
-    if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
+    // A dialog a notification link opened has no opener; the show's own Details button stands in.
+    const opener = seriesDialogOpenerRef.current?.isConnected
+      ? seriesDialogOpenerRef.current
+      : key
+        ? document.querySelector<HTMLElement>(`[data-group-key="${CSS.escape(key)}"] [data-group-details]`)
+        : null;
+    if (opener) requestAnimationFrame(() => opener.focus());
   }
 
   function playFromDialog(payload: {
@@ -1634,6 +1706,7 @@ export default function ClientPage() {
                       key={t.transferId}
                       torrent={t}
                       isSelected={selected.has(t.transferId)}
+                      highlighted={t.transferId === linkedTransferId}
                       openingHash={openingHash}
                       artwork={artwork}
                       onToggleSelect={toggleSelect}
@@ -1681,6 +1754,7 @@ export default function ClientPage() {
           onSelectSeason={setSelectedSeasonKey}
           selected={selected}
           onToggleSelect={toggleSelect}
+          highlightedTransferId={linkedTransferId}
           openingHash={openingHash}
           onPlay={playFromDialog}
           onAction={(act, torrent) => void action(act, torrent)}
@@ -2027,6 +2101,7 @@ function SeriesOverviewRow({
 function FilmRow({
   torrent: t,
   isSelected,
+  highlighted,
   openingHash,
   artwork,
   onToggleSelect,
@@ -2039,6 +2114,8 @@ function FilmRow({
 }: {
   torrent: ClientTorrent;
   isSelected: boolean;
+  /** The download a notification's "View details" pointed at. */
+  highlighted: boolean;
   openingHash: string | null;
   artwork: ReturnType<typeof useReleaseArtwork>;
   onToggleSelect: (hash: string, additive: boolean) => void;
@@ -2073,14 +2150,25 @@ function FilmRow({
   const errorMessage = transferErrorMessage(t);
   const pauseResume = pauseResumeAction(t);
   const hasLifecycleItems = canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null;
+  const rowRef = useRef<HTMLDivElement>(null);
+  // Bring the linked row into view and give it focus, so the keyboard and a
+  // screen reader start from the download the user asked to see.
+  useEffect(() => {
+    if (!highlighted) return;
+    rowRef.current?.scrollIntoView({ block: "center" });
+    rowRef.current?.focus({ preventScroll: true });
+  }, [highlighted]);
 
   return (
     <div
+      ref={rowRef}
       className={cn(
         "group grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
         isSelected ? "bg-brand-dim" : "hover:bg-muted/60",
+        highlighted && "ring-2 ring-inset ring-brand",
       )}
       data-client-torrent
+      data-highlighted={highlighted || undefined}
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}

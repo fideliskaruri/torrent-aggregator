@@ -105,6 +105,8 @@ export interface SeriesDownloadDialogProps {
   /** The page's own multi-select set — shared, not a second selection model. */
   selected: Set<string>;
   onToggleSelect: (hash: string, additive: boolean) => void;
+  /** The episode a notification's "View details" pointed at, if any. */
+  highlightedTransferId?: string | null;
   openingHash: string | null;
   onPlay: (payload: {
     hash: string;
@@ -325,6 +327,7 @@ function EpisodeCard({
   entry,
   season,
   isSelected,
+  highlighted,
   openingHash,
   onToggleSelect,
   onPlay,
@@ -337,6 +340,7 @@ function EpisodeCard({
   entry: GroupEntry<ClientTorrent>;
   season: SeasonBucket<ClientTorrent>;
   isSelected: boolean;
+  highlighted: boolean;
   openingHash: string | null;
   onToggleSelect: (hash: string, additive: boolean) => void;
   onPlay: SeriesDownloadDialogProps["onPlay"];
@@ -368,14 +372,21 @@ function EpisodeCard({
   const errorMessage = transferErrorMessage(t);
   const [errorExpanded, setErrorExpanded] = useState(false);
   const offerSwap = isError(t.state) && canFindAnotherRelease(t);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (highlighted) cardRef.current?.scrollIntoView({ block: "center" });
+  }, [highlighted]);
 
   return (
     <div
+      ref={cardRef}
       className={cn(
         "flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3 transition-colors",
         isSelected ? "bg-brand-dim" : "bg-muted/40",
+        highlighted && "ring-2 ring-brand",
       )}
       data-episode-card
+      data-highlighted={highlighted || undefined}
       data-hash={t.hash}
       data-owner-client={t.ownerClientType}
       title={t.name}
@@ -643,6 +654,7 @@ export function SeriesDownloadDialog({
   onSelectSeason,
   selected,
   onToggleSelect,
+  highlightedTransferId = null,
   openingHash,
   onPlay,
   onAction,
@@ -894,6 +906,7 @@ export function SeriesDownloadDialog({
                   entry={entry}
                   season={selectedSeason}
                   isSelected={selected.has(entry.torrent.transferId)}
+                  highlighted={entry.torrent.transferId === highlightedTransferId}
                   openingHash={openingHash}
                   onToggleSelect={onToggleSelect}
                   onPlay={onPlay}
