@@ -55,7 +55,7 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
       return;
     }
     const message = result?.message?.trim() || result?.error?.trim()
-      || "Source did not respond successfully. Check its URL and try again.";
+      || "The test did not pass. Check this source's settings and try again.";
     setTestResult({ ok: false, message });
     toast.error(message);
   }
