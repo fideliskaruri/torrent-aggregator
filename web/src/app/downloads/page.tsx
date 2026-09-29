@@ -97,6 +97,8 @@ import {
   canDownloadNow,
   forcedStartLabel,
   isVerifiedDownload,
+  pauseResumeAction,
+  pauseResumeTargets,
   stateBadgeVariant,
   stateLabel,
   rollupChip,
@@ -645,6 +647,12 @@ export default function ClientPage() {
     return { downloading, ready, paused, errored, dlspeed, upspeed, total };
   }, [downloadable]);
 
+  // What the bulk bar's Pause and Resume would act on: only the selected rows each one applies to.
+  const selectedTargets = useMemo(
+    () => pauseResumeTargets(torrents.filter((torrent) => selected.has(torrent.transferId))),
+    [torrents, selected],
+  );
+
   const rawSendTrimmed = rawSendValue.trim();
   const rawSendInvalid =
     rawSendTrimmed.length > 0 && !isValidTorrentSourceInput(rawSendValue);
@@ -752,10 +760,7 @@ export default function ClientPage() {
   }
 
   async function bulkAction(act: "pause" | "resume") {
-    await actionMany(
-      act,
-      torrents.filter((torrent) => selected.has(torrent.transferId)),
-    );
+    await actionMany(act, selectedTargets[act]);
   }
 
   async function confirmDelete(deleteFiles: boolean) {
@@ -1481,10 +1486,19 @@ export default function ClientPage() {
               <span className="text-[12px] text-muted-foreground mr-1">
                 {selected.size} selected
               </span>
+              {/*
+                aria-disabled, not disabled, when nothing selected applies:
+                Pause stops applying the moment it has worked, while it still
+                has focus, and a disabled button drops focus to <body>.
+              */}
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => void bulkAction("pause")}
+                aria-disabled={!selectedTargets.pause.length || undefined}
+                onClick={() => {
+                  if (selectedTargets.pause.length) void bulkAction("pause");
+                }}
+                data-bulk-pause
               >
                 <Pause className="h-3.5 w-3.5" />
                 Pause
@@ -1492,7 +1506,11 @@ export default function ClientPage() {
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => void bulkAction("resume")}
+                aria-disabled={!selectedTargets.resume.length || undefined}
+                onClick={() => {
+                  if (selectedTargets.resume.length) void bulkAction("resume");
+                }}
+                data-bulk-resume
               >
                 <Play className="h-3.5 w-3.5" />
                 Resume
@@ -1828,6 +1846,7 @@ function SeriesOverviewRow({
     group.counts.error === 1
       ? transferErrorMessage(group.torrents.find((t) => isError(t.state)) ?? { state: group.state })
       : null;
+  const targets = pauseResumeTargets(group.torrents);
 
   return (
     <div
@@ -1956,19 +1975,23 @@ function SeriesOverviewRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => onActionMany("pause", group.torrents)}
-            >
-              <Pause />
-              Pause all
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onActionMany("resume", group.torrents)}
-            >
-              <Play />
-              Resume all
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {targets.pause.length ? (
+              <DropdownMenuItem
+                onClick={() => onActionMany("pause", targets.pause)}
+              >
+                <Pause />
+                Pause all
+              </DropdownMenuItem>
+            ) : null}
+            {targets.resume.length ? (
+              <DropdownMenuItem
+                onClick={() => onActionMany("resume", targets.resume)}
+              >
+                <Play />
+                Resume all
+              </DropdownMenuItem>
+            ) : null}
+            {targets.pause.length || targets.resume.length ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem
               variant="destructive"
               onClick={() => onDeleteRequest([...group.torrents])}
@@ -2037,6 +2060,8 @@ function FilmRow({
   const titleHref = downloadTitleHref(t);
   const isBuiltin = t.ownerClientType === "builtin";
   const errorMessage = transferErrorMessage(t);
+  const pauseResume = pauseResumeAction(t);
+  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null;
 
   return (
     <div
@@ -2335,19 +2360,22 @@ function FilmRow({
                 Find another release
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              onClick={() => onAction("pause", t)}
-            >
-              <Pause />
-              Pause
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onAction("resume", t)}
-            >
-              <Play />
-              Resume
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {pauseResume === "pause" ? (
+              <DropdownMenuItem
+                onClick={() => onAction("pause", t)}
+              >
+                <Pause />
+                Pause
+              </DropdownMenuItem>
+            ) : pauseResume === "resume" ? (
+              <DropdownMenuItem
+                onClick={() => onAction("resume", t)}
+              >
+                <Play />
+                {isError(t.state) ? "Retry" : "Resume"}
+              </DropdownMenuItem>
+            ) : null}
+            {hasLifecycleItems ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem
               variant="destructive"
               onClick={() => onDeleteRequest([t])}

@@ -119,6 +119,35 @@ export function canDownloadNow(torrent: Pick<ClientTorrent, "state" | "forced">)
   return isQueued(torrent.state) && torrent.forced !== true;
 }
 
+/**
+ * The one of Pause and Resume that applies to a row, or null when neither does.
+ *
+ * A paused or failed row resumes (a failed one's "Retry"); anything still
+ * downloading or waiting pauses. A finished built-in download offers neither:
+ * the engine refuses to pause downloaded files, and resuming one does nothing.
+ * An external client can still stop and restart sharing a finished torrent, so
+ * those keep the one that matches their state.
+ */
+export function pauseResumeAction(
+  torrent: Pick<ClientTorrent, "state" | "ownerClientType">,
+): "pause" | "resume" | null {
+  if (isError(torrent.state) || isPaused(torrent.state)) return "resume";
+  if (isDownloaded(torrent.state)) return torrent.ownerClientType === "builtin" ? null : "pause";
+  return "pause";
+}
+
+/** A set's members split by the one of Pause and Resume each admits: what "Pause all" and "Resume all" act on. */
+export function pauseResumeTargets<T extends Pick<ClientTorrent, "state" | "ownerClientType">>(
+  torrents: readonly T[],
+): { pause: T[]; resume: T[] } {
+  const targets: { pause: T[]; resume: T[] } = { pause: [], resume: [] };
+  for (const torrent of torrents) {
+    const act = pauseResumeAction(torrent);
+    if (act) targets[act].push(torrent);
+  }
+  return targets;
+}
+
 /** A queued row that already got Download now is starting; say so instead of offering it again. */
 export function forcedStartLabel(torrent: Pick<ClientTorrent, "state" | "forced">): string | null {
   return isQueued(torrent.state) && torrent.forced === true ? "Starting now" : null;

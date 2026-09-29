@@ -79,6 +79,8 @@ import {
   canDownloadNow,
   forcedStartLabel,
   isVerifiedDownload,
+  pauseResumeAction,
+  pauseResumeTargets,
   releaseDisplayFacts,
   sourceChip,
   stateBadgeVariant,
@@ -273,6 +275,7 @@ function SeriesActionsMenu({
   onDeleteRequest: SeriesDownloadDialogProps["onDeleteRequest"];
   mobile?: boolean;
 }) {
+  const targets = pauseResumeTargets(group.torrents);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -288,19 +291,23 @@ function SeriesActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          onClick={() => onActionMany("pause", group.torrents)}
-        >
-          <Pause />
-          Pause all
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => onActionMany("resume", group.torrents)}
-        >
-          <Play />
-          Resume all
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
+        {targets.pause.length ? (
+          <DropdownMenuItem
+            onClick={() => onActionMany("pause", targets.pause)}
+          >
+            <Pause />
+            Pause all
+          </DropdownMenuItem>
+        ) : null}
+        {targets.resume.length ? (
+          <DropdownMenuItem
+            onClick={() => onActionMany("resume", targets.resume)}
+          >
+            <Play />
+            Resume all
+          </DropdownMenuItem>
+        ) : null}
+        {targets.pause.length || targets.resume.length ? <DropdownMenuSeparator /> : null}
         <DropdownMenuItem
           variant="destructive"
           onClick={() => onDeleteRequest([...group.torrents])}
@@ -352,6 +359,7 @@ function EpisodeCard({
         ? `${seasonLabelFor(season)} pack`
         : (entry.episodeLabel ?? display.title);
   const isBuiltin = t.ownerClientType === "builtin";
+  const pauseResume = pauseResumeAction(t);
   const { streaming, openFolder } = useFeatures();
   const displayPath = useDisplayPath();
   const canPlay = streaming && isBuiltin && canStreamTransfer(t);
@@ -591,22 +599,25 @@ function EpisodeCard({
                 Find another release
               </DropdownMenuItem>
             ) : null}
-            {!isError(t.state) ? (
+            {pauseResume === "pause" ? (
               <DropdownMenuItem
                 onClick={() => onAction("pause", t)}
               >
                 <Pause />
                 Pause
               </DropdownMenuItem>
+            ) : pauseResume === "resume" ? (
+              <DropdownMenuItem
+                onClick={() => onAction("resume", t)}
+                data-episode-retry={isError(t.state) ? "true" : undefined}
+              >
+                <Play />
+                {isError(t.state) ? "Retry" : "Resume"}
+              </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              onClick={() => onAction("resume", t)}
-              data-episode-retry={isError(t.state) ? "true" : undefined}
-            >
-              <Play />
-              {isError(t.state) ? "Retry" : "Resume"}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null ? (
+              <DropdownMenuSeparator />
+            ) : null}
             <DropdownMenuItem
               variant="destructive"
               onClick={() => onDeleteRequest([t])}
@@ -654,6 +665,14 @@ export function SeriesDownloadDialog({
     const members = new Set(group.torrents.map((t) => t.transferId));
     return [...selected].filter((transferId) => members.has(transferId));
   }, [group, selected]);
+  // What the selection bar's Pause and Resume would act on: only the checked episodes each one applies to.
+  const selectedTargets = useMemo(
+    () =>
+      pauseResumeTargets(
+        group ? group.torrents.filter((torrent) => selected.has(torrent.transferId)) : [],
+      ),
+    [group, selected],
+  );
 
   if (!group) return null;
 
@@ -902,17 +921,19 @@ export function SeriesDownloadDialog({
             <span className="mr-1 text-[12px] text-muted-foreground">
               {selectedTransferIdsInGroup.length} selected
             </span>
+            {/*
+              aria-disabled, not disabled, when nothing checked applies: Pause
+              stops applying the moment it has worked, while it still has
+              focus, and a disabled button drops focus to <body>.
+            */}
             <Button
               size="sm"
               variant="secondary"
-              onClick={() =>
-                onActionMany(
-                  "pause",
-                  group.torrents.filter((torrent) =>
-                    selectedTransferIdsInGroup.includes(torrent.transferId),
-                  ),
-                )
-              }
+              aria-disabled={!selectedTargets.pause.length || undefined}
+              onClick={() => {
+                if (selectedTargets.pause.length) onActionMany("pause", selectedTargets.pause);
+              }}
+              data-dialog-bulk-pause
             >
               <Pause className="h-3.5 w-3.5" />
               Pause
@@ -920,14 +941,11 @@ export function SeriesDownloadDialog({
             <Button
               size="sm"
               variant="secondary"
-              onClick={() =>
-                onActionMany(
-                  "resume",
-                  group.torrents.filter((torrent) =>
-                    selectedTransferIdsInGroup.includes(torrent.transferId),
-                  ),
-                )
-              }
+              aria-disabled={!selectedTargets.resume.length || undefined}
+              onClick={() => {
+                if (selectedTargets.resume.length) onActionMany("resume", selectedTargets.resume);
+              }}
+              data-dialog-bulk-resume
             >
               <Play className="h-3.5 w-3.5" />
               Resume
