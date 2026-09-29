@@ -4,7 +4,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { AlertTriangle, Search, SearchX, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -56,6 +56,15 @@ import {
 const OPEN_EVENT = "tf:open-search";
 
 /**
+ * React Router numbers history entries from 0 at the document's first page
+ * (`history.state.idx`). Above 0, an app page sits behind the current entry.
+ */
+function historyIndex(): number {
+  const idx = (window.history.state as { idx?: unknown } | null)?.idx;
+  return typeof idx === "number" ? idx : 0;
+}
+
+/**
  * Open the search palette from anywhere — the `/` shortcut and the header's
  * Search affordance both call this. A window event keeps the trigger decoupled
  * from where the overlay is mounted, so nothing has to thread a callback down
@@ -87,6 +96,7 @@ export function openSearchOverlay(
  */
 export function SearchOverlay() {
   const pathname = useLocation().pathname;
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [scopeId, setScopeId] =
@@ -104,28 +114,24 @@ export function SearchOverlay() {
   const reqIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
-  const returnUrlRef = useRef<string | null>(null);
-  const ownsSearchUrlRef = useRef(false);
   const openRef = useRef(false);
   const mountedRef = useRef(false);
   const activeRef = useRef(false);
 
   const close = useCallback(() => {
+    const wasOpen = openRef.current;
     activeRef.current = false;
     openRef.current = false;
     setOpen(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     abortRef.current?.abort();
-    if (
-      ownsSearchUrlRef.current &&
-      window.location.pathname === "/search" &&
-      returnUrlRef.current
-    ) {
-      window.history.back();
-    }
-    ownsSearchUrlRef.current = false;
-    returnUrlRef.current = null;
-  }, []);
+    if (!wasOpen || window.location.pathname !== "/search") return;
+    // `/search` renders nothing but the palette, so closing it must leave: back
+    // to the app page behind this entry, else home in place of a deep link or
+    // bookmark so Back does not reopen it.
+    if (historyIndex() > 0) window.history.back();
+    else void navigate("/", { replace: true });
+  }, [navigate]);
 
   const canCommit = useCallback((reqId: number) => {
     return mountedRef.current && activeRef.current && reqId === reqIdRef.current;
@@ -160,10 +166,15 @@ export function SearchOverlay() {
             ? document.activeElement
             : null;
         if (!detail?.preserveUrl && window.location.pathname !== "/search") {
-          returnUrlRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-          ownsSearchUrlRef.current = true;
+          // The palette's own entry, over the page it opened on, shaped like
+          // React Router's: the next index keeps Back/Forward in step with the
+          // router (and tells `close()` to step back), and its own key keeps
+          // scroll restoration from overwriting that page's saved position.
           window.history.pushState(
-            null,
+            {
+              key: Math.random().toString(36).slice(2, 10),
+              idx: historyIndex() + 1,
+            },
             "",
             searchUrlFor(detail?.query ?? "", category),
           );
@@ -274,7 +285,11 @@ export function SearchOverlay() {
   function onQueryChange(value: string) {
     setQuery(value);
     if (window.location.pathname === "/search") {
-      window.history.replaceState(null, "", searchUrlFor(value, scopeId));
+      window.history.replaceState(
+        window.history.state,
+        "",
+        searchUrlFor(value, scopeId),
+      );
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (value.trim().length < 2) {
@@ -298,7 +313,11 @@ export function SearchOverlay() {
     setError(null);
     setNotice(null);
     if (window.location.pathname === "/search") {
-      window.history.replaceState(null, "", searchUrlFor(query, next));
+      window.history.replaceState(
+        window.history.state,
+        "",
+        searchUrlFor(query, next),
+      );
     }
     if (query.trim().length >= 2) runSearch(query, next);
     else setLoading(false);

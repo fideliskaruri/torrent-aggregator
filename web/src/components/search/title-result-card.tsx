@@ -185,6 +185,7 @@ function mediaTypeLabel(
   if (t === "movie") return "Movie";
   if (t === "tv" || t === "series") return "Series";
   if (t === "anime") {
+    if (format === "MUSIC") return "Music video";
     if (format === "MOVIE" || !isSeries) return "Anime film";
     return format === "ONA" || format === "OVA" ? format : "Anime series";
   }
