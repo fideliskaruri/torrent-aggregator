@@ -1,3 +1,4 @@
+using TorrentFlow.Core.Text;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -244,49 +245,12 @@ public static class ReleaseNames
         return WorkIdentity(CleanDisplayTitle(name));
     }
 
-    // ── work keys ────────────────────────────────────────────────────────────
-    private static readonly Regex LegacySizeGroup = Rx(@"-\d+(?:-\d+)?-?[kmgt]i?b(?:-(?!(?:19|20)\d{2}$)[a-z0-9]{2,20})?(?=-(?:19|20)\d{2}$|$)");
-    private static readonly Regex KeyTrailingYear = Rx(@"-(?:19|20)\d{2}$");
-    private static readonly Regex Apostrophes = Rx("['’`]");
-    private static readonly Regex NonSlug = Rx("[^a-z0-9]+", RegexOptions.CultureInvariant);
-
+    // ── work keys (one implementation: TorrentFlow.Core.Text.WorkKeySlug) ──
     /// <summary>Port of <c>workKeyFor</c>; empty when the name has no slug.</summary>
-    public static string WorkKeyFor(string name, int? year = null)
-    {
-        var slug = Slugify(name ?? "");
-        return slug.Length == 0 ? "" : year is { } y && y != 0 ? $"{slug}-{y}" : slug;
-    }
+    public static string WorkKeyFor(string name, int? year = null) => WorkKeySlug.WorkKeyFor(name, year);
 
-    private static string Slugify(string name)
-    {
-        var folded = string.Concat(name.Normalize(NormalizationForm.FormKD).Where(c => c is < '\u0300' or > '\u036f'));
-        folded = Apostrophes.Replace(folded, "").ToLowerInvariant();
-        var slug = NonSlug.Replace(folded, "-").Trim('-');
-        if (slug.Length > 0) return slug;
-        var compact = Regex.Replace(name.Trim().ToLowerInvariant(), @"\s+", "-");
-        return compact.Length > 0 ? Uri.EscapeDataString(compact) : "";
-    }
-
-    private static string[] KeyAliases(string key)
-    {
-        var wanted = key.Trim().ToLowerInvariant();
-        if (wanted.Length == 0) return [];
-        var legacy = LegacySizeGroup.Replace(wanted, "", 1);
-        return legacy == wanted ? [wanted] : [wanted, legacy];
-    }
-
-    internal static bool SameKey(string left, string right) =>
-        string.Equals(Uri.UnescapeDataString(left), Uri.UnescapeDataString(right), StringComparison.OrdinalIgnoreCase);
+    internal static bool SameKey(string left, string right) => WorkKeySlug.SameKey(left, right);
 
     /// <summary>Port of <c>workKeyMatches</c>: exact key/alias match, or a yearless name that cannot contradict a dated key.</summary>
-    public static bool WorkKeyMatches(string key, string name, int? year)
-    {
-        var candidates = KeyAliases(key ?? "");
-        if (candidates.Length == 0) return false;
-        var withYear = WorkKeyFor(name, year);
-        var bare = WorkKeyFor(name);
-        if (candidates.Any(c => SameKey(c, withYear) || SameKey(c, bare))) return true;
-        if (year != null) return false;
-        return bare.Length > 0 && candidates.Any(c => SameKey(KeyTrailingYear.Replace(c, ""), bare));
-    }
+    public static bool WorkKeyMatches(string key, string name, int? year) => WorkKeySlug.Matches(key, name, year);
 }

@@ -32,10 +32,14 @@ public sealed class EpisodeSearchIdentity(ILibraryAnimeLookup lookup, IMetadataR
             {
                 var catalog = await metadata.GetByIdAsync(provider, "tv", providerId, ct);
                 if (catalog != null && (year == null || catalog.Year == null || catalog.Year == year) &&
-                    (catalog.Aliases ?? []).Prepend(catalog.Title).Any(n => EpisodeLadder.NormalizeTitle(n) == wanted) &&
-                    (catalog.MediaType == "anime" || catalog.Genres?.Contains("Anime", StringComparer.OrdinalIgnoreCase) == true ||
-                     catalog.OriginalLanguage == "ja" && catalog.Genres?.Contains("Animation", StringComparer.OrdinalIgnoreCase) == true))
-                    known = ("anime", existing);
+                    (catalog.Aliases ?? []).Prepend(catalog.Title).Any(n => EpisodeLadder.NormalizeTitle(n) == wanted))
+                {
+                    // Requests and automation carry no page aliases; the provider's own names are the same ones the title page sends.
+                    if (existing.Count == 0) existing = UniqueNames(catalog.Aliases ?? [], title);
+                    var isAnime = catalog.MediaType == "anime" || catalog.Genres?.Contains("Anime", StringComparer.OrdinalIgnoreCase) == true ||
+                        catalog.OriginalLanguage == "ja" && catalog.Genres?.Contains("Animation", StringComparer.OrdinalIgnoreCase) == true;
+                    known = (isAnime ? "anime" : known.Item1, existing);
+                }
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
         }

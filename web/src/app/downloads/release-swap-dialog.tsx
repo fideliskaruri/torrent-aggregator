@@ -21,6 +21,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { LoadingGlyph, SkeletonBlock } from "@/components/ui/loading";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
+import { ReleaseCard, releaseSourceLabel } from "@/components/releases/release-card";
 import { readJsonBody } from "@/lib/api-json";
 import { RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
 import { sessionAwareFetch } from "@/lib/session-expiry";
@@ -83,9 +84,7 @@ function alternativesEndpoint(hash: string): string {
   return `/api/client/torrents/${encodeURIComponent(hash.toLowerCase())}/alternatives`;
 }
 
-function sourceLabel(id: string, name?: string): string {
-  return RULE_SOURCE_OPTIONS.find((option) => option.value === id)?.label ?? (name?.trim() || id);
-}
+const sourceLabel = releaseSourceLabel;
 
 /** Server messages name sources by id ("on apibay"); show the same names the chips use. */
 function withSourceLabels(message: string): string {
@@ -370,52 +369,23 @@ export function ReleaseSwapDialog({
                   const pending = switchingToken === candidate.token;
                   const recommended = candidate.token === state.data.recommendedToken;
                   return (
-                    <li
+                    <ReleaseCard
                       key={candidate.token}
-                      className={cn(
-                        "min-w-0 space-y-2 rounded-lg border bg-card p-3",
-                        recommended ? "border-brand" : "border-border",
-                      )}
-                      data-release-alternative
-                      data-swap-card
+                      release={candidate}
+                      highlighted={recommended}
+                      badge={recommended ? <Badge variant="accent" data-best-match>Best match</Badge> : null}
+                      pending={pending}
+                      disabled={switching || stale}
+                      actionLabel="Use this release"
+                      pendingLabel="Switching…"
+                      onUse={() => void switchTo(candidate)}
+                      buttonData={{ "data-use-release": "" }}
+                      data-release-alternative=""
+                      data-swap-card=""
                       data-recommended={recommended ? "true" : undefined}
                       data-alternative-hash={candidate.hash}
                       data-alternative-rank={index + 1}
-                    >
-                      {recommended ? <Badge variant="accent" data-best-match>Best match</Badge> : null}
-                      <p className="break-words text-sm font-medium text-foreground">{candidate.title}</p>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums">
-                        {candidate.quality ? <Badge variant="outline">{candidate.quality}p</Badge> : null}
-                        <span>{candidate.seeders} {candidate.seeders === 1 ? "seeder" : "seeders"}</span>
-                        <span aria-hidden>·</span>
-                        <span>{candidate.sizeBytes != null ? formatBytes(candidate.sizeBytes) : "Size unknown"}</span>
-                        {candidate.source ? (
-                          <>
-                            <span aria-hidden>·</span>
-                            <span className="break-all">{sourceLabel(candidate.source)}</span>
-                          </>
-                        ) : null}
-                      </div>
-                      {candidate.why ? (
-                        <p className="text-[13px] leading-relaxed text-muted-foreground break-words" data-alternative-reason>
-                          {candidate.why}
-                        </p>
-                      ) : null}
-                      <Button
-                        type="button"
-                        variant={recommended ? "default" : "secondary"}
-                        className="w-full sm:w-auto"
-                        disabled={switching || stale}
-                        aria-busy={pending}
-                        aria-label={`Use this release: ${candidate.title}`}
-                        onClick={() => void switchTo(candidate)}
-                        data-use-release
-                        data-pending={pending ? "true" : undefined}
-                      >
-                        {pending ? <LoadingGlyph /> : null}
-                        {pending ? "Switching…" : "Use this release"}
-                      </Button>
-                    </li>
+                    />
                   );
                 })}
               </ol>

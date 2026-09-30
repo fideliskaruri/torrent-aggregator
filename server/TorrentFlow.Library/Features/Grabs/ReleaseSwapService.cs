@@ -54,8 +54,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var episode = ReleaseNames.ParseEpisode(releaseName);
         var target = await db.AcquisitionTargets.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.InfoHash == hash, ct);
         EpisodeCursor? cursor = target?.Episode is { } e && target.Season is { } s ? new(s, e) : null;
-        if (cursor is null && row.QueueKey is { Length: 12 } key && key[0] == 's' && key[6] == 'e'
-            && int.TryParse(key.AsSpan(1, 5), out var qs) && int.TryParse(key.AsSpan(7, 5), out var qe)) cursor = new(qs, qe);
+        cursor ??= EpisodeCursor.FromQueueKey(row.QueueKey);
         cursor ??= episode.Episode is { } parsedEpisode ? new(episode.Season ?? 1, parsedEpisode) : null;
         if (episode.IsMultiSeason == true || episode.IsBatch && !episode.IsSeasonPack)
             throw new InvalidOperationException("This release has an ambiguous scope. Choose a single episode from its title page.");

@@ -7,6 +7,7 @@ import { AuthSessionProvider } from "@/components/providers/session-provider";
 import { DownloadSetupProvider } from "@/components/setup/download-setup";
 import { UiPreferencesProvider } from "@/components/providers/ui-preferences";
 import { Toaster } from "@/components/ui/sonner";
+import { ReleasePickerHost } from "@/components/releases/release-picker-host";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { FeaturesProvider } from "@/lib/features";
@@ -89,6 +90,7 @@ export default function RootLayout() {
             </footer>
             <MobileNav />
             <Toaster />
+            <ReleasePickerHost />
           </KeyboardRoot>
           </DownloadSetupProvider>
         </UiPreferencesProvider>

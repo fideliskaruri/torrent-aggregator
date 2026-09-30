@@ -117,6 +117,26 @@ public static class RequestEndpoints
             return Decided(await decisions.RetryAsync(id, http.RequestAborted));
         });
 
+        // "Pick a release yourself" for a request: the shared title picker, then the transfer joins the request.
+        app.MapPost("/api/requests/{id}/pick", async (HttpContext http, RequestDecisionService decisions, MediaRequestService service,
+            TorrentFlow.Library.Features.Grabs.ReleasePicker picker, IHostApplicationLifetime lifetime, string id) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (id.Length > 64) return Error(404, "Request not found.", "not_found");
+            var (body, readError) = await ReadObjectAsync(http);
+            if (readError is not null) return readError;
+            var token = body.TryGetProperty("token", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;
+            if (string.IsNullOrWhiteSpace(token)) return Error(400, "Choose a release first.");
+            var request = (await service.AllAsync(null, http.RequestAborted)).FirstOrDefault(r => r.Id == id);
+            if (request is null) return Error(404, "Request not found.", "not_found");
+            var result = await picker.Pick(request.WorkKey, token, TorrentFlow.Core.Contracts.Engine.TorrentLane.Request, lifetime.ApplicationStopping);
+            if (!result.Ok || result.InfoHash is not { } hash) return Results.Json(new { ok = false, message = result.Message }, statusCode: 409);
+            var (outcome, status) = await decisions.AttachPickAsync(id, hash, CancellationToken.None);
+            return outcome == DecisionOutcome.Done
+                ? Results.Json(new { ok = true, status, message = result.Message, infoHash = hash })
+                : Decided((outcome, status));
+        });
+
         app.MapPost("/api/requests/{id}/decline", async (HttpContext http, RequestDecisionService decisions, string id) =>
         {
             http.Response.Headers.CacheControl = "no-store";

@@ -356,6 +356,8 @@ export interface TitleGrabResponse {
   ok: boolean;
   message: string;
   retryAfterSeconds?: number;
+  /** Set when no release could be chosen: the search we used, for "Pick a release yourself". */
+  noReleaseFound?: { reason?: string | null; manualSearchQuery?: string | null } | null;
   /** The release that was actually sent, when one was. */
   title?: string | null;
   savePath?: string | null;
@@ -399,6 +401,8 @@ interface TitleSeasonEpisodeTransfer {
 export interface TitleSeasonGrabResponse {
   ok: boolean;
   message: string;
+  /** Download season is fire and forget: the server queued it and searches in the background. */
+  queued?: boolean;
   retryAfterSeconds?: number;
   report?: SeasonGrabReport | null;
   /**

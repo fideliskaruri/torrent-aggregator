@@ -177,14 +177,8 @@ public sealed class ClientTorrentsController(
     }
 
     /// <summary>s00001e00002 → episode scope; missing/unparsed keys leave season/episode unknown.</summary>
-    internal static (string Scope, int? Season, int? Episode) ScopeFromQueueKey(string? queueKey)
-    {
-        if (string.IsNullOrWhiteSpace(queueKey)) return ("title", null, null);
-        var m = Regex.Match(queueKey.Trim(), @"^s(\d{1,5})e(\d{1,5})$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        if (!m.Success) return ("title", null, null);
-        return ("episode", int.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
-            int.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture));
-    }
+    internal static (string Scope, int? Season, int? Episode) ScopeFromQueueKey(string? queueKey) =>
+        TorrentFlow.Core.QueueKeys.Parse(queueKey) is { } key ? ("episode", key.Season, key.Episode) : ("title", null, null);
 
     internal sealed record AcquisitionIntent(string InfoHash, string? WorkId, string WorkKey, string Scope, int? Season, int? Episode,
         string? CanonicalTitle, int? Year, string? MediaType);

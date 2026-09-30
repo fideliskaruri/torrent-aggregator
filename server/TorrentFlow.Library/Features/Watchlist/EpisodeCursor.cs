@@ -6,7 +6,10 @@ namespace TorrentFlow.Library.Features.Watchlist;
 public readonly record struct EpisodeCursor(int Season, int Episode)
 {
     public string Label => $"S{Season:00}E{Episode:00}";
-    public string QueueKey => $"s{Season:00000}e{Episode:00000}";
+    public string QueueKey => TorrentFlow.Core.QueueKeys.For(Season, Episode);
+    /// <summary>The episode a queue key names; null for films and one-offs.</summary>
+    public static EpisodeCursor? FromQueueKey(string? key) =>
+        TorrentFlow.Core.QueueKeys.Parse(key) is { } parsed ? new(parsed.Season, parsed.Episode) : null;
     public string Query(string title) => $"{title.Trim()} {Label}";
     public EpisodeCursor Next() => new(Season, Episode + 1);
     public bool IsAfter(EpisodeCursor? other) => other == null || Season > other.Value.Season ||

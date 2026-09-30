@@ -8,9 +8,10 @@ using TorrentFlow.Metadata.Title;
 
 namespace TorrentFlow.Api.Requests;
 
-/// <summary>What one approval started: the transfers to watch, or why nothing started.</summary>
+/// <summary>What one approval did: the transfers it started, that it queued the work, or why nothing could be queued.</summary>
 /// <param name="Partial">True when some but not all wanted episodes started (storage/cap/miss).</param>
-public sealed record RequestGrabOutcome(IReadOnlyList<string> Hashes, string? Problem, bool Partial = false);
+/// <param name="Queued">True when the work went to the wanted queue, which starts and retries it in the background.</param>
+public sealed record RequestGrabOutcome(IReadOnlyList<string> Hashes, string? Problem, bool Partial = false, bool Queued = false);
 
 /// <summary>Turns an approved request into downloads; a seam so tests never search indexers.</summary>
 public interface IRequestGrabber
@@ -19,10 +20,11 @@ public interface IRequestGrabber
 }
 
 /// <summary>
-/// Uses the owner's own grab path (<see cref="GrabService"/>) on the request lane: one release for a film, one
-/// exact release per aired episode for the chosen seasons of a series.
+/// Queues an approved request on the owner's own path (<see cref="WantedQueue"/>, on the request lane): the film, or
+/// every aired episode of the chosen seasons. Each episode goes through the single-episode grab; the queue keeps retrying
+/// what is not found yet; what it starts joins the request through <see cref="RequestWantedObserver"/>.
 /// </summary>
-public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras, TimeProvider time,
+public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras, TimeProvider time,
     IDbContextFactory<TorrentFlowDbContext> factory) : IRequestGrabber
 {
     private const int MaxSeriesSeasons = 30;
@@ -30,12 +32,10 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
     public async Task<RequestGrabOutcome> GrabAsync(MediaRequest request, CancellationToken ct)
     {
         var workId = await EnsureWorkAsync(request, ct);
-        var input = new GrabInput(request.Title, request.MediaType, WorkId: workId,
-            Year: request.Year, WorkKey: request.WorkKey, Lane: TorrentLane.Request, Provider: request.Provider, ProviderId: request.ProviderId);
         if (request.Scope == MediaRequestScope.Movie)
         {
-            var film = await grabs.Grab(input, ct);
-            return film.Ok && film.InfoHash is { } hash ? new([hash], null) : new([], film.Message);
+            await wanted.EnqueueAsync(new(request.WorkKey, workId, null, [], Lane: TorrentLane.Request), ct);
+            return new([], null, Queued: true);
         }
 
         var seasons = RequestRules.ParseSeasons(request.Seasons);
@@ -44,43 +44,17 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
         if (seasons.Count == 0) return new([], "No seasons were found for this series.");
 
         var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
-        await using var read = await factory.CreateDbContextAsync(ct);
-        var existing = await read.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id &&
-            t.WorkId == workId && t.Origin == TorrentOrigin.User && t.Status != EngineTorrentStatus.Error &&
-            t.Status != EngineTorrentStatus.Removed && t.QueueKey != null)
-            .Select(t => new { t.Hash, t.QueueKey }).ToListAsync(ct);
-        var byEpisode = existing.GroupBy(t => t.QueueKey!).ToDictionary(g => g.Key, g => g.First().Hash);
-        var hashes = new List<string>();
-        string? lastProblem = null;
-        var wanted = 0;
-        var failed = 0;
+        var queued = 0;
         foreach (var season in seasons)
         {
             var payload = await Extras(request, season, ct);
             var aired = payload.Episodes.Where(e => Aired(e.AirDate, today) ||
                 request.Provider == "anilist" && e.AirDate == null && e.HasAired == true).Select(e => e.Episode).ToList();
-            wanted += aired.Count;
-            var result = await SeasonFanout.Run(aired,
-                (episode, before) => byEpisode.TryGetValue(new EpisodeCursor(season, episode).QueueKey, out var existingHash)
-                    ? Task.FromResult(new GrabResult(true, "Already started") { InfoHash = existingHash })
-                    : grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct, before), ct);
-            foreach (var transfer in result.Transfers)
-            {
-                if (transfer.InfoHash is { } hash) { if (!hashes.Contains(hash)) hashes.Add(hash); }
-                else { failed++; lastProblem = transfer.Error; }
-            }
+            if (aired.Count == 0) continue;
+            await wanted.EnqueueAsync(new(request.WorkKey, workId, season, aired, Lane: TorrentLane.Request), ct);
+            queued += aired.Count;
         }
-        if (hashes.Count == 0)
-            return new([], lastProblem ?? "No aired episodes were found for those seasons.");
-        // Some episodes started but others failed (storage, no release): report honestly instead of a silent full approve.
-        if (wanted > 0 && (failed > 0 || hashes.Count < wanted))
-        {
-            var reason = lastProblem is { Length: > 0 }
-                ? $"Only {hashes.Count} of {wanted} episodes could be started. {lastProblem}"
-                : $"Only {hashes.Count} of {wanted} episodes could be started.";
-            return new(hashes, reason, Partial: true);
-        }
-        return new(hashes, null);
+        return queued == 0 ? new([], "No aired episodes were found for those seasons.") : new([], null, Queued: true);
     }
 
     private Task<TitleExtrasPayload> Extras(MediaRequest r, int? season, CancellationToken ct) =>
@@ -89,8 +63,19 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
     private async Task<string> EnsureWorkAsync(MediaRequest request, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        var existing = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == request.WorkKey, ct);
-        if (existing is not null) return existing.Id;
+        var existing = await db.Works.FirstOrDefaultAsync(w => w.WorkKey == request.WorkKey, ct);
+        if (existing is not null)
+        {
+            // The queue searches with the work's identity; a request's provider id brings that provider's aliases.
+            if (existing.ProviderId == null && request.ProviderId != null)
+            {
+                existing.Provider = request.Provider;
+                existing.ProviderId = request.ProviderId;
+                existing.UpdatedAt = time.GetUtcNow().UtcDateTime;
+                await db.SaveChangesAsync(ct);
+            }
+            return existing.Id;
+        }
         var now = time.GetUtcNow().UtcDateTime;
         var work = new Work { Id = Ids.New(), WorkKey = request.WorkKey, CanonicalTitle = request.Title,
             MediaType = request.MediaType, Year = request.Year, PosterUrl = request.PosterUrl,

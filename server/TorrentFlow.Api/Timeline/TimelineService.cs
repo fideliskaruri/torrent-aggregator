@@ -94,7 +94,7 @@ public sealed class TimelineService(IDbContextFactory<TorrentFlowDbContext> fact
                 Queued = true, WindowOpen = schedule.Open, NextWindowStart = opening,
                 MaxActive = cap, Lane = row.Lane, BestQueuedLane = bestLane
             }, now.UtcDateTime);
-            var episode = EpisodeCursor.Parse(row.QueueKey) ?? EpisodeCursor.Parse(torrent.Name);
+            var episode = EpisodeCursor.FromQueueKey(row.QueueKey) ?? EpisodeCursor.Parse(torrent.Name);
             entries.Add(new($"queued:{row.Hash}", "queued", torrent.Work?.CanonicalTitle ?? torrent.Name,
                 episode?.Label, torrent.Work?.PosterUrl, wait.Until, TorrentLane.FromRank(row.Lane), wait, index + 1));
         }

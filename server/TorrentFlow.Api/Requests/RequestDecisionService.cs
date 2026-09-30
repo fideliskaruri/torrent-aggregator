@@ -36,7 +36,8 @@ public sealed class RequestDecisionService(
 {
     public const int MaxReasonLength = 500;
     /// <summary>What a requester reads when nothing could be started; the indexer detail stays in the owner's log.</summary>
-    public const string NoDownloadReason = "No download could be found for this yet.";
+    public const string NoDownloadReason = "We couldn't find a download for this yet. We'll keep looking, and the owner can also pick one by hand.";
+    public const string PartialReason = "Some episodes started. We're still looking for the rest.";
 
     /// <summary>The last grab an approval started; tests await it.</summary>
     internal Task LastGrab { get; private set; } = Task.CompletedTask;
@@ -132,12 +133,20 @@ public sealed class RequestDecisionService(
         var current = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, CancellationToken.None);
         if (current is null || current.Status is not (MediaRequestStatus.Approved or MediaRequestStatus.Partial or MediaRequestStatus.Failed)) return;
         current.UpdatedAt = time.GetUtcNow().UtcDateTime;
+        if (outcome.Queued)
+        {
+            // The wanted queue starts and retries it; what it starts joins the request through AttachStartedAsync.
+            current.Status = MediaRequestStatus.Approved;
+            current.DecisionReason = retry ? null : current.DecisionReason;
+            await db.SaveChangesAsync(CancellationToken.None);
+            return;
+        }
         if (outcome.Hashes.Count == 0)
         {
             logger.LogInformation("Approved request {Id} started no download: {Problem}", id, outcome.Problem);
             current.Status = string.IsNullOrEmpty(current.GrabbedHashes) ? MediaRequestStatus.Failed : MediaRequestStatus.Partial;
             current.DecisionReason = current.Status == MediaRequestStatus.Partial
-                ? "Some episodes have started. Retry to find the missing episodes." : NoDownloadReason;
+                ? PartialReason : NoDownloadReason;
             await db.SaveChangesAsync(CancellationToken.None);
             await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed,
                 current.Status == MediaRequestStatus.Partial ? "Request partly started" : "Request could not be downloaded",
@@ -149,9 +158,8 @@ public sealed class RequestDecisionService(
         {
             // Keep the hashes so progress is visible, but do not leave a silent full approval.
             current.Status = MediaRequestStatus.Partial;
-            current.DecisionReason = string.IsNullOrWhiteSpace(outcome.Problem)
-                ? "Only some of the requested episodes could be started. Retry to find the missing episodes."
-                : outcome.Problem.Trim();
+            logger.LogInformation("Approved request {Id} partly started: {Problem}", id, outcome.Problem);
+            current.DecisionReason = string.IsNullOrWhiteSpace(outcome.Problem) ? PartialReason : outcome.Problem.Trim();
             await db.SaveChangesAsync(CancellationToken.None);
             await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request partly started",
                 $"{current.Title}: {current.DecisionReason}", "/requests");
@@ -161,6 +169,65 @@ public sealed class RequestDecisionService(
         if (retry) current.DecisionReason = null;
         await db.SaveChangesAsync(CancellationToken.None);
         await CheckFulfilledAsync(id, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// The owner picked a release by hand for a failed or partial request: its transfer joins the request, which is
+    /// approved again and fulfilled once every transfer completes.
+    /// </summary>
+    public async Task<(DecisionOutcome Outcome, string? Status)> AttachPickAsync(string id, string hash, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (row is null) return (DecisionOutcome.NotFound, null);
+        if (row.Status is not (MediaRequestStatus.Approved or MediaRequestStatus.Partial or MediaRequestStatus.Failed))
+            return (DecisionOutcome.NotPending, row.Status);
+        await AttachAsync(db, row, [hash], announce: true, ct);
+        return (DecisionOutcome.Done, row.Status);
+    }
+
+    /// <summary>Transfers the wanted queue (or a hand pick on the title page) started for this request's title join it.</summary>
+    public async Task AttachStartedAsync(string id, IReadOnlyCollection<string> hashes, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (row is null || row.Status is not (MediaRequestStatus.Approved or MediaRequestStatus.Partial or MediaRequestStatus.Failed)) return;
+        await AttachAsync(db, row, hashes, announce: row.Status != MediaRequestStatus.Approved, ct);
+    }
+
+    private async Task AttachAsync(TorrentFlowDbContext db, MediaRequest row, IEnumerable<string> started, bool announce, CancellationToken ct)
+    {
+        var hashes = (row.GrabbedHashes ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+        foreach (var hash in started.Select(h => h.ToLowerInvariant()))
+            if (!hashes.Contains(hash)) hashes.Add(hash);
+        row.GrabbedHashes = string.Join(',', hashes);
+        row.Status = MediaRequestStatus.Approved;
+        row.DecisionReason = null;
+        row.UpdatedAt = time.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(ct);
+        if (announce)
+            await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestApproved, "Request started", row.Title, "/requests");
+        await CheckFulfilledAsync(row.Id, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// The wanted queue tried several times and part of this request is still not found: the requester is told once and
+    /// the owner can pick a release by hand. The queue keeps looking; a later find approves the request again.
+    /// </summary>
+    public async Task MarkStillLookingAsync(string id, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (row is null || row.Status != MediaRequestStatus.Approved) return;
+        var status = string.IsNullOrEmpty(row.GrabbedHashes) ? MediaRequestStatus.Failed : MediaRequestStatus.Partial;
+        var reason = status == MediaRequestStatus.Partial ? PartialReason : NoDownloadReason;
+        var now = time.GetUtcNow().UtcDateTime;
+        var changed = await db.MediaRequests.Where(r => r.Id == id && r.Status == MediaRequestStatus.Approved)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.Status, status).SetProperty(r => r.DecisionReason, reason)
+                .SetProperty(r => r.UpdatedAt, now), ct);
+        if (changed == 0) return;
+        await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestFailed,
+            status == MediaRequestStatus.Partial ? "Request partly started" : "Request still searching", $"{row.Title}: {reason}", "/requests");
     }
 
     /// <summary>Called when a transfer completes: every approved request that grabbed it is re-checked.</summary>
@@ -195,6 +262,14 @@ public sealed class RequestDecisionService(
         await using var db = await factory.CreateDbContextAsync(ct);
         var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
         if (row is null || row.Status != MediaRequestStatus.Approved || string.IsNullOrEmpty(row.GrabbedHashes)) return;
+        // Episodes (or the film) the wanted queue is still looking for keep the request open.
+        var wanted = db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == row.WorkKey &&
+            t.Status == "queued" && t.InfoHash == null);
+        var seasons = RequestRules.ParseSeasons(row.Seasons).ToArray();
+        wanted = row.Scope == MediaRequestScope.Movie ? wanted.Where(t => t.Scope == "title")
+            : row.Scope == MediaRequestScope.Series || seasons.Length == 0 ? wanted.Where(t => t.Scope == "episode")
+            : wanted.Where(t => t.Scope == "episode" && t.Season != null && seasons.Contains(t.Season.Value));
+        if (await wanted.AnyAsync(ct)) return;
         foreach (var hash in row.GrabbedHashes.Split(',', StringSplitOptions.RemoveEmptyEntries))
         {
             if (!await transfers.CompletedAsync(hash, ct)) return;

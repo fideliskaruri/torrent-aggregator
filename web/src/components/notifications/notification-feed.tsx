@@ -16,6 +16,7 @@ import { useUnreadNotifications } from "@/app/notifications/use-unread";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { withTimeout } from "@/lib/with-timeout";
+import { isReleasePickLink, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 
 const PUSH_ENABLE_TIMEOUT_MS = 15_000;
 const PUSH_ENABLE_FAIL = "Couldn't enable push. Check the browser's notification permission.";
@@ -125,7 +126,7 @@ export function NotificationFeed() {
                   <time className="block text-xs text-subtle-foreground" dateTime={item.createdAt}>{formatRelativeTime(item.createdAt)}</time>
                   {item.link && <Button asChild variant="link" className="h-auto min-h-11 px-0">
                     <Link to={item.link} onClick={() => { if (!item.readAt) void read(item.id); }}
-                      aria-label={`Open ${item.title}`} data-notification-open>View details</Link>
+                      aria-label={`Open ${item.title}`} data-notification-open>{isReleasePickLink(item.link) ? PICK_RELEASE_LABEL : "View details"}</Link>
                   </Button>}
                 </div>
                 {!item.readAt && <Button variant="ghost" aria-disabled={busy || undefined} onClick={(event) => {

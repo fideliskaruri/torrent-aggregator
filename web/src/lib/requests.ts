@@ -82,6 +82,8 @@ export function parseLibrary(json: unknown): RequesterLibraryTitle[] {
 /** One row of the owner's `GET /api/requests`. */
 export interface OwnerRequest extends RequesterRequest {
   requestedBy: string;
+  /** The title's key, for "Pick a release yourself". Empty when the server did not send one. */
+  workKey: string;
 }
 
 export function parseOwnerRequests(json: unknown): { requests: OwnerRequest[]; pendingCount: number } {
@@ -91,10 +93,10 @@ export function parseOwnerRequests(json: unknown): { requests: OwnerRequest[]; p
   const byId = new Map(
     rows.map((row) => {
       const r = (row ?? {}) as Record<string, unknown>;
-      return [str(r.id) ?? "", str(r.requestedBy) ?? ""] as const;
+      return [str(r.id) ?? "", { requestedBy: str(r.requestedBy) ?? "", workKey: str(r.workKey) ?? "" }] as const;
     }),
   );
-  const requests = base.map((r) => ({ ...r, requestedBy: byId.get(r.id) ?? "" }));
+  const requests = base.map((r) => ({ ...r, requestedBy: byId.get(r.id)?.requestedBy ?? "", workKey: byId.get(r.id)?.workKey ?? "" }));
   const pending = int(body.pendingCount);
   return { requests, pendingCount: pending !== null && pending >= 0 ? pending : requests.filter((r) => r.status === "pending").length };
 }

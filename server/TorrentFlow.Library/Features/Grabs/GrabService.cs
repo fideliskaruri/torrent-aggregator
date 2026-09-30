@@ -83,9 +83,23 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 return new(true, "This episode has already started.") { InfoHash = existing.Hash, Title = existing.Name,
                     Queued = existing.Status == EngineTorrentStatus.Queued, Query = query };
         }
+        var (prepared, settings, floor, refusal) = await Prepare(db, input, query, ct);
+        if (refusal != null) return refusal;
+        input = prepared;
+        if (input.Cursor is { } cursor) return await Episode(db, settings!, input, cursor, query, floor, beforeSend, ct);
+        return await Film(db, settings!, input, floor, beforeSend, ct);
+    }
+
+    /// <summary>
+    /// What every grab resolves before it searches: download settings, the search identity (saved and provider aliases,
+    /// the AniList episode mapping) and the quality floor. Episodes and films share it.
+    /// </summary>
+    private async Task<(GrabInput Input, ClientSetting? Settings, int? Floor, GrabResult? Refusal)> Prepare(TorrentFlowDbContext db,
+        GrabInput input, string query, CancellationToken ct)
+    {
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
-        if (settings == null) return new(false, "Set up your download folder in Settings first.") { Query = query,
-            Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") };
+        if (settings == null) return (input, null, null, new(false, "Set up your download folder in Settings first.") { Query = query,
+            Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") });
         if (input.Cursor != null)
         {
             var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
@@ -115,9 +129,17 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             }
         }
         int? floor = input.Retention == "stream" ? null : input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
-        if (input.Cursor is { } cursor) return await Episode(db, settings, input, cursor, query, floor, beforeSend, ct);
-        return await Film(db, settings, input, floor, beforeSend, ct);
+        return (input, settings, floor, null);
     }
+
+    /// <summary>
+    /// A whole season is the single-episode grab (the same path as an episode's own Download button) run once per
+    /// episode, batched. Episodes already on their way are reused, not grabbed twice. Title page, the wanted queue and
+    /// requests all use this.
+    /// </summary>
+    public Task<SeasonFanoutResult> Season(GrabInput input, int season, IEnumerable<int> episodes, CancellationToken ct) =>
+        SeasonFanout.Run(episodes.Where(e => e > 0).Distinct().Order(),
+            (ep, before) => Grab(input with { Cursor = new EpisodeCursor(season, ep) }, ct, before), ct);
 
     /// <summary>Port of grabSingleEpisode's ladder: each rung is searched once, and the first working send wins.</summary>
     private async Task<GrabResult> Episode(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, EpisodeCursor cursor,
@@ -161,16 +183,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             }
             searchFailed |= raw.Sources.Any(s => s.Error != null);
             var work = raw.Results.Where(x => EpisodeLadder.ReleaseMatchesWork(x, accepted, PremiereYear(input))).ToList();
-            var quality = work.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor) &&
-                AnimeAudio.Allowed(x.Title, input.MediaType, automationOptions.Value.PreferAnimeDub) &&
-                (input.Sources == null || input.Sources.Contains(x.Source)) &&
-                (input.Constraints?.MinSeeders == null || x.Seeders >= input.Constraints.MinSeeders) &&
-                (input.Constraints?.MaxSizeBytes == null || x.SizeBytes <= input.Constraints.MaxSizeBytes) &&
-                (input.Constraints?.Resolution == null || ReleaseSelection.Resolution(x.Title) is { } r && $"{r}p" == input.Constraints.Resolution)).ToList();
-            if (floor != null)
-                quality = PreferRequestedQuality(quality, floor.Value).ToList();
-            if (input.MediaType == "anime")
-                quality = quality.OrderBy(x => AnimeAudio.Preference(x.Title, automationOptions.Value.PreferAnimeDub)).ToList();
+            var quality = Eligible(input, floor, work);
             var rungCandidates = new Dictionary<string, CandidateRejection>(StringComparer.Ordinal);
             foreach (var row in raw.RejectedResults.Concat(raw.Results.Select(r => new SearchRejectedResult(r, ""))))
             {
@@ -209,22 +222,43 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var searches = memo.Count;
         object Report(string reason) => new { reason, searches, triedSeasonPacks = false, manualSearchQuery = query,
             mapping = input.EpisodeMapping, candidates = decisions.Values.ToArray(), rungs = diagnostics };
-        var message = EpisodeRejections.Message(cursor, floor, decisions.Values, searchFailed);
+        var failure = searchFailure ?? (memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
+            ? new GrabFailure("no_sources", "No search sites are turned on for this kind of title.",
+                "Turn one on in Settings, then try again.") { Brief = "had no search sites to look on" }
+            : GrabFailure.FromCandidates(GrabFailure.Subject(input.Title, cursor.Season, cursor.Episode), floor, decisions.Values, searchFailed));
+        var detail = memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
+            ? "no search sites turned on" : GrabFailure.Explain(memo.Values.SelectMany(r => r.Sources), decisions.Values, floor);
+        failure = failure with { Detail = detail };
+        var message = failure.Sentence;
+        logger?.LogInformation("Episode not found {Title} {Episode}: {Detail}", input.Title, cursor.Label, detail);
         if (lastFailure != null)
         {
             if (lastFailure.Storage != null) return lastFailure with { NoReleaseFound = Report("send_failed") };
-            await LogSkip(db, input, query, message, ct);
-            return lastFailure with { Message = message, NoReleaseFound = Report("send_failed") };
+            await LogSkip(db, input, query, WithDetail(message, detail), ct);
+            return lastFailure with { Message = message, NoReleaseFound = Report("send_failed"),
+                Failure = (lastFailure.Failure ?? failure) with { Detail = detail } };
         }
-        await LogSkip(db, input, query, message, ct);
+        await LogSkip(db, input, query, WithDetail(message, detail), ct);
         return new(false, message) { Query = query, Skipped = true,
             HuntMiss = input.Background && !searchFailed && !decisions.Values.Any(d =>
                 !d.Reasons.Contains("other_work") && !d.Reasons.Contains("different_episode") && !d.Reasons.Contains("unknown_episode") && !d.Reasons.Contains("pack")),
-            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release"),
-            Failure = searchFailure ?? (memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
-                ? new GrabFailure("no_sources", "No search sources are enabled for this title.",
-                    "Enable a suitable source in Settings, then retry.")
-                : GrabFailure.FromCandidates(floor, decisions.Values, searchFailed)) };
+            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release"), Failure = failure };
+    }
+
+    /// <summary>The quality gate every pick shares: the floor, dub preference and the caller's constraints, best first.</summary>
+    private List<TorrentResult> Eligible(GrabInput input, int? floor, IEnumerable<TorrentResult> releases)
+    {
+        var quality = releases.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor) &&
+            AnimeAudio.Allowed(x.Title, input.MediaType, automationOptions.Value.PreferAnimeDub) &&
+            (input.Sources == null || input.Sources.Contains(x.Source)) &&
+            (input.Constraints?.MinSeeders == null || x.Seeders >= input.Constraints.MinSeeders) &&
+            (input.Constraints?.MaxSizeBytes == null || x.SizeBytes <= input.Constraints.MaxSizeBytes) &&
+            (input.Constraints?.Resolution == null || ReleaseSelection.Resolution(x.Title) is { } r && $"{r}p" == input.Constraints.Resolution)).ToList();
+        if (floor != null)
+            quality = PreferRequestedQuality(quality, floor.Value).ToList();
+        if (input.MediaType == "anime")
+            quality = quality.OrderBy(x => AnimeAudio.Preference(x.Title, automationOptions.Value.PreferAnimeDub)).ToList();
+        return quality;
     }
 
     private static int? PremiereYear(GrabInput input) => input.Cursor is { Season: 1 }
@@ -232,11 +266,15 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         && input.EpisodeMapping?.AbsoluteOffset is not > 0
         && input.EpisodeMapping?.FranchiseSeason is not > 1 ? input.Year : null;
 
+    /// <summary>The activity log keeps what the search really returned after the owner's sentence.</summary>
+    private static string WithDetail(string message, string? detail) =>
+        string.IsNullOrWhiteSpace(detail) ? message : $"{message} What we saw: {detail}.";
+
     /// <summary>Port of the title page's grabWholeWork: one search, identity-checked first survivor, one send.</summary>
     private async Task<GrabResult> Film(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, int? floor, Func<Task>? beforeSend, CancellationToken ct)
     {
         var title = input.Title.Trim();
-        if (title.Length == 0) return new(false, "Nothing to search for") { Query = title };
+        if (title.Length == 0) return new(false, "This title has no name to search for. Pick a release yourself.") { Query = title };
         // A wrong category guess returns nothing; an unfiltered search still finds it and identity still rejects other works.
         var category = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
         var response = await search.SearchAsync(new() { Query = title, Category = category, Limit = 20, TargetResolution = floor ?? input.PreferredResolution,
@@ -255,9 +293,12 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             releases.Remove(candidate);
         }
         if (lastFailure != null) return lastFailure;
-        var message = FilmSelection.NoMatchMessage(title, floor, response.Results.Count, response.Sources, FilmSelection.Summarize(response.Results, key, floor));
-        await LogSkip(db, input, title, message, ct);
-        return new(false, message) { Query = title, Skipped = true };
+        var summary = FilmSelection.Summarize(response.Results, key, floor);
+        var failure = FilmSelection.NoMatch(title, floor, response.Sources, summary) with { Detail = FilmSelection.Explain(response.Sources, summary, floor) };
+        logger?.LogInformation("Film not found {Title}: {Detail}", title, failure.Detail);
+        await LogSkip(db, input, title, WithDetail(failure.Sentence, failure.Detail), ct);
+        return new(false, failure.Sentence) { Query = title, Skipped = true, Failure = failure,
+            NoReleaseFound = new { reason = failure.Code, searches = 1, manualSearchQuery = title } };
     }
 
     private async Task<GrabResult?> BackgroundPolicy(TorrentFlowDbContext db, ClientSetting settings, GrabInput input,
@@ -281,7 +322,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 if (candidate.Seeders < options.MinimumSeeders && CheckSchedule.WaitingForSeeders(since, DateTime.UtcNow, options))
                 {
                     var minutes = Math.Max(1, Math.Ceiling(options.SeederWaitTimeoutMinutes - (DateTime.UtcNow - since).TotalMinutes));
-                    var message = $"Waiting for seeders ({candidate.Seeders} of {options.MinimumSeeders}) — retrying in ~{minutes}m";
+                    var message = $"Waiting for seeders: {candidate.Seeders} of {options.MinimumSeeders} are sharing it. Trying again in about {minutes} min.";
                     var next = CheckSchedule.Next(DateTime.UtcNow, null, watch.CursorMisses, since, settings.AutomationIntervalMinutes ?? 15, options);
                     await db.WatchListItems.Where(x => x.Id == watch.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.SeederWaitSince, since)
                         .SetProperty(w => w.NextCheckAt, next.At).SetProperty(w => w.NextCheckReason, next.Reason)
@@ -292,6 +333,15 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             }
         }
         return null;
+    }
+
+    /// <summary>A release the owner chose by hand (<see cref="ReleasePicker"/>), sent like any automatic pick.</summary>
+    public async Task<GrabResult> SendPicked(GrabInput input, TorrentResult release, string query, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var (prepared, settings, _, refusal) = await Prepare(db, input, query, ct);
+        if (refusal != null) return refusal;
+        return await Send(db, settings!, prepared, query, release, null, relaxed: true, ct);
     }
 
     /// <summary>Sends one pinned candidate and records the attempt; the recorded query stays the canonical one.</summary>

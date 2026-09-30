@@ -49,8 +49,15 @@ links, save paths) stay off-stage.
 - **Episode lists show the full provider catalog**, marking what we hold locally.
 - **Storage cap is mostly for automation.** Manual downloads may override the cap (never the
   physical "won't fit" floor). The owner set the cap; the app may warn but must not overrule.
-- **Exact episodes only for season downloads** (see §3/§4). A season action batches
-  per-episode releases; it never acquires a season pack.
+- **Season downloads are the single-episode grab, once per episode** (`GrabService.Season`, batched by
+  `SeasonFanout`). No season packs in any form: the owner ruled them out, and the picker never lists them.
+  When an episode isn't found, `GrabFailure.Detail` records what the search really returned ("12 results,
+  all season packs"); it goes to the Activity log ("What we saw: ...") and `GET /api/wanted` (`why`).
+- **Download season and approved requests are fire and forget** (`WantedQueue`). The click or approval
+  only records wanted `AcquisitionTarget` rows (status queued, no hash) and answers at once. The queue
+  runs one unit per (title, season), up to 6 side by side, retries misses after 1m, 5m, 15m, 1h, 3h and
+  then every 6h, and after 3 fruitless tries (not counting busy search sites or dead swarms) notifies the
+  owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue.
 - **API Bay video categories include HD and UHD siblings.** TV queries must include
   205/208/212, not just 205; movies span 201/202/207/209/210/211. The adapter searches
   broadly and filters these categories before truncation. Otherwise individual

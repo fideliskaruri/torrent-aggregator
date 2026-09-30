@@ -101,6 +101,7 @@ import { activityLine, needsAttention, positionLine } from "./card-state";
 import { CheckSchedule } from "@/components/library/check-schedule";
 import { removeFromLibraryCopy } from "./remove-copy";
 import { canonicalWatchlistPlayerTitle } from "./player-identity";
+import { PICK_TOAST_CLASSNAMES, pickReleaseToastButton } from "@/components/releases/release-picker-store";
 
 interface WatchItem {
   nextCheckAt?: string | null;
@@ -468,7 +469,24 @@ export default function WatchlistPage() {
           );
         }
       } else {
-        toast.error(data.message || "On-demand grab failed");
+        const query = (data.noReleaseFound as { manualSearchQuery?: string | null } | null | undefined)?.manualSearchQuery;
+        toast.error(
+          data.message || "On-demand grab failed",
+          typeof data.workKey === "string" && data.workKey
+            ? {
+                duration: Infinity,
+                classNames: PICK_TOAST_CLASSNAMES,
+                action: pickReleaseToastButton({
+                  workKey: data.workKey,
+                  title: item.title,
+                  season,
+                  episode,
+                  query: query ?? null,
+                  onPicked: load,
+                }),
+              }
+            : undefined,
+        );
       }
     } catch {
       toast.error("Network error");
