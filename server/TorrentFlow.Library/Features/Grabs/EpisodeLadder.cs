@@ -139,14 +139,13 @@ public static class EpisodeLadder
     }
 
     /// <summary>
-    /// The one season-pack search for a whole season: the name indexers carry (the rescue alias for anime) and,
+    /// The one season-pack search for a whole season: the primary name (as the first episode rung uses) and,
     /// outside anime's first season, the season number. Seeded, magnet-bearing results only, like the episode rungs.
     /// </summary>
     public static LadderRung SeasonPackRung(string title, int season, string? mediaType, IReadOnlyList<string>? extraTitles = null)
     {
-        var names = NamesFor(title, extraTitles);
+        var name = NamesFor(title, extraTitles).Primary;
         var category = LadderCategories(mediaType)[0];
-        var name = category == "anime" ? names.BestAlias ?? names.Primary : names.Primary;
         var query = category == "anime" && season == 1 ? name : $"{name} S{season:00}";
         return new("season-pack", query, category, new SearchFilters { HasMagnet = true, MinSeeders = 1 });
     }
@@ -188,7 +187,8 @@ public static class EpisodeLadder
             if (!VideoFile.IsMatch(path)) continue;
             var parts = path.Split(['\\', '/']);
             if (parts.Any(part => ExtrasFolder.IsMatch(Regex.Replace(part, "[._-]", " ")))) continue;
-            var fileName = VideoFile.Replace(parts[^1], "");
+            // Fansub files often space with underscores ("Show_-_06[CRC].mkv").
+            var fileName = VideoFile.Replace(parts[^1], "").Replace('_', ' ');
             if (ReleaseNames.IsEpisodeRangeRelease(fileName)) continue;
             var ep = ReleaseNames.ParseEpisode(fileName);
             if (ep.IsBatch || ep.IsSeasonPack || ep.Episode is not { } episode || episode < 1) continue;
