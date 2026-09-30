@@ -38,6 +38,8 @@ export interface SeasonGrabReport {
    * which still allows a retry of the missing episodes.
    */
   retryable?: boolean | null;
+  /** The season search we used, for "Pick a release yourself". */
+  manualSearchQuery?: string | null;
 }
 
 export interface SeasonGrabFailureReason {

@@ -356,6 +356,8 @@ export interface TitleGrabResponse {
   ok: boolean;
   message: string;
   retryAfterSeconds?: number;
+  /** Set when no release could be chosen: the search we used, for "Pick a release yourself". */
+  noReleaseFound?: { reason?: string | null; manualSearchQuery?: string | null } | null;
   /** The release that was actually sent, when one was. */
   title?: string | null;
   savePath?: string | null;

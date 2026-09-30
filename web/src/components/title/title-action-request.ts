@@ -24,7 +24,20 @@ function throwGrabFailure(body: TitleGrabResponse | null, fallback: string): nev
       `${message} Try again in ${Math.max(1, Math.ceil(body.retryAfterSeconds))} seconds.`,
     );
   }
+  if (body?.noReleaseFound) {
+    throw new NoReleaseFoundError(message, body.noReleaseFound.manualSearchQuery ?? null);
+  }
   throw new Error(message);
+}
+
+/** Nothing could be chosen automatically; the owner can still pick a release, starting from our search. */
+export class NoReleaseFoundError extends Error {
+  readonly query: string | null;
+  constructor(message: string, query: string | null) {
+    super(message);
+    this.name = "NoReleaseFoundError";
+    this.query = query;
+  }
 }
 
 export interface PostTitleActionInput {

@@ -85,7 +85,12 @@ import {
   type SeasonGrabReport,
   type SeasonGrabStatus,
 } from "./season-grab-state";
-import { postTitleAction, rethrowAcquisitionFetchError } from "./title-action-request";
+import {
+  NoReleaseFoundError,
+  postTitleAction,
+  rethrowAcquisitionFetchError,
+} from "./title-action-request";
+import { pickReleaseToastButton } from "@/components/releases/release-picker-store";
 import {
   isValidSeason,
   nextRememberedSeasonCookieValue,
@@ -593,8 +598,20 @@ export function TitleDetail(props: TitleDetailProps) {
         setStatuses((prev) => ({ ...prev, [key]: "error" }));
         // Close the opening player on a grab failure so no loader is left hanging.
         if (streaming) setPlaying(null);
+        const pick =
+          err instanceof NoReleaseFoundError && canDownloadRef.current
+            ? pickReleaseToastButton({
+                workKey: props.workKey,
+                title: cleanDisplayTitle(data?.title ?? props.title ?? label),
+                season: action.season ?? null,
+                episode: action.episode ?? null,
+                query: err.query,
+                onPicked: refetch,
+              })
+            : undefined;
         toast.error(
           err instanceof Error ? err.message : `Could not get ${label}`,
+          pick ? { action: pick, duration: Infinity } : undefined,
         );
       }
     },
@@ -656,6 +673,17 @@ export function TitleDetail(props: TitleDetailProps) {
           },
         };
       };
+      // "Pick a release yourself" for the season, prefilled with our search.
+      const pickAction = (report: SeasonGrabReport | null | undefined) =>
+        canDownloadRef.current
+          ? pickReleaseToastButton({
+              workKey: props.workKey,
+              title: cleanDisplayTitle(props.title ?? props.workKey),
+              season: targetSeason,
+              query: report?.manualSearchQuery ?? null,
+              onPicked: refetch,
+            })
+          : undefined;
 
       spentSeasonGrabs.current.add(key);
       inFlightSeasonGrabs.current.add(key);
@@ -746,17 +774,21 @@ export function TitleDetail(props: TitleDetailProps) {
         }));
         // A partial start names why the rest did not start and offers a Retry
         // for just those episodes.
+        const partial = report.coveredEpisodes < report.totalEpisodes;
         const partialRetry = retryAction(report);
-        const partialDescription =
-          report.coveredEpisodes < report.totalEpisodes
-            ? seasonGrabFailureDescription(report, outcome.value.message)
-            : undefined;
+        const partialPick = partial ? pickAction(report) : undefined;
+        const partialDescription = partial
+          ? seasonGrabFailureDescription(report, outcome.value.message)
+          : undefined;
         toast.success(outcome.value.message, {
           id: toastId,
           description: partialDescription ?? report.planReason ?? undefined,
           // Stays until the user retries or dismisses it; a full start fades.
-          duration: partialRetry ? Infinity : undefined,
-          action: partialRetry,
+          duration: partialRetry || partialPick ? Infinity : undefined,
+          // Retry keeps the toast open (preventDefault), so it owns the action
+          // slot; the pick then sits in the cancel slot, which closes the toast.
+          action: partialRetry ?? partialPick,
+          cancel: partialRetry ? partialPick : undefined,
           classNames: partialRetry ? RETRY_TOAST_CLASSNAMES : undefined,
         });
         refetch();
@@ -779,11 +811,13 @@ export function TitleDetail(props: TitleDetailProps) {
         const failure =
           err instanceof SeasonGrabFailureError ? err : undefined;
         const failureRetry = failure ? retryAction(failure.report) : undefined;
+        const failurePick = failure ? pickAction(failure.report) : undefined;
         toast.error(message, {
           id: toastId,
           duration: Infinity,
           description: failure?.description,
-          action: failureRetry,
+          action: failureRetry ?? failurePick,
+          cancel: failureRetry ? failurePick : undefined,
           classNames: failureRetry ? RETRY_TOAST_CLASSNAMES : undefined,
         });
       } finally {

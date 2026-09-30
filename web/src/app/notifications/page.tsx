@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { Radar } from "lucide-react";
+import { Radar, Search } from "lucide-react";
+import { openReleasePicker, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TfPageHeader } from "@/components/tf/page-header";
@@ -42,6 +43,10 @@ interface ActivityItem {
   context?: string | null;
   clientType?: string | null;
   sendKind?: string | null;
+  /** Set on grab failures the owner can still fix by picking a release. */
+  workKey?: string | null;
+  season?: number | null;
+  episode?: number | null;
   createdAt: string;
 }
 
@@ -355,6 +360,27 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
                           >
                             Saved to {location}
                           </p>
+                        ) : null}
+                        {item.workKey ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="mt-1.5"
+                            onClick={() =>
+                              openReleasePicker({
+                                workKey: item.workKey!,
+                                title: item.title,
+                                season: item.season ?? null,
+                                episode: item.episode ?? null,
+                                query: item.query,
+                              })
+                            }
+                            data-activity-pick={item.id}
+                          >
+                            <Search aria-hidden="true" />
+                            {PICK_RELEASE_LABEL}
+                          </Button>
                         ) : null}
                       </div>
                       <time

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Ban, Check, Inbox, Loader2, Plus, RotateCw, X } from "lucide-react";
+import { Ban, Check, Inbox, Loader2, Plus, RotateCw, Search, X } from "lucide-react";
+import { openReleasePicker, PICK_RELEASE_LABEL } from "@/components/releases/release-picker-store";
 import { toast } from "@/lib/toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,7 +68,7 @@ export default function RequestsPage() {
     refreshMs: 30_000,
   });
   const mineList = useApiQuery(caps.ownerSession ? null : "/api/requester/requests", {
-    select: (json: unknown) => ({ requests: parseRequests(json).map((r): OwnerRequest => ({ ...r, requestedBy: "" })) }),
+    select: (json: unknown) => ({ requests: parseRequests(json).map((r): OwnerRequest => ({ ...r, requestedBy: "", workKey: "" })) }),
     refreshMs: 30_000,
     emptyOnUnauthorized: false,
   });
@@ -369,11 +370,11 @@ export default function RequestsPage() {
                     </div>
                   ) : null}
                   {reviewing && canRetryRequest(request.status) ? (
+                    <div className="flex shrink-0 flex-wrap gap-2 self-start">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="shrink-0 self-start"
                       disabled={busy}
                       onClick={() => void decide(request, "retry")}
                       aria-label={`Retry missing episodes for ${request.title}`}
@@ -382,6 +383,28 @@ export default function RequestsPage() {
                       {busy ? <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <RotateCw aria-hidden="true" />}
                       {request.scope === "movie" ? "Retry" : "Retry missing episodes"}
                     </Button>
+                    {request.workKey ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() =>
+                          openReleasePicker({
+                            workKey: request.workKey,
+                            title: request.title,
+                            season: request.seasons.length === 1 ? request.seasons[0] : null,
+                            requestId: request.id,
+                            onPicked: list.refetch,
+                          })
+                        }
+                        data-owner-request-pick={request.id}
+                      >
+                        <Search aria-hidden="true" />
+                        {PICK_RELEASE_LABEL}
+                      </Button>
+                    ) : null}
+                    </div>
                   ) : null}
                 </div>
               </li>
