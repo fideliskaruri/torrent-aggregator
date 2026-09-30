@@ -8,9 +8,9 @@ public static class ReleaseResolution
     private static readonly (Regex Pattern, int Resolution)[] Patterns = new (string, int)[]
     {
         (@"\b4kto1080p\b", 1080),
-        (@"\b(?:2160[pi]|3840\s*[x×]\s*2160|uhd|4k[-_. ]?(?:hevc|bd|h ?265))\b", 2160),
-        (@"\b(?:1080[pi]|(?:1920|1440)\s*[x×]\s*1080|1440p|fhd)\b", 1080),
-        (@"\b(?:720[pi]|1280\s*[x×]\s*720|960p)\b", 720),
+        (@"\b(?:(?:bd|hd|web)?2160[pi]|3840\s*[x×]\s*2160|uhd|4k[-_. ]?(?:hevc|bd|h ?265))\b", 2160),
+        (@"\b(?:(?:bd|hd|web)?1080[pi]|(?:1920|1440)\s*[x×]\s*1080|1440p|fhd)\b", 1080),
+        (@"\b(?:(?:bd|hd|web)?720[pi]|1280\s*[x×]\s*720|960p)\b", 720),
         (@"\b576[pi]\b", 576),
         (@"\b(?:480[pi]|(?:640|848)\s*[x×]\s*480)\b", 480),
         (@"\b(?:360p|240p)\b", 360),
