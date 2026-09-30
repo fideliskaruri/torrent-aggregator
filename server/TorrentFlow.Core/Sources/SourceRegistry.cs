@@ -183,12 +183,16 @@ public static class SourceExecution
 {
     private static readonly AsyncLocal<SourceEntry?> CurrentEntry = new();
     public static SourceEntry? Current => CurrentEntry.Value;
-    public static async Task<T> RunAsync<T>(SourceEntry entry, Func<CancellationToken, Task<T>> action, CancellationToken ct)
+    /// <param name="timeWholeRun">
+    /// False when the caller paces the source's requests itself: time waiting for the site's turn is not the site's time,
+    /// so <see cref="SourceEntry.TimeoutMs"/> then bounds each request that really goes out instead of the whole run.
+    /// </param>
+    public static async Task<T> RunAsync<T>(SourceEntry entry, Func<CancellationToken, Task<T>> action, CancellationToken ct, bool timeWholeRun = true)
     {
         var previous = CurrentEntry.Value;
         CurrentEntry.Value = entry;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeout.CancelAfter(entry.TimeoutMs);
+        if (timeWholeRun) timeout.CancelAfter(entry.TimeoutMs);
         try { return await action(timeout.Token).ConfigureAwait(false); }
         finally { CurrentEntry.Value = previous; }
     }

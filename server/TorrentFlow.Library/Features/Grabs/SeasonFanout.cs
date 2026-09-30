@@ -36,7 +36,7 @@ public static class SeasonFanout
     public const int Concurrency = 4;
     public static async Task<SeasonFanoutResult> Run(IEnumerable<int> episodes,
         Func<int, Func<Task>, Task<GrabResult>> grab, CancellationToken ct = default,
-        int concurrency = Concurrency)
+        int concurrency = Concurrency, Func<EpisodeTransfer, Task>? settled = null)
     {
         var wanted = episodes.Where(x => x > 0).Distinct().Order().ToArray();
         var transfers = new EpisodeTransfer[wanted.Length];
@@ -68,6 +68,8 @@ public static class SeasonFanout
                     var failure = GrabFailure.FromException(error);
                     transfers[i] = new(wanted[i], "failed", null, error.Message, failure);
                 }
+                // Each episode is reported the moment it settles, not when the whole season is done.
+                if (settled != null && transfers[i] != null) await settled(transfers[i]);
             }
         }
         await Task.WhenAll(Enumerable.Range(0, Math.Min(Math.Max(1, concurrency), wanted.Length)).Select(_ => Worker()));
