@@ -31,10 +31,10 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
 
     public async Task<ReleasePickList> Search(string workKey, int? season, int? episode, string? query, CancellationToken ct)
     {
-        if (episode != null && season == null) throw new InvalidOperationException("Choose a season for that episode.");
+        if (episode != null && season == null) throw new LibraryRequestException(400, "Choose a season for that episode.");
         await using var db = await factory.CreateDbContextAsync(ct);
         var work = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == workKey, ct)
-            ?? throw new InvalidOperationException("Open this title once, then pick a release.");
+            ?? throw new LibraryRequestException(404, "Open this title once, then pick a release.");
         IReadOnlyList<string> aliases = [];
         try { aliases = JsonSerializer.Deserialize<string[]>(work.AliasesJson ?? "[]") ?? []; }
         catch (JsonException) { }
