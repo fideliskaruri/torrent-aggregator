@@ -65,6 +65,15 @@ public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anili
         var anilistId = 0;
         // One AniList id is one season; any other season number on an AniList id cannot be proven.
         if (provider == "anilist" && (season != 1 || !int.TryParse(externalId, NumberStyles.None, CultureInfo.InvariantCulture, out anilistId))) return null;
+        if (provider == "anilist")
+        {
+            // AniList states it directly: FINISHED with an episode count, and nothing on the airing schedule after now.
+            var work = await anilist.GetWorkByIdAsync(externalId, ct).ConfigureAwait(false);
+            if (work?.Status is "RELEASING" or "NOT_YET_RELEASED") return false;
+            if (work is not { Status: "FINISHED", EpisodeCount: > 0 }) return null;
+            var (answered, airing) = await anilist.GetFirstAiringAfterAsync(anilistId, now, ct).ConfigureAwait(false);
+            return !answered ? null : airing is null;
+        }
         var payload = await Extras(title, mediaType, externalId, provider, season, ct).ConfigureAwait(false);
         var episodes = payload.Episodes.Where(e => e.Episode >= 1).OrderBy(e => e.Episode).ToList();
         if (episodes.Count == 0 || episodes.Select(e => e.Episode).Distinct().Count() != episodes.Count || episodes[^1].Episode != episodes.Count) return null;
@@ -75,11 +84,6 @@ public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anili
             if (dateOnly ? at >= now.Date : at > now) return false;
         }
         if (payload.AiredEpisodes.TryGetValue(season, out var aired) && aired != episodes.Count) return null;
-        if (provider == "anilist")
-        {
-            var (answered, airing) = await anilist.GetFirstAiringAfterAsync(anilistId, now, ct).ConfigureAwait(false);
-            return !answered ? null : airing is null;
-        }
         if (payload.Seasons.Any(s => s > season)) return true;
         var next = await GetFirstEpisodeAfterAsync(title, mediaType, externalId, now, ct).ConfigureAwait(false);
         return next.Status switch { NewEpisodeStatus.NoneAnnounced => true, NewEpisodeStatus.Found => next.Season > season ? true : false, _ => null };

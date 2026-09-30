@@ -33,7 +33,7 @@ Code references are to `feat/pack-plan` after the merge with `origin/main` `2597
 `IAirDateLookup.SeasonFinishedAsync` (`AirDateLookup` in Metadata) answers true only when the provider lists a
 contiguous run of episodes 1..N, every one has an air date in the past, the provider's aired count (when given)
 matches N, and nothing more is announced for the season (TMDB: a later season exists or nothing airs after now;
-AniList: season 1 of the entry and the airing schedule answers "nothing after now"). Anything else (still airing,
+AniList: season 1 of the entry, AniList status `FINISHED` with an episode count, and the airing schedule answers "nothing after now"). Anything else (still airing,
 missing dates, gaps, a provider id of the wrong kind, a lookup error) skips packs, and the wanted row says:
 "Season still airing, or we could not confirm it has finished. Waiting for single episodes." It never infers from
 "the last episode is old".
