@@ -209,6 +209,11 @@ function mintJwt(priv, email) {
 
 function startProxy(listenPort, email, mintFn) {
   const server = createServer((req, res) => {
+    // Cloudflare answers its own logout path at the edge; it never reaches the tunnel.
+    if ((req.url || "").split("?")[0] === "/cdn-cgi/access/logout") {
+      signedOutPage(res, email);
+      return;
+    }
     forward(req, res, email, mintFn);
   });
 
@@ -224,6 +229,20 @@ function startProxy(listenPort, email, mintFn) {
   server.listen(listenPort, "127.0.0.1", () => {
     console.log(`listening 127.0.0.1:${listenPort} as ${email}`);
   });
+}
+
+function signedOutPage(res, email) {
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Signed out</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">
+<h1 style="font-size:1.25rem">Signed out</h1>
+<p>Simulated Cloudflare Access sign-out for ${email}. This proxy always signs in as the same email;
+open the other simulator port to use a different account.</p>
+<p><a href="/">Sign in again</a></p></body></html>`);
 }
 
 function injectHeaders(reqHeaders, email, mintFn) {

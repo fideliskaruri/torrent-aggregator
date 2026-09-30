@@ -5,12 +5,14 @@ import {
   Boxes,
   CalendarClock,
   Circle,
+  CircleUser,
   Clapperboard,
   Eye,
   HardDriveDownload,
   Inbox,
   Info,
   Library,
+  LogOut,
   MoreHorizontal,
   Search,
   Settings,
@@ -43,6 +45,7 @@ import {
 import { pendingBadge } from "@/lib/requests";
 import { useSessionInfo } from "@/lib/session";
 import { setPreviewAsRequester, useCapabilities } from "@/lib/capabilities";
+import { signOut } from "@/lib/sign-out";
 
 /** Icons live here because they are presentation, not part of the nav model. */
 const NAV_ICONS: Record<string, typeof Search> = {
@@ -73,13 +76,15 @@ export function MobileNav() {
   const pathname = useLocation().pathname;
   const { badge } = useUnreadNotifications();
   const caps = useCapabilities();
-  const pending = useSessionInfo().pendingRequests;
+  const { pendingRequests: pending, via, email } = useSessionInfo();
   const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
   const PRIMARY_TABS = withIcons(navFor(MOBILE_PRIMARY_NAV, caps));
   const MORE_ITEMS = withIcons(navFor(MOBILE_MORE_NAV, caps));
   // The owner's preview switch lives in More, so More shows whenever it has either.
   const showPreviewToggle = caps.canPreview;
-  const showMore = MORE_ITEMS.length > 0 || showPreviewToggle;
+  // Only a Cloudflare Access session can be signed out of; on this computer nobody signs in.
+  const showAccount = via === "tunnel" && !!email;
+  const showMore = MORE_ITEMS.length > 0 || showPreviewToggle || showAccount;
   const [moreOpen, setMoreOpen] = useState(false);
   const moreNavRef = useRef<HTMLElement>(null);
   const activePrimaryHref = navActiveHref(PRIMARY_TABS, pathname);
@@ -181,6 +186,32 @@ export function MobileNav() {
               >
                 <Eye className="size-4 shrink-0 text-subtle-foreground" strokeWidth={1.75} aria-hidden />
                 View as requester
+              </Button>
+            </div>
+          </>
+        ) : null}
+        {showAccount ? (
+          <>
+            <Separator />
+            <div className="px-2 pt-2 pb-2" data-mobile-account>
+              <p className="flex min-w-0 items-center gap-3 px-3 pb-1 text-[13px] text-muted-foreground">
+                <CircleUser className="size-4 shrink-0 text-subtle-foreground" strokeWidth={1.75} aria-hidden />
+                <span className="min-w-0">
+                  <span className="block text-[12px] text-subtle-foreground">Signed in as</span>
+                  <span data-account-email className="block truncate font-medium text-foreground">
+                    {email}
+                  </span>
+                </span>
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                data-sign-out
+                onClick={signOut}
+                className="h-auto min-h-[44px] w-full justify-start gap-3 px-3 py-2.5 text-[13px] text-muted-foreground"
+              >
+                <LogOut className="size-4 shrink-0 text-subtle-foreground" strokeWidth={1.75} aria-hidden />
+                Sign out
               </Button>
             </div>
           </>
