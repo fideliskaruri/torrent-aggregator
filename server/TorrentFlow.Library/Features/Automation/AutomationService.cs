@@ -106,7 +106,7 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                             {
                                 rule.LastMatchTitle = candidate.Title; rule.LastMatchMagnet = triggerMagnet; rule.MatchCount++;
                                 if (episode == null) db.DownloadHistories.Add(new() { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Magnet = candidate.Magnet,
-                                    InfoHash = send.Hash, Source = candidate.Source, Status = status, Message = message, CreatedAt = DateTime.UtcNow,
+                                    InfoHash = send.Hash, Source = candidate.Source, Status = status, Message = EngineAddMessages.Outcome(send), CreatedAt = DateTime.UtcNow,
                                     Context = $"Auto-rule: {rule.Name}", ClientType = "builtin", SendKind = "magnet", Retention = "keep" });
                             }
                         }
@@ -119,7 +119,7 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                 { Title = candidate?.Title, Magnet = candidate?.Magnet, InfoHash = send?.Hash ?? candidate?.InfoHash, Source = candidate?.Source };
                 summary.Add(result);
                 db.GrabJobs.Add(new() { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate?.Title ?? rule.Query, Query = rule.Query,
-                    Status = status, Message = message, Magnet = candidate?.Magnet, InfoHash = result.InfoHash, Source = candidate?.Source,
+                    Status = status, Message = status == "sent" && send is not null ? EngineAddMessages.Outcome(send) : message, Magnet = candidate?.Magnet, InfoHash = result.InfoHash, Source = candidate?.Source,
                     Kind = "rule", ExternalId = rule.Id, Retention = "keep", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
                 await db.SaveChangesAsync(ct);
             }

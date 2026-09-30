@@ -143,14 +143,17 @@ export const SOURCE_TIER = {
   BLURAY: 3,
 } as const;
 
-const SOURCE_PATTERNS: Array<[RegExp, number]> = [
-  [/\b(?:blu[-_. ]?ray|bluray|bdrip|brrip|bd[-_. ]?remux|remux|uhdbd)\b/i, SOURCE_TIER.BLURAY],
+/** What a release was captured from, as its name states it. */
+export type ReleaseSource = keyof typeof SOURCE_TIER;
+
+const SOURCE_PATTERNS: Array<[RegExp, ReleaseSource]> = [
+  [/\b(?:blu[-_. ]?ray|bluray|bdrip|brrip|bd[-_. ]?remux|remux|uhdbd)\b/i, "BLURAY"],
   // WEBRip is matched *before* WEB-DL on purpose. A service tag names the
   // provenance, not the capture method: `AMZN WEBRip` is a re-encode of a
   // stream, not a direct pull, and must not be promoted by the word "AMZN".
-  [/\b(?:web[-_. ]?rip|webrip)\b/i, SOURCE_TIER.WEBRIP],
-  [/\b(?:web[-_. ]?dl|webdl)\b/i, SOURCE_TIER.WEBDL],
-  [/\b(?:hdtv|pdtv|sdtv|dsr|dvbs?[-_. ]?rip|tvrip)\b/i, SOURCE_TIER.HDTV],
+  [/\b(?:web[-_. ]?rip|webrip)\b/i, "WEBRIP"],
+  [/\b(?:web[-_. ]?dl|webdl)\b/i, "WEBDL"],
+  [/\b(?:hdtv|pdtv|sdtv|dsr|dvbs?[-_. ]?rip|tvrip)\b/i, "HDTV"],
 ];
 
 /**
@@ -166,22 +169,31 @@ const SOURCE_PATTERNS: Array<[RegExp, number]> = [
 const BARE_WEB_RE = /\bweb\b/i;
 
 /**
- * Capture tier for a release name. Never `null` — an unnamed source is a real,
- * common answer, and it is scored neutrally rather than last.
+ * The capture source a release name states. Never `null` — an unnamed source
+ * is a real, common answer.
  */
-export function parseSourceTier(title: string): number {
-  if (!title) return SOURCE_TIER.UNKNOWN;
+export function parseSource(title: string): ReleaseSource {
+  if (!title) return "UNKNOWN";
   const t = title.replace(/[._]/g, " ");
-  for (const [re, tier] of SOURCE_PATTERNS) {
-    if (re.test(t)) return tier;
+  for (const [re, source] of SOURCE_PATTERNS) {
+    if (re.test(t)) return source;
   }
 
   const web = BARE_WEB_RE.exec(t);
   if (web) {
     const anchor = METADATA_ANCHOR_RE.exec(t);
-    if (anchor != null && anchor.index < web.index) return SOURCE_TIER.WEBDL;
+    if (anchor != null && anchor.index < web.index) return "WEBDL";
   }
-  return SOURCE_TIER.UNKNOWN;
+  return "UNKNOWN";
+}
+
+/**
+ * Capture tier for a release name, scored neutrally rather than last when the
+ * name states none. A rank, not a name: Blu-ray and WEB-DL share one, so use
+ * {@link parseSource} to say which source it is.
+ */
+export function parseSourceTier(title: string): number {
+  return SOURCE_TIER[parseSource(title)];
 }
 
 /**

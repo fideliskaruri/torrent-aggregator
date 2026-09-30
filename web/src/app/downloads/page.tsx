@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "@/lib/toast";
 import {
   Check,
@@ -93,14 +93,18 @@ import {
 } from "./media-filter";
 import {
   releaseDisplayFacts,
-  sourceTierChip,
+  sourceChip,
   canDownloadNow,
   forcedStartLabel,
   isVerifiedDownload,
+  pauseResumeAction,
+  pauseResumeTargets,
   stateBadgeVariant,
   stateLabel,
   rollupChip,
   transferErrorMessage,
+  transferLabel,
+  transfersLabel,
   waitReasonLabel,
 } from "./release-display";
 import {
@@ -119,6 +123,12 @@ import {
   type SnapshotState,
 } from "./snapshot-sync";
 import { SeriesDownloadDialog } from "./series-download-dialog";
+import {
+  downloadLinkFrom,
+  downloadLinkKey,
+  findLinkedDownload,
+  withoutDownloadLink,
+} from "./download-link";
 import { ReleaseSwapDialog, canFindAnotherRelease } from "./release-swap-dialog";
 import { isDownloadRow, type ClientTorrent, type NowPlaying, type StreamManifestFile, type TorrentRowAction } from "./types";
 import {
@@ -225,6 +235,40 @@ type TidyResult = {
 function plural(n: number, word: string) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
+
+type RowActionOutcome = { ok: true } | { ok: false; reason: string };
+
+/**
+ * One pause/resume/start, read to the end. A refusal comes back as an error
+ * status: the built-in engine says why in `detail` ("Downloaded files cannot be
+ * paused."), an external client only in a generic `message`, and a dropped
+ * connection not at all, so the reason falls back in that order.
+ */
+async function postRowAction(
+  act: "pause" | "resume" | "force",
+  torrent: ClientTorrent,
+): Promise<RowActionOutcome> {
+  const res = await fetch("/api/client/torrents", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: act,
+      hash: torrent.hash,
+      ownerClientType: torrent.ownerClientType,
+    }),
+  }).catch(() => null);
+  if (!res) return { ok: false, reason: "Couldn't reach TorrentFlow. Try again." };
+  const data = await readJsonBody<{ ok?: boolean; message?: string; detail?: string; error?: string }>(res);
+  if (res.ok && data?.ok !== false) return { ok: true };
+  return {
+    ok: false,
+    reason:
+      data?.detail?.trim() ||
+      data?.message?.trim() ||
+      data?.error?.trim() ||
+      `TorrentFlow answered HTTP ${res.status}. Try again.`,
+  };
+}
 export default function ClientPage() {
   const { streaming } = useFeatures();
   const displayPath = useDisplayPath();
@@ -270,9 +314,16 @@ export default function ClientPage() {
     if (!streaming) setPlaying(null);
   }, [streaming]);
   const [announcement, setAnnouncement] = useState("");
-  const deleteOpenerRef = useRef<HTMLElement | null>(null);
+  // The series dialog also remounts when playback ends, and nothing on the
+  // page has focus then; this is the row its close still belongs to.
   const seriesDialogOpenerRef = useRef<HTMLElement | null>(null);
   const [openGroupTitle, setOpenGroupTitle] = useState("");
+  // A notification's "View details" names one download (see `download-link.ts`);
+  // this is the row it pointed at, ringed until the user moves on.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const downloadLink = useMemo(() => downloadLinkFrom(searchParams), [searchParams]);
+  const resolvedLinkRef = useRef<string | null>(null);
+  const [linkedTransferId, setLinkedTransferId] = useState<string | null>(null);
   const showLoading = useStableLoading(loading && !torrents.length && !error);
 
   // Every read of the client takes a generation, and a response may only be
@@ -555,6 +606,60 @@ export default function ClientPage() {
     if (resolvedSeasonKey !== selectedSeasonKey) setSelectedSeasonKey(resolvedSeasonKey);
   }
 
+  // Arriving from a notification's "View details": find that download in a
+  // real read of the client (a failed poll proves nothing about what is gone),
+  // show it, then take the link out of the address so a refresh doesn't replay it.
+  useEffect(() => {
+    if (!downloadLink) {
+      resolvedLinkRef.current = null;
+      return;
+    }
+    if (!authoritative) return;
+    const key = downloadLinkKey(downloadLink);
+    if (resolvedLinkRef.current === key) return;
+    resolvedLinkRef.current = key;
+    setSearchParams(withoutDownloadLink, { replace: true, preventScrollReset: true });
+    const target = findLinkedDownload(downloadable, downloadLink);
+    if (!target) {
+      toast.info("That download was removed");
+      setAnnouncement("That download was removed.");
+      return;
+    }
+    if (!filtered.includes(target)) {
+      setFilter("");
+      setStatusFilter("all");
+      setMediaTab(DEFAULT_DOWNLOAD_TAB);
+    }
+    setLinkedTransferId(target.transferId);
+    setAnnouncement(`Showing ${transferLabel(target)}.`);
+    const series = allGroups.find(
+      (group): group is SeriesGroup<ClientTorrent> =>
+        group.kind === "series" && group.torrents.includes(target),
+    );
+    if (series) {
+      // Nothing on this page opened the dialog; closing it returns focus to the show's row.
+      seriesDialogOpenerRef.current = null;
+      setOpenSeriesKey(series.key);
+      setSelectedSeasonKey(
+        series.seasons.find((season) => season.entries.some((entry) => entry.torrent === target))
+          ?.key ?? null,
+      );
+    }
+  }, [downloadLink, authoritative, downloadable, filtered, allGroups, setSearchParams]);
+
+  // The ring says "this is the one you came for"; it goes once the user does anything else.
+  useEffect(() => {
+    if (!linkedTransferId) return;
+    const clear = () => setLinkedTransferId(null);
+    const options = { capture: true, once: true } as const;
+    window.addEventListener("pointerdown", clear, options);
+    window.addEventListener("keydown", clear, options);
+    return () => {
+      window.removeEventListener("pointerdown", clear, options);
+      window.removeEventListener("keydown", clear, options);
+    };
+  }, [linkedTransferId]);
+
   // Artwork is looked up for the whole table at once, keyed by work — the poll
   // runs every five seconds and three episodes of one show are one lookup.
   // Deliberately driven by `torrents`, not `filtered`: typing in the filter box
@@ -609,6 +714,12 @@ export default function ClientPage() {
     return { downloading, ready, paused, errored, dlspeed, upspeed, total };
   }, [downloadable]);
 
+  // What the bulk bar's Pause and Resume would act on: only the selected rows each one applies to.
+  const selectedTargets = useMemo(
+    () => pauseResumeTargets(torrents.filter((torrent) => selected.has(torrent.transferId))),
+    [torrents, selected],
+  );
+
   const rawSendTrimmed = rawSendValue.trim();
   const rawSendInvalid =
     rawSendTrimmed.length > 0 && !isValidTorrentSourceInput(rawSendValue);
@@ -624,28 +735,25 @@ export default function ClientPage() {
     // Any read already in flight answers from before this change; drop it so
     // its older snapshot cannot land on top of the refresh below.
     invalidateInFlight();
-    const res = await fetch("/api/client/torrents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: act,
-        hash: torrent.hash,
-        ownerClientType: torrent.ownerClientType,
-      }),
-    }).catch(() => null);
+    const label = transferLabel(torrent);
+    // Resume on a failed row is the row's "Retry".
+    const verb =
+      act === "force" ? "start" : act === "resume" && isError(torrent.state) ? "retry" : act;
+    const outcome = await postRowAction(act, torrent);
     void load();
-    if (act === "force") {
-      if (!res?.ok) {
-        const data = res ? await readJsonBody<{ message?: string; error?: string }>(res) : null;
-        toast.error(data?.message || data?.error || `Couldn't start ${torrent.name} now. Try again.`);
-        setAnnouncement("Could not start the download.");
-        return;
-      }
-      toast.success(`Started ${torrent.name}`);
-      setAnnouncement(`Started ${torrent.name}.`);
+    if (!outcome.ok) {
+      toast.error(`Couldn't ${verb} ${label}`, { description: outcome.reason });
+      setAnnouncement(`Couldn't ${verb} ${label}.`);
       return;
     }
-    setAnnouncement(act === "pause" ? "Download paused." : "Download resumed.");
+    if (act === "force") {
+      toast.success(`Started ${label}`);
+      setAnnouncement(`Started ${label}.`);
+      return;
+    }
+    setAnnouncement(
+      `${act === "pause" ? "Paused" : verb === "retry" ? "Retrying" : "Resumed"} ${label}.`,
+    );
   }
 
   async function sendRawTorrent() {
@@ -694,39 +802,37 @@ export default function ClientPage() {
   ) {
     if (!transfers.length) return;
     invalidateInFlight();
-    await Promise.all(
-      transfers.map((torrent) =>
-        fetch("/api/client/torrents", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: act,
-            hash: torrent.hash,
-            ownerClientType: torrent.ownerClientType,
-          }),
-        }),
-      ),
-    );
-    toast.success(
-      act === "pause"
-        ? `Paused ${transfers.length} torrent(s)`
-        : `Resumed ${transfers.length} torrent(s)`,
-    );
-    setAnnouncement(
-      `${act === "pause" ? "Paused" : "Resumed"} ${transfers.length} downloads.`,
+    const outcomes = await Promise.all(
+      transfers.map((torrent) => postRowAction(act, torrent)),
     );
     void load();
+    const reasons = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.reason]));
+    const done = transfers.length - reasons.length;
+    const verbed = act === "pause" ? "Paused" : "Resumed";
+    const what = transfersLabel(transfers);
+    if (!reasons.length) {
+      toast.success(`${verbed} ${what}`);
+      setAnnouncement(`${verbed} ${what}.`);
+    } else if (done > 0) {
+      const summary = `${verbed} ${done} of ${transfers.length} downloads`;
+      toast.warning(summary, {
+        description: `${plural(reasons.length, "download")} couldn't ${act}: ${reasons[0]}`,
+      });
+      setAnnouncement(`${summary}.`);
+    } else {
+      toast.error(`Couldn't ${act} ${what}`, { description: reasons[0] });
+      setAnnouncement(`Couldn't ${act} ${what}.`);
+    }
   }
 
   async function bulkAction(act: "pause" | "resume") {
-    await actionMany(
-      act,
-      torrents.filter((torrent) => selected.has(torrent.transferId)),
-    );
+    await actionMany(act, selectedTargets[act]);
   }
 
   async function confirmDelete(deleteFiles: boolean) {
     if (!pendingDelete?.length) return;
+    const what = transfersLabel(pendingDelete);
+    const their = pendingDelete.length === 1 ? "its" : "their";
     setDeleting(true);
     // A poll that started before this delete would answer from a pre-delete
     // snapshot and resurrect the rows; discard anything already in flight.
@@ -778,9 +884,10 @@ export default function ClientPage() {
               : {
                   ok: false,
                   name: t.name,
-                  msg: data
-                    ? data.message || data.error || `HTTP ${res.status}`
-                    : "Bad response",
+                  msg:
+                    data?.message ||
+                    data?.error ||
+                    `TorrentFlow answered HTTP ${res.status}. Try again.`,
                 },
           );
         }
@@ -797,33 +904,43 @@ export default function ClientPage() {
                 name: t.name,
                 msg: data.message || data.error,
               }
-            : { ok: false, name: t.name, msg: "Bad response" },
+            : {
+                ok: false,
+                name: t.name,
+                msg: `TorrentFlow answered HTTP ${res.status}. Try again.`,
+              },
         );
       }
       const failed = results.filter((r) => !r.ok);
-      if (failed.length) {
-        toast.error(
-          `Failed to delete ${failed.length}: ${failed[0].msg || "error"}`,
-        );
+      const removed = results.length - failed.length;
+      if (!failed.length) {
+        const summary = deleteFiles
+          ? `Removed ${what} and ${their} files`
+          : `Removed ${what} but kept ${their} files`;
+        toast.success(summary);
+        setAnnouncement(`${summary}.`);
       } else {
-        toast.success(
-          deleteFiles
-            ? `Removed ${results.length} torrent(s) and files`
-            : `Removed ${results.length} from client (files kept)`,
-        );
+        const reason = failed[0].msg?.trim() || "TorrentFlow couldn't remove it. Try again.";
+        const summary = removed
+          ? `Removed ${removed} of ${results.length} downloads`
+          : `Couldn't remove ${what}`;
+        if (removed) {
+          toast.warning(summary, {
+            description: `${plural(failed.length, "download")} couldn't be removed: ${reason}`,
+          });
+        } else {
+          toast.error(summary, { description: reason });
+        }
+        setAnnouncement(`${summary}.`);
       }
       setSelected(new Set());
       setPendingDelete(null);
-      setAnnouncement(
-        deleteFiles
-          ? `Removed ${results.length} downloads and their files.`
-          : `Removed ${results.length} downloads; files were kept.`,
-      );
-      const opener = deleteOpenerRef.current;
-      if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
       void load();
     } catch {
-      toast.error("Network error deleting torrent(s)");
+      toast.error(`Couldn't remove ${what}`, {
+        description: "Couldn't reach TorrentFlow. Try again.",
+      });
+      setAnnouncement(`Couldn't remove ${what}.`);
     } finally {
       setDeleting(false);
     }
@@ -976,11 +1093,7 @@ export default function ClientPage() {
     });
   }
 
-  function openDeleteDialog(
-    torrentsToDelete: ClientTorrent[],
-    opener?: EventTarget | null,
-  ) {
-    if (opener instanceof HTMLElement) deleteOpenerRef.current = opener;
+  function openDeleteDialog(torrentsToDelete: ClientTorrent[]) {
     setPendingDelete(torrentsToDelete);
   }
 
@@ -1002,10 +1115,16 @@ export default function ClientPage() {
   }
 
   function closeSeriesDialog() {
+    const key = openSeriesKey;
     setOpenSeriesKey(null);
     setSelectedSeasonKey(null);
-    const opener = seriesDialogOpenerRef.current;
-    if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
+    // A dialog a notification link opened has no opener; the show's own Details button stands in.
+    const opener = seriesDialogOpenerRef.current?.isConnected
+      ? seriesDialogOpenerRef.current
+      : key
+        ? document.querySelector<HTMLElement>(`[data-group-key="${CSS.escape(key)}"] [data-group-details]`)
+        : null;
+    if (opener) requestAnimationFrame(() => opener.focus());
   }
 
   function playFromDialog(payload: {
@@ -1454,10 +1573,19 @@ export default function ClientPage() {
               <span className="text-[12px] text-muted-foreground mr-1">
                 {selected.size} selected
               </span>
+              {/*
+                aria-disabled, not disabled, when nothing selected applies:
+                Pause stops applying the moment it has worked, while it still
+                has focus, and a disabled button drops focus to <body>.
+              */}
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => void bulkAction("pause")}
+                aria-disabled={!selectedTargets.pause.length || undefined}
+                onClick={() => {
+                  if (selectedTargets.pause.length) void bulkAction("pause");
+                }}
+                data-bulk-pause
               >
                 <Pause className="h-3.5 w-3.5" />
                 Pause
@@ -1465,7 +1593,11 @@ export default function ClientPage() {
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => void bulkAction("resume")}
+                aria-disabled={!selectedTargets.resume.length || undefined}
+                onClick={() => {
+                  if (selectedTargets.resume.length) void bulkAction("resume");
+                }}
+                data-bulk-resume
               >
                 <Play className="h-3.5 w-3.5" />
                 Resume
@@ -1473,10 +1605,9 @@ export default function ClientPage() {
               <Button
                 size="sm"
                 variant="destructive"
-                onClick={(event) =>
+                onClick={() =>
                   openDeleteDialog(
                     torrents.filter((t) => selected.has(t.transferId)),
-                    event.currentTarget,
                   )
                 }
                 data-bulk-delete
@@ -1575,6 +1706,7 @@ export default function ClientPage() {
                       key={t.transferId}
                       torrent={t}
                       isSelected={selected.has(t.transferId)}
+                      highlighted={t.transferId === linkedTransferId}
                       openingHash={openingHash}
                       artwork={artwork}
                       onToggleSelect={toggleSelect}
@@ -1622,6 +1754,7 @@ export default function ClientPage() {
           onSelectSeason={setSelectedSeasonKey}
           selected={selected}
           onToggleSelect={toggleSelect}
+          highlightedTransferId={linkedTransferId}
           openingHash={openingHash}
           onPlay={playFromDialog}
           onAction={(act, torrent) => void action(act, torrent)}
@@ -1668,21 +1801,13 @@ export default function ClientPage() {
       <AlertDialog
         open={!!pendingDelete}
         onOpenChange={(open) => {
-          if (!open && !deleting) {
-            setPendingDelete(null);
-            const opener = deleteOpenerRef.current;
-            if (opener?.isConnected) requestAnimationFrame(() => opener.focus());
-          }
+          if (!open && !deleting) setPendingDelete(null);
         }}
       >
         <AlertDialogContent data-delete-dialog>
           <AlertDialogHeader>
             <AlertDialogTitle id="delete-dialog-title">
-              Delete{" "}
-              {pendingDelete && pendingDelete.length > 1
-                ? `${pendingDelete.length} torrents`
-                : "torrent"}
-              ?
+              {pendingDelete ? `Delete ${transfersLabel(pendingDelete)}?` : "Delete download?"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
@@ -1703,7 +1828,7 @@ export default function ClientPage() {
                     <p className="text-sm text-foreground font-medium line-clamp-2">
                       {pendingDelete.length === 1
                         ? pendingDelete[0].name
-                        : `${pendingDelete[0].name} and ${pendingDelete.length - 1} more`}
+                        : `${transferLabel(pendingDelete[0])} and ${pendingDelete.length - 1} more`}
                     </p>
                     {pendingDelete[0].savePath ? (
                       <p className="text-[12px] font-mono text-subtle-foreground break-all">
@@ -1780,7 +1905,7 @@ function SeriesOverviewRow({
   onToggleGroupSelect: (transferIds: string[]) => void;
   onOpenDetails: (key: string, opener?: EventTarget | null) => void;
   onActionMany: (act: "pause" | "resume", transfers: ClientTorrent[]) => void;
-  onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
+  onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
   const pct = progressPercent(group.progress);
   const head = group.torrents[0];
@@ -1806,6 +1931,7 @@ function SeriesOverviewRow({
     group.counts.error === 1
       ? transferErrorMessage(group.torrents.find((t) => isError(t.state)) ?? { state: group.state })
       : null;
+  const targets = pauseResumeTargets(group.torrents);
 
   return (
     <div
@@ -1934,22 +2060,26 @@ function SeriesOverviewRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => onActionMany("pause", group.torrents)}
-            >
-              <Pause />
-              Pause all
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onActionMany("resume", group.torrents)}
-            >
-              <Play />
-              Resume all
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {targets.pause.length ? (
+              <DropdownMenuItem
+                onClick={() => onActionMany("pause", targets.pause)}
+              >
+                <Pause />
+                Pause all
+              </DropdownMenuItem>
+            ) : null}
+            {targets.resume.length ? (
+              <DropdownMenuItem
+                onClick={() => onActionMany("resume", targets.resume)}
+              >
+                <Play />
+                Resume all
+              </DropdownMenuItem>
+            ) : null}
+            {targets.pause.length || targets.resume.length ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem
               variant="destructive"
-              onClick={(event) => onDeleteRequest([...group.torrents], event.currentTarget)}
+              onClick={() => onDeleteRequest([...group.torrents])}
               data-group-delete
             >
               <Trash2 />
@@ -1971,6 +2101,7 @@ function SeriesOverviewRow({
 function FilmRow({
   torrent: t,
   isSelected,
+  highlighted,
   openingHash,
   artwork,
   onToggleSelect,
@@ -1983,6 +2114,8 @@ function FilmRow({
 }: {
   torrent: ClientTorrent;
   isSelected: boolean;
+  /** The download a notification's "View details" pointed at. */
+  highlighted: boolean;
   openingHash: string | null;
   artwork: ReturnType<typeof useReleaseArtwork>;
   onToggleSelect: (hash: string, additive: boolean) => void;
@@ -1996,7 +2129,7 @@ function FilmRow({
   onOpenFolder: (t: ClientTorrent) => void;
   onCopyStreamUrl: (t: ClientTorrent) => void;
   onCopyMagnet: (t: ClientTorrent) => void;
-  onDeleteRequest: (torrents: ClientTorrent[], opener?: EventTarget | null) => void;
+  onDeleteRequest: (torrents: ClientTorrent[]) => void;
 }) {
   const pct = progressPercent(t.progress);
   const query = artworkQueryForRelease(t.name, t.category);
@@ -2015,14 +2148,27 @@ function FilmRow({
   const titleHref = downloadTitleHref(t);
   const isBuiltin = t.ownerClientType === "builtin";
   const errorMessage = transferErrorMessage(t);
+  const pauseResume = pauseResumeAction(t);
+  const hasLifecycleItems = canDownloadNow(t) || canFindAnotherRelease(t) || pauseResume !== null;
+  const rowRef = useRef<HTMLDivElement>(null);
+  // Bring the linked row into view and give it focus, so the keyboard and a
+  // screen reader start from the download the user asked to see.
+  useEffect(() => {
+    if (!highlighted) return;
+    rowRef.current?.scrollIntoView({ block: "center" });
+    rowRef.current?.focus({ preventScroll: true });
+  }, [highlighted]);
 
   return (
     <div
+      ref={rowRef}
       className={cn(
         "group grid grid-cols-1 sm:grid-cols-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3 items-center px-3 py-2.5 transition-colors",
         isSelected ? "bg-brand-dim" : "hover:bg-muted/60",
+        highlighted && "ring-2 ring-inset ring-brand",
       )}
       data-client-torrent
+      data-highlighted={highlighted || undefined}
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}
@@ -2256,7 +2402,7 @@ function FilmRow({
               <p className="font-medium text-muted-foreground">Details</p>
               {(() => {
                 const facts = [
-                  sourceTierChip(t.name),
+                  sourceChip(t.name),
                   t.ownerClientLabel,
                   t.category,
                   t.peers != null ? `${t.peers} ${t.peers === 1 ? "peer" : "peers"}` : null,
@@ -2313,22 +2459,25 @@ function FilmRow({
                 Find another release
               </DropdownMenuItem>
             ) : null}
-            <DropdownMenuItem
-              onClick={() => onAction("pause", t)}
-            >
-              <Pause />
-              Pause
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onAction("resume", t)}
-            >
-              <Play />
-              Resume
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {pauseResume === "pause" ? (
+              <DropdownMenuItem
+                onClick={() => onAction("pause", t)}
+              >
+                <Pause />
+                Pause
+              </DropdownMenuItem>
+            ) : pauseResume === "resume" ? (
+              <DropdownMenuItem
+                onClick={() => onAction("resume", t)}
+              >
+                <Play />
+                {isError(t.state) ? "Retry" : "Resume"}
+              </DropdownMenuItem>
+            ) : null}
+            {hasLifecycleItems ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem
               variant="destructive"
-              onClick={(event) => onDeleteRequest([t], event.currentTarget)}
+              onClick={() => onDeleteRequest([t])}
               data-delete-torrent
             >
               <Trash2 />

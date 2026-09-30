@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Data;
 using TorrentFlow.Library.Features.Common;
 
@@ -14,6 +15,7 @@ public sealed class ActivityController(IDbContextFactory<TorrentFlowDbContext> f
         await using var db = await factory.CreateDbContextAsync(ct);
         var items = await db.DownloadHistories.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Retention != "stream")
             .OrderByDescending(x => x.CreatedAt).Take(100).ToListAsync(ct);
+        foreach (var item in items) item.Message = EngineAddMessages.LoggedOutcome(item.Message);
         return Ok(new { items = items.Select(LibraryJson.Row) });
     }
     [HttpDelete("api/history")]

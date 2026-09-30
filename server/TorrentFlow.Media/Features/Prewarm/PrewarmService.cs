@@ -302,7 +302,7 @@ public sealed class PrewarmService
             }
         }
 
-        await RecordGrabAsync(userId, candidate.Title, search.Query, send.Ok ? "sent" : "failed", send.Message, candidate, next, ct);
+        await RecordGrabAsync(userId, candidate.Title, search.Query, send.Ok ? "sent" : "failed", EngineAddMessages.Outcome(send), candidate, next, ct);
         if (!send.Ok) return Common("failed", "send-failed", send.Message, evictedCount, freedBytes);
 
         _cooldownUntil[key] = NowMs + (long)Cooldown.TotalMilliseconds;

@@ -107,6 +107,10 @@ Tailwind defaults: `sm 640` · `md 768` · `lg 1024` · `xl 1280`. **Design mobi
 - [ ] Tap targets ≥ 44px.
 - [ ] `aria-label` on icon-only buttons; visible focus ring (`--accent-ring`).
 - [ ] Keyboard: primary flows reachable/operable by keyboard.
+- [ ] Focus never falls to `<body>`. Closing a dialog returns focus to what opened it (the shared
+  `DialogContent`/`AlertDialogContent` do this, including for menu items and removed rows; don't
+  hand-roll opener refs). A control that removes itself (e.g. "Mark read") calls `keepFocusNear`; one
+  that goes unavailable while it has focus uses `aria-disabled`, not `disabled`, which drops focus.
 - [ ] Text uses `--text*` tokens (AA contrast); no sub-tertiary grey for metadata.
 
 ### F. Consistency & tokens

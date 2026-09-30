@@ -313,14 +313,15 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         catch (Exception error) when (!ct.IsCancellationRequested) { result = new(false, error.Message); }
         var hash = LibraryJson.Hash(result.Hash) ?? LibraryJson.Hash(candidate.InfoHash) ?? LibraryJson.Hash(candidate.Magnet);
         var queued = result.Details?.Action == EngineAddDetails.Queued;
+        var logged = EngineAddMessages.Outcome(result);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var now = DateTime.UtcNow;
         db.GrabJobs.Add(new GrabJob { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title, Query = query,
-            Status = result.Ok ? "sent" : "failed", Message = result.Message, Magnet = candidate.Magnet, InfoHash = hash,
+            Status = result.Ok ? "sent" : "failed", Message = logged, Magnet = candidate.Magnet, InfoHash = hash,
             Source = candidate.Source, Kind = input.Background ? "library" : "ondemand", ExternalId = input.WatchListItemId, Retention = input.Retention,
             CreatedAt = now, UpdatedAt = now });
         db.DownloadHistories.Add(new DownloadHistory { Id = Ids.New(), UserId = LocalUser.Id, Title = candidate.Title,
-            Status = result.Ok ? "sent" : "failed", Message = result.Message, Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
+            Status = result.Ok ? "sent" : "failed", Message = logged, Magnet = candidate.Magnet, TorrentUrl = candidate.TorrentUrl,
             InfoHash = hash, Source = candidate.Source, WorkId = input.WorkId, Retention = input.Retention, Context = "ondemand",
             ClientType = "builtin", SendKind = candidate.Magnet != null ? "magnet" : "torrent", CreatedAt = now });
         var advanced = false;

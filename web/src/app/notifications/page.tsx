@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useSearchParams } from "react-router";
 import { Radar } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { useApiQuery } from "@/hooks/use-api-query";
 import { useDisplayPath } from "@/lib/features";
 import { buildInbox } from "./inbox";
 import { NotificationFeed } from "@/components/notifications/notification-feed";
+import { ActivityColumn } from "@/components/notifications/activity-view-toggle";
 import { formatSaveLocation, parseHistoryFacts } from "@/lib/activity/history";
 import { PageSkeletonFrame } from "@/components/ui/loading";
 import { Button } from "@/components/ui/button";
@@ -245,43 +246,11 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
       // activity", and calling it that is what made the old page a wall.
       "Finished downloads and failures that need you. Everything else is in the download log.";
 
-  const filterControls = (
-    <nav
-      className="inline-flex rounded-lg bg-muted p-[3px]"
-      aria-label="Activity view"
-    >
-      {[
-        { href: "/notifications", label: "Inbox", active: !sentOnly },
-        { href: "/history", label: "Download log", active: sentOnly },
-      ].map((view) => (
-        <Button
-          key={view.href}
-          asChild
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "min-w-11 px-3 text-[13px] max-lg:min-h-11",
-            view.active
-              ? "bg-background text-foreground shadow-sm hover:bg-background"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <Link to={view.href} aria-current={view.active ? "page" : undefined}>
-            {view.label}
-          </Link>
-        </Button>
-      ))}
-    </nav>
-  );
   if (loading && data == null && !error) return <ActivitySkeleton visible={showLoading} />;
 
   return (
-    <div className="container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0">
-      <TfPageHeader
-        title={title}
-        description={description}
-        actions={filterControls}
-      />
+    <div className="min-w-0 space-y-5">
+      <TfPageHeader title={title} description={description} />
 
       {error ? (
         // Not an error banner *above* the empty state: that combination told
@@ -399,16 +368,25 @@ function ActivityContent({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean })
   );
 }
 
-export function NotificationsView({ sentOnly }: { sentOnly?: boolean }) {
+export function NotificationsView({ sentOnly: sentOnlyOverride }: { sentOnly?: boolean }) {
+  // The same rule `ActivityContent` uses, so the toggle marks the view it shows.
+  const [searchParams] = useSearchParams();
+  const sentOnly = sentOnlyOverride ?? searchParams.get("filter") === "sent";
   return (
-    <Suspense fallback={<ActivitySkeleton />}>
-      <ActivityContent sentOnly={sentOnly} />
-    </Suspense>
+    <ActivityColumn view={sentOnly ? "log" : "inbox"}>
+      <Suspense fallback={<ActivitySkeleton />}>
+        <ActivityContent sentOnly={sentOnly} />
+      </Suspense>
+    </ActivityColumn>
   );
 }
 
 export default function NotificationsPage() {
-  return <div className="container-app"><NotificationFeed /></div>;
+  return (
+    <ActivityColumn view="inbox">
+      <NotificationFeed />
+    </ActivityColumn>
+  );
 }
 
 function ActivitySkeleton({ visible = true }: { visible?: boolean }) {
@@ -416,16 +394,13 @@ function ActivitySkeleton({ visible = true }: { visible?: boolean }) {
     <PageSkeletonFrame
       aria-label="Loading activity"
       className={cn(
-        "container-app max-w-3xl py-6 sm:py-8 space-y-5 min-w-0 transition-opacity duration-150",
+        "min-w-0 space-y-5 transition-opacity duration-150",
         !visible && "opacity-0",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-32" />
-          <Skeleton className="h-4 w-64 max-w-full" />
-        </div>
-        <Skeleton className="h-8 w-44 rounded-lg" />
+      <div className="space-y-2">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-4 w-64 max-w-full" />
       </div>
       <Skeleton className="h-3 w-20" />
       <Card className="gap-0 py-0">

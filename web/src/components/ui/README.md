@@ -37,19 +37,24 @@ scroll-area, select, separator, sheet, skeleton, slider, sonner, spinner,
 switch, tabs, textarea, toggle, toggle-group, tooltip.
 
 TorrentFlow helpers that stay here: `form-field.tsx` (`FormField` = label,
-control, hint on top of `Field`), `loading.tsx`, `loading-state.ts`,
+control, hint on top of `Field`), `focus-return.ts` (`useFocusReturn`,
+`keepFocusNear`), `loading.tsx`, `loading-state.ts`,
 `use-stable-loading.ts`.
 
 ## TorrentFlow tweaks
 
 - `Button`: sizes `default` h-9, `sm` h-8, `lg` h-10, `icon`, `icon-sm`,
   `icon-lg`. A disabled primary goes neutral unless it is `aria-busy`.
+  `aria-disabled` dims it like `disabled` but keeps focus on it; guard the
+  `onClick` yourself.
 - `Badge` variants: `default` (neutral chip), `secondary`, `outline`,
   `solid` (filled amber, use for counts), `accent` (amber tint), `success`,
   `danger`, `info`, `destructive`, `ghost`, `link`. One count per place.
 - `Dialog`: `<DialogContent mobileFullscreen>` fills the phone screen and is
   a centered panel from `sm` up. Without it the dialog is centered everywhere.
-  `showCloseButton={false}` hides the X.
+  `showCloseButton={false}` hides the X. `DialogContent` and
+  `AlertDialogContent` return focus to whatever opened them on close (a menu
+  item's menu button, else the same control in the neighbouring row).
 - `Progress`: `indicatorClassName` colors the bar.
 - `DropdownMenuContent`: 8px collision padding and a max width that fits
   phones.
