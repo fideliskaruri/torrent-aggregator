@@ -176,8 +176,36 @@ Server-side folder launching is also unavailable through the tunnel: `/api/featu
   `/api/me` comes back as an `opaqueredirect`, so a dropped connection or a cloudflared restart is shown as
   an ordinary error. `/api/me` is polled every minute so idle pages notice too, and a successful poll
   clears the prompt.
-- The service worker already bypasses `/api/`; navigations are passed to the network, so the Access
-  sign-in redirect works unchanged.
+- The service worker already bypasses `/api/` and Cloudflare's `/cdn-cgi/` paths; navigations are passed
+  to the network, so the Access sign-in redirect works unchanged and the sign-out page is never cached as
+  the app shell.
+
+## Signing out
+
+Through the tunnel, the account menu in the header (desktop) or the bottom of the **More** sheet
+(phones) shows the signed-in email and **Sign out**, for owners and requesters alike. Sign out clears
+the tab's own session storage (the "View as requester" preview and similar per-tab state) and then
+opens `/cdn-cgi/access/logout` on the same host. That is Cloudflare's logout page: it ends the Access
+session, and the next visit shows the Access sign-in, where any allowed email can be used. TorrentFlow
+keeps no cookie or token of its own, and the service worker never caches `/api/` or `/cdn-cgi/`, so
+nothing about the previous person survives.
+
+On this computer (`via: "local"`) nobody signs in, so there is nothing to sign out of and no account
+menu is shown.
+
+### Testing requests as a friend
+
+1. Make sure **Allow requesters** is on in Settings → Remote access, and that your Access policy admits
+   the friend's email (for example add it to the policy's email list). Do not add it to the owner
+   emails: any admitted email that is not an owner becomes a requester.
+2. Open the tunnel address (for example `https://tf.example.com`), open the account menu (More on a
+   phone) and choose **Sign out**.
+3. Open the tunnel address again. Access asks you to sign in; use the friend's email and the one-time
+   PIN sent to it. TorrentFlow now shows the requester view, where you can search and request.
+4. Sign out again and sign back in with your own email to approve the request.
+
+With the simulator below, the owner and requester are fixed per port, so use the requester port
+instead of signing out. Its `/cdn-cgi/access/logout` answers a simple "Signed out" page like Cloudflare's.
 
 ## Install as app / share target
 

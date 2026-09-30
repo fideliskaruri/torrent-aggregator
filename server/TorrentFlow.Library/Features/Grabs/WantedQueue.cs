@@ -229,28 +229,44 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             PreferredResolution: plan?.Resolution ?? rows.Select(r => r.PreferredResolution).FirstOrDefault(r => r != null),
             OverrideStorageCap: plan?.OverrideStorageCap ?? false, Aliases: aliases, Year: work.Year, WorkKey: work.WorkKey, Lane: lane,
             Provider: work.Provider, ProviderId: work.ProviderId, ReuseExisting: true);
+        var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
+        var workId = work.Id;
+        // Each episode's row and reason update the moment that episode settles, so a found episode starts and shows at
+        // once instead of waiting for the slowest episode in its season.
+        async Task Settle(IReadOnlyList<EpisodeTransfer> settled)
+        {
+            foreach (var row in rows)
+            {
+                var transfer = settled.FirstOrDefault(t => t.Episode == (row.Episode ?? 0));
+                if (transfer == null) continue;
+                if (transfer.InfoHash == null && transfer.Failure?.Detail is { } detail) why[row.TargetKey] = detail;
+                else why.TryRemove(row.TargetKey, out _);
+            }
+            // Not found yet stays wanted ("queued", no transfer); the reason is kept for the owner.
+            await SettleAsync(tracked, workId, settled.Select(t => t.Status == "failed" ? t with { Status = "queued" } : t).ToArray(), ct);
+            var started = settled.Select(t => t.InfoHash).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (started.Length > 0) await ReportStartedAsync(unit.WorkKey, unit.Season, started, ct);
+        }
         IReadOnlyList<EpisodeTransfer> transfers;
         if (unit.Season is { } season)
-            transfers = (await grabs.Season(input, season, rows.Select(r => r.Episode ?? 0), ct)).Transfers;
+            transfers = (await grabs.Season(input, season, rows.Select(r => r.Episode ?? 0), ct, async transfer =>
+            {
+                try { await Settle([transfer]); }
+                catch (Exception error) when (!ct.IsCancellationRequested)
+                {
+                    logger.LogWarning(error, "Wanted {WorkKey} season {Season} episode {Episode} update failed", unit.WorkKey, unit.Season, transfer.Episode);
+                }
+            })).Transfers;
         else
         {
             var film = await grabs.Grab(input, ct);
             transfers = [new(0, film.Ok ? film.Queued ? "queued" : "downloading" : "failed", film.Ok ? film.InfoHash : null,
                 film.Ok ? null : film.Message, film.Ok ? null : film.Failure ?? GrabFailure.Unknown)];
+            await Settle(transfers);
         }
-        var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
-        foreach (var row in rows)
-        {
-            var transfer = transfers.FirstOrDefault(t => t.Episode == (row.Episode ?? 0));
-            if (transfer?.InfoHash == null && transfer?.Failure?.Detail is { } detail) why[row.TargetKey] = detail;
-            else why.TryRemove(row.TargetKey, out _);
-        }
-        // Not found yet stays wanted ("queued", no transfer); the reason is kept for the owner.
-        await SettleAsync(tracked, work.Id, transfers.Select(t => t.Status == "failed" ? t with { Status = "queued" } : t).ToArray(), ct);
         var hashes = transfers.Select(t => t.InfoHash).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         logger.LogInformation("Wanted {WorkKey} season {Season}: {Started} of {Total} started, {Transfers} transfers", unit.WorkKey, unit.Season,
             transfers.Count(t => t.InfoHash != null), transfers.Count, hashes.Length);
-        if (hashes.Length > 0) await ReportStartedAsync(unit.WorkKey, unit.Season, hashes, ct);
         var missing = transfers.Where(t => t.InfoHash == null).ToArray();
         Reschedule(unit, started, missing.Select(t => t.Failure ?? GrabFailure.Unknown).ToArray(), work,
             missing.Select(t => t.Episode).Where(e => e > 0).ToArray());
