@@ -40,19 +40,30 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
         catch (JsonException) { }
         var text = string.IsNullOrWhiteSpace(query) ? DefaultQuery(work.CanonicalTitle, season, episode, work.MediaType) : query.Trim();
         if (text.Length > 200) text = text[..200];
-        var response = await search.SearchAsync(new SearchOptions { Query = text, Category = EpisodeLadder.SearchCategory(work.MediaType) ?? "all",
-            Limit = EpisodeLadder.SearchLimit, PageSize = EpisodeLadder.SearchLimit, Enrich = false, SkipCache = true,
-            Filters = new() { HasMagnet = true } }, ct);
-        var usable = response.Results.Where(r => (LibraryJson.Hash(r.InfoHash) ?? LibraryJson.Hash(r.Magnet)) is not null).ToList();
         var cursor = season is { } s && episode is { } e ? new EpisodeCursor(s, e) : (EpisodeCursor?)null;
         var none = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usable = await Find(text, work.MediaType, ct);
         // A season wants its pack; an episode fits on its own or inside its season's pack; a film is matched as a film.
-        var fits = new List<TorrentResult>();
-        if (cursor != null || season == null)
-            fits.AddRange(ReleaseSwapService.Select(usable, workKey, work.CanonicalTitle, cursor, null, null, none, aliases));
-        if (season is { } wantedSeason)
-            fits.AddRange(ReleaseSwapService.Select(usable, workKey, work.CanonicalTitle, null, wantedSeason, null,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase), aliases).Where(r => !fits.Contains(r)));
+        List<TorrentResult> Fitting()
+        {
+            var fits = new List<TorrentResult>();
+            if (cursor != null || season == null)
+                fits.AddRange(ReleaseSwapService.Select(usable, workKey, work.CanonicalTitle, cursor, null, null, none, aliases));
+            if (season is { } wantedSeason)
+                fits.AddRange(ReleaseSwapService.Select(usable, workKey, work.CanonicalTitle, null, wantedSeason, null,
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase), aliases).Where(r => !fits.Contains(r)));
+            return fits;
+        }
+        var fits = Fitting();
+        // Our own episode search found nothing that fits: the episode may only exist inside a season pack, so look
+        // for the pack too, the same next rung the automatic grab takes.
+        if (fits.Count == 0 && cursor is { } c && text.Equals(DefaultQuery(work.CanonicalTitle, c.Season, c.Episode, work.MediaType),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var packs = await Find(DefaultQuery(work.CanonicalTitle, c.Season, null, work.MediaType), work.MediaType, ct);
+            usable = [.. usable, .. packs.Where(p => !usable.Contains(p))];
+            fits = Fitting();
+        }
         var others = usable.Where(r => !fits.Contains(r)).ToList();
         var releases = new List<ReleasePickOption>();
         foreach (var (group, fit) in new[] { (fits, true), (others, false) })
@@ -70,6 +81,14 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
             }
         }
         return new(text, releases);
+    }
+
+    private async Task<List<TorrentResult>> Find(string text, string? mediaType, CancellationToken ct)
+    {
+        var response = await search.SearchAsync(new SearchOptions { Query = text, Category = EpisodeLadder.SearchCategory(mediaType) ?? "all",
+            Limit = EpisodeLadder.SearchLimit, PageSize = EpisodeLadder.SearchLimit, Enrich = false, SkipCache = true,
+            Filters = new() { HasMagnet = true } }, ct);
+        return response.Results.Where(r => (LibraryJson.Hash(r.InfoHash) ?? LibraryJson.Hash(r.Magnet)) is not null).ToList();
     }
 
     /// <summary>Sends the chosen release for this title. A season pack is filed under the season; anything else under its episode.</summary>
