@@ -5,19 +5,13 @@ using TorrentFlow.Metadata.Text;
 
 namespace TorrentFlow.Api.Requests;
 
-/// <summary><c>TorrentFlow:Requests</c>. Limits apply per requester.</summary>
+/// <summary><c>TorrentFlow:Requests</c>. Cap open requests per person; no app-level per-minute limits.</summary>
 public sealed class RequestOptions
 {
     public const string SectionName = "TorrentFlow:Requests";
 
     /// <summary>Pending plus approved requests one person may have at once.</summary>
     public int MaxOpenPerUser { get; set; } = 10;
-
-    /// <summary>New requests per person per minute.</summary>
-    public int CreatesPerMinute { get; set; } = 5;
-
-    /// <summary>Title searches and season lookups per person per minute.</summary>
-    public int SearchesPerMinute { get; set; } = 30;
 }
 
 public static class MediaRequestStatus

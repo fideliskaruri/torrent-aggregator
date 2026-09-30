@@ -399,8 +399,6 @@ export function requestErrorMessage(failure: RequestFailure | string | null | un
       return "You've already asked for this. Follow it under Requests.";
     case "too_many_open":
       return "You have too many open requests. Cancel one under Requests, or wait for the owner to answer some.";
-    case "rate_limited":
-      return "You're sending requests too quickly. Wait a minute, then try again.";
     case "not_pending":
       return "The owner has already answered this request, so it can't be cancelled.";
     case "not_found":

@@ -24,10 +24,8 @@ public static class RequestEndpoints
             return await next(context);
         });
 
-        requester.MapGet("/titles", async (HttpContext http, MediaRequestService service, RateLimiter limiter, string? q, string? category) =>
+        requester.MapGet("/titles", async (HttpContext http, MediaRequestService service, string? q, string? category) =>
         {
-            if (!limiter.Allow($"requester-search:{EmailOf(http)}", service.Options.SearchesPerMinute))
-                return Error(429, "Too many searches. Wait a minute and try again.", "rate_limited");
             var query = q?.Trim() ?? "";
             if (query.Length == 0) return Error(400, "Type a title to search for.");
             if (query.Length > 200) return Error(400, "That search is too long.");
@@ -42,11 +40,9 @@ public static class RequestEndpoints
             }
         });
 
-        requester.MapGet("/seasons", async (HttpContext http, MediaRequestService service, RateLimiter limiter,
+        requester.MapGet("/seasons", async (HttpContext http, MediaRequestService service,
             string? provider, string? providerId, string? mediaType, string? title, int? year) =>
         {
-            if (!limiter.Allow($"requester-search:{EmailOf(http)}", service.Options.SearchesPerMinute))
-                return Error(429, "Too many lookups. Wait a minute and try again.", "rate_limited");
             var (work, problem) = RequestRules.Validate(provider, providerId, mediaType, title, year, null, MediaRequestScope.Series, null, null);
             if (problem is not null) return Error(400, problem);
             try
@@ -64,9 +60,8 @@ public static class RequestEndpoints
             Results.Json(new { requests = await service.MineAsync(UserIdOf(http), http.RequestAborted) }));
 
         requester.MapPost("/requests", async (HttpContext http, MediaRequestService service, RequestAutoApproveService autoApprove,
-            RateLimiter limiter, Microsoft.Extensions.Options.IOptions<MetadataOptions> metadata) =>
+            Microsoft.Extensions.Options.IOptions<MetadataOptions> metadata) =>
         {
-            // Validate first so typos and schema errors return 400 without burning the create quota.
             var (body, readError) = await ReadObjectAsync(http);
             if (readError is not null) return readError;
             var (fields, fieldError) = CreateFields.Parse(body);
@@ -75,8 +70,6 @@ public static class RequestEndpoints
             var (draft, problem) = RequestRules.Validate(fields!.Provider, fields.ProviderId, fields.MediaType, fields.Title, fields.Year,
                 fields.PosterUrl, fields.Scope, fields.Seasons, fields.Note, tmdbImageHost);
             if (problem is not null) return Error(400, problem);
-            if (!limiter.Allow($"requester-create:{EmailOf(http)}", service.Options.CreatesPerMinute))
-                return Error(429, "You're sending requests too quickly. Wait a minute and try again.", "rate_limited");
             var userId = UserIdOf(http);
             var (outcome, created) = await service.CreateAsync(userId, draft!, http.RequestAborted);
             if (outcome == CreateOutcome.Created && created is not null)
@@ -199,8 +192,6 @@ public static class RequestEndpoints
         DecisionOutcome.NotPending => Error(409, $"This request is already {result.Status}.", "not_pending"),
         _ => throw new InvalidOperationException($"Unhandled decision outcome {result.Outcome}"),
     };
-
-    private static string EmailOf(HttpContext http) => http.User.FindFirst(RemoteAccessClaims.Email)?.Value ?? "unknown";
 
     private static IResult Error(int status, string message, string? code = null) =>
         Results.Json(new { error = message, code }, statusCode: status);
