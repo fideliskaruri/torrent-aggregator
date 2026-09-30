@@ -161,6 +161,7 @@ builder.Services.AddDesktop(
 builder.Services.AddSingleton<IRequestGrabber, RequestGrabber>();
 builder.Services.AddSingleton<IRequestTransfers, EngineRequestTransfers>();
 builder.Services.AddSingleton<RequestDecisionService>();
+builder.Services.AddSingleton<TorrentFlow.Library.Features.Grabs.IWantedObserver, RequestWantedObserver>();
 builder.Services.AddSingleton<RequestAutoApproveService>();
 builder.Services.AddHostedService<RequestFulfillmentWatcher>();
 builder.Services.AddSingleton<TimelineService>();
