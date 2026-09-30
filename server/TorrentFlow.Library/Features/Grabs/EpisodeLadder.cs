@@ -113,6 +113,33 @@ public static class EpisodeLadder
         return cats;
     }
 
+    /// <summary>
+    /// Season pack fallback searches, built from the same title variants, aliases and categories as the episode ladder.
+    /// No season filter: indexers name batches without one, and the pack scope and file list decide.
+    /// </summary>
+    public static IReadOnlyList<LadderRung> BuildPackRungs(string title, int season, string? mediaType, IReadOnlyList<string>? extraTitles,
+        int? minimumResolution)
+    {
+        var titles = SearchTitleVariants(title);
+        var primaryTitle = titles.Count > 0 ? titles[0] : (title ?? "").Trim();
+        var alias = RankAliases((extraTitles ?? []).SelectMany(AliasTitleForms)
+            .Where(a => !a.Equals(primaryTitle, StringComparison.OrdinalIgnoreCase))).FirstOrDefault();
+        var cats = LadderCategories(mediaType);
+        var filters = new SearchFilters { HasMagnet = true, MinSeeders = 1 };
+        var rungs = new List<LadderRung>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Push(string kind, string query, string category)
+        {
+            if (seen.Add($"{category}::{query}")) rungs.Add(new(kind, query, category, filters));
+        }
+        if (minimumResolution is { } preferred) Push("pack-quality", $"{primaryTitle} S{season:00} {preferred}p", cats[0]);
+        Push("pack", $"{primaryTitle} S{season:00}", cats[0]);
+        Push("pack", $"{primaryTitle} Season {season}", cats[0]);
+        if (alias != null) Push("pack-alias", $"{alias} S{season:00}", cats.Contains("anime") ? "anime" : cats[0]);
+        Push("pack", $"{primaryTitle} S{season:00}", "all");
+        return rungs.Take(5).ToList();
+    }
+
     /// <summary>Port of <c>buildEpisodeRungs</c>, in relaxation order.</summary>
     public static IReadOnlyList<LadderRung> BuildEpisodeRungs(string title, EpisodeCursor cursor, string? mediaType,
         IReadOnlyList<string>? extraTitles = null, int? minimumResolution = null, AnimeEpisodeMapping? mapping = null,

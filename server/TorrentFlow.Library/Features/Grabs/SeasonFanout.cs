@@ -5,7 +5,12 @@ namespace TorrentFlow.Library.Features.Grabs;
 public sealed record EpisodeTransfer(int Episode, string Status,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? InfoHash,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Error,
-    GrabFailure? Failure = null);
+    GrabFailure? Failure = null)
+{
+    /// <summary>The search really ran and found nothing usable (<see cref="GrabResult.RealMiss"/>); counts toward the season pack fallback.</summary>
+    [JsonIgnore]
+    public bool RealMiss { get; init; }
+}
 public sealed record GrabResult(bool Ok, string Message)
 {
     public string? Query { get; init; }
@@ -28,6 +33,13 @@ public sealed record GrabResult(bool Ok, string Message)
     public bool HuntMiss { get; init; }
     [JsonIgnore]
     public bool Skipped { get; init; }
+    /// <summary>
+    /// A real miss: every search ran without a site error and nothing usable came back (no release, below the quality
+    /// floor, no seeders, only dubbed, or every probed release failed to send its file list). Refused or busy searches,
+    /// storage, setup and unknown errors are never a real miss.
+    /// </summary>
+    [JsonIgnore]
+    public bool RealMiss { get; init; }
 }
 public sealed record SeasonFanoutResult(IReadOnlyList<EpisodeTransfer> Transfers, IReadOnlyList<int> CoveredEpisodes, object? Storage);
 
@@ -61,7 +73,7 @@ public static class SeasonFanout
                     var result = await grab(wanted[i], BeforeSend);
                     results[i] = result;
                     transfers[i] = new(wanted[i], result.Ok ? result.Queued ? "queued" : "downloading" : "failed",
-                        result.Ok ? result.InfoHash : null, result.Ok ? null : result.Message, result.Failure);
+                        result.Ok ? result.InfoHash : null, result.Ok ? null : result.Message, result.Failure) { RealMiss = !result.Ok && result.RealMiss };
                 }
                 catch (Exception error) when (!ct.IsCancellationRequested)
                 {

@@ -41,7 +41,7 @@ public sealed class RungDiagnostic
     public IReadOnlyList<CandidateRejection> Candidates { get; set; } = [];
 }
 
-public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
+public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> factory, ITorrentSearchService search, ITorrentEngine engine,
     IOptions<AutomationOptions> automationOptions, ILibraryAnimeLookup anime, ILogger<GrabService>? logger = null,
     EpisodeSearchIdentity? searchIdentity = null)
 {
@@ -82,12 +82,25 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             if (existing != null)
                 return new(true, "This episode has already started.") { InfoHash = existing.Hash, Title = existing.Name,
                     Queued = existing.Status == EngineTorrentStatus.Queued, Query = query };
+            if (await PackOwner(db, input.WorkId, requested, ct) is { } pack)
+                return new(true, "This episode is already downloading as part of a season pack.") { InfoHash = pack.Hash, Title = pack.Name,
+                    Queued = pack.Status == EngineTorrentStatus.Queued, Query = query };
         }
         var (prepared, settings, floor, refusal) = await Prepare(db, input, query, ct);
         if (refusal != null) return refusal;
         input = prepared;
         if (input.Cursor is { } cursor) return await Episode(db, settings!, input, cursor, query, floor, beforeSend, ct);
         return await Film(db, settings!, input, floor, beforeSend, ct);
+    }
+
+    /// <summary>The healthy season pack transfer that owns this episode, if any.</summary>
+    private static async Task<EngineTorrent?> PackOwner(TorrentFlowDbContext db, string workId, EpisodeCursor cursor, CancellationToken ct)
+    {
+        var hash = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkId == workId && t.Scope == "episode" &&
+            t.Season == cursor.Season && t.Episode == cursor.Episode && t.FileIndex != null && t.InfoHash != null && t.Status != "failed")
+            .Select(t => t.InfoHash).FirstOrDefaultAsync(ct);
+        return hash == null ? null : await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.Hash == hash &&
+            t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed, ct);
     }
 
     /// <summary>
@@ -158,28 +171,15 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var searchFailed = false;
         GrabFailure? searchFailure = null;
         GrabResult? lastFailure = null;
+        var allSendsWithoutFileList = true;
         foreach (var rung in rungs)
         {
             var queryFailed = false;
             if (!memo.TryGetValue(rung.SearchKey, out var raw))
             {
-                // `Limit` caps what is fetched and `PageSize` what is returned; both must be 40 or the single is paged away.
-                try
-                {
-                    raw = await search.SearchAsync(new() { Query = rung.Query, Category = rung.Category, Limit = EpisodeLadder.SearchLimit,
-                        PageSize = EpisodeLadder.SearchLimit, TargetResolution = floor ?? input.PreferredResolution, Enrich = false,
-                        SkipCache = true, Background = input.Background, WaitForBudget = true, Sources = input.Sources,
-                        Filters = rung.Filters with { MinSeeders = input.Constraints?.MinSeeders ?? rung.Filters.MinSeeders,
-                            MaxSizeBytes = input.Constraints?.MaxSizeBytes, Resolution = input.Constraints?.Resolution },
-                        IncludeRejectedResults = true }, ct);
-                }
-                catch (Exception error) when (!ct.IsCancellationRequested)
-                {
-                    logger?.LogWarning(error, "Episode search failed for {Query}", rung.Query);
-                    searchFailure = GrabFailure.FromException(error);
-                    queryFailed = true;
-                    raw = new() { Query = rung.Query, Sources = [new("search", 0, error.Message)] };
-                }
+                GrabFailure? rungFailure;
+                (raw, rungFailure) = await SearchRung(input, rung, floor, applyMaxSize: true, ct);
+                if (rungFailure != null) { searchFailure = rungFailure; queryFailed = true; }
                 memo[rung.SearchKey] = raw;
             }
             searchFailed |= raw.Sources.Any(s => s.Error != null);
@@ -217,6 +217,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 diagnostic.Candidates = rungCandidates.Values.ToArray();
                 // One bad pick no longer ends the attempt: fall through to the next candidate, then the next rung.
                 lastFailure = result;
+                allSendsWithoutFileList &= result.Failure?.Code is "metadata_unavailable" or "no_seeders";
             }
             if (queryFailed) break;
         }
@@ -237,23 +238,49 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             if (lastFailure.Storage != null) return lastFailure with { NoReleaseFound = Report("send_failed") };
             await LogSkip(db, input, query, WithDetail(message, detail), ct);
             return lastFailure with { Message = message, NoReleaseFound = Report("send_failed"),
-                Failure = (lastFailure.Failure ?? failure) with { Detail = detail } };
+                Failure = (lastFailure.Failure ?? failure) with { Detail = detail },
+                RealMiss = !searchFailed && searchFailure == null && allSendsWithoutFileList };
         }
         await LogSkip(db, input, query, WithDetail(message, detail), ct);
         return new(false, message) { Query = query, Skipped = true,
             HuntMiss = input.Background && !searchFailed && !decisions.Values.Any(d =>
                 !d.Reasons.Contains("other_work") && !d.Reasons.Contains("different_episode") && !d.Reasons.Contains("unknown_episode") && !d.Reasons.Contains("pack")),
-            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release"), Failure = failure };
+            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release"), Failure = failure,
+            RealMiss = !searchFailed && searchFailure == null && GrabFailure.IsRealMiss(failure.Code) };
+    }
+
+    /// <summary>
+    /// One search of the ladder, shared by the single-episode path and the season pack fallback. A pack search leaves
+    /// the caller's single-release size limit out (<paramref name="applyMaxSize"/>): that limit applies per chosen file.
+    /// </summary>
+    private async Task<(SearchResponse Raw, GrabFailure? Failure)> SearchRung(GrabInput input, LadderRung rung, int? floor, bool applyMaxSize,
+        CancellationToken ct)
+    {
+        // `Limit` caps what is fetched and `PageSize` what is returned; both must be 40 or the single is paged away.
+        try
+        {
+            return (await search.SearchAsync(new() { Query = rung.Query, Category = rung.Category, Limit = EpisodeLadder.SearchLimit,
+                PageSize = EpisodeLadder.SearchLimit, TargetResolution = floor ?? input.PreferredResolution, Enrich = false,
+                SkipCache = true, Background = input.Background, WaitForBudget = true, Sources = input.Sources,
+                Filters = rung.Filters with { MinSeeders = input.Constraints?.MinSeeders ?? rung.Filters.MinSeeders,
+                    MaxSizeBytes = applyMaxSize ? input.Constraints?.MaxSizeBytes : null, Resolution = input.Constraints?.Resolution },
+                IncludeRejectedResults = true }, ct), null);
+        }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            logger?.LogWarning(error, "Search failed for {Query}", rung.Query);
+            return (new() { Query = rung.Query, Sources = [new("search", 0, error.Message)] }, GrabFailure.FromException(error));
+        }
     }
 
     /// <summary>The quality gate every pick shares: the floor, dub preference and the caller's constraints, best first.</summary>
-    private List<TorrentResult> Eligible(GrabInput input, int? floor, IEnumerable<TorrentResult> releases)
+    private List<TorrentResult> Eligible(GrabInput input, int? floor, IEnumerable<TorrentResult> releases, bool applyMaxSize = true)
     {
         var quality = releases.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor) &&
             AnimeAudio.Allowed(x.Title, input.MediaType, automationOptions.Value.PreferAnimeDub) &&
             (input.Sources == null || input.Sources.Contains(x.Source)) &&
             (input.Constraints?.MinSeeders == null || x.Seeders >= input.Constraints.MinSeeders) &&
-            (input.Constraints?.MaxSizeBytes == null || x.SizeBytes <= input.Constraints.MaxSizeBytes) &&
+            (!applyMaxSize || input.Constraints?.MaxSizeBytes == null || x.SizeBytes <= input.Constraints.MaxSizeBytes) &&
             (input.Constraints?.Resolution == null || ReleaseSelection.Resolution(x.Title) is { } r && $"{r}p" == input.Constraints.Resolution)).ToList();
         if (floor != null)
             quality = PreferRequestedQuality(quality, floor.Value).ToList();
@@ -346,8 +373,9 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     }
 
     /// <summary>Sends one pinned candidate and records the attempt; the recorded query stays the canonical one.</summary>
+    /// <param name="pack">A season pack admission: only these files, with the reservation of the pieces they touch.</param>
     private async Task<GrabResult> Send(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, string query, TorrentResult candidate,
-        Func<Task>? beforeSend, bool relaxed, CancellationToken ct)
+        Func<Task>? beforeSend, bool relaxed, CancellationToken ct, PackSelection? pack = null)
     {
         if (beforeSend != null) await beforeSend();
         EngineAddResult result;
@@ -357,8 +385,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = input.Retention,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
                 Metadata = CatalogMetadata(input.MediaType, input.Title, input.Year),
-                QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
-                OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true }, ct);
+                QueueKey = pack?.QueueKey ?? input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = pack?.ReserveBytes ?? candidate.SizeBytes,
+                OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true, SelectedFiles = pack?.Files }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
         }
         catch (Exception error) when (!ct.IsCancellationRequested) { result = new(false, error.Message); }
@@ -388,7 +416,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         if (!result.Ok)
         {
             var storage = result.StorageLimit == null ? null : StorageFacts.Refusal(settings, result.StorageLimit, result.Message,
-                candidate.SizeBytes, await engine.QueuedReservedBytesAsync(ct));
+                pack?.ReserveBytes ?? candidate.SizeBytes, await engine.QueuedReservedBytesAsync(ct));
             var failure = storage != null ? GrabFailure.Storage
                 : result.InvalidField == "savePath" ? new GrabFailure("download_folder", "The download folder cannot be used.",
                     "Choose a writable download folder in Settings, then retry.")

@@ -17,6 +17,12 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public string? Detail { get; init; }
     public string Sentence => $"{Message} {Action}";
 
+    /// <summary>
+    /// Failures that mean the search really happened and found nothing usable. Only these count toward the season pack
+    /// fallback; refused, busy, storage, setup and unknown failures never do.
+    /// </summary>
+    public static bool IsRealMiss(string? code) => code is "no_release" or "quality_floor" or "no_seeders" or "audio_preference";
+
     public static readonly GrabFailure Sources = new("sources_unavailable",
         "We couldn't reach the search sites, so nothing was searched.",
         "Check your connection and try again in a few minutes.") { Brief = "could not be searched" };

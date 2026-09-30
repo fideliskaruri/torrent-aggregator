@@ -37,6 +37,18 @@ internal static class EpisodeRejections
         return ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(candidate.Title);
     }
 
+    /// <summary>
+    /// Season pack fallback scope: a pack of this one season (or a season-less batch while the target is season 1).
+    /// Multi-season bundles and single episodes are never pack candidates. The file list is checked afterwards.
+    /// </summary>
+    public static bool IsPackFor(TorrentResult candidate, int season)
+    {
+        if (!IsPack(candidate)) return false;
+        var ep = candidate.Episode ?? ReleaseNames.ParseEpisode(candidate.Title);
+        if (ep.IsMultiSeason == true) return false;
+        return ep.Season == season || ep.Season == null && season == 1;
+    }
+
     /// <summary>The episode's failure sentence: what happened and one next step (see <see cref="GrabFailure.FromCandidates"/>).</summary>
     public static string Message(EpisodeCursor cursor, int? floor, IEnumerable<CandidateRejection> candidates,
         bool searchFailed = false) =>
