@@ -24,6 +24,8 @@ public static class LibraryModule
         services.AddMemoryCache();
         services.AddSingleton<ReleaseSwapService>();
         services.AddSingleton<ReleasePicker>();
+        services.AddSingleton<WantedQueue>();
+        services.AddHostedService(sp => sp.GetRequiredService<WantedQueue>());
         services.AddSingleton<AutomationService>();
         services.AddOptions<AutomationOptions>().Bind(configuration.GetSection("TorrentFlow:Library"))
             .ValidateDataAnnotations().ValidateOnStart();
