@@ -38,6 +38,33 @@ export function pickReleaseToastButton(target: ReleasePickTarget) {
 }
 
 /**
+ * The picker a link asks for: `/title/{workKey}?pick=1&pickTitle=…&pickSeason=…&pickEpisode=…&pickQuery=…`.
+ * The server builds these for "still looking" notifications (WantedQueue.PickLink).
+ */
+export function releasePickFromLink(pathname: string, search: string): ReleasePickTarget | null {
+  const params = new URLSearchParams(search);
+  const match = /^\/title\/([^/]+)/.exec(pathname);
+  if (params.get("pick") !== "1" || !match) return null;
+  const number = (name: string) => {
+    const value = Number(params.get(name));
+    return Number.isInteger(value) && value > 0 ? value : null;
+  };
+  const workKey = decodeURIComponent(match[1]);
+  return {
+    workKey,
+    title: params.get("pickTitle")?.trim() || workKey,
+    season: number("pickSeason"),
+    episode: number("pickEpisode"),
+    query: params.get("pickQuery"),
+  };
+}
+
+/** A notification link that opens the picker is labelled as that action. */
+export function isReleasePickLink(link: string): boolean {
+  return /[?&]pick=1(&|$)/.test(link);
+}
+
+/**
  * Toast classes for any toast carrying the pick button (alone or beside Retry):
  * on a phone the buttons wrap under the message instead of squeezing it.
  */

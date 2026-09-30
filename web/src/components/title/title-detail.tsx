@@ -772,6 +772,16 @@ export function TitleDetail(props: TitleDetailProps) {
           ...prev,
           [key]: { status: "done", report },
         }));
+        if (outcome.value.queued) {
+          // Fire and forget: the season is on the wanted list and the server
+          // keeps looking; anything that needs the owner shows up later.
+          toast.success(outcome.value.message, {
+            id: toastId,
+            description: report.planReason ?? undefined,
+          });
+          refetch();
+          return;
+        }
         // A partial start names why the rest did not start and offers a Retry
         // for just those episodes.
         const partial = report.coveredEpisodes < report.totalEpisodes;

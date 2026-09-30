@@ -401,6 +401,8 @@ interface TitleSeasonEpisodeTransfer {
 export interface TitleSeasonGrabResponse {
   ok: boolean;
   message: string;
+  /** Download season is fire and forget: the server queued it and searches in the background. */
+  queued?: boolean;
   retryAfterSeconds?: number;
   report?: SeasonGrabReport | null;
   /**
