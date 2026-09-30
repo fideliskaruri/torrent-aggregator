@@ -49,8 +49,9 @@ links, save paths) stay off-stage.
 - **Episode lists show the full provider catalog**, marking what we hold locally.
 - **Storage cap is mostly for automation.** Manual downloads may override the cap (never the
   physical "won't fit" floor). The owner set the cap; the app may warn but must not overrule.
-- **Exact episodes only for season downloads** (see §3/§4). A season action batches
-  per-episode releases; it never acquires a season pack.
+- **Season downloads try one season pack first** (`GrabService.Season`). A matching pack
+  (right work and season, quality floor, seeded) wins; otherwise the season batches exact
+  per-episode releases for the episodes the pack doesn't cover. Single episodes never take a pack.
 - **API Bay video categories include HD and UHD siblings.** TV queries must include
   205/208/212, not just 205; movies span 201/202/207/209/210/211. The adapter searches
   broadly and filters these categories before truncation. Otherwise individual
