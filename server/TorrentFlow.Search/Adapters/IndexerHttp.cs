@@ -40,12 +40,13 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
     /// <summary>Host → 429s in a row; each one without a Retry-After doubles the cool-down, a success clears it.</summary>
     private readonly Dictionary<string, int> strikes = new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false, string? bearerToken = null)
+    public async Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false, string? bearerToken = null, string? jsonBody = null)
     {
         ThrowIfCoolingDown(url);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(timeoutMs);
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(jsonBody is null ? HttpMethod.Get : HttpMethod.Post, url)
+            { Content = jsonBody is null ? null : new StringContent(jsonBody, System.Text.Encoding.UTF8, "application/json") };
         request.Headers.TryAddWithoutValidation("User-Agent", agent);
         request.Headers.TryAddWithoutValidation("Accept", accept);
         if (bearerToken is not null) request.Headers.Authorization = new("Bearer", bearerToken);

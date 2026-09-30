@@ -67,7 +67,12 @@ export type TorrentSourceId =
   | "eztv"
   | "yts"
   | "archive"
-  | "torznab";
+  | "torznab"
+  | "knaben"
+  | "bitsearch"
+  | "limetorrents"
+  | "torrentdownloads"
+  | "animetosho";
 
 export interface MediaMetadata {
   source: "anilist" | "tmdb";

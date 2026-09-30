@@ -20,6 +20,30 @@ public abstract class TorrentAdapter(IndexerHttp http, IOptions<SearchModuleOpti
     public abstract string Id { get; }
     protected IndexerHttp Http => http;
     protected string? Setting(string key) => options.Value.Setting(key);
+    /// <summary>The registry endpoint this adapter instance serves (base URL or a mirror), else the built-in default.</summary>
+    protected string BaseUrl(string fallback) => (options.Value.SourceBaseUrl is { Length: > 0 } configured ? configured : fallback).TrimEnd('/');
+    /// <summary>Parses an RSS/XML feed safely, ignoring any analytics script some sites append after the closing root tag.</summary>
+    protected static XDocument Feed(string xml)
+    {
+        var end = xml.LastIndexOf("</rss>", StringComparison.OrdinalIgnoreCase);
+        if (end >= 0) xml = xml[..(end + "</rss>".Length)];
+        using var reader = System.Xml.XmlReader.Create(new StringReader(xml), new() { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 8 * 1024 * 1024 });
+        return XDocument.Load(reader);
+    }
+    /// <summary>Trimmed text of an item's child element, matched by local name so namespaced feed fields work too.</summary>
+    protected static string V(XElement item, string key) => item.Elements().FirstOrDefault(e => e.Name.LocalName.Equals(key, StringComparison.OrdinalIgnoreCase))?.Value.Trim() ?? "";
+    /// <summary>Lower-case hex info hash from a magnet, a .torrent URL or bare text (40 hex chars); null when none is present.</summary>
+    protected static string? HashFrom(string? text) => Match(text ?? "", @"(?<![0-9a-fA-F])([0-9a-fA-F]{40})(?![0-9a-fA-F])") is { Success: true } m ? m.Groups[1].Value.ToLowerInvariant() : null;
+    /// <summary>Normalises a site's category label to the tv / movies / anime hints the other adapters use; other labels pass through.</summary>
+    protected static string? CategoryHint(string? label)
+    {
+        var l = (label ?? "").ToLowerInvariant();
+        if (l.Length == 0) return null;
+        if (l.Contains("anime")) return "anime";
+        if (l.Contains("tv") || l.Contains("television") || l.Contains("series") || l.Contains("episode")) return "tv";
+        if (l.Contains("movie") || l.Contains("film")) return "movies";
+        return label;
+    }
     protected static string S(JsonElement row, string key) => row.TryGetProperty(key, out var value) && value.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined) ? value.ToString() : "";
     protected static long L(JsonElement row, string key) => long.TryParse(S(row, key), out var n) ? n : 0;
     protected static int I(JsonElement row, string key) => (int)Math.Clamp(L(row, key), 0, int.MaxValue);
@@ -92,11 +116,10 @@ public sealed class NyaaAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
         var cat = o.Category switch { "anime" => "1_0", "movies" or "tv" => "4_0", "music" => "2_0", "apps" => "3_0", "games" => "6_0", _ => "0_0" };
         var xml = await Http.GetAsync($"{Setting("NYAA_BASE_URL") ?? "https://nyaa.si"}/?page=rss&q={EncodeUriComponent(o.Query.Trim())}&c={cat}&f=0",
             "TorrentAggregator/1.0 (+https://github.com/local/torrent-aggregator)", accept: "application/rss+xml, application/xml, text/xml, */*", cancellationToken: cancellationToken);
-        using var reader = System.Xml.XmlReader.Create(new StringReader(xml), new() { DtdProcessing = System.Xml.DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 8 * 1024 * 1024 });
-        var doc = XDocument.Load(reader);
+        var doc = Feed(xml);
         return doc.Descendants("item").Take(o.Limit ?? 40).Select((r, i) =>
         {
-            string V(string key) => r.Elements().FirstOrDefault(e => e.Name.LocalName.Equals(key, StringComparison.OrdinalIgnoreCase))?.Value.Trim() ?? "";
+            string V(string key) => TorrentAdapter.V(r, key);
             int Num(string key) => int.TryParse(V(key), out var n) ? n : 0;
             var title = V("title"); var link = V("link"); var hash = V("infoHash").ToLowerInvariant();
             var suffix = Convert.ToBase64String(Encoding.UTF8.GetBytes(title)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -202,11 +225,36 @@ public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
         var imdb = await Imdb(ShowTitle(o.Query), cancellationToken);
         if (imdb == null) return [];
         var hosts = IndexerHttp.MirrorList(Setting("EZTV_BASE_URL"), "https://eztv.wf/api", "https://eztvx.to/api", "https://eztv.re/api");
-        using var doc = JsonDocument.Parse(await Http.MirrorsAsync(Id, hosts, h => $"{h}/get-torrents?imdb_id={imdb}&limit=100&page=1", IndexerHttp.BrowserAgent, cancellationToken));
         var wanted = EpisodeFromQuery(o.Query);
-        return Rows(doc.RootElement, "torrents").Where(r => wanted == null || I(r, "season") == 0 && wanted.Episode == null
-            || I(r, "season") == wanted.Season && (wanted.Episode == null || I(r, "episode") == wanted.Episode)).Take(o.Limit ?? 40)
-            .Select(r =>
+        // EZTV lists newest first, 100 per page, and now reports season/episode as "0": read them from the title instead,
+        // and walk a few pages so older episodes of long-running shows are reachable.
+        (int Season, int Episode) Number(JsonElement r)
+        {
+            if (I(r, "season") > 0) return (I(r, "season"), I(r, "episode"));
+            var parsed = Parse(S(r, "title") is { Length: > 0 } t ? t : S(r, "filename"));
+            return (parsed.Season ?? 0, parsed.Episode ?? 0);
+        }
+        bool Wanted(JsonElement r)
+        {
+            if (wanted == null) return true;
+            var (season, episode) = Number(r);
+            return season == 0 && wanted.Episode == null || season == wanted.Season && (wanted.Episode == null || episode == wanted.Episode);
+        }
+        List<JsonElement> rows = [];
+        var docs = new List<JsonDocument>();
+        try
+        {
+            for (var page = 1; page <= 5; page++)
+            {
+                var doc = JsonDocument.Parse(await Http.MirrorsAsync(Id, hosts, h => $"{h}/get-torrents?imdb_id={imdb}&limit=100&page={page}", IndexerHttp.BrowserAgent, cancellationToken));
+                docs.Add(doc);
+                var pageRows = Rows(doc.RootElement, "torrents").ToArray();
+                rows.AddRange(pageRows.Where(Wanted));
+                if (wanted == null || pageRows.Length < 100 || rows.Count >= (o.Limit ?? 40)) break;
+                // Past the wanted season on a newest-first list: nothing older can match.
+                if (wanted.Season > 0 && pageRows.Select(r => Number(r).Season).Where(s => s > 0).DefaultIfEmpty(int.MaxValue).Min() < wanted.Season) break;
+            }
+            return rows.Take(o.Limit ?? 40).Select(r =>
             {
                 var title = (S(r, "title") is { Length: > 0 } t ? t : S(r, "filename")).Trim();
                 var hash = S(r, "hash").ToLowerInvariant();
@@ -214,6 +262,8 @@ public sealed class EztvAdapter(IndexerHttp http, IOptions<SearchModuleOptions> 
                     SizeBytes = Math.Max(0, L(r, "size_bytes")), Seeders = I(r, "seeds"), Leechers = I(r, "peers"), Category = "tv", Source = Id,
                     SourceUrl = S(r, "episode_url") is { Length: > 0 } url ? url : "https://eztv.wf", PublishedAt = Unix(L(r, "date_released_unix")), Tags = ReleaseQuality.ExtractTags(title) };
             }).Where(r => r.Title.Length > 0 && r.InfoHash?.Length > 0).ToArray();
+        }
+        finally { foreach (var doc in docs) doc.Dispose(); }
     }
     public sealed record EztvEpisode(int Season, int? Episode = null);
 }

@@ -21,6 +21,12 @@ public sealed class SearchModuleOptions
     {
         ["apibay.org"] = new() { Concurrency = 2, SpacingMs = 2000 },
         ["nyaa.si"] = new() { Concurrency = 2, SpacingMs = 1000 },
+        ["api.knaben.org"] = new() { Concurrency = 2, SpacingMs = 1000 },
+        ["bitsearch.to"] = new() { Concurrency = 1, SpacingMs = 1500 },
+        ["limetorrents.fun"] = new() { Concurrency = 1, SpacingMs = 1500 },
+        ["limetorrents.lol"] = new() { Concurrency = 1, SpacingMs = 1500 },
+        ["torrentdownloads.pro"] = new() { Concurrency = 1, SpacingMs = 1500 },
+        ["feed.animetosho.org"] = new() { Concurrency = 2, SpacingMs = 1000 },
     };
     /// <summary>Pacing for any site not listed in <see cref="Pacing"/>.</summary>
     public SourcePacing DefaultPacing { get; set; } = new() { Concurrency = 2, SpacingMs = 250 };
@@ -56,7 +62,8 @@ public sealed class SearchModuleOptions
     public string? TorznabUrl { get; set; }
     [ConfigurationKeyName("TORZNAB_API_KEY")]
     public string? TorznabApiKey { get; set; }
-
+    /// <summary>Endpoint handed to a registry-driven adapter (its base URL or one of its mirrors); adapters without a legacy setting read it.</summary>
+    public string? SourceBaseUrl { get; set; }
     internal string? Setting(string key) => (key switch
     {
         "NYAA_BASE_URL" => NyaaBaseUrl, "APIBAY_BASE_URL" => ApiBayBaseUrl,

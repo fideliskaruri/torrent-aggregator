@@ -23,8 +23,8 @@ public sealed class SearchController(ITorrentSearchService service, TorrentSearc
             if (Request.Query.TryGetValue("sources", out var raw))
             {
                 var values = (raw.FirstOrDefault() ?? "").Split(',').Select(x => x.Trim()).ToArray();
-                if (values.Length > 7 || values.Any(string.IsNullOrEmpty)) throw new InvalidQuery("sources", "sources may contain at most 7 non-empty values");
-                var valid = new[] { "nyaa", "1337x", "apibay", "torrentscsv", "yts", "archive", "torznab" };
+                if (values.Length > 16 || values.Any(string.IsNullOrEmpty)) throw new InvalidQuery("sources", "sources may contain at most 16 non-empty values");
+                var valid = new[] { "nyaa", "1337x", "apibay", "torrentscsv", "yts", "eztv", "archive", "torznab", "knaben", "bitsearch", "limetorrents", "torrentdownloads", "animetosho" };
                 foreach (var value in values) if (!valid.Contains(value)) throw new InvalidQuery("sources", $"Unknown source `{value}`");
                 sources = values.Distinct().ToArray();
             }
