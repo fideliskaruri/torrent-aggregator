@@ -160,22 +160,16 @@ internal static class ReleaseText
 
     public static (int Season, int Episode) AdvanceCursor(int season, int episode) => (season, episode + 1);
 
-    /// <summary>library/cursor.resolveHuntCursor — the cursor only; reading it never moves it.</summary>
-    public static (int Season, int Episode)? ResolveHuntCursor(string mediaType, int? cursorSeason, int? cursorEpisode,
-        int? fromSeason, int? fromEpisode, string? lastEpisode, string? nextEpisodeHint)
-    {
-        if (!IsSeriesMediaType(mediaType)) return null;
-        if (cursorSeason is >= 1 && cursorEpisode is >= 1) return (cursorSeason.Value, cursorEpisode.Value);
-        if (!string.IsNullOrWhiteSpace(lastEpisode) && M(lastEpisode, @"S(\d{1,3})E(\d{1,4})") is { Success: true } se)
-            return AdvanceCursor(N(se), N(se, 2));
-        if (fromSeason is >= 1) return (Math.Max(1, fromSeason.Value), Math.Max(1, fromEpisode is > 0 ? fromEpisode.Value : 1));
-        if (!string.IsNullOrWhiteSpace(nextEpisodeHint))
-        {
-            var parsed = ParseEpisode(nextEpisodeHint.Trim());
-            if (parsed.Season != null && parsed.Episode != null) return (parsed.Season.Value, parsed.Episode.Value);
-        }
-        return null;
-    }
+    /// <summary>
+    /// library/cursor.resolveHuntCursor: the cursor only; reading it never moves it. The rule itself is
+    /// <see cref="TorrentFlow.Core.Scheduling.HuntCursor"/>, the same one the automation hunt uses, so prewarm
+    /// never readies an episode the hunt would not fetch.
+    /// </summary>
+    public static (int Season, int Episode)? ResolveHuntCursor(string mediaType, string? monitorMode, int? cursorSeason, int? cursorEpisode,
+        int? fromSeason, int? fromEpisode, string? lastEpisode, string? nextEpisodeHint) =>
+        IsSeriesMediaType(mediaType)
+            ? TorrentFlow.Core.Scheduling.HuntCursor.ResolveSeries(monitorMode, cursorSeason, cursorEpisode, lastEpisode, fromSeason, fromEpisode, nextEpisodeHint)
+            : null;
 
     // ---------------------------------------------------------------- episodes
 

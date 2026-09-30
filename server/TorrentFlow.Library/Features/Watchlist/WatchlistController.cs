@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
+using TorrentFlow.Core.Scheduling;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
@@ -12,7 +13,7 @@ namespace TorrentFlow.Library.Features.Watchlist;
 
 [ApiController, Route("api/watchlist"), ServiceFilter(typeof(LibraryExceptionFilter))]
 public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> factory,
-    IMetadataResolver metadata, ITorrentSearchService search, AutomationWake wake) : ControllerBase
+    IMetadataResolver metadata, ITorrentSearchService search, AutomationWake wake, IAirDateLookup airDates) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> Get(CancellationToken ct)
@@ -43,7 +44,7 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         var cursorSeason = patch ? f.Int("cursorSeason", 10000) : null;
         var cursorEpisode = patch ? f.Int("cursorEpisode") : null;
         var lastEpisode = patch ? f.String("lastEpisode", max: 100, nullable: true) : null;
-        var mode = f.Enum("monitorMode", ["ongoing"]);
+        var mode = f.Enum("monitorMode", [HuntCursor.OngoingMode, HuntCursor.NewEpisodesMode]);
         var resolution = f.Int("preferredResolution");
         if (resolution != null && !new[] { 480, 720, 1080, 2160 }.Contains(resolution.Value))
             Fields.Fail("preferredResolution must be one of 480, 720, 1080, 2160");
@@ -70,7 +71,9 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         {
             item = new WatchListItem { Id = Ids.New(), UserId = LocalUser.Id, Title = title!, MediaType = type!,
                 ExternalId = externalId!, Status = status ?? "watching", Monitored = monitored ?? true,
-                MonitorMode = mode ?? "ongoing", CreatedAt = now, LastChecked = now };
+                MonitorMode = HuntCursor.OngoingMode, CreatedAt = now, LastChecked = now };
+            // A series added without a start season is "New episodes only": the absence is the answer.
+            mode ??= EpisodeCursor.IsSeries(type) && fromSeason == null ? HuntCursor.NewEpisodesMode : null;
             db.WatchListItems.Add(item);
         }
         if (!patch)
@@ -82,7 +85,18 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         }
         if (status != null) item.Status = status;
         if (monitored != null) item.Monitored = monitored;
-        if (mode != null) item.MonitorMode = mode;
+        if (mode == null && fromSeason != null && HuntCursor.IsNewEpisodesOnly(item.MonitorMode)) mode = HuntCursor.OngoingMode;
+        if (mode != null && mode != item.MonitorMode || mode == HuntCursor.NewEpisodesMode && item.NewEpisodesSince == null)
+        {
+            item.MonitorMode = mode!;
+            item.NewEpisodesSince = HuntCursor.IsNewEpisodesOnly(mode) ? now : null;
+            if (HuntCursor.IsNewEpisodesOnly(mode))
+            {
+                item.CursorSeason = null;
+                item.CursorEpisode = null;
+                item.NextEpisodeHint = null;
+            }
+        }
         if (f.Has("preferredResolution")) item.PreferredResolution = resolution;
         if (patch) item.LastChecked = now;
         if (f.Has("lastEpisode")) item.LastEpisode = lastEpisode;
@@ -114,6 +128,8 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
             item.CursorMisses = 0;
         }
         await db.SaveChangesAsync(ct);
+        if (EpisodeCursor.AwaitingFirstNewEpisode(item))
+            await NewEpisodes.PinAsync(db, airDates, item, TimeSpan.FromSeconds(5), ct);
         wake.Wake();
         await Promote(db, item, ct);
         return Ok(new { item = LibraryJson.Row(item) });

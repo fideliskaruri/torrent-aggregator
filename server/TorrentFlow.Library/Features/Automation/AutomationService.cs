@@ -156,7 +156,18 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
                 DateTime? airDate = null;
                 try
                 {
-                    airDate = await AirDate(item, cursor, ct);
+                    if (EpisodeCursor.AwaitingFirstNewEpisode(item))
+                    {
+                        var first = await NewEpisodes.PinAsync(db, airDates, item, TimeSpan.FromSeconds(10), ct);
+                        if (first.Status != NewEpisodeStatus.Found)
+                        {
+                            await SaveSchedule(db, item, CheckSchedule.AwaitingNewEpisodes(now, first.Status, interval), ct);
+                            deferred++; continue;
+                        }
+                        cursor = EpisodeCursor.Resolve(item);
+                        airDate = first.AirsAt;
+                    }
+                    airDate ??= await AirDate(item, cursor, ct);
                     if (WaitReasonService.IsFuture(airDate, now))
                     {
                         await SaveSchedule(db, item, CheckSchedule.Next(now, airDate, item.CursorMisses, null, interval, options.Value), ct);

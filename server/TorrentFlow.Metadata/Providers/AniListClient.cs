@@ -20,6 +20,9 @@ public sealed class AniListHttpException(int status) : HttpRequestException($"An
     public int Status { get; } = status;
 }
 
+/// <summary>One scheduled airing of an AniList entry's episode, in UTC.</summary>
+public sealed record AniListAiring(int Episode, DateTime AiringAt);
+
 /// <summary>Port of src/lib/metadata/anilist.ts (search-latency version: single-flight + 60s memo).</summary>
 public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimeProvider time)
 {
@@ -46,15 +49,18 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
 
     private const string SearchQuery = "query ($search: String, $perPage: Int) {\n  Page(page: 1, perPage: $perPage) {\n    media(search: $search, type: ANIME, sort: SEARCH_MATCH) {\n" + MediaFields + "    }\n  }\n}\n";
     private const string ByIdQuery = "query ($id: Int) {\n  Media(id: $id, type: ANIME) {\n" + MediaFields + "  }\n}\n";
+    private const string FirstAiringAfterQuery = "query ($id: Int, $after: Int) {\n  Page(page: 1, perPage: 1) {\n    airingSchedules(mediaId: $id, airingAt_greater: $after, sort: TIME) { episode airingAt }\n  }\n}\n";
+    private const string EpisodeAiringQuery = "query ($id: Int, $episode: Int) {\n  Page(page: 1, perPage: 1) {\n    airingSchedules(mediaId: $id, episode: $episode) { episode airingAt }\n  }\n}\n";
     private const string RecommendationsQuery = "query ($search: String, $perPage: Int) {\n  Page(page: 1, perPage: 8) {\n    media(search: $search, type: ANIME, sort: SEARCH_MATCH) {\n      id\n      coverImage { large extraLarge }\n      recommendations(sort: RATING_DESC, perPage: $perPage) {\n        nodes {\n          mediaRecommendation {\n" + MediaFields + "          }\n        }\n      }\n    }\n  }\n}\n";
 
     private readonly SingleFlight<List<JsonElement>> _inFlight = new();
     private readonly BoundedTtlCache<List<JsonElement>> _recent = new(300, time);
     private readonly BoundedTtlCache<AniListWork> _works = new(300, time);
+    private readonly BoundedTtlCache<AniListAiring?> _airings = new(1000, time);
     private static readonly TimeSpan QueryTtl = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan WorkTtl = TimeSpan.FromMinutes(5);
 
-    public void ResetQueryCache() { _recent.Clear(); _works.Clear(); }
+    public void ResetQueryCache() { _recent.Clear(); _works.Clear(); _airings.Clear(); }
 
     public async Task<List<MediaMetadata>> SearchAsync(string search, int perPage = 5, CancellationToken ct = default) =>
         (await FetchMediaAsync(search, perPage, ct).ConfigureAwait(false)).Select(m => RememberWork(m).Metadata).ToList();
@@ -208,6 +214,58 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
     }
 
     public async Task<MediaMetadata?> GetByIdAsync(string id, CancellationToken ct = default) => (await GetWorkByIdAsync(id, ct).ConfigureAwait(false))?.Metadata;
+
+    /// <summary>
+    /// The first episode of this AniList entry that airs after <paramref name="after"/>. <c>Answered</c> is false when
+    /// AniList could not be asked; an answered null means AniList lists nothing after that moment.
+    /// </summary>
+    public Task<(bool Answered, AniListAiring? Airing)> GetFirstAiringAfterAsync(int id, DateTime after, CancellationToken ct = default)
+    {
+        var at = new DateTimeOffset(DateTime.SpecifyKind(after, DateTimeKind.Utc)).ToUnixTimeSeconds();
+        return AiringAsync($"{id}:after:{at}", FirstAiringAfterQuery,
+            new JsonObject { ["id"] = id, ["after"] = at }, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30), ct);
+    }
+
+    /// <summary>When an episode of this AniList entry airs, or null when AniList has no schedule for it or cannot be asked.</summary>
+    public async Task<DateTime?> GetEpisodeAiringAsync(int id, int episode, CancellationToken ct = default)
+    {
+        var (_, airing) = await AiringAsync($"{id}:episode:{episode}", EpisodeAiringQuery,
+            new JsonObject { ["id"] = id, ["episode"] = episode }, TimeSpan.FromHours(1), TimeSpan.FromMinutes(10), ct).ConfigureAwait(false);
+        return airing?.AiringAt;
+    }
+
+    private async Task<(bool Answered, AniListAiring? Airing)> AiringAsync(string key, string query, JsonObject variables,
+        TimeSpan foundTtl, TimeSpan missingTtl, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (_airings.TryGet(key, out var cached)) return (true, cached);
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            using var response = await PostAsync(query, variables, cts.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return (false, null);
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0) return (false, null);
+            if (!root.TryGetProperty("data", out var data) || !data.TryGetProperty("Page", out var page) || page.ValueKind != JsonValueKind.Object ||
+                !page.TryGetProperty("airingSchedules", out var rows) || rows.ValueKind != JsonValueKind.Array) return (false, null);
+            AniListAiring? airing = null;
+            foreach (var row in rows.EnumerateArray())
+                if (row.ValueKind == JsonValueKind.Object && Int(row, "episode") is > 0 and var episode &&
+                    Num(row, "airingAt") is { } seconds && seconds > 0)
+                {
+                    airing = new(episode, DateTimeOffset.FromUnixTimeSeconds((long)seconds).UtcDateTime);
+                    break;
+                }
+            _airings.Set(key, airing, airing is null ? missingTtl : foundTtl);
+            return (true, airing);
+        }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
+        {
+            return (false, null);
+        }
+    }
 
     public async Task<List<AniListWork>> RecommendationsForPosterAsync(string title, string? posterUrl, int limit = 12, CancellationToken ct = default)
     {

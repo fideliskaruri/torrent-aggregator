@@ -66,6 +66,7 @@ public sealed class TimelineService(IDbContextFactory<TorrentFlowDbContext> fact
             var wait = WaitReasonService.Evaluate(new()
             {
                 AirDate = air, SeederWaitSince = Utc(item.SeederWaitSince), NextCheckAt = Utc(item.NextCheckAt),
+                AwaitingNewEpisodes = EpisodeCursor.AwaitingFirstNewEpisode(item),
                 MinimumSeeders = options.MinimumSeeders, SeederWaitTimeoutMinutes = options.SeederWaitTimeoutMinutes
             }, now.UtcDateTime);
             if (checksEnabled)
