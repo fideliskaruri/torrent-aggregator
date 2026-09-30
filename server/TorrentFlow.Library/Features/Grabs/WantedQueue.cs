@@ -4,8 +4,11 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
+using TorrentFlow.Library.Features.Automation;
 using TorrentFlow.Library.Features.Common;
 
 namespace TorrentFlow.Library.Features.Grabs;
@@ -36,7 +39,7 @@ public interface IWantedObserver
 /// A wanted row is an <see cref="AcquisitionTarget"/> with status "queued" and no transfer yet.
 /// </summary>
 public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory, GrabService grabs, IEnumerable<IWantedObserver> observers,
-    TimeProvider time, ILogger<WantedQueue> logger) : BackgroundService
+    TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates) : BackgroundService
 {
     /// <summary>
     /// A run mostly waits on swarms for torrent metadata (up to the engine's metadata timeout per candidate), so a
@@ -112,6 +115,19 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             }
             target.WorkId = workId; target.PreferredResolution = resolution; target.UpdatedAt = now;
             if (!restart && target.Status != "failed") continue;
+            if (target.FileIndex != null && target.InfoHash is { } packHash)
+            {
+                // A restart never clears a healthy season pack claim: only a claim whose pack is gone or failed is reopened.
+                var pack = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(e => e.UserId == LocalUser.Id && e.Hash == packHash, ct);
+                if (pack != null && pack.Status.ToLowerInvariant() is not ("removed" or "error" or "missingfiles")) continue;
+                await db.SaveChangesAsync(ct);
+                await db.AcquisitionTargets.Where(t => t.Id == target.Id && t.InfoHash == packHash && t.FileIndex != null).ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.Status, "queued").SetProperty(t => t.Progress, 0).SetProperty(t => t.InfoHash, (string?)null)
+                    .SetProperty(t => t.FileIndex, (int?)null).SetProperty(t => t.FilePath, (string?)null).SetProperty(t => t.Error, (string?)null)
+                    .SetProperty(t => t.UpdatedAt, now), ct);
+                db.Entry(target).State = EntityState.Detached;
+                continue;
+            }
             target.Status = "queued"; target.Progress = 0; target.InfoHash = null; target.FilePath = null; target.Error = null;
         }
         await db.SaveChangesAsync(ct);
@@ -130,9 +146,13 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             foreach (var key in tracked.Where(x => (x.Value ?? 0) == transfer.Episode).Select(x => x.Key))
             {
                 string[] open = transfer.Status == "failed" ? ["queued"] : ["queued", "failed"];
-                await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.TargetKey == key && open.Contains(x.Status)).ExecuteUpdateAsync(s => s
+                var miss = transfer.RealMiss ? 1 : 0;
+                // InfoHash == null keeps a season pack claim made meanwhile from being overwritten by a late miss.
+                await db.AcquisitionTargets.Where(x => x.UserId == LocalUser.Id && x.TargetKey == key && open.Contains(x.Status) &&
+                        (transfer.InfoHash != null || x.InfoHash == null || x.FileIndex == null)).ExecuteUpdateAsync(s => s
                     .SetProperty(t => t.WorkId, workId).SetProperty(t => t.Status, transfer.Status).SetProperty(t => t.Progress, 0)
                     .SetProperty(t => t.InfoHash, transfer.InfoHash).SetProperty(t => t.FilePath, (string?)null)
+                    .SetProperty(t => t.RealMisses, t => t.RealMisses + miss)
                     .SetProperty(t => t.Error, transfer.Error).SetProperty(t => t.UpdatedAt, now), ct);
             }
     }
@@ -173,6 +193,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
     {
         await using var db = await factory.CreateDbContextAsync(ct);
         var cutoff = time.GetUtcNow().UtcDateTime - OrphanAge;
+        await ReleaseFailedPacksAsync(db, ct);
         var rows = await db.AcquisitionTargets.AsNoTracking()
             .Where(t => t.UserId == LocalUser.Id && t.Status == "queued" && t.InfoHash == null && (t.Scope == "episode" || t.Scope == "title"))
             .Select(t => new { t.WorkKey, t.Season, t.Scope, t.UpdatedAt }).ToListAsync(ct);
@@ -180,6 +201,20 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         {
             if (plans.ContainsKey(row.Key) || !startup && row.Max(r => r.UpdatedAt) > cutoff) continue;
             plans.TryAdd(row.Key, new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, null, false, null));
+        }
+    }
+
+    /// <summary>Whole-pack failure: a pack that errored, lost its files or was removed hands every unfinished claim back.</summary>
+    private async Task ReleaseFailedPacksAsync(TorrentFlowDbContext db, CancellationToken ct)
+    {
+        var claims = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.FileIndex != null && t.InfoHash != null &&
+            t.Status != "downloaded").Select(t => t.InfoHash!).Distinct().ToListAsync(ct);
+        foreach (var hash in claims)
+        {
+            var pack = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(e => e.UserId == LocalUser.Id && e.Hash == hash, ct);
+            if (pack != null && pack.Status.ToLowerInvariant() is not ("removed" or "error" or "missingfiles")) continue;
+            var released = await grabs.ReleasePackClaimsAsync(hash, ct);
+            logger.LogInformation("Season pack {Hash} is {Status}; {Count} episodes back to the wanted queue", hash, pack?.Status ?? "gone", released);
         }
     }
 
@@ -264,12 +299,54 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
                 film.Ok ? null : film.Message, film.Ok ? null : film.Failure ?? GrabFailure.Unknown)];
             await Settle(transfers);
         }
+        if (unit.Season is { } packSeason && transfers.Any(t => t.InfoHash == null))
+        {
+            var filled = await SeasonPackAsync(unit, packSeason, work, input, ct);
+            if (filled.Count > 0) transfers = transfers.Select(t => filled.TryGetValue(t.Episode, out var hash) ? t with { Status = "downloading", InfoHash = hash, Error = null, Failure = null } : t).ToArray();
+        }
         var hashes = transfers.Select(t => t.InfoHash).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         logger.LogInformation("Wanted {WorkKey} season {Season}: {Started} of {Total} started, {Transfers} transfers", unit.WorkKey, unit.Season,
             transfers.Count(t => t.InfoHash != null), transfers.Count, hashes.Length);
         var missing = transfers.Where(t => t.InfoHash == null).ToArray();
         Reschedule(unit, started, missing.Select(t => t.Failure ?? GrabFailure.Unknown).ToArray(), work,
             missing.Select(t => t.Episode).Where(e => e > 0).ToArray());
+    }
+
+    /// <summary>
+    /// Season pack fallback v1 (docs/season-pack-fallback.md): after the single-episode pass, from a fresh read,
+    /// episodes that really missed often enough may be filled from one inspected season pack, but only for a season
+    /// the provider proves has finished airing. Returns episode to pack hash for what the pack claimed.
+    /// </summary>
+    private async Task<Dictionary<int, string>> SeasonPackAsync(Unit unit, int season, Work work, GrabInput input, CancellationToken ct)
+    {
+        var settings = options.Value;
+        var none = new Dictionary<int, string>();
+        if (!settings.SeasonPackFallback || work.MediaType is not ("tv" or "anime")) return none;
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var due = await db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == unit.WorkKey && t.Scope == "episode" &&
+            t.Season == season && t.Status == "queued" && t.InfoHash == null && t.Episode != null && t.RealMisses >= settings.SeasonPackMisses).ToListAsync(ct);
+        if (due.Count == 0) return none;
+        // The provider id must be the kind the air date lookup reads for this media type; anything else cannot prove the season ended.
+        var providerFits = work.ProviderId is { Length: > 0 } && (work.MediaType == "anime" ? work.Provider == "anilist" : work.Provider == "tmdb");
+        bool? finished = null;
+        if (providerFits)
+        {
+            try { finished = await airDates.SeasonFinishedAsync(work.CanonicalTitle, work.MediaType, work.ProviderId!, season, time.GetUtcNow().UtcDateTime, ct); }
+            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogWarning(error, "Season finished check for {WorkKey} season {Season} failed", unit.WorkKey, season); }
+        }
+        if (finished != true)
+        {
+            logger.LogInformation("Season pack skipped for {WorkKey} season {Season}: season finished = {Finished}", unit.WorkKey, season, finished?.ToString() ?? "unknown");
+            foreach (var row in due) why[row.TargetKey] = "Season still airing, or we could not confirm it has finished. Waiting for single episodes.";
+            return none;
+        }
+        var targets = due.ToDictionary(t => t.Episode!.Value, t => t.TargetKey);
+        var outcome = await grabs.SeasonPack(input, season, targets, settings.SeasonPackProbes, ct);
+        logger.LogInformation("Season pack for {WorkKey} season {Season} ({Due} due): {Detail}", unit.WorkKey, season, due.Count, outcome.Detail);
+        if (outcome.InfoHash is not { } hash || outcome.Claimed.Count == 0) return none;
+        foreach (var episode in outcome.Claimed.Keys) why.TryRemove(targets[episode], out _);
+        await ReportStartedAsync(unit.WorkKey, unit.Season, [hash], ct);
+        return outcome.Claimed.Keys.ToDictionary(e => e, _ => hash);
     }
 
     /// <param name="started">The order this attempt ran for; a newer order placed meanwhile is left due as it is.</param>
@@ -288,13 +365,13 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             // Retry soon (1, 2, 4, 8, then every 15 minutes) without spending a try or asking the owner.
             var rounds = plan.Unsearched + 1;
             var wait = TimeSpan.FromMinutes(Math.Min(MaxUnsearchedWait.TotalMinutes, 1 << Math.Min(rounds - 1, 4)));
-            plans[unit] = plan with { Unsearched = rounds, DueAt = time.GetUtcNow().UtcDateTime + wait };
+            plans[unit] = plan with { Unsearched = rounds, DueAt = time.GetUtcNow().UtcDateTime + wait * options.Value.WantedRetryScale };
             return;
         }
         var tries = plan.Tries + 1;
         var failure = failures.GroupBy(f => f.Code).OrderByDescending(g => g.Count()).First().First();
         var ask = work != null && !plan.Asked && tries >= TriesBeforeAskingOwner && failures.Any(f => !Passing.Contains(f.Code));
-        plans[unit] = plan with { Tries = tries, Unsearched = 0, DueAt = time.GetUtcNow().UtcDateTime + Waits[Math.Min(tries, Waits.Length) - 1], Asked = plan.Asked || ask };
+        plans[unit] = plan with { Tries = tries, Unsearched = 0, DueAt = time.GetUtcNow().UtcDateTime + Waits[Math.Min(tries, Waits.Length) - 1] * options.Value.WantedRetryScale, Asked = plan.Asked || ask };
         if (!ask) return;
         var single = episodes is { Count: 1 } ? episodes[0] : (int?)null;
         var query = ReleasePicker.DefaultQuery(work!.CanonicalTitle, unit.Season, single);

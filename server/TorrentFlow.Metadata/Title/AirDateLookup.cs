@@ -53,6 +53,38 @@ public sealed class AirDateLookup(TitleExtrasService extras, AniListClient anili
         return result;
     }
 
+    /// <summary>
+    /// Fails closed: finished only when every listed episode has a past air date, the numbers run 1..N with no gap,
+    /// and the provider announces nothing further for this season (a later season exists, or nothing airs after now).
+    /// </summary>
+    public async Task<bool?> SeasonFinishedAsync(string title, string mediaType, string externalId, int season, DateTime now, CancellationToken ct)
+    {
+        now = DateTime.SpecifyKind(now, DateTimeKind.Utc);
+        var provider = Provider(mediaType, externalId);
+        if (provider == null) return null;
+        var anilistId = 0;
+        // One AniList id is one season; any other season number on an AniList id cannot be proven.
+        if (provider == "anilist" && (season != 1 || !int.TryParse(externalId, NumberStyles.None, CultureInfo.InvariantCulture, out anilistId))) return null;
+        var payload = await Extras(title, mediaType, externalId, provider, season, ct).ConfigureAwait(false);
+        var episodes = payload.Episodes.Where(e => e.Episode >= 1).OrderBy(e => e.Episode).ToList();
+        if (episodes.Count == 0 || episodes.Select(e => e.Episode).Distinct().Count() != episodes.Count || episodes[^1].Episode != episodes.Count) return null;
+        foreach (var episode in episodes)
+        {
+            var (airs, dateOnly) = When(episode);
+            if (airs is not { } at) return null;
+            if (dateOnly ? at >= now.Date : at > now) return false;
+        }
+        if (payload.AiredEpisodes.TryGetValue(season, out var aired) && aired != episodes.Count) return null;
+        if (provider == "anilist")
+        {
+            var (answered, airing) = await anilist.GetFirstAiringAfterAsync(anilistId, now, ct).ConfigureAwait(false);
+            return !answered ? null : airing is null;
+        }
+        if (payload.Seasons.Any(s => s > season)) return true;
+        var next = await GetFirstEpisodeAfterAsync(title, mediaType, externalId, now, ct).ConfigureAwait(false);
+        return next.Status switch { NewEpisodeStatus.NoneAnnounced => true, NewEpisodeStatus.Found => next.Season > season ? true : false, _ => null };
+    }
+
     // Numeric watchlist ids are TMDB for TV and AniList for anime; keyless titles use slugs.
     private static string? Provider(string mediaType, string externalId) =>
         externalId.Length > 0 && externalId.All(char.IsAsciiDigit) ? mediaType == "anime" ? "anilist" : "tmdb" : null;

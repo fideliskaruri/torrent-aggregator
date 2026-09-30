@@ -34,12 +34,15 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         if (target.InfoHash == null) return;
         if (row == null || FilesAbsent(row) || InvalidMedia(row))
         {
-            target.Status = "failed"; target.Progress = 0; target.InfoHash = null; target.FilePath = null;
+            // A season pack that failed as a whole hands its episodes back to the wanted queue.
+            target.Status = target.FileIndex != null ? "queued" : "failed"; target.Progress = 0; target.InfoHash = null; target.FilePath = null;
+            target.FileIndex = null;
             target.Error = "The requested file is no longer available.";
         }
         else if (row.Status.ToLowerInvariant() is "error" or "missingfiles")
         {
-            target.Status = "failed"; target.Progress = 0; target.InfoHash = null; target.FilePath = null;
+            target.Status = target.FileIndex != null ? "queued" : "failed"; target.Progress = 0; target.InfoHash = null; target.FilePath = null;
+            target.FileIndex = null;
             target.Error ??= "The downloaded release could not be used. TorrentFlow will choose another release.";
         }
         else

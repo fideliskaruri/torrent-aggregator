@@ -9,6 +9,14 @@ public interface IAirDateLookup
     /// episode without an air date, or a provider that cannot answer, is <see cref="NewEpisodeStatus.Unknown"/>.
     /// </summary>
     Task<NewEpisodeLookup> GetFirstEpisodeAfterAsync(string title, string mediaType, string externalId, DateTime after, CancellationToken ct);
+
+    /// <summary>
+    /// True only when the provider proves the season has finished: it lists a contiguous run of episodes, every one
+    /// has an air date before <paramref name="now"/>, and nothing further is announced. False when it is still airing;
+    /// null when the provider cannot tell. Callers must treat anything but true as "not finished" (fail closed).
+    /// </summary>
+    Task<bool?> SeasonFinishedAsync(string title, string mediaType, string externalId, int season, DateTime now, CancellationToken ct) =>
+        Task.FromResult<bool?>(null);
 }
 
 public enum NewEpisodeStatus
