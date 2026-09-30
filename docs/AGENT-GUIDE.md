@@ -50,8 +50,9 @@ links, save paths) stay off-stage.
 - **Storage cap is mostly for automation.** Manual downloads may override the cap (never the
   physical "won't fit" floor). The owner set the cap; the app may warn but must not overrule.
 - **Season downloads are the single-episode grab, once per episode** (`GrabService.Season`, batched by
-  `SeasonFanout`). No season-pack preference: the owner ruled it out. Packs only arrive by hand (the picker
-  lists them when an episode ships only inside packs).
+  `SeasonFanout`). No season packs in any form: the owner ruled them out, and the picker never lists them.
+  When an episode isn't found, `GrabFailure.Detail` records what the search really returned ("12 results,
+  all season packs"); it goes to the Activity log ("What we saw: ...") and `GET /api/wanted` (`why`).
 - **Download season and approved requests are fire and forget** (`WantedQueue`). The click or approval
   only records wanted `AcquisitionTarget` rows (status queued, no hash) and answers at once. The queue
   runs one unit per (title, season), up to 6 side by side, retries misses after 1m, 5m, 15m, 1h, 3h and
