@@ -36,7 +36,8 @@ public sealed class RequestDecisionService(
 {
     public const int MaxReasonLength = 500;
     /// <summary>What a requester reads when nothing could be started; the indexer detail stays in the owner's log.</summary>
-    public const string NoDownloadReason = "No download could be found for this yet.";
+    public const string NoDownloadReason = "We couldn't find a download for this yet. The owner can pick a release by hand or try again later.";
+    public const string PartialReason = "Some episodes started. We couldn't find the rest yet.";
 
     /// <summary>The last grab an approval started; tests await it.</summary>
     internal Task LastGrab { get; private set; } = Task.CompletedTask;
@@ -137,7 +138,7 @@ public sealed class RequestDecisionService(
             logger.LogInformation("Approved request {Id} started no download: {Problem}", id, outcome.Problem);
             current.Status = string.IsNullOrEmpty(current.GrabbedHashes) ? MediaRequestStatus.Failed : MediaRequestStatus.Partial;
             current.DecisionReason = current.Status == MediaRequestStatus.Partial
-                ? "Some episodes have started. Retry to find the missing episodes." : NoDownloadReason;
+                ? PartialReason : NoDownloadReason;
             await db.SaveChangesAsync(CancellationToken.None);
             await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed,
                 current.Status == MediaRequestStatus.Partial ? "Request partly started" : "Request could not be downloaded",
@@ -149,9 +150,8 @@ public sealed class RequestDecisionService(
         {
             // Keep the hashes so progress is visible, but do not leave a silent full approval.
             current.Status = MediaRequestStatus.Partial;
-            current.DecisionReason = string.IsNullOrWhiteSpace(outcome.Problem)
-                ? "Only some of the requested episodes could be started. Retry to find the missing episodes."
-                : outcome.Problem.Trim();
+            logger.LogInformation("Approved request {Id} partly started: {Problem}", id, outcome.Problem);
+            current.DecisionReason = string.IsNullOrWhiteSpace(outcome.Problem) ? PartialReason : outcome.Problem.Trim();
             await db.SaveChangesAsync(CancellationToken.None);
             await notifications.TryPublishAsync(current.RequestedByUserId, NotificationKind.RequestFailed, "Request partly started",
                 $"{current.Title}: {current.DecisionReason}", "/requests");
