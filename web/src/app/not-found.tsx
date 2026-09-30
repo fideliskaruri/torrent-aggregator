@@ -1,45 +1,24 @@
+import { Compass } from "lucide-react";
+import { TfEmptyState } from "@/components/tf/empty-state";
+import { useDocumentTitle } from "@/hooks/use-document-title";
+
 /**
- * The default Next.js 404 page, markup and inline styles verbatim, rendered
- * inside the app shell like Next.js does for an unmatched route.
+ * Unmatched routes and 404 route errors. It renders inside the app shell in
+ * the app theme, so the header, footer and phone nav stay usable, and it
+ * offers a way back instead of a dead end.
  */
 export function NotFoundPage() {
+  useDocumentTitle("Page not found");
   return (
-    <div
-      style={{
-        fontFamily:
-          'system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji"',
-        height: "100vh",
-        textAlign: "center",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div>
-        <style>
-          {"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}"}
-        </style>
-        <h1
-          className="next-error-h1"
-          style={{
-            display: "inline-block",
-            margin: "0 20px 0 0",
-            padding: "0 23px 0 0",
-            fontSize: 24,
-            fontWeight: 500,
-            verticalAlign: "top",
-            lineHeight: "49px",
-          }}
-        >
-          404
-        </h1>
-        <div style={{ display: "inline-block" }}>
-          <h2 style={{ fontSize: 14, fontWeight: 400, lineHeight: "49px", margin: 0 }}>
-            This page could not be found.
-          </h2>
-        </div>
-      </div>
+    <div className="container-app py-8 sm:py-12 min-w-0" data-not-found>
+      <TfEmptyState
+        icon={Compass}
+        title="Page not found"
+        headingLevel={1}
+        description="This address does not match a page. The link may be old or mistyped."
+        actionLabel="Go to Browse"
+        actionHref="/"
+      />
     </div>
   );
 }

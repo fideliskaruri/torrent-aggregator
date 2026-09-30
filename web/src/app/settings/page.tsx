@@ -46,6 +46,7 @@ import { LoadingGlyph, PageSkeletonFrame, SkeletonBlock } from "@/components/ui/
 import { useStableLoading } from "@/components/ui/use-stable-loading";
 import { TfErrorState } from "@/components/tf/error-state";
 import { TfPageHeader } from "@/components/tf/page-header";
+import { useApiQuery } from "@/hooks/use-api-query";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { STORAGE_CAP_FOCUS_PARAM } from "@/lib/library/storage-override";
@@ -212,6 +213,14 @@ export default function SettingsPage() {
     null,
   );
   const showLoading = useStableLoading(loading && !loadError);
+  // Rules are no longer advertised (see `lib/navigation.ts`), so Automatic
+  // checks names them only for people who still have enabled rules it runs.
+  const enabledRuleCount =
+    useApiQuery<number>("/api/rules", {
+      select: (json) =>
+        ((json as { rules?: { enabled?: boolean | null }[] } | null)?.rules ?? [])
+          .filter((rule) => rule.enabled === true).length,
+    }).data ?? 0;
 
   const isDirty = useMemo(
     () => JSON.stringify(form) !== JSON.stringify(savedForm),
@@ -1067,21 +1076,35 @@ export default function SettingsPage() {
           }}
         >
           <div className="space-y-8" data-advanced-settings>
-            <section className="space-y-3">
+            <section className="space-y-3" data-automatic-checks>
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
+                <div className="min-w-0">
                   <h3 className="text-sm font-medium text-foreground">
-                    Library automation timing
+                    Automatic checks
                   </h3>
                   <p className="mt-1 text-xs text-subtle-foreground">
-                    Rules belong in Library. This only controls when enabled rules run.
+                    How often TorrentFlow checks monitored Library titles for
+                    new releases. A title is checked sooner right after an
+                    episode airs.
+                    {enabledRuleCount > 0
+                      ? ` This also runs your ${enabledRuleCount} enabled auto-download ${enabledRuleCount === 1 ? "rule" : "rules"}.`
+                      : null}
                   </p>
                 </div>
-                <Button asChild type="button" variant="link" className="h-auto p-0">
-                  <Link to="/watchlist">Open Library automation</Link>
-                </Button>
+                <div className="flex flex-wrap gap-x-4">
+                  <Button asChild type="button" variant="link" className="h-auto p-0">
+                    <Link to="/watchlist">Open Library</Link>
+                  </Button>
+                  {enabledRuleCount > 0 ? (
+                    <Button asChild type="button" variant="link" className="h-auto p-0">
+                      <Link to="/rules" data-automatic-checks-rules>
+                        Manage rules
+                      </Link>
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-              <FormField label="Run enabled rules" htmlFor="automation-timing">
+              <FormField label="Check automatically" htmlFor="automation-timing">
                 <Select
                   value={String(form.automationIntervalMinutes)}
                   onValueChange={(value) =>
@@ -1093,7 +1116,6 @@ export default function SettingsPage() {
                 >
                   <SelectTrigger
                     id="automation-timing"
-                    aria-label="Library automation timing"
                     className="w-full"
                   >
                     <SelectValue />

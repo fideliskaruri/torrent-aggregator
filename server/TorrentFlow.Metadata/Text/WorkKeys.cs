@@ -48,7 +48,7 @@ public static partial class WorkKeys
     public static string EncodeKeySegment(string key) => SafeSegment().IsMatch(key ?? "") ? key ?? "" : TextUtil.EncodeUriComponent(key ?? "");
 
     public sealed record TitleLink(string Title, int? Year = null, string? MediaType = null, string? Provider = null, string? ProviderId = null,
-        string? SourceType = null, string? Format = null, bool? Series = null, IReadOnlyList<string>? Aliases = null);
+        string? SourceType = null, string? Format = null, bool? Series = null);
 
     public static string TitlePath(string key, TitleLink p)
     {
@@ -68,11 +68,6 @@ public static partial class WorkKeys
             search.Add(("sourceType", sourceType));
             if (!string.IsNullOrEmpty(p.Format)) search.Add(("format", p.Format));
             search.Add(("series", p.Series.Value ? "1" : "0"));
-            foreach (var alias in p.Aliases ?? [])
-            {
-                var v = alias.Trim();
-                if (v.Length > 0) search.Add(("alias", v));
-            }
         }
         var qs = TextUtil.BuildQuery(search);
         var segment = EncodeKeySegment(key);

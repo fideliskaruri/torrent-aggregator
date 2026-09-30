@@ -152,6 +152,12 @@ export interface TitleDetailPayload {
   isSeries: boolean;
   overview: string | null;
   rating: number | null;
+  /**
+   * Which provider supplied {@link rating}, from first paint. The hero labels
+   * the payload's score with this and never with the extras' source, which may
+   * describe a different provider's score. Null when nothing records it.
+   */
+  ratingSource?: TitleExtrasPayload["ratingSource"];
   posterUrl: string | null;
   backdropUrl: string | null;
   /**

@@ -243,7 +243,6 @@ export interface TitleLinkParams {
   sourceType?: "anime" | "movie" | "tv" | null;
   format?: string | null;
   series?: boolean | null;
-  aliases?: readonly string[];
 }
 
 /**
@@ -277,10 +276,6 @@ export function titlePath(key: string, params: TitleLinkParams): string {
     search.set("sourceType", sourceType);
     if (params.format) search.set("format", params.format);
     search.set("series", params.series ? "1" : "0");
-    for (const alias of params.aliases ?? []) {
-      const value = alias.trim();
-      if (value) search.append("alias", value);
-    }
   }
   const qs = search.toString();
   const segment = encodeKeySegment(key);

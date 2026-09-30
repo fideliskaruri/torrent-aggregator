@@ -32,9 +32,9 @@ public sealed record ChartWork(string WorkKey, string Title, int? Year, string M
 /// <summary>detail.ts CatalogDetail.</summary>
 public sealed record CatalogDetail(string? Overview, double? Rating, string? ReleaseDate);
 
-/// <summary>A row to be written into CatalogEntry.</summary>
+/// <summary>A row to be written into CatalogEntry. <paramref name="RatingSource"/> names the provider that supplied the rating.</summary>
 public sealed record CatalogDraft(string WorkKey, string Title, int? Year, string MediaType, string? PosterUrl, string? BackdropUrl,
-    string? Overview, double? Rating, int Seeders, string? BestRelease, DateTime? ReleaseDate);
+    string? Overview, double? Rating, int Seeders, string? BestRelease, DateTime? ReleaseDate, string? RatingSource = null);
 
 /// <summary>Pure catalog helpers ported from src/lib/catalog/{tmdb,feeds,availability,store}.ts and src/lib/metadata/slop.ts.</summary>
 public static partial class CatalogText
@@ -234,12 +234,13 @@ public static partial class CatalogText
     }
 
     public static CatalogDraft DraftFromRow(CatalogEntry row) =>
-        new(row.WorkKey, row.Title, row.Year, row.MediaType, row.PosterUrl, row.BackdropUrl, row.Overview, row.Rating, row.Seeders, row.BestRelease, row.ReleaseDate);
+        new(row.WorkKey, row.Title, row.Year, row.MediaType, row.PosterUrl, row.BackdropUrl, row.Overview, row.Rating, row.Seeders, row.BestRelease, row.ReleaseDate,
+            row.RatingSource);
 
-    /// <summary>store.ts draftFromWork: a chart-derived work plus whatever the detail lookup resolved.</summary>
+    /// <summary>store.ts draftFromWork: a chart-derived work plus whatever the detail lookup resolved (a TMDB detail).</summary>
     public static CatalogDraft DraftFromWork(ChartWork work, string? posterUrl, string? backdropUrl, CatalogDetail? detail) =>
         new(work.WorkKey, work.Title, work.Year, work.MediaType, posterUrl, backdropUrl, detail?.Overview, detail?.Rating,
-            work.PeakSeeders, work.BestRelease, ReleaseDateToDate(detail?.ReleaseDate));
+            work.PeakSeeders, work.BestRelease, ReleaseDateToDate(detail?.ReleaseDate), detail?.Rating is null ? null : "tmdb");
 
     public static DateTime? ReleaseDateToDate(string? value) =>
         ParseReleaseDate(value) is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null;
@@ -253,7 +254,8 @@ public static partial class CatalogText
 
     public static CatalogDraft DraftFromTmdb(CatalogTitle t, string workKey, int seeders = 0, string? bestRelease = null) =>
         new(workKey, t.Title, t.Year, t.MediaType, t.PosterUrl, t.BackdropUrl, t.Overview, t.Rating, seeders, bestRelease,
-            t.ReleaseDate is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null);
+            t.ReleaseDate is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null,
+            t.Rating is null ? null : "tmdb");
 }
 
 /// <summary>media-type.ts normalizeMediaType.</summary>
@@ -318,7 +320,7 @@ public sealed class CatalogService(
 
     public static CatalogWork ToWork(CatalogEntry e) =>
         new(e.Id, e.WorkKey, e.Title, e.Year, e.MediaType, e.PosterUrl, e.BackdropUrl, e.Overview, e.Rating, e.Source, e.Rank,
-            e.ReleaseDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), e.WorkId);
+            e.ReleaseDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), e.WorkId, e.RatingSource);
 
     public async Task<List<CatalogEntry>> ReadRowsAsync(string source, string? seedTitle, int limit, CancellationToken ct = default)
     {
@@ -403,7 +405,8 @@ public sealed class CatalogService(
                     if (keyless.Count == 0) continue;
                     prepared.Add((source, keyless.Where(m => !CatalogText.IsSlopTitle(m.Title)).Select(m => new CatalogDraft(
                         CatalogText.CatalogWorkKey(m.Title, m.Year, m.MediaType), m.Title, m.Year, m.MediaType,
-                        m.PosterUrl, m.BackdropUrl, m.Synopsis, m.Rating, 0, null, CatalogText.ReleaseDateToDate(m.ReleaseDate))).ToList()));
+                        m.PosterUrl, m.BackdropUrl, m.Synopsis, m.Rating, 0, null, CatalogText.ReleaseDateToDate(m.ReleaseDate),
+                        m.Rating is null ? null : m.Source)).ToList()));
                     origin[source] = "cinemeta";
                 }
             }
@@ -529,7 +532,7 @@ public sealed class CatalogService(
                 db.CatalogEntries.Add(row);
             }
             row.WorkKey = d.WorkKey; row.Title = d.Title; row.Year = d.Year; row.MediaType = d.MediaType;
-            row.PosterUrl = d.PosterUrl; row.BackdropUrl = d.BackdropUrl; row.Overview = d.Overview; row.Rating = d.Rating;
+            row.PosterUrl = d.PosterUrl; row.BackdropUrl = d.BackdropUrl; row.Overview = d.Overview; row.Rating = d.Rating; row.RatingSource = d.RatingSource;
             row.Source = source; row.Rank = i; row.SeedTitle = seedTitle; row.Seeders = d.Seeders; row.BestRelease = d.BestRelease;
             row.ReleaseDate = d.ReleaseDate; row.RefreshedAt = now;
         }

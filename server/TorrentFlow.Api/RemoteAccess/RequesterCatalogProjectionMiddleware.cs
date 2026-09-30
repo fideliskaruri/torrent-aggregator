@@ -191,6 +191,7 @@ public sealed class RequesterCatalogProjectionMiddleware(RequestDelegate next)
             ["isSeries"] = obj["isSeries"]?.DeepClone(),
             ["overview"] = obj["overview"]?.DeepClone(),
             ["rating"] = obj["rating"]?.DeepClone(),
+            ["ratingSource"] = obj["ratingSource"]?.DeepClone(),
             ["posterUrl"] = obj["posterUrl"]?.DeepClone(),
             ["backdropUrl"] = obj["backdropUrl"]?.DeepClone(),
             ["releaseDate"] = obj["releaseDate"]?.DeepClone(),

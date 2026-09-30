@@ -124,7 +124,6 @@ export interface TitleDetailProps {
   sourceType?: string | null;
   format?: string | null;
   seriesHint?: string | null;
-  aliases?: string[];
   /**
    * A season the user picked by hand on a previous visit, read server-side
    * from the durable `tf_season` cookie (see
@@ -285,7 +284,6 @@ export function TitleDetail(props: TitleDetailProps) {
       props.sourceType,
       props.format,
       props.seriesHint,
-      props.aliases,
       props.rememberedSeason,
       season,
     ],
@@ -387,7 +385,6 @@ export function TitleDetail(props: TitleDetailProps) {
       props.sourceType,
       props.format,
       props.seriesHint,
-      props.aliases,
       data?.title,
       data?.year,
       data?.mediaType,
@@ -1143,7 +1140,29 @@ function TitleContent({
   // The SILO-style hero prints one score/meta line under the title and a
   // compact metadata list in a right column. Both draw only from what the
   // payload/extras vouch for — every absent piece is dropped, never faked.
-  const metaRating = payload.rating ?? extras?.rating ?? null;
+  //
+  // A score, its provider and its vote count are one unit. The payload's score
+  // paints first and keeps its own provider; the extras only fill a missing
+  // score. Labelling the payload's score from the extras is how an AniList
+  // score read "TMDB" until the extras arrived, then changed its label.
+  const metaScore =
+    payload.rating != null
+      ? {
+          rating: payload.rating,
+          source: payload.ratingSource ?? null,
+          // Vote counts arrive with the extras' score, so they back the
+          // payload's score only when one provider supplied both (absent
+          // means TMDB on either side).
+          voteCount:
+            (payload.ratingSource ?? "tmdb") === (extras?.ratingSource ?? "tmdb")
+              ? (extras?.voteCount ?? null)
+              : null,
+        }
+      : {
+          rating: extras?.rating ?? null,
+          source: extras?.ratingSource ?? null,
+          voteCount: extras?.voteCount ?? null,
+        };
   const releaseDate = payload.releaseDate ?? extras?.releaseDate ?? null;
   // The year piece prefers the payload's explicit year, falling back to the
   // year of the real release date when the page was opened from a link that
@@ -1331,9 +1350,9 @@ function TitleContent({
                   </Badge>
                 ) : null}
                 <RatingMetaLine
-                  rating={metaRating}
-                  voteCount={extras?.voteCount ?? null}
-                  ratingSource={extras?.ratingSource ?? null}
+                  rating={metaScore.rating}
+                  voteCount={metaScore.voteCount}
+                  ratingSource={metaScore.source}
                   year={metaYear}
                   isSeries={payload.isSeries}
                   seasonCount={seasonCount}
@@ -1702,7 +1721,6 @@ function buildDetailUrl(
   if (props.sourceType) params.set("sourceType", props.sourceType);
   if (props.format) params.set("format", props.format);
   if (props.seriesHint) params.set("series", props.seriesHint);
-  for (const alias of props.aliases ?? []) params.append("alias", alias);
   // Threaded through so `pickSeason` can fall back to a manual pick from a
   // previous visit, even on a fresh link with no `?s=`. Server-side only
   // (read from the cookie in the page component) — see
@@ -1809,7 +1827,6 @@ function buildExtrasUrl(
   if (props.sourceType) params.set("sourceType", props.sourceType);
   if (props.format) params.set("format", props.format);
   if (props.seriesHint) params.set("series", props.seriesHint);
-  for (const alias of props.aliases ?? []) params.append("alias", alias);
 
   return `/api/title/${encodeURIComponent(props.workKey)}/extras?${params.toString()}`;
 }

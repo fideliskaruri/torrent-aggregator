@@ -10,7 +10,10 @@ using static TorrentFlow.Metadata.Providers.TmdbClient;
 
 namespace TorrentFlow.Metadata.Providers;
 
-public sealed record AniListWork(MediaMetadata Metadata, string? Format, bool IsSeries, int? EpisodeCount, int? AiredEpisodeCount = null);
+/// <param name="Popularity">AniList list count (users who added the entry); ranks search results.</param>
+/// <param name="Status">AniList status such as FINISHED, RELEASING or NOT_YET_RELEASED.</param>
+public sealed record AniListWork(MediaMetadata Metadata, string? Format, bool IsSeries, int? EpisodeCount, int? AiredEpisodeCount = null,
+    int? Popularity = null, string? Status = null);
 
 public sealed class AniListHttpException(int status) : HttpRequestException($"AniList HTTP {status}")
 {
@@ -37,6 +40,7 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
       format
       status
       episodes
+      popularity
       nextAiringEpisode { episode }
 """;
 
@@ -74,8 +78,9 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
         if (m.TryGetProperty("nextAiringEpisode", out var next) && next.ValueKind == JsonValueKind.Object &&
             Int(next, "episode") is > 0 and <= 5001 and var upcoming)
             aired = Math.Min(upcoming - 1, count ?? 5000);
-        if (Str(m, "status") == "NOT_YET_RELEASED") aired = 0;
-        return new AniListWork(Map(m), format, format != "MOVIE", count, aired);
+        var status = Str(m, "status");
+        if (status == "NOT_YET_RELEASED") aired = 0;
+        return new AniListWork(Map(m), format, format != "MOVIE", count, aired, Int(m, "popularity"), status);
     }
 
     public static int? EpisodeCount(JsonElement m)

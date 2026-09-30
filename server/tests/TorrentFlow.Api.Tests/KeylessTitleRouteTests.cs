@@ -80,6 +80,7 @@ public sealed class KeylessTitleRouteTests
                 "/shows/216" => """{"id":216,"name":"Rick and Morty","premiered":"2013-12-02","summary":"<p>A family adventure.</p>","image":{"original":"https://img.test/poster.jpg"},"externals":{"imdb":"tt2861424","thetvdb":275274}}""",
                 "/shows/216/episodes" => """[{"season":1,"number":1,"name":"Pilot"},{"season":2,"number":1,"name":"Season Two","airdate":"2015-07-26","airstamp":"2015-07-27T03:30:00+00:00"}]""",
                 "/meta/movie/tt0038650.json" => """{"meta":{"id":"tt0038650","name":"It's a Wonderful Life","releaseInfo":"1946","description":"An angel visits.","poster":"https://img.test/poster.jpg","background":"https://img.test/background.jpg"}}""",
+                "/suggestion/x/tt0038650.json" => """{"d":[{"id":"tt0038650","l":"It's a Wonderful Life","qid":"movie","y":1946}]}""",
                 "/lookup" => """{"results":[{"trackId":123,"trackName":"It's a Wonderful Life","kind":"feature-movie","releaseDate":"1946-12-20T00:00:00Z","longDescription":"An angel visits.","artworkUrl100":"https://img.test/100x100bb.jpg"}]}""",
                 _ => throw new InvalidOperationException("Unexpected metadata request: " + request.RequestUri.AbsolutePath)
             };

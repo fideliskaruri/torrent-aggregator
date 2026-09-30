@@ -1,5 +1,11 @@
 import { readJsonBody, sendErrorFromBody } from "@/lib/api-json";
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useFeatures } from "@/lib/features";
 import { Link } from "react-router";
 import { useSession } from "@/components/providers/session-provider";
@@ -54,6 +60,7 @@ import {
 } from "@/lib/library/storage-override";
 import { TfEmptyState } from "@/components/tf/empty-state";
 import { TfErrorState } from "@/components/tf/error-state";
+import { openSearchOverlay } from "@/components/search/search-overlay";
 import { useApiQuery } from "@/hooks/use-api-query";
 import { RecommendationRailSection } from "@/components/tf/recommendation-rail";
 import {
@@ -131,6 +138,18 @@ function libraryTitleHref(item: WatchItem): string | null {
     mediaType: item.mediaType,
     season: item.cursorSeason ?? item.fromSeason ?? null,
   });
+}
+
+/**
+ * The empty Library's Search button. Going to `/search` directly would leave a
+ * blank page behind the palette, so a plain click opens the palette in place,
+ * like the header's Search. Modified clicks keep the link.
+ */
+function openSearchFromEmptyState(event: ReactMouseEvent<HTMLAnchorElement>) {
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0)
+    return;
+  event.preventDefault();
+  openSearchOverlay();
 }
 
 /**
@@ -682,18 +701,21 @@ export default function WatchlistPage() {
   const activeTab = tabs.includes(tab) ? tab : DEFAULT_LIBRARY_TAB;
   const filtered = filterByTab(items, activeTab);
   const counts = tabCounts(items);
+  // An empty library has nothing to check, so the automation button and its
+  // explanation would only compete with the one useful next step: Search.
+  const showAutomation = !readOnly && items.length > 0;
 
   return (
     <div className="container-app space-y-6 py-6 pb-[calc(var(--mobile-nav-h)+var(--safe-bottom)+1.5rem)] min-w-0 sm:py-8 sm:pb-8" data-library-page={readOnly ? "read-only" : "manage"}>
       <TfPageHeader
         title="Library"
         description={libraryPageSummary(items)}
-        actions={readOnly ? undefined :
+        actions={!showAutomation ? undefined :
           <Button
             type="button"
             size="sm"
             onClick={() => setAutomationReviewOpen(true)}
-            disabled={runningAuto || !items.length}
+            disabled={runningAuto}
             aria-describedby={automationStateId}
           >
             {runningAuto ? (
@@ -706,7 +728,7 @@ export default function WatchlistPage() {
         }
       />
 
-      {readOnly ? null : (
+      {!showAutomation ? null : (
       <p
         id={automationStateId}
         data-dense-ui
@@ -804,7 +826,7 @@ export default function WatchlistPage() {
               ? `Nothing in ${LIBRARY_TAB_LABELS[activeTab]}`
               : readOnly
                 ? "Nothing in the library yet"
-                : "No items yet"
+                : "Nothing in your library yet"
           }
           description={
             items.length
@@ -814,10 +836,11 @@ export default function WatchlistPage() {
                 "Everything in your library is under another tab. Choose All to see it."
               : readOnly
                 ? "Browse or search for something, then press Request."
-                : "Search a show, add it to your library, then check for the next episode."
+                : "Search for a show or film, then choose Add to library on its page."
           }
-          actionLabel={items.length ? undefined : readOnly ? "Go to Browse" : "Search shows"}
-          actionHref={items.length ? undefined : "/"}
+          actionLabel={items.length ? undefined : readOnly ? "Go to Browse" : "Search"}
+          actionHref={items.length ? undefined : readOnly ? "/" : SEARCH_HREF}
+          onAction={items.length || readOnly ? undefined : openSearchFromEmptyState}
         />
       ) : (
         // No `items-start`: grid's default stretch gives equal-height cards per

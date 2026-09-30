@@ -116,7 +116,11 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             catch (Exception) when (!ct.IsCancellationRequested) { }
         }
         var overview = query.Provider?.Synopsis ?? cat?.Overview ?? cached?.Synopsis;
-        var rating = query.Provider?.Rating ?? cat?.Rating ?? cached?.Rating;
+        // The rating travels with the provider that supplied it, so the page never labels one provider's score with another's name.
+        var (rating, ratingSource) = query.Provider?.Rating is { } providerRating ? (providerRating, query.Provider.Source)
+            : cat?.Rating is { } catalogRating ? (catalogRating, cat.RatingSource)
+            : cached?.Rating is { } cachedRating ? (cachedRating, cached.Source) : ((double?)null, (string?)null);
+        if (ratingSource != null && !IMetadataResolver.SupportsProvider(ratingSource)) ratingSource = null;
         var release = query.Provider?.ReleaseDate ?? cat?.ReleaseDate ?? (cached?.ReleaseDate is { } date ? LibraryJson.Iso(date) : null);
         var searchRows = await db.SearchCaches.AsNoTracking().OrderByDescending(x => x.CreatedAt).Take(80).ToListAsync(ct);
         SearchResponse? cachedSearch = null;
@@ -208,7 +212,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             ("addPayload", LibraryJson.Object(("mediaType", type ?? (isSeries ? "tv" : "movie")), ("externalId", query.Provider?.ExternalId ?? cached?.ExternalId ?? $"work:{key}"),
                 ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating))));
         return LibraryJson.Object(("workKey", key), ("title", title), ("aliases", query.Provider?.Aliases?.Where(x => !x.Equals(title, StringComparison.OrdinalIgnoreCase)).ToArray() ?? []),
-            ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("posterUrl", poster), ("backdropUrl", backdrop),
+            ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("ratingSource", ratingSource), ("posterUrl", poster), ("backdropUrl", backdrop),
             ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)), ("resume", resume),
             ("transfer", targets.FirstOrDefault(x => x.Scope == "title") is { } tt ? Transfer(tt) : null),
             ("seasons", seasons), ("season", selected), ("episodes", episodes), ("episodesTruncated", maxEpisode > episodeLimit),
@@ -224,7 +228,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var rows = await db.CatalogEntries.AsNoTracking().OrderByDescending(x => x.RefreshedAt).Take(400).ToListAsync(ct);
         var e = rows.FirstOrDefault(x => ReleaseNames.WorkKeyMatches(key, x.Title, x.Year));
         return e == null ? null : new(e.Id, e.WorkKey, e.Title, e.Year, e.MediaType, e.PosterUrl, e.BackdropUrl, e.Overview, e.Rating, e.Source, e.Rank,
-            e.ReleaseDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), e.WorkId);
+            e.ReleaseDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture), e.WorkId, e.RatingSource);
     }
     private static bool MultiSeason(string name) => Regex.IsMatch(name, @"(?i)\bS\d+\s*[-–]\s*S?\d+\b|\bcomplete\s+(?:series|collection)\b");
     private static bool InvalidMedia(EngineTorrent row)

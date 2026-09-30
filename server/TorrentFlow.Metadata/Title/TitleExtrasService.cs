@@ -267,6 +267,7 @@ public sealed class TitleExtrasService(
             MoreLikeThis = (rail?.Items ?? []).Select(ToSimilarLink).ToList(),
             Overview = TmdbClient.Str(d, "overview").OrEmpty(null),
             Rating = vote is { } v && v > 0 ? Math.Round(v * 10, MidpointRounding.AwayFromZero) / 10 : null,
+            RatingSource = vote is > 0 ? "tmdb" : null,
             ReleaseDate = releaseDate,
             InTheatricalWindow = inWindow,
             NextHomeReleaseAt = inWindow ? next : null,

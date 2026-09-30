@@ -61,7 +61,7 @@ public sealed record BrowsePayload(IReadOnlyList<Rail> Rails, string GeneratedAt
 public sealed record CatalogSeed(string Title, string? MediaType);
 
 /// <summary>
-/// Two personal rails first (Continue watching, then Your library) with no work shown twice, then the discovery
+/// Two personal rails first (Continue watching, then Downloaded) with no work shown twice, then the discovery
 /// rails; empty rails dropped.
 /// </summary>
 public sealed partial class BrowseService(
@@ -101,8 +101,15 @@ public sealed partial class BrowseService(
     public const string YourLibraryRailId = "your-library";
 
     /// <summary>
+    /// The downloaded rail's heading. Its id predates the name: in the UI "Library" is the list of titles you
+    /// add and track, so a rail of files on disk calling itself "Your library" said a downloaded film was in
+    /// the Library while its own page offered "Add to library".
+    /// </summary>
+    public const string DownloadedRailTitle = "Downloaded";
+
+    /// <summary>
     /// The two personal rails, with no work shown twice. Continue watching is one card per show: a part-watched
-    /// episode or movie wins, otherwise the show's next episode (downloaded or not). Your library is every
+    /// episode or movie wins, otherwise the show's next episode (downloaded or not). Downloaded is every
     /// ready work that is not already in Continue watching.
     /// </summary>
     public static List<Rail> OrganizePersonalRails(Rail? inProgress, Rail? nextUp, Rail? library)
@@ -120,7 +127,7 @@ public sealed partial class BrowseService(
         var owned = (library?.Cards ?? []).Where(Claim).Cast<object>().ToList();
         var rails = new List<Rail>();
         if (continuing.Count > 0) rails.Add(new Rail(ContinueWatchingRailId, "Continue watching", continuing));
-        if (owned.Count > 0) rails.Add(new Rail(YourLibraryRailId, "Your library", owned));
+        if (owned.Count > 0) rails.Add(new Rail(YourLibraryRailId, DownloadedRailTitle, owned));
         return rails;
     }
 
@@ -247,7 +254,7 @@ public sealed partial class BrowseService(
         return t.Progress > 0 && t.Status != "error" && live == TorrentPresence.Present ? "warm" : null;
     }
 
-    // ------------------------------------------------------------------ Your library
+    // ------------------------------------------------------------------ Downloaded
 
     private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType);
 
@@ -313,7 +320,7 @@ public sealed partial class BrowseService(
                 MediaType = mediaType,
             });
         }
-        return new Rail(YourLibraryRailId, "Your library", items);
+        return new Rail(YourLibraryRailId, DownloadedRailTitle, items);
     }
 
     public static bool LibraryTorrentCanSurface(EngineTorrent t) => t.Progress >= 1 && t.Status != "removed" && t.Status != "error";

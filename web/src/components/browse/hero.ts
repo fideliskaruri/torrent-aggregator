@@ -22,9 +22,11 @@ export interface HeroPick {
 /** Rails good enough to lead the page, best first. */
 const HERO_RAIL_PRIORITY = ["continue-watching", "your-library"];
 
+// "Library" is the list of titles you add and track (the nav's Library, the
+// title page's "Add to library"), so the rail of files on disk never borrows it.
 const EYEBROW_BY_RAIL: Record<string, string> = {
   "continue-watching": "Continue watching",
-  "your-library": "From your library",
+  "your-library": "Downloaded",
 };
 
 /**

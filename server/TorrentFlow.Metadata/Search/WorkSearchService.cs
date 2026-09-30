@@ -26,6 +26,13 @@ public sealed record WorkSearchHit
     [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? ReleaseDate { get; init; }
     public required string Href { get; init; }
     public IReadOnlyDictionary<string, string>? ExternalIds { get; init; }
+
+    /// <summary>Provider popularity on a 0–1 scale. Ranking signal only.</summary>
+    [JsonIgnore] internal double? Popularity { get; init; }
+    /// <summary>TVmaze lists the show as animation, so an AniList entry of the same name and era is the same anime.</summary>
+    [JsonIgnore] internal bool Animated { get; init; }
+    /// <summary>The provider says the work is not released yet.</summary>
+    [JsonIgnore] internal bool Upcoming { get; init; }
 }
 
 public sealed record WorkSearchOutcome(List<WorkSearchHit> Results, string Query, string DisplayQuery, IReadOnlyList<string> Attempted,
@@ -40,18 +47,22 @@ public sealed class WorkSearchService
     public static readonly string[] Categories = ["movies", "series", "anime"];
     private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan StaleTtl = TimeSpan.FromHours(24);
+    /// <summary>How long ranking waits for IMDb popularity after the providers answered; it normally lands first.</summary>
+    private static readonly TimeSpan ImdbRankGrace = TimeSpan.FromSeconds(1);
+    private static readonly IReadOnlyDictionary<string, int> NoImdbRanks = new Dictionary<string, int>();
 
     private readonly TimeProvider _time;
     private readonly IReadOnlyDictionary<string, WorkSearchProvider> _providers;
     private readonly bool _cacheEnabled;
     private readonly TmdbClient? _tmdb;
     private readonly SourceRegistry? _registry;
+    private readonly CinemetaClient? _cinemeta;
     private readonly BoundedTtlCache<(WorkSearchOutcome Result, DateTimeOffset FreshUntil)> _cache;
 
     public WorkSearchService(TmdbClient tmdb, AniListClient anilist, KeylessClients keyless, TimeProvider time,
         SourceRegistry? registry = null, CinemetaClient? cinemeta = null)
         : this(registry is not null && cinemeta is not null ? RegistryProviders(registry, tmdb, anilist, keyless, cinemeta) :
-            DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { _tmdb = tmdb; _registry = registry; }
+            DefaultProviders(tmdb, anilist, keyless, time), time, cacheEnabled: true) { _tmdb = tmdb; _registry = registry; _cinemeta = cinemeta; }
 
     internal WorkSearchService(IReadOnlyDictionary<string, WorkSearchProvider> providers, TimeProvider time, bool cacheEnabled = false)
     {
@@ -88,7 +99,6 @@ public sealed class WorkSearchService
         extra.Add(("sourceType", mediaType));
         if (normalizedFormat != null) extra.Add(("format", normalizedFormat));
         extra.Add(("series", isSeries ? "1" : "0"));
-        extra.AddRange(aliases.Select(a => ("alias", a)));
         return new WorkSearchHit
         {
             WorkKey = workKey, Title = title, Year = year, Category = category, Provider = provider, ProviderId = providerId, Aliases = aliases,
@@ -100,6 +110,20 @@ public sealed class WorkSearchService
                     .ToDictionary(p => p.Name, p => p.Value.ToString()) : new Dictionary<string, string> { [provider] = metadata.ExternalId },
         };
     }
+
+    private static WorkSearchHit? HitFromAniList(AniListWork work, string category) =>
+        HitFromMetadata(work.Metadata, category, work.Format) is { } hit
+            ? hit with { Popularity = SearchRanking.AniListPopularity(work.Popularity), Upcoming = work.Status == "NOT_YET_RELEASED" }
+            : null;
+
+    private static WorkSearchHit? HitFromTvmaze(TvmazeCandidate show, string category) =>
+        HitFromMetadata(KeylessClients.Metadata(show), category) is { } hit
+            ? hit with { Popularity = SearchRanking.TvmazeWeight(show.Weight), Animated = show.Type == "Animation" }
+            : null;
+
+    private static List<WorkSearchHit> HitsInProviderOrder(IEnumerable<MediaMetadata> rows, string category) =>
+        rows.Select((m, index) => HitFromMetadata(m, category) is { } hit ? hit with { Popularity = SearchRanking.PositionPrior(index) } : null)
+            .OfType<WorkSearchHit>().ToList();
 
     public static WorkSearchHit? HitFromKeyless(int id, string rawTitle, int? year, string? posterUrl, string category, string provider)
     {
@@ -162,15 +186,17 @@ public sealed class WorkSearchService
         return new()
         {
             ["movies"] = (q, limit, ct) => WithKeylessFallback(q,
-                async () => (await tmdb.SearchByTypeAsync("movie", q, limit, ct).ConfigureAwait(false)).Select(m => HitFromMetadata(m, "movies")).OfType<WorkSearchHit>().ToList(),
+                async () => HitsInProviderOrder(await tmdb.SearchByTypeAsync("movie", q, limit, ct).ConfigureAwait(false), "movies"),
                 () => KeylessLoop(q, limit, async (v, t) => (await keyless.SearchItunesAsync(v, limit, t, ct: ct).ConfigureAwait(false))
-                    .Select(c => HitFromKeyless(c.Id, c.Title, c.Year, c.PosterUrl, "movies", "itunes")))),
+                    .Select((c, index) => HitFromKeyless(c.Id, c.Title, c.Year, c.PosterUrl, "movies", "itunes") is { } hit
+                        ? hit with { Popularity = SearchRanking.PositionPrior(index) } : null))),
             ["series"] = (q, limit, ct) => WithKeylessFallback(q,
-                async () => (await tmdb.SearchByTypeAsync("tv", q, limit, ct).ConfigureAwait(false)).Select(m => HitFromMetadata(m, "series")).OfType<WorkSearchHit>().ToList(),
+                async () => HitsInProviderOrder(await tmdb.SearchByTypeAsync("tv", q, limit, ct).ConfigureAwait(false), "series"),
                 () => KeylessLoop(q, limit, async (v, t) => (await keyless.SearchTvmazeAsync(v, limit, t, ct).ConfigureAwait(false))
-                    .Select(c => HitFromKeyless(c.Id, c.Title, c.Year, c.PosterUrl, "series", "tvmaze")))),
+                    .Select(c => HitFromKeyless(c.Id, c.Title, c.Year, c.PosterUrl, "series", "tvmaze") is { } hit
+                        ? hit with { Popularity = SearchRanking.TvmazeWeight(c.Weight), Animated = c.Type == "Animation" } : null))),
             ["anime"] = async (q, limit, ct) => (await anilist.SearchWorksAsync(q, limit, ct).ConfigureAwait(false))
-                .Select(w => HitFromMetadata(w.Metadata, "anime", w.Format)).OfType<WorkSearchHit>().ToList(),
+                .Select(w => HitFromAniList(w, "anime")).OfType<WorkSearchHit>().ToList(),
         };
     }
 
@@ -187,17 +213,18 @@ public sealed class WorkSearchService
                     {
                         var type = category == "series" ? "tv" : "movie";
                         if (source.Type == "anilist")
-                            return (await anilist.SearchWorksAsync(query, limit, token)).Select(w => HitFromMetadata(w.Metadata, category, w.Format)).OfType<WorkSearchHit>().ToList();
+                            return (await anilist.SearchWorksAsync(query, limit, token)).Select(w => HitFromAniList(w, category)).OfType<WorkSearchHit>().ToList();
+                        if (source.Type == "tvmaze")
+                            return (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token)).Select(c => HitFromTvmaze(c, category)).OfType<WorkSearchHit>().ToList();
                         IEnumerable<MediaMetadata> rows = source.Type switch
                         {
                             "tmdb" => await tmdb.SearchByTypeAsync(type, query, limit, token),
-                            "tvmaze" => (await keyless.SearchTvmazeAsync(query, limit, source.TimeoutMs, token)).Select(KeylessClients.Metadata),
                             "cinemeta" => await cinemeta.SearchAsync(query, type, limit, token),
                             "itunes" => (await keyless.SearchItunesAsync(query, limit, source.TimeoutMs, ct: token)).Select(c => new MediaMetadata
                             { Source = "itunes", MediaType = "movie", ExternalId = c.Id.ToString(), Title = c.Title, Year = c.Year, PosterUrl = c.PosterUrl }),
                             _ => []
                         };
-                        return rows.Select(m => HitFromMetadata(m, category)).OfType<WorkSearchHit>().ToList();
+                        return HitsInProviderOrder(rows, category);
                     }, ct);
                     hits.AddRange(found);
                     if (HasRelevantHit(query, hits)) break;
@@ -217,6 +244,8 @@ public sealed class WorkSearchService
             return cached.Result with { Stale = false };
 
         var tasks = attempted.Select(c => Settle(_providers[c](query, limit, ct))).ToList();
+        // IMDb has no anime ids to rank; everywhere else its popularity rank puts the work people mean first.
+        var imdbRanks = _cinemeta is not null && scope != "anime" ? _cinemeta.ImdbRanksAsync(query, ct) : null;
         var settled = await Task.WhenAll(tasks).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         var failed = attempted.Where((_, i) => settled[i].Error != null).ToList();
@@ -228,23 +257,18 @@ public sealed class WorkSearchService
         }
         var byCategory = settled.Select(s => (IReadOnlyList<WorkSearchHit>)(s.Value ?? [])).ToList();
         var merged = attempted.Count > 1 ? Relevance.InterleaveByProviderRank(byCategory, query) : [.. byCategory[0]];
-        var ranked = Relevance.RankTitleHits(merged, query, h => h.Title, h => h.Aliases);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var externalSeen = new HashSet<string>(StringComparer.Ordinal);
-        var results = ranked
-            .Where(h => Relevance.BestTier(query, new[] { h.Title }.Concat(h.Aliases)) < 6)
-            .Where(h => seen.Add(h.WorkKey))
-            .Where(h =>
-            {
-                var ids = h.ExternalIds?.Select(p => $"{p.Key}:{p.Value}").ToArray() ?? [];
-                if (ids.Any(externalSeen.Contains)) return false;
-                foreach (var id in ids) externalSeen.Add(id);
-                return true;
-            })
-            .Take(limit).ToList();
+        var ranked = SearchRanking.Rank(merged, query, await AwaitImdbRanks(imdbRanks, ct).ConfigureAwait(false), _time.GetUtcNow());
+        var results = ranked.Take(limit).ToList();
         var outcome = new WorkSearchOutcome(results, query, display, attempted, failed, failed.Count > 0);
         if (cacheKey != null) _cache.Set(cacheKey, (outcome, _time.GetUtcNow() + Fresh), StaleTtl);
         return outcome;
+    }
+
+    private async Task<IReadOnlyDictionary<string, int>> AwaitImdbRanks(Task<IReadOnlyDictionary<string, int>>? ranks, CancellationToken ct)
+    {
+        if (ranks is null) return NoImdbRanks;
+        try { return await ranks.WaitAsync(ImdbRankGrace, _time, ct).ConfigureAwait(false); }
+        catch (TimeoutException) { return NoImdbRanks; }
     }
 
     public static async Task<(T? Value, Exception? Error)> Settle<T>(Task<T> task)

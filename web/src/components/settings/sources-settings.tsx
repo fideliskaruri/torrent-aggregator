@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useId, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +35,11 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const fieldId = useId();
+  // Only TMDB can be switched on and still be inactive: it is skipped until it
+  // has a usable key. The switch alone would say "on", so say what is missing.
+  const needsKey = source.enabled && !source.active;
   async function act(action: () => Promise<void>) {
     setBusy(true);
     setTestResult(null);
@@ -55,60 +66,84 @@ function SourceCard({ source, update, remove, move, first, last, reload }: {
       return;
     }
     const message = result?.message?.trim() || result?.error?.trim()
-      || "Source did not respond successfully. Check its URL and try again.";
+      || "The test did not pass. Check this source's settings and try again.";
     setTestResult({ ok: false, message });
     toast.error(message);
   }
-  return <article className="min-w-0 space-y-4 rounded-lg border border-border p-4" data-source={source.id} aria-busy={busy}>
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="min-w-0"><h4 className="break-words font-medium">{source.id}</h4>
-        <p className="text-xs text-subtle-foreground">{source.type} · Priority {source.priority}{!source.active && source.enabled ? " · Credential required" : ""}</p></div>
-      <div className="flex min-h-[44px] items-center gap-2">
-        <Switch id={`${fieldId}-enabled`} checked={source.enabled} disabled={busy}
-          aria-label={`Enable ${source.id}`} data-source-enable
-          onCheckedChange={v => void act(() => update(source.id, { enabled: v === true }))} />
-        <Label htmlFor={`${fieldId}-enabled`} className="font-normal">Enabled</Label>
+  // A compact row (name, on/off, anything missing) with the full form on
+  // demand: twelve always-open forms made this panel thousands of pixels tall.
+  return <article className="min-w-0 rounded-lg border border-border" data-source={source.id} aria-busy={busy}>
+    <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+      {/* Phones put the name on one line and the controls on the next, so
+          every row lines up the same way whether or not it has a badge. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 sm:flex-nowrap sm:px-4">
+        <div className="flex min-w-0 basis-full items-center gap-3 sm:basis-auto sm:flex-1">
+          <div className="min-w-0 flex-1">
+            <h4 className="break-words font-medium">{source.id}</h4>
+            <p className="text-xs text-subtle-foreground">{source.type} · Priority {source.priority}</p>
+          </div>
+          {needsKey && <Badge variant="accent" data-source-status="credential-required">Needs API key</Badge>}
+        </div>
+        <div className="flex min-h-[44px] items-center gap-2">
+          <Switch id={`${fieldId}-enabled`} checked={source.enabled} disabled={busy}
+            aria-label={`Enable ${source.id}`} data-source-enable
+            onCheckedChange={v => void act(() => update(source.id, { enabled: v === true }))} />
+          <Label htmlFor={`${fieldId}-enabled`} className="font-normal">Enabled</Label>
+        </div>
+        <CollapsibleTrigger asChild>
+          <Button type="button" variant="ghost" size="sm" className="group/details -mr-1.5 ml-auto"
+            aria-label={`Details for ${source.id}`} data-source-details>
+            Details
+            <ChevronDown aria-hidden="true"
+              className="transition-transform group-data-[state=open]/details:rotate-180 motion-reduce:transition-none" />
+          </Button>
+        </CollapsibleTrigger>
       </div>
-    </div>
-    <FormField label="Base URL" htmlFor={`${fieldId}-url`}>
-      <Input id={`${fieldId}-url`} value={url} onChange={e => setUrl(e.target.value)} aria-label={`${source.id} base URL`} data-source-url
-        className="min-w-0" disabled={busy} />
-    </FormField>
-    <FormField label="Mirrors, one URL per line" htmlFor={`${fieldId}-mirrors`}>
-      <Textarea id={`${fieldId}-mirrors`} value={mirrors} onChange={e => setMirrors(e.target.value)} aria-label={`${source.id} mirrors`} data-source-mirrors
-        rows={2} disabled={busy} className="min-w-0" />
-    </FormField>
-    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-      <FormField label="Categories" htmlFor={`${fieldId}-categories`}>
-        <Input id={`${fieldId}-categories`} value={categories} disabled={busy} onChange={e => setCategories(e.target.value)} aria-label={`${source.id} categories`} />
-      </FormField>
-      <FormField label="Timeout (milliseconds)" htmlFor={`${fieldId}-timeout`}>
-        <Input id={`${fieldId}-timeout`} type="number" min={500} max={60000} value={timeout} disabled={busy} onChange={e => setTimeout(Number(e.target.value))}
-          aria-label={`${source.id} timeout`} />
-      </FormField>
-    </div>
-    {source.type === "torznab" && <FormField label={`Indexer API key ${source.credential.hint}`.trim()} htmlFor={`${fieldId}-credential`}>
-      <Input id={`${fieldId}-credential`} type="password" autoComplete="new-password" value={credential} disabled={busy}
-        onChange={e => setCredential(e.target.value)} aria-label={`${source.id} credential`} />
-    </FormField>}
-    <div className="flex flex-wrap gap-2">
-      <Button type="button" disabled={busy} data-source-save onClick={() => void act(async () => {
-        await update(source.id, { baseUrl: url.trim(), mirrors: mirrors.split("\n").map(v => v.trim()).filter(Boolean),
-          categories: categories.split(",").map(v => v.trim()).filter(Boolean), timeoutMs: timeout,
-          ...(credential ? { credential } : {}) }); setCredential(""); toast.success("Source settings saved.");
-      })}>Save source</Button>
-      <Button type="button" variant="secondary" disabled={busy} data-source-test onClick={() => void act(test)}>Test</Button>
-      <Button type="button" variant="ghost" disabled={busy || first} aria-label={`Move ${source.id} up`}
-        onClick={() => void act(() => move(source.id, -1))}>↑</Button>
-      <Button type="button" variant="ghost" disabled={busy || last} aria-label={`Move ${source.id} down`}
-        onClick={() => void act(() => move(source.id, 1))}>↓</Button>
-      {source.custom && <Button type="button" variant="ghost" disabled={busy} data-source-remove
-        onClick={() => { if (window.confirm(`Remove ${source.id}?`)) void act(() => remove(source.id)); }}>Remove</Button>}
-    </div>
-    {source.type === "tmdb" && <div className="border-t border-border pt-4"><TmdbSettings embedded onChanged={reload} /></div>}
-    {busy && <p role="status" className="text-sm">Updating source…</p>}
-    {!busy && testResult && <p role={testResult.ok ? "status" : "alert"} data-source-test-result={testResult.ok ? "ok" : "failed"}
-      className={`text-sm ${testResult.ok ? "text-success" : "text-destructive"}`}>{testResult.message}</p>}
+      <CollapsibleContent className="min-w-0 space-y-4 border-t border-border p-3 sm:p-4">
+        <FormField label="Base URL" htmlFor={`${fieldId}-url`}>
+          <Input id={`${fieldId}-url`} value={url} onChange={e => setUrl(e.target.value)} aria-label={`${source.id} base URL`} data-source-url
+            className="min-w-0" disabled={busy} />
+        </FormField>
+        <FormField label="Mirrors, one URL per line" htmlFor={`${fieldId}-mirrors`}>
+          <Textarea id={`${fieldId}-mirrors`} value={mirrors} onChange={e => setMirrors(e.target.value)} aria-label={`${source.id} mirrors`} data-source-mirrors
+            rows={2} disabled={busy} className="min-w-0" />
+        </FormField>
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+          <FormField label="Categories" htmlFor={`${fieldId}-categories`}>
+            <Input id={`${fieldId}-categories`} value={categories} disabled={busy} onChange={e => setCategories(e.target.value)} aria-label={`${source.id} categories`} />
+          </FormField>
+          <FormField label="Timeout (milliseconds)" htmlFor={`${fieldId}-timeout`}>
+            <Input id={`${fieldId}-timeout`} type="number" min={500} max={60000} value={timeout} disabled={busy} onChange={e => setTimeout(Number(e.target.value))}
+              aria-label={`${source.id} timeout`} />
+          </FormField>
+        </div>
+        {source.type === "torznab" && <FormField label={`Indexer API key ${source.credential.hint}`.trim()} htmlFor={`${fieldId}-credential`}>
+          <Input id={`${fieldId}-credential`} type="password" autoComplete="new-password" value={credential} disabled={busy}
+            onChange={e => setCredential(e.target.value)} aria-label={`${source.id} credential`} />
+        </FormField>}
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" disabled={busy} data-source-save aria-label={`Save ${source.id}`} onClick={() => void act(async () => {
+            await update(source.id, { baseUrl: url.trim(), mirrors: mirrors.split("\n").map(v => v.trim()).filter(Boolean),
+              categories: categories.split(",").map(v => v.trim()).filter(Boolean), timeoutMs: timeout,
+              ...(credential ? { credential } : {}) }); setCredential(""); toast.success("Source settings saved.");
+          })}>Save</Button>
+          <Button type="button" variant="secondary" disabled={busy} data-source-test aria-label={`Test ${source.id}`}
+            onClick={() => void act(test)}>Test</Button>
+          <Button type="button" variant="ghost" disabled={busy || first} aria-label={`Move ${source.id} up`}
+            onClick={() => void act(() => move(source.id, -1))}>↑</Button>
+          <Button type="button" variant="ghost" disabled={busy || last} aria-label={`Move ${source.id} down`}
+            onClick={() => void act(() => move(source.id, 1))}>↓</Button>
+          {source.custom && <Button type="button" variant="ghost" disabled={busy} data-source-remove aria-label={`Remove ${source.id}`}
+            onClick={() => { if (window.confirm(`Remove ${source.id}?`)) void act(() => remove(source.id)); }}>Remove</Button>}
+        </div>
+        {!busy && testResult && <p role={testResult.ok ? "status" : "alert"} data-source-test-result={testResult.ok ? "ok" : "failed"}
+          className={`text-sm ${testResult.ok ? "text-success" : "text-destructive"}`}>{testResult.message}</p>}
+        {source.type === "tmdb" && <div className="border-t border-border pt-4"><TmdbSettings embedded onChanged={reload} /></div>}
+      </CollapsibleContent>
+    </Collapsible>
+    {/* Announced, not drawn: a line of text appearing under a compact row on
+        every switch toggle would make the whole list jump. */}
+    {busy && <p role="status" className="sr-only">Updating source…</p>}
   </article>;
 }
 
@@ -151,7 +186,10 @@ export function SourcesSettings() {
   return <SettingsDisclosure id="sources-settings" title="Sources" summary="Keyless metadata, torrent indexers, and optional credentials."
     open={open} onToggle={() => setOpen(!open)}>
     <div className="min-w-0 space-y-6" data-sources-settings>
-      <p className="text-sm text-muted-foreground">TVmaze, Cinemeta and AniList work without an API key. Changes apply immediately.</p>
+      <p className="text-sm text-muted-foreground">
+        TVmaze, Cinemeta and AniList work without an API key. Turning a source on or off, or moving it, applies
+        immediately. Other changes apply when you press Save.
+      </p>
       {!sources && !error && <p role="status">Loading sources…</p>}
       {error && <div role="alert"><p className="text-sm text-destructive">{error}</p>
         <Button type="button" variant="secondary" className="mt-2" onClick={() => void load()}>Retry</Button></div>}
