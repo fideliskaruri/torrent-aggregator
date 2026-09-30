@@ -52,6 +52,11 @@ links, save paths) stay off-stage.
 - **Season downloads try one season pack first** (`GrabService.Season`). A matching pack
   (right work and season, quality floor, seeded) wins; otherwise the season batches exact
   per-episode releases for the episodes the pack doesn't cover. Single episodes never take a pack.
+- **Download season and approved requests are fire and forget** (`WantedQueue`). The click or approval
+  only records wanted `AcquisitionTarget` rows (status queued, no hash) and answers at once. The queue
+  runs one unit per (title, season), up to 6 side by side, retries misses after 1m, 5m, 15m, 1h, 3h and
+  then every 6h, and after 3 fruitless tries (not counting busy search sites or dead swarms) notifies the
+  owner once with a Pick a release yourself link. `GET /api/wanted` shows the queue.
 - **API Bay video categories include HD and UHD siblings.** TV queries must include
   205/208/212, not just 205; movies span 201/202/207/209/210/211. The adapter searches
   broadly and filters these categories before truncation. Otherwise individual
