@@ -37,6 +37,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("error");
 
+                    b.Property<int?>("FileIndex")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("fileIndex");
+
                     b.Property<string>("FilePath")
                         .HasColumnType("TEXT")
                         .HasColumnName("filePath");
@@ -52,6 +56,12 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<double>("Progress")
                         .HasColumnType("REAL")
                         .HasColumnName("progress");
+
+                    b.Property<int>("RealMisses")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(0)
+                        .HasColumnName("realMisses");
 
                     b.Property<string>("Scope")
                         .IsRequired()
@@ -673,6 +683,10 @@ namespace TorrentFlow.Data.Migrations
                     b.Property<string>("SavePath")
                         .HasColumnType("TEXT")
                         .HasColumnName("savePath");
+
+                    b.Property<string>("SelectedFilesJson")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("selectedFilesJson");
 
                     b.Property<long>("SizeBytes")
                         .HasColumnType("BIGINT")

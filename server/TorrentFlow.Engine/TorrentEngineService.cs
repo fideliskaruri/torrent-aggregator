@@ -153,29 +153,16 @@ internal sealed partial class TorrentEngineService(
         {
             if (request.RequireMetadata && bytes == null && backend.Get(hash)?.HasMetadata != true)
             {
-                bytes = LoadTorrentFile(hash);
-                if (bytes == null)
-                {
-                    await _metadataGate.WaitAsync(ct);
-                    try
-                    {
-                        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                        budget.CancelAfter(TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds));
-                        bytes = await backend.DownloadMetadataAsync(magnet ?? TorrentSource.BuildMagnet(hash, request.Name, []), budget.Token);
-                        if (TorrentSource.HashFromTorrent(bytes) != hash)
-                            return new(false, "The torrent's file list did not match this release.", Hash: hash);
-                        SaveTorrentFile(hash, bytes);
-                    }
-                    catch (Exception error) when (!ct.IsCancellationRequested)
-                    {
-                        logger.LogInformation(error, "Candidate {Hash} supplied no usable metadata; trying another release", hash);
-                        return new(false, "Couldn't get this release's file list from peers. Trying another release.", Hash: hash);
-                    }
-                    finally { _metadataGate.Release(); }
-                }
+                var (resolved, failure) = await ResolveMetadataAsync(hash, magnet, request.Name, ct);
+                if (resolved == null)
+                    return new(false, failure == "hash_mismatch" ? "The torrent's file list did not match this release."
+                        : "Couldn't get this release's file list from peers. Trying another release.", Hash: hash);
+                bytes = resolved;
             }
             if (request.RequireMetadata && bytes != null && TorrentSource.HashFromTorrent(bytes) != hash)
                 return new(false, "The torrent's file list did not match this release.", Hash: hash);
+            if (request.SelectedFiles is { Count: > 0 } && (bytes ?? LoadTorrentFile(hash)) is null)
+                return new(false, "Couldn't read this release's file list, so no files were chosen.", Hash: hash);
             await _queueGate.WaitAsync(ct);
             try { admission = await AdmitAsync(request, hash, magnet, purpose, origin, config, target, savePath, ct); }
             finally { _queueGate.Release(); }
@@ -220,6 +207,82 @@ internal sealed partial class TorrentEngineService(
 
     private sealed record Admission(EngineAddResult? Result, EngineTorrent? StartRow, List<EngineTorrent> Claimed);
 
+    /// <summary>
+    /// The one metadata path: the saved .torrent when we have it, else the swarm, behind the metadata gate and timeout.
+    /// Returns the bytes, or null with no_metadata | hash_mismatch.
+    /// </summary>
+    private async Task<(byte[]? Bytes, string? Failure)> ResolveMetadataAsync(string hash, string? magnet, string? name, CancellationToken ct)
+    {
+        if (LoadTorrentFile(hash) is { } cached) return (cached, null);
+        await _metadataGate.WaitAsync(ct);
+        try
+        {
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(TimeSpan.FromSeconds(Options.MetadataTimeoutSeconds));
+            var bytes = await backend.DownloadMetadataAsync(magnet ?? TorrentSource.BuildMagnet(hash, name, []), budget.Token);
+            if (TorrentSource.HashFromTorrent(bytes) != hash) return (null, "hash_mismatch");
+            SaveTorrentFile(hash, bytes);
+            return (bytes, null);
+        }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            logger.LogInformation(error, "Candidate {Hash} supplied no usable metadata; trying another release", hash);
+            return (null, "no_metadata");
+        }
+        finally { _metadataGate.Release(); }
+    }
+
+    public async Task<EngineInspectResult> InspectAsync(EngineInspectRequest request, CancellationToken ct = default)
+    {
+        byte[]? bytes = null;
+        if (!string.IsNullOrWhiteSpace(request.TorrentUrl))
+        {
+            try { bytes = await FetchTorrentAsync(request.TorrentUrl!, ct); }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidDataException) { }
+        }
+        var magnet = request.Magnet?.Trim();
+        var pinned = TorrentSource.NormalizeInfoHash(request.InfoHash) ?? (string.IsNullOrEmpty(magnet) ? null : TorrentSource.HashFromMagnet(magnet));
+        var hash = bytes is not null ? TorrentSource.HashFromTorrent(bytes) : pinned;
+        if (hash is null) return EngineInspectResult.Failed(null, "no_source");
+        if (bytes is not null && pinned is not null && hash != pinned) return EngineInspectResult.Failed(pinned, "hash_mismatch");
+        if (!string.IsNullOrEmpty(magnet)) magnet = TorrentSource.WidenTrackers(magnet, Options.EffectivePublicTrackers);
+        if (bytes is not null) SaveTorrentFile(hash, bytes);
+        else
+        {
+            var (resolved, failure) = await ResolveMetadataAsync(hash, magnet, request.Name, ct);
+            if (resolved is null) return EngineInspectResult.Failed(hash, failure ?? "no_metadata");
+            bytes = resolved;
+        }
+        try
+        {
+            var torrent = MonoTorrent.Torrent.Load(bytes);
+            var files = torrent.Files.Select((f, i) => new EngineInspectFile(i, f.Path, f.Length, f.OffsetInTorrent)).ToList();
+            logger.LogInformation("Inspected {Hash}: {Files} files, piece {Piece} bytes, live in client: {Live}",
+                hash, files.Count, torrent.PieceLength, backend.Contains(hash));
+            return new EngineInspectResult(hash, torrent.PieceLength, files);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogInformation(ex, "Metadata for {Hash} could not be read", hash);
+            return EngineInspectResult.Failed(hash, "no_metadata");
+        }
+    }
+
+    /// <summary>The persisted file selection of a kept transfer; null means every file.</summary>
+    internal static IReadOnlySet<int>? SelectionOf(EngineTorrent row)
+    {
+        if (string.IsNullOrWhiteSpace(row.SelectedFilesJson)) return null;
+        try { return JsonSerializer.Deserialize<int[]>(row.SelectedFilesJson)?.ToHashSet(); }
+        catch (JsonException) { return null; }
+    }
+
+    private async Task<IReadOnlySet<int>?> SelectionOfAsync(string hash)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
+        var row = await FindAsync(db, hash, CancellationToken.None);
+        return row is null ? null : SelectionOf(row);
+    }
+
     /// <summary>Runs under the hash lock and the queue gate: decides start / queue and persists the row.</summary>
     private async Task<Admission> AdmitAsync(EngineAddRequest request, string hash, string? magnet, string purpose, string origin,
         ClientConfig config, DownloadTarget target, string savePath, CancellationToken ct)
@@ -237,7 +300,7 @@ internal sealed partial class TorrentEngineService(
             if (origin == TorrentOrigin.User) existing.Lane = lane;
             existing.UpdatedAt = Now;
             await db.SaveChangesAsync(ct);
-            if (origin == TorrentOrigin.User && backend.Contains(hash)) await backend.SetSelectedFilesAsync(hash, null);
+            if (origin == TorrentOrigin.User && backend.Contains(hash)) await backend.SetSelectedFilesAsync(hash, SelectionOf(existing));
         }
         else if (existing is not null && purpose == TorrentPurpose.Keep && lane < existing.Lane)
         {
@@ -288,6 +351,13 @@ internal sealed partial class TorrentEngineService(
         row.WorkId = request.WorkId ?? existing?.WorkId;
         row.QueueKey = request.QueueKey ?? existing?.QueueKey;
         if (request.ExpectedSizeBytes is > 0 && row.SizeBytes <= 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
+        if ((existing is null || existing.Status is EngineTorrentStatus.Removed or EngineTorrentStatus.Error)
+            && purpose == TorrentPurpose.Keep && request.SelectedFiles is { Count: > 0 } picked)
+        {
+            row.SelectedFilesJson = JsonSerializer.Serialize(picked.Distinct().Order().ToArray());
+            // The reservation covers the pieces the selection touches, not the whole release.
+            if (request.ExpectedSizeBytes is > 0) row.SizeBytes = request.ExpectedSizeBytes.Value;
+        }
         if (request.Forced) row.ForcedAt = Now;
         row.Status = queued ? EngineTorrentStatus.Queued : EngineTorrentStatus.Downloading;
         row.Error = null;
@@ -396,8 +466,10 @@ internal sealed partial class TorrentEngineService(
             || !recovered && indexed is null && _layoutManifest.CanReuseFlatLayout(row.Hash, row.SavePath, out _);
         // A kept download writes straight into the save path, without its release folder, wherever that is free.
         var flatten = !recovered && layout is not null && indexed is null && !reuseFlatLayout && purpose == TorrentPurpose.Keep;
+        var selection = purpose == TorrentPurpose.Keep ? SelectionOf(row) : null;
         var spec = new BackendAddSpec(row.Hash, bytes is null ? row.Magnet : null, bytes,
-            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed, flatten, recovered);
+            row.SavePath ?? Path.Combine(Options.DataDirectory, "downloads"), purpose, metadataTimeout, !reuseFlatLayout, indexed, flatten, recovered,
+            selection);
         var wasLoaded = backend.Contains(row.Hash);
         try
         {
@@ -409,8 +481,8 @@ internal sealed partial class TorrentEngineService(
                 if (flatten && backend.Get(row.Hash) is { Files.Count: > 0 } placed && row.SavePath is { } save
                     && placed.Files.Any(f => string.Equals(Path.GetFullPath(f.FullPath), Path.GetFullPath(Path.Combine(save, f.Path)), StringComparison.OrdinalIgnoreCase)))
                     _layoutManifest.Place(row.Hash, save, placed.Files.OrderBy(f => f.Index).Select(f => (string?)f.FullPath).ToList());
-                // Already live as a stream (files deselected): a kept download wants every file.
-                if (wasLoaded && purpose == TorrentPurpose.Keep) await backend.SetSelectedFilesAsync(row.Hash, null);
+                // Already live as a stream (files deselected): a kept download wants its selection (every file unless chosen).
+                if (wasLoaded && purpose == TorrentPurpose.Keep) await backend.SetSelectedFilesAsync(row.Hash, selection);
             }
             return outcome;
         }
@@ -818,9 +890,10 @@ internal sealed partial class TorrentEngineService(
                 var s => s,
             };
             long? eta = null;
-            if (live.DownloadRate > 0 && live.SizeBytes > 0)
+            var liveSize = LiveSize(row, live);
+            if (live.DownloadRate > 0 && liveSize > 0)
             {
-                var secs = (long)(live.SizeBytes * (1 - live.Progress) / live.DownloadRate);
+                var secs = (long)(liveSize * (1 - live.Progress) / live.DownloadRate);
                 if (secs > 0 && secs < 100L * 24 * 3600) eta = secs;
             }
             return new EngineTorrentInfo
@@ -828,7 +901,7 @@ internal sealed partial class TorrentEngineService(
                 Hash = row.Hash,
                 Name = live.HasMetadata ? live.Name : row.Name,
                 Progress = live.Progress,
-                SizeBytes = live.SizeBytes > 0 ? live.SizeBytes : row.SizeBytes,
+                SizeBytes = liveSize > 0 ? liveSize : row.SizeBytes,
                 Dlspeed = live.DownloadRate,
                 Upspeed = live.UploadRate,
                 State = state,
@@ -871,7 +944,7 @@ internal sealed partial class TorrentEngineService(
             QueueKey = row.QueueKey,
             Forced = row.ForcedAt is not null,
             Verified = row.VerifiedAt is not null,
-            Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, true, IsDownloaded(row) ? 1 : 0, f.FullPath)).ToList() : null,
+            Files = includeFiles ? VerifiedFiles(row).Select((f, i) => new EngineFileInfo(i, f.Path, f.Size, f.FullPath is not null, IsDownloaded(row) && f.FullPath is not null ? 1 : 0, f.FullPath)).ToList() : null,
         };
     }
 
@@ -936,7 +1009,7 @@ internal sealed partial class TorrentEngineService(
             try
             {
                 var outcome = await backend.AddAsync(new BackendAddSpec(hash, null, metadata, row.SavePath!,
-                    TorrentPurpose.Keep, null, false, ForceHashCheck: true), ct);
+                    TorrentPurpose.Keep, null, false, ForceHashCheck: true, SelectedFiles: SelectionOf(row)), ct);
                 if (!outcome.Ok) { row.Status = EngineTorrentStatus.Error; row.Error = outcome.Message; }
                 else row.Status = "seeding";
                 _startedAt[hash] = Now;
@@ -1002,7 +1075,7 @@ internal sealed partial class TorrentEngineService(
                     return new EngineActionResult(true, "Already downloaded");
                 if (reannounceIfLive && row.Status == EngineTorrentStatus.Downloading && backend.Get(hash) is { State: not "paused" })
                 {
-                    if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, null);
+                    if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(hash, SelectionOf(row));
                     await backend.ResumeAsync(hash);
                     return new EngineActionResult(true, "Re-announced");
                 }
@@ -1031,8 +1104,8 @@ internal sealed partial class TorrentEngineService(
         {
             if (backend.Contains(row.Hash))
             {
-                // Loaded earlier as a stream (files deselected): a kept download fetches every file.
-                if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(row.Hash, null);
+                // Loaded earlier as a stream (files deselected): a kept download fetches its selection.
+                if (row.Origin == TorrentOrigin.User) await backend.SetSelectedFilesAsync(row.Hash, SelectionOf(row));
                 // The metadata deadline counts from this start, not from before the pause.
                 _startedAt[row.Hash] = Now;
                 await backend.ResumeAsync(row.Hash);
@@ -1392,7 +1465,7 @@ internal sealed partial class TorrentEngineService(
                 if (live.HasMetadata)
                 {
                     row.Name = live.Name;
-                    if (live.SizeBytes > 0) row.SizeBytes = live.SizeBytes;
+                    if (LiveSize(row, live) is > 0 and var size) row.SizeBytes = size;
                 }
                 row.Progress = Math.Round(live.Progress, 4);
 
@@ -1414,10 +1487,10 @@ internal sealed partial class TorrentEngineService(
                     row.ForcedAt = null;
                     detach.Add(row.Hash);
                 }
-                else if (live.State == "complete" && live.Files.Count > 0 && live.Files.All(f => f.Selected))
+                else if (live.State == "complete" && live.Files.Count > 0 && SelectionHolds(row, live))
                 {
                     if (DownloadRecoveryService.IsRecoveredTorrent(row.TorrentUrl) && IsDownloaded(row)) continue;
-                    var manifest = BuildManifest(live);
+                    var manifest = BuildManifest(live, SelectionOf(row));
                     if (manifest is not null)
                     {
                         row.VerifiedFilesJson = JsonSerializer.Serialize(manifest, JsonOptions);
@@ -1455,6 +1528,7 @@ internal sealed partial class TorrentEngineService(
             catch (Exception ex) { logger.LogWarning(ex, "Detaching {Hash} failed", hash); }
             _startedAt.TryRemove(hash, out _);
         }
+        DeleteFragments();
         // Released by the client, so the files can be validated and moved to their final layout.
         foreach (var hash in finalize)
         {
@@ -1543,7 +1617,7 @@ internal sealed partial class TorrentEngineService(
         await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
         var row = await FindAsync(db, snap.Hash, CancellationToken.None);
         if (row is null) return;
-        if (snap.HasMetadata) { row.Name = snap.Name; if (snap.SizeBytes > 0) row.SizeBytes = snap.SizeBytes; }
+        if (snap.HasMetadata) { row.Name = snap.Name; if (LiveSize(row, snap) is > 0 and var size) row.SizeBytes = size; }
         row.Progress = Math.Round(snap.Progress, 4);
         await db.SaveChangesAsync(CancellationToken.None);
     }
@@ -1554,12 +1628,62 @@ internal sealed partial class TorrentEngineService(
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    /// <summary>Completion evidence: every file exists at its expected size. Null when any is missing.</summary>
-    private static List<ManifestFile>? BuildManifest(BackendSnapshot live)
+    /// <summary>
+    /// Selected bytes of a selective (season pack) transfer; the whole release otherwise. A selective row keeps its
+    /// admitted reservation (the pieces the selection touches) until the live file list is known.
+    /// </summary>
+    private static long LiveSize(EngineTorrent row, BackendSnapshot live) =>
+        SelectionOf(row) is { } selected && live.Files.Count > 0
+            ? live.Files.Where(f => selected.Contains(f.Index)).Sum(f => f.Length)
+            : live.SizeBytes;
+
+    private readonly ConcurrentQueue<(string Path, long Length)> _fragments = new();
+
+    /// <summary>
+    /// Boundary pieces write a few bytes of the unselected neighbours of a selective transfer. Once the client lets go,
+    /// every such partial file is deleted, unless it is whole or another live transfer uses the path.
+    /// </summary>
+    private void DeleteFragments()
+    {
+        if (_fragments.IsEmpty) return;
+        var live = backend.List().SelectMany(s => s.Files).Select(f => Path.GetFullPath(f.FullPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        while (_fragments.TryDequeue(out var fragment))
+        {
+            try
+            {
+                var info = new FileInfo(fragment.Path);
+                if (!info.Exists || info.Length >= fragment.Length || live.Contains(info.FullName)) continue;
+                info.Delete();
+                logger.LogInformation("Deleted partial file {Path} outside the chosen files", info.FullName);
+                if (info.Directory is { } dir && !dir.EnumerateFileSystemInfos().Any()) dir.Delete();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogInformation(ex, "Could not delete partial file {Path}", fragment.Path);
+            }
+        }
+    }
+
+    /// <summary>A kept transfer completes only with exactly its persisted selection on (every file when none is persisted).</summary>
+    private static bool SelectionHolds(EngineTorrent row, BackendSnapshot live) => SelectionOf(row) is { } selected
+        ? selected.Count > 0 && live.Files.All(f => f.Selected == selected.Contains(f.Index))
+        : live.Files.All(f => f.Selected);
+
+    /// <summary>
+    /// Completion evidence: every wanted file exists at its expected size. Null when any is missing. A file outside a
+    /// persisted selection is recorded with no path: it is not ours, and any boundary fragment of it is deleted.
+    /// </summary>
+    private List<ManifestFile>? BuildManifest(BackendSnapshot live, IReadOnlySet<int>? selected = null)
     {
         var list = new List<ManifestFile>();
         foreach (var f in live.Files)
         {
+            if (selected is not null && !selected.Contains(f.Index))
+            {
+                _fragments.Enqueue((f.FullPath, f.Length));
+                list.Add(new ManifestFile(f.Path, f.Length, 0, null));
+                continue;
+            }
             var info = new FileInfo(f.FullPath);
             if (!info.Exists || info.Length != f.Length) return null;
             list.Add(new ManifestFile(f.Path, f.Length, new DateTimeOffset(info.LastWriteTimeUtc).ToUnixTimeMilliseconds(), info.FullName));

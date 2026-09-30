@@ -56,6 +56,9 @@ public partial class EngineTorrent
     /// <summary>Queue lane rank (TorrentLane.Rank): 0 owner, 1 request, 2 automation. Lower starts first.</summary>
     public int Lane { get; set; }
 
+    /// <summary>JSON array of the torrent file indexes to download. Null means every file (all ordinary transfers).</summary>
+    public string? SelectedFilesJson { get; set; }
+
     public virtual User User { get; set; } = null!;
 
     public virtual Work? Work { get; set; }

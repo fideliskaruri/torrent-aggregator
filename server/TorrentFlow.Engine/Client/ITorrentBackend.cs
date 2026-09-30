@@ -14,7 +14,8 @@ internal sealed record BackendAddSpec(
     bool CreateContainingDirectory = true,
     IReadOnlyList<string?>? FilePaths = null,
     bool FlattenWrapper = false,
-    bool ForceHashCheck = false);
+    bool ForceHashCheck = false,
+    IReadOnlySet<int>? SelectedFiles = null);
 
 internal sealed record BackendFile(int Index, string Path, string FullPath, long Length, bool Selected, double Progress);
 

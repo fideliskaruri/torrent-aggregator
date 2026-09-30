@@ -13,6 +13,13 @@ public interface ITorrentEngine
     /// </summary>
     Task<EngineAddResult> AddAsync(EngineAddRequest request, CancellationToken ct = default);
 
+    /// <summary>
+    /// Fetches a release's file list (the same metadata path and cache <see cref="AddAsync"/> uses) without creating
+    /// a transfer, so a later add of the same release never fetches it twice.
+    /// </summary>
+    Task<EngineInspectResult> InspectAsync(EngineInspectRequest request, CancellationToken ct = default) =>
+        Task.FromResult(EngineInspectResult.Failed(null, "no_metadata"));
+
     Task<EngineAddResult> SwapAsync(string hash, EngineReleaseSwap request, CancellationToken ct = default) =>
         Task.FromResult(new EngineAddResult(false, "Release swapping is not supported by this engine."));
 
@@ -193,7 +200,25 @@ public sealed record EngineAddRequest
     public string? Lane { get; init; }
     /// <summary>Resolve magnet metadata before admitting an automatically selected release, including queued downloads.</summary>
     public bool RequireMetadata { get; init; }
+    /// <summary>
+    /// Torrent file indexes to download (a season pack fallback). Null downloads every file. Persisted and applied
+    /// before the first piece is requested; requires metadata (<see cref="RequireMetadata"/>).
+    /// </summary>
+    public IReadOnlyList<int>? SelectedFiles { get; init; }
 }
+
+/// <summary>Reads a release's file list without admitting a transfer (season pack verification).</summary>
+public sealed record EngineInspectRequest(string? Magnet, string? TorrentUrl, string? InfoHash, string? Name);
+
+/// <param name="Failure">no_metadata | hash_mismatch | no_source when the file list could not be read.</param>
+public sealed record EngineInspectResult(string? Hash, long PieceLength, IReadOnlyList<EngineInspectFile> Files, string? Failure = null)
+{
+    public bool Ok => Failure == null && Hash != null;
+    public static EngineInspectResult Failed(string? hash, string failure) => new(hash, 0, [], failure);
+}
+
+/// <param name="Offset">Byte offset of the file inside the torrent's concatenated payload.</param>
+public sealed record EngineInspectFile(int Index, string Path, long Length, long Offset);
 
 public sealed record EngineReleaseSwap(string WorkKey, string Scope, string Hash, string Name, string? Magnet,
     long? SizeBytes, string? Source = null);

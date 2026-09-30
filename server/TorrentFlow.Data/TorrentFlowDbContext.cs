@@ -85,6 +85,8 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.Error).HasColumnName("error");
             entity.Property(e => e.FilePath).HasColumnName("filePath");
             entity.Property(e => e.InfoHash).HasColumnName("infoHash");
+            entity.Property(e => e.FileIndex).HasColumnName("fileIndex");
+            entity.Property(e => e.RealMisses).HasDefaultValue(0).HasColumnName("realMisses");
             entity.Property(e => e.PreferredResolution).HasColumnName("preferredResolution");
             entity.Property(e => e.Progress).HasColumnName("progress");
             entity.Property(e => e.Scope).HasColumnName("scope");
@@ -358,6 +360,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.Progress).HasColumnName("progress");
             entity.Property(e => e.QueueKey).HasColumnName("queueKey");
             entity.Property(e => e.Lane).HasColumnName("lane");
+            entity.Property(e => e.SelectedFilesJson).HasColumnName("selectedFilesJson");
             entity.Property(e => e.SavePath).HasColumnName("savePath");
             entity.Property(e => e.SizeBytes)
                 .HasColumnType("BIGINT")

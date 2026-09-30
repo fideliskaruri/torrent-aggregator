@@ -29,6 +29,12 @@ public partial class AcquisitionTarget
 
     public string? FilePath { get; set; }
 
+    /// <summary>Torrent file index this episode owns inside a season pack. Null: the whole transfer is this target.</summary>
+    public int? FileIndex { get; set; }
+
+    /// <summary>Single-episode searches that really ran and found nothing usable (refused or busy searches never count).</summary>
+    public int RealMisses { get; set; }
+
     public string? Error { get; set; }
 
     public DateTime CreatedAt { get; set; }
