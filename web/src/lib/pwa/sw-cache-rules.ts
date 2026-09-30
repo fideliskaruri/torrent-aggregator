@@ -6,7 +6,9 @@
  * if you change one, change the other.
  */
 
-const API_PREFIXES = ["/api/", "/auth/"];
+// /cdn-cgi/ is Cloudflare's own (Access sign-in and sign-out). Its pages must never
+// be stored as the app shell.
+const API_PREFIXES = ["/api/", "/auth/", "/cdn-cgi/"];
 const MEDIA_EXTENSIONS = [
   ".mp4",
   ".mkv",
