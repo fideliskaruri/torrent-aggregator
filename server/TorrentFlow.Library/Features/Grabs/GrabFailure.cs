@@ -82,7 +82,6 @@ public sealed record SeasonFailureSummary(string Message, string Action, bool Re
         var started = result.CoveredEpisodes.Count;
         var total = result.Transfers.Count;
         var message = started == 0 ? "No episodes started."
-            : result.Pack != null && failures.Length == 0 ? $"Started a season pack with {result.Pack.Episodes.Count} episodes."
             : $"Started {started} of {total} episodes.";
         if (reasons.Length > 0)
             message += " " + string.Join(" ", reasons.Select(r =>

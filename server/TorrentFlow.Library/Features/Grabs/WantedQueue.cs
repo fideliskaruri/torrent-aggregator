@@ -29,7 +29,7 @@ public interface IWantedObserver
 
 /// <summary>
 /// Fire and forget downloads. Download season (and a request) only records what is wanted and returns; this queue
-/// then runs the shared season path (<see cref="GrabService.Season"/>: one season pack, then singles for the rest).
+/// then runs the shared season path (<see cref="GrabService.Season"/>: the single-episode grab, once per episode).
 /// Whatever is not found yet stays wanted and is retried with a growing wait, forever, including after the search
 /// sites were busy. Seasons are separate units, so one slow or failing season never holds up another. After a few
 /// tries that did not find anything the owner is told once, with one action: pick a release yourself.

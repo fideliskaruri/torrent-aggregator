@@ -17,8 +17,8 @@ public sealed record LadderRung(string Kind, string Query, string Category, Sear
 /// Port of the TS on-demand fallback ladder (lib/library/ondemand.ts buildEpisodeRungs and helpers).
 /// A single "Show SxxEyy" search is only one way an indexer names a release; anime also needs its short
 /// or romaji alias, the anime category, and absolute "Show - 01" numbering. The ladder relaxes one rung at
-/// a time and the caller stops at the first working send. Packs are never promoted to episode candidates; a whole
-/// season asks once for a pack first (<see cref="SeasonPackRung"/>, <see cref="SelectPacks"/>).
+/// a time and the caller stops at the first working send. Packs are never promoted to episode candidates; a pack is
+/// only ever taken when the owner picks one by hand or swaps a pack for another (<see cref="SeasonPackRung"/>).
 /// </summary>
 public static class EpisodeLadder
 {
@@ -164,38 +164,6 @@ public static class EpisodeLadder
         if (!seasonMatches) return false;
         if (ep.IsSeasonPack || ep.IsBatch || ReleaseNames.IsEpisodeRangeRelease(releaseName)) return true;
         return ep.Episode == null && ep.AbsoluteEpisode == null;
-    }
-
-    /// <summary>Seeded, untried season packs of the work in the order given (callers rank by quality first).</summary>
-    public static IEnumerable<TorrentResult> SelectPacks(IEnumerable<TorrentResult> results, int season, IReadOnlyList<string> titles,
-        int? premiereYear, ISet<string> attempted, bool relaxed = false) =>
-        results.Where(r => !attempted.Contains(CandidateKey(r)) && !string.IsNullOrEmpty(r.Magnet) && (relaxed || r.Seeders > 0) &&
-            ReleaseMatchesWork(r, titles, premiereYear) && IsSeasonPackFor(r, season));
-
-    private static readonly Regex VideoFile = new(@"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$");
-    private static readonly Regex ExtrasFolder = new(@"(?i)\b(?:featurettes?|extras?|specials?|samples?|behind the scenes|animatics?|ncop|nced|creditless|bonus)\b");
-
-    /// <summary>
-    /// Which episodes of <paramref name="season"/> a pack's files hold, as episode → file index. A bare "Show - 05"
-    /// counts as this season's episode 5 because the pack was already matched to this season.
-    /// </summary>
-    public static IReadOnlyDictionary<int, int> PackEpisodeFiles(IEnumerable<(int Index, string Path, long Length)> files, int season)
-    {
-        var best = new Dictionary<int, (int Index, long Length)>();
-        foreach (var (index, path, length) in files)
-        {
-            if (!VideoFile.IsMatch(path)) continue;
-            var parts = path.Split(['\\', '/']);
-            if (parts.Any(part => ExtrasFolder.IsMatch(Regex.Replace(part, "[._-]", " ")))) continue;
-            // Fansub files often space with underscores ("Show_-_06[CRC].mkv").
-            var fileName = VideoFile.Replace(parts[^1], "").Replace('_', ' ');
-            if (ReleaseNames.IsEpisodeRangeRelease(fileName)) continue;
-            var ep = ReleaseNames.ParseEpisode(fileName);
-            if (ep.IsBatch || ep.IsSeasonPack || ep.Episode is not { } episode || episode < 1) continue;
-            if (ep.Season is { } s && s != season) continue;
-            if (!best.TryGetValue(episode, out var current) || length > current.Length) best[episode] = (index, length);
-        }
-        return best.ToDictionary(x => x.Key, x => x.Value.Index);
     }
 
     /// <summary>Port of <c>buildEpisodeRungs</c>, in relaxation order.</summary>

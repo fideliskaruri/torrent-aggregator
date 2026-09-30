@@ -115,14 +115,14 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         var input = new GrabInput(title, type, null, watchId, work.Id, resolution, retention, cap, detail["aliases"] as string[], Year: work.Year, WorkKey: workKey,
             Provider: verified?.Source ?? work.Provider, ProviderId: verified?.ExternalId ?? work.ProviderId);
         // Download season is fire and forget: record what is wanted and return. The wanted queue runs the shared
-        // season path (one pack, then singles) in the background and keeps retrying whatever is not found yet.
+        // season path (the single-episode grab for each episode) in the background and keeps retrying whatever is not found yet.
         if (scope == "season" && retention == "keep")
         {
             await wanted.EnqueueAsync(new(workKey, work.Id, season!.Value, episodes, resolution, cap, TorrentLane.Owner), CancellationToken.None);
             return Accepted(LibraryJson.Object(("ok", true), ("queued", true), ("message", $"Season {season} queued."),
                 ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = 0, strategy = "unknown", coverageConfirmed = false,
                     episodes = episodes.Select(e => new { episode = e, status = "not_measured" }),
-                    planReason = "We'll look for the whole season first, then single episodes, and keep trying until they turn up." })));
+                    planReason = "We'll get each episode and keep looking for any we can't find yet." })));
         }
         // Once targets are seeded the acquisition must finish and settle even if the client disconnects;
         // only host shutdown may interrupt it.
@@ -137,7 +137,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
             var summary = SeasonFailureSummary.From(result);
             var body = LibraryJson.Object(("ok", ok), ("message", summary.Message),
                 ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = result.CoveredEpisodes.Count,
-                    strategy = result.Strategy, pack = result.Pack, coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
+                    strategy = "singles", coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
                         LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Failure?.Message ?? GrabFailure.Unknown.Message)) :
                         LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
                     planReason = summary.Action, failureReasons = summary.Reasons, retryable = summary.Retryable,

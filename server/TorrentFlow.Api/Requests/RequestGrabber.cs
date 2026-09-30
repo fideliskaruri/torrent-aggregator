@@ -21,7 +21,7 @@ public interface IRequestGrabber
 
 /// <summary>
 /// Queues an approved request on the owner's own path (<see cref="WantedQueue"/>, on the request lane): the film, or
-/// every aired episode of the chosen seasons. The queue tries a season pack first, then singles, and keeps retrying
+/// every aired episode of the chosen seasons. Each episode goes through the single-episode grab; the queue keeps retrying
 /// what is not found yet; what it starts joins the request through <see cref="RequestWantedObserver"/>.
 /// </summary>
 public sealed class RequestGrabber(WantedQueue wanted, TitleExtrasService extras, TimeProvider time,

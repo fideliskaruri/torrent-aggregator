@@ -29,15 +29,7 @@ public sealed record GrabResult(bool Ok, string Message)
     [JsonIgnore]
     public bool Skipped { get; init; }
 }
-public sealed record SeasonFanoutResult(IReadOnlyList<EpisodeTransfer> Transfers, IReadOnlyList<int> CoveredEpisodes, object? Storage)
-{
-    /// <summary>The season pack that covers some of the episodes, when one was taken.</summary>
-    public SeasonPackPick? Pack { get; init; }
-    /// <summary>"pack", "pack+singles" or "singles": how the missing episodes were fetched.</summary>
-    public string Strategy { get; init; } = "singles";
-}
-/// <summary>One season pack taken for a season: its transfer, release name, and the wanted episodes its files hold.</summary>
-public sealed record SeasonPackPick(string InfoHash, string Title, IReadOnlyList<int> Episodes, bool Queued = false);
+public sealed record SeasonFanoutResult(IReadOnlyList<EpisodeTransfer> Transfers, IReadOnlyList<int> CoveredEpisodes, object? Storage);
 
 public static class SeasonFanout
 {
