@@ -1,4 +1,7 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Data;
 using TorrentFlow.Library.Features.Common;
@@ -43,6 +46,19 @@ public sealed class OnDemandController(IDbContextFactory<TorrentFlowDbContext> f
         }
         if (string.IsNullOrWhiteSpace(title)) return BadRequest(new { ok = false, error = "Missing title", message = "title or watchListItemId required" });
         var result = await grabs.Grab(new(title, type, new EpisodeCursor(season, episode), id, workId, resolution, retention, cap), ct);
-        return StatusCode(result.Ok ? 200 : result.Storage != null ? 507 : 502, result);
+        var status = result.Ok ? 200 : result.Storage != null ? 507 : 502;
+        if (result.Ok || result.NoReleaseFound == null) return StatusCode(status, result);
+        // Nothing fitted: name the title so the Library can offer "Pick a release yourself". Older library rows have
+        // no WorkId, so fall back to the work this title's key names.
+        await using var keys = await factory.CreateDbContextAsync(ct);
+        var slug = TorrentFlow.Core.Text.WorkKeySlug.WorkKeyFor(title);
+        var workKey = workId != null
+            ? await keys.Works.AsNoTracking().Where(w => w.Id == workId).Select(w => w.WorkKey).FirstOrDefaultAsync(ct)
+            : await keys.Works.AsNoTracking().Where(w => w.WorkKey == slug).Select(w => w.WorkKey).FirstOrDefaultAsync(ct);
+        if (workKey == null) return StatusCode(status, result);
+        var json = HttpContext.RequestServices.GetRequiredService<IOptions<JsonOptions>>().Value.JsonSerializerOptions;
+        var body = JsonSerializer.SerializeToNode(result, json)!.AsObject();
+        body["workKey"] = workKey;
+        return StatusCode(status, body);
     }
 }

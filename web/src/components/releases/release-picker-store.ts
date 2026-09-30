@@ -37,6 +37,17 @@ export function pickReleaseToastButton(target: ReleasePickTarget) {
   return { label: PICK_RELEASE_LABEL, onClick: () => openReleasePicker(target) };
 }
 
+/**
+ * Toast classes for any toast carrying the pick button (alone or beside Retry):
+ * on a phone the buttons wrap under the message instead of squeezing it.
+ */
+export const PICK_TOAST_CLASSNAMES = {
+  toast: "max-sm:flex-wrap",
+  content: "max-sm:basis-[calc(100%-2.5rem)]!",
+  actionButton: "max-sm:ml-8! max-sm:min-h-11 max-sm:px-4!",
+  cancelButton: "max-sm:min-h-11 max-sm:px-4!",
+} as const;
+
 /** Plain words for what the picker is for: "Haibane Renmei, season 1, episode 8". */
 export function releasePickSubject(target: Pick<ReleasePickTarget, "title" | "season" | "episode">): string {
   if (target.season != null && target.episode != null) {

@@ -90,7 +90,7 @@ import {
   postTitleAction,
   rethrowAcquisitionFetchError,
 } from "./title-action-request";
-import { pickReleaseToastButton } from "@/components/releases/release-picker-store";
+import { PICK_TOAST_CLASSNAMES, pickReleaseToastButton } from "@/components/releases/release-picker-store";
 import {
   isValidSeason,
   nextRememberedSeasonCookieValue,
@@ -611,7 +611,7 @@ export function TitleDetail(props: TitleDetailProps) {
             : undefined;
         toast.error(
           err instanceof Error ? err.message : `Could not get ${label}`,
-          pick ? { action: pick, duration: Infinity } : undefined,
+          pick ? { action: pick, duration: Infinity, classNames: PICK_TOAST_CLASSNAMES } : undefined,
         );
       }
     },
@@ -789,7 +789,7 @@ export function TitleDetail(props: TitleDetailProps) {
           // slot; the pick then sits in the cancel slot, which closes the toast.
           action: partialRetry ?? partialPick,
           cancel: partialRetry ? partialPick : undefined,
-          classNames: partialRetry ? RETRY_TOAST_CLASSNAMES : undefined,
+          classNames: partialPick ? PICK_TOAST_CLASSNAMES : partialRetry ? RETRY_TOAST_CLASSNAMES : undefined,
         });
         refetch();
       } catch (err) {
@@ -818,7 +818,7 @@ export function TitleDetail(props: TitleDetailProps) {
           description: failure?.description,
           action: failureRetry ?? failurePick,
           cancel: failureRetry ? failurePick : undefined,
-          classNames: failureRetry ? RETRY_TOAST_CLASSNAMES : undefined,
+          classNames: failurePick ? PICK_TOAST_CLASSNAMES : failureRetry ? RETRY_TOAST_CLASSNAMES : undefined,
         });
       } finally {
         inFlightSeasonGrabs.current.delete(key);
