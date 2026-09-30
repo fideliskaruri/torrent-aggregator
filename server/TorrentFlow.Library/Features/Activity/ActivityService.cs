@@ -13,10 +13,6 @@ public sealed record ActivityRow(string Id, string Type, string Title, string St
     string? Category, string? Context, string? ClientType, string? SendKind, DateTime CreatedAt)
 {
     public Dictionary<string, object?> Json() => LibraryJson.Row(this);
-    /// <summary>For a grab that found nothing: the title, season and episode "Pick a release yourself" opens.</summary>
-    public string? WorkKey { get; init; }
-    public int? Season { get; init; }
-    public int? Episode { get; init; }
 }
 
 public sealed class ActivityService(IDbContextFactory<TorrentFlowDbContext> factory)
@@ -98,28 +94,8 @@ public sealed class ActivityService(IDbContextFactory<TorrentFlowDbContext> fact
         var histories = await hp.OrderByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Take(take).ToListAsync(ct);
         var merged = Reconcile(jobs.Select(Map).Concat(histories.Select(Map)).Concat(overlap)).Where(x => cursor == null || After(x, cursor)).ToList();
         var items = merged.Take(limit).ToList();
-        items = await WithPickTargets(db, items, ct);
         var more = items.Count > 0 && (merged.Count > limit || jobs.Count >= take || histories.Count >= take);
         return LibraryJson.Object(("items", items.Select(x => x.Json())), ("count", items.Count), ("hasMore", more), ("nextCursor", more ? Encode(items[^1]) : null));
-    }
-
-    /// <summary>A grab that found nothing names the title and the episode or season it searched for, so the log can offer a hand pick.</summary>
-    private static async Task<List<ActivityRow>> WithPickTargets(TorrentFlowDbContext db, List<ActivityRow> items, CancellationToken ct)
-    {
-        static bool Missed(ActivityRow x) => x.Type == "grab" && x.Status is "skipped" or "failed" &&
-            x.InfoHash == null && x.Message?.StartsWith("Already sent", StringComparison.Ordinal) != true;
-        var titles = items.Where(Missed).Select(x => x.Title).Distinct().ToList();
-        if (titles.Count == 0) return items;
-        var keys = (await db.Works.AsNoTracking().Where(w => titles.Contains(w.CanonicalTitle))
-            .Select(w => new { w.CanonicalTitle, w.WorkKey }).ToListAsync(ct))
-            .GroupBy(w => w.CanonicalTitle).ToDictionary(g => g.Key, g => g.First().WorkKey);
-        return items.Select(x =>
-        {
-            if (!Missed(x) || !keys.TryGetValue(x.Title, out var key)) return x;
-            var ep = Grabs.ReleaseNames.ParseEpisode(x.Query ?? "");
-            return x with { WorkKey = key, Season = ep.Episode != null ? ep.Season ?? 1 : ep.IsSeasonPack ? ep.Season : null,
-                Episode = ep.Episode };
-        }).ToList();
     }
 
     public async Task<object> Unread(string? rawSince, CancellationToken ct)
