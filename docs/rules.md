@@ -23,6 +23,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 
 - CI runs only by hand for now (owner request); validate locally before pushing.
 - Reuse existing services and components. No duplicate logic, such as a second ranking or a second provider list.
+- **No app-level rate limits for the owner.** TorrentFlow is the owner plus a couple of trusted friends. Do not add process-wide per-minute search or request budgets that stall real work (for example a second season download). Bound concurrency with queues instead. Per-site cool-down is allowed only on a real HTTP 429 (or 503 with Retry-After) from that site. The title-search/suggest box may keep a per-client keystroke guard.
 - New server endpoints are owner-only by default. Requesters get read-only data with magnets, paths and engine state stripped.
 - Settings changes take effect immediately. For example, lowering the download cap re-queues running downloads.
 - Stage specific files only. No force push. Confirm before deleting branches.

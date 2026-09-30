@@ -10,11 +10,6 @@ using TorrentFlow.Search.Adapters;
 
 namespace TorrentFlow.Search;
 
-public sealed class SearchThrottledException(int seconds) : Exception($"Indexers are being rate limited. Retry in {Math.Max(1, seconds)}s.")
-{
-    public int RetryAfterSeconds { get; } = Math.Max(1, seconds);
-}
-
 public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adapters, SearchCacheStore cache,
     ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
     ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null, ITrackerScraper? scraper = null,
@@ -22,13 +17,13 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     TorrentFlow.Core.Sources.SourceRegistry? registry = null, RegisteredTorrentSources? registered = null) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
-    /// <summary>Total attempts a single source gets per acquisition (WaitForBudget only); interactive searches keep one attempt.</summary>
+    /// <summary>Total attempts a single source gets when WaitForBudget is set; ordinary interactive searches keep one attempt.</summary>
     public const int SourceAttempts = 3;
     public const int SourceRetryBaseDelayMs = 250;
     private readonly ITorrentSourceAdapter[] all = adapters.ToArray();
     private readonly object flightGate = new();
     private readonly Dictionary<string, Task<SearchResponse>> flights = [];
-    /// <summary>Signalled whenever a flight slot frees, so budget-waiting acquisitions can retry admission without holding the gate.</summary>
+    /// <summary>Signalled whenever a flight slot frees so waiters can retry admission without holding the gate.</summary>
     private TaskCompletionSource capacity = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly SemaphoreSlim adapterSlots = new(moduleOptions.Value.MaxConcurrentAdapters);
     private bool Enable1337 => moduleOptions.Value.Setting("ENABLE_1337X") == "1";
@@ -82,10 +77,9 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
                             TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
                         break;
                     }
-                    if (!options.WaitForBudget) throw new SearchThrottledException(1);
+                    // Queue behind in-flight fan-outs; never refuse work. Bounded by the caller's cancellation.
                     capacityWait = capacity.Task;
                 }
-                // Acquisition waits for a free slot instead of failing; interactive callers never reach here.
                 await capacityWait.WaitAsync(cancellationToken);
             }
             pool = await work.WaitAsync(cancellationToken);
@@ -122,17 +116,6 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     private async Task<SearchResponse> FetchPoolAsync(SearchOptions options, string key, int target, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        var retry = cache.Spend(options.Background);
-        while (retry > 0 && options.WaitForBudget)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(retry), token);
-            retry = cache.Spend(options.Background);
-        }
-        if (retry > 0)
-        {
-            var stale = options.SkipCache || options.IncludeRejectedResults ? null : await cache.GetAsync(key, true, token);
-            return stale != null ? stale with { Cached = true } : throw new SearchThrottledException(retry);
-        }
         var selected = registered is not null
             ? registered.For(options.Category).Where(a => options.Sources?.Length is not > 0 || options.Sources.Contains(a.Id)).ToArray()
             : all.Where(a => options.Sources?.Length > 0 ? options.Sources.Contains(a.Id) : a.Id switch { "1337x" => Enable1337, "archive" => EnableArchive, "torznab" => TorznabConfigured, _ => true }).ToArray();

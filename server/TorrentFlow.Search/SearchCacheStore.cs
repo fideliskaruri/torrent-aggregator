@@ -14,7 +14,6 @@ public sealed class SearchCacheStore(IDbContextFactory<TorrentFlowDbContext> fac
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
     private readonly object gate = new();
     private readonly Dictionary<string, (SearchResponse Value, DateTime Expires)> memory = [];
-    private readonly (int Count, DateTime Reset)[] budgets = new (int, DateTime)[2];
     public static string Key(SearchOptions options, int target)
     {
         var parts = JsonSerializer.SerializeToElement(new { q = options.Query.Trim().ToLowerInvariant(), category = options.Category,
@@ -42,18 +41,6 @@ public sealed class SearchCacheStore(IDbContextFactory<TorrentFlowDbContext> fac
             Write(parts);
         }
         return Convert.ToHexString(SHA256.HashData(bytes.GetBuffer().AsSpan(0, (int)bytes.Length)))[..40].ToLowerInvariant();
-    }
-    public int Spend(bool background)
-    {
-        lock (gate)
-        {
-            var index = background ? 1 : 0;
-            var b = budgets[index];
-            if (b.Reset <= DateTime.UtcNow) b = (0, DateTime.UtcNow.AddMinutes(1));
-            if (b.Count >= (background ? 15 : 40)) return Math.Max(1, (int)Math.Ceiling((b.Reset - DateTime.UtcNow).TotalSeconds));
-            budgets[index] = (b.Count + 1, b.Reset);
-            return 0;
-        }
     }
     private void Remember(string key, SearchResponse value, DateTime expires)
     {

@@ -75,9 +75,11 @@ Probe sessions must be isolated from real downloads and dispose their own data.
 - Search results use a three-minute TTL and at most 500 memory entries and
   persisted `SearchCache` rows. Stable SHA-256 keys retain the TS canonical
   object ordering, nested filters and target resolution.
-- Two fixed rate buckets budget real fan-outs: interactive 40/minute and
-  background 15/minute. Cache hits do not consume budget. Stale fallback is
-  allowed under throttling, except when `skipCache` requests freshness.
+- There is no app-wide per-minute search budget. Concurrent fan-outs are queued
+  behind `MaxConcurrentSearches` / `MaxConcurrentAdapters` (and flight coalescing).
+  Callers wait for capacity under their own cancellation instead of receiving 429.
+- A real HTTP 429 (or 503 with Retry-After) from a site cools that host only
+  (Retry-After, default 30 s, cap 5 min) inside `IndexerHttp`; other sources continue.
 - Failed mirrors are demoted for five minutes, not excluded. Good hosts lead;
   network/403/429/5xx/unproven-404 failures and HTML challenges fail over.
 - All persistence uses the shared EF context factory and original table schema.

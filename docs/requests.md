@@ -100,8 +100,6 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
   - 409 `duplicate` when the caller already has an open request for the same work with an overlapping
     scope: two movie requests, anything against `series`, or season lists sharing a season.
   - 409 `too_many_open` when the caller already has `MaxOpenPerUser` open requests.
-  - 429 `rate_limited` beyond `CreatesPerMinute` creates per minute, keyed by the signed-in email (never by
-    IP or `X-Forwarded-For`).
   - 201 `{ request }` on success. Status is normally `pending`. When the owner has an auto-approve rule
     for the requester's email that matches the request (`moviesOnly` for films, `everything` for any
     scope), the create path runs the same approve + request-lane grab as a manual approval before the
@@ -112,7 +110,8 @@ All under `/api/requester`, JSON, `Cache-Control: no-store`. Only a requester ma
 - `POST /requests/{id}/cancel` — only the caller's own request; 404 `not_found` otherwise. 409
   `not_pending` unless it is still pending. Returns `{ request }` with status `cancelled`.
 
-Title and season lookups share a `SearchesPerMinute` budget per email (429 `rate_limited`).
+Title and season lookups are not rate-limited at the app level (trusted friends only). The owner's
+title-search box still has its own 60/minute per-client guard against keystroke spam.
 
 ## Owner API
 
@@ -166,8 +165,6 @@ transfers (choose file deletion only when those files are no longer wanted).
 | Setting | Default |
 | --- | --- |
 | `MaxOpenPerUser` | `10` |
-| `CreatesPerMinute` | `5` |
-| `SearchesPerMinute` | `30` |
 
 `TorrentFlow:RemoteAccess:AllowRequesters` (default `true`, also in Settings → Remote access) turns the
 requester role on or off.
@@ -175,8 +172,8 @@ requester role on or off.
 ## Tests
 
 `server/tests/TorrentFlow.Api.Tests/RequesterTests.cs` (allow-list table from `EndpointDataSource`, path
-tricks, requester JWT flows, search flags and leak checks, duplicate/overlap, in-library, cap, per-email
-rate limit, cancel, validation), `RequestDecisionTests.cs` (approve/decline, request-lane grab seam, fulfilment
+tricks, requester JWT flows, search flags and leak checks, duplicate/overlap, in-library, cap, cancel,
+validation), `RequestDecisionTests.cs` (approve/decline, request-lane grab seam, fulfilment
 for films and multi-transfer series, safe failure reason, requester library leak checks),
 `RequestAutoApproveTests.cs` (rule matching, owner-only CRUD, movies-only vs everything on create, none leaves
 pending) and `(removed; see docs/test-audit.md) (role-aware shell, requester views and library, inbox ordering,

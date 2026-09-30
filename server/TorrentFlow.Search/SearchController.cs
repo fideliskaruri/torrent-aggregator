@@ -52,11 +52,6 @@ public sealed class SearchController(ITorrentSearchService service, TorrentSearc
         {
             return BadRequest(e.Field == "q" ? (object)new { error = e.Message, field = e.Field, availableSources = catalog.AvailableSources } : new { error = e.Message, field = e.Field });
         }
-        catch (SearchThrottledException e)
-        {
-            Response.Headers.RetryAfter = e.RetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
-            return StatusCode(429, new { error = "Indexers busy", message = e.Message, retryAfterSeconds = e.RetryAfterSeconds });
-        }
         catch (Exception e) when (!cancellationToken.IsCancellationRequested)
         {
             logger.LogError(e, "Search failed");
