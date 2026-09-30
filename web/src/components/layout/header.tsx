@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { ChevronDown, Eye, Search } from "lucide-react";
+import { ChevronDown, CircleUser, Eye, LogOut, Search } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/notification-feed";
 import { cn } from "@/lib/utils";
 import { openSearchOverlay } from "@/components/search/search-overlay";
@@ -11,8 +11,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { signOut } from "@/lib/sign-out";
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -119,12 +122,13 @@ export function Header() {
   const dividerHref = fullRow[fullDivider]?.href ?? null;
   const navRow = fullRow.filter((item) => item.href !== NOTIFICATIONS_HREF);
   const activeDesktopHref = navActiveHref(fullRow, pathname);
-  const pending = useSessionInfo().pendingRequests;
+  const { pendingRequests: pending, via, email } = useSessionInfo();
+  const showAccount = via === "tunnel" && !!email;
   const requestsBadge = caps.canReviewRequests ? pendingBadge(pending) : null;
   const searchActive = navActive(pathname, HEADER_SEARCH_HREF);
 
   const { rowRef, navRef, fold } = useHeaderFold(
-    `${navRow.map((i) => i.href).join(",")}|${requestsBadge ?? ""}|${caps.canPreview}`,
+    `${navRow.map((i) => i.href).join(",")}|${requestsBadge ?? ""}|${caps.canPreview}|${showAccount}`,
     FOLD_OVERFLOW + navRow.length - 1,
   );
   const overflowCount = Math.max(0, fold - FOLD_OVERFLOW + 1);
@@ -364,6 +368,38 @@ export function Header() {
               {/* One name: aria-label. The word is shown only when the row has room. */}
               {showPreviewLabel ? <span aria-hidden>View as requester</span> : null}
             </Button>
+          ) : null}
+          {/* Only a Cloudflare Access session can be signed out of. On this
+              computer nobody signs in, so there is no account menu at all. */}
+          {showAccount && isDesktop ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  data-account-menu
+                  aria-label={`Account, signed in as ${email}`}
+                  title={email ?? undefined}
+                  className="hidden md:inline-flex size-9 pointer-coarse:size-11 shrink-0 text-subtle-foreground hover:text-muted-foreground"
+                >
+                  <CircleUser className="size-4" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
+                  <span className="text-[12px] text-subtle-foreground">Signed in as</span>
+                  <span data-account-email className="truncate text-[13px] font-medium text-foreground">
+                    {email}
+                  </span>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={signOut} data-sign-out className="min-h-11 text-[13px]">
+                  <LogOut className="size-4" aria-hidden />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
           {/* The list-density toggle used to sit here.
               It answered an implementation question — how tightly should rows

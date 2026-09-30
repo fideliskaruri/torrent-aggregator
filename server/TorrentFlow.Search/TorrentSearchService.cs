@@ -187,9 +187,10 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     /// <summary>Only transport-level failures are worth another attempt; configuration or programming errors are final.</summary>
     internal static bool IsTransient(Exception e) => e switch
     {
+        // A site that rate-limited is cooling down: asking again inside this search only extends its limit.
         SourceBusyException => false,
         System.Net.Http.HttpRequestException http => http.StatusCode is null or System.Net.HttpStatusCode.RequestTimeout
-            or System.Net.HttpStatusCode.TooManyRequests || (int)http.StatusCode >= 500,
+            || http.StatusCode != System.Net.HttpStatusCode.TooManyRequests && (int)http.StatusCode >= 500,
         InvalidDataException => false,
         TimeoutException or OperationCanceledException or System.Net.Sockets.SocketException or IOException => true,
         AggregateException aggregate => aggregate.InnerExceptions.All(IsTransient),
@@ -248,48 +249,62 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         }
     }
 
+    /// <summary>
+    /// Runs one adapter inside an <see cref="IndexerHttp.SearchScope"/>: identical site requests are sent once and shared,
+    /// and each request that really goes out waits its turn at its own site (<see cref="IndexerHttp.EnterAsync"/>) before
+    /// its deadline starts, so time in a site's line is not time the site took. Downloads (WaitForBudget) wait in a line for
+    /// up to <see cref="PatientSourceWait"/>; an interactive search waits at most its own deadline. A site still busy after
+    /// that is left out of this one search (a source error, never cached, retried by the wanted queue without counting a miss),
+    /// so a slow or rate-limited site never holds up the sites that can answer now.
+    /// </summary>
     private async Task<IReadOnlyList<TorrentResult>> RunAdapterAsync(ITorrentSourceAdapter adapter, SearchOptions options, CancellationToken token, int? attemptTimeoutMs = null)
     {
-        // Wait for this site's turn before any deadline starts: time in its line is not time the site took.
-        using var turn = await EnterSourceAsync(adapter, options, token);
+        var lifetimeMs = moduleOptions.Value.AdapterLifetimeMs;
+        var attemptMs = attemptTimeoutMs is { } ms ? Math.Min(ms, lifetimeMs) : lifetimeMs;
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
-        lifetime.CancelAfter(attemptTimeoutMs is { } ms ? Math.Min(ms, moduleOptions.Value.AdapterLifetimeMs) : moduleOptions.Value.AdapterLifetimeMs);
-        try
+        IDisposable? slot = null, scope = null;
+        if (indexers == null)
         {
-            await adapterSlots.WaitAsync(lifetime.Token);
+            lifetime.CancelAfter(attemptMs);
+            slot = await TakeSlotAsync(adapter, lifetime.Token, attemptTimeoutMs, token);
         }
-        catch (OperationCanceledException) when (attemptTimeoutMs is not null && !token.IsCancellationRequested)
+        else
         {
-            throw new TimeoutException($"{adapter.Id} exceeded the {attemptTimeoutMs}ms search budget");
+            lifetime.CancelAfter(lifetimeMs);
+            var lineWait = options.WaitForBudget ? PatientSourceWait
+                : TimeSpan.FromMilliseconds(options.AdapterDeadlineMs is > 0 and var deadline ? deadline : InteractiveAdapterDeadlineMs);
+            scope = IndexerHttp.Use(new(options.WaitForBudget, lineWait,
+                async ct => await TakeSlotAsync(adapter, ct, null, token), () => lifetime.CancelAfter(attemptMs)));
         }
         try { return await adapter.SearchAsync(options, lifetime.Token); }
         catch (OperationCanceledException) when (attemptTimeoutMs is not null && !token.IsCancellationRequested)
         {
             throw new TimeoutException($"{adapter.Id} exceeded the {attemptTimeoutMs}ms search budget");
         }
-        finally { adapterSlots.Release(); }
-    }
-
-    /// <summary>
-    /// Paces requests per search site (<see cref="IndexerHttp.EnterAsync"/>) before any deadline starts. Downloads
-    /// (WaitForBudget) wait in the site's line for up to <see cref="PatientSourceWait"/>; an interactive search waits at
-    /// most its own deadline. A site still busy after that is left out of this one search (reported as a source error,
-    /// which is never cached and which the wanted queue retries without counting a miss).
-    /// </summary>
-    private async Task<IDisposable> EnterSourceAsync(ITorrentSourceAdapter adapter, SearchOptions options, CancellationToken token)
-    {
-        if (indexers == null || adapter is not IPacedSource { PacingUrl: { Length: > 0 } url }) return NoTurn;
-        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(token);
-        bounded.CancelAfter(options.WaitForBudget ? PatientSourceWait : TimeSpan.FromMilliseconds(options.AdapterDeadlineMs is > 0 and var ms ? ms : InteractiveAdapterDeadlineMs));
-        try { return await indexers.EnterAsync(url, patient: options.WaitForBudget, bounded.Token); }
-        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        finally
         {
-            throw new SourceBusyException($"{adapter.Id} is busy; skipped for now");
+            scope?.Dispose();
+            slot?.Dispose();
         }
     }
-    public static readonly TimeSpan PatientSourceWait = TimeSpan.FromSeconds(60);
-    private static readonly IDisposable NoTurn = new NoTurnLease();
-    private sealed class NoTurnLease : IDisposable { public void Dispose() { } }
+
+    private async Task<IDisposable> TakeSlotAsync(ITorrentSourceAdapter adapter, CancellationToken ct, int? attemptTimeoutMs, CancellationToken token)
+    {
+        try { await adapterSlots.WaitAsync(ct); }
+        catch (OperationCanceledException) when (attemptTimeoutMs is not null && !token.IsCancellationRequested)
+        {
+            throw new TimeoutException($"{adapter.Id} exceeded the {attemptTimeoutMs}ms search budget");
+        }
+        return new SlotLease(adapterSlots);
+    }
+
+    /// <summary>How long a download search waits in one site's line before leaving that site out and using the others' answers.</summary>
+    public static readonly TimeSpan PatientSourceWait = TimeSpan.FromSeconds(20);
+    private sealed class SlotLease(SemaphoreSlim slots) : IDisposable
+    {
+        private int released;
+        public void Dispose() { if (Interlocked.Exchange(ref released, 1) == 0) slots.Release(); }
+    }
 }
 
 internal sealed class NoOpSearchResultEnricher : ISearchResultEnricher

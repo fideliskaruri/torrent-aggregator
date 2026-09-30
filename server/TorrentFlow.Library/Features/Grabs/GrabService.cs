@@ -137,9 +137,10 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     /// episode, batched. Episodes already on their way are reused, not grabbed twice. Title page, the wanted queue and
     /// requests all use this.
     /// </summary>
-    public Task<SeasonFanoutResult> Season(GrabInput input, int season, IEnumerable<int> episodes, CancellationToken ct) =>
+    public Task<SeasonFanoutResult> Season(GrabInput input, int season, IEnumerable<int> episodes, CancellationToken ct,
+        Func<EpisodeTransfer, Task>? settled = null) =>
         SeasonFanout.Run(episodes.Where(e => e > 0).Distinct().Order(),
-            (ep, before) => Grab(input with { Cursor = new EpisodeCursor(season, ep) }, ct, before), ct);
+            (ep, before) => Grab(input with { Cursor = new EpisodeCursor(season, ep) }, ct, before), ct, settled: settled);
 
     /// <summary>Port of grabSingleEpisode's ladder: each rung is searched once, and the first working send wins.</summary>
     private async Task<GrabResult> Episode(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, EpisodeCursor cursor,

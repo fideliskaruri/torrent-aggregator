@@ -8,12 +8,6 @@ namespace TorrentFlow.Search.Adapters;
 /// <summary>A site was left out of one request because it is cooling down or its line is full; retrying at once is pointless.</summary>
 public sealed class SourceBusyException(string message) : HttpRequestException(message, null, HttpStatusCode.TooManyRequests);
 
-/// <summary>A search source whose requests go to one known site, so the search layer can pace them per site.</summary>
-public interface IPacedSource
-{
-    string? PacingUrl { get; }
-}
-
 public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp> logger, IOptions<SearchModuleOptions>? options = null)
 {
     /// <summary>How long an interactive search waits for a cooling site before it skips that site.</summary>
@@ -40,7 +34,87 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
     /// <summary>Host → 429s in a row; each one without a Retry-After doubles the cool-down, a success clears it.</summary>
     private readonly Dictionary<string, int> strikes = new(StringComparer.OrdinalIgnoreCase);
 
-    public async Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false, string? bearerToken = null, string? jsonBody = null)
+    /// <summary>
+    /// How long a search reuses a site's answer to the exact same request. A season asks the same site the same thing many
+    /// times (the same query in several categories that map to one site request, the relaxed rung, the show lookup every
+    /// episode shares, a quick retry); each distinct request is sent once and every other asker shares its answer.
+    /// </summary>
+    public static readonly TimeSpan AnswerReuse = TimeSpan.FromMinutes(5);
+    private static readonly AsyncLocal<SearchScope?> ambient = new();
+    private readonly ConcurrentDictionary<string, Answer> answers = new(StringComparer.Ordinal);
+    private sealed record Answer(DateTimeOffset At, Task<string> Body);
+
+    /// <summary>
+    /// What a search's requests share while <see cref="Use"/> is in effect: identical requests are sent once, and each
+    /// request that really goes out waits its turn at its site (<see cref="EnterAsync"/>) for at most <paramref name="LineWait"/>,
+    /// then takes a <paramref name="Slot"/> and calls <paramref name="Started"/> (so a per-attempt deadline counts only the site's own time).
+    /// </summary>
+    public sealed record SearchScope(bool Patient, TimeSpan LineWait, Func<CancellationToken, Task<IDisposable>>? Slot = null, Action? Started = null);
+
+    public static IDisposable Use(SearchScope scope)
+    {
+        var previous = ambient.Value;
+        ambient.Value = scope;
+        return new Restore(() => ambient.Value = previous);
+    }
+
+    /// <summary>True inside a search's <see cref="Use"/>: requests are paced per site and each one is timed on its own.</summary>
+    public static bool Scoped => ambient.Value != null;
+
+    private sealed class Restore(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
+    }
+
+    public Task<string> GetAsync(string url, string agent = "TorrentFlow/1.0", int timeoutMs = 12000, string accept = "application/json", CancellationToken cancellationToken = default, bool validateApi = false, string? bearerToken = null, string? jsonBody = null)
+    {
+        if (ambient.Value is not { } scope) return SendAsync(url, agent, timeoutMs, accept, cancellationToken, validateApi, bearerToken, jsonBody);
+        var key = $"{url}\n{accept}\n{validateApi}\n{bearerToken}\n{jsonBody}";
+        var now = DateTimeOffset.UtcNow;
+        if (answers.TryGetValue(key, out var known) && now - known.At < AnswerReuse && !known.Body.IsFaulted && !known.Body.IsCanceled)
+            return known.Body.WaitAsync(cancellationToken);
+        if (answers.Count > 1024)
+            foreach (var stale in answers.Where(a => now - a.Value.At >= AnswerReuse).Select(a => a.Key).ToArray()) answers.TryRemove(stale, out _);
+        var fresh = new Answer(now, SendScopedAsync(scope, url, agent, timeoutMs, accept, cancellationToken, validateApi, bearerToken, jsonBody));
+        var shared = known == null ? answers.GetOrAdd(key, fresh) : answers.TryUpdate(key, fresh, known) ? fresh : answers.GetValueOrDefault(key) ?? fresh;
+        if (!ReferenceEquals(shared, fresh))
+        {
+            fresh.Body.ContinueWith(t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            return shared.Body.WaitAsync(cancellationToken);
+        }
+        // A failed or cancelled request is never shared: the next asker sends its own.
+        fresh.Body.ContinueWith(_ => answers.TryRemove(new KeyValuePair<string, Answer>(key, fresh)), CancellationToken.None,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return fresh.Body;
+    }
+
+    private async Task<string> SendScopedAsync(SearchScope scope, string url, string agent, int timeoutMs, string accept, CancellationToken ct, bool validateApi, string? bearerToken, string? jsonBody)
+    {
+        IDisposable? turn = null, slot = null;
+        try
+        {
+            using (var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                bounded.CancelAfter(scope.LineWait);
+                try { turn = await EnterAsync(url, scope.Patient, bounded.Token); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    throw new SourceBusyException($"{HostKey(url)} is busy; skipped for now");
+                }
+            }
+            if (scope.Slot != null) slot = await scope.Slot(ct);
+            scope.Started?.Invoke();
+            var budget = TorrentFlow.Core.Sources.SourceExecution.Current?.TimeoutMs is int configured ? Math.Min(configured, timeoutMs) : timeoutMs;
+            return await SendAsync(url, agent, budget, accept, ct, validateApi, bearerToken, jsonBody);
+        }
+        finally
+        {
+            slot?.Dispose();
+            turn?.Dispose();
+        }
+    }
+
+    private async Task<string> SendAsync(string url, string agent, int timeoutMs, string accept, CancellationToken cancellationToken, bool validateApi, string? bearerToken, string? jsonBody = null)
     {
         ThrowIfCoolingDown(url);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -59,6 +133,7 @@ public sealed class IndexerHttp(IHttpClientFactory clients, ILogger<IndexerHttp>
         }
         using var client = clients.CreateClient("TorrentFlow.Indexers");
         using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+        logger.LogDebug("Indexer request {Host} answered {Status}: {Url}", HostKey(url), (int)response.StatusCode, url);
         if (ShouldCoolDown(response))
         {
             NoteCoolDown(url, response);
