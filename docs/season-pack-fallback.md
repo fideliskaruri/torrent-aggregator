@@ -1,9 +1,121 @@
 # Season pack fallback: design
 
-Status: plan for critic review. No production code yet.
-Branch: `feat/pack-plan`, based on `origin/main` at `c4753b0`. Line references are to that commit unless marked "season-speed".
+Status: v1 built on `feat/pack-plan` behind `TorrentFlow:Library:SeasonPackFallback` (default off). The "v1 scope"
+section below is binding and describes what the code does. Everything after it is the original design, kept under
+"Deferred" as the source for later versions; where it disagrees with "v1 scope", "v1 scope" wins.
+Code references are to `feat/pack-plan` after the merge with `origin/main` `2597cd8` (season-speed changes to
+`GrabService`, `SeasonFanout`, `WantedQueue`, `IndexerHttp`). They name types and methods, not line numbers.
 
-## 0. The rule this implements
+## v1 scope
+
+### Owner decisions (assumed for v1)
+
+- A pack may be tried for an episode only after **2 real misses** for that episode (`SeasonPackMisses`, default 2).
+- **Partial packs are allowed** when every file used maps unambiguously: a pack may fill only some of the missing
+  episodes; the rest stay wanted.
+- **Subtitles and extras are ignored** (never selected, never a reason to reject).
+- **No multi-season bundles**: a pack whose videos name another season is rejected.
+
+### Trigger (`WantedQueue.RunAsync` then `WantedQueue.SeasonPackAsync`)
+
+- Runs only from the wanted queue, after the single-episode fanout (`GrabService.Season`) for that season returned,
+  from a fresh database read of the season's targets.
+- An episode is due only when its target is still `queued` with no transfer (`InfoHash` null) and
+  `AcquisitionTarget.RealMisses >= SeasonPackMisses`.
+- `RealMisses` grows in `WantedQueue.SettleAsync` when `EpisodeTransfer.RealMiss` is set. `GrabService.Episode` sets
+  it only when the searches really ran (`SearchRung` answered, no site refused) and the result was
+  `no_release`, `quality_floor`, `no_seeders` or `audio_preference` (`GrabFailure.IsRealMiss`), or
+  `metadata_unavailable` when every probed candidate failed metadata. Refused, busy, no source, storage, setup and
+  unknown errors never count.
+
+### Fully aired gate (fails closed)
+
+`IAirDateLookup.SeasonFinishedAsync` (`AirDateLookup` in Metadata) answers true only when the provider lists a
+contiguous run of episodes 1..N, every one has an air date in the past, the provider's aired count (when given)
+matches N, and nothing more is announced for the season (TMDB: a later season exists or nothing airs after now;
+AniList: season 1 of the entry and the airing schedule answers "nothing after now"). Anything else (still airing,
+missing dates, gaps, a provider id of the wrong kind, a lookup error) skips packs, and the wanted row says:
+"Season still airing, or we could not confirm it has finished. Waiting for single episodes." It never infers from
+"the last episode is old".
+
+### One pipeline (`GrabService.Pack.cs`)
+
+`GrabService.SeasonPack` reuses the episode stages instead of a second pipeline:
+
+- identity and settings: `Prepare` (same refusal rules as an episode grab);
+- search rungs: `SearchRung` with `EpisodeLadder.BuildPackRungs` (at most five pack queries) and
+  `applyMaxSize: false`, so the single-release `MaxSizeBytes` never applies to a whole pack;
+- candidate filtering: `EpisodeLadder.ReleaseMatchesWork`, `EpisodeRejections.IsPackFor` (this season only),
+  at least one seeder, and `Eligible` (quality floor, audio preference, blocked releases);
+- verification: `ITorrentEngine.InspectAsync` then `SeasonPackFiles.Map`; `MaxSizeBytes` applies per selected file;
+- admission: `Send` with a `PackSelection` (selected file indexes, reserve bytes, queue key);
+- settlement: the claim below, and `WantedQueue` reports the start to requests (`ReportStartedAsync`).
+
+Candidates are probed in a bounded loop (`SeasonPackProbes`, default 4); the one covering the most missing episodes
+wins, stopping early at full coverage.
+
+### Metadata inspection without an engine row
+
+`TorrentEngineService.InspectAsync` fetches the `.torrent` (URL) or the metadata (swarm, shared
+`ResolveMetadataAsync` with the add path), caches it, and parses the file list. No `EngineTorrent` row is created.
+`MonoTorrentBackend.DownloadMetadataAsync` logs whether the client still holds a transfer after the fetch
+(MonoTorrent registers a temporary manager and removes it); live acceptance checks that log.
+
+### Strict mapping (`SeasonPackFiles.Map`)
+
+Only files with an explicit `SxxEyy` or `NxMM` mark for the one season count. One video per episode (duplicates
+dropped), only still-missing episodes kept. Rejected: double episodes, absolute or bare numbering, archives, disc
+images, executables, other seasons. Samples, extras (NCOP/NCED/OVA/specials folders) and subtitles are ignored.
+
+### Claim, then admit
+
+`GrabService.ClaimAsync` is a compare-and-set per target: only rows still `queued` with `InfoHash` null become
+`downloading` with the pack hash, `FileIndex` and `FilePath`. The selection and the storage reservation are then
+recomputed from what was really claimed. If admission fails, every claim goes back (`ReleaseClaimsAsync`).
+`WantedQueue.SeedAsync(restart: true)` no longer clears a claim whose pack transfer is healthy, and a late single
+episode miss never overwrites a pack claim.
+
+### Selected files only
+
+- `EngineTorrent.SelectedFilesJson` persists the selected file indexes. `TorrentEngineService.SelectionOf` feeds every
+  start, resume, adoption, restore and re-announce path, and `BackendAddSpec.SelectedFiles` applies the selection in
+  `MonoTorrentBackend.AddAsync` before the manager starts, so no piece is requested for an unselected file.
+- `MonoTorrentBackend.OpenStreamAsync` refuses a file outside a keep transfer's selection (playback never turns an
+  unselected file on).
+- Storage reservation (`EngineTorrent.SizeBytes`) is the sum of piece lengths that intersect the selected files
+  (`SeasonPackFiles.PieceSpanBytes`).
+- Completion requires only the selected files (`SelectionHolds`); the manifest records unselected files without a
+  path, so they are never library media, and partial neighbour files left by boundary pieces are deleted after the
+  transfer is detached.
+
+### Whole-pack failure
+
+If the pack errors, loses its files, or is removed before finishing, `WantedQueue.ReleaseFailedPacksAsync` (each
+scan) and `TitleService.Reconcile` return every unfinished claim to the wanted queue (`queued`, no transfer).
+
+### UI
+
+One transfer in Downloads with plain status "Downloading N missing episodes from a season pack" (then "Got N
+missing episodes from a season pack"), from `packEpisodes` on `GET /api/client/torrents`. No per-episode swap or
+delete for a pack row in v1. Requests are fulfilled through the same start report and completion rule.
+
+### Configuration (`TorrentFlow:Library`)
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `SeasonPackFallback` | `false` | Turns the fallback on. |
+| `SeasonPackMisses` | `2` | Real misses per episode before a pack may fill it. |
+| `SeasonPackProbes` | `4` | Pack candidates inspected per attempt. |
+| `WantedRetryScale` | `1.0` | Scales wanted queue retry waits (test runs only). |
+
+## Deferred
+
+Everything below is the original design. It is not built in v1 unless the "v1 scope" section says so. Deferred in
+particular: per-episode swap or delete inside a pack, per-file progress per episode, multi-season bundles,
+absolute-numbered anime batches, pack preference over singles, a pack that replaces an existing single, and
+subtitle selection. Line numbers below refer to `c4753b0` and are stale; follow the type and method names.
+
+### 0. The rule this implements
 
 Owner rule (2026-09-30 20:16, `docs/rules.md` in the main checkout): season packs are allowed only as a last-resort fallback, after the single-episode pipeline has really missed an episode (refused searches don't count), only for fully aired seasons, only for the episodes still missing, with the file list verified before download and only the needed files downloaded. Plan and critic before code.
 
@@ -11,9 +123,9 @@ Everything else about acquisition stays as it is. The single-episode grab (`Grab
 
 Once this lands, `docs/rules.md` ("No season packs", line 52), `AGENTS.md` (Downloads section, "No season packs in any form") and `docs/AGENT-GUIDE.md:53` must be updated in the same change so they describe the fallback instead of forbidding it.
 
-## 1. Trigger rules
+### 1. Trigger rules
 
-### 1.1 Where it runs
+#### 1.1 Where it runs
 
 Only in `WantedQueue.RunAsync` (`WantedQueue.cs:209`), after the season fanout returns and before `Reschedule` (`WantedQueue.cs:260`). Never from the title page's synchronous path (`TitleController.cs:134`), never from an explicit single-episode click, never from requests directly (requests already enqueue into the wanted queue, `RequestGrabber.cs:54`).
 
@@ -22,7 +134,7 @@ The season-speed branch changes `RunAsync` so that each episode settles as soon 
 - Miss counting happens inside `Settle`, per episode, the moment it settles.
 - The pack step runs once, after `grabs.Season(...)` has returned, because it needs the complete set of episodes still missing in that unit. It then calls the same `Settle` for the episodes it claimed, so claims show up exactly like single-episode starts (`SettleAsync` plus `ReportStartedAsync`).
 
-### 1.2 What counts as a real miss
+#### 1.2 What counts as a real miss
 
 An episode attempt is a real miss only when the search actually happened and found nothing usable:
 
@@ -31,13 +143,13 @@ An episode attempt is a real miss only when the search actually happened and fou
 
 Implementation: `GrabResult` already carries `NoReleaseFound.reason` (`no_release` vs `search_incomplete`, `GrabService.cs:241-245`). Add one boolean to `EpisodeTransfer` (for example `RealMiss`) computed in one place (`GrabFailure.IsRealMiss(result)`), so `WantedQueue` does not re-derive it.
 
-### 1.3 How many misses
+#### 1.3 How many misses
 
 - Threshold: an episode is pack-eligible after **2 real misses on 2 separate wanted-queue attempts** (the first retry is at least 1 minute later, `WantedQueue.cs:48`). One constant, `WantedQueue.MissesBeforePack = 2`.
 - The count is persisted per episode on the acquisition target (new column `AcquisitionTarget.RealMisses`, section 5), because the in-memory `plans` and `why` maps are lost on restart (`WantedQueue.cs:61-63`). The count resets to 0 when the episode starts from any source.
 - The pack step runs for a unit when at least one episode in it is pack-eligible. It then tries to cover every episode of that season that is still missing and has at least one real miss. Episodes with zero real misses (never really searched) are not covered by the pack; they keep going through the single pipeline.
 
-### 1.4 Fully aired seasons only
+#### 1.4 Fully aired seasons only
 
 A season is fully aired when the provider says the season is over, never by guessing:
 
@@ -46,7 +158,7 @@ A season is fully aired when the provider says the season is over, never by gues
 - `Unknown` fails closed: no pack. The reason is recorded ("Season still airing, or we could not confirm it has finished. Waiting for single episodes.").
 - The provider episode count is also used by the mislabel check (section 2.5).
 
-### 1.5 How the pack search is formed (DRY)
+#### 1.5 How the pack search is formed (DRY)
 
 No second search pipeline. The pack step is a new method on the same service, `GrabService.SeasonPack(GrabInput input, int season, IReadOnlyList<int> missing, CancellationToken ct)`, and it reuses:
 
@@ -68,14 +180,14 @@ New code is limited to:
 
 Candidates are ordered by the existing `Eligible` ordering. The first 3 in that order are probed (section 2). Among the probed packs that pass verification, the one covering the most still-missing episodes wins, ties broken by the original rank.
 
-## 2. Verification before download
+### 2. Verification before download
 
-### 2.1 How metadata is obtained today
+#### 2.1 How metadata is obtained today
 
 - `TorrentEngineService.AddAsync` (`TorrentEngineService.cs:98-178`): a `.torrent` URL is fetched (`FetchTorrentAsync`); for a magnet with `RequireMetadata`, a cached `.torrent` is reused (`LoadTorrentFile`), otherwise `backend.DownloadMetadataAsync` runs behind `_metadataGate` (4 concurrent, `:44`) with `MetadataTimeoutSeconds` (default 90, `EngineOptions.cs:58`). Hash mismatches are refused. On timeout it logs "Candidate {Hash} supplied no usable metadata; trying another release" (`:171`).
 - `MonoTorrentBackend.DownloadMetadataAsync` (`MonoTorrentBackend.cs:38-39`) is `ClientEngine.DownloadMetadataAsync(MagnetLink)`, which returns the raw info dictionary bytes without admitting a transfer. `MonoTorrent.Torrent.Load(bytes).Files` then gives each file's path, length and piece range, as `ReleaseSwap.IncompleteFilesFromMetadata` already does (`ReleaseSwap.cs:103-112`).
 
-### 2.2 The change
+#### 2.2 The change
 
 Extract the metadata block of `AddAsync` into one private method, `ResolveMetadataAsync(request, ct)`, and expose a read-only engine operation on `ITorrentEngine`:
 
@@ -85,7 +197,7 @@ Extract the metadata block of `AddAsync` into one private method, `ResolveMetada
 - It never creates an `EngineTorrent` row and never loads a manager.
 - `AddAsync` keeps its current behaviour by calling the same `ResolveMetadataAsync`. One metadata path, not two.
 
-### 2.3 Mapping files to episodes
+#### 2.3 Mapping files to episodes
 
 A new pure function in Core, next to `ReleaseEpisodeParser` so both the grab side and the engine side can use it: `PackFileMap.Map(files, season, mapping, packName)`.
 
@@ -99,7 +211,7 @@ Per file:
 6. Double episodes (`S01E01E02`, `E01-E02`) map to both episodes; the file is used only if every episode it contains is still missing, otherwise it is skipped (never take an episode someone else owns).
 7. Two videos for one episode (a `v2`, or two encodes): prefer the higher version, then the larger file. If they differ by more than 2x in size, reject that episode only (`duplicate_episode_files`).
 
-### 2.4 Hard rejections (whole pack)
+#### 2.4 Hard rejections (whole pack)
 
 - Any archive or split archive in the file list (`.rar`, `.r00`-`.r99`, `.zip`, `.7z`, `.001`, `.tar`, `.gz`): `archive`. Selective download cannot work through an archive.
 - Any executable or shortcut (`.exe`, `.scr`, `.bat`, `.cmd`, `.lnk`, `.msi`, `.js`, `.vbs`): `unsafe`, reusing the unsafe-name list in `SearchFilters.cs:12,36-55`.
@@ -109,7 +221,7 @@ Per file:
 - Video file names that carry a title which fails `ReleaseMatchesWork` against the accepted names: `other_work`. Files with no title in the name are judged by the pack name only.
 - Resolution stated in file names below the floor even though the pack name meets it: `mislabeled_quality`.
 
-### 2.5 Partial and mislabeled packs
+#### 2.5 Partial and mislabeled packs
 
 - Gaps: inside the pack's own numbered run, a missing number (1-13 but no 7) marks the pack partial. A partial pack is rejected (`partial_pack`) unless every still-missing episode is present in it, in which case it is accepted and only those files are selected.
 - Count sanity: more mapped episodes than the provider count plus 2 means the numbering is off (absolute vs season numbering, or a different cut): `mislabeled`.
@@ -118,13 +230,13 @@ Per file:
 
 Every rejection is recorded like an episode rejection (same `CandidateRejection` record), so the owner sees, for example, "3 season packs checked: 1 archive, 1 wrong season, 1 had no peers".
 
-## 3. Selective download
+### 3. Selective download
 
-### 3.1 What is selected
+#### 3.1 What is selected
 
 Only the video files mapped to episodes that are still missing at claim time (section 4). Nothing else: no samples, extras, subtitles or other episodes.
 
-### 3.2 Persisted selection
+#### 3.2 Persisted selection
 
 MonoTorrent file priorities already exist behind `ITorrentBackend.SetSelectedFilesAsync` (`ITorrentBackend.cs:62`, `MonoTorrentBackend.cs:413-423`, `Priority.DoNotDownload`). The problem is that every keep path resets it to "all files":
 
@@ -138,19 +250,19 @@ MonoTorrent file priorities already exist behind `ITorrentBackend.SetSelectedFil
 
 `SelectionOf(row)` reads a new `EngineTorrent.SelectedFilesJson` (null means all files, which keeps every existing transfer unchanged). `EngineAddRequest` gets `SelectedFiles` and `TorrentBytes` is passed from the inspect step so the manager starts with metadata and the selection is applied before the first piece request.
 
-### 3.3 Completion
+#### 3.3 Completion
 
 - Monitor rule (`TorrentEngineService.cs:1417`): today a keep transfer completes only when `live.Files.All(f => f.Selected)`. A pack would never complete, so requests would never be fulfilled and the transfer would never park. Change to: complete when the live selection equals the persisted selection and every selected file is complete.
 - Manifest (`BuildManifest`, `TorrentEngineService.cs:1558-1568`): today every file must exist at full size. For a selective transfer, selected files must exist at full size; unselected files are written with `Path = null`, which is already the convention for "not on disk" (`DeletionController.cs:92-94`, `TitleService.cs:255`). Index alignment with the torrent file list is kept, so `AcquisitionTarget.FileIndex` still points at the right entry after layout.
 - Backend snapshot progress already counts only selected bytes (`MonoTorrentBackend.cs:462-474`). Snapshot `SizeBytes` is `m.Torrent.Size` (`:491`), the whole pack. For a selective transfer it becomes the selected bytes, so Downloads, `QueuedReservedBytes` (`DownloadQueue.cs:217`) and storage estimates stop counting unselected episodes.
 
-### 3.4 Storage cap
+#### 3.4 Storage cap
 
 - The cap check at admission (`TorrentEngineService.cs:273-274`) uses `request.ExpectedSizeBytes`, today the candidate's full size (`GrabService.cs:359`). For a pack it is the selected bytes plus the boundary allowance: for each contiguous run of selected files, up to 2 pieces (one at each end) of neighbour data. Piece length comes from the inspect result.
 - If the selected set does not fit, the pack step drops episodes from the end of the season until it fits, and if none fits, it reports `storage_limit` exactly like a single episode (`StorageFacts.Refusal`).
 - Disk full during download is the engine's existing error path (`live.State == "error"`, `TorrentEngineService.cs:1400-1407`), which marks targets failed; section 6 covers the outcome.
 
-### 3.5 Boundary pieces and partial neighbour files
+#### 3.5 Boundary pieces and partial neighbour files
 
 Pieces are fixed-size blocks across the concatenated files. A piece that straddles a selected and an unselected file must be downloaded whole, and MonoTorrent writes every byte of it to the files it covers, so the unselected neighbour appears on disk as a partial file. This is the most dangerous side effect of selective download:
 
@@ -164,13 +276,13 @@ Mitigations, all required:
 4. `CompletedLayoutFinalizer.FinalizeDetailedAsync` (`CompletedLayoutFinalizer.cs:71-79`) validates and lays out only manifest entries with a path, so it never probes or moves a neighbour fragment.
 5. The same cleanup runs when a pack transfer is removed, paused for good, or has files released (section 5, swap and delete).
 
-## 4. Claiming: one owner per episode
+### 4. Claiming: one owner per episode
 
-### 4.1 The rule
+#### 4.1 The rule
 
 An episode is owned by at most one transfer at a time. Ownership is the acquisition target row: `AcquisitionTarget.InfoHash` (plus `FileIndex` for a pack). A pack never takes an episode that is already downloading, queued in the engine, or on disk.
 
-### 4.2 Claim sequence
+#### 4.2 Claim sequence
 
 1. Inspect the pack and build the file map (no locks held; this is the slow part).
 2. Re-read the targets for the unit. Drop from the map every episode whose target now has an `InfoHash`, whose status is not `queued`, or which the title data shows as already on disk (the same evidence `TitleService.Detail` uses: a downloaded target or `PackCoverage`, `TitleService.cs:158-161`).
@@ -181,21 +293,21 @@ An episode is owned by at most one transfer at a time. Ownership is the acquisit
 
 `SettleAsync` (`WantedQueue.cs:125-139`) keeps its current semantics for singles: a failure settles only a `queued` row, a success settles `queued` or `failed`, so a pack claim is never overwritten by a late single failure.
 
-### 4.3 Single-episode paths that must respect claims
+#### 4.3 Single-episode paths that must respect claims
 
 - `GrabService.GrabCore` reuse check (`GrabService.cs:77-84`) matches on `EngineTorrent.QueueKey`, which is one key per transfer. Add a second check: a target for this work, season and episode whose `InfoHash` points at a non-error, non-removed transfer. If found, answer "This episode is already downloading as part of a season pack." and return that hash, like the existing "already started" answer.
 - An explicit episode click calls `SeedAsync(..., restart: true)` (`TitleController.cs:149`), which clears `InfoHash` and `FilePath` (`WantedQueue.cs:115`). For a target owned by a healthy pack file, `restart` must not reset it; the click reports the pack as above. Only a failed or released pack file can be restarted.
 - The wanted queue already ignores targets with an `InfoHash` (`WantedQueue.cs:176-178, 213-214`), so a claimed episode is never searched again while its pack is healthy.
 
-### 4.4 A single-episode release shows up later
+#### 4.4 A single-episode release shows up later
 
 No automatic replacement. The pack is the owner and the wanted queue does not search claimed episodes, so nothing races. The owner can still replace one episode by hand with "Find another release" (section 5, swap), which releases that one file from the pack first. If the pack file stalls or fails (section 6), the claim is released and the single pipeline takes the episode back; if a single is found then, it wins normally.
 
-## 5. Data model impact
+### 5. Data model impact
 
 Today one transfer is about one episode: `EngineTorrent.QueueKey` names one episode, and most readers take the first target for a hash or parse the release name.
 
-### 5.1 Smallest safe model
+#### 5.1 Smallest safe model
 
 No new table. The per-episode mapping rows already exist: `AcquisitionTarget` is one row per wanted episode and already has `InfoHash` and `FilePath` (`Data/Entities/AcquisitionTarget.cs`). `FilePath` is only ever cleared today, never set. Add:
 
@@ -211,7 +323,7 @@ No new table. The per-episode mapping rows already exist: `AcquisitionTarget` is
 
 One migration adds the three columns. All defaults leave existing behaviour byte for byte the same.
 
-### 5.2 Every place that assumes one transfer is one episode
+#### 5.2 Every place that assumes one transfer is one episode
 
 | Area | Where | Today | Change |
 | --- | --- | --- | --- |
@@ -238,7 +350,7 @@ One migration adds the three columns. All defaults leave existing behaviour byte
 
 New engine operation used by swap and delete: `ReleaseFileAsync(hash, fileIndex, deleteFile)`. It sets the file to `DoNotDownload`, removes the index from `SelectedFilesJson`, clears the owning target (`InfoHash = null`, `FileIndex = null`, status `queued` for swap, removed for delete), deletes the file and any fragment it leaves when asked, and removes the whole transfer when no selected file is left. For a completed (parked, detached) pack it only deletes the file and sets its manifest entry `Path = null`.
 
-## 6. Failure modes
+### 6. Failure modes
 
 Copy follows the rules: plain words, what happened, what to do, no em dashes, no internal names.
 
@@ -270,7 +382,7 @@ Copy follows the rules: plain words, what happened, what to do, no em dashes, no
 | Search refused or site busy | not a real miss (1.2) | No change from today: retried soon, no pack, no try spent. |
 | Pack fallback finds nothing usable | all pack candidates rejected | Episode stays wanted. The existing single owner notification (`NeedsOwnerAsync`) includes the pack result: "No single episode or usable season pack found. Pick a release yourself." |
 
-## 7. Task breakdown
+### 7. Task breakdown
 
 Each task is sized for one agent in about 30 minutes to 2 hours, lands with its own verification, and does not change behaviour for existing transfers.
 
@@ -304,7 +416,7 @@ Each task is sized for one agent in about 30 minutes to 2 hours, lands with its 
 
 Total about 47 hours of agent work. Tasks with the same order number can run in parallel. Task 11 waits for `fix/season-speed` to merge because it edits the same `Settle` block.
 
-## 8. Acceptance tests (live, no unit tests)
+### 8. Acceptance tests (live, no unit tests)
 
 Run on a fresh instance built from the merged branch, an isolated data directory and download root, ports 3921-3940, never 3000, never the owner's `%LOCALAPPDATA%\TorrentFlow` or `C:\Torrents`. Server behaviour through the HTTP API (`/api/wanted`, `/api/client/torrents`, `/api/title/...`, `/api/requests/...`), UI only for the Downloads dialog and title page with Playwright MCP at 390, 768 and 1280. Cap the download rate so the run checks selection and mapping, not full payload.
 
@@ -327,14 +439,14 @@ Run on a fresh instance built from the merged branch, an isolated data directory
 
 Report a coverage table marking each case pass, fail or blocked, with the JSON and screenshots as evidence.
 
-## 9. Open decisions for the owner
+### 9. Open decisions for the owner
 
 1. Miss threshold: 2 real misses per episode (default here) or 3, matching `TriesBeforeAskingOwner`.
 2. Partial packs: accept a pack with gaps when it still covers every missing episode (default here), or reject any pack with gaps.
 3. Subtitles: ignored per the brief. Many anime batches ship `.ass` files beside the video; selecting the matching sidecar for each claimed episode costs a few KB.
 4. Multi-season bundles: rejected in v1 even when every season is wanted, then allowed in a follow-up once v1 is proven.
 
-## 10. Top risks
+### 10. Top risks
 
 1. Boundary fragments flattened into the season folder (`DropWrapperAsync` moves every file) would look like real episodes to every library scanner.
 2. Four engine paths reselect all files for kept transfers; missing one turns a selective pack into a full-season download that bypasses the storage check.
