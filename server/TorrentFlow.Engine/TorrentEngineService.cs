@@ -1652,7 +1652,9 @@ internal sealed partial class TorrentEngineService(
             try
             {
                 var info = new FileInfo(fragment.Path);
-                if (!info.Exists || info.Length >= fragment.Length || live.Contains(info.FullName)) continue;
+                // An unselected file of a selective transfer only ever holds boundary pieces; its logical length can
+                // still be full (preallocated or sparse), so length says nothing about it being a real file.
+                if (!info.Exists || live.Contains(info.FullName)) continue;
                 info.Delete();
                 logger.LogInformation("Deleted partial file {Path} outside the chosen files", info.FullName);
                 if (info.Directory is { } dir && !dir.EnumerateFileSystemInfos().Any()) dir.Delete();

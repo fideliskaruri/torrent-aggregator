@@ -205,6 +205,7 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
             if (!spec.ForceHashCheck && spec.FilePaths is { } paths && manager.HasMetadata) await PointAtLaidOutFilesAsync(manager, paths);
             else if (spec.FlattenWrapper && manager.HasMetadata) await DropWrapperAsync(manager, spec.SavePath);
             if (manager.HasMetadata && spec.Purpose != Core.Contracts.Engine.TorrentPurpose.Keep) await DeselectAllAsync(manager);
+            if (manager.HasMetadata && _selections.TryGetValue(spec.Hash, out var kept)) PrepareSparseNeighbours(manager, kept);
             // Also applies to magnets: MetadataMode re-enters StartAsync after receiving metadata,
             // and StartingMode must hash before downloading when this flag is cleared.
             if (spec.ForceHashCheck) await manager.SetNeedsHashCheckAsync();
@@ -354,12 +355,48 @@ internal sealed class MonoTorrentBackend : ITorrentBackend, IAsyncDisposable
         }
     }
 
-    private static async Task ApplySelectionAsync(TorrentManager manager, IReadOnlySet<int> selected)
+    private async Task ApplySelectionAsync(TorrentManager manager, IReadOnlySet<int> selected)
     {
         for (var i = 0; i < manager.Files.Count; i++)
         {
             var want = selected.Contains(i) ? Priority.Normal : Priority.DoNotDownload;
             if (manager.Files[i].Priority != want) await manager.SetFilePriorityAsync(manager.Files[i], want);
+        }
+        _logger.LogInformation("File selection for {Hash} ({State}): {Selected} of {Total} files download; priorities {Priorities}",
+            HashOf(manager), manager.State, manager.Files.Count(f => f.Priority != Priority.DoNotDownload), manager.Files.Count,
+            string.Join(",", manager.Files.Select((f, i) => $"{i}:{(f.Priority == Priority.DoNotDownload ? "skip" : "get")}")));
+    }
+
+    /// <summary>
+    /// An unselected file that shares a boundary piece with a chosen file gets written to, and the disk writer then
+    /// sizes it to its full length. Created sparse up front, it only takes the boundary bytes on disk
+    /// (docs/season-pack-fallback.md, v1). Non-Windows file systems are sparse by default.
+    /// </summary>
+    private void PrepareSparseNeighbours(TorrentManager manager, IReadOnlySet<int> selected)
+    {
+        if (!OperatingSystem.IsWindows() || manager.Torrent is not { } torrent) return;
+        long pieceLength = torrent.PieceLength;
+        var spans = manager.Files.Select((f, i) => (f, i)).Where(x => selected.Contains(x.i))
+            .Select(x => (Start: x.f.OffsetInTorrent / pieceLength * pieceLength,
+                End: (x.f.OffsetInTorrent + x.f.Length + pieceLength - 1) / pieceLength * pieceLength)).ToList();
+        for (var i = 0; i < manager.Files.Count; i++)
+        {
+            var file = manager.Files[i];
+            if (selected.Contains(i) || file.Length == 0) continue;
+            var start = file.OffsetInTorrent;
+            var end = start + file.Length;
+            if (!spans.Any(s => s.Start < end && start < s.End) || File.Exists(file.FullPath)) continue;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(file.FullPath)!);
+                using var stream = new FileStream(file.FullPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite);
+                if (!SparseFile.Mark(stream.SafeFileHandle))
+                    _logger.LogInformation("Could not mark {Path} sparse; its boundary piece may allocate the whole file", file.FullPath);
+            }
+            catch (IOException error)
+            {
+                _logger.LogInformation(error, "Could not prepare sparse file {Path}", file.FullPath);
+            }
         }
     }
 
