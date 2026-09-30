@@ -163,6 +163,29 @@ public sealed class RequestDecisionService(
         await CheckFulfilledAsync(id, CancellationToken.None);
     }
 
+    /// <summary>
+    /// The owner picked a release by hand for a failed or partial request: its transfer joins the request, which is
+    /// approved again and fulfilled once every transfer completes.
+    /// </summary>
+    public async Task<(DecisionOutcome Outcome, string? Status)> AttachPickAsync(string id, string hash, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var row = await db.MediaRequests.FirstOrDefaultAsync(r => r.Id == id, ct);
+        if (row is null) return (DecisionOutcome.NotFound, null);
+        if (row.Status is not (MediaRequestStatus.Approved or MediaRequestStatus.Partial or MediaRequestStatus.Failed))
+            return (DecisionOutcome.NotPending, row.Status);
+        var hashes = (row.GrabbedHashes ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+        if (!hashes.Contains(hash.ToLowerInvariant())) hashes.Add(hash.ToLowerInvariant());
+        row.GrabbedHashes = string.Join(',', hashes);
+        row.Status = MediaRequestStatus.Approved;
+        row.DecisionReason = null;
+        row.UpdatedAt = time.GetUtcNow().UtcDateTime;
+        await db.SaveChangesAsync(ct);
+        await notifications.TryPublishAsync(row.RequestedByUserId, NotificationKind.RequestApproved, "Request started", row.Title, "/requests");
+        await CheckFulfilledAsync(id, CancellationToken.None);
+        return (DecisionOutcome.Done, row.Status);
+    }
+
     /// <summary>Called when a transfer completes: every approved request that grabbed it is re-checked.</summary>
     public async Task OnTorrentCompletedAsync(string hash, CancellationToken ct)
     {

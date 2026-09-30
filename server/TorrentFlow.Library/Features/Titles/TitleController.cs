@@ -13,7 +13,7 @@ using TorrentFlow.Library.Features.Watchlist;
 namespace TorrentFlow.Library.Features.Titles;
 
 [ApiController, Route("api/title/{workKey}"), ServiceFilter(typeof(LibraryExceptionFilter))]
-public sealed class TitleController(TitleService titles, GrabService grabs, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
+public sealed class TitleController(TitleService titles, GrabService grabs, ReleasePicker picker, IDbContextFactory<TorrentFlowDbContext> factory, IMetadataResolver metadata,
     IHostApplicationLifetime lifetime) : ControllerBase
 {
     [HttpGet]
@@ -183,13 +183,47 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
                     strategy = result.Strategy, pack = result.Pack, coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
                         LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Failure?.Message ?? GrabFailure.Unknown.Message)) :
                         LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
-                    planReason = summary.Action, failureReasons = summary.Reasons, retryable = summary.Retryable }));
+                    planReason = summary.Action, failureReasons = summary.Reasons, retryable = summary.Retryable,
+                    manualSearchQuery = ReleasePicker.DefaultQuery(title, season, null, type) }));
             if (result.Storage != null) body["storage"] = result.Storage;
             return StatusCode(ok ? 200 : 409, body);
         }
         return StatusCode(single!.Ok ? 200 : 409, LibraryJson.Object(("ok", single.Ok), ("message", single.Message),
             ("title", single.Title), ("savePath", single.SavePath), ("infoHash", single.InfoHash), ("storage", single.Storage),
             ("queued", single.Queued), ("queuePosition", single.QueuePosition), ("noReleaseFound", single.NoReleaseFound)));
+    }
+
+    /// <summary>"Pick a release yourself": a manual search for this title, episode or season, prefilled with our query.</summary>
+    [HttpGet("releases")]
+    public async Task<IActionResult> Releases(string workKey, [FromQuery] int? season, [FromQuery] int? episode, [FromQuery] string? q,
+        CancellationToken ct) => Ok(await picker.Search(workKey, season is > 0 ? season : null, episode is > 0 ? episode : null, q, ct));
+
+    [HttpPost("releases")]
+    public async Task<IActionResult> PickRelease(string workKey, CancellationToken ct)
+    {
+        var f = await Fields.Read(Request, ct);
+        var token = f.String("token");
+        if (string.IsNullOrWhiteSpace(token)) return BadRequest(new { ok = false, message = "Choose a release first." });
+        var result = await picker.Pick(workKey, token, null, lifetime.ApplicationStopping);
+        if (result.Ok && result.InfoHash != null) await SettlePicked(workKey, result, CancellationToken.None);
+        return StatusCode(result.Ok ? 200 : 409, LibraryJson.Object(("ok", result.Ok), ("message", result.Message),
+            ("title", result.Title), ("infoHash", result.InfoHash), ("queued", result.Queued), ("storage", result.Storage)));
+    }
+
+    /// <summary>A hand-picked release settles the failed or queued targets it covers: its episode, or its whole season for a pack.</summary>
+    private async Task SettlePicked(string workKey, GrabResult result, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var row = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.Hash == result.InfoHash)
+            .Select(t => new { t.QueueKey, t.WorkId }).FirstOrDefaultAsync(ct);
+        if (row?.WorkId == null) return;
+        var key = TorrentFlow.Core.QueueKeys.Parse(row.QueueKey);
+        var targets = db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey);
+        targets = key is { Pack: true } pack ? targets.Where(t => t.Scope == "episode" && t.Season == pack.Season)
+            : key is { } single ? targets.Where(t => t.Scope == "episode" && t.Season == single.Season && t.Episode == single.Episode)
+            : targets.Where(t => t.Scope == "title");
+        var tracked = await targets.ToDictionaryAsync(t => t.TargetKey, t => t.Episode, ct);
+        if (tracked.Count > 0) await SettleTargets(tracked, false, row.WorkId, null, result, null, ct);
     }
 
     private static bool MatchesProvider(string workKey, MediaMetadata resolved) =>

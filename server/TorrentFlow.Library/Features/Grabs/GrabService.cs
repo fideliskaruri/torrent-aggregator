@@ -229,6 +229,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var accepted = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToList();
         var candidates = EpisodeLadder.SelectPacks(Eligible(input, floor, raw.Results), season, accepted, PremiereYear(input),
             new HashSet<string>(StringComparer.Ordinal), rung.Relaxed).Take(3).ToList();
+        logger?.LogInformation("Season pack search {Query}: {Results} results, {Candidates} usable packs", rung.Query,
+            raw.Results.Count, candidates.Count);
         foreach (var candidate in candidates)
         {
             var known = LibraryJson.Hash(candidate.InfoHash) ?? LibraryJson.Hash(candidate.Magnet);
@@ -247,7 +249,8 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             var covered = info?.Files is not { Count: > 0 } ? missing.ToArray() : files.Keys.Where(missing.Contains).Order().ToArray();
             if (covered.Length == 0)
             {
-                logger?.LogInformation("Season pack {Title} holds none of the missing episodes; trying the next", candidate.Title);
+                logger?.LogInformation("Season pack {Title} holds none of the missing episodes ({Files}); trying the next", candidate.Title,
+                    string.Join(" | ", (info?.Files ?? []).Take(4).Select(f => f.Path)));
                 if (!existed)
                 {
                     try { await engine.RemoveAsync(hash, deleteFiles: true, ct); }
@@ -447,6 +450,15 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             }
         }
         return null;
+    }
+
+    /// <summary>A release the owner chose by hand (<see cref="ReleasePicker"/>), sent like any automatic pick.</summary>
+    public async Task<GrabResult> SendPicked(GrabInput input, TorrentResult release, string query, CancellationToken ct)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var (prepared, settings, _, refusal) = await Prepare(db, input, query, ct);
+        if (refusal != null) return refusal;
+        return await Send(db, settings!, prepared, query, release, null, relaxed: true, ct);
     }
 
     /// <summary>Sends one pinned candidate and records the attempt; the recorded query stays the canonical one.</summary>
