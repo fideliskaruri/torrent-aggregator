@@ -51,9 +51,12 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         TimeSpan.FromHours(1), TimeSpan.FromHours(3), TimeSpan.FromHours(6)];
     /// <summary>Failures that clear up by themselves; the owner is never asked about these.</summary>
     private static readonly HashSet<string> Passing = ["sources_unavailable", "search_busy", "download_failed", "metadata_unavailable"];
+    /// <summary>The search itself did not happen (a site refused or was unreachable): not a miss, so no try is spent.</summary>
+    private static readonly HashSet<string> Unsearched = ["sources_unavailable", "search_busy"];
+    private static readonly TimeSpan MaxUnsearchedWait = TimeSpan.FromMinutes(15);
 
     private readonly record struct Unit(string WorkKey, int? Season);
-    private sealed record Plan(long Order, int Tries, DateTime DueAt, bool Asked, int? Resolution, bool OverrideStorageCap, string? Lane);
+    private sealed record Plan(long Order, int Tries, DateTime DueAt, bool Asked, int? Resolution, bool OverrideStorageCap, string? Lane, int Unsearched = 0);
 
     private readonly ConcurrentDictionary<Unit, Plan> plans = new();
     private readonly ConcurrentDictionary<Unit, Task> running = new();
@@ -264,10 +267,18 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             return;
         }
         var plan = current ?? new(Interlocked.Increment(ref order), 0, DateTime.MinValue, false, null, false, null);
+        if (failures.All(f => Unsearched.Contains(f.Code)))
+        {
+            // Retry soon (1, 2, 4, 8, then every 15 minutes) without spending a try or asking the owner.
+            var rounds = plan.Unsearched + 1;
+            var wait = TimeSpan.FromMinutes(Math.Min(MaxUnsearchedWait.TotalMinutes, 1 << Math.Min(rounds - 1, 4)));
+            plans[unit] = plan with { Unsearched = rounds, DueAt = time.GetUtcNow().UtcDateTime + wait };
+            return;
+        }
         var tries = plan.Tries + 1;
         var failure = failures.GroupBy(f => f.Code).OrderByDescending(g => g.Count()).First().First();
         var ask = work != null && !plan.Asked && tries >= TriesBeforeAskingOwner && failures.Any(f => !Passing.Contains(f.Code));
-        plans[unit] = plan with { Tries = tries, DueAt = time.GetUtcNow().UtcDateTime + Waits[Math.Min(tries, Waits.Length) - 1], Asked = plan.Asked || ask };
+        plans[unit] = plan with { Tries = tries, Unsearched = 0, DueAt = time.GetUtcNow().UtcDateTime + Waits[Math.Min(tries, Waits.Length) - 1], Asked = plan.Asked || ask };
         if (!ask) return;
         var single = episodes is { Count: 1 } ? episodes[0] : (int?)null;
         var query = ReleasePicker.DefaultQuery(work!.CanonicalTitle, unit.Season, single);

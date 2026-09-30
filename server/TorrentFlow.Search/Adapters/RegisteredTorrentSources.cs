@@ -17,9 +17,10 @@ public sealed class RegisteredTorrentSources(IServiceProvider services, SourceRe
     public IReadOnlyList<ITorrentSourceAdapter> For(string category) => registry.Active("torrent", category)
         .Select(e => (ITorrentSourceAdapter)new Registered(e, services)).ToArray();
 
-    private sealed class Registered(SourceEntry entry, IServiceProvider services) : ITorrentSourceAdapter
+    private sealed class Registered(SourceEntry entry, IServiceProvider services) : ITorrentSourceAdapter, IPacedSource
     {
         public string Id => entry.Id;
+        public string? PacingUrl => entry.BaseUrl;
         public Task<IReadOnlyList<TorrentResult>> SearchAsync(SearchOptions options, CancellationToken cancellationToken = default) =>
             SourceExecution.RunAsync<IReadOnlyList<TorrentResult>>(entry, async ct =>
             {
@@ -41,7 +42,8 @@ public sealed class RegisteredTorrentSources(IServiceProvider services, SourceRe
                     }
                     catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or System.Xml.XmlException or JsonException) { last = e; }
                 }
-                throw new HttpRequestException($"Source {entry.Id} did not return a valid response.", last is null ? null : new Exception("Upstream failure."));
+                throw new HttpRequestException($"Source {entry.Id} did not return a valid response.", last is null ? null : new Exception("Upstream failure."),
+                    (last as HttpRequestException)?.StatusCode);
             }, cancellationToken);
     }
 }

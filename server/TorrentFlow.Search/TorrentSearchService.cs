@@ -14,7 +14,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     ISearchResultEnricher enricher, IDbContextFactory<TorrentFlowDbContext> factory, IOptions<SearchModuleOptions> moduleOptions,
     ILogger<TorrentSearchService> logger, IHostApplicationLifetime? hostLifetime = null, ITrackerScraper? scraper = null,
     TorrentFlow.Core.Contracts.Metadata.ITmdbCredentialProvider? credentials = null,
-    TorrentFlow.Core.Sources.SourceRegistry? registry = null, RegisteredTorrentSources? registered = null) : ITorrentSearchService
+    TorrentFlow.Core.Sources.SourceRegistry? registry = null, RegisteredTorrentSources? registered = null, IndexerHttp? indexers = null) : ITorrentSearchService
 {
     public const int InteractiveAdapterDeadlineMs = 6000;
     /// <summary>Total attempts a single source gets when WaitForBudget is set; ordinary interactive searches keep one attempt.</summary>
@@ -134,7 +134,8 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         if (options.Limit != null) ranked = ranked.Take(Math.Max(0, options.Limit.Value)).ToArray();
         var response = new SearchResponse { Query = options.Query, Results = ranked, TotalCount = ranked.Count, Sources = outcomes.Select(o => o.Status).ToArray(),
             RejectedResults = options.IncludeRejectedResults ? decisions.Where(d => d.Reason.Length > 0).ToArray() : [] };
-        if (!outcomes.Any(o => o.Truncated)) await cache.SetAsync(key, response with { RejectedResults = [] }, token);
+        // A source that failed or was skipped is not an answer: never serve that pool again from the cache.
+        if (!outcomes.Any(o => o.Truncated || o.Status.Error != null)) await cache.SetAsync(key, response with { RejectedResults = [] }, token);
         return response;
     }
     /// <summary>Sources whose listed counts come from their own live tracker, so a scrape of public trackers may undercount them.</summary>
@@ -186,6 +187,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
     /// <summary>Only transport-level failures are worth another attempt; configuration or programming errors are final.</summary>
     internal static bool IsTransient(Exception e) => e switch
     {
+        SourceBusyException => false,
         System.Net.Http.HttpRequestException http => http.StatusCode is null or System.Net.HttpStatusCode.RequestTimeout
             or System.Net.HttpStatusCode.TooManyRequests || (int)http.StatusCode >= 500,
         InvalidDataException => false,
@@ -248,6 +250,8 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
 
     private async Task<IReadOnlyList<TorrentResult>> RunAdapterAsync(ITorrentSourceAdapter adapter, SearchOptions options, CancellationToken token, int? attemptTimeoutMs = null)
     {
+        // Wait for this site's turn before any deadline starts: time in its line is not time the site took.
+        using var turn = await EnterSourceAsync(adapter, options, token);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
         lifetime.CancelAfter(attemptTimeoutMs is { } ms ? Math.Min(ms, moduleOptions.Value.AdapterLifetimeMs) : moduleOptions.Value.AdapterLifetimeMs);
         try
@@ -265,6 +269,27 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         }
         finally { adapterSlots.Release(); }
     }
+
+    /// <summary>
+    /// Paces requests per search site (<see cref="IndexerHttp.EnterAsync"/>) before any deadline starts. Downloads
+    /// (WaitForBudget) wait in the site's line for up to <see cref="PatientSourceWait"/>; an interactive search waits at
+    /// most its own deadline. A site still busy after that is left out of this one search (reported as a source error,
+    /// which is never cached and which the wanted queue retries without counting a miss).
+    /// </summary>
+    private async Task<IDisposable> EnterSourceAsync(ITorrentSourceAdapter adapter, SearchOptions options, CancellationToken token)
+    {
+        if (indexers == null || adapter is not IPacedSource { PacingUrl: { Length: > 0 } url }) return NoTurn;
+        using var bounded = CancellationTokenSource.CreateLinkedTokenSource(token);
+        bounded.CancelAfter(options.WaitForBudget ? PatientSourceWait : TimeSpan.FromMilliseconds(options.AdapterDeadlineMs is > 0 and var ms ? ms : InteractiveAdapterDeadlineMs));
+        try { return await indexers.EnterAsync(url, patient: options.WaitForBudget, bounded.Token); }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            throw new SourceBusyException($"{adapter.Id} is busy; skipped for now");
+        }
+    }
+    public static readonly TimeSpan PatientSourceWait = TimeSpan.FromSeconds(60);
+    private static readonly IDisposable NoTurn = new NoTurnLease();
+    private sealed class NoTurnLease : IDisposable { public void Dispose() { } }
 }
 
 internal sealed class NoOpSearchResultEnricher : ISearchResultEnricher

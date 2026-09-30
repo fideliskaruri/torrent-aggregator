@@ -13,6 +13,18 @@ public sealed class SearchModuleOptions
     [Range(1, 600_000)]
     public int AdapterLifetimeMs { get; set; } = 180_000;
 
+    /// <summary>
+    /// Pacing toward each search site, keyed by host (TorrentFlow:Search:Pacing:apibay.org:SpacingMs). Requests queue for
+    /// their site instead of all firing at once, so a burst of season downloads never trips the site's own limit.
+    /// </summary>
+    public Dictionary<string, SourcePacing> Pacing { get; set; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["apibay.org"] = new() { Concurrency = 2, SpacingMs = 2000 },
+        ["nyaa.si"] = new() { Concurrency = 2, SpacingMs = 1000 },
+    };
+    /// <summary>Pacing for any site not listed in <see cref="Pacing"/>.</summary>
+    public SourcePacing DefaultPacing { get; set; } = new() { Concurrency = 2, SpacingMs = 250 };
+
     [ConfigurationKeyName("NYAA_BASE_URL"), Url]
     public string? NyaaBaseUrl { get; set; }
     [ConfigurationKeyName("APIBAY_BASE_URL"), Url]
@@ -54,4 +66,13 @@ public sealed class SearchModuleOptions
         "ENABLE_1337X" => Enable1337X, "X1337_USE_PLAYWRIGHT" => Use1337Browser,
         "ARCHIVE_BASE_URL" => ArchiveBaseUrl, "ENABLE_ARCHIVE" => EnableArchive, "TORZNAB_URL" => TorznabUrl, "TORZNAB_API_KEY" => TorznabApiKey, _ => null
     }) ?? Environment.GetEnvironmentVariable(key);
+}
+
+/// <summary>How many requests may be open to one site at once, and the minimum gap between two request starts.</summary>
+public sealed class SourcePacing
+{
+    [Range(1, 32)]
+    public int Concurrency { get; set; } = 2;
+    [Range(0, 60_000)]
+    public int SpacingMs { get; set; }
 }
