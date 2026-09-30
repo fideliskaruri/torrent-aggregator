@@ -17,7 +17,8 @@ public sealed record LadderRung(string Kind, string Query, string Category, Sear
 /// Port of the TS on-demand fallback ladder (lib/library/ondemand.ts buildEpisodeRungs and helpers).
 /// A single "Show SxxEyy" search is only one way an indexer names a release; anime also needs its short
 /// or romaji alias, the anime category, and absolute "Show - 01" numbering. The ladder relaxes one rung at
-/// a time and the caller stops at the first working send. Packs are never promoted to episode candidates.
+/// a time and the caller stops at the first working send. Packs are never promoted to episode candidates; a whole
+/// season asks once for a pack first (<see cref="SeasonPackRung"/>, <see cref="SelectPacks"/>).
 /// </summary>
 public static class EpisodeLadder
 {
@@ -113,27 +114,101 @@ public static class EpisodeLadder
         return cats;
     }
 
-    /// <summary>Port of <c>buildEpisodeRungs</c>, in relaxation order.</summary>
-    public static IReadOnlyList<LadderRung> BuildEpisodeRungs(string title, EpisodeCursor cursor, string? mediaType,
-        IReadOnlyList<string>? extraTitles = null, int? minimumResolution = null, AnimeEpisodeMapping? mapping = null,
-        bool preferRequestedQuality = false)
+    private static string Squash(string t) => NonAlnum.Replace(t.ToLowerInvariant(), "");
+
+    /// <summary>The names every search is built from: the formal title, rescue aliases (a different name) and plain respellings.</summary>
+    private sealed record SearchNames(string Primary, IReadOnlyList<string> Rescues, IReadOnlyList<string> Spellings)
     {
-        var (season, episode) = (cursor.Season, cursor.Episode);
+        public string? BestAlias => Rescues.ElementAtOrDefault(0);
+        public string? SecondAlias => Rescues.ElementAtOrDefault(1) ?? Spellings.ElementAtOrDefault(0);
+    }
+
+    private static SearchNames NamesFor(string title, IReadOnlyList<string>? extraTitles)
+    {
         var titles = SearchTitleVariants(title);
         var primaryTitle = titles.Count > 0 ? titles[0] : (title ?? "").Trim();
         // Provider aliases (AniList romaji/native) are names no punctuation rule can reach from the English title.
         var seenAlias = new HashSet<string>(StringComparer.Ordinal) { primaryTitle.ToLowerInvariant() };
         var injected = (extraTitles ?? []).SelectMany(AliasTitleForms).Where(t => seenAlias.Add(t.ToLowerInvariant())).ToList();
         var aliases = RankAliases(titles.Where(t => !t.Equals(primaryTitle, StringComparison.OrdinalIgnoreCase)).Concat(injected));
-
         // A rescue alias changes the name, not just its punctuation ("FamilyGuy" is not a rescue for "Family Guy").
-        static string Squash(string t) => NonAlnum.Replace(t.ToLowerInvariant(), "");
         var primarySquashed = Squash(primaryTitle);
         var rescues = aliases.Where(a => Squash(a) != primarySquashed || a.Length <= primaryTitle.Length * 0.6)
             .DistinctBy(Squash).ToList();
-        var spellings = aliases.Where(a => !rescues.Contains(a)).ToList();
-        var bestAlias = rescues.ElementAtOrDefault(0);
-        var secondAlias = rescues.ElementAtOrDefault(1) ?? spellings.ElementAtOrDefault(0);
+        return new(primaryTitle, rescues, aliases.Where(a => !rescues.Contains(a)).ToList());
+    }
+
+    /// <summary>
+    /// The one season-pack search for a whole season: the name indexers carry (the rescue alias for anime) and,
+    /// outside anime's first season, the season number. Seeded, magnet-bearing results only, like the episode rungs.
+    /// </summary>
+    public static LadderRung SeasonPackRung(string title, int season, string? mediaType, IReadOnlyList<string>? extraTitles = null)
+    {
+        var names = NamesFor(title, extraTitles);
+        var category = LadderCategories(mediaType)[0];
+        var name = category == "anime" ? names.BestAlias ?? names.Primary : names.Primary;
+        var query = category == "anime" && season == 1 ? name : $"{name} S{season:00}";
+        return new("season-pack", query, category, new SearchFilters { HasMagnet = true, MinSeeders = 1 });
+    }
+
+    /// <summary>
+    /// A release that claims a whole season (or anime batch) of this work: a season pack or episode range for this
+    /// season, or, for season one, an unnumbered release of the work. Its files decide what it really covers.
+    /// </summary>
+    public static bool IsSeasonPackFor(TorrentResult result, int season) => IsSeasonPackFor(result.Title, season);
+
+    public static bool IsSeasonPackFor(string releaseName, int season)
+    {
+        var ep = ReleaseNames.ParseEpisode(releaseName);
+        if (ep.IsMultiSeason == true || ep.SpecialType != null || ReleaseNames.SpecialType(releaseName) != null) return false;
+        var seasonMatches = ep.Season == season || ep.Season == null && season == 1;
+        if (!seasonMatches) return false;
+        if (ep.IsSeasonPack || ep.IsBatch || ReleaseNames.IsEpisodeRangeRelease(releaseName)) return true;
+        return ep.Episode == null && ep.AbsoluteEpisode == null;
+    }
+
+    /// <summary>Seeded, untried season packs of the work in the order given (callers rank by quality first).</summary>
+    public static IEnumerable<TorrentResult> SelectPacks(IEnumerable<TorrentResult> results, int season, IReadOnlyList<string> titles,
+        int? premiereYear, ISet<string> attempted, bool relaxed = false) =>
+        results.Where(r => !attempted.Contains(CandidateKey(r)) && !string.IsNullOrEmpty(r.Magnet) && (relaxed || r.Seeders > 0) &&
+            ReleaseMatchesWork(r, titles, premiereYear) && IsSeasonPackFor(r, season));
+
+    private static readonly Regex VideoFile = new(@"(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts|m2ts|mpg|mpeg|vob)$");
+    private static readonly Regex ExtrasFolder = new(@"(?i)\b(?:featurettes?|extras?|specials?|samples?|behind the scenes|animatics?|ncop|nced|creditless|bonus)\b");
+
+    /// <summary>
+    /// Which episodes of <paramref name="season"/> a pack's files hold, as episode → file index. A bare "Show - 05"
+    /// counts as this season's episode 5 because the pack was already matched to this season.
+    /// </summary>
+    public static IReadOnlyDictionary<int, int> PackEpisodeFiles(IEnumerable<(int Index, string Path, long Length)> files, int season)
+    {
+        var best = new Dictionary<int, (int Index, long Length)>();
+        foreach (var (index, path, length) in files)
+        {
+            if (!VideoFile.IsMatch(path)) continue;
+            var parts = path.Split(['\\', '/']);
+            if (parts.Any(part => ExtrasFolder.IsMatch(Regex.Replace(part, "[._-]", " ")))) continue;
+            var fileName = VideoFile.Replace(parts[^1], "");
+            if (ReleaseNames.IsEpisodeRangeRelease(fileName)) continue;
+            var ep = ReleaseNames.ParseEpisode(fileName);
+            if (ep.IsBatch || ep.IsSeasonPack || ep.Episode is not { } episode || episode < 1) continue;
+            if (ep.Season is { } s && s != season) continue;
+            if (!best.TryGetValue(episode, out var current) || length > current.Length) best[episode] = (index, length);
+        }
+        return best.ToDictionary(x => x.Key, x => x.Value.Index);
+    }
+
+    /// <summary>Port of <c>buildEpisodeRungs</c>, in relaxation order.</summary>
+    public static IReadOnlyList<LadderRung> BuildEpisodeRungs(string title, EpisodeCursor cursor, string? mediaType,
+        IReadOnlyList<string>? extraTitles = null, int? minimumResolution = null, AnimeEpisodeMapping? mapping = null,
+        bool preferRequestedQuality = false)
+    {
+        var (season, episode) = (cursor.Season, cursor.Episode);
+        var names = NamesFor(title, extraTitles);
+        var primaryTitle = names.Primary;
+        var rescues = names.Rescues;
+        var bestAlias = names.BestAlias;
+        var secondAlias = names.SecondAlias;
 
         var cats = LadderCategories(mediaType);
         var primaryCat = cats[0];

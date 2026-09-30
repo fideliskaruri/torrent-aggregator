@@ -157,8 +157,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
         try
         {
             if (scope == "season")
-                seasonResult = await SeasonFanout.Run(episodes, (ep, before) => grabs.Grab(input with
-                    { Cursor = new EpisodeCursor(season!.Value, ep), ReuseExisting = true }, workToken, before), workToken);
+                seasonResult = await grabs.Season(input with { ReuseExisting = true }, season!.Value, episodes, workToken);
             else
                 single = await grabs.Grab(input with { Cursor = season != null && episode != null ? new EpisodeCursor(season.Value, episode.Value) : null }, workToken);
         }
@@ -181,7 +180,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, IDbC
             var summary = SeasonFailureSummary.From(result);
             var body = LibraryJson.Object(("ok", ok), ("message", summary.Message),
                 ("report", new { season, totalEpisodes = episodes.Length, coveredEpisodes = result.CoveredEpisodes.Count,
-                    strategy = "singles", coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
+                    strategy = result.Strategy, pack = result.Pack, coverageConfirmed = true, episodes = result.Transfers.Select(x => x.Status == "failed" ?
                         LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Failure?.Message ?? GrabFailure.Unknown.Message)) :
                         LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
                     planReason = summary.Action, failureReasons = summary.Reasons, retryable = summary.Retryable }));

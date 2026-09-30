@@ -44,15 +44,10 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
         if (seasons.Count == 0) return new([], "No seasons were found for this series.");
 
         var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
-        await using var read = await factory.CreateDbContextAsync(ct);
-        var existing = await read.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id &&
-            t.WorkId == workId && t.Origin == TorrentOrigin.User && t.Status != EngineTorrentStatus.Error &&
-            t.Status != EngineTorrentStatus.Removed && t.QueueKey != null)
-            .Select(t => new { t.Hash, t.QueueKey }).ToListAsync(ct);
-        var byEpisode = existing.GroupBy(t => t.QueueKey!).ToDictionary(g => g.Key, g => g.First().Hash);
         var hashes = new List<string>();
         string? lastProblem = null;
         var wanted = 0;
+        var startedEpisodes = 0;
         var failed = 0;
         foreach (var season in seasons)
         {
@@ -60,25 +55,22 @@ public sealed class RequestGrabber(GrabService grabs, TitleExtrasService extras,
             var aired = payload.Episodes.Where(e => Aired(e.AirDate, today) ||
                 request.Provider == "anilist" && e.AirDate == null && e.HasAired == true).Select(e => e.Episode).ToList();
             wanted += aired.Count;
-            var result = await SeasonFanout.Run(aired,
-                (episode, before) => byEpisode.TryGetValue(new EpisodeCursor(season, episode).QueueKey, out var existingHash)
-                    ? Task.FromResult(new GrabResult(true, "Already started") { InfoHash = existingHash })
-                    : grabs.Grab(input with { Cursor = new EpisodeCursor(season, episode) }, ct, before), ct);
+            // The shared season path keeps what already started, tries one season pack, then fetches singles for the rest.
+            var result = await grabs.Season(input, season, aired, ct);
             foreach (var transfer in result.Transfers)
             {
-                if (transfer.InfoHash is { } hash) { if (!hashes.Contains(hash)) hashes.Add(hash); }
+                // One season pack covers many episodes with one hash; fulfilment waits on each distinct hash.
+                if (transfer.InfoHash is { } hash) { startedEpisodes++; if (!hashes.Contains(hash)) hashes.Add(hash); }
                 else { failed++; lastProblem = transfer.Error; }
             }
         }
         if (hashes.Count == 0)
             return new([], lastProblem ?? "No aired episodes were found for those seasons.");
         // Some episodes started but others failed (storage, no release): report honestly instead of a silent full approve.
-        if (wanted > 0 && (failed > 0 || hashes.Count < wanted))
+        if (wanted > 0 && (failed > 0 || startedEpisodes < wanted))
         {
-            var reason = lastProblem is { Length: > 0 }
-                ? $"Only {hashes.Count} of {wanted} episodes could be started. {lastProblem}"
-                : $"Only {hashes.Count} of {wanted} episodes could be started.";
-            return new(hashes, reason, Partial: true);
+            // The requester reads this; the per-episode detail is in the owner's activity log.
+            return new(hashes, $"Started {startedEpisodes} of {wanted} episodes. We couldn't find the rest yet.", Partial: true);
         }
         return new(hashes, null);
     }

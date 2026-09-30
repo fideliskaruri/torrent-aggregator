@@ -31,40 +31,8 @@ internal static class EpisodeRejections
         return new(candidate.Title, candidate.Source, reasons);
     }
 
+    /// <summary>The episode's failure sentence: what happened and one next step (see <see cref="GrabFailure.FromCandidates"/>).</summary>
     public static string Message(EpisodeCursor cursor, int? floor, IEnumerable<CandidateRejection> candidates,
-        bool searchFailed = false)
-    {
-        var rows = candidates.ToArray();
-        var quality = floor == null ? "" : $" at {floor}p or higher";
-        var first = $"Couldn't find a release for {cursor.Label}{quality}.";
-        if (rows.Length == 0)
-            return first + (searchFailed ? " Search could not finish; try again shortly." : " No results were returned; try again later.");
-        var counts = rows.GroupBy(r => r.Reasons.FirstOrDefault() ?? "not_selected")
-            .Select(g => (Reason: g.Key, Count: g.Count())).OrderByDescending(g => g.Count).ToArray();
-        string Label(string reason) => reason switch
-        {
-            "other_work" => "were a different title",
-            "pack" => "were packs rather than single episodes",
-            "unknown_episode" => "had no recognizable episode number",
-            "different_episode" => "were a different episode",
-            "unknown_quality" => "had no recognizable quality",
-            "below_floor" => $"were below {floor}p",
-            "no_link" => "had no download link",
-            "no_seeders" => "had no seeders",
-            "dub_not_preferred" => "were dubbed-only releases",
-            "unsafe" => "were unsafe files",
-            "query_filter" => "did not fit the search",
-            "not_selected" => "were not selected",
-            _ => "could not be started"
-        };
-        var details = string.Join("; ", counts.Take(3).Select(g =>
-        {
-            var label = Label(g.Reason);
-            if (g.Count == 1 && label.StartsWith("were ", StringComparison.Ordinal)) label = "was " + label[5..];
-            return $"{g.Count} {label}";
-        }));
-        if (counts.Length > 3) details += $"; {counts.Skip(3).Sum(g => g.Count)} had other mismatches";
-        if (searchFailed) details += "; search could not finish";
-        return $"{first} {rows.Length} result{(rows.Length == 1 ? "" : "s")} checked: {details}.";
-    }
+        bool searchFailed = false) =>
+        GrabFailure.FromCandidates(GrabFailure.Subject(null, cursor.Season, cursor.Episode), floor, candidates, searchFailed).Sentence;
 }

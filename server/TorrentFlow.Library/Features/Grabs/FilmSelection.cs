@@ -42,23 +42,22 @@ public static class FilmSelection
         if (sources is not { Count: > 0 }) return null;
         var failed = sources.Where(s => !string.IsNullOrWhiteSpace(s.Error)).ToList();
         if (failed.Count != sources.Count) return null;
-        return $"Could not reach any torrent source ({string.Join(", ", failed.Select(s => s.Id))}) — nothing was searched, so this is an outage, not a missing release. Try again in a moment.";
+        return $"{GrabFailure.Sources.Message} {GrabFailure.Sources.Action}";
     }
 
-    public static string NoMatchMessage(string title, int? minimumResolution, int count, IReadOnlyList<SourceStatus>? sources, FilmRejection? rejection)
+    /// <summary>Why nothing started, in plain words with one next step (the reason counts stay in the diagnostics).</summary>
+    public static GrabFailure NoMatch(string title, int? minimumResolution, IReadOnlyList<SourceStatus>? sources, FilmRejection? rejection)
     {
-        if (SourceOutageMessage(sources) is { } outage) return $"{outage} ({title})";
-        var floor = minimumResolution is > 0 ? $"{minimumResolution}p-or-higher " : "";
-        if (count == 0) return $"No seeded {floor}torrent for {title}";
-        var because = new List<string>();
-        if (rejection is { } r)
+        if (SourceOutageMessage(sources) != null) return GrabFailure.Sources;
+        if (rejection is { } r && r.Total > 0)
         {
-            if (r.OtherWork > 0) because.Add($"{r.OtherWork} were a different work");
-            if (r.BelowFloor > 0 && minimumResolution is > 0) because.Add($"{r.BelowFloor} below {minimumResolution}p or of unknown quality");
-            if (r.PackOrEpisode > 0) because.Add($"{r.PackOrEpisode} were packs or episodes");
-            if (r.Unseeded > 0) because.Add($"{r.Unseeded} had no seeders");
+            if (r.BelowFloor > 0 && r.OtherWork == 0 && r.Unseeded == 0 && minimumResolution is > 0)
+                return GrabFailure.BelowQuality(title, minimumResolution.Value);
+            if (r.Unseeded > 0 && r.OtherWork == 0 && r.BelowFloor == 0) return GrabFailure.NoSeeders(title);
         }
-        var why = because.Count > 0 ? $" — {string.Join(", ", because)}" : "";
-        return $"No {floor}release for {title} in {count} results{why}";
+        return GrabFailure.NotFound(title, minimumResolution);
     }
+
+    public static string NoMatchMessage(string title, int? minimumResolution, IReadOnlyList<SourceStatus>? sources, FilmRejection? rejection) =>
+        NoMatch(title, minimumResolution, sources, rejection).Sentence;
 }

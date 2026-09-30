@@ -19,7 +19,7 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     string Retention = "keep", bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false)
+    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool SeasonPack = false)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -83,9 +83,23 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 return new(true, "This episode has already started.") { InfoHash = existing.Hash, Title = existing.Name,
                     Queued = existing.Status == EngineTorrentStatus.Queued, Query = query };
         }
+        var (prepared, settings, floor, refusal) = await Prepare(db, input, query, ct);
+        if (refusal != null) return refusal;
+        input = prepared;
+        if (input.Cursor is { } cursor) return await Episode(db, settings!, input, cursor, query, floor, beforeSend, ct);
+        return await Film(db, settings!, input, floor, beforeSend, ct);
+    }
+
+    /// <summary>
+    /// What every grab resolves before it searches: download settings, the search identity (saved and provider aliases,
+    /// the AniList episode mapping) and the quality floor. Episodes, season packs and films share it.
+    /// </summary>
+    private async Task<(GrabInput Input, ClientSetting? Settings, int? Floor, GrabResult? Refusal)> Prepare(TorrentFlowDbContext db,
+        GrabInput input, string query, CancellationToken ct)
+    {
         var settings = await db.ClientSettings.AsNoTracking().FirstOrDefaultAsync(x => x.UserId == LocalUser.Id, ct);
-        if (settings == null) return new(false, "Set up your download folder in Settings first.") { Query = query,
-            Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") };
+        if (settings == null) return (input, null, null, new(false, "Set up your download folder in Settings first.") { Query = query,
+            Failure = new("setup_required", "Downloads have not been set up.", "Choose your download folder in Settings, then retry.") });
         if (input.Cursor != null)
         {
             var work = input.WorkId == null ? null : await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.Id == input.WorkId, ct);
@@ -115,8 +129,141 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             }
         }
         int? floor = input.Retention == "stream" ? null : input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
-        if (input.Cursor is { } cursor) return await Episode(db, settings, input, cursor, query, floor, beforeSend, ct);
-        return await Film(db, settings, input, floor, beforeSend, ct);
+        return (input, settings, floor, null);
+    }
+
+    /// <summary>
+    /// A whole season, through the same atoms as one episode. Episodes already on their way are kept; then ONE
+    /// season-pack search runs through the shared identity and quality gates, and single-episode grabs fetch only
+    /// what the pack's files do not hold. Title page, requests and any other whole-season caller use this.
+    /// </summary>
+    public async Task<SeasonFanoutResult> Season(GrabInput input, int season, IEnumerable<int> episodes, CancellationToken ct)
+    {
+        var wanted = episodes.Where(e => e > 0).Distinct().Order().ToArray();
+        var started = await StartedEpisodes(input, season, ct);
+        var missing = wanted.Where(e => !started.ContainsKey(e)).ToArray();
+        SeasonPackPick? pack = null;
+        object? packStorage = null;
+        if (missing.Length >= 2 && input.Retention == "keep" && input.WorkId != null)
+            (pack, packStorage) = await SeasonPack(input, season, missing, started, ct);
+        var packed = pack?.Episodes.ToHashSet() ?? [];
+        var rest = packStorage != null ? [] : missing.Where(e => !packed.Contains(e)).ToArray();
+        var singles = await SeasonFanout.Run(rest, (ep, before) => Grab(input with { Cursor = new EpisodeCursor(season, ep) }, ct, before), ct);
+        var fetched = singles.Transfers.ToDictionary(t => t.Episode);
+        var transfers = wanted.Select(ep =>
+            started.TryGetValue(ep, out var had) ? new EpisodeTransfer(ep, had.Queued ? "queued" : "downloading", had.Hash, null)
+            : packed.Contains(ep) ? new EpisodeTransfer(ep, pack!.Queued ? "queued" : "downloading", pack.InfoHash, null)
+            : fetched.TryGetValue(ep, out var single) ? single
+            : new EpisodeTransfer(ep, "failed", null, GrabFailure.Storage.Message, GrabFailure.Storage)).ToArray();
+        return new(transfers, transfers.Where(t => t.Status != "failed").Select(t => t.Episode).ToArray(), packStorage ?? singles.Storage)
+        {
+            Pack = pack,
+            Strategy = pack == null ? "singles" : rest.Length > 0 ? "pack+singles" : "pack",
+        };
+    }
+
+    /// <summary>Episodes of the season this work already has on the way: singles by queue key, packs by their files.</summary>
+    private async Task<Dictionary<int, (string Hash, bool Queued)>> StartedEpisodes(GrabInput input, int season, CancellationToken ct)
+    {
+        var started = new Dictionary<int, (string Hash, bool Queued)>();
+        if (input.WorkId == null || input.Retention != "keep") return started;
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var rows = await db.EngineTorrents.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkId == input.WorkId &&
+            t.Origin == TorrentOrigin.User && t.Status != EngineTorrentStatus.Error && t.Status != EngineTorrentStatus.Removed)
+            .Select(t => new { t.Hash, t.Name, t.QueueKey, t.Status }).ToListAsync(ct);
+        foreach (var row in rows.OrderBy(r => TorrentFlow.Core.QueueKeys.Parse(r.QueueKey) is { Pack: false } ? 0 : 1))
+        {
+            var queued = row.Status == EngineTorrentStatus.Queued;
+            var key = TorrentFlow.Core.QueueKeys.Parse(row.QueueKey);
+            if (key is { Pack: false } single)
+            {
+                if (single.Season == season) started.TryAdd(single.Episode, (row.Hash, queued));
+                continue;
+            }
+            if (key is { Pack: true } packKey ? packKey.Season != season
+                : !EpisodeLadder.IsSeasonPackFor(row.Name, season)) continue;
+            foreach (var episode in (await PackEpisodes(row.Hash, season, ct)).Keys)
+                started.TryAdd(episode, (row.Hash, queued));
+        }
+        return started;
+    }
+
+    private async Task<IReadOnlyDictionary<int, int>> PackEpisodes(string hash, int season, CancellationToken ct)
+    {
+        var info = await engine.GetAsync(hash, ct);
+        return EpisodeLadder.PackEpisodeFiles((info?.Files ?? []).Select(f => (f.Index, f.Path, f.Length)), season);
+    }
+
+    /// <summary>
+    /// One season-pack search and send. A pack is kept only when its files hold missing episodes; a freshly started
+    /// pack that holds none is removed again and the next candidate is tried. Files for episodes already on their way
+    /// elsewhere are left unselected.
+    /// </summary>
+    private async Task<(SeasonPackPick? Pack, object? Storage)> SeasonPack(GrabInput input, int season, IReadOnlyList<int> missing,
+        IReadOnlyDictionary<int, (string Hash, bool Queued)> started, CancellationToken ct)
+    {
+        var cursor = new EpisodeCursor(season, missing[0]);
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var (prepared, settings, floor, refusal) = await Prepare(db, input with { Cursor = cursor }, cursor.Query(input.Title), ct);
+        if (refusal != null || settings == null) return (null, null);
+        input = prepared with { SeasonPack = true };
+        // A sequel cour or franchise-numbered entry is packed under the franchise's numbering; exact singles stay the safe path.
+        if (input.EpisodeMapping is { } mapping && (mapping.IsSequel || mapping.AbsoluteOffset is > 0 || mapping.FranchiseSeason is > 1))
+            return (null, null);
+        var rung = EpisodeLadder.SeasonPackRung(input.Title, season, input.MediaType, input.Aliases);
+        if (input.Background) rung = rung with { Filters = rung.Filters with { MinSeeders = null }, Relaxed = true };
+        SearchResponse raw;
+        try
+        {
+            raw = await search.SearchAsync(new() { Query = rung.Query, Category = rung.Category, Limit = EpisodeLadder.SearchLimit,
+                PageSize = EpisodeLadder.SearchLimit, TargetResolution = floor ?? input.PreferredResolution, Enrich = false,
+                SkipCache = true, Background = input.Background, WaitForBudget = true, Sources = input.Sources,
+                Filters = rung.Filters with { MinSeeders = input.Constraints?.MinSeeders ?? rung.Filters.MinSeeders,
+                    MaxSizeBytes = input.Constraints?.MaxSizeBytes, Resolution = input.Constraints?.Resolution } }, ct);
+        }
+        catch (Exception error) when (!ct.IsCancellationRequested)
+        {
+            logger?.LogWarning(error, "Season pack search failed for {Query}", rung.Query);
+            return (null, null);
+        }
+        var accepted = (input.Aliases ?? []).Prepend(input.Title).SelectMany(EpisodeLadder.AliasTitleForms).ToList();
+        var candidates = EpisodeLadder.SelectPacks(Eligible(input, floor, raw.Results), season, accepted, PremiereYear(input),
+            new HashSet<string>(StringComparer.Ordinal), rung.Relaxed).Take(3).ToList();
+        foreach (var candidate in candidates)
+        {
+            var known = LibraryJson.Hash(candidate.InfoHash) ?? LibraryJson.Hash(candidate.Magnet);
+            var existed = known != null && await db.EngineTorrents.AsNoTracking().AnyAsync(t => t.UserId == LocalUser.Id && t.Hash == known &&
+                t.Status != EngineTorrentStatus.Removed, ct);
+            var sent = await Send(db, settings, input, rung.Query, candidate, null, rung.Relaxed, ct);
+            if (!sent.Ok)
+            {
+                if (sent.Storage != null) return (null, sent.Storage);
+                continue;
+            }
+            if (sent.InfoHash is not { } hash) continue;
+            var info = await engine.GetAsync(hash, ct);
+            var files = EpisodeLadder.PackEpisodeFiles((info?.Files ?? []).Select(f => (f.Index, f.Path, f.Length)), season);
+            // No file list yet (queued before metadata): the pack's name already matched this season.
+            var covered = info?.Files is not { Count: > 0 } ? missing.ToArray() : files.Keys.Where(missing.Contains).Order().ToArray();
+            if (covered.Length == 0)
+            {
+                logger?.LogInformation("Season pack {Title} holds none of the missing episodes; trying the next", candidate.Title);
+                if (!existed)
+                {
+                    try { await engine.RemoveAsync(hash, deleteFiles: true, ct); }
+                    catch (Exception error) when (!ct.IsCancellationRequested) { logger?.LogWarning(error, "Could not remove unused pack {Hash}", hash); }
+                }
+                continue;
+            }
+            var skip = files.Where(f => started.ContainsKey(f.Key)).Select(f => f.Value).ToHashSet();
+            if (skip.Count > 0 && info?.Files is { } all)
+            {
+                try { await engine.SelectFilesAsync(hash, all.Select(f => f.Index).Where(i => !skip.Contains(i)).ToArray(), ct); }
+                catch (Exception error) when (!ct.IsCancellationRequested) { logger?.LogWarning(error, "Could not skip already started episodes in {Hash}", hash); }
+            }
+            return (new(hash, candidate.Title, covered, sent.Queued), null);
+        }
+        return (null, null);
     }
 
     /// <summary>Port of grabSingleEpisode's ladder: each rung is searched once, and the first working send wins.</summary>
@@ -161,16 +308,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             }
             searchFailed |= raw.Sources.Any(s => s.Error != null);
             var work = raw.Results.Where(x => EpisodeLadder.ReleaseMatchesWork(x, accepted, PremiereYear(input))).ToList();
-            var quality = work.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor) &&
-                AnimeAudio.Allowed(x.Title, input.MediaType, automationOptions.Value.PreferAnimeDub) &&
-                (input.Sources == null || input.Sources.Contains(x.Source)) &&
-                (input.Constraints?.MinSeeders == null || x.Seeders >= input.Constraints.MinSeeders) &&
-                (input.Constraints?.MaxSizeBytes == null || x.SizeBytes <= input.Constraints.MaxSizeBytes) &&
-                (input.Constraints?.Resolution == null || ReleaseSelection.Resolution(x.Title) is { } r && $"{r}p" == input.Constraints.Resolution)).ToList();
-            if (floor != null)
-                quality = PreferRequestedQuality(quality, floor.Value).ToList();
-            if (input.MediaType == "anime")
-                quality = quality.OrderBy(x => AnimeAudio.Preference(x.Title, automationOptions.Value.PreferAnimeDub)).ToList();
+            var quality = Eligible(input, floor, work);
             var rungCandidates = new Dictionary<string, CandidateRejection>(StringComparer.Ordinal);
             foreach (var row in raw.RejectedResults.Concat(raw.Results.Select(r => new SearchRejectedResult(r, ""))))
             {
@@ -209,7 +347,11 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         var searches = memo.Count;
         object Report(string reason) => new { reason, searches, triedSeasonPacks = false, manualSearchQuery = query,
             mapping = input.EpisodeMapping, candidates = decisions.Values.ToArray(), rungs = diagnostics };
-        var message = EpisodeRejections.Message(cursor, floor, decisions.Values, searchFailed);
+        var failure = searchFailure ?? (memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
+            ? new GrabFailure("no_sources", "No search sites are turned on for this kind of title.",
+                "Turn one on in Settings, then try again.") { Brief = "had no search sites to look on" }
+            : GrabFailure.FromCandidates(GrabFailure.Subject(input.Title, cursor.Season, cursor.Episode), floor, decisions.Values, searchFailed));
+        var message = failure.Sentence;
         if (lastFailure != null)
         {
             if (lastFailure.Storage != null) return lastFailure with { NoReleaseFound = Report("send_failed") };
@@ -220,11 +362,23 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         return new(false, message) { Query = query, Skipped = true,
             HuntMiss = input.Background && !searchFailed && !decisions.Values.Any(d =>
                 !d.Reasons.Contains("other_work") && !d.Reasons.Contains("different_episode") && !d.Reasons.Contains("unknown_episode") && !d.Reasons.Contains("pack")),
-            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release"),
-            Failure = searchFailure ?? (memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
-                ? new GrabFailure("no_sources", "No search sources are enabled for this title.",
-                    "Enable a suitable source in Settings, then retry.")
-                : GrabFailure.FromCandidates(floor, decisions.Values, searchFailed)) };
+            NoReleaseFound = Report(searchFailed ? "search_incomplete" : "no_release"), Failure = failure };
+    }
+
+    /// <summary>The quality gate every pick shares: the floor, dub preference and the caller's constraints, best first.</summary>
+    private List<TorrentResult> Eligible(GrabInput input, int? floor, IEnumerable<TorrentResult> releases)
+    {
+        var quality = releases.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor) &&
+            AnimeAudio.Allowed(x.Title, input.MediaType, automationOptions.Value.PreferAnimeDub) &&
+            (input.Sources == null || input.Sources.Contains(x.Source)) &&
+            (input.Constraints?.MinSeeders == null || x.Seeders >= input.Constraints.MinSeeders) &&
+            (input.Constraints?.MaxSizeBytes == null || x.SizeBytes <= input.Constraints.MaxSizeBytes) &&
+            (input.Constraints?.Resolution == null || ReleaseSelection.Resolution(x.Title) is { } r && $"{r}p" == input.Constraints.Resolution)).ToList();
+        if (floor != null)
+            quality = PreferRequestedQuality(quality, floor.Value).ToList();
+        if (input.MediaType == "anime")
+            quality = quality.OrderBy(x => AnimeAudio.Preference(x.Title, automationOptions.Value.PreferAnimeDub)).ToList();
+        return quality;
     }
 
     private static int? PremiereYear(GrabInput input) => input.Cursor is { Season: 1 }
@@ -236,7 +390,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
     private async Task<GrabResult> Film(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, int? floor, Func<Task>? beforeSend, CancellationToken ct)
     {
         var title = input.Title.Trim();
-        if (title.Length == 0) return new(false, "Nothing to search for") { Query = title };
+        if (title.Length == 0) return new(false, "This title has no name to search for. Pick a release yourself.") { Query = title };
         // A wrong category guess returns nothing; an unfiltered search still finds it and identity still rejects other works.
         var category = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
         var response = await search.SearchAsync(new() { Query = title, Category = category, Limit = 20, TargetResolution = floor ?? input.PreferredResolution,
@@ -255,9 +409,10 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             releases.Remove(candidate);
         }
         if (lastFailure != null) return lastFailure;
-        var message = FilmSelection.NoMatchMessage(title, floor, response.Results.Count, response.Sources, FilmSelection.Summarize(response.Results, key, floor));
-        await LogSkip(db, input, title, message, ct);
-        return new(false, message) { Query = title, Skipped = true };
+        var failure = FilmSelection.NoMatch(title, floor, response.Sources, FilmSelection.Summarize(response.Results, key, floor));
+        await LogSkip(db, input, title, failure.Sentence, ct);
+        return new(false, failure.Sentence) { Query = title, Skipped = true, Failure = failure,
+            NoReleaseFound = new { reason = failure.Code, searches = 1, manualSearchQuery = title } };
     }
 
     private async Task<GrabResult?> BackgroundPolicy(TorrentFlowDbContext db, ClientSetting settings, GrabInput input,
@@ -281,7 +436,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 if (candidate.Seeders < options.MinimumSeeders && CheckSchedule.WaitingForSeeders(since, DateTime.UtcNow, options))
                 {
                     var minutes = Math.Max(1, Math.Ceiling(options.SeederWaitTimeoutMinutes - (DateTime.UtcNow - since).TotalMinutes));
-                    var message = $"Waiting for seeders ({candidate.Seeders} of {options.MinimumSeeders}) — retrying in ~{minutes}m";
+                    var message = $"Waiting for seeders: {candidate.Seeders} of {options.MinimumSeeders} are sharing it. Trying again in about {minutes} min.";
                     var next = CheckSchedule.Next(DateTime.UtcNow, null, watch.CursorMisses, since, settings.AutomationIntervalMinutes ?? 15, options);
                     await db.WatchListItems.Where(x => x.Id == watch.Id).ExecuteUpdateAsync(x => x.SetProperty(w => w.SeederWaitSince, since)
                         .SetProperty(w => w.NextCheckAt, next.At).SetProperty(w => w.NextCheckReason, next.Reason)
@@ -306,7 +461,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = input.Retention,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
                 Metadata = CatalogMetadata(input.MediaType, input.Title, input.Year),
-                QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
+                QueueKey = input.SeasonPack ? input.Cursor?.PackQueueKey : input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
         }
@@ -324,7 +479,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             InfoHash = hash, Source = candidate.Source, WorkId = input.WorkId, Retention = input.Retention, Context = "ondemand",
             ClientType = "builtin", SendKind = candidate.Magnet != null ? "magnet" : "torrent", CreatedAt = now });
         var advanced = false;
-        if (result.Ok && input.WatchListItemId != null && input.Cursor != null)
+        if (result.Ok && input.WatchListItemId != null && input.Cursor != null && !input.SeasonPack)
             advanced = await Advance(db, input.WatchListItemId, input.Cursor.Value, candidate.Title, ct);
         if (result.Ok && input.Background && input.WatchListItemId != null)
             await db.WatchListItems.Where(x => x.Id == input.WatchListItemId).ExecuteUpdateAsync(x =>
