@@ -20,25 +20,8 @@ public static class ReleaseSelection
         return Regex.Replace(raw.Replace('.', ' ').Replace('_', ' '), @"\s+", " ").Trim(' ', '-', '[', '(');
     }
     public static string Normalize(string raw) => Regex.Replace(raw.ToLowerInvariant(), @"[^\p{L}\p{N}]+", "");
-    public static string WorkKey(string title, int? year = null)
-    {
-        var folded = string.Concat(title.Normalize(NormalizationForm.FormKD)
-            .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark));
-        // The host uses invariant globalization, where Normalize can be a no-op.
-        const string accented = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖòóôõöÙÚÛÜùúûüÝŸýÿÇçÑñ";
-        const string ascii =    "AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuYYyyCcNn";
-        folded = string.Concat(folded.Select(c => accented.IndexOf(c) is var i && i >= 0 ? ascii[i] : c));
-        folded = Regex.Replace(folded, "['’`]", "").ToLowerInvariant();
-        var slug = Regex.Replace(folded, "[^a-z0-9]+", "-").Trim('-');
-        if (slug.Length == 0) slug = Uri.EscapeDataString(Regex.Replace(title.Trim().ToLowerInvariant(), @"\s+", "-"));
-        return slug + (year == null ? "" : $"-{year}");
-    }
-    public static bool MatchesWork(string key, string title, int? year = null)
-    {
-        var plain = WorkKey(title);
-        return ReleaseNames.SameKey(key, WorkKey(title, year)) || ReleaseNames.SameKey(key, plain) ||
-            (year == null && ReleaseNames.SameKey(Regex.Replace(key, @"-(?:19|20)\d{2}$", ""), plain));
-    }
+    public static string WorkKey(string title, int? year = null) => TorrentFlow.Core.Text.WorkKeySlug.WorkKeyFor(title, year);
+    public static bool MatchesWork(string key, string title, int? year = null) => TorrentFlow.Core.Text.WorkKeySlug.Matches(key, title, year);
     public static int? Resolution(string title) => TorrentFlow.Core.ReleaseResolution.Parse(title);
     public static bool MeetsFloor(string title, int? floor) => floor == null || Resolution(title) >= floor;
     public static int? Year(string title)
