@@ -734,6 +734,7 @@ public partial class TorrentFlowDbContext : DbContext
             entity.Property(e => e.MonitorMode)
                 .HasDefaultValue("ongoing")
                 .HasColumnName("monitorMode");
+            entity.Property(e => e.NewEpisodesSince).HasColumnType("DATETIME").HasColumnName("newEpisodesSince");
             entity.Property(e => e.Monitored)
                 .IsRequired()
                 .HasDefaultValueSql("true")

@@ -5,7 +5,9 @@ namespace TorrentFlow.Core.Scheduling;
 [JsonConverter(typeof(JsonStringEnumConverter<WaitReasonKind>))]
 public enum WaitReasonKind
 {
-    None, OutsideWindow, QueueFull, WaitingForSeeders, NotAiredYet, LowerLane, NextCheckScheduled
+    None, OutsideWindow, QueueFull, WaitingForSeeders, NotAiredYet, LowerLane, NextCheckScheduled,
+    /// <summary>A new-episodes-only series whose first new episode, or its air date, is not known yet.</summary>
+    AwaitingNewEpisodes
 }
 
 public sealed record WaitReason(WaitReasonKind Reason, string Text, DateTime? Until = null, DateTime? Since = null);
@@ -23,6 +25,8 @@ public sealed record WaitContext
     public int MinimumSeeders { get; init; }
     public int SeederWaitTimeoutMinutes { get; init; }
     public DateTime? NextCheckAt { get; init; }
+    /// <summary>A new-episodes-only series that has not pinned its first new episode yet.</summary>
+    public bool AwaitingNewEpisodes { get; init; }
 }
 
 /// <summary>Pure, shared policy used by the engine, monitoring scheduler and timeline.</summary>
@@ -46,6 +50,8 @@ public static class WaitReasonService
             return new(WaitReasonKind.QueueFull, context.MaxActive is { } cap
                 ? $"Waiting for a download slot (maximum {cap} active)" : "Waiting for a download slot");
         }
+        if (context.AwaitingNewEpisodes)
+            return new(WaitReasonKind.AwaitingNewEpisodes, "Waiting for the next new episode to be announced", context.NextCheckAt);
         if (IsFuture(context.AirDate, now))
             return new(WaitReasonKind.NotAiredYet, "Not aired yet", context.AirDate);
         if (WaitingForSeeders(context.SeederWaitSince, now, context.MinimumSeeders, context.SeederWaitTimeoutMinutes))

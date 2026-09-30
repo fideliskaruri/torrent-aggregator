@@ -104,7 +104,7 @@ public sealed class PrewarmService
                 var next = ReleaseText.AdvanceCursor(s, e);
                 return new NextEpisode { Title = item.Title, MediaType = item.MediaType, Season = next.Season, Episode = next.Episode, WatchListItemId = item.Id, Source = "playing-episode" };
             }
-            var hunt = ReleaseText.ResolveHuntCursor(item.MediaType, item.CursorSeason, item.CursorEpisode, item.FromSeason, item.FromEpisode, item.LastEpisode, item.NextEpisodeHint);
+            var hunt = ReleaseText.ResolveHuntCursor(item.MediaType, item.MonitorMode, item.CursorSeason, item.CursorEpisode, item.FromSeason, item.FromEpisode, item.LastEpisode, item.NextEpisodeHint);
             if (hunt is not { } cursor) return null;
             return new NextEpisode { Title = item.Title, MediaType = item.MediaType, Season = cursor.Season, Episode = cursor.Episode, WatchListItemId = item.Id, Source = "hunt-cursor" };
         }

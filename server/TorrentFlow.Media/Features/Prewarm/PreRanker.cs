@@ -292,7 +292,7 @@ public sealed class PreRanker
     }
 
     private static (int Season, int Episode)? Cursor(Data.Entities.WatchListItem item) =>
-        ReleaseText.ResolveHuntCursor(item.MediaType, item.CursorSeason, item.CursorEpisode, item.FromSeason, item.FromEpisode, item.LastEpisode, item.NextEpisodeHint);
+        ReleaseText.ResolveHuntCursor(item.MediaType, item.MonitorMode, item.CursorSeason, item.CursorEpisode, item.FromSeason, item.FromEpisode, item.LastEpisode, item.NextEpisodeHint);
 
     /// <summary>Pre-rank the upcoming targets in order; stops at the first undetermined one (throttled or failing indexers).</summary>
     public async Task<List<PreRankedChoice>> PreRankUpcomingAsync(string userId, int? limit = null, CancellationToken ct = default)

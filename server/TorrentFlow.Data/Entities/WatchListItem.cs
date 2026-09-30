@@ -45,6 +45,12 @@ public partial class WatchListItem
 
     public string MonitorMode { get; set; } = null!;
 
+    /// <summary>
+    /// For a new-episodes-only row, the moment "new" is measured from: the first episode to air after it is the
+    /// first one hunted. Null for every other mode.
+    /// </summary>
+    public DateTime? NewEpisodesSince { get; set; }
+
     public string? LatestReleaseTitle { get; set; }
 
     public DateTime? LatestReleaseAt { get; set; }

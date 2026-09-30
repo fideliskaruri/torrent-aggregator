@@ -1513,6 +1513,10 @@ namespace TorrentFlow.Data.Migrations
                         .HasColumnName("monitored")
                         .HasDefaultValueSql("true");
 
+                    b.Property<string>("NewEpisodesSince")
+                        .HasColumnType("DATETIME")
+                        .HasColumnName("newEpisodesSince");
+
                     b.Property<string>("NextCheckAt")
                         .HasColumnType("DATETIME")
                         .HasColumnName("nextCheckAt");
