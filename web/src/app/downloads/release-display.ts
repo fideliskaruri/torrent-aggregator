@@ -223,6 +223,16 @@ export function releaseDisplayFacts(
   };
 }
 
+/** Plain status for a season pack transfer that fills only the missing episodes; null for normal rows. */
+export function packLabel(torrent: Pick<ClientTorrent, "state" | "packEpisodes" | "progress">): string | null {
+  const count = torrent.packEpisodes ?? 0;
+  if (count <= 0) return null;
+  const episodes = `${count} missing ${count === 1 ? "episode" : "episodes"}`;
+  return Number(torrent.progress) >= 0.9999 || isDownloaded(torrent.state)
+    ? `Got ${episodes} from a season pack`
+    : `Downloading ${episodes} from a season pack`;
+}
+
 /** How a toast or announcement names one download: its title, plus its episode when it has one. */
 export function transferLabel(torrent: ClientTorrent): string {
   const { title, episodeLabel } = releaseDisplayFacts(torrent);

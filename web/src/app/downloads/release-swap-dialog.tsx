@@ -73,6 +73,8 @@ export interface ReleaseAlternatives {
  * instead of the menu hiding the item.
  */
 export function canFindAnotherRelease(t: ClientTorrent): boolean {
+  // A season pack row fills several episodes at once; v1 offers no per-episode swap for it.
+  if (t.packEpisodes) return false;
   return t.ownerClientType === "builtin" && !isDownloaded(t.state) && !(Number(t.progress) >= 0.9999);
 }
 

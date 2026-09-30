@@ -29,6 +29,7 @@ Season, request and watchlist episode acquisitions must resolve the same identit
 - Queued torrents are also metadata-confirmed without bypassing active-download limits. Search capacity is a queue (`MaxConcurrentSearches` / adapter slots): interactive and acquisition callers both wait for a free slot under their own cancellation. There is no app-wide per-minute search budget.
 - Episode auto-rules still perform their user-configured discovery query, then delegate acquisition to the same episode operation with source, size, seeder and resolution restrictions preserved. Non-episode rules retain their explicitly requested release scope.
 - Requests with some started episodes use `partial`, retain their transfer hashes and expose owner-only `POST /api/requests/{id}/retry`. Retry reuses healthy kept transfers by exact Work/episode coordinate and searches only missing/failed ones. Legacy failed requests containing hashes migrate to partial during the request sweep.
+- Season pack fallback v1 (`docs/season-pack-fallback.md`, off by default) is not a second pipeline: `GrabService.SeasonPack` runs the same `Prepare`, `SearchRung`, work identity and `Eligible` stages with a pack query, inspects the file list, strictly maps it, claims only still-wanted episodes and admits through the same `Send` with the selected files. It runs only from `WantedQueue` after the single-episode pass, for episodes with two real misses in a season proven finished.
 
 ## Live evidence — 2026-09-28
 

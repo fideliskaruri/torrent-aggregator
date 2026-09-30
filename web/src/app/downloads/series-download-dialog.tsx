@@ -88,6 +88,7 @@ import {
   rollupChip,
   transferErrorMessage,
   waitReasonLabel,
+  packLabel,
 } from "./release-display";
 import type { Artwork } from "@/lib/metadata/artwork";
 import type { ClientTorrent, TorrentRowAction } from "./types";
@@ -426,6 +427,11 @@ function EpisodeCard({
               </Badge>
             ) : null}
             {t.imported && <Badge variant="outline">Imported</Badge>}
+            {packLabel(t) ? (
+              <span className="text-[12px] text-muted-foreground" data-season-pack>
+                {packLabel(t)}
+              </span>
+            ) : null}
             {forcedStartLabel(t) ? (
               <span className="text-[12px] text-muted-foreground" data-episode-forced>
                 {forcedStartLabel(t)}

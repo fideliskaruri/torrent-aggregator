@@ -43,6 +43,8 @@ export interface ClientTorrent {
   targetScope?: string | null;
   season?: number | null;
   episode?: number | null;
+  /** Missing episodes this one season pack transfer is filling (selected files only); absent for normal rows. */
+  packEpisodes?: number | null;
   ownerClientType: "qbittorrent" | "transmission" | "builtin";
   ownerClientLabel: string;
   transferId: string;
@@ -77,6 +79,8 @@ export interface NowPlaying {
   episodeTitles?: Readonly<Record<string, string>>;
   season?: number | null;
   episode?: number | null;
+  /** Missing episodes this one season pack transfer is filling (selected files only); absent for normal rows. */
+  packEpisodes?: number | null;
 }
 
 export interface StreamManifestFile {

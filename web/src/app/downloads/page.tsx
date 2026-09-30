@@ -106,6 +106,7 @@ import {
   transferLabel,
   transfersLabel,
   waitReasonLabel,
+  packLabel,
 } from "./release-display";
 import {
   isValidTorrentSourceInput,
@@ -2239,6 +2240,11 @@ function FilmRow({
                   </Badge>
                 ) : null}
                 {t.imported && <Badge variant="outline">Imported</Badge>}
+                {packLabel(t) ? (
+                  <span className="text-[12px] text-muted-foreground" data-season-pack>
+                    {packLabel(t)}
+                  </span>
+                ) : null}
                 {forcedStartLabel(t) ? (
                   <span className="text-[12px] text-muted-foreground" data-torrent-forced>
                     {forcedStartLabel(t)}
