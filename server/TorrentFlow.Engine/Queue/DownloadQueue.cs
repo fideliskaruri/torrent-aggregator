@@ -56,7 +56,7 @@ public static class DownloadQueue
     public static string? QueueKeyForEpisode(int? season, int? episode)
     {
         if (season is null || episode is null || season < 0 || episode < 0) return null;
-        return $"s{season.Value:D5}e{episode.Value:D5}";
+        return TorrentFlow.Core.QueueKeys.For(season.Value, episode.Value);
     }
 
     public static bool IsQueued(QueueRow row) => string.Equals(row.Status, QueuedStatus, StringComparison.OrdinalIgnoreCase);
