@@ -111,15 +111,12 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
         return result;
     }
 
+    /// <summary>What the card's quality, seeders and size line does not already say.</summary>
     private static string Describe(TorrentResult r, bool fit, int? season)
     {
         var parts = new List<string>();
-        if (season is { } s && EpisodeLadder.IsSeasonPackFor(r.Title, s)) parts.Add($"Whole season {s}");
-        if (ReleaseSelection.Resolution(r.Title) is { } q) parts.Add($"{q}p");
-        parts.Add(r.Seeders == 1 ? "1 seeder" : $"{r.Seeders} seeders");
-        if (r.SizeBytes is > 0 and var size)
-            parts.Add(size >= 1L << 30 ? FormattableString.Invariant($"{size / (double)(1L << 30):0.#} GB") : $"{Math.Max(1, size >> 20)} MB");
-        if (!fit) parts.Add("name doesn't match this exactly, check it first");
-        return string.Join(", ", parts);
+        if (season is { } s && EpisodeLadder.IsSeasonPackFor(r.Title, s)) parts.Add($"The whole of season {s} in one download");
+        if (!fit) parts.Add("The name doesn't match this exactly, so check it first");
+        return string.Join(". ", parts);
     }
 }
