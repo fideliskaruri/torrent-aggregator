@@ -176,14 +176,9 @@ public sealed class ClientTorrentsController(
         }
     }
 
-    /// <summary>s00001e00002 → episode scope; s00001e00002p → season-pack scope; missing/unparsed keys leave season/episode unknown.</summary>
+    /// <summary>s00001e00002 → episode scope; missing/unparsed keys leave season/episode unknown.</summary>
     internal static (string Scope, int? Season, int? Episode) ScopeFromQueueKey(string? queueKey) =>
-        TorrentFlow.Core.QueueKeys.Parse(queueKey) switch
-        {
-            { Pack: true } pack => ("season", pack.Season, null),
-            { } single => ("episode", single.Season, single.Episode),
-            null => ("title", null, null),
-        };
+        TorrentFlow.Core.QueueKeys.Parse(queueKey) is { } key ? ("episode", key.Season, key.Episode) : ("title", null, null);
 
     internal sealed record AcquisitionIntent(string InfoHash, string? WorkId, string WorkKey, string Scope, int? Season, int? Episode,
         string? CanonicalTitle, int? Year, string? MediaType);

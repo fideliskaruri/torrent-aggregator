@@ -14,8 +14,7 @@ internal static class EpisodeRejections
         var reasons = new List<string>();
         if (!EpisodeLadder.ReleaseMatchesWork(candidate, accepted, premiereYear)) reasons.Add("other_work");
         var ep = candidate.Episode ?? ReleaseNames.ParseEpisode(candidate.Title);
-        if (ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(candidate.Title))
-            reasons.Add("pack");
+        if (IsPack(candidate)) reasons.Add("pack");
         else if (ep.Episode == null) reasons.Add("unknown_episode");
         else if (!EpisodeLadder.MatchesTargetEpisode(candidate, cursor, mapping)) reasons.Add("different_episode");
         if (floor != null)
@@ -29,6 +28,13 @@ internal static class EpisodeRejections
         if (searchReason == "unsafe") reasons.Insert(0, "unsafe");
         else if (searchReason != null && reasons.Count == 0) reasons.Add("query_filter");
         return new(candidate.Title, candidate.Source, reasons);
+    }
+
+    /// <summary>A season pack, batch or episode range: never an episode candidate, and never offered by the picker.</summary>
+    public static bool IsPack(TorrentResult candidate)
+    {
+        var ep = candidate.Episode ?? ReleaseNames.ParseEpisode(candidate.Title);
+        return ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(candidate.Title);
     }
 
     /// <summary>The episode's failure sentence: what happened and one next step (see <see cref="GrabFailure.FromCandidates"/>).</summary>

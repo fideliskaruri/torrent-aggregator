@@ -7,11 +7,9 @@ public readonly record struct EpisodeCursor(int Season, int Episode)
 {
     public string Label => $"S{Season:00}E{Episode:00}";
     public string QueueKey => TorrentFlow.Core.QueueKeys.For(Season, Episode);
-    /// <summary>A season pack's queue key: it sorts with its first missing episode and never reads as that single episode.</summary>
-    public string PackQueueKey => TorrentFlow.Core.QueueKeys.For(Season, Episode, pack: true);
-    /// <summary>The single episode a queue key names; null for packs, films and one-offs.</summary>
+    /// <summary>The episode a queue key names; null for films and one-offs.</summary>
     public static EpisodeCursor? FromQueueKey(string? key) =>
-        TorrentFlow.Core.QueueKeys.Parse(key) is { Pack: false } parsed ? new(parsed.Season, parsed.Episode) : null;
+        TorrentFlow.Core.QueueKeys.Parse(key) is { } parsed ? new(parsed.Season, parsed.Episode) : null;
     public string Query(string title) => $"{title.Trim()} {Label}";
     public EpisodeCursor Next() => new(Season, Episode + 1);
     public bool IsAfter(EpisodeCursor? other) => other == null || Season > other.Value.Season ||

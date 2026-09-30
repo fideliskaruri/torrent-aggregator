@@ -141,7 +141,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
                         LibraryJson.Object(("episode", x.Episode), ("status", "missing"), ("reason", x.Failure?.Message ?? GrabFailure.Unknown.Message)) :
                         LibraryJson.Object(("episode", x.Episode), ("status", "covered"))),
                     planReason = summary.Action, failureReasons = summary.Reasons, retryable = summary.Retryable,
-                    manualSearchQuery = ReleasePicker.DefaultQuery(title, season, null, type) }));
+                    manualSearchQuery = ReleasePicker.DefaultQuery(title, season, null) }));
             if (result.Storage != null) body["storage"] = result.Storage;
             return StatusCode(ok ? 200 : 409, body);
         }
@@ -196,7 +196,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
             ("title", result.Title), ("infoHash", result.InfoHash), ("queued", result.Queued), ("storage", result.Storage)));
     }
 
-    /// <summary>A hand-picked release settles the failed or queued targets it covers: its episode, or its whole season for a pack.</summary>
+    /// <summary>A hand-picked release settles the failed or queued target it covers: its episode, or the film.</summary>
     private async Task SettlePicked(string workKey, GrabResult result, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
@@ -205,8 +205,7 @@ public sealed class TitleController(TitleService titles, GrabService grabs, Rele
         if (row?.WorkId == null) return;
         var key = TorrentFlow.Core.QueueKeys.Parse(row.QueueKey);
         var targets = db.AcquisitionTargets.AsNoTracking().Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey);
-        targets = key is { Pack: true } pack ? targets.Where(t => t.Scope == "episode" && t.Season == pack.Season)
-            : key is { } single ? targets.Where(t => t.Scope == "episode" && t.Season == single.Season && t.Episode == single.Episode)
+        targets = key is { } single ? targets.Where(t => t.Scope == "episode" && t.Season == single.Season && t.Episode == single.Episode)
             : targets.Where(t => t.Scope == "title");
         var tracked = await targets.ToDictionaryAsync(t => t.TargetKey, t => t.Episode, ct);
         if (tracked.Count == 0) return;

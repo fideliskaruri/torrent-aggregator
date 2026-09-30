@@ -1,15 +1,20 @@
+using TorrentFlow.Core.Contracts.Search;
+
 namespace TorrentFlow.Library.Features.Grabs;
 
 /// <summary>
 /// Why a grab did not start, in the owner's words: <see cref="Message"/> says what happened and <see cref="Action"/> is the
 /// one next step. <see cref="Brief"/> is the same fact without a subject, so a season can group episodes by it.
-/// Copy rules (docs/rules.md): plain words, no internal counts, no em dashes.
+/// Copy rules (docs/rules.md): plain words, no internal counts, no em dashes. <see cref="Detail"/> is the exception: the
+/// record of what the search really returned and which filter turned each result down ("12 results, all season packs"),
+/// kept in the activity log and the wanted list so the owner can see why something is still missing.
 /// </summary>
 public sealed record GrabFailure(string Code, string Message, string Action, bool Retryable = true)
 {
     public const string PickYourself = "Pick a release yourself.";
 
     public string Brief { get; init; } = "could not be started";
+    public string? Detail { get; init; }
     public string Sentence => $"{Message} {Action}";
 
     public static readonly GrabFailure Sources = new("sources_unavailable",
@@ -32,9 +37,6 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
     public static GrabFailure NotFound(string subject, int? floor) => new("no_release",
         floor is { } q ? $"We couldn't find {subject} at {q}p or better." : $"We couldn't find {subject}.", PickYourself)
         { Brief = "could not be found" };
-    public static GrabFailure PacksOnly(string subject) => new("packs_only",
-        $"We couldn't find {subject} on its own, only inside full-season packs.", PickYourself)
-        { Brief = "only came inside full-season packs" };
     public static GrabFailure BelowQuality(string subject, int floor) => new("quality_floor",
         $"We found {subject}, but only below {floor}p.", "Pick a release yourself, or choose a lower quality.")
         { Brief = $"only turned up below {floor}p" };
@@ -54,6 +56,45 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
         _ => Unknown
     };
 
+    /// <summary>
+    /// What a search really returned, for <see cref="Detail"/>: which sites refused, "no results", or the results
+    /// counted by the first filter that turned each one down.
+    /// </summary>
+    public static string Explain(IEnumerable<SourceStatus> sources, int total, IEnumerable<(string Label, int Count)> filtered)
+    {
+        var refused = sources.Where(s => !string.IsNullOrWhiteSpace(s.Error)).GroupBy(s => s.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(g => $"{g.Key} ({g.First().Error!.Trim()})").ToArray();
+        var refusal = refused.Length == 0 ? null : $"search refused by {string.Join(", ", refused)}";
+        if (total == 0) return refusal ?? "no results";
+        var groups = filtered.Where(g => g.Count > 0).OrderByDescending(g => g.Count).ToArray();
+        var counted = $"{total} result{(total == 1 ? "" : "s")}";
+        var text = groups.Length == 1 && groups[0].Count == total && total > 1 ? $"{counted}, all {groups[0].Label}"
+            : groups.Length == 0 ? $"{counted}, none taken" : $"{counted}: {string.Join(", ", groups.Select(g => $"{g.Count} {g.Label}"))}";
+        return refusal == null ? text : $"{text}; {refusal}";
+    }
+
+    /// <summary>The episode path's rejection codes (<see cref="EpisodeRejections"/>) in words, counted by each result's first reason.</summary>
+    internal static string Explain(IEnumerable<SourceStatus> sources, IReadOnlyCollection<CandidateRejection> candidates, int? floor) =>
+        Explain(sources, candidates.Count, candidates.GroupBy(c => c.Reasons.FirstOrDefault() ?? "not_selected")
+            .Select(g => (ReasonLabel(g.Key, floor), g.Count())));
+
+    private static string ReasonLabel(string reason, int? floor) => reason switch
+    {
+        "other_work" => "other titles",
+        "pack" => "season packs",
+        "unknown_episode" => "with no episode number",
+        "different_episode" => "other episodes",
+        "below_floor" => $"below {floor}p",
+        "unknown_quality" => "with no quality in the name",
+        "no_link" => "with no download link",
+        "no_seeders" => "with no seeders",
+        "dub_not_preferred" => "dubbed only",
+        "unsafe" => "unsafe files",
+        "query_filter" => "filtered out by the search",
+        "send_failed" => "that failed to start",
+        _ => "not taken"
+    };
+
     internal static GrabFailure FromCandidates(string subject, int? floor, IEnumerable<CandidateRejection> candidates, bool searchFailed)
     {
         if (searchFailed) return Sources;
@@ -64,7 +105,6 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
             return BelowQuality(subject, quality);
         if (relevant.Any(c => c.Reasons.Contains("no_seeders"))) return NoSeeders(subject);
         if (relevant.Length > 0 && relevant.All(c => c.Reasons.Contains("dub_not_preferred"))) return DubOnly(subject);
-        if (relevant.Length == 0 && mine.Any(c => c.Reasons.Contains("pack"))) return PacksOnly(subject);
         return NotFound(subject, floor);
     }
 }

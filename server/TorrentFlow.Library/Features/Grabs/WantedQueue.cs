@@ -57,6 +57,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
 
     private readonly ConcurrentDictionary<Unit, Plan> plans = new();
     private readonly ConcurrentDictionary<Unit, Task> running = new();
+    private readonly ConcurrentDictionary<string, string> why = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim wake = new(0);
     private long order;
 
@@ -235,6 +236,12 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
                 film.Ok ? null : film.Message, film.Ok ? null : film.Failure ?? GrabFailure.Unknown)];
         }
         var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
+        foreach (var row in rows)
+        {
+            var transfer = transfers.FirstOrDefault(t => t.Episode == (row.Episode ?? 0));
+            if (transfer?.InfoHash == null && transfer?.Failure?.Detail is { } detail) why[row.TargetKey] = detail;
+            else why.TryRemove(row.TargetKey, out _);
+        }
         // Not found yet stays wanted ("queued", no transfer); the reason is kept for the owner.
         await SettleAsync(tracked, work.Id, transfers.Select(t => t.Status == "failed" ? t with { Status = "queued" } : t).ToArray(), ct);
         var hashes = transfers.Select(t => t.InfoHash).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -263,7 +270,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         plans[unit] = plan with { Tries = tries, DueAt = time.GetUtcNow().UtcDateTime + Waits[Math.Min(tries, Waits.Length) - 1], Asked = plan.Asked || ask };
         if (!ask) return;
         var single = episodes is { Count: 1 } ? episodes[0] : (int?)null;
-        var query = ReleasePicker.DefaultQuery(work!.CanonicalTitle, unit.Season, single, work.MediaType);
+        var query = ReleasePicker.DefaultQuery(work!.CanonicalTitle, unit.Season, single);
         var help = new WantedHelp(unit.WorkKey, work.CanonicalTitle, unit.Season, episodes ?? [], failure, query,
             PickLink(unit.WorkKey, work.CanonicalTitle, unit.Season, single, query));
         _ = Task.Run(async () =>
@@ -284,6 +291,9 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         if (episode != null) parts.Add($"pickEpisode={episode}");
         return $"/title/{Uri.EscapeDataString(workKey)}?{string.Join('&', parts)}";
     }
+
+    /// <summary>What the last search for a wanted target really returned; null before its first try or after a restart.</summary>
+    public string? Why(string targetKey) => why.GetValueOrDefault(targetKey);
 
     /// <summary>Wanted units and when each tries next, for diagnostics and tests.</summary>
     public IReadOnlyList<object> Snapshot() => plans.OrderBy(p => p.Value.Order).Select(p => (object)new

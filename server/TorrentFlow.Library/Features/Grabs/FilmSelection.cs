@@ -58,6 +58,12 @@ public static class FilmSelection
         return GrabFailure.NotFound(title, minimumResolution);
     }
 
+    /// <summary>What the film search really returned, for <see cref="GrabFailure.Detail"/>.</summary>
+    public static string Explain(IReadOnlyList<SourceStatus>? sources, FilmRejection r, int? minimumResolution) =>
+        GrabFailure.Explain(sources ?? [], r.Total, [("with no download link", r.NoMagnet), ("with no seeders", r.Unseeded),
+            ($"below {minimumResolution}p", r.BelowFloor), ("other titles", r.OtherWork), ("season packs or episodes", r.PackOrEpisode),
+            ("not taken", r.Total - r.NoMagnet - r.Unseeded - r.BelowFloor - r.OtherWork - r.PackOrEpisode)]);
+
     public static string NoMatchMessage(string title, int? minimumResolution, IReadOnlyList<SourceStatus>? sources, FilmRejection? rejection) =>
         NoMatch(title, minimumResolution, sources, rejection).Sentence;
 }

@@ -19,7 +19,7 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     string Retention = "keep", bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool SeasonPack = false)
+    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -92,7 +92,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
 
     /// <summary>
     /// What every grab resolves before it searches: download settings, the search identity (saved and provider aliases,
-    /// the AniList episode mapping) and the quality floor. Episodes, season packs and films share it.
+    /// the AniList episode mapping) and the quality floor. Episodes and films share it.
     /// </summary>
     private async Task<(GrabInput Input, ClientSetting? Settings, int? Floor, GrabResult? Refusal)> Prepare(TorrentFlowDbContext db,
         GrabInput input, string query, CancellationToken ct)
@@ -226,14 +226,19 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             ? new GrabFailure("no_sources", "No search sites are turned on for this kind of title.",
                 "Turn one on in Settings, then try again.") { Brief = "had no search sites to look on" }
             : GrabFailure.FromCandidates(GrabFailure.Subject(input.Title, cursor.Season, cursor.Episode), floor, decisions.Values, searchFailed));
+        var detail = memo.Values.All(r => r.Sources.Count == 0 && r.Results.Count == 0 && r.RejectedResults.Count == 0)
+            ? "no search sites turned on" : GrabFailure.Explain(memo.Values.SelectMany(r => r.Sources), decisions.Values, floor);
+        failure = failure with { Detail = detail };
         var message = failure.Sentence;
+        logger?.LogInformation("Episode not found {Title} {Episode}: {Detail}", input.Title, cursor.Label, detail);
         if (lastFailure != null)
         {
             if (lastFailure.Storage != null) return lastFailure with { NoReleaseFound = Report("send_failed") };
-            await LogSkip(db, input, query, message, ct);
-            return lastFailure with { Message = message, NoReleaseFound = Report("send_failed") };
+            await LogSkip(db, input, query, WithDetail(message, detail), ct);
+            return lastFailure with { Message = message, NoReleaseFound = Report("send_failed"),
+                Failure = (lastFailure.Failure ?? failure) with { Detail = detail } };
         }
-        await LogSkip(db, input, query, message, ct);
+        await LogSkip(db, input, query, WithDetail(message, detail), ct);
         return new(false, message) { Query = query, Skipped = true,
             HuntMiss = input.Background && !searchFailed && !decisions.Values.Any(d =>
                 !d.Reasons.Contains("other_work") && !d.Reasons.Contains("different_episode") && !d.Reasons.Contains("unknown_episode") && !d.Reasons.Contains("pack")),
@@ -261,6 +266,10 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
         && input.EpisodeMapping?.AbsoluteOffset is not > 0
         && input.EpisodeMapping?.FranchiseSeason is not > 1 ? input.Year : null;
 
+    /// <summary>The activity log keeps what the search really returned after the owner's sentence.</summary>
+    private static string WithDetail(string message, string? detail) =>
+        string.IsNullOrWhiteSpace(detail) ? message : $"{message} What we saw: {detail}.";
+
     /// <summary>Port of the title page's grabWholeWork: one search, identity-checked first survivor, one send.</summary>
     private async Task<GrabResult> Film(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, int? floor, Func<Task>? beforeSend, CancellationToken ct)
     {
@@ -284,8 +293,10 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             releases.Remove(candidate);
         }
         if (lastFailure != null) return lastFailure;
-        var failure = FilmSelection.NoMatch(title, floor, response.Sources, FilmSelection.Summarize(response.Results, key, floor));
-        await LogSkip(db, input, title, failure.Sentence, ct);
+        var summary = FilmSelection.Summarize(response.Results, key, floor);
+        var failure = FilmSelection.NoMatch(title, floor, response.Sources, summary) with { Detail = FilmSelection.Explain(response.Sources, summary, floor) };
+        logger?.LogInformation("Film not found {Title}: {Detail}", title, failure.Detail);
+        await LogSkip(db, input, title, WithDetail(failure.Sentence, failure.Detail), ct);
         return new(false, failure.Sentence) { Query = title, Skipped = true, Failure = failure,
             NoReleaseFound = new { reason = failure.Code, searches = 1, manualSearchQuery = title } };
     }
@@ -345,7 +356,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
                 InfoHash = candidate.InfoHash, Name = candidate.Title, Purpose = input.Retention,
                 Source = candidate.Source, SearchCategory = EpisodeLadder.SearchCategory(input.MediaType) ?? "all",
                 Metadata = CatalogMetadata(input.MediaType, input.Title, input.Year),
-                QueueKey = input.SeasonPack ? input.Cursor?.PackQueueKey : input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
+                QueueKey = input.Cursor?.QueueKey, WorkId = input.WorkId, ExpectedSizeBytes = candidate.SizeBytes,
                 OverrideStorageCap = input.OverrideStorageCap, Lane = input.QueueLane, RequireMetadata = true }, ct);
             result = EngineAddMessages.WithFormattedMessage(result);
         }
@@ -363,7 +374,7 @@ public sealed class GrabService(IDbContextFactory<TorrentFlowDbContext> factory,
             InfoHash = hash, Source = candidate.Source, WorkId = input.WorkId, Retention = input.Retention, Context = "ondemand",
             ClientType = "builtin", SendKind = candidate.Magnet != null ? "magnet" : "torrent", CreatedAt = now });
         var advanced = false;
-        if (result.Ok && input.WatchListItemId != null && input.Cursor != null && !input.SeasonPack)
+        if (result.Ok && input.WatchListItemId != null && input.Cursor != null)
             advanced = await Advance(db, input.WatchListItemId, input.Cursor.Value, candidate.Title, ct);
         if (result.Ok && input.Background && input.WatchListItemId != null)
             await db.WatchListItems.Where(x => x.Id == input.WatchListItemId).ExecuteUpdateAsync(x =>
