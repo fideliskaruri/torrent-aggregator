@@ -23,7 +23,8 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, LanguageWant? Language = null)
+    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, LanguageWant? Language = null,
+    IReadOnlySet<string>? Blocked = null)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
     public string QueueLane => Lane ?? (Background ? TorrentLane.Automation : TorrentLane.Owner);
@@ -160,7 +161,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             }
         }
         input = input with { Language = await LanguageWantAsync(settings.AudioLanguage, input.MediaType, input.Provider ?? work?.Provider,
-            input.ProviderId ?? work?.ProviderId, ct) };
+            input.ProviderId ?? work?.ProviderId, ct), Blocked = await ReleaseBlocks.BlockedHashesAsync(db, LocalUser.Id, ct) };
         int? floor = input.PreferredResolution ?? settings.PreferredResolution ?? 1080;
         return (input, settings, floor, null);
     }
@@ -248,6 +249,8 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 var decision = attempted.Contains(key) && decisions.TryGetValue(key, out var previous)
                     ? previous : EpisodeRejections.Explain(row.Result, accepted, cursor, input.EpisodeMapping, floor, rung.Relaxed,
                         row.Reason.Length > 0 ? row.Reason : null, PremiereYear(input));
+                if (IsBlocked(input, row.Result) && !decision.Reasons.Contains("blocked"))
+                    decision = decision with { Reasons = decision.Reasons.Append("blocked").ToArray() };
                 if (Judge(input, row.Result) is { HeldBack: true, Code: { } code } && !decision.Reasons.Contains(code))
                     decision = decision with { Reasons = decision.Reasons.Append(code).ToArray() };
                 rungCandidates[key] = decisions[key] = decision;
@@ -363,10 +366,11 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     /// <summary>
     /// The quality gate every pick shares: the floor and the caller's constraints, best first, then by language fit
     /// (preferred, neutral, backup, clash). Language never filters here; it only orders (docs/release-language.md).
+    /// Releases the owner blocked never pass: only a hand pick can take one again.
     /// </summary>
     private List<TorrentResult> Eligible(GrabInput input, int? floor, IEnumerable<TorrentResult> releases, bool applyMaxSize = true)
     {
-        var quality = releases.Where(x => ReleaseSelection.MeetsFloor(x.Title, floor) &&
+        var quality = releases.Where(x => !IsBlocked(input, x) && ReleaseSelection.MeetsFloor(x.Title, floor) &&
             (input.Sources == null || input.Sources.Contains(x.Source)) &&
             (input.Constraints?.MinSeeders == null || x.Seeders >= input.Constraints.MinSeeders) &&
             (!applyMaxSize || input.Constraints?.MaxSizeBytes == null || x.SizeBytes <= input.Constraints.MaxSizeBytes) &&
@@ -384,6 +388,10 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         LanguageCall.From(ReleaseLanguage.Verdict(WantOf(input), release.Title, release.Category, files));
 
     private static LanguageWant WantOf(GrabInput input) => input.Language ?? LanguageWant.For(null, input.MediaType, null);
+
+    /// <summary>A release on the owner's blocklist (a replaced release, or one that failed the video check).</summary>
+    private static bool IsBlocked(GrabInput input, TorrentResult release) => input.Blocked is { Count: > 0 } blocked &&
+        (LibraryJson.Hash(release.InfoHash) ?? LibraryJson.Hash(release.Magnet)) is { } hash && blocked.Contains(hash);
 
     /// <summary>What a fallback stands in for, in the GrabJob's language note.</summary>
     private static string MissingLanguage(GrabInput input) => WantOf(input) switch
@@ -413,7 +421,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             Enrich = false, SkipCache = true, Background = input.Background, WaitForBudget = true, Filters = new() { HasMagnet = true, MinSeeders = input.Background ? null : 1 } }, ct);
         var key = input.WorkKey ?? ReleaseNames.WorkKeyFor(input.Title.Trim(), input.Year);
         var releases = (floor != null
-            ? PreferRequestedQuality(response.Results, floor.Value) : response.Results.AsEnumerable()).ToList();
+            ? PreferRequestedQuality(response.Results, floor.Value) : response.Results.AsEnumerable()).Where(r => !IsBlocked(input, r)).ToList();
         GrabResult? lastFailure = null;
         var rung = $"film: {title}";
         // Backups and clashes wait until every preferred or neutral release has been tried (docs/release-language.md).

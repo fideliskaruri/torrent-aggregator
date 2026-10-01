@@ -83,6 +83,14 @@ public static class ReleaseBlocks
         return (await query.Select(b => b.Hash).ToListAsync(ct)).ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Every hash this user blocked, for automatic picks: a block is per user and hash, so it holds wherever the same
+    /// torrent turns up (an episode search can return a blocked season pack of the same work).
+    /// </summary>
+    public static async Task<HashSet<string>> BlockedHashesAsync(TorrentFlowDbContext db, string userId, CancellationToken ct) =>
+        (await db.ReleaseBlocks.AsNoTracking().Where(b => b.UserId == userId).Select(b => b.Hash).ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The blocks among <paramref name="hashes"/>, by hash (any case), for display.</summary>
     public static async Task<Dictionary<string, ReleaseBlock>> GetAsync(TorrentFlowDbContext db, string userId, IEnumerable<string> hashes, CancellationToken ct)
     {

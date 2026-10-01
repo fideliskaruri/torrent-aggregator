@@ -104,6 +104,7 @@ public sealed record GrabFailure(string Code, string Message, string Action, boo
         "unsafe" => "unsafe files",
         "query_filter" => "filtered out by the search",
         "send_failed" => "that failed to start",
+        "blocked" => "blocked",
         _ => "not taken"
     };
 
