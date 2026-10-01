@@ -31,7 +31,8 @@ import { formatDuration, formatSpeed } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FIND_ANOTHER_SOURCE_LABEL } from "./find-another-source";
 import { ReleaseCard, ReleaseFacts, releaseSourceLabel, type ReleaseCardData } from "./release-card";
-import { ReleaseLanguages, type ReleaseLanguageInfo } from "./release-language";
+import { hasNoEnglish, ReleaseLanguages, type ReleaseLanguageInfo } from "./release-language";
+
 
 export interface ReleaseSwapHealth {
   connectedSeeders?: number | null;
@@ -121,7 +122,11 @@ function mergeSources(previous: ReleaseSwapSource[], next: ReleaseSwapSource[] |
 
 /** The release to suggest when the server names none: the first one that is neither blocked nor in another language. */
 function fallbackRecommendation(alternatives: ReleaseAlternative[]): string | null {
-  return alternatives.find((candidate) => !candidate.blocked && candidate.languages?.fit !== "clash")?.token ?? null;
+  return (
+    alternatives.find(
+      (candidate) => !candidate.blocked && candidate.languages?.fit !== "clash" && !hasNoEnglish(candidate.languages),
+    )?.token ?? null
+  );
 }
 
 function failureMessage(body: { message?: string; title?: string } | null, status: number, fallback: string): string {

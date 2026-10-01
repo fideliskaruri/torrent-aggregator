@@ -20,6 +20,8 @@ import { readJsonBody } from "@/lib/api-json";
 import { sessionAwareFetch } from "@/lib/session-expiry";
 import { toast } from "@/lib/toast";
 import { ReleaseCard, type ReleaseCardData } from "./release-card";
+import { hasNoEnglish } from "./release-language";
+
 import { PICK_RELEASE_LABEL, releasePickSubject, type ReleasePickTarget } from "./release-picker-store";
 
 interface PickRelease extends ReleaseCardData {
@@ -142,7 +144,8 @@ export function ReleasePickerDialog({ target, onClose }: { target: ReleasePickTa
       <h3 className="text-xs font-medium text-muted-foreground">{label}</h3>
       <ol className="space-y-2">
         {list.map((release, index) => {
-          const best = offset === 0 && index === 0 && release.fits;
+          // The server lists English first; a release without English is never the best match.
+          const best = offset === 0 && index === 0 && release.fits && !hasNoEnglish(release.languages);
           return (
             <ReleaseCard
               key={release.token}

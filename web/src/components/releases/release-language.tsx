@@ -19,6 +19,15 @@ export interface ReleaseLanguageInfo {
   confidence: "high" | "medium" | "low";
   /** One plain line, e.g. "Japanese audio, English subtitles" or "Language not stated". */
   label: string;
+  /** The English rule (docs/release-language.md): automatic picks take pass, then unknown, never fail. */
+  english?: "pass" | "unknown" | "fail";
+  /** What decided it, e.g. "French subtitles only". */
+  englishReason?: string | null;
+}
+
+/** A release with no English audio or subtitles: never picked or recommended automatically, only by hand. */
+export function hasNoEnglish(info: ReleaseLanguageInfo | null | undefined): boolean {
+  return info?.english === "fail";
 }
 
 const FIT_BADGES: Record<LanguageFit, { label: string; variant: "success" | "default" | "danger" } | null> = {
@@ -61,15 +70,21 @@ export function ReleaseLanguages({
 }) {
   if (!info) return null;
   const label = info.label?.trim();
-  const badge = FIT_BADGES[info.fit] ?? null;
+  const noEnglish = hasNoEnglish(info);
+  // No English outranks the fit: it is the one thing that stops an automatic pick.
+  const badge = noEnglish ? { label: "No English", variant: "danger" as const } : (FIT_BADGES[info.fit] ?? null);
   if (!label && !badge) return null;
-  const basis = languageBasisText(info);
+  const basis = [noEnglish && info.englishReason ? info.englishReason : null, languageBasisText(info)]
+    .filter(Boolean)
+    .join(". ") || null;
   return (
     <p
       className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-relaxed text-muted-foreground", className)}
       title={basis ?? undefined}
       data-release-languages
       data-language-fit={info.fit}
+      data-english={info.english}
+
     >
       {label ? <span className="min-w-0 break-words">{label}</span> : null}
       {basis ? <span className="sr-only">{`(${basis})`}</span> : null}
