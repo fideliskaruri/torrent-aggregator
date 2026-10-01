@@ -72,6 +72,29 @@ public static class WorkPosters
     public static string? Pick(IReadOnlyDictionary<string, string> known, string? workKey, string? fallback) =>
         workKey is not null && known.TryGetValue(workKey, out var poster) ? poster : string.IsNullOrWhiteSpace(fallback) ? null : fallback;
 
+    /// <summary>The key a saved record's poster resolves under: its linked work, else its own title (and year).</summary>
+    public static string? KeyFor(string? linkedWorkKey, string? title, int? year = null) =>
+        !string.IsNullOrWhiteSpace(linkedWorkKey) ? linkedWorkKey
+        : Core.Text.WorkKeySlug.WorkKeyFor(title, year) is { Length: > 0 } key ? key : null;
+
+    /// <summary>Saves the resolved poster onto request rows whose own copy is missing or different.</summary>
+    public static async Task StoreOnRequestsAsync(TorrentFlowDbContext db, IEnumerable<(string Id, string? Stored, string? Resolved)> rows, CancellationToken ct = default)
+    {
+        foreach (var (id, _, poster) in rows.Where(r => !string.IsNullOrWhiteSpace(r.Resolved) && r.Resolved != r.Stored))
+            await db.MediaRequests.Where(r => r.Id == id)
+                .ExecuteUpdateAsync(s => s.SetProperty(r => r.PosterUrl, poster).SetProperty(r => r.UpdatedAt, DateTime.UtcNow), ct)
+                .ConfigureAwait(false);
+    }
+
+    /// <summary>Saves the resolved poster onto library rows whose own copy is missing or different.</summary>
+    public static async Task StoreOnWatchlistAsync(TorrentFlowDbContext db, IEnumerable<(string Id, string? Stored, string? Resolved)> rows, CancellationToken ct = default)
+    {
+        foreach (var (id, _, poster) in rows.Where(r => !string.IsNullOrWhiteSpace(r.Resolved) && r.Resolved != r.Stored))
+            await db.WatchListItems.Where(w => w.Id == id)
+                .ExecuteUpdateAsync(s => s.SetProperty(w => w.PosterUrl, poster), ct)
+                .ConfigureAwait(false);
+    }
+
     /// <summary>Saves art onto works that have none yet. Works that already have art keep it.</summary>
     private static async Task StoreAsync(TorrentFlowDbContext db, IReadOnlyDictionary<string, string> art, CancellationToken ct)
     {

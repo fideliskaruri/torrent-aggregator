@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using TorrentFlow.Api.RemoteAccess;
+using TorrentFlow.Core.Contracts.Metadata;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 
@@ -19,7 +21,8 @@ public static class NotificationKind
     public const string DownloadSummary = "download.summary";
 }
 
-public sealed record NotificationView(string Id, string Kind, string Title, string? Body, string? Link, DateTime CreatedAt, DateTime? ReadAt);
+public sealed record NotificationView(string Id, string Kind, string Title, string? Body, string? Link, DateTime CreatedAt, DateTime? ReadAt,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.Never)] string? PosterUrl = null);
 
 public sealed record PushSubscriptionInput(string Endpoint, string P256dh, string Auth);
 
@@ -35,6 +38,7 @@ public sealed class NotificationService(
     IDbContextFactory<TorrentFlowDbContext> factory,
     IPushSender push,
     TimeProvider time,
+    IReleasePosters releasePosters,
     ILogger<NotificationService> logger)
 {
     public const int MaxListed = 100;
@@ -110,7 +114,50 @@ public sealed class NotificationService(
         var rows = await db.Notifications.AsNoTracking().Where(n => n.RecipientUserId == userId)
             .OrderByDescending(n => n.CreatedAt).ThenByDescending(n => n.Id)
             .Take(Math.Clamp(limit, 1, MaxListed)).ToListAsync(ct);
-        return rows.Select(ToView).ToList();
+        var posters = await PostersAsync(db, rows, ct);
+        return rows.Select(n => ToView(n) with { PosterUrl = posters.GetValueOrDefault(n.Id) }).ToList();
+    }
+
+    /// <summary>
+    /// Each notification's work poster: a title link, a download's transfer (its hash in the link) or a request's row (its
+    /// title in the body) names the work, read through <see cref="WorkPosters"/>; anything unlinked resolves by its release name.
+    /// </summary>
+    private async Task<Dictionary<string, string>> PostersAsync(TorrentFlowDbContext db, IReadOnlyList<Notification> rows, CancellationToken ct)
+    {
+        const string hashLink = "/downloads?hash=";
+        var hashOf = rows.Where(n => n.Link?.StartsWith(hashLink, StringComparison.Ordinal) == true)
+            .ToDictionary(n => n.Id, n => Uri.UnescapeDataString(n.Link![hashLink.Length..]).ToLowerInvariant());
+        var hashes = hashOf.Values.Distinct().ToList();
+        var transferKeys = hashes.Count == 0 ? [] : await db.EngineTorrents.AsNoTracking()
+            .Where(t => hashes.Contains(t.Hash.ToLower()) && t.Work != null)
+            .Select(t => new { Hash = t.Hash.ToLower(), t.Work!.WorkKey }).ToListAsync(ct);
+        var keyByHash = transferKeys.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First().WorkKey);
+        var titles = rows.Where(n => n.Kind.StartsWith("request.", StringComparison.Ordinal) && n.Body != null).Select(n => n.Body!).Distinct().ToList();
+        var requests = titles.Count == 0 ? [] : await db.MediaRequests.AsNoTracking().Where(r => titles.Contains(r.Title))
+            .OrderByDescending(r => r.CreatedAt).Select(r => new { r.Title, r.WorkKey }).ToListAsync(ct);
+        var keyByTitle = requests.GroupBy(r => r.Title).ToDictionary(g => g.Key, g => g.First().WorkKey);
+        const string titleLink = "/title/";
+        string? KeyOf(Notification n) =>
+            n.Link?.StartsWith(titleLink, StringComparison.Ordinal) == true ? Uri.UnescapeDataString(n.Link[titleLink.Length..].Split('?', '#')[0])
+            : hashOf.TryGetValue(n.Id, out var h) ? keyByHash.GetValueOrDefault(h)
+            : n.Body != null && n.Kind.StartsWith("request.", StringComparison.Ordinal) ? keyByTitle.GetValueOrDefault(n.Body) : null;
+        var known = await WorkPosters.LoadAsync(db, rows.Select(KeyOf), ct);
+        var found = new Dictionary<string, string>(StringComparer.Ordinal);
+        var unresolved = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var n in rows)
+        {
+            if (WorkPosters.Pick(known, KeyOf(n), null) is { } poster) found[n.Id] = poster;
+            else if (!string.IsNullOrWhiteSpace(n.Body)) unresolved[n.Body] = null;
+        }
+        if (unresolved.Count == 0) return found;
+        try
+        {
+            var byName = await releasePosters.ForReleasesAsync(unresolved, ct);
+            foreach (var n in rows)
+                if (!found.ContainsKey(n.Id) && n.Body != null && byName.TryGetValue(n.Body, out var poster)) found[n.Id] = poster;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested) { logger.LogDebug(ex, "Notification posters by release name failed"); }
+        return found;
     }
 
     public async Task<int> UnreadCountAsync(string userId, CancellationToken ct)

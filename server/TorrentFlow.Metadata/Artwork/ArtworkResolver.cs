@@ -292,17 +292,17 @@ public sealed class ArtworkResolver
     private async Task<List<ArtCandidate>> AniListProvider(NormalizedArtworkQuery q, CancellationToken ct)
     {
         var hits = await _anilist.SearchAsync(q.Title, 6, ct).ConfigureAwait(false);
-        return hits.Select((h, i) => new ArtCandidate(h.Title, h.Year, h.PosterUrl, h.BackdropUrl, "anime", hits.Count - i, "anilist")).ToList();
+        return hits.Select((h, i) => new ArtCandidate(h.Title, h.Year, ProviderImages.Sized(h.PosterUrl, ArtRole.Poster), h.BackdropUrl, "anime", hits.Count - i, "anilist")).ToList();
     }
 
     private async Task<List<ArtCandidate>> TvmazeProvider(NormalizedArtworkQuery q, CancellationToken ct) =>
         (await _keyless.SearchTvmazeAsync(q.Title, timeoutMs: TimeoutMs, ct: ct).ConfigureAwait(false))
-        .Select(h => new ArtCandidate(h.Title, h.Year, h.PosterUrl, null, "tv", h.Score, "tvmaze")).ToList();
+        .Select(h => new ArtCandidate(h.Title, h.Year, ProviderImages.Sized(h.PosterUrl, ArtRole.Poster), null, "tv", h.Score, "tvmaze")).ToList();
 
     private async Task<List<ArtCandidate>> ItunesProvider(NormalizedArtworkQuery q, CancellationToken ct)
     {
         var hits = await _keyless.SearchItunesAsync(q.Title, timeoutMs: TimeoutMs, ct: ct).ConfigureAwait(false);
-        return hits.Select((h, i) => new ArtCandidate(h.Title, h.Year, h.PosterUrl, null, "movie", hits.Count - i, "itunes")).ToList();
+        return hits.Select((h, i) => new ArtCandidate(h.Title, h.Year, ProviderImages.Sized(h.PosterUrl, ArtRole.Poster), null, "movie", hits.Count - i, "itunes")).ToList();
     }
 
     private IEnumerable<Func<NormalizedArtworkQuery, CancellationToken, Task<List<ArtCandidate>>>> Chain(string? mediaType) => mediaType switch

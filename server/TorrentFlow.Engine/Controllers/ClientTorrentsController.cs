@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using TorrentFlow.Core.Contracts.Engine;
+using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Engine.Client;
 using TorrentFlow.Engine.Clients.External;
@@ -64,6 +65,7 @@ public sealed class ClientTorrentsController(
         }));
         var torrents = snapshots.SelectMany(s => s.Torrents).ToList();
         await AnnotateAcquisitionIntentAsync(torrents, ct);
+        await AnnotatePostersAsync(torrents, ct);
         var issues = snapshots.Select(s => s.Issue).OfType<ClientIssue>().ToList();
         return Ok(new ListResponse(torrents, config.ClientType, config.ClientType == "builtin" ? "" : config.Host, false, config.ExternalClientType,
             config.ExternalClientType is not null, issues.Count > 0, issues));
@@ -178,6 +180,33 @@ public sealed class ClientTorrentsController(
         {
             var hash = torrent["hash"]?.GetValue<string>()?.Trim().ToLowerInvariant();
             if (hash != null && packs.FirstOrDefault(p => p.Hash == hash) is { } pack) torrent["packEpisodes"] = pack.Count;
+        }
+    }
+
+    /// <summary>
+    /// posterUrl on every row: the linked work's poster (<see cref="WorkPosters"/>), else the release name's
+    /// (<see cref="IReleasePosters"/>). A linked work with no art keeps what the release lookup found.
+    /// </summary>
+    private async Task AnnotatePostersAsync(List<JsonObject> torrents, CancellationToken ct)
+    {
+        if (torrents.Count == 0) return;
+        static string? Text(JsonObject t, string name) => t[name] is JsonValue v && v.TryGetValue<string>(out var s) && s.Length > 0 ? s : null;
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var known = await WorkPosters.LoadAsync(db, torrents.Select(t => Text(t, "workKey")), ct);
+        var unresolved = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var torrent in torrents)
+        {
+            var poster = WorkPosters.Pick(known, Text(torrent, "workKey"), null);
+            torrent["posterUrl"] = poster;
+            if (poster is null && Text(torrent, "name") is { } name) unresolved[name] = Text(torrent, "workMediaType") ?? Text(torrent, "category");
+        }
+        if (unresolved.Count == 0 || HttpContext?.RequestServices.GetService<IReleasePosters>() is not { } releases) return;
+        var found = await releases.ForReleasesAsync(unresolved, ct);
+        foreach (var torrent in torrents)
+        {
+            if (torrent["posterUrl"] is not null || Text(torrent, "name") is not { } name || !found.TryGetValue(name, out var poster)) continue;
+            torrent["posterUrl"] = poster;
+            if (Text(torrent, "workKey") is { } key) await WorkPosters.ResolveAsync(db, key, poster, ct);
         }
     }
 
