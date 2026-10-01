@@ -251,6 +251,11 @@ public sealed record EngineTorrentInfo
     public string? Magnet { get; init; }
     /// <summary>A completed local file imported without torrent metadata; it has no shareable magnet.</summary>
     public bool Imported { get; init; }
+    /// <summary>When the transfer was added, UTC; null when the client does not say. Always written, as null too.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.Never)]
+    public DateTime? AddedAt { get; init; }
+    /// <summary>A finished built-in download with a kept file gone from disk (deleted or moved outside TorrentFlow).</summary>
+    public bool FilesMissing { get; init; }
     /// <summary>Payload bytes received from peers this session (live transfers only). Not part of the UI shape.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public long? BytesReceived { get; init; }

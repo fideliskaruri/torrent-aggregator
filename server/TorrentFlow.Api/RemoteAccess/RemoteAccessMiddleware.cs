@@ -131,7 +131,28 @@ public sealed class RemoteAccessMiddleware(RequestDelegate next, RemoteAccessSto
             await WriteJson(context, StatusCodes.Status409Conflict, new { error = "Folder opening is unavailable through remote access.", openFolderDisabled = true });
             return;
         }
+        if (IsOpenFileRequest(path))
+        {
+            // Opening a file starts an app on the computer running TorrentFlow, never on the remote owner's device.
+            await WriteJson(context, StatusCodes.Status409Conflict, new
+            {
+                ok = false, reason = "remote", openFolderDisabled = true,
+                error = "Files can't be opened through remote access.",
+                message = "Open the file on the computer running TorrentFlow, or copy its path.",
+            });
+            return;
+        }
         await next(context);
+    }
+
+    /// <summary><c>/api/downloads/{transferId}/open</c>, however it is cased or padded with empty segments.</summary>
+    internal static bool IsOpenFileRequest(PathString path)
+    {
+        var segments = (path.Value ?? "").Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length >= 3
+            && segments[0].Equals("api", StringComparison.OrdinalIgnoreCase)
+            && segments[1].Equals("downloads", StringComparison.OrdinalIgnoreCase)
+            && segments[^1].Equals("open", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>j***@example.com: enough to recognise a typo in the owner list without logging the full address.</summary>

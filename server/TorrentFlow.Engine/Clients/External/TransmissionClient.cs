@@ -78,7 +78,7 @@ public sealed class TransmissionClient(HttpClient http) : IExternalTorrentClient
     {
         var result = await RpcAsync(config, "torrent-get", new
         {
-            fields = new[] { "hashString", "name", "percentDone", "totalSize", "rateDownload", "rateUpload", "status", "eta", "labels", "downloadDir", "magnetLink" },
+            fields = new[] { "hashString", "name", "percentDone", "totalSize", "rateDownload", "rateUpload", "status", "eta", "labels", "downloadDir", "magnetLink", "addedDate" },
         }, ct);
         if (!result.TryGetProperty("arguments", out var args) || args.ValueKind != JsonValueKind.Object
             || !args.TryGetProperty("torrents", out var rows) || rows.ValueKind != JsonValueKind.Array) return [];
@@ -99,6 +99,7 @@ public sealed class TransmissionClient(HttpClient http) : IExternalTorrentClient
                     && labels.GetArrayLength() > 0 && labels[0].ValueKind == JsonValueKind.String ? labels[0].GetString() : null,
                 SavePath = string.IsNullOrEmpty(path) ? null : path,
                 Magnet = QBittorrentClient.Text(t, "magnetLink"),
+                AddedAt = QBittorrentClient.Number(t, "addedDate") is > 0 and var added ? DateTimeOffset.FromUnixTimeSeconds(added).UtcDateTime : null,
             });
         }
         return torrents;

@@ -826,7 +826,9 @@ internal sealed partial class TorrentEngineService(
             .Where(r => r.UserId == LocalUser.Id && r.Status != EngineTorrentStatus.Removed)
             .OrderBy(r => r.CreatedAt).ToListAsync(ct);
         var view = QueueViewOf(rows);
-        return rows.Select(r => WithMagnet(r, ToInfo(r, backend.Get(r.Hash), view, includeFiles: false))).ToList();
+        var listed = rows.Select(r => r.Hash).ToHashSet(StringComparer.Ordinal);
+        foreach (var gone in _filesMissing.Keys.Where(h => !listed.Contains(h))) _filesMissing.TryRemove(gone, out _);
+        return rows.Select(r => Present(r, ToInfo(r, backend.Get(r.Hash), view, includeFiles: false))).ToList();
     }
 
     public async Task<EngineTorrentInfo?> GetAsync(string infoHash, CancellationToken ct = default)
@@ -835,7 +837,31 @@ internal sealed partial class TorrentEngineService(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var rows = await db.EngineTorrents.AsNoTracking().Where(r => r.UserId == LocalUser.Id).ToListAsync(ct);
         var row = rows.FirstOrDefault(r => r.Hash == hash);
-        return row is null ? null : WithMagnet(row, ToInfo(row, backend.Get(hash), QueueViewOf(rows), includeFiles: true));
+        return row is null ? null : Present(row, ToInfo(row, backend.Get(hash), QueueViewOf(rows), includeFiles: true));
+    }
+
+    /// <summary>The row as the Downloads page reads it: when it was added, whether its files are gone, and its magnet.</summary>
+    private EngineTorrentInfo Present(EngineTorrent row, EngineTorrentInfo info) => WithMagnet(row, info with
+    {
+        AddedAt = DateTime.SpecifyKind(row.CreatedAt, DateTimeKind.Utc),
+        FilesMissing = info.State == "downloaded" && FilesMissing(row),
+    });
+
+    // Finished downloads whose kept files were deleted or moved outside TorrentFlow. Checked at most every 30 seconds per
+    // row; a new manifest (a layout, a re-check) is checked straight away.
+    private readonly ConcurrentDictionary<string, (DateTime At, int Manifest, bool Missing)> _filesMissing = new(StringComparer.Ordinal);
+    private static readonly TimeSpan FilesMissingRecheck = TimeSpan.FromSeconds(30);
+
+    private bool FilesMissing(EngineTorrent row)
+    {
+        var manifest = row.VerifiedFilesJson?.GetHashCode(StringComparison.Ordinal) ?? 0;
+        if (_filesMissing.TryGetValue(row.Hash, out var seen) && seen.Manifest == manifest && Now - seen.At < FilesMissingRecheck)
+            return seen.Missing;
+        bool missing;
+        try { missing = VerifiedFiles(row).Any(f => f.FullPath is { } path && !File.Exists(path)); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { missing = false; }
+        _filesMissing[row.Hash] = (Now, manifest, missing);
+        return missing;
     }
 
     /// <summary>

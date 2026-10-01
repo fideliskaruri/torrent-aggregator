@@ -129,6 +129,7 @@ public sealed class QBittorrentClient(HttpClient http) : IExternalTorrentClient
             Category = Text(t, "category"),
             Magnet = Text(t, "magnet_uri"),
             SavePath = NonEmpty(Text(t, "save_path")) ?? NonEmpty(Text(t, "content_path")),
+            AddedAt = Number(t, "added_on") is > 0 and var added ? DateTimeOffset.FromUnixTimeSeconds(added).UtcDateTime : null,
         }).ToList();
     }
 
