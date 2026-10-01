@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFeatures, useDisplayPath } from "@/lib/features";
 import { DownloadRecovery } from "@/components/settings/download-recovery";
+import { MaxActiveDownloadsControl } from "@/components/settings/max-active-downloads";
 import { Link, useSearchParams } from "react-router";
 import { toast } from "@/lib/toast";
 import { copyDownloadPath, openDownload, type OpenDownloadMode } from "@/lib/open-download";
@@ -74,6 +75,7 @@ import { useReleaseArtwork } from "@/hooks/use-release-artwork";
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { progressPercent, speedLabel } from "@/components/tf/active-row-state";
 import { startVisiblePoller } from "./polling";
+import { useMaxActiveDownloads } from "./use-max-active";
 import {
   groupDownloads,
   seriesEpisodeTally,
@@ -490,6 +492,12 @@ export default function ClientPage() {
       isPaused: () => Boolean(pendingDelete),
     });
   }, [offline, load, pendingDelete]);
+
+  // A built-in engine limit: an external client keeps its own queue.
+  const maxActive = useMaxActiveDownloads({
+    enabled: clientType === "builtin",
+    onSaved: () => void load({ quiet: true }),
+  });
 
   // Every download row this app tracks: the base both the main list and the
   // series dialog are built from.
@@ -1176,6 +1184,42 @@ export default function ClientPage() {
                 <span className="inline-flex items-center font-mono text-brand-foreground" data-summary-speed>
                   <span aria-hidden className="hidden px-1 font-sans text-subtle-foreground sm:inline">·</span>
                   ↓ {liveSpeed}
+                </span>
+              ) : null}
+              {isBuiltin && maxActive.limits && maxActive.value != null ? (
+                <span
+                  className="inline-flex items-center whitespace-nowrap"
+                  data-max-active-inline={maxActive.limits.source}
+                >
+                  <span aria-hidden className="hidden px-1 text-subtle-foreground sm:inline">·</span>
+                  {maxActive.limits.source === "schedule" ? (
+                    // Open download hours set their own cap, so a stepper here would do nothing.
+                    <>
+                      up to {maxActive.limits.effective} at once (
+                      <Button
+                        asChild
+                        variant="link"
+                        size="sm"
+                        className="h-auto px-0 text-[13px] font-normal text-muted-foreground underline max-md:min-h-11 pointer-coarse:min-h-11"
+                      >
+                        <Link to="/settings?tab=folders" data-max-active-schedule>
+                          download hours
+                        </Link>
+                      </Button>
+                      )
+                    </>
+                  ) : (
+                    <>
+                      up to
+                      <MaxActiveDownloadsControl
+                        variant="inline"
+                        value={maxActive.value}
+                        onChange={maxActive.change}
+                        className="mx-1.5"
+                      />
+                      at once
+                    </>
+                  )}
                 </span>
               ) : null}
             </div>

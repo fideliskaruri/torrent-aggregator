@@ -19,6 +19,10 @@ import { DownloadLocationFields } from "@/components/settings/download-location-
 import { FolderPicker } from "@/components/settings/folder-picker";
 import { RemoteAccessSection } from "@/components/settings/remote-access-section";
 import { DownloadWindowsPanel } from "@/components/settings/download-windows-panel";
+import {
+  clampMaxActive,
+  MaxActiveDownloadsControl,
+} from "@/components/settings/max-active-downloads";
 import { SettingsDisclosure } from "@/components/settings/settings-disclosure";
 import { SourcesSettings } from "@/components/settings/sources-settings";
 import { Badge } from "@/components/ui/badge";
@@ -103,14 +107,6 @@ const AUTOMATION_INTERVAL_CHOICES = [
   { value: 360, label: "Every 6 hours" },
 ] as const;
 
-const MAX_ACTIVE_DOWNLOADS = 20;
-
-function clampMaxActive(value: number): number {
-  return Number.isFinite(value)
-    ? Math.min(MAX_ACTIVE_DOWNLOADS, Math.max(1, Math.trunc(value)))
-    : EMPTY_FORM.maxActiveDownloads;
-}
-
 const EMPTY_FORM: ClientForm = {
   clientType: "builtin",
   externalClientType: "",
@@ -155,6 +151,16 @@ function effectiveCategoryPath(
   return savePath.trim();
 }
 
+/** The cap open download hours hold right now, or null while the saved value applies. */
+function scheduleCapFrom(
+  settings?: { effectiveMaxActive?: number; maxActiveSource?: string } | null,
+): number | null {
+  return settings?.maxActiveSource === "schedule" &&
+    typeof settings.effectiveMaxActive === "number"
+    ? settings.effectiveMaxActive
+    : null;
+}
+
 function parseSettingsTab(
   value: string | null,
 ): "connection" | "folders" | "categories" | null {
@@ -189,6 +195,8 @@ export default function SettingsPage() {
   >([]);
   const [connectionOk, setConnectionOk] = useState(false);
   const [downloadWindowOpen, setDownloadWindowOpen] = useState<boolean | null>(null);
+  // Set while open download hours hold their own cap (servers that report it).
+  const [scheduleCap, setScheduleCap] = useState<number | null>(null);
   const [pendingCapFocus, setPendingCapFocus] = useState(false);
   const capInputRef = useRef<HTMLInputElement | null>(null);
   const legacyTargetRef = useRef<"connection" | "folders" | "categories" | null>(
@@ -269,6 +277,8 @@ export default function SettingsPage() {
             maxStorageGb?: number | null;
             downloadWindows?: DownloadWindow[];
             downloadWindowOpen?: boolean;
+            effectiveMaxActive?: number;
+            maxActiveSource?: string;
             setupComplete?: boolean;
             hasPassword?: boolean;
             pathWarnings?: DownloadPathWarning[];
@@ -321,6 +331,7 @@ export default function SettingsPage() {
         setSetupComplete(settings?.setupComplete === true);
         setPersistedPathWarnings(settings?.pathWarnings ?? []);
         setDownloadWindowOpen(settings?.downloadWindowOpen ?? null);
+        setScheduleCap(scheduleCapFrom(settings));
       } catch (error) {
         if (!cancelled) {
           setLoadError(
@@ -484,7 +495,13 @@ export default function SettingsPage() {
           })(),
           preferredResolution: form.preferredResolution,
           automationIntervalMinutes: form.automationIntervalMinutes,
-          maxActiveDownloads: clampMaxActive(form.maxActiveDownloads),
+          // Only when changed here: the Downloads page sets it too, and an
+          // unrelated save must not put back the value this page loaded.
+          maxActiveDownloads:
+            Number.isFinite(form.maxActiveDownloads) &&
+            form.maxActiveDownloads !== savedForm.maxActiveDownloads
+              ? clampMaxActive(form.maxActiveDownloads, savedForm.maxActiveDownloads)
+              : undefined,
           downloadWindows,
           // Downloads are always kept. Servers that still read this setting
           // use it to decide whether a pasted torrent is kept.
@@ -509,6 +526,8 @@ export default function SettingsPage() {
           maxStorageGb?: number | null;
           downloadWindows?: DownloadWindow[];
           downloadWindowOpen?: boolean;
+          effectiveMaxActive?: number;
+          maxActiveSource?: string;
           setupComplete?: boolean;
           hasPassword?: boolean;
           pathWarnings?: DownloadPathWarning[];
@@ -554,6 +573,7 @@ export default function SettingsPage() {
       setSetupComplete(settings?.setupComplete === true);
       setPersistedPathWarnings(settings?.pathWarnings ?? []);
       setDownloadWindowOpen(settings?.downloadWindowOpen ?? null);
+      setScheduleCap(scheduleCapFrom(settings));
       invalidateDownloadPrefs();
       if (data.testResult) {
         setConnectionOk(data.testResult.ok);
@@ -752,34 +772,23 @@ export default function SettingsPage() {
               </p>
             ) : null}
             <FormField label="Downloads at once" htmlFor="max-active-downloads">
-              <Input
+              <MaxActiveDownloadsControl
                 id="max-active-downloads"
-                type="number"
-                min={1}
-                max={MAX_ACTIVE_DOWNLOADS}
-                step={1}
-                inputMode="numeric"
-                value={
-                  Number.isFinite(form.maxActiveDownloads)
-                    ? form.maxActiveDownloads
-                    : ""
+                describedBy="max-active-downloads-help"
+                value={form.maxActiveDownloads}
+                onChange={(maxActiveDownloads) =>
+                  updateForm((current) => ({ ...current, maxActiveDownloads }))
                 }
-                onChange={(event) =>
-                  updateForm((current) => ({
-                    ...current,
-                    maxActiveDownloads: event.target.valueAsNumber,
-                  }))
-                }
-                className="max-w-[8rem] scroll-mb-32"
-                aria-describedby="max-active-downloads-help"
-                data-max-active-downloads
+                className="max-w-fit"
               />
               <p
                 id="max-active-downloads-help"
                 className="text-xs leading-relaxed text-subtle-foreground"
               >
-                The rest wait in line. Resume or Download now always starts a
-                download right away.
+                The rest wait in line. Download now starts one right away.
+                {scheduleCap != null
+                  ? ` Download hours allow ${scheduleCap} at once right now.`
+                  : null}
               </p>
             </FormField>
             <DownloadWindowsPanel

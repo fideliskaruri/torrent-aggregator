@@ -37,6 +37,7 @@ The working list the orchestrator keeps alongside its own tracking. Update it wh
 - Bulk "Find other releases for failed episodes" in the series dialog. There's no bulk swap endpoint yet (only `POST /api/client/torrents/{hash}/alternatives` per torrent), so the header links to the per-episode action on the first failed episode. Add a server bulk swap (owner-only, reusing `ReleaseSwapService`), then one header button.
 - MCP-verify the series dialog rollup ("1 downloading · 30 need attention", season "N failed", compact error line, visible Find another release) at 390 and 1280; Playwright MCP transport was closed in that run.
 - Frontend code audit: one grok agent per area (shell, title, downloads and library, settings and requests), after the unified UI lands.
+- BUG-T web (fix/no-stream-web) reads `effectiveMaxActive` and `maxActiveSource` from `GET /api/settings/client`, which only fix/queue-cap (a17f4a7) sends. Until that merges, the Downloads stepper treats the saved value as the one in force, so while download hours hold their own cap it still shows the saved value and stays editable instead of reading "up to N at once (download hours)". Recheck the read-only state once both are on main.
 
 ## Closed
 
