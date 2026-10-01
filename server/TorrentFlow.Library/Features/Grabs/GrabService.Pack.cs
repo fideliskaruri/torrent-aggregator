@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Search;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Watchlist;
@@ -30,7 +31,7 @@ public sealed partial class GrabService
         CancellationToken ct)
     {
         if (targets.Count == 0) return new(null, new Dictionary<int, int>(), "nothing missing");
-        var query = $"{input.Title} S{season:00}";
+        var query = $"{Apostrophes.Normalize(input.Title)} S{season:00}";
         await using var db = await factory.CreateDbContextAsync(ct);
         var (prepared, settings, floor, refusal) = await Prepare(db, input with { Cursor = new EpisodeCursor(season, targets.Keys.Min()) }, query, ct);
         if (refusal != null) return new(null, new Dictionary<int, int>(), refusal.Message);

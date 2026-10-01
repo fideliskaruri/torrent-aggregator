@@ -7,6 +7,7 @@ using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
+using TorrentFlow.Core.Text;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
 using TorrentFlow.Library.Features.Common;
@@ -77,7 +78,9 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
 
     private async Task<GrabResult> GrabCore(GrabInput input, CancellationToken ct, Func<Task>? beforeSend)
     {
-        var query = input.Cursor?.Query(input.Title) ?? input.Title;
+        // The pick-it-yourself link searches with this text too, so it carries plain apostrophes like every rung.
+        var plain = Apostrophes.Normalize(input.Title);
+        var query = input.Cursor?.Query(plain) ?? plain;
         await using var db = await factory.CreateDbContextAsync(ct);
         if (input.ReuseExisting && input.WorkId != null && input.Cursor is { } requested)
         {
@@ -402,13 +405,13 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
     /// <summary>Port of the title page's grabWholeWork: one search, identity-checked first survivor, one send.</summary>
     private async Task<GrabResult> Film(TorrentFlowDbContext db, ClientSetting settings, GrabInput input, int? floor, Func<Task>? beforeSend, CancellationToken ct)
     {
-        var title = input.Title.Trim();
+        var title = Apostrophes.Normalize(input.Title).Trim();
         if (title.Length == 0) return new(false, "This title has no name to search for. Pick a release yourself.") { Query = title };
         // A wrong category guess returns nothing; an unfiltered search still finds it and identity still rejects other works.
         var category = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
         var response = await search.SearchAsync(new() { Query = title, Category = category, Limit = 20, TargetResolution = floor ?? input.PreferredResolution,
             Enrich = false, SkipCache = true, Background = input.Background, WaitForBudget = true, Filters = new() { HasMagnet = true, MinSeeders = input.Background ? null : 1 } }, ct);
-        var key = input.WorkKey ?? ReleaseNames.WorkKeyFor(title, input.Year);
+        var key = input.WorkKey ?? ReleaseNames.WorkKeyFor(input.Title.Trim(), input.Year);
         var releases = (floor != null
             ? PreferRequestedQuality(response.Results, floor.Value) : response.Results.AsEnumerable()).ToList();
         GrabResult? lastFailure = null;

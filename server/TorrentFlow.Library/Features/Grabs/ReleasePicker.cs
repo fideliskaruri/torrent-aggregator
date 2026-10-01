@@ -46,7 +46,7 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
         IReadOnlyList<string> aliases = [];
         try { aliases = JsonSerializer.Deserialize<string[]>(work.AliasesJson ?? "[]") ?? []; }
         catch (JsonException) { }
-        var text = string.IsNullOrWhiteSpace(query) ? DefaultQuery(work.CanonicalTitle, season, episode) : query.Trim();
+        var text = string.IsNullOrWhiteSpace(query) ? DefaultQuery(work.CanonicalTitle, season, episode) : Apostrophes.Normalize(query).Trim();
         if (text.Length > 200) text = text[..200];
         var none = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var usable = (await Find(text, work.MediaType, ct)).Where(r => !EpisodeRejections.IsPack(r)).ToList();
