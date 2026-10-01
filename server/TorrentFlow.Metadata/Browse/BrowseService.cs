@@ -53,16 +53,30 @@ public sealed record CatalogRailItem : RailItem
 public sealed record Rail(string Id, string Title, IReadOnlyList<object> Items)
 {
     [JsonIgnore] public IEnumerable<RailItem> Cards => Items.Cast<RailItem>();
+    /// <summary>films | series | anime for a catalog rail (HomeRails); absent on personal rails.</summary>
+    public string? Kind { get; init; }
+    /// <summary>The genre a genre rail lists, so its heading can link to that genre's page.</summary>
+    public string? Genre { get; init; }
 }
 
-public sealed record BrowsePayload(IReadOnlyList<Rail> Rails, string GeneratedAt);
+/// <summary>
+/// One home view: <see cref="View"/> is all | films | series | anime, <see cref="Genre"/> is set on a genre page, and
+/// <see cref="Genres"/> lists the type's genres for its chips (empty on All).
+/// </summary>
+public sealed record BrowsePayload(IReadOnlyList<Rail> Rails, string GeneratedAt)
+{
+    public string View { get; init; } = HomeRails.AllView;
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)] public string? Genre { get; init; }
+    public IReadOnlyList<HomeGenre> Genres { get; init; } = [];
+}
 
 /// <summary>seed.ts CatalogSeed.</summary>
 public sealed record CatalogSeed(string Title, string? MediaType);
 
 /// <summary>
-/// The Downloaded rail first (one card per work), then the discovery rails (because, trending, popular); no work is
-/// shown twice across them and empty rails are dropped.
+/// Home: on All, the Downloaded rail first (one card per work), then Because and the featured catalog rails; on a type
+/// view that type's featured and genre rails; on a genre page that one rail. No work is shown twice and empty rails are
+/// dropped.
 /// </summary>
 public sealed partial class BrowseService(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
@@ -75,24 +89,37 @@ public sealed partial class BrowseService(
     ILogger<BrowseService> logger)
 {
     public const int DiscoveryRailSize = 24;
+    /// <summary>A genre page shows the top of its whole rail.</summary>
+    public const int GenrePageSize = 48;
+    /// <summary>Only films released this recently can still be in cinemas, so only they need a home-release check.</summary>
+    public const int HomeReleaseCheckDays = 180;
     public const int RailArtworkBudgetMs = 8_000;
-    public const string TrendingRailId = "trending-now";
-    public const string PopularRailId = "popular-series";
     public const string BecauseRailId = "because-you-are-watching";
 
     [GeneratedRegex(@"(^|[^a-z])(tv|anime|series|show|episode|season)([^a-z]|$)")] private static partial Regex SeriesGroup();
     [GeneratedRegex(@"(^|[^a-z])(movie|film|feature)([^a-z]|$)")] private static partial Regex MovieGroup();
 
-    public async Task<BrowsePayload> BuildAsync(string userId, CancellationToken ct = default)
+    public Task<BrowsePayload> BuildAsync(string userId, CancellationToken ct = default) => BuildAsync(userId, HomeView.All, ct);
+
+    public async Task<BrowsePayload> BuildAsync(string userId, HomeView view, CancellationToken ct = default)
     {
-        var libraryTask = BuildYourLibraryAsync(userId, ct);
-        var discoveryTask = BuildDiscoveryRailsAsync(userId, ct);
+        var all = view.Type == HomeRails.AllView;
+        var libraryTask = all ? BuildYourLibraryAsync(userId, ct) : Task.FromResult<Rail?>(null);
+        var discoveryTask = BuildDiscoveryRailsAsync(userId, view, ct);
         var library = await libraryTask.ConfigureAwait(false);
         var discovery = await discoveryTask.ConfigureAwait(false);
 
         var personal = OrganizePersonalRails(library);
-        var rails = DistinctAcrossRails(personal.Concat(discovery));
-        return new BrowsePayload(rails, time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture));
+        var size = view.GenreRail is null ? DiscoveryRailSize : GenrePageSize;
+        // Rails hold more than they show and a rail only claims the cards it shows, so a later rail that overlaps an
+        // earlier one still fills from its own spare rows.
+        var rails = DistinctAcrossRails(personal.Concat(discovery), rail => rail.Kind is null ? int.MaxValue : size);
+        return new BrowsePayload(rails, time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture))
+        {
+            View = view.Type,
+            Genre = view.GenreRail?.Genre?.Id,
+            Genres = all ? [] : HomeRails.GenresOf(view.Type),
+        };
     }
 
     public const string YourLibraryRailId = "your-library";
@@ -113,24 +140,28 @@ public sealed partial class BrowseService(
     }
 
     /// <summary>
-    /// One seen set across the home page, in rail order (personal, because, trending, popular): the first card for a
-    /// work stays and every later one is dropped, then rails left empty go. Cards are the same work when they share a
+    /// One seen set across the home page, in rail order (personal, because, then the catalog rails): the first card for
+    /// a work stays and every later one is dropped, then rails left empty go. Cards are the same work when they share a
     /// provider id, a normalised title + year + type, or a work key (the second guard). The title key applies even
-    /// when both cards have ids, since ids from two providers cannot be compared.
+    /// when both cards have ids, since ids from two providers cannot be compared. <paramref name="shown"/> caps each
+    /// rail: once it is full it stops claiming, so cards it will not show stay free for the rails below.
     /// </summary>
-    public static List<Rail> DistinctAcrossRails(IEnumerable<Rail> rails)
+    public static List<Rail> DistinctAcrossRails(IEnumerable<Rail> rails, Func<Rail, int>? shown = null)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var distinct = new List<Rail>();
         foreach (var rail in rails)
         {
-            var items = rail.Cards.Where(card =>
+            var cap = shown?.Invoke(rail) ?? int.MaxValue;
+            var items = new List<object>();
+            foreach (var card in rail.Cards)
             {
+                if (items.Count >= cap) break;
                 var (check, claim) = SameWorkKeys(card);
-                if (check.Any(seen.Contains)) return false;
+                if (check.Any(seen.Contains)) continue;
                 seen.UnionWith(claim);
-                return true;
-            }).Cast<object>().ToList();
+                items.Add(card);
+            }
             if (items.Count > 0) distinct.Add(rail with { Items = items });
         }
         return distinct;
@@ -325,26 +356,36 @@ public sealed partial class BrowseService(
 
     // ------------------------------------------------------------------ discovery
 
-    /// <summary>discovery.ts buildDiscoveryRails. Never throws.</summary>
-    public async Task<List<Rail>> BuildDiscoveryRailsAsync(string userId, CancellationToken ct = default)
+    /// <summary>discovery.ts buildDiscoveryRails, over the view's HomeRails. Never throws.</summary>
+    public async Task<List<Rail>> BuildDiscoveryRailsAsync(string userId, HomeView view, CancellationToken ct = default)
     {
-        try { await catalog.EnsureFreshAsync(ct).ConfigureAwait(false); }
+        var specs = view.Rails;
+        try { await catalog.EnsureHomeRailsAsync(specs, ct).ConfigureAwait(false); }
         catch (Exception e) when (e is not OperationCanceledException) { logger.LogError(e, "[discovery] catalog refresh unavailable"); }
 
-        var trending = await SafeRowsAsync("trending", null, ct).ConfigureAwait(false);
-        var popular = await SafeRowsAsync("popular", null, ct).ConfigureAwait(false);
-        var chartRows = trending.Concat(popular).ToList();
-        var signals = await homeReleases.ReadSignalsAsync(chartRows, ct).ConfigureAwait(false);
-        homeReleases.ScheduleRefresh(chartRows, signals);
-
+        var byRail = await SafeHomeRowsAsync(specs, ct).ConfigureAwait(false);
+        var catalogRows = byRail.Values.SelectMany(rows => rows).ToList();
         var now = time.GetUtcNow();
+        var recent = now.UtcDateTime.AddDays(-HomeReleaseCheckDays);
+        var releaseRows = catalogRows.Where(r => r.ReleaseDate >= recent).ToList();
+        var signals = await homeReleases.ReadSignalsAsync(releaseRows, ct).ConfigureAwait(false);
+        homeReleases.ScheduleRefresh(releaseRows, signals);
+
         var rails = new List<Rail>();
-        var because = await BuildBecauseRailAsync(userId, NewestOf(chartRows), ct).ConfigureAwait(false);
-        if (because is not null) rails.Add(because);
-        if (trending.Count > 0)
-            rails.Add(new Rail(TrendingRailId, "Trending now", trending.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(r.WorkKey), now)).ToList()));
-        if (popular.Count > 0)
-            rails.Add(new Rail(PopularRailId, "Popular series", popular.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(r.WorkKey), now)).ToList()));
+        if (view.Type == HomeRails.AllView)
+        {
+            var because = await BuildBecauseRailAsync(userId, NewestOf(catalogRows), ct).ConfigureAwait(false);
+            if (because is not null) rails.Add(because);
+        }
+        foreach (var spec in specs)
+        {
+            if (!byRail.TryGetValue(spec.Id, out var rows) || rows.Count == 0) continue;
+            rails.Add(new Rail(spec.Id, spec.Title, [.. rows.Select(r => (object)ToRailItem(r, signals.GetValueOrDefault(r.WorkKey), now))])
+            {
+                Kind = spec.Kind,
+                Genre = spec.Genre?.Id,
+            });
+        }
         return rails;
     }
 
@@ -427,6 +468,20 @@ public sealed partial class BrowseService(
             Provider = row.Provider,
             ProviderId = row.ProviderId,
         };
+    }
+
+    private async Task<Dictionary<string, List<CatalogEntry>>> SafeHomeRowsAsync(IReadOnlyList<HomeRail> rails, CancellationToken ct)
+    {
+        try
+        {
+            var rows = await catalog.ReadHomeRowsAsync([.. rails.Select(r => r.Id)], CatalogService.HomeRailRows, ct).ConfigureAwait(false);
+            return rows.ToDictionary(p => p.Key, p => p.Value.Where(r => !CatalogText.IsSlopTitle(r.Title)).ToList(), StringComparer.Ordinal);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogError(e, "[discovery] home rail rows unavailable");
+            return [];
+        }
     }
 
     private async Task<List<CatalogEntry>> SafeRowsAsync(string source, string? seed, CancellationToken ct)

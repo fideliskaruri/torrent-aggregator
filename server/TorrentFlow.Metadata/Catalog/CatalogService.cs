@@ -22,17 +22,6 @@ namespace TorrentFlow.Metadata.Catalog;
 public sealed record CatalogTitle(int TmdbId, string Kind, string Title, int? Year, string MediaType, string? PosterUrl,
     string? BackdropUrl, string? Overview, double? Rating, string? ReleaseDate);
 
-/// <summary>One release from an apibay precompiled top-100 feed.</summary>
-public sealed record FeedRelease(string Name, int Seeders, int Leechers, string? InfoHash, long? SizeBytes);
-
-public sealed record CatalogFeed(string Id, int Category, string Label, string MediaType, string Source);
-
-/// <summary>works.ts CatalogWork: one work collapsed from chart releases.</summary>
-public sealed record ChartWork(string WorkKey, string Title, int? Year, string MediaType, int TotalSeeders, int PeakSeeders, string BestRelease, int ReleaseCount);
-
-/// <summary>detail.ts CatalogDetail, plus the TMDB title it was read from when that title is the work's own.</summary>
-public sealed record CatalogDetail(string? Overview, double? Rating, string? ReleaseDate, TmdbRef? Tmdb = null);
-
 /// <summary>
 /// A row to be written into CatalogEntry. <paramref name="RatingSource"/> names the provider that supplied the rating;
 /// <paramref name="Provider"/> and <paramref name="ProviderId"/> name the title itself, so a card can be requested.
@@ -44,13 +33,6 @@ public sealed record CatalogDraft(string WorkKey, string Title, int? Year, strin
 /// <summary>Pure catalog helpers ported from src/lib/catalog/{tmdb,feeds,availability,store}.ts and src/lib/metadata/slop.ts.</summary>
 public static partial class CatalogText
 {
-    public static readonly IReadOnlyList<CatalogFeed> Feeds =
-    [
-        new("movies-hd", 207, "HD Movies", "movie", "trending"),
-        new("tv-hd", 208, "HD TV", "tv", "popular"),
-        new("tv", 205, "TV", "tv", "popular"),
-    ];
-
     private static readonly HashSet<string> Placeholders =
         ["unknown title", "untitled", "no title", "tba", "tbd", "n a", "null", "undefined", "none", "placeholder", "coming soon"];
 
@@ -151,73 +133,6 @@ public static partial class CatalogText
     public static string? Image(string imageBase, string? path, string size) =>
         string.IsNullOrWhiteSpace(path) ? null : $"{imageBase}/{size}{(path.StartsWith('/') ? path : "/" + path)}";
 
-    private static int ToInt(JsonElement e)
-    {
-        if (e.ValueKind == JsonValueKind.Number) return e.TryGetInt64(out var l) ? (int)Math.Clamp(l, int.MinValue, int.MaxValue) : (int)e.GetDouble();
-        return e.ValueKind == JsonValueKind.String && e.GetString() is { } str && Controllers.TitleSearchController.ParseIntPrefix(str) is { } v ? v : 0;
-    }
-
-    /// <summary>feeds.ts parseFeedBody.</summary>
-    public static List<FeedRelease> ParseFeedBody(JsonElement data)
-    {
-        var releases = new List<FeedRelease>();
-        if (data.ValueKind != JsonValueKind.Array) return releases;
-        foreach (var raw in data.EnumerateArray())
-        {
-            if (raw.ValueKind != JsonValueKind.Object) continue;
-            var name = TmdbClient.Str(raw, "name")?.Trim() ?? "";
-            if (name.Length == 0 || name == "No results returned") continue;
-            var hash = TmdbClient.Str(raw, "info_hash")?.Trim();
-            long size = raw.TryGetProperty("size", out var s) ? ToInt(s) : 0;
-            releases.Add(new FeedRelease(name,
-                raw.TryGetProperty("seeders", out var se) ? ToInt(se) : 0,
-                raw.TryGetProperty("leechers", out var le) ? ToInt(le) : 0,
-                string.IsNullOrEmpty(hash) ? null : hash.ToLowerInvariant(),
-                size == 0 ? null : size));
-        }
-        return releases;
-    }
-
-    /// <summary>works.ts isRenderableWorkName.</summary>
-    public static bool IsRenderableWorkName(string name)
-    {
-        var trimmed = name.Trim();
-        return trimmed.Length >= 2 && AnyLetter().IsMatch(trimmed) && !IsSlopTitle(trimmed);
-    }
-
-    /// <summary>works.ts resolveWorkMediaType: a release that parses as a series is never filed as a film.</summary>
-    public static string? ResolveWorkMediaType(string? declared, bool isSeries)
-    {
-        var normalized = MediaTypes.Normalize(declared);
-        return isSeries && !MediaTypes.IsSeries(normalized) ? "tv" : normalized;
-    }
-
-    /// <summary>works.ts collapseToWorks: group chart releases by workIdentity key, rank by total then peak seeders.</summary>
-    public static List<ChartWork> CollapseToWorks(IEnumerable<(FeedRelease Release, string MediaType)> items)
-    {
-        var works = new Dictionary<string, ChartWork>(StringComparer.Ordinal);
-        foreach (var (release, declared) in items)
-        {
-            var name = release.Name?.Trim();
-            if (string.IsNullOrEmpty(name)) continue;
-            var identity = ReleaseNames.WorkIdentity(name);
-            if (!IsRenderableWorkName(identity.Name)) continue;
-            if (ResolveWorkMediaType(declared, identity.IsSeries) is not { } mediaType) continue;
-            var seeders = Math.Max(0, release.Seeders);
-            if (!works.TryGetValue(identity.Key, out var existing))
-            {
-                works[identity.Key] = new ChartWork(identity.Key, identity.Name, identity.Year, mediaType, seeders, seeders, name, 1);
-                continue;
-            }
-            works[identity.Key] = seeders > existing.PeakSeeders
-                ? existing with { TotalSeeders = existing.TotalSeeders + seeders, ReleaseCount = existing.ReleaseCount + 1, PeakSeeders = seeders, BestRelease = name }
-                : existing with { TotalSeeders = existing.TotalSeeders + seeders, ReleaseCount = existing.ReleaseCount + 1 };
-        }
-        // localeCompare parity for the final tiebreak.
-        return works.Values.OrderByDescending(w => w.TotalSeeders).ThenByDescending(w => w.PeakSeeders)
-            .ThenBy(w => w.Title, StringComparer.InvariantCulture).ToList();
-    }
-
     /// <summary>works.ts seedWorkKeys: the seed's own keys as a film and as a series.</summary>
     public static HashSet<string> SeedWorkKeys(string seedTitle) =>
         new([ReleaseNames.WorkIdentity(seedTitle).Key, ReleaseNames.WorkIdentity($"{seedTitle} S01E01").Key], StringComparer.Ordinal);
@@ -242,12 +157,6 @@ public static partial class CatalogText
         new(row.WorkKey, row.Title, row.Year, row.MediaType, row.PosterUrl, row.BackdropUrl, row.Overview, row.Rating, row.Seeders, row.BestRelease, row.ReleaseDate,
             row.RatingSource, row.Provider, row.ProviderId);
 
-    /// <summary>store.ts draftFromWork: a chart-derived work plus whatever the detail lookup resolved (a TMDB detail and, when it names this work, its id).</summary>
-    public static CatalogDraft DraftFromWork(ChartWork work, string? posterUrl, string? backdropUrl, CatalogDetail? detail) =>
-        new(work.WorkKey, work.Title, work.Year, work.MediaType, posterUrl, backdropUrl, detail?.Overview, detail?.Rating,
-            work.PeakSeeders, work.BestRelease, ReleaseDateToDate(detail?.ReleaseDate), detail?.Rating is null ? null : "tmdb",
-            detail?.Tmdb is null ? null : "tmdb", detail?.Tmdb?.Id.ToString(CultureInfo.InvariantCulture));
-
     public static DateTime? ReleaseDateToDate(string? value) =>
         ParseReleaseDate(value) is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null;
 
@@ -262,6 +171,14 @@ public static partial class CatalogText
         new(workKey, t.Title, t.Year, t.MediaType, t.PosterUrl, t.BackdropUrl, t.Overview, t.Rating, seeders, bestRelease,
             t.ReleaseDate is { } d ? DateTime.SpecifyKind(DateTime.ParseExact(d, "yyyy-MM-dd", CultureInfo.InvariantCulture), DateTimeKind.Utc) : null,
             t.Rating is null ? null : "tmdb", "tmdb", t.TmdbId.ToString(CultureInfo.InvariantCulture));
+
+    /// <summary>A keyless provider's title (Cinemeta, AniList) as a catalog row; the provider and its id name the title.</summary>
+    public static CatalogDraft DraftFromMetadata(MediaMetadata m, string? mediaType = null)
+    {
+        var type = mediaType ?? m.MediaType;
+        return new(CatalogWorkKey(m.Title, m.Year, type), m.Title, m.Year, type, m.PosterUrl, m.BackdropUrl, m.Synopsis, m.Rating, 0, null,
+            ReleaseDateToDate(m.ReleaseDate), m.Rating is null ? null : m.Source, m.Source, m.ExternalId);
+    }
 }
 
 /// <summary>media-type.ts normalizeMediaType.</summary>
@@ -281,38 +198,48 @@ public static class MediaTypes
 }
 
 /// <summary>
-/// Catalog store + refresh (src/lib/catalog/{store,refresh,feeds,tmdb}.ts). Reads are one indexed query against
-/// CatalogEntry; refreshes are single-flight and never empty a catalog on outage.
+/// Catalog store + refresh. Home rails are partitions named by rail id (see <see cref="HomeRails"/>), refreshed at most
+/// once a local day from their provider feeds; reads are one indexed query and a refresh never empties a rail on outage.
 /// </summary>
 public sealed class CatalogService(
     IDbContextFactory<TorrentFlowDbContext> dbFactory,
     TmdbClient tmdb,
-    IHttpClientFactory httpFactory,
     IOptions<MetadataOptions> options,
     TimeProvider time,
     ILogger<CatalogService> logger,
-    ArtworkResolver? artwork = null,
-    IHostApplicationLifetime? hostLifetime = null, CinemetaClient? cinemeta = null) : ICatalogLookup
+    IHostApplicationLifetime? hostLifetime = null, CinemetaClient? cinemeta = null, AniListClient? anilist = null) : ICatalogLookup
 {
-    public static readonly TimeSpan CatalogTtl = TimeSpan.FromHours(1);
+    /// <summary>The worker's tick. Each tick refreshes only rails whose rows are from an earlier local day.</summary>
+    public static readonly TimeSpan HomeRefreshTick = TimeSpan.FromHours(1);
     public const int ColdStartBudgetMs = 12_000;
     public const int RelatedBudgetMs = 4_000;
     public const int WorksPerSource = 48;
     public const int RailHead = 24;
-    public const int FeedTimeoutMs = 8_000;
     public const int TmdbTimeoutMs = 8_000;
     public const int TmdbReadTimeoutMs = 3_500;
-    private const int TmdbPages = 2;
+    /// <summary>
+    /// Titles stored per home rail. A rail shows 24 and a genre page 48; the rest is depth, so a genre rail that shares
+    /// most of its titles with the rails above it still fills after de-duplication.
+    /// </summary>
+    public const int HomeRailRows = 96;
+    /// <summary>A feed that answers with fewer titles than this has not answered.</summary>
+    public const int HomeMinRows = 6;
+    private const int HomeFetchConcurrency = 4;
+    private const int TmdbHomePages = 5;
+    private const int FeedPages = 2;
+    private const int FeedPageSize = 50;
+    private static readonly TimeSpan HomeRetryAfter = TimeSpan.FromMinutes(30);
+    private static readonly string[] LegacySources = ["trending", "popular"];
 
     public const string BrowserUserAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-    private readonly Lock _gate = new();
-    private Task<CatalogRefreshResult>? _inFlight;
     private readonly TorrentFlow.Metadata.Caching.SingleFlight<int> _relatedInFlight = new();
+    private readonly TorrentFlow.Metadata.Caching.SingleFlight<bool> _homeInFlight = new(256);
+    private readonly SemaphoreSlim _homeFetchSlots = new(HomeFetchConcurrency);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _homeAttempts = new(StringComparer.Ordinal);
+    private int _legacyCleared;
     private CancellationToken StoppingToken => hostLifetime?.ApplicationStopping ?? CancellationToken.None;
-
-    public sealed record CatalogRefreshResult(Dictionary<string, int> Written, List<string> Errors, bool Offline, Dictionary<string, string> Origin, long TookMs);
 
     /// <summary>
     /// The catalog row for a work: an exact identity key ("film:dune:2021"), else the newest row whose title and year
@@ -346,193 +273,182 @@ public sealed class CatalogService(
             .Take(limit).ToListAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<(int EntryCount, DateTime? RefreshedAt)> ReadStatusAsync(CancellationToken ct = default)
+    // ------------------------------------------------------------------ home rails
+
+    /// <summary>The first <paramref name="perRail"/> rows of each home rail, in rank order, in one query.</summary>
+    public async Task<Dictionary<string, List<CatalogEntry>>> ReadHomeRowsAsync(IReadOnlyCollection<string> railIds, int perRail, CancellationToken ct = default)
     {
+        var ids = railIds.ToList();
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var count = await db.CatalogEntries.CountAsync(ct).ConfigureAwait(false);
-        var newest = await db.CatalogEntries.OrderByDescending(e => e.RefreshedAt)
-            .Select(e => (DateTime?)e.RefreshedAt).FirstOrDefaultAsync(ct).ConfigureAwait(false);
-        return (count, newest);
+        var rows = await db.CatalogEntries.AsNoTracking()
+            .Where(e => ids.Contains(e.Source) && e.SeedTitle == null && e.Rank < perRail)
+            .ToListAsync(ct).ConfigureAwait(false);
+        return rows.GroupBy(r => r.Source, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderBy(r => r.Rank).ThenBy(r => r.Title).ToList(), StringComparer.Ordinal);
     }
 
-    public bool IsStale(DateTime? refreshedAt) => refreshedAt is null || time.GetUtcNow().UtcDateTime - refreshedAt.Value > CatalogTtl;
+    /// <summary>When each rail was last written and by which provider, read from its first row.</summary>
+    public sealed record HomeRailState(DateTime RefreshedAt, string? Provider);
 
-    /// <summary>refresh.ts ensureCatalogFresh: cold waits up to 12 s; stale refreshes behind. Never throws.</summary>
-    public async Task<(int EntryCount, DateTime? RefreshedAt, bool Blocked)> EnsureFreshAsync(CancellationToken ct = default)
+    public async Task<Dictionary<string, HomeRailState>> ReadHomeRailStatesAsync(IEnumerable<string> railIds, CancellationToken ct = default)
     {
-        (int, DateTime?) status;
-        try { status = await ReadStatusAsync(ct).ConfigureAwait(false); }
-        catch (Exception e) when (e is not OperationCanceledException) { return (0, null, false); }
-
-        if (status.Item1 == 0)
-        {
-            var refresh = RefreshAsync();
-            try { await refresh.WaitAsync(TimeSpan.FromMilliseconds(ColdStartBudgetMs), time, ct).ConfigureAwait(false); }
-            catch (TimeoutException) { logger.LogDebug("Catalog refresh continues beyond the cold-start budget"); }
-            try { var after = await ReadStatusAsync(ct).ConfigureAwait(false); return (after.EntryCount, after.RefreshedAt, true); }
-            catch (Exception e) when (e is not OperationCanceledException) { return (0, null, true); }
-        }
-        if (IsStale(status.Item2)) _ = RefreshAsync();
-        return (status.Item1, status.Item2, false);
-    }
-
-    /// <summary>Single-flight catalog refresh. Returned, never thrown.</summary>
-    public Task<CatalogRefreshResult> RefreshAsync()
-    {
-        lock (_gate)
-        {
-            if (_inFlight is not null) return _inFlight;
-            var task = Task.Run(RunRefreshAsync);
-            _inFlight = task;
-            _ = task.ContinueWith(_ => { lock (_gate) _inFlight = null; }, TaskScheduler.Default);
-            return task;
-        }
-    }
-
-    private async Task<CatalogRefreshResult> RunRefreshAsync()
-    {
-        var ct = StoppingToken;
-        var started = time.GetTimestamp();
-        var written = new Dictionary<string, int>();
-        var origin = new Dictionary<string, string>();
-        var errors = new List<string>();
-        try
-        {
-            ct.ThrowIfCancellationRequested();
-            var chartsTask = Task.WhenAll(CatalogText.Feeds.Select(f => FetchFeedAsync(f, ct)));
-            var trendingTask = Task.WhenAll(new[] { ("movie", "trending"), ("tv", "popular") }.Select(s => FetchTrendingAsync(s.Item1, s.Item2)));
-            await Task.WhenAll(chartsTask, trendingTask).ConfigureAwait(false);
-            var charts = await chartsTask.ConfigureAwait(false);
-            var trending = await trendingTask.ConfigureAwait(false);
-            errors.AddRange(charts.Where(c => c.Error is not null).Select(c => $"{c.Feed.Label}: {c.Error}"));
-            errors.AddRange(trending.Where(t => t.Error is not null).Select(t => $"TMDB {t.Kind}: {t.Error}"));
-            var answered = charts.Where(c => c.Error is null && c.Releases.Count > 0).ToList();
-            var index = answered.Count > 0
-                ? new AvailabilityIndex(CatalogText.CollapseToWorks(answered.SelectMany(c => c.Releases.Select(r => (r, c.Feed.MediaType)))))
-                : AvailabilityIndex.Empty;
-
-            var prepared = new List<(string Source, List<CatalogDraft> Drafts)>();
-            if (cinemeta is not null)
-            {
-                foreach (var (kind, source) in new[] { ("movie", "trending"), ("tv", "popular") })
-                {
-                    var keyless = await cinemeta.CatalogAsync(kind, WorksPerSource, ct);
-                    if (keyless.Count == 0) continue;
-                    prepared.Add((source, keyless.Where(m => !CatalogText.IsSlopTitle(m.Title)).Select(m => new CatalogDraft(
-                        CatalogText.CatalogWorkKey(m.Title, m.Year, m.MediaType), m.Title, m.Year, m.MediaType,
-                        m.PosterUrl, m.BackdropUrl, m.Synopsis, m.Rating, 0, null, CatalogText.ReleaseDateToDate(m.ReleaseDate),
-                        m.Rating is null ? null : m.Source, m.Source, m.ExternalId)).ToList()));
-                    origin[source] = "cinemeta";
-                }
-            }
-            foreach (var t in trending)
-            {
-                if (t.Titles.Count == 0 || prepared.Any(p => p.Source == t.Source)) continue;
-                var drafts = t.Titles.Where(x => !CatalogText.IsSlopTitle(x.Title)).Take(WorksPerSource).Select(x =>
-                {
-                    var key = CatalogText.CatalogWorkKey(x.Title, x.Year, x.MediaType);
-                    return index.Match(key, x.Year) is { } hit ? CatalogText.DraftFromTmdb(x, key, hit.PeakSeeders, hit.BestRelease) : CatalogText.DraftFromTmdb(x, key);
-                }).ToList();
-                prepared.Add((t.Source, drafts));
-                origin[t.Source] = "tmdb";
-            }
-            var missing = CatalogText.Feeds.Select(f => f.Source).Distinct().Where(s => prepared.All(p => p.Source != s)).ToList();
-            var fallbacks = await Task.WhenAll(missing.Select(async source =>
-            {
-                var items = answered.Where(c => c.Feed.Source == source).SelectMany(c => c.Releases.Select(r => (r, c.Feed.MediaType))).ToList();
-                if (items.Count == 0) return ((string, List<CatalogDraft>)?)null;
-                var works = CatalogText.CollapseToWorks(items).Take(WorksPerSource).ToList();
-                var artTask = AttachArtworkAsync(works, ct);
-                var detailTask = ResolveDetailBoundedAsync(works, ct);
-                await Task.WhenAll(artTask, detailTask).ConfigureAwait(false);
-                var art = await artTask.ConfigureAwait(false);
-                var details = await detailTask.ConfigureAwait(false);
-                return (source, works.Select((w, i) => CatalogText.DraftFromWork(w, art[i].PosterUrl, art[i].BackdropUrl, details[i])).ToList());
-            })).ConfigureAwait(false);
-            foreach (var fallback in fallbacks.OfType<(string Source, List<CatalogDraft> Drafts)>())
-            {
-                prepared.Add(fallback);
-                origin[fallback.Source] = "charts";
-            }
-            if (prepared.Count == 0) return new(written, errors, true, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
-            foreach (var (source, drafts) in prepared)
-                written[source] = await ReplaceSourceAsync(source, null, drafts, ct).ConfigureAwait(false);
-            return new(written, errors, false, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
-        }
-        catch (Exception e)
-        {
-            logger.LogError(e, "[catalog] refresh failed");
-            errors.Add(e.Message);
-            return new(written, errors, true, origin, (long)time.GetElapsedTime(started).TotalMilliseconds);
-        }
-    }
-
-    public const int ArtworkBudgetMs = 15_000;
-    public const int DetailBudgetMs = 20_000;
-    private const int DetailConcurrency = 4;
-
-    /// <summary>artwork.ts resolveArtworkBounded: chart works get posters within a 15 s budget; a miss or hang costs artwork only.</summary>
-    private async Task<IReadOnlyList<ArtworkResult>> AttachArtworkAsync(List<ChartWork> works, CancellationToken ct)
-    {
-        var none = works.Select(_ => ArtworkResult.None).ToList();
-        if (artwork is null || works.Count == 0) return none;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(ArtworkBudgetMs), time);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
-        try
-        {
-            var art = await artwork.ResolveBatchAsync(works.Select(w => new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType))).ToList(), linked.Token)
-                .ConfigureAwait(false);
-            return works.Select((_, i) => i < art.Count ? art[i] : ArtworkResult.None).ToList();
-        }
-        catch (Exception e)
-        {
-            logger.LogDebug(e, "Catalog artwork unavailable within its budget");
-            return none;
-        }
+        var ids = railIds.ToList();
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var heads = await db.CatalogEntries.AsNoTracking()
+            .Where(e => ids.Contains(e.Source) && e.SeedTitle == null && e.Rank == 0)
+            .Select(e => new { e.Source, e.RefreshedAt, e.Provider }).ToListAsync(ct).ConfigureAwait(false);
+        return heads.GroupBy(h => h.Source, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => new HomeRailState(g.First().RefreshedAt, g.First().Provider), StringComparer.Ordinal);
     }
 
     /// <summary>
-    /// detail.ts resolveDetailBounded over work-detail.ts's TMDB tier: overview / rating / release date from the same
-    /// TMDB match that chose the poster, within a 20 s budget (all-or-nothing, like the TS). Never throws.
+    /// The rails a view shows. A rail with no rows yet (first run, or a view never opened) is fetched while the request
+    /// waits, up to <see cref="ColdStartBudgetMs"/>; a rail that has rows refreshes behind the request when stale, so a
+    /// view never waits for a daily refresh. A rail in its retry back-off is not waited for. Never throws.
     /// </summary>
-    private async Task<IReadOnlyList<CatalogDetail?>> ResolveDetailBoundedAsync(List<ChartWork> works, CancellationToken ct)
+    public async Task EnsureHomeRailsAsync(IReadOnlyList<HomeRail> rails, CancellationToken ct = default)
     {
-        var none = new CatalogDetail?[works.Count];
-        if (artwork is null || works.Count == 0 || tmdb.ApiKey is null) return none;
-        var output = new CatalogDetail?[works.Count];
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(DetailBudgetMs), time);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
+        Dictionary<string, HomeRailState> states;
+        try { states = await ReadHomeRailStatesAsync(rails.Select(r => r.Id), ct).ConfigureAwait(false); }
+        catch (Exception e) when (e is not OperationCanceledException) { logger.LogWarning(e, "[home] rail state unreadable"); return; }
+        _ = RefreshHomeRailsAsync([.. rails.Where(r => states.ContainsKey(r.Id))], states);
+        var firstFill = RefreshHomeRailsAsync([.. rails.Where(r => !states.ContainsKey(r.Id))], states);
+        if (firstFill.IsCompleted) return;
+        try { await firstFill.WaitAsync(TimeSpan.FromMilliseconds(ColdStartBudgetMs), time, ct).ConfigureAwait(false); }
+        catch (TimeoutException) { logger.LogDebug("[home] rail refresh continues beyond the cold-start budget"); }
+    }
+
+    /// <summary>The worker's pass: every rail of every view whose rows are from an earlier day.</summary>
+    public async Task RefreshStaleHomeRailsAsync(CancellationToken ct = default)
+    {
         try
         {
-            await Parallel.ForEachAsync(Enumerable.Range(0, works.Count),
-                new ParallelOptions { MaxDegreeOfParallelism = DetailConcurrency, CancellationToken = linked.Token }, async (i, token) =>
-            {
-                try
-                {
-                    var w = works[i];
-                    if (await artwork.ResolveTmdbRefAsync(new ArtworkQuery(w.Title, w.Year, MediaTypes.Normalize(w.MediaType)), token).ConfigureAwait(false) is not { } reference) return;
-                    if (await tmdb.FetchDetailAsync(reference.MediaType, reference.Id, ct: token).ConfigureAwait(false) is not { } d) return;
-                    var title = (TmdbClient.Str(d, "title") ?? TmdbClient.Str(d, "name") ?? "").Trim();
-                    if (title.Length == 0) return;
-                    var overview = TmdbClient.Str(d, "overview")?.Trim();
-                    double? rating = TmdbClient.Num(d, "vote_average") is > 0 and var v ? v : null;
-                    var date = TmdbClient.Str(d, "release_date").OrEmpty(TmdbClient.Str(d, "first_air_date"))?.Trim();
-                    // The id names the work only when TMDB files it as the same kind under the title and year the card links to:
-                    // the title page refuses an id that names another title.
-                    var series = MediaTypes.IsSeries(w.MediaType);
-                    int? tmdbYear = date is { Length: >= 4 } && int.TryParse(date.AsSpan(0, 4), NumberStyles.None, CultureInfo.InvariantCulture, out var y) ? y : null;
-                    var named = MediaTypes.IsSeries(reference.MediaType) == series && WorkKeySlug.Matches(WorkKeySlug.WorkKeyFor(w.Title, series ? null : w.Year), title, tmdbYear);
-                    output[i] = new CatalogDetail(string.IsNullOrEmpty(overview) ? null : overview, rating, string.IsNullOrEmpty(date) ? null : date, named ? reference : null);
-                }
-                catch (Exception e) when (e is not OperationCanceledException) { logger.LogDebug(e, "[catalog] detail lookup failed for {Title}", works[i].Title); }
-            }).ConfigureAwait(false);
-            return output;
+            var states = await ReadHomeRailStatesAsync(HomeRails.Every.Select(r => r.Id), ct).ConfigureAwait(false);
+            await RefreshHomeRailsAsync(HomeRails.Every, states).WaitAsync(ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (Exception e) when (e is not OperationCanceledException) { logger.LogWarning(e, "[home] scheduled rail refresh failed"); }
+    }
+
+    private Task RefreshHomeRailsAsync(IReadOnlyList<HomeRail> rails, IReadOnlyDictionary<string, HomeRailState> states)
+    {
+        ClearLegacyPartitions();
+        var now = time.GetUtcNow();
+        var due = rails.Where(r => IsHomeRailStale(r, states.GetValueOrDefault(r.Id), now)
+            && !(_homeAttempts.TryGetValue(r.Id, out var at) && now - at < HomeRetryAfter)).ToList();
+        if (due.Count == 0) return Task.CompletedTask;
+        return Task.WhenAll(due.Select(r => _homeInFlight.RunAsync(r.Id, () => RefreshHomeRailAsync(r, states.GetValueOrDefault(r.Id)))));
+    }
+
+    /// <summary>
+    /// Stale when the rail has no rows, its rows are from an earlier local day, or they came from a provider other than the
+    /// one it prefers now (a TMDB key was added or removed). Within a day the rail does not change.
+    /// </summary>
+    private bool IsHomeRailStale(HomeRail rail, HomeRailState? state, DateTimeOffset now)
+    {
+        if (state is null) return true;
+        if (LocalDay(new DateTimeOffset(DateTime.SpecifyKind(state.RefreshedAt, DateTimeKind.Utc))) < LocalDay(now)) return true;
+        return rail.Feeds.FirstOrDefault(IsUsable)?.Provider is { } preferred && state.Provider != preferred;
+    }
+
+    private DateOnly LocalDay(DateTimeOffset at) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(at, time.LocalTimeZone).DateTime);
+
+    private bool IsUsable(HomeFeed feed) => feed switch
+    {
+        TmdbHomeFeed => tmdb.ApiKey is not null,
+        CinemetaHomeFeed => cinemeta is not null,
+        AniListHomeFeed => anilist is not null,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Fills one rail from its first usable feed. A rail is written only when a feed answered; when the first feed fails and
+    /// the rail already holds rows from a provider still usable, those rows stay (no silent provider flip). The next feed is
+    /// tried only when the rail has no rows or its provider is no longer usable.
+    /// </summary>
+    private async Task<bool> RefreshHomeRailAsync(HomeRail rail, HomeRailState? state)
+    {
+        var ct = StoppingToken;
+        _homeAttempts[rail.Id] = time.GetUtcNow();
+        try
         {
-            logger.LogDebug("[catalog] detail enrichment exceeded its budget");
-            return none;
+            var usable = rail.Feeds.Where(IsUsable).ToList();
+            var keepExisting = state?.Provider is { } existing && usable.Any(f => f.Provider == existing);
+            foreach (var feed in usable)
+            {
+                var drafts = await FetchHomeFeedAsync(feed, ct).ConfigureAwait(false);
+                if (drafts.Count >= HomeMinRows)
+                {
+                    await ReplaceSourceAsync(rail.Id, null, drafts, ct).ConfigureAwait(false);
+                    return true;
+                }
+                logger.LogInformation("[home] {Rail}: {Provider} answered {Count} titles", rail.Id, feed.Provider, drafts.Count);
+                if (keepExisting) return false;
+            }
+            return false;
         }
+        catch (Exception e) when (e is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogWarning(e, "[home] refresh failed for {Rail}", rail.Id);
+            return false;
+        }
+    }
+
+    private async Task<List<CatalogDraft>> FetchHomeFeedAsync(HomeFeed feed, CancellationToken ct)
+    {
+        await _homeFetchSlots.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var today = LocalDay(time.GetUtcNow());
+            IEnumerable<CatalogDraft> drafts = feed switch
+            {
+                TmdbHomeFeed t => await FetchTmdbHomeAsync(t, today, ct).ConfigureAwait(false),
+                CinemetaHomeFeed c when cinemeta is not null => await FetchPagesAsync(p =>
+                    cinemeta.CatalogAsync(c.Kind, c.Catalog, c.Genre?.Replace("{year}", today.Year.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal),
+                        FeedPageSize, ct, skip: p * FeedPageSize), m => CatalogText.DraftFromMetadata(m)).ConfigureAwait(false),
+                AniListHomeFeed a when anilist is not null => await FetchPagesAsync(p =>
+                    anilist.BrowseAsync(a.Sort, a.ThisSeason ? HomeRails.AniListSeason(today) : null, a.ThisSeason ? today.Year : null, a.Genre,
+                        FeedPageSize, ct, page: p + 1), w => CatalogText.DraftFromMetadata(w.Metadata, w.IsSeries ? "anime" : "movie")).ConfigureAwait(false),
+                _ => [],
+            };
+            return [.. drafts.Where(d => d.WorkKey.Length > 0 && !CatalogText.IsSlopTitle(d.Title)).Take(HomeRailRows)];
+        }
+        finally { _homeFetchSlots.Release(); }
+    }
+
+    /// <summary>Cinemeta and AniList pages of 50, fetched together. A second page counts only behind a first one.</summary>
+    private static async Task<IEnumerable<CatalogDraft>> FetchPagesAsync<T>(Func<int, Task<List<T>>> page, Func<T, CatalogDraft> draft)
+    {
+        var pages = await Task.WhenAll(Enumerable.Range(0, FeedPages).Select(page)).ConfigureAwait(false);
+        return pages[0].Count == 0 ? [] : pages.SelectMany(p => p).Select(draft);
+    }
+
+    private async Task<IEnumerable<CatalogDraft>> FetchTmdbHomeAsync(TmdbHomeFeed feed, DateOnly today, CancellationToken ct)
+    {
+        var kind = feed.Path.Contains("/tv", StringComparison.Ordinal) ? "tv" : "movie";
+        var query = HomeRails.TmdbQuery(feed.Query, today);
+        var pages = await Task.WhenAll(Enumerable.Range(1, TmdbHomePages).Select(p =>
+            tmdb.TryGetAsync(feed.Path, [.. query, ("page", p.ToString(CultureInfo.InvariantCulture))], TmdbTimeoutMs, ct))).ConfigureAwait(false);
+        var seen = new HashSet<int>();
+        return pages.Where(p => p is not null)
+            .SelectMany(p => CatalogText.ParseTmdbList(p!.Value, kind, options.Value.TmdbImageBaseUrl))
+            .Where(t => seen.Add(t.TmdbId))
+            .Select(t => CatalogText.DraftFromTmdb(t, CatalogText.CatalogWorkKey(t.Title, t.Year, t.MediaType)))
+            .ToList();
+    }
+
+    /// <summary>The hourly trending / popular partitions the rails replace. Dropped once so nothing reads them again.</summary>
+    private void ClearLegacyPartitions()
+    {
+        if (Interlocked.Exchange(ref _legacyCleared, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var db = await dbFactory.CreateDbContextAsync(StoppingToken).ConfigureAwait(false);
+                await db.CatalogEntries.Where(e => LegacySources.Contains(e.Source) && e.SeedTitle == null).ExecuteDeleteAsync(StoppingToken).ConfigureAwait(false);
+            }
+            catch (Exception e) { logger.LogDebug(e, "[home] legacy catalog rows not cleared"); }
+        });
     }
 
     /// <summary>store.ts replaceCatalogSource: upsert ranked rows then drop the rest of the partition.</summary>
@@ -563,47 +479,6 @@ public sealed class CatalogService(
         return unique.Count;
     }
 
-    private sealed record FeedResult(CatalogFeed Feed, List<FeedRelease> Releases, string? Error);
-
-    private async Task<FeedResult> FetchFeedAsync(CatalogFeed feed, CancellationToken ct)
-    {
-        try
-        {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            cts.CancelAfter(FeedTimeoutMs);
-            using var req = new HttpRequestMessage(HttpMethod.Get, $"{options.Value.ApibayBaseUrl.TrimEnd('/')}/precompiled/data_top100_{feed.Category}.json");
-            req.Headers.TryAddWithoutValidation("User-Agent", BrowserUserAgent);
-            req.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
-            using var client = httpFactory.CreateClient(TmdbClient.HttpClientName);
-            using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
-            if (!res.IsSuccessStatusCode) return new(feed, [], $"apibay HTTP {(int)res.StatusCode}");
-            var data = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonElementAsync(res.Content, cts.Token).ConfigureAwait(false);
-            return data.ValueKind != JsonValueKind.Array ? new(feed, [], "apibay returned a non-list body") : new(feed, CatalogText.ParseFeedBody(data), null);
-        }
-        catch (Exception e)
-        {
-            return new(feed, [], e is OperationCanceledException ? "The operation was aborted due to timeout" : e.Message);
-        }
-    }
-
-    private sealed record TrendingResult(string Kind, string Source, List<CatalogTitle> Titles, string? Error);
-
-    private async Task<TrendingResult> FetchTrendingAsync(string kind, string source)
-    {
-        if (tmdb.ApiKey is null) return new(kind, source, [], null);
-        var titles = new List<CatalogTitle>();
-        string? error = null;
-        var pages = await Task.WhenAll(Enumerable.Range(1, TmdbPages).Select(p =>
-            tmdb.TryGetAsync($"/trending/{kind}/week", [("page", p.ToString(CultureInfo.InvariantCulture))], TmdbTimeoutMs, StoppingToken))).ConfigureAwait(false);
-        var seen = new HashSet<int>();
-        foreach (var page in pages)
-        {
-            if (page is null) { error ??= "TMDB request failed"; continue; }
-            titles.AddRange(CatalogText.ParseTmdbList(page.Value, kind, options.Value.TmdbImageBaseUrl).Where(t => seen.Add(t.TmdbId)));
-        }
-        return new(kind, source, titles, titles.Count > 0 ? null : error);
-    }
-
     /// <summary>
     /// refresh.ts refreshRelatedForSeed: TMDB recommendations for the seed (bounded by RelatedBudgetMs), else the
     /// seed's same-type neighbours in the chart pool. Single-flight per title + media type; drops other seeds' rows.
@@ -621,10 +496,10 @@ public sealed class CatalogService(
         try
         {
             var ct = StoppingToken;
-            var trending = await ReadRowsAsync("trending", null, WorksPerSource, ct).ConfigureAwait(false);
-            var popular = await ReadRowsAsync("popular", null, WorksPerSource, ct).ConfigureAwait(false);
-            var pool = trending.Concat(popular).ToList();
-            var onScreen = trending.Take(RailHead).Concat(popular.Take(RailHead)).Select(r => r.WorkKey).ToHashSet(StringComparer.Ordinal);
+            var rails = await ReadHomeRowsAsync(HomeRails.RelatedPool, WorksPerSource, ct).ConfigureAwait(false);
+            var lists = HomeRails.RelatedPool.Select(id => rails.GetValueOrDefault(id) ?? []).ToList();
+            var pool = lists.SelectMany(rows => rows).ToList();
+            var onScreen = lists.SelectMany(rows => rows.Take(RailHead)).Select(r => r.WorkKey).ToHashSet(StringComparer.Ordinal);
 
             List<CatalogDraft>? drafts = null;
             using (var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(RelatedBudgetMs), time))
@@ -688,17 +563,20 @@ public sealed class CatalogService(
     }
 }
 
-/// <summary>refresh.ts armCatalogTimer: hourly refresh independent of traffic; CATALOG_TIMER=0 (or off/false) disables it.</summary>
+/// <summary>
+/// Hourly tick that refreshes home rails whose rows are from an earlier local day, so each rail changes at most once a
+/// day and before anyone opens home. CATALOG_TIMER=0 (or off/false) disables it.
+/// </summary>
 public sealed class CatalogRefreshWorker(CatalogService catalog, IOptions<MetadataOptions> options, TimeProvider time) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (options.Value.CatalogTimer?.Trim().ToLowerInvariant() is "0" or "off" or "false") return;
-        using var timer = new PeriodicTimer(CatalogService.CatalogTtl, time);
+        using var timer = new PeriodicTimer(CatalogService.HomeRefreshTick, time);
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
-                await catalog.RefreshAsync().WaitAsync(stoppingToken).ConfigureAwait(false);
+                await catalog.RefreshStaleHomeRailsAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }
     }

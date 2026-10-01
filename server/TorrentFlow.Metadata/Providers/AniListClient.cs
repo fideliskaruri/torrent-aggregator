@@ -53,6 +53,8 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
     private const string EpisodeAiringQuery = "query ($id: Int, $episode: Int) {\n  Page(page: 1, perPage: 1) {\n    airingSchedules(mediaId: $id, episode: $episode) { episode airingAt }\n  }\n}\n";
     private const string RecommendationsQuery = "query ($search: String, $perPage: Int) {\n  Page(page: 1, perPage: 8) {\n    media(search: $search, type: ANIME, sort: SEARCH_MATCH) {\n      id\n      coverImage { large extraLarge }\n      recommendations(sort: RATING_DESC, perPage: $perPage) {\n        nodes {\n          mediaRecommendation {\n" + MediaFields + "          }\n        }\n      }\n    }\n  }\n}\n";
 
+    private const string BrowseQuery = "query ($sort: [MediaSort], $season: MediaSeason, $seasonYear: Int, $genre: String, $page: Int, $perPage: Int) {\n  Page(page: $page, perPage: $perPage) {\n    media(type: ANIME, isAdult: false, sort: $sort, season: $season, seasonYear: $seasonYear, genre: $genre) {\n" + MediaFields + "    }\n  }\n}\n";
+
     private readonly SingleFlight<List<JsonElement>> _inFlight = new();
     private readonly BoundedTtlCache<List<JsonElement>> _recent = new(300, time);
     private readonly BoundedTtlCache<AniListWork> _works = new(300, time);
@@ -214,6 +216,29 @@ public sealed partial class AniListClient(IHttpClientFactory httpFactory, TimePr
     }
 
     public async Task<MediaMetadata?> GetByIdAsync(string id, CancellationToken ct = default) => (await GetWorkByIdAsync(id, ct).ConfigureAwait(false))?.Metadata;
+
+    /// <summary>One page of anime by AniList sort (POPULARITY_DESC, TRENDING_DESC, SCORE_DESC), optionally one season or genre. Empty on failure.</summary>
+    public async Task<List<AniListWork>> BrowseAsync(string sort, string? season, int? seasonYear, string? genre, int perPage, CancellationToken ct = default, int page = 1)
+    {
+        var variables = new JsonObject { ["sort"] = new JsonArray(sort), ["perPage"] = Math.Clamp(perPage, 1, 50), ["page"] = Math.Max(page, 1) };
+        if (season is not null && seasonYear is not null) { variables["season"] = season; variables["seasonYear"] = seasonYear; }
+        if (genre is not null) variables["genre"] = genre;
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            using var response = await PostAsync(BrowseQuery, variables, cts.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) return [];
+            using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, cts.Token).ConfigureAwait(false);
+            if (!doc.RootElement.TryGetProperty("data", out var data) || !data.TryGetProperty("Page", out var result) ||
+                !result.TryGetProperty("media", out var media) || media.ValueKind != JsonValueKind.Array) return [];
+            return media.EnumerateArray().Where(m => m.ValueKind == JsonValueKind.Object).Select(m => ToWork(m.Clone())).ToList();
+        }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException && !ct.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
 
     /// <summary>
     /// The first episode of this AniList entry that airs after <paramref name="after"/>. <c>Answered</c> is false when

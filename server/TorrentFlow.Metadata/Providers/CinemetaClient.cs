@@ -151,8 +151,15 @@ public sealed class CinemetaClient(IHttpClientFactory http, SourceRegistry? regi
     private static string Fold(string value) =>
         new(value.Normalize(System.Text.NormalizationForm.FormD)
             .Where(c => char.IsLetterOrDigit(c)).Select(char.ToLowerInvariant).ToArray());
-    public Task<List<MediaMetadata>> CatalogAsync(string type, int limit = 24, CancellationToken ct = default) =>
-        List($"/catalog/{Kind(type)}/top.json", type, limit, ct);
+    /// <summary>A Cinemeta catalog ("top" is IMDb's popular list, "year" one year's titles), optionally one genre of it. Pages hold 50; <paramref name="skip"/> starts later.</summary>
+    public Task<List<MediaMetadata>> CatalogAsync(string type, string catalog, string? genre, int limit, CancellationToken ct = default, int skip = 0)
+    {
+        var extras = new List<string>();
+        if (genre is not null) extras.Add($"genre={Uri.EscapeDataString(genre)}");
+        if (skip > 0) extras.Add($"skip={skip.ToString(CultureInfo.InvariantCulture)}");
+        var path = extras.Count == 0 ? $"/catalog/{Kind(type)}/{catalog}.json" : $"/catalog/{Kind(type)}/{catalog}/{string.Join('&', extras)}.json";
+        return List(path, type, limit, ct);
+    }
     private async Task<List<MediaMetadata>> List(string path, string type, int limit, CancellationToken ct)
     {
         var root = await Get(path, ct);

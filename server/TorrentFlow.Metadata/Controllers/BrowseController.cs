@@ -9,13 +9,18 @@ namespace TorrentFlow.Metadata.Controllers;
 [ApiController]
 public sealed class BrowseController(BrowseService browse, RecommendationService recommendations, TitleExtrasService extras) : ControllerBase
 {
-    /// <summary>GET /api/browse — personal rails first, discovery rails beneath. 500 only when the local DB is unreadable.</summary>
+    /// <summary>
+    /// GET /api/browse?type=all|films|series|anime&amp;genre=&lt;id&gt;: personal rails first on All, catalog rails beneath.
+    /// 400 for a type or genre home does not have; 500 only when the local DB is unreadable.
+    /// </summary>
     [HttpGet("/api/browse")]
-    public async Task<IActionResult> Browse(CancellationToken ct)
+    public async Task<IActionResult> Browse([FromQuery] string? type, [FromQuery] string? genre, CancellationToken ct)
     {
+        if (!HomeRails.TryParseView(type, genre, out var view))
+            return BadRequest(new { error = "Home does not have that category. Pick one from the list above." });
         try
         {
-            return Ok(await browse.BuildAsync(LocalUser.Id, ct));
+            return Ok(await browse.BuildAsync(LocalUser.Id, view, ct));
         }
         catch (Exception e) when (!ct.IsCancellationRequested)
         {
