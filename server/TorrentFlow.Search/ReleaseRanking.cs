@@ -37,7 +37,7 @@ public static class ReleaseRanking
     }
     public static int ComputeHealth(TorrentResult r) => r.Seeders <= 0 ? r.Leechers > 0 ? 10 : 0
         : Round(Math.Min(100, Math.Min(70, Math.Log10(r.Seeders + 1d) * 28) + Math.Min(30, Math.Log10(r.Seeders / (double)Math.Max(r.Leechers, 1) + 1) * 20)));
-    /// <summary>Below this a release is "weak": a better-seeded one at another resolution wins.</summary>
+    /// <summary>Below this a release is "weak": a better-seeded one at another resolution wins. A different bar from ReleaseSeeders.MinViable (3), which only decides whether a release is worth fetching at all.</summary>
     public const int UsableSeeders = 10;
     /// <summary>0 dead, 1 weak (1–9), 2 usable (10+). HTTP webseeds earn nothing: the built-in engine could not pull from them in testing.</summary>
     public static int SwarmClass(TorrentResult r) => r.Seeders >= UsableSeeders ? 2 : r.Seeders >= 1 ? 1 : 0;

@@ -114,13 +114,25 @@ public sealed partial class BrowseService(
         var size = view.GenreRail is null ? DiscoveryRailSize : GenrePageSize;
         // Rails hold more than they show and a rail only claims the cards it shows, so a later rail that overlaps an
         // earlier one still fills from its own spare rows.
-        var rails = DistinctAcrossRails(personal.Concat(discovery), rail => rail.Kind is null ? int.MaxValue : size);
+        var rails = await WithWorkPostersAsync(DistinctAcrossRails(personal.Concat(discovery), rail => rail.Kind is null ? int.MaxValue : size), ct)
+            .ConfigureAwait(false);
         return new BrowsePayload(rails, time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture))
         {
             View = view.Type,
             Genre = view.GenreRail?.Genre?.Id,
             Genres = all ? [] : HomeRails.GenresOf(view.Type),
         };
+    }
+
+    /// <summary>Every card shows its work's one poster (<see cref="WorkPosters"/>), the same one every other page shows.</summary>
+    private async Task<List<Rail>> WithWorkPostersAsync(List<Rail> rails, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
+        var known = await WorkPosters.LoadAsync(db, rails.SelectMany(r => r.Cards).Select(c => c.WorkKey), ct).ConfigureAwait(false);
+        return rails.Select(r => r with
+        {
+            Items = r.Cards.Select(c => (object)(c with { PosterUrl = WorkPosters.Pick(known, c.WorkKey, c.PosterUrl) })).ToList(),
+        }).ToList();
     }
 
     public const string YourLibraryRailId = "your-library";
@@ -206,7 +218,7 @@ public sealed partial class BrowseService(
 
     // ------------------------------------------------------------------ Downloaded
 
-    private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType, string? PosterUrl);
+    private sealed record AcquisitionWork(string? InfoHash, string? WorkId, string WorkKey, string? CanonicalTitle, string? MediaType);
 
     private async Task<Rail?> BuildYourLibraryAsync(string userId, CancellationToken ct)
     {
@@ -225,7 +237,7 @@ public sealed partial class BrowseService(
                                   from w in joined.DefaultIfEmpty()
                                   where a.UserId == userId && a.InfoHash != null && hashes.Contains(a.InfoHash.ToLower())
                                   orderby a.UpdatedAt descending
-                                  select new AcquisitionWork(a.InfoHash, a.WorkId, a.WorkKey, w == null ? null : w.CanonicalTitle, w == null ? null : w.MediaType, w == null ? null : w.PosterUrl))
+                                  select new AcquisitionWork(a.InfoHash, a.WorkId, a.WorkKey, w == null ? null : w.CanonicalTitle, w == null ? null : w.MediaType))
             .ToListAsync(ct).ConfigureAwait(false);
         var workByHash = new Dictionary<string, AcquisitionWork>(StringComparer.Ordinal);
         var canonicalByWorkKey = new Dictionary<string, AcquisitionWork>(StringComparer.Ordinal);
@@ -263,9 +275,7 @@ public sealed partial class BrowseService(
                 WorkKey = canonical?.WorkKey,
                 Title = work.Title,
                 Subtitle = LibrarySubtitle(mediaType, work.Members),
-                // The work's own poster first: it came from the provider that named the work
-                // (AniList for an anime film), where a lookup by release name can miss.
-                PosterUrl = canonical?.PosterUrl ?? art[i].PosterUrl,
+                PosterUrl = art[i].PosterUrl,
                 BackdropUrl = art[i].BackdropUrl,
                 Availability = "ready",
                 InfoHash = torrent.Hash,

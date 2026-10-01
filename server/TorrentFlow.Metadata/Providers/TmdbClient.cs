@@ -16,7 +16,6 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
 {
     public const string HttpClientName = "TorrentFlow.Metadata";
     public const string Base = "https://api.themoviedb.org/3";
-    public const string Img = "https://image.tmdb.org/t/p";
 
     [GeneratedRegex(@"^(\d{4})-(\d{2})-(\d{2})\b")] private static partial Regex IsoDate();
 
@@ -55,10 +54,11 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         return request;
     }
 
-    public static string? PosterUrl(string? path) => string.IsNullOrEmpty(path) ? null : $"{Img}/w500{path}";
-    public static string? BackdropUrl(string? path) => string.IsNullOrEmpty(path) ? null : $"{Img}/w1280{path}";
-    public static string? ProfileUrl(string? path) => string.IsNullOrEmpty(path) ? null : $"{Img}/w185{path}";
-    public static string? StillUrl(string? path) => string.IsNullOrEmpty(path) ? null : $"{Img}/w300{path}";
+    /// <summary>The configured TMDB image root (MetadataOptions.TmdbImageBaseUrl).</summary>
+    public string ImageBase => options.Value.TmdbImageBaseUrl;
+
+    /// <summary>A TMDB file path as an image URL sized for its role.</summary>
+    public string? ImageUrl(string? path, Artwork.ArtRole role) => Artwork.TmdbImages.Url(ImageBase, path, role);
 
     public static string? NormalizeDate(string? releaseDate, string? firstAirDate)
     {
@@ -173,7 +173,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
                     var mt = Str(r, "media_type") is "tv" or "movie" ? Str(r, "media_type")! : scope == "tv" ? "tv" : "movie";
                     return new TmdbCandidate(Int(r, "id") ?? 0, mt, Str(r, "title").OrEmpty(Str(r, "name")) ?? "",
                         YearOf(Str(r, "release_date").OrEmpty(Str(r, "first_air_date"))),
-                        PosterUrl(Str(r, "poster_path")), BackdropUrl(Str(r, "backdrop_path")), Num(r, "popularity") ?? 0, Int(r, "vote_count") ?? 0);
+                        ImageUrl(Str(r, "poster_path"), Artwork.ArtRole.Poster), ImageUrl(Str(r, "backdrop_path"), Artwork.ArtRole.Backdrop), Num(r, "popularity") ?? 0, Int(r, "vote_count") ?? 0);
                 })
                 .ToList();
         }
@@ -231,7 +231,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
             ? r.EnumerateArray().Select(e => e.Clone()).ToList()
             : [];
 
-    public static MediaMetadata MapResult(JsonElement r, string? forcedType)
+    public MediaMetadata MapResult(JsonElement r, string? forcedType)
     {
         var mediaType = forcedType ?? (Str(r, "media_type") == "tv" ? "tv" : "movie");
         var id = Int(r, "id") ?? 0;
@@ -247,8 +247,8 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
             ExternalId = id.ToString(CultureInfo.InvariantCulture),
             Title = title,
             Aliases = Distinct(title, Str(r, "original_title"), Str(r, "original_name")),
-            PosterUrl = PosterUrl(Str(r, "poster_path")),
-            BackdropUrl = BackdropUrl(Str(r, "backdrop_path")),
+            PosterUrl = ImageUrl(Str(r, "poster_path"), Artwork.ArtRole.Poster),
+            BackdropUrl = ImageUrl(Str(r, "backdrop_path"), Artwork.ArtRole.Backdrop),
             Synopsis = Str(r, "overview").OrEmpty(null),
             Rating = Num(r, "vote_average"),
             Year = YearOf(Str(r, "release_date").OrEmpty(Str(r, "first_air_date"))),
@@ -259,7 +259,7 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
         };
     }
 
-    public static MediaMetadata MapDetail(JsonElement r, string mediaType)
+    public MediaMetadata MapDetail(JsonElement r, string mediaType)
     {
         var id = Int(r, "id") ?? 0;
         var title = Str(r, "title").OrEmpty(Str(r, "name")) ?? $"TMDB #{id}";
@@ -274,8 +274,8 @@ public sealed partial class TmdbClient(IHttpClientFactory httpFactory, IOptions<
             ExternalId = id.ToString(CultureInfo.InvariantCulture),
             Title = title,
             Aliases = Distinct(title, Str(r, "original_title"), Str(r, "original_name")),
-            PosterUrl = PosterUrl(Str(r, "poster_path")),
-            BackdropUrl = BackdropUrl(Str(r, "backdrop_path")),
+            PosterUrl = ImageUrl(Str(r, "poster_path"), Artwork.ArtRole.Poster),
+            BackdropUrl = ImageUrl(Str(r, "backdrop_path"), Artwork.ArtRole.Backdrop),
             Synopsis = Str(r, "overview").OrEmpty(null),
             Rating = Num(r, "vote_average"),
             Year = YearOf(Str(r, "release_date").OrEmpty(Str(r, "first_air_date"))),

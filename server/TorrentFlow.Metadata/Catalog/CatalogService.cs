@@ -107,7 +107,7 @@ public static partial class CatalogText
         values.Select(v => v?.Trim()).FirstOrDefault(v => !string.IsNullOrEmpty(v));
 
     /// <summary>tmdb.ts parseTmdbList.</summary>
-    public static List<CatalogTitle> ParseTmdbList(JsonElement data, string kind, string imageBase = "https://image.tmdb.org/t/p")
+    public static List<CatalogTitle> ParseTmdbList(JsonElement data, string kind, string imageBase)
     {
         var output = new List<CatalogTitle>();
         if (data.ValueKind != JsonValueKind.Object || !data.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array) return output;
@@ -125,14 +125,11 @@ public static partial class CatalogText
             seen.Add(id);
             var date = TmdbClient.Str(row, "release_date") ?? TmdbClient.Str(row, "first_air_date");
             output.Add(new CatalogTitle(id, rowKind, title, ParseYear(date), mediaType,
-                Image(imageBase, TmdbClient.Str(row, "poster_path"), "w500"), Image(imageBase, TmdbClient.Str(row, "backdrop_path"), "w1280"),
+                Artwork.TmdbImages.Url(imageBase, TmdbClient.Str(row, "poster_path"), Artwork.ArtRole.Poster), Artwork.TmdbImages.Url(imageBase, TmdbClient.Str(row, "backdrop_path"), Artwork.ArtRole.Backdrop),
                 FirstString(TmdbClient.Str(row, "overview")), ParseRating(row, "vote_average"), ParseReleaseDate(date)));
         }
         return output;
     }
-
-    public static string? Image(string imageBase, string? path, string size) =>
-        string.IsNullOrWhiteSpace(path) ? null : $"{imageBase}/{size}{(path.StartsWith('/') ? path : "/" + path)}";
 
     /// <summary>works.ts seedWorkKeys: the seed's own keys as a film and as a series.</summary>
     public static HashSet<string> SeedWorkKeys(string seedTitle) =>
@@ -249,16 +246,8 @@ public sealed class CatalogService(
     public async Task<CatalogWork?> FindByWorkKeyAsync(string workKey, CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct).ConfigureAwait(false);
-        var row = await db.CatalogEntries.AsNoTracking()
-            .Where(e => e.WorkKey == workKey)
-            .OrderBy(e => e.Source == "related").ThenBy(e => e.Rank)
-            .FirstOrDefaultAsync(ct).ConfigureAwait(false);
-        if (row is null)
-        {
-            var recent = await db.CatalogEntries.AsNoTracking().OrderByDescending(e => e.RefreshedAt).Take(400).ToListAsync(ct).ConfigureAwait(false);
-            row = recent.FirstOrDefault(e => WorkKeySlug.Matches(workKey, e.Title, e.Year));
-        }
-        return row is null ? null : ToWork(row);
+        var rows = await WorkPosters.FindCatalogAsync(db, [workKey], ct).ConfigureAwait(false);
+        return rows.TryGetValue(workKey, out var row) ? ToWork(row) : null;
     }
 
     public static CatalogWork ToWork(CatalogEntry e) =>

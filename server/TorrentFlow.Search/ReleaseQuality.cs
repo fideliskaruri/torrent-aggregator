@@ -157,7 +157,7 @@ public static class ReleaseQuality
             : Match(languageTitle, @"\b(?:eng|english|dual\s+audio|dual[-\s]?audio|dub(?:bed)?)\b").Success ? 2 : 1;
         var resolution = ParseResolution(r.Title);
         return new(actual == null || requested == null ? 0 : actual == requested ? 1 : -1,
-            RelevanceTier(r.Title, query), language, IsJunkSource(r.Title), IsImplausible(r), r.Seeders >= 3,
+            RelevanceTier(r.Title, query), language, IsJunkSource(r.Title), IsImplausible(r), TorrentFlow.Core.ReleaseSeeders.IsViable(r.Seeders),
             resolution, ResolutionAffinity(resolution, target), SeedersBucket(r.Seeders), RecencyBucket(r.PublishedAt), r.SizeBytes ?? 0, DirectPlayableFromTitle(r.Title));
     }
     public static int Compare(ReleaseRank a, ReleaseRank b)

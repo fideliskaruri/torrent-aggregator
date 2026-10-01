@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Hosting;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -48,7 +49,7 @@ public sealed class TorrentSearchService(IEnumerable<ITorrentSourceAdapter> adap
         }
         catch (Exception e) when (!cancellationToken.IsCancellationRequested) { logger.LogWarning(e, "Search settings unavailable; using defaults"); }
         var target = options.TargetResolution is 480 or 720 or 1080 or 2160 ? options.TargetResolution.Value
-            : settings?.PreferredResolution is 480 or 720 or 1080 or 2160 ? settings.PreferredResolution.Value : 1080;
+            : SettingsDefaults.ResolutionOrDefault(settings?.PreferredResolution);
         if (options.Enrich && options.Page <= 1) enricher.Prime(options.Query, options.Category);
         var key = SearchCacheStore.Key(options, target) + (credentials is null ? "" : $":credentials:{credentials.Revision}") + (registry is null ? "" : $":sources:{registry.Revision}");
         var pool = options.SkipCache || options.IncludeRejectedResults ? null : await cache.GetAsync(key, token: cancellationToken);

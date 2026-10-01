@@ -2,6 +2,7 @@ using TorrentFlow.Core;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Data;
 using TorrentFlow.Data.Entities;
@@ -33,7 +34,6 @@ public sealed class AvailabilityResolver(
     LocalFilePresenceCache files,
     TimeProvider time)
 {
-    public const int MinViableSeeders = 3;
     private static readonly TimeSpan MemoryTtl = TimeSpan.FromSeconds(30);
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, Availability Value)> _memory = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (DateTimeOffset Expires, IReadOnlyList<CachedSearchHit> Value)> _searchMemory = new(StringComparer.Ordinal);
@@ -191,7 +191,7 @@ public sealed class AvailabilityResolver(
         foreach (var r in results)
         {
             if (!NormalizeTitle(r.Title).Contains(title, StringComparison.Ordinal)) continue;
-            if (r.Seeders < MinViableSeeders) continue;
+            if (!ReleaseSeeders.IsViable(r.Seeders)) continue;
             if (query.Season is not null || query.Episode is not null)
             {
                 var parsed = r.Episode ?? Facts(r.Title);

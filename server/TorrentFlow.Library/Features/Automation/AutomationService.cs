@@ -3,6 +3,7 @@ using TorrentFlow.Core.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
@@ -56,8 +57,8 @@ public sealed class AutomationService(IDbContextFactory<TorrentFlowDbContext> fa
         {
             await using var db = await factory.CreateDbContextAsync(ct);
             var rules = await db.AutoRules.Where(x => x.UserId == LocalUser.Id && x.Enabled == true).ToListAsync(ct);
-            var preferredResolution = await db.ClientSettings.Where(x => x.UserId == LocalUser.Id)
-                .Select(x => x.PreferredResolution).FirstOrDefaultAsync(ct) ?? 1080;
+            var preferredResolution = SettingsDefaults.ResolutionOrDefault(await db.ClientSettings.Where(x => x.UserId == LocalUser.Id)
+                .Select(x => x.PreferredResolution).FirstOrDefaultAsync(ct));
             var summary = new List<RuleRunResult>();
             foreach (var rule in rules)
             {

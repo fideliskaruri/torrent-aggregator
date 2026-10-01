@@ -37,7 +37,6 @@ public sealed partial class RecommendationService(
     ILogger<RecommendationService> logger)
 {
     public const string AniListRecommendationsUrl = "https://graphql.anilist.co?operation=recommendations";
-    private const string Img = "https://image.tmdb.org/t/p/w342";
     private static readonly TimeSpan PositiveTtl = TimeSpan.FromHours(6);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromMinutes(2);
     private static readonly HashSet<string> AniListFormats = ["TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC"];
@@ -169,12 +168,12 @@ public sealed partial class RecommendationService(
         using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false);
         if (!res.IsSuccessStatusCode) throw new HttpRequestException($"TMDB recommendations HTTP {(int)res.StatusCode}");
         var json = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonElementAsync(res.Content, cts.Token).ConfigureAwait(false);
-        var recs = ParseTmdb(json, mediaType);
+        var recs = ParseTmdb(json, mediaType, tmdb.ImageBase);
         _tmdbCache.Set(cacheKey, recs, recs.Count > 0 ? PositiveTtl : NegativeTtl);
         return recs;
     }
 
-    public static List<Recommendation> ParseTmdb(JsonElement json, string mediaType)
+    public static List<Recommendation> ParseTmdb(JsonElement json, string mediaType, string imageBase)
     {
         var output = new List<Recommendation>();
         if (json.ValueKind != JsonValueKind.Object || !json.TryGetProperty("results", out var results) || results.ValueKind != JsonValueKind.Array) return output;
@@ -189,7 +188,7 @@ public sealed partial class RecommendationService(
             var count = TmdbClient.Num(r, "vote_count") ?? 0;
             var poster = TmdbClient.Str(r, "poster_path");
             output.Add(new Recommendation("tmdb", mediaType, mediaType, mediaType, idEl.ValueKind == JsonValueKind.String ? idEl.GetString()! : idEl.GetRawText(),
-                title, string.IsNullOrEmpty(poster) ? null : Img + poster, year,
+                title, Artwork.TmdbImages.Url(imageBase, poster, Artwork.ArtRole.Poster), year,
                 vote is { } v && v > 0 && count >= 20 ? Math.Round(v * 10, MidpointRounding.AwayFromZero) / 10 : null, null, mediaType == "tv"));
         }
         return output;

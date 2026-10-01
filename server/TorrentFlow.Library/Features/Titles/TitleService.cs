@@ -164,6 +164,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             }
             catch (Exception) when (!ct.IsCancellationRequested) { }
         }
+        poster = await WorkPosters.ResolveAsync(db, key, poster, ct);
         var overview = query.Provider?.Synopsis ?? cat?.Overview ?? cached?.Synopsis;
         // The rating travels with the provider that supplied it, so the page never labels one provider's score with another's name.
         var (rating, ratingSource) = query.Provider?.Rating is { } providerRating ? (providerRating, query.Provider.Source)
@@ -187,7 +188,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
         var best = onDisk.FirstOrDefault(x => x.Progress > 0);
         string? State(EngineTorrent? row) => row == null ? null : row.Progress >= 1 ? "ready" : row.Progress > 0 ? "warm" : null;
         double? Fraction(EngineTorrent? row) => row != null && row.Progress > 0 && row.Progress < 1 ? row.Progress : null;
-        var availability = State(best) ?? (releases.Any(x => x.Seeders >= 3) ? "fetchable" : cachedSearch != null ? "unavailable" : null);
+        var availability = State(best) ?? (releases.Any(x => ReleaseSeeders.IsViable(x.Seeders)) ? "fetchable" : cachedSearch != null ? "unavailable" : null);
         var knownCoordinates = local.Select(x => EpisodeCursor.Parse(x.Name)).Concat(releases.Select(x => EpisodeCursor.Parse(x.Title)))
             .OfType<EpisodeCursor>().ToArray();
         var coordinates = knownCoordinates.Select(x => (EpisodeCursor?)x).Concat(targets.Where(x => x.Season != null && x.Episode != null).Select(x => (EpisodeCursor?)new EpisodeCursor(x.Season!.Value, x.Episode!.Value)))
@@ -223,7 +224,7 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             var row = linkedHash != null ? onDisk.FirstOrDefault(x => x.Hash.Equals(linkedHash, StringComparison.OrdinalIgnoreCase)) :
                 onDisk.FirstOrDefault(x => EpisodeCursor.Parse(x.Name) == cursor && x.Progress > 0);
             var state = t?.Status == "downloaded" ? "ready" : t?.Status == "downloading" && t.Progress > 0 ? "warm" :
-                State(row) ?? (releases.Any(x => x.Seeders >= 3 && (ReleaseSelection.ExactEpisode(x, cursor) || PackSeason(x.Title) == cursor.Season)) ? "fetchable" : null);
+                State(row) ?? (releases.Any(x => ReleaseSeeders.IsViable(x.Seeders) && (ReleaseSelection.ExactEpisode(x, cursor) || PackSeason(x.Title) == cursor.Season)) ? "fetchable" : null);
             var hash = t?.InfoHash ?? row?.Hash;
             var file = t?.FilePath;
             var fromPack = t?.InfoHash != null && row != null && (PackSeason(row.Name) != null || MultiSeason(row.Name));
