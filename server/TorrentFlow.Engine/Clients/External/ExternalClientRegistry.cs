@@ -72,7 +72,6 @@ public sealed class ExternalClientRegistry(QBittorrentClient qbittorrent, Transm
             await using var transaction = await db.Database.BeginTransactionAsync(ct);
             await db.GrabJobs.Where(t => t.UserId == LocalUser.Id && t.InfoHash != null && t.InfoHash.ToLower() == hash).ExecuteDeleteAsync(ct);
             await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && t.InfoHash != null && t.InfoHash.ToLower() == hash).ExecuteDeleteAsync(ct);
-            await db.PlaybackProgresses.Where(t => t.UserId == LocalUser.Id && t.InfoHash.ToLower() == hash).ExecuteDeleteAsync(ct);
             await transaction.CommitAsync(ct);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)

@@ -131,7 +131,6 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         if (EpisodeCursor.AwaitingFirstNewEpisode(item))
             await NewEpisodes.PinAsync(db, airDates, item, TimeSpan.FromSeconds(5), ct);
         wake.Wake();
-        await Promote(db, item, ct);
         return Ok(new { item = LibraryJson.Row(item) });
     }
 
@@ -144,22 +143,10 @@ public sealed class WatchlistController(IDbContextFactory<TorrentFlowDbContext> 
         var item = await db.WatchListItems.FirstOrDefaultAsync(x => x.UserId == LocalUser.Id && x.Id == id, ct);
         if (item != null)
         {
-            await Promote(db, item, ct);
             db.WatchListItems.Remove(item);
             await db.SaveChangesAsync(ct);
         }
         return Ok(new { ok = true, filesKept = true });
-    }
-
-    private static async Task Promote(TorrentFlowDbContext db, WatchListItem item, CancellationToken ct)
-    {
-        var hashes = await db.PlaybackProgresses.Where(x => x.UserId == LocalUser.Id && x.WatchListItemId == item.Id).Select(x => x.InfoHash).ToListAsync(ct);
-        var streams = await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && (x.Origin == "stream" || x.Origin == "prewarm"))
-            .Select(x => new { x.Hash, x.Name }).ToListAsync(ct);
-        hashes.AddRange(streams.Where(x => ReleaseSelection.Normalize(ReleaseSelection.CleanTitle(x.Name)) == ReleaseSelection.Normalize(item.Title)).Select(x => x.Hash));
-        await db.EngineTorrents.Where(x => x.UserId == LocalUser.Id && x.Origin != "user" &&
-            (hashes.Contains(x.Hash) || (item.WorkId != null && x.WorkId == item.WorkId)))
-            .ExecuteUpdateAsync(x => x.SetProperty(t => t.Origin, "user"), ct);
     }
 
     [HttpPost("check")]

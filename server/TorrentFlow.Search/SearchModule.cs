@@ -27,8 +27,6 @@ public static class SearchModule
         services.AddSingleton<SearchCacheStore>();
         services.TryAddSingleton<ITrackerScraper, TrackerScraper>();
         services.TryAddSingleton<ISearchResultEnricher, NoOpSearchResultEnricher>();
-        services.TryAddSingleton<ISwarmProbeEngine, UnavailableSwarmProbeEngine>();
-        services.AddSingleton<SwarmHealth>();
         services.AddSingleton<TorrentSearchService>();
         services.AddSingleton<ITorrentSearchService>(sp => sp.GetRequiredService<TorrentSearchService>());
         services.Replace(ServiceDescriptor.Singleton<TorrentFlow.Core.Contracts.Engine.ISmartCategorizer, SmartCategorizer>());

@@ -6,7 +6,6 @@ using TorrentFlow.Library.Features.Activity;
 using TorrentFlow.Library.Features.Automation;
 using TorrentFlow.Library.Features.Common;
 using TorrentFlow.Library.Features.Grabs;
-using TorrentFlow.Library.Features.Progress;
 using TorrentFlow.Library.Features.Titles;
 using TorrentFlow.Library.Features.Storage;
 
@@ -33,12 +32,9 @@ public static class LibraryModule
         services.TryAddSingleton<TorrentFlow.Core.Contracts.Metadata.IAirDateLookup, TorrentFlow.Core.Contracts.Metadata.UnknownAirDateLookup>();
         services.AddSingleton<TitleService>();
         services.AddSingleton<ILibraryDownloadRecovery, LibraryDownloadRecovery>();
-        services.TryAddSingleton<ILibraryPlaybackObserver, DefaultPlaybackObserver>();
         services.TryAddSingleton<ILibraryArtworkResolver, DefaultArtworkResolver>();
         services.TryAddSingleton<ILibraryAnimeLookup, DefaultAnimeLookup>();
         services.AddSingleton<EpisodeSearchIdentity>();
-        services.AddSingleton<PlaybackNotifications>();
-        services.AddHostedService(sp => sp.GetRequiredService<PlaybackNotifications>());
         services.AddHostedService<AutomationScheduler>();
         return services;
     }

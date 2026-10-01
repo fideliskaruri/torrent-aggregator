@@ -22,7 +22,6 @@ The API host discovers `SearchController`; no host or other module changes are r
 | `torrents/infohash.ts` | `InfoHash.cs` |
 | `torrents/{work-identity,work-match,media-alias}.ts` | `WorkIdentity.cs` |
 | `torrents/{pack-preference,pack-episode-files,season-plan}.ts` | `EpisodeSelection.cs` |
-| `torrents/swarm-probe.ts` | `SwarmHealth.cs`, `Core/Contracts/Search/SwarmContracts.cs` |
 | `torrents/{source-labels,search-scopes}.ts` | `SearchVocabulary.cs` (backend vocabulary; navigation/display scope tables remain SPA concerns) |
 | `download/{attach-route,smart-category}.ts` | `DownloadRouting.cs`, `ContentClassifier.cs` |
 | `app/api/search/route.ts` | `SearchController.cs` |
@@ -40,12 +39,6 @@ Task<SearchResponse> ITorrentSearchService.SearchAsync(
 Task<IReadOnlyList<TorrentResult>> ISearchResultEnricher.EnrichAsync(
     string query, string? category, IReadOnlyList<TorrentResult> results,
     CancellationToken cancellationToken = default);
-
-Task<SwarmLiveState> ISwarmProbeEngine.FindLiveAsync(
-    string infoHash, CancellationToken cancellationToken);
-Task<IIsolatedSwarmProbe> ISwarmProbeEngine.OpenIsolatedAsync(
-    string magnet, CancellationToken cancellationToken);
-// IIsolatedSwarmProbe exposes Snapshot and implements IAsyncDisposable.
 ```
 
 `SearchOptions` includes query, category, limit, page/pageSize, sources, target
@@ -55,9 +48,8 @@ with explicit-null annotations where required.
 
 The default result enricher is registered with `TryAddSingleton` and leaves rows
 unchanged. Metadata can register its implementation using `AddSingleton` or
-`Replace`. The same pattern applies to the engine-owned swarm seam. Without an
-engine backend, liveness is **unknown**, never assumed absent; no torrent is added.
-Probe sessions must be isolated from real downloads and dispose their own data.
+`Replace`. Search never adds a torrent or joins a swarm; the swarm probe that
+used to measure live peers for playback was removed with streaming.
 
 ## Concurrency, cache and bounds
 
@@ -184,9 +176,6 @@ Port 3000 and the main repository were never touched.
 
 - Standalone Search has a no-op enricher. The API host registers the Metadata
   module's bounded, best-effort implementation described above.
-- Real swarm attachment requires the Engine implementation of `ISwarmProbeEngine`.
-  Classification, persistence, expiry and safe lifecycle behavior are tested with
-  fakes; no live swarm or torrent download was used for verification.
 - All six adapters have fixture coverage. The opt-in Chromium/1337x fallback is
   fake-tested, not a live claim that this network can bypass a Cloudflare wall.
   EZTV's live count was zero without a TMDB key; keyed behavior is fake-tested.

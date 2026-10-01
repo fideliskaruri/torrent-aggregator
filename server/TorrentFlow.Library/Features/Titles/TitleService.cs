@@ -90,20 +90,17 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             engineRows.AddRange(await db.EngineTorrents.AsNoTracking().Where(x => x.UserId == LocalUser.Id && x.Status != "removed" &&
                 (missingLinked.Contains(x.Hash) || missingLinked.Contains(x.Hash.ToLower()))).ToListAsync(ct));
         var local = engineRows.Where(x => ReleaseSelection.MatchesWork(key, ReleaseSelection.CleanTitle(x.Name), ReleaseYear(x.Name))).ToList();
-        var hashes = local.Select(x => x.Hash).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var progress = (await db.PlaybackProgresses.AsNoTracking().Where(x => x.UserId == LocalUser.Id).OrderByDescending(x => x.UpdatedAt).Take(400).ToListAsync(ct))
-            .Where(x => hashes.Contains(x.InfoHash) || watch != null && x.WatchListItemId == watch.Id || ReleaseSelection.MatchesWork(key, x.Title)).ToList();
         foreach (var target in targets) Reconcile(target, engineRows.FirstOrDefault(x => x.Hash.Equals(target.InfoHash, StringComparison.OrdinalIgnoreCase)));
         await db.SaveChangesAsync(ct);
         var title = query.Provider?.Title ?? cat?.Title ?? (query.Title != null && ReleaseSelection.MatchesWork(key, query.Title, query.Year) ? query.Title : null) ??
-            watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? progress.FirstOrDefault()?.Title ?? Display(key);
+            watch?.Title ?? (local.FirstOrDefault() is { } first ? ReleaseSelection.CleanTitle(first.Name) : null) ?? Display(key);
         var type = query.Provider?.MediaType ?? cat?.MediaType ?? query.MediaType ?? watch?.MediaType;
         var year = query.Provider?.Year ?? cat?.Year ?? query.Year;
-        var isSeries = type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null || progress.Any(x => x.Season != null));
+        var isSeries = type != "movie" && (EpisodeCursor.IsSeries(type) || local.Any(x => EpisodeCursor.Parse(x.Name) != null || PackSeason(x.Name) != null || MultiSeason(x.Name)) || watch?.CursorSeason != null);
         var cached = (await db.CachedMetadata.AsNoTracking().OrderByDescending(x => x.UpdatedAt).Take(200).ToListAsync(ct))
             .FirstOrDefault(x => ReleaseSelection.Normalize(x.Title) == ReleaseSelection.Normalize(title) && (type == null || x.MediaType == type) &&
                 (year == null || x.Year == null || (type == "tv" ? x.Year - year < 2 : Math.Abs(x.Year.Value - year.Value) < 2)));
-        var poster = query.Provider?.PosterUrl ?? cat?.PosterUrl ?? cached?.PosterUrl ?? progress.FirstOrDefault(x => x.PosterUrl != null)?.PosterUrl;
+        var poster = query.Provider?.PosterUrl ?? cat?.PosterUrl ?? cached?.PosterUrl;
         var backdrop = query.Provider?.BackdropUrl ?? cat?.BackdropUrl ?? cached?.BackdropUrl;
         if (poster == null && backdrop == null)
         {
@@ -137,55 +134,49 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             catch (JsonException) { }
         }
         var releases = cachedSearch?.Results.Where(x => ReleaseSelection.SameWork(x, title, query.Provider?.Aliases ?? [])).ToArray() ?? [];
-        var playable = local.Where(x => x.Status is not ("error" or "missingfiles") && !FilesAbsent(x) && !InvalidMedia(x)).OrderByDescending(x => x.Progress).ToList();
-        var best = playable.FirstOrDefault(x => x.Progress > 0);
+        var onDisk = local.Where(x => x.Status is not ("error" or "missingfiles") && !FilesAbsent(x) && !InvalidMedia(x)).OrderByDescending(x => x.Progress).ToList();
+        var best = onDisk.FirstOrDefault(x => x.Progress > 0);
         string? State(EngineTorrent? row) => row == null ? null : row.Progress >= 1 ? "ready" : row.Progress > 0 ? "warm" : null;
-        double? Fraction(EngineTorrent? row) => row != null && row.Origin is not ("stream" or "prewarm") && row.Progress > 0 && row.Progress < 1 ? row.Progress : null;
+        double? Fraction(EngineTorrent? row) => row != null && row.Progress > 0 && row.Progress < 1 ? row.Progress : null;
         var availability = State(best) ?? (releases.Any(x => x.Seeders >= 3) ? "fetchable" : cachedSearch != null ? "unavailable" : null);
-        var resumeRow = progress.FirstOrDefault(x => x.CompletedAt == null && x.PositionSec > 0 && playable.Any(l => l.Hash == x.InfoHash));
-        object? resume = resumeRow == null ? null : LibraryJson.Object(("infoHash", resumeRow.InfoHash), ("filePath", resumeRow.FilePath),
-            ("positionSec", resumeRow.PositionSec), ("durationSec", resumeRow.DurationSec), ("fraction", resumeRow.DurationSec > 0 ? resumeRow.PositionSec / resumeRow.DurationSec : null),
-            ("season", resumeRow.Season), ("episode", resumeRow.Episode), ("label", resumeRow.Season != null && resumeRow.Episode != null ? new EpisodeCursor(resumeRow.Season.Value, resumeRow.Episode.Value).Label : null));
         var knownCoordinates = local.Select(x => EpisodeCursor.Parse(x.Name)).Concat(releases.Select(x => EpisodeCursor.Parse(x.Title)))
-            .Concat(progress.Where(x => x.Season != null && x.Episode != null).Select(x => (EpisodeCursor?)new EpisodeCursor(x.Season!.Value, x.Episode!.Value)))
             .OfType<EpisodeCursor>().ToArray();
         var coordinates = knownCoordinates.Select(x => (EpisodeCursor?)x).Concat(targets.Where(x => x.Season != null && x.Episode != null).Select(x => (EpisodeCursor?)new EpisodeCursor(x.Season!.Value, x.Episode!.Value)))
             .Concat(watch?.CursorSeason != null && watch.CursorEpisode != null ? [new EpisodeCursor(watch.CursorSeason.Value, watch.CursorEpisode.Value)] : []).OfType<EpisodeCursor>().ToArray();
         var seasonNumbers = isSeries ? coordinates.Select(x => x.Season)
             .Concat(local.Select(x => PackSeason(x.Name)).Concat(releases.Select(x => PackSeason(x.Title))).OfType<int>())
             .Concat(targets.Where(x => x.Season != null).Select(x => x.Season!.Value)).Distinct().Order().ToArray() : [];
-        int? selected = isSeries && seasonNumbers.Length > 0 ? query.Season ?? query.Remembered ?? resumeRow?.Season ?? progress.FirstOrDefault()?.Season ?? watch?.CursorSeason ?? seasonNumbers[0] : null;
+        int? selected = isSeries && seasonNumbers.Length > 0 ? query.Season ?? query.Remembered ?? watch?.CursorSeason ?? seasonNumbers[0] : null;
         var seasons = seasonNumbers.Select(s =>
         {
-            var pack = playable.FirstOrDefault(x => PackSeason(x.Name) == s && x.Progress > 0);
+            var pack = onDisk.FirstOrDefault(x => PackSeason(x.Name) == s && x.Progress > 0);
             // Same evidence the episode rows use: an exact finished target, a finished episode file, or a verified pack file.
             var downloaded = targets.Where(t => t.Scope == "episode" && t.Season == s && t.Episode != null && t.Status == "downloaded").Select(t => t.Episode!.Value)
-                .Concat(playable.Where(x => x.Progress >= 1 && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
-                .Concat(PackCoverage(playable, s).Keys).Where(e => e >= 1).ToHashSet();
+                .Concat(onDisk.Where(x => x.Progress >= 1 && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
+                .Concat(PackCoverage(onDisk, s).Keys).Where(e => e >= 1).ToHashSet();
             var downloading = targets.Where(t => t.Scope == "episode" && t.Season == s && t.Episode != null && t.Status is "queued" or "downloading").Select(t => t.Episode!.Value)
-                .Concat(playable.Where(x => x.Progress < 1 && x.Origin is not ("stream" or "prewarm") && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
+                .Concat(onDisk.Where(x => x.Progress < 1 && EpisodeCursor.Parse(x.Name) is { } c && c.Season == s).Select(x => EpisodeCursor.Parse(x.Name)!.Value.Episode))
                 .Where(e => e >= 1 && !downloaded.Contains(e)).Distinct().Count();
             return LibraryJson.Object(("season", s), ("knownEpisodes", knownCoordinates.Where(c => c.Season == s).Select(c => c.Episode).Distinct().Count()),
                 ("downloadedEpisodes", downloaded.Count), ("downloadingEpisodes", downloading),
                 ("pack", pack == null ? null : LibraryJson.Object(("name", pack.Name), ("availability", State(pack)), ("infoHash", pack.Hash), ("downloadFraction", Fraction(pack)))),
                 ("transfer", targets.FirstOrDefault(t => t.Scope == "season" && t.Season == s) is { } target ? Transfer(target) : null));
         }).ToList();
-        var coverage = selected is { } selectedSeason ? PackCoverage(playable, selectedSeason) : [];
+        var coverage = selected is { } selectedSeason ? PackCoverage(onDisk, selectedSeason) : [];
         var maxEpisode = coordinates.Where(x => x.Season == selected).Select(x => x.Episode).Concat(coverage.Keys).DefaultIfEmpty(0).Max();
         var episodes = new List<object>();
         var episodeLimit = type == "anime" ? 5000 : 200;
         for (var ep = 1; ep <= Math.Min(episodeLimit, maxEpisode); ep++)
         {
             var cursor = new EpisodeCursor(selected!.Value, ep);
-            var p = progress.FirstOrDefault(x => x.Season == cursor.Season && x.Episode == ep);
             var t = targets.FirstOrDefault(x => x.Scope == "episode" && x.Season == cursor.Season && x.Episode == ep);
-            var linkedHash = t?.InfoHash ?? p?.InfoHash;
-            var row = linkedHash != null ? playable.FirstOrDefault(x => x.Hash.Equals(linkedHash, StringComparison.OrdinalIgnoreCase)) :
-                playable.FirstOrDefault(x => EpisodeCursor.Parse(x.Name) == cursor && x.Progress > 0);
+            var linkedHash = t?.InfoHash;
+            var row = linkedHash != null ? onDisk.FirstOrDefault(x => x.Hash.Equals(linkedHash, StringComparison.OrdinalIgnoreCase)) :
+                onDisk.FirstOrDefault(x => EpisodeCursor.Parse(x.Name) == cursor && x.Progress > 0);
             var state = t?.Status == "downloaded" ? "ready" : t?.Status == "downloading" && t.Progress > 0 ? "warm" :
                 State(row) ?? (releases.Any(x => x.Seeders >= 3 && (ReleaseSelection.ExactEpisode(x, cursor) || PackSeason(x.Title) == cursor.Season)) ? "fetchable" : null);
             var hash = t?.InfoHash ?? row?.Hash;
-            var file = t?.FilePath ?? (hash != null && p?.InfoHash == hash ? p?.FilePath : null);
+            var file = t?.FilePath;
             var fromPack = t?.InfoHash != null && row != null && (PackSeason(row.Name) != null || MultiSeason(row.Name));
             if (state != "ready" && coverage.TryGetValue(ep, out var cover))
             {
@@ -195,8 +186,8 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             double? fraction = t?.Status == "downloading" ? t.Progress : Fraction(row);
             if (t == null)
             {
-                var downloading = row?.Progress > 0 && row.Progress < 1 && row.Origin is not ("stream" or "prewarm") ? row :
-                    row == null ? playable.FirstOrDefault(x => EpisodeCursor.Parse(x.Name) == cursor && x.Progress < 1 && x.Origin is not ("stream" or "prewarm")) : null;
+                var downloading = row?.Progress > 0 && row.Progress < 1 ? row :
+                    row == null ? onDisk.FirstOrDefault(x => EpisodeCursor.Parse(x.Name) == cursor && x.Progress < 1) : null;
                 if (downloading != null)
                 {
                     transfer = LibraryJson.Object(("status", "downloading"), ("progress", downloading.Progress), ("infoHash", downloading.Hash), ("filePath", null), ("error", null));
@@ -206,8 +197,6 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
             }
             episodes.Add(LibraryJson.Object(("season", cursor.Season), ("episode", ep), ("label", cursor.Label),
                 ("availability", state), ("infoHash", hash), ("filePath", file), ("downloadFraction", fraction),
-                ("watchedFraction", p?.DurationSec > 0 ? Math.Min(1, p.PositionSec / p.DurationSec.Value) : null),
-                ("resumePositionSec", hash != null && p?.InfoHash == hash && p?.CompletedAt == null ? p?.PositionSec : null), ("watched", p?.CompletedAt != null),
                 ("nextUp", watch?.CursorSeason == cursor.Season && watch?.CursorEpisode == ep), ("fromPack", fromPack), ("transfer", transfer)));
         }
         var library = LibraryJson.Object(("inLibrary", watch != null), ("watchListItemId", watch?.Id), ("monitored", watch?.Monitored ?? false),
@@ -216,10 +205,10 @@ public sealed class TitleService(IDbContextFactory<TorrentFlowDbContext> factory
                 ("title", title), ("posterUrl", poster), ("synopsis", overview), ("rating", rating))));
         return LibraryJson.Object(("workKey", key), ("title", title), ("aliases", query.Provider?.Aliases?.Where(x => !x.Equals(title, StringComparison.OrdinalIgnoreCase)).ToArray() ?? []),
             ("year", year), ("mediaType", type), ("isSeries", isSeries), ("overview", overview), ("rating", rating), ("ratingSource", ratingSource), ("posterUrl", poster), ("backdropUrl", backdrop),
-            ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)), ("resume", resume),
+            ("releaseDate", release), ("availability", availability), ("infoHash", best?.Hash), ("downloadFraction", Fraction(best)),
             ("transfer", targets.FirstOrDefault(x => x.Scope == "title") is { } tt ? Transfer(tt) : null),
             ("seasons", seasons), ("season", selected), ("episodes", episodes), ("episodesTruncated", maxEpisode > episodeLimit),
-            ("library", library), ("known", cat != null || query.Provider != null || watch != null || local.Count > 0 || progress.Count > 0 || releases.Length > 0 || cached != null),
+            ("library", library), ("known", cat != null || query.Provider != null || watch != null || local.Count > 0 || releases.Length > 0 || cached != null),
             ("generatedAt", LibraryJson.Iso(DateTime.UtcNow)));
     }
     /// <summary>
