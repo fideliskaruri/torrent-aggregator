@@ -1477,6 +1477,7 @@ internal sealed partial class TorrentEngineService(
                     row.Status = EngineTorrentStatus.Error;
                     row.Error = message;
                     row.ForcedAt = null;
+                    await CompletedLayoutFinalizer.BlockFailedCheckAsync(db, row, Now, ct);
                     await CompletedLayoutFinalizer.ReleaseTargetsAsync(db, row.Hash, message, Now, ct);
                     detach.Add(row.Hash);
                     continue;

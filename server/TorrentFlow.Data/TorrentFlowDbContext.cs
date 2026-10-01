@@ -28,6 +28,8 @@ public partial class TorrentFlowDbContext : DbContext
 
     public DbSet<ReleaseAttempt> ReleaseAttempts { get; set; }
 
+    public DbSet<ReleaseBlock> ReleaseBlocks { get; set; }
+
     public DbSet<EngineDeletion> EngineDeletions { get; set; }
 
     public virtual DbSet<GrabJob> GrabJobs { get; set; }
@@ -58,6 +60,14 @@ public partial class TorrentFlowDbContext : DbContext
         {
             entity.ToTable("ReleaseAttempt");
             entity.HasKey(e => new { e.UserId, e.WorkKey, e.Scope, e.Hash });
+        });
+
+        // No foreign keys: a block outlives the download and the title it was made for.
+        modelBuilder.Entity<ReleaseBlock>(entity =>
+        {
+            entity.ToTable("ReleaseBlock");
+            entity.HasKey(e => new { e.UserId, e.Hash });
+            entity.HasIndex(e => new { e.UserId, e.WorkKey, e.Scope });
         });
 
         modelBuilder.Entity<EngineDeletion>(entity =>

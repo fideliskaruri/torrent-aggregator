@@ -1196,6 +1196,50 @@ namespace TorrentFlow.Data.Migrations
                     b.ToTable("ReleaseAttempt", (string)null);
                 });
 
+            modelBuilder.Entity("TorrentFlow.Data.Entities.ReleaseBlock", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Hash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedAt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReplacedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WorkKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "Hash");
+
+                    b.HasIndex("UserId", "WorkKey", "Scope");
+
+                    b.ToTable("ReleaseBlock", (string)null);
+                });
+
             modelBuilder.Entity("TorrentFlow.Data.Entities.RequestAutoApproveRule", b =>
                 {
                     b.Property<string>("Id")
