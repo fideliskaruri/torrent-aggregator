@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Text.RegularExpressions;
 
 namespace TorrentFlow.Metadata.Browse;

@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Engine;
 using TorrentFlow.Core.Contracts.Metadata;
 using TorrentFlow.Core.Contracts.Search;
@@ -20,5 +21,5 @@ internal sealed class SmartCategorizer : ISmartCategorizer
 
     public string ShowFolder(string title, MediaMetadata? metadata) => ContentClassifier.ShowFolder(title, metadata);
 
-    public string? SeasonFolder(string title) => EpisodeParser.SeasonFolder(EpisodeParser.Parse(title));
+    public string? SeasonFolder(string title) => EpisodeParser.SeasonFolder(ReleaseEpisodeParser.Parse(title));
 }

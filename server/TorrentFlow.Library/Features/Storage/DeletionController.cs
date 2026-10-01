@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
@@ -56,11 +57,11 @@ public sealed class DeletionController(IDbContextFactory<TorrentFlowDbContext> f
         {
             var raw = (name ?? "").Trim();
             if (raw.Length == 0) return new("unknown");
-            var ep = ReleaseNames.ParseEpisode(raw);
+            var ep = ReleaseEpisodeParser.Parse(raw);
             if (ep.IsMultiSeason == true) return new("seasons", From: ep.Season ?? 1);
             if (ep.IsSeasonPack || ep.IsBatch) return ep.Season is { } s ? new("season", s) : new("seasons", From: 1);
             // Stricter than TS (which reads "S01E01-E03" as E01 alone): a range holds several episodes, so it is season-wide here.
-            if (ep.Episode != null && ReleaseNames.IsEpisodeRangeRelease(raw)) return ep.Season is { } rs ? new("season", rs) : new("seasons", From: 1);
+            if (ep.Episode != null && ReleaseEpisodeParser.IsEpisodeRange(raw)) return ep.Season is { } rs ? new("season", rs) : new("seasons", From: 1);
             if (ep.Episode is { } e) return new("episode", ep.Season, e);
             return new("unknown");
         }

@@ -1,3 +1,5 @@
+using TorrentFlow.Core;
+using TorrentFlow.Core.Text;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Core.Contracts.Library;
@@ -275,9 +277,9 @@ public static class EpisodeLadder
     /// <summary>Port of <c>matchesTargetEpisode</c>: exact SxxEyy, or season-less N while hunting season one.</summary>
     public static bool MatchesTargetEpisode(TorrentResult result, EpisodeCursor target, AnimeEpisodeMapping? mapping = null)
     {
-        var parsed = ReleaseNames.ParseEpisode(result.Title);
+        var parsed = ReleaseEpisodeParser.Parse(result.Title);
         var ep = result.Episode ?? parsed;
-        if (parsed.IsBatch || ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(result.Title)) return false;
+        if (parsed.IsBatch || ReleaseEpisodeParser.IsMultiEpisode(result.Title, ep)) return false;
         var local = target.Episode;
         if (mapping != null && target.Season == mapping.TargetSeason)
         {
@@ -309,15 +311,15 @@ public static class EpisodeLadder
         if (premiereYear is { } expected && ReleaseNames.ReleaseYear(release.Title) is { } actual && actual != expected)
             return false;
         var identity = ReleaseNames.IdentityFor(release.Title);
-        if (titles.Any(title => ReleaseNames.WorkKeyFor(title) is { Length: > 0 } key && ReleaseNames.WorkKeyMatches(key, identity.Name, identity.Year)))
+        if (titles.Any(title => WorkKeySlug.WorkKeyFor(title) is { Length: > 0 } key && WorkKeySlug.Matches(key, identity.Name, identity.Year)))
             return true;
         // Fansub releases may retain the title itself in brackets, unlike ordinary release-group brackets.
         var bracket = Regex.Match(release.Title, @"(?:\[(?<title>[^\]]+)\]|(?<title>[^\[\]【】]+))\s*\[\d{1,4}(?:v\d+)?\]",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
         if (!bracket.Success) return false;
         return bracket.Groups["title"].Value.Split('/').Any(name =>
-            titles.Any(title => ReleaseNames.WorkKeyFor(title) is { Length: > 0 } key &&
-                ReleaseNames.WorkKeyMatches(key, name.Trim(), null)));
+            titles.Any(title => WorkKeySlug.WorkKeyFor(title) is { Length: > 0 } key &&
+                WorkKeySlug.Matches(key, name.Trim(), null)));
     }
 
     /// <summary>The TS rung selectors: seeded exact episode in rank order, or (relaxed) any exact episode, healthiest first.</summary>

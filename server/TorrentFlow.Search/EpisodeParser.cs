@@ -26,12 +26,10 @@ public static class EpisodeParser
 
     internal static Match Match(string value, string pattern) => Pattern(pattern).Match(value);
     internal static string Replace(string value, string pattern, string replacement = " ") => Pattern(pattern).Replace(value, replacement);
-    public static string? SpecialType(string title) => TorrentFlow.Core.ReleaseEpisodeParser.SpecialType(title);
-    public static EpisodeInfo Parse(string title) => TorrentFlow.Core.ReleaseEpisodeParser.Parse(title);
     public static string? SeasonFolder(EpisodeInfo episode) => episode.Season is null || episode.IsMultiSeason == true ? null : $"Season {episode.Season:00}";
     public static string NextQuery(string title, string? lastEpisode)
     {
-        var parsed = Parse(lastEpisode ?? "");
+        var parsed = TorrentFlow.Core.ReleaseEpisodeParser.Parse(lastEpisode ?? "");
         return parsed.Episode is null ? title : parsed.Season is null ? $"{title} {parsed.Episode + 1}" : $"{title} S{parsed.Season:00}E{parsed.Episode + 1:00}";
     }
 }

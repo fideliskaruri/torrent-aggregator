@@ -1,7 +1,9 @@
+using TorrentFlow.Core;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using TorrentFlow.Core.Contracts.Search;
 using static TorrentFlow.Search.EpisodeParser;
+using static TorrentFlow.Core.ReleaseEpisodeParser;
 
 namespace TorrentFlow.Search;
 
@@ -14,7 +16,6 @@ public static class ContentClassifier
     private const string Music = @"\b(flac|alac|320kbps|vinyl|discography|ost|soundtrack|album|single|lossless|cd\s*rip)\b";
     private const string Books = @"\b(epub|mobi|azw3?|djvu|ebook|e-book|audiobook|audio\s?book|unabridged|abridged|m4b|comic|cbr|cbz)\b";
     private const string SitePrefix = @"(?:^|[\s|])(?:www\.)?[a-z0-9][a-z0-9-]*\.(?:org|com|net|info|to|me|tv|cc|io|co|ru|in|us|uk|eu|xyz|site|online)\b\s*[-–—:|]*\s*";
-    private const string QualityTokens = @"\b(1080p|720p|480p|2160p|4k|uhd|hdr10?|dv|dolby\s*vision|hevc|x265|h\s*\.?\s*265|x264|h\s*\.?\s*264|av1|10-?bits?|8-?bits?|web-?dl|webrip|bluray|bdrip|bdr|brrip|hdtv|hdcam|remux|proper|repack|internal|limited|extended|theatrical|imax|aac(?:\s*[25]\.?\d)?|ac3|eac3|ddp?\.?(?:\s*[25]\.?\d)?|dts(?:-?hd)?|truehd|atmos|flac|mp3|opus|vorbis|dual(?:\s*audio)?|multi(?:\s*sub|audio)?|subs?|dub(?:bed)?|softsubs?|hardsubs?|nf|amzn|dsnp|hulu|atvp|pmtp|tver|cr|mkv|mp4|avi|ts|m2ts|webm|ch)\b";
     private static bool Has(string text, string pattern) => Match(text, pattern).Success;
     public static bool StrongTv(string title, EpisodeInfo ep) => ep.Season != null || ep.IsSeasonPack
         || Has(title, @"\bS\d{1,3}\s*E\d{1,4}\b|\b\d{1,2}x\d{1,4}\b");
@@ -30,7 +31,7 @@ public static class ContentClassifier
     public static bool MetadataMatches(string title, MediaMetadata? metadata)
     {
         if (string.IsNullOrEmpty(metadata?.Title)) return false;
-        var head = CutAtStructure(Replace(Replace(title, @"[._]+"), SitePrefix));
+        var head = ReleaseNames.CutAtStructure(Replace(Replace(title, @"[._]+"), SitePrefix));
         var a = Normalize(head.Length > 0 ? head : title); var b = Normalize(metadata.Title);
         if (a.Length == 0 || b.Length == 0) return false;
         if (a == b || a.Contains(b) || b.Contains(a)) return true;
@@ -114,48 +115,18 @@ public static class ContentClassifier
             if (categories?.FirstOrDefault(c => c.Contains(alias, StringComparison.OrdinalIgnoreCase)) is { } partial) return partial;
         return aliases[0];
     }
-    public static string CutAtStructure(string title)
-    {
-        var m = Match(title, @"\bS\d{1,3}\s*E\d{1,4}\b|\b\d{1,2}x\d{1,4}\b|\bSeasons?\s*\d{1,3}\b|\bS\d{1,3}\b|\b(?:episode|ep)\s*\.?\s*\d{1,4}\b|(?<![A-Za-z])\bE\d{1,4}\b|[-–—]\s*\d{1,4}(?=\s|[\[(]|$)");
-        return m.Success && m.Index > 0 ? title[..m.Index] : title;
-    }
-    public static string CleanTitle(string title)
-    {
-        var t = Replace(Replace(title, "&amp;", "and"), "&[a-z]+;");
-        t = Replace(t, SitePrefix);
-        t = Replace(t, @"(?:^|\s)(?:www\.)?[a-z0-9][a-z0-9-]*\.(?:org|com|net|info|to|me|tv|cc|io)\b(?:\s*[-–—:|]+\s*|\s+)");
-        t = Replace(t, @"[._]+");
-        t = CutAtStructure(Replace(t, @"[\[(][^\])]{0,48}[\])]"));
-        t = Replace(t, @"\bS\d{1,3}\s*E\d{1,4}\b|\b\d{1,2}x\d{1,4}\b|\bS\d{1,3}\b|\b(?:season|episode|ep|e)\s*\.?\s*\d{1,4}\b|[-–—]\s*\d{1,4}(?=\s|$)");
-        t = Replace(t, @"\b(complete(?:\s*(?:series|season|collection))?|season\s*pack|batch|uncensored)\b|\b(19|20)\d{2}\b");
-        t = Replace(t, QualityTokens);
-        t = Replace(t, @"\b(?:dd|ddp|aac|dts)\s*\d(?:\s*\d)?\b|\b\d+\s+\d+\b|\b\d+(?:\.\d+)?\s*(?:ch|kbps|mbps|fps|bits?)\b");
-        t = Replace(t, @"\s+(?:playWEB|ELiTE|PSA|Rapta|NTb|FLUX|KITSUNe|STC|BONE|RARBG|YTS|YIFY|SPARKS|FGT|DIMENSION|KILLERS|COAST|METCON|THRONE|EVO|ION10|XEBEC|ION265|TGx|EtHD|CtrlHD)(?:\s|$)");
-        t = Regex.Replace(t, @"\s+[A-Za-z][A-Za-z0-9]{1,12}$", m =>
-            Regex.IsMatch(m.Value.Trim(), "^[A-Z]{2,12}$|^[A-Z]{2,}[a-z]+[A-Z]") || Has(m.Value.Trim(), "^(?:x265|x264|h264|h265|web|dl|rip)$") ? " " : m.Value);
-        t = Replace(Replace(t, @"[.\-–—|+]+"), @"\s+").Trim();
-        if (t.Length > 0 && t == t.ToUpperInvariant() && Regex.IsMatch(t, "[A-Z]")) t = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(t.ToLowerInvariant());
-        return t;
-    }
     public static string ShowFolder(string title, MediaMetadata? metadata = null)
     {
-        var clean = CleanTitle(title);
+        var clean = ReleaseNames.CleanTitle(title);
         if (Parse(title).Episode is { } number) clean = Replace(clean, $@"\b0*{number}\b");
         clean = Replace(Replace(Replace(clean, @"\s+\d{1,4}$"), @"\b(complete|batch|pack|extras?|uncensored)\b"), @"\s+").Trim();
-        clean = Sanitize(clean);
+        clean = ReleaseNames.SanitizeFolderName(clean);
         if (!string.IsNullOrWhiteSpace(metadata?.Title))
         {
-            var metaFolder = Sanitize(metadata.Title);
-            var a = Normalize(clean.Length > 0 ? clean : CutAtStructure(title)); var b = Normalize(metaFolder);
+            var metaFolder = ReleaseNames.SanitizeFolderName(metadata.Title);
+            var a = Normalize(clean.Length > 0 ? clean : ReleaseNames.CutAtStructure(title)); var b = Normalize(metaFolder);
             if (a.Length > 0 && b.Length > 0 && (a == b || a.Contains(b) || b.Contains(a) || WorkIdentityParser.MetadataAgrees(clean, metadata))) return metaFolder;
         }
         return clean;
-    }
-    private static string Sanitize(string title)
-    {
-        var t = Replace(Replace(title, @"[<>:""/\\|?*\x00-\x1f]", ""), @"\s+").Trim().TrimEnd('.', ' ');
-        if (Has(t, @"^www\.") || Has(t, @"^[a-z0-9-]+\.(org|com|net|info|io|to|me|cc|tv)\b") && !Has(t, @"\s")) return "";
-        t = Replace(t, @"^[a-z0-9-]+\.(org|com|net)\s*[-–—:]?\s*", "").Trim();
-        return t[..Math.Min(120, t.Length)];
     }
 }

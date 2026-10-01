@@ -152,7 +152,7 @@ public sealed class ClientTorrentsController(
             var entry = catalog.GetValueOrDefault(target.WorkKey);
             torrent["workId"] = target.WorkId;
             torrent["workKey"] = target.WorkKey;
-            torrent["workTitle"] = target.CanonicalTitle ?? entry?.Title ?? DisplayTitleFromWorkKey(target.WorkKey);
+            torrent["workTitle"] = target.CanonicalTitle ?? entry?.Title ?? TorrentFlow.Core.Text.WorkKeySlug.DisplayTitle(target.WorkKey);
             torrent["workYear"] = target.Year ?? entry?.Year;
             torrent["workMediaType"] = (target.MediaType != "unknown" ? target.MediaType : null)
                 ?? entry?.MediaType ?? torrent["category"]?.GetValue<string>();
@@ -205,21 +205,6 @@ public sealed class ClientTorrentsController(
                 if (seasons == 1 && episodes == 1) return first;
                 return first with { Scope = "season", Season = seasons == 1 ? first.Season : null, Episode = null };
             });
-
-    private static readonly HashSet<string> MinorWords =
-        ["a", "an", "and", "as", "at", "but", "by", "for", "in", "nor", "of", "on", "or", "the", "to"];
-
-    /// <summary>work-key.ts displayTitleFromWorkKey: the slug spelled back out as words, never a guessed year.</summary>
-    internal static string DisplayTitleFromWorkKey(string key)
-    {
-        var raw = (key ?? "").Trim();
-        try { raw = Uri.UnescapeDataString(raw); } catch (UriFormatException) { }
-        var words = Regex.Replace(Regex.Replace(raw, "[-_]+", " "), @"\s+", " ").Trim();
-        if (words.Length == 0) return "";
-        return string.Join(' ', words.Split(' ').Select((w, i) =>
-            i > 0 && MinorWords.Contains(w.ToLowerInvariant()) ? w.ToLowerInvariant()
-            : w[0] is >= 'a' and <= 'z' ? char.ToUpperInvariant(w[0]) + w[1..] : w));
-    }
 
     /// <summary>OwnedClientTorrent: the transfer tagged with the client that owns it (transfer-ownership tagOwnedTorrents).</summary>
     private JsonObject Owned(EngineTorrentInfo t, string owner = BuiltinOwner)

@@ -1,3 +1,5 @@
+using TorrentFlow.Core;
+using TorrentFlow.Core.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using System.Text.Json;
@@ -49,8 +51,8 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
         var title = row.Work?.CanonicalTitle ?? identity.Name;
         var previousWorkKey = await db.ReleaseAttempts.AsNoTracking().Where(a => a.UserId == LocalUser.Id && a.Hash == hash)
             .OrderByDescending(a => a.TriedAt).Select(a => a.WorkKey).FirstOrDefaultAsync(ct);
-        var workKey = row.Work?.WorkKey ?? previousWorkKey ?? ReleaseNames.WorkKeyFor(identity.Name, identity.Year);
-        var episode = ReleaseNames.ParseEpisode(releaseName);
+        var workKey = row.Work?.WorkKey ?? previousWorkKey ?? WorkKeySlug.WorkKeyFor(identity.Name, identity.Year);
+        var episode = ReleaseEpisodeParser.Parse(releaseName);
         var target = await db.AcquisitionTargets.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id && t.InfoHash == hash, ct);
         EpisodeCursor? cursor = target?.Episode is { } e && target.Season is { } s ? new(s, e) : null;
         cursor ??= EpisodeCursor.FromQueueKey(row.QueueKey);
@@ -210,7 +212,7 @@ public sealed class ReleaseSwapService(IDbContextFactory<TorrentFlowDbContext> f
             if (cursor is { } ep) return EpisodeLadder.ReleaseMatchesWork(r, titles) && EpisodeLadder.MatchesTargetEpisode(r, ep, mapping);
             if (seasonPack is { } season)
             {
-                var parsed = r.Episode ?? ReleaseNames.ParseEpisode(r.Title);
+                var parsed = r.Episode ?? ReleaseEpisodeParser.Parse(r.Title);
                 return EpisodeLadder.ReleaseMatchesWork(r, titles) && parsed.IsSeasonPack && parsed.IsMultiSeason != true && parsed.Season == season;
             }
             return FilmSelection.Select([r], workKey, floor) is not null;

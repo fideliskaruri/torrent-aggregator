@@ -2,6 +2,7 @@ using System.Text.Json;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Data.Entities;
 using static TorrentFlow.Search.EpisodeParser;
+using static TorrentFlow.Core.ReleaseEpisodeParser;
 
 namespace TorrentFlow.Search;
 

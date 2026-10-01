@@ -1,3 +1,4 @@
+using TorrentFlow.Core.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -326,7 +327,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var category = EpisodeLadder.SearchCategory(input.MediaType) ?? "all";
         var response = await search.SearchAsync(new() { Query = title, Category = category, Limit = 20, TargetResolution = floor ?? input.PreferredResolution,
             Enrich = false, SkipCache = true, Background = input.Background, WaitForBudget = true, Urgent = input.Urgent, Filters = new() { HasMagnet = true, MinSeeders = input.Background ? null : 1 } }, ct);
-        var key = input.WorkKey ?? ReleaseNames.WorkKeyFor(title, input.Year);
+        var key = input.WorkKey ?? WorkKeySlug.WorkKeyFor(title, input.Year);
         var releases = (floor != null
             ? PreferRequestedQuality(response.Results, floor.Value) : response.Results.AsEnumerable()).ToList();
         GrabResult? lastFailure = null;

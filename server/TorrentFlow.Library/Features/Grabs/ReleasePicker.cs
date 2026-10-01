@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -86,7 +87,7 @@ public sealed class ReleasePicker(IDbContextFactory<TorrentFlowDbContext> factor
     {
         if (season is not { } s) return null;
         if (episode is { } e) return new(s, e);
-        var parsed = r.Episode ?? ReleaseNames.ParseEpisode(r.Title);
+        var parsed = r.Episode ?? ReleaseEpisodeParser.Parse(r.Title);
         return parsed.Episode is { } n && (parsed.Season ?? s) == s ? new(s, n) : null;
     }
 

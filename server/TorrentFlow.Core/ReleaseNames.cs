@@ -1,44 +1,30 @@
-using TorrentFlow.Core.Text;
 using System.Globalization;
-using System.Text;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
-using TorrentFlow.Core.Contracts.Search;
+using TorrentFlow.Core.Text;
 
-namespace TorrentFlow.Library.Features.Grabs;
+namespace TorrentFlow.Core;
 
-/// <summary>A release's work identity: the name and (films only) year that key it.</summary>
-public readonly record struct ReleaseIdentity(string Name, int? Year, bool IsSeries);
+/// <summary>A release's work identity: the key, name and (films only) year that group it.</summary>
+public sealed record ReleaseIdentity(string Key, string Name,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? Year, bool IsSeries)
+{
+    /// <summary>The same identity under another display name (a catalog title that agrees), keyed by that name.</summary>
+    public ReleaseIdentity Renamed(string name) => this with { Name = name, Key = ReleaseNames.IdentityKey(name, Year, IsSeries) };
+}
 
 /// <summary>
-/// Library-local port of the TS release-name parsers the grab selectors depend on:
-/// <c>parseEpisode</c> (torrents/episodes.ts), <c>isEpisodeRangeRelease</c> (torrents/pack-preference.ts),
-/// <c>cleanDisplayTitle</c> (components/browse/availability.ts), <c>workIdentity</c> (torrents/work-identity.ts)
-/// and <c>workKeyMatches</c> (components/title/work-key.ts). Modules never share projects, so these mirror
-/// the Search module's ports rather than referencing them.
+/// The one owner of the release-name rules (ports of the TS parsers): <c>releaseYear</c> (quality.ts),
+/// <c>cleanTitle</c>/<c>showFolder</c> (smart-category.ts), <c>cleanDisplayTitle</c> (availability.ts) and
+/// <c>workIdentity</c>/<c>workIdentityFor</c> (work-identity.ts). Episode and pack parsing live in
+/// <see cref="ReleaseEpisodeParser"/>; work-key slugs in <see cref="WorkKeySlug"/>.
 /// </summary>
 public static class ReleaseNames
 {
     private const RegexOptions Options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(1);
     private static Regex Rx(string pattern, RegexOptions options = Options) => new(pattern, options, Timeout);
-    private static bool Has(string value, Regex regex) => regex.IsMatch(value);
     private static string Strip(string value, Regex regex, string replacement = " ") => regex.Replace(value, replacement);
-
-    public static string? SpecialType(string title) => TorrentFlow.Core.ReleaseEpisodeParser.SpecialType(title);
-    public static EpisodeInfo ParseEpisode(string title) => TorrentFlow.Core.ReleaseEpisodeParser.Parse(title);
-
-    // ── isEpisodeRangeRelease ────────────────────────────────────────────────
-    private static readonly Regex[] EpisodeRanges =
-    [
-        Rx(@"\bS\d{1,3}\s*E\d{1,4}\s*[-–—~]\s*(?:S\d{1,3}\s*)?E?\d{1,4}\b"),
-        Rx(@"\b\d{1,3}x\d{1,4}\s*[-–—~]\s*(?:\d{1,3}x)?\d{1,4}\b"),
-        Rx(@"\b(?:episodes?|eps?|e)\s*\.?\s*\d{1,4}\s*[-–—~]\s*(?:episodes?|eps?|e)?\s*\.?\s*\d{1,4}\b"),
-        Rx(@"(?:\s[-–—]\s*|\[)\d{1,4}(?:v\d+)?\s*[-–—~]\s*\d{1,4}(?:v\d+)?(?=\s|[\])]|$)"),
-        Rx(@"\bS\d{1,3}E\d{1,4}(?:v\d+)?E\d{1,4}\b"),
-    ];
-
-    /// <summary>Episode ranges are multi-file intent even when the parser sees their first E.</summary>
-    public static bool IsEpisodeRangeRelease(string title) => EpisodeRanges.Any(r => r.IsMatch(title));
 
     // ── cleanDisplayTitle ────────────────────────────────────────────────────
     private static readonly Regex ReleaseTokens = Rx(@"\b(\d{3,4}p|4k|uhd|hdr(?:10)?\+?|dolby ?vision|x26[45]|h\.?26[45]|hevc|avc|aac(?:5\.1|2\.0)?|ac-?3|e-?ac-?3|ddp?5\.1|dts(?:-hd)?|flac|opus|web-?dl|web-?rip|b[dr]rip|blu-?ray|hdtv|dvdrip|remux|repack|proper|multi|dual ?audio|subbed|dubbed|10 ?bits?|8 ?bits?|amzn|dsnp|hmax|atvp|hulu|pcok|stan|crav|telesync|telecine|hdcam|hdts|screener|dvdscr|workprint|mp4|mkv|avi|m4v|xvid|divx)\b");
@@ -121,6 +107,8 @@ public static class ReleaseNames
     private static readonly Regex FilmTrailingGroup = Rx(@"[-–—_]+[a-z0-9]{2,20}$");
     private static readonly Regex OpenBracketTail = Rx(@"\s*[\[({]\s*$");
     private static readonly Regex FilmTailDebris = Rx(@"[\s\-–—_:|.]+$");
+    private static readonly Regex Apostrophe = Rx("['’`]", RegexOptions.CultureInvariant);
+    private static readonly Regex NonAlphanumeric = Rx(@"[^\p{L}\p{N}]+", RegexOptions.CultureInvariant);
     private static readonly Regex JunkNumberTail = Rx(@"[\])]\s*\d{1,4}\s*$");
 
     private static string TrackerPrefix(string title)
@@ -135,7 +123,8 @@ public static class ReleaseNames
         return result;
     }
 
-    internal static int? ReleaseYear(string title)
+    /// <summary>quality.ts releaseYear: the last plausible 19xx/20xx token once codec, audio and size noise is gone.</summary>
+    public static int? ReleaseYear(string title)
     {
         var t = Strip(Strip(title, DotsUnderscores), YearNoise);
         var max = DateTime.UtcNow.Year + 2;
@@ -143,13 +132,15 @@ public static class ReleaseNames
             .Where(y => y >= 1900 && y <= max).Select(y => (int?)y).LastOrDefault();
     }
 
-    private static string CutAtStructure(string title)
+    /// <summary>The release name before its first season/episode marker.</summary>
+    public static string CutAtStructure(string title)
     {
         var m = Structure.Match(title);
         return m.Success && m.Index > 0 ? title[..m.Index] : title;
     }
 
-    private static string ShowCleanTitle(string title)
+    /// <summary>smart-category.ts cleanTitle: the show name with site, episode, pack, quality and group noise removed.</summary>
+    public static string CleanTitle(string title)
     {
         var t = Strip(Strip(title, Amp, "and"), Entity);
         t = Strip(t, SitePrefixPattern);
@@ -168,7 +159,8 @@ public static class ReleaseNames
         return t;
     }
 
-    private static string Sanitize(string title)
+    /// <summary>A folder-safe name: no path characters, no bare site names, at most 120 characters.</summary>
+    public static string SanitizeFolderName(string title)
     {
         var t = Strip(UnsafePathChars.Replace(title, ""), Whitespace).Trim().TrimEnd('.', ' ');
         if (WwwStart.IsMatch(t) || DomainStart.IsMatch(t) && !t.Any(char.IsWhiteSpace)) return "";
@@ -176,21 +168,26 @@ public static class ReleaseNames
         return t[..Math.Min(120, t.Length)];
     }
 
-    private static string ShowFolder(string title)
+    /// <summary>
+    /// smart-category.ts showFolder without metadata. With <paramref name="keepPartNumber"/> a trailing "Part N"/"Cour N"
+    /// keeps its number. Grab matching (<see cref="IdentityFor"/>) keeps it; catalog and browse identity keys drop it,
+    /// because stored catalog keys were minted that way. Unifying the two needs a key migration.
+    /// </summary>
+    public static string ShowFolder(string title, bool keepPartNumber = false)
     {
-        var clean = ShowCleanTitle(title);
-        var namedPart = Regex.IsMatch(clean, @"\b(?:Part|Cour)\s+\d{1,3}$", Options, Timeout);
+        var clean = CleanTitle(title);
+        var namedPart = keepPartNumber && Regex.IsMatch(clean, @"\b(?:Part|Cour)\s+\d{1,3}$", Options, Timeout);
         if (!namedPart)
         {
-            if (ParseEpisode(title).Episode is { } number)
+            if (ReleaseEpisodeParser.Parse(title).Episode is { } number)
                 clean = Regex.Replace(clean, $@"\b0*{number}\b", " ", Options, Timeout);
             clean = TrailingNumber.Replace(clean, " ");
         }
         clean = Strip(Strip(clean, FolderWords), Whitespace).Trim();
-        return Sanitize(clean);
+        return SanitizeFolderName(clean);
     }
 
-    private static string StripTrailingJunkNumber(string rawTitle, string cleaned)
+    public static string StripTrailingJunkNumber(string rawTitle, string cleaned)
     {
         if (!JunkNumberTail.IsMatch(rawTitle)) return cleaned;
         var result = TrailingNumber.Replace(cleaned, "").Trim();
@@ -213,17 +210,25 @@ public static class ReleaseNames
         return StripTrailingJunkNumber(title, t);
     }
 
-    /// <summary>Port of <c>workIdentity(title)</c> without catalog metadata (grab searches are not enriched).</summary>
-    public static ReleaseIdentity WorkIdentity(string title)
+    /// <summary>work-identity.ts normalize: lower case, apostrophes dropped, every other non-alphanumeric run one space.</summary>
+    public static string NormalizeKey(string value) =>
+        Strip(Strip(Strip(value.ToLowerInvariant(), Apostrophe, ""), NonAlphanumeric), Whitespace).Trim();
+
+    /// <summary>The persisted identity key: <c>series:{name}</c> or <c>film:{name}:{year}</c>.</summary>
+    public static string IdentityKey(string name, int? year, bool isSeries) =>
+        isSeries ? $"series:{NormalizeKey(name)}" : $"film:{NormalizeKey(name)}:{year}";
+
+    /// <summary>Port of <c>workIdentity(title)</c> without catalog metadata; see <see cref="ShowFolder"/> for <paramref name="keepPartNumber"/>.</summary>
+    public static ReleaseIdentity WorkIdentity(string title, bool keepPartNumber = false)
     {
         var release = TrackerPrefix(title ?? "");
-        var ep = ParseEpisode(release);
+        var ep = ReleaseEpisodeParser.Parse(release);
         var series = ep.Season != null || ep.Episode != null || ep.IsSeasonPack || ep.IsMultiSeason == true;
         var year = series ? null : ReleaseYear(release);
         string name;
         if (series)
         {
-            name = ShowFolder(release);
+            name = ShowFolder(release, keepPartNumber);
             if (name.Length == 0) name = CutAtStructure(release).Trim();
             if (ReleaseYear(release) is { } y)
             {
@@ -233,7 +238,7 @@ public static class ReleaseNames
         }
         else name = FilmName(release, year);
         if (name.Length == 0) name = release.Trim();
-        return new(name, year, series);
+        return new(IdentityKey(name, year, series), name, year, series);
     }
 
     /// <summary>Port of <c>workIdentityFor(releaseName)</c>: display-clean first, then identify.</summary>
@@ -242,15 +247,6 @@ public static class ReleaseNames
         var name = releaseName ?? "";
         name = Regex.Replace(name, @"(?<=\d)v\d+\b", "", Options, Timeout);
         name = Regex.Replace(name, @"\[(\d{1,4})\](?=\s*(?:[\[(]|$))", " - $1 ", Options, Timeout);
-        return WorkIdentity(CleanDisplayTitle(name));
+        return WorkIdentity(CleanDisplayTitle(name), keepPartNumber: true);
     }
-
-    // ── work keys (one implementation: TorrentFlow.Core.Text.WorkKeySlug) ──
-    /// <summary>Port of <c>workKeyFor</c>; empty when the name has no slug.</summary>
-    public static string WorkKeyFor(string name, int? year = null) => WorkKeySlug.WorkKeyFor(name, year);
-
-    internal static bool SameKey(string left, string right) => WorkKeySlug.SameKey(left, right);
-
-    /// <summary>Port of <c>workKeyMatches</c>: exact key/alias match, or a yearless name that cannot contradict a dated key.</summary>
-    public static bool WorkKeyMatches(string key, string name, int? year) => WorkKeySlug.Matches(key, name, year);
 }

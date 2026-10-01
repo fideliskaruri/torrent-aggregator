@@ -1,3 +1,4 @@
+using TorrentFlow.Core;
 using TorrentFlow.Core.Contracts.Library;
 using TorrentFlow.Core.Contracts.Search;
 using TorrentFlow.Library.Features.Watchlist;
@@ -13,7 +14,7 @@ internal static class EpisodeRejections
     {
         var reasons = new List<string>();
         if (!EpisodeLadder.ReleaseMatchesWork(candidate, accepted, premiereYear)) reasons.Add("other_work");
-        var ep = candidate.Episode ?? ReleaseNames.ParseEpisode(candidate.Title);
+        var ep = candidate.Episode ?? ReleaseEpisodeParser.Parse(candidate.Title);
         if (IsPack(candidate)) reasons.Add("pack");
         else if (ep.Episode == null) reasons.Add("unknown_episode");
         else if (!EpisodeLadder.MatchesTargetEpisode(candidate, cursor, mapping)) reasons.Add("different_episode");
@@ -33,8 +34,7 @@ internal static class EpisodeRejections
     /// <summary>A season pack, batch or episode range: never an episode candidate, and never offered by the picker.</summary>
     public static bool IsPack(TorrentResult candidate)
     {
-        var ep = candidate.Episode ?? ReleaseNames.ParseEpisode(candidate.Title);
-        return ep.IsBatch || ep.IsSeasonPack || ep.IsMultiSeason == true || ReleaseNames.IsEpisodeRangeRelease(candidate.Title);
+        return ReleaseEpisodeParser.IsMultiEpisode(candidate.Title, candidate.Episode);
     }
 
     /// <summary>
@@ -44,7 +44,7 @@ internal static class EpisodeRejections
     public static bool IsPackFor(TorrentResult candidate, int season)
     {
         if (!IsPack(candidate)) return false;
-        var ep = candidate.Episode ?? ReleaseNames.ParseEpisode(candidate.Title);
+        var ep = candidate.Episode ?? ReleaseEpisodeParser.Parse(candidate.Title);
         if (ep.IsMultiSeason == true) return false;
         return ep.Season == season || ep.Season == null && season == 1;
     }
