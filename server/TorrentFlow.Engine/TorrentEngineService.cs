@@ -76,7 +76,7 @@ internal sealed partial class TorrentEngineService(
     private ScheduleState Schedule => limits is null ? ScheduleState.Unrestricted : DownloadWindows.Evaluate(limits.Windows, time.GetLocalNow());
     /// <summary>An open window's own downloads-at-once wins over the saved cap, which wins over the configured default.</summary>
     private int CapFor(ScheduleState schedule) =>
-        Math.Max(1, schedule.Active?.MaxActiveDownloads ?? limits?.MaxActiveOverride ?? Options.MaxActiveDownloads);
+        DownloadLimits.Effective(schedule, limits?.MaxActiveOverride, Options.MaxActiveDownloads).MaxActive;
     private int Cap => CapFor(Schedule);
     // The window speed caps last pushed to the client; null until the first tick applies them.
     private (long? Down, long? Up)? _appliedRates;
