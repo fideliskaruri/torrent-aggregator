@@ -1,31 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router";
-import { RefreshCw, Search, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
-import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { WAITING_FOR_ENGLISH_LABEL } from "@/components/title/title-actions";
-import { useVisiblePoll } from "@/hooks/use-visible-poll";
-import { toast } from "@/lib/toast";
+import {
+  WantedActions,
+  useWantedRows,
+  wantedRowMatches,
+  type WantedRow,
+} from "@/components/wanted/wanted-actions";
 import { titleWithYear } from "./release-display";
-
-/** One target from GET /api/wanted that has no release yet. */
-interface WantedRow {
-  workKey: string;
-  title?: string | null;
-  year?: number | null;
-  mediaType?: string | null;
-  season?: number | null;
-  episode?: number | null;
-  error?: string | null;
-  why?: string | null;
-  looking: boolean;
-  nextAttemptAt?: string | null;
-  /** "Pick a release yourself" for this film or episode. */
-  pickLink?: string | null;
-  /** "Pick a release yourself" for the episode's whole season. */
-  seasonPickLink?: string | null;
-}
 
 interface LookingGroup {
   key: string;
@@ -90,13 +74,6 @@ function nextTry(iso: string | null): string {
   return `Trying again at ${new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
-function targetQuery(g: LookingGroup): string {
-  const params = new URLSearchParams({ workKey: g.workKey });
-  if (g.season != null) params.set("season", String(g.season));
-  if (g.episode != null) params.set("episode", String(g.episode));
-  return params.toString();
-}
-
 function groupName(g: LookingGroup): string {
   return g.label ? `${g.title} ${g.label}` : g.title;
 }
@@ -107,73 +84,12 @@ function groupName(g: LookingGroup): string {
  * Every row has a way out: pick a release yourself, try now, or remove it.
  */
 export function LookingSection() {
-  const [rows, setRows] = useState<WantedRow[]>([]);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [pendingRemove, setPendingRemove] = useState<LookingGroup | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/wanted");
-      if (!res.ok) return;
-      const data = (await res.json()) as { wanted?: WantedRow[] };
-      setRows(data.wanted ?? []);
-    } catch {
-      // Keep the last rows; the next poll tries again.
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useVisiblePoll(load, { intervalMs: 3_000 });
+  const { rows, setRows, reload } = useWantedRows();
 
   const groups = useMemo(
     () => groupRows(rows).sort((a, b) => Number(b.looking) - Number(a.looking)),
     [rows],
   );
-
-  const tryNow = useCallback(
-    async (g: LookingGroup) => {
-      setBusy(g.key);
-      try {
-        const res = await fetch(`/api/wanted/try?${targetQuery(g)}`, { method: "POST" });
-        if (!res.ok) throw new Error(String(res.status));
-        toast.success(`Looking for ${groupName(g)} now.`);
-        await load();
-      } catch {
-        toast.error(`Couldn't start a search for ${groupName(g)}. Check that TorrentFlow is running, then try again.`);
-      } finally {
-        setBusy(null);
-      }
-    },
-    [load],
-  );
-
-  const remove = useCallback(async () => {
-    const g = pendingRemove;
-    if (!g) return;
-    setBusy(g.key);
-    try {
-      const res = await fetch(`/api/wanted?${targetQuery(g)}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(String(res.status));
-      setRows((current) =>
-        current.filter(
-          (r) =>
-            r.workKey !== g.workKey ||
-            (r.season ?? null) !== g.season ||
-            (g.episode != null && r.episode !== g.episode),
-        ),
-      );
-      toast.success(`Removed ${groupName(g)}. TorrentFlow stopped looking for it.`);
-      setPendingRemove(null);
-      await load();
-    } catch {
-      toast.error(`Couldn't remove ${groupName(g)}. Check that TorrentFlow is running, then try again.`);
-    } finally {
-      setBusy(null);
-    }
-  }, [load, pendingRemove]);
 
   if (!groups.length) return null;
 
@@ -214,60 +130,18 @@ export function LookingSection() {
                 ) : null}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 pl-7 sm:pl-0 sm:shrink-0">
-              {g.pickLink ? (
-                <Button asChild variant="secondary" size="sm" data-looking-pick>
-                  <Link to={g.pickLink} aria-label={`Pick a release for ${groupName(g)}`}>
-                    <Search className="h-3.5 w-3.5" />
-                    Pick a release
-                  </Link>
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                aria-disabled={g.looking || busy === g.key}
-                onClick={() => {
-                  if (!g.looking && busy !== g.key) void tryNow(g);
-                }}
-                aria-label={`Try now for ${groupName(g)}`}
-                data-looking-try
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Try now
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={busy === g.key}
-                onClick={() => setPendingRemove(g)}
-                aria-label={`Remove ${groupName(g)}`}
-                data-looking-remove
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Remove
-              </Button>
-            </div>
+            <WantedActions
+              target={g}
+              name={groupName(g)}
+              pickLink={g.pickLink}
+              looking={g.looking}
+              onChanged={reload}
+              onRemoved={() => setRows((current) => current.filter((r) => !wantedRowMatches(r, g)))}
+              className="pl-7 sm:pl-0 sm:shrink-0"
+            />
           </div>
         ))}
       </div>
-      <ConfirmDialog
-        open={!!pendingRemove}
-        onOpenChange={(open) => {
-          if (!open) setPendingRemove(null);
-        }}
-        contentData={{ "data-looking-remove-dialog": true }}
-        confirmData={{ "data-looking-remove-confirm": true }}
-        title={pendingRemove ? `Remove ${groupName(pendingRemove)}?` : "Remove?"}
-        description="TorrentFlow stops looking for a release, also after a restart. Anything already downloading stays. You can download it again from its title page."
-        variant="destructive"
-        busy={!!pendingRemove && busy === pendingRemove.key}
-        icon={<Trash2 className="h-3.5 w-3.5" />}
-        confirmLabel="Remove"
-        onConfirm={() => void remove()}
-      />
     </section>
   );
 }

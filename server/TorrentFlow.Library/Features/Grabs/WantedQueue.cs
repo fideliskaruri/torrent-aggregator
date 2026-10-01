@@ -84,6 +84,11 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
 
     private readonly ConcurrentDictionary<Unit, Plan> plans = new();
     private readonly ConcurrentDictionary<Unit, Task> running = new();
+    /// <summary>A running unit's own cancel and its start, so Remove can stop it and undo what it started meanwhile.</summary>
+    private readonly ConcurrentDictionary<Unit, (CancellationTokenSource Stop, DateTime Started)> inFlight = new();
+    /// <summary>When each unit's last run started and ended: a Remove pressed as a run just finished still undoes it.</summary>
+    private readonly ConcurrentDictionary<Unit, (DateTime Started, DateTime Ended)> lastRun = new();
+    private static readonly TimeSpan RemoveWindow = TimeSpan.FromSeconds(30);
     private readonly ConcurrentDictionary<string, string> why = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim wake = new(0);
     private long order;
@@ -334,16 +339,25 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             if (unit.Episode != null && running.ContainsKey(unit with { Episode = null })) continue;
             // Season runs share the slots; one clicked film or episode never waits behind them.
             if (running.Count >= MaxParallel && !plan.Single) continue;
+            var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            inFlight[unit] = (stop, now);
             running[unit] = Task.Run(async () =>
             {
-                try { await RunAsync(unit, ct); }
-                catch (Exception error) when (!ct.IsCancellationRequested && error is not ShuttingDownException)
+                try { await RunAsync(unit, stop.Token); }
+                catch (OperationCanceledException) when (stop.IsCancellationRequested && !ct.IsCancellationRequested)
+                {
+                    logger.LogInformation("Wanted {WorkKey} season {Season} was removed while it was looking", unit.WorkKey, unit.Season);
+                }
+                catch (Exception error) when (!ct.IsCancellationRequested && !stop.IsCancellationRequested && error is not ShuttingDownException)
                 {
                     logger.LogWarning(error, "Wanted {WorkKey} season {Season} attempt failed", unit.WorkKey, unit.Season);
                     Reschedule(unit, null, [GrabFailure.FromException(error)], null, null);
                 }
                 finally
                 {
+                    inFlight.TryRemove(unit, out _);
+                    lastRun[unit] = (now, time.GetUtcNow().UtcDateTime);
+                    stop.Dispose();
                     running.TryRemove(unit, out _);
                     wake.Release();
                 }
@@ -531,19 +545,57 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
 
     /// <summary>
     /// Stop looking: drops a film's, a season's or one episode's wanted rows that have no release yet, so neither a
-    /// retry nor a restart brings them back. Rows already downloading are left alone. Returns how many were dropped.
+    /// retry nor a restart brings them back. Remove always wins over a search in flight: that run is cancelled and
+    /// awaited, and any release it started meanwhile is removed with its files. Releases started before are left alone.
+    /// Returns how many wanted rows were dropped.
     /// </summary>
     public async Task<int> StopAsync(string workKey, int? season, int? episode, CancellationToken ct)
     {
+        bool Matches(Unit u) => u.WorkKey == workKey && u.Season == season && (episode == null || u.Episode == episode);
+        void Forget() { foreach (var unit in plans.Keys.Where(Matches)) plans.TryRemove(unit, out _); }
+        Forget();
+        var stopped = inFlight.Where(p => Matches(p.Key)).Select(p => (p.Key, p.Value.Started)).ToList();
+        var cutoff = time.GetUtcNow().UtcDateTime - RemoveWindow;
+        var justEnded = lastRun.Where(p => Matches(p.Key) && p.Value.Ended >= cutoff).Select(p => (p.Key, p.Value.Started)).ToList();
+        foreach (var (unit, _) in stopped)
+        {
+            if (inFlight.TryGetValue(unit, out var run)) { try { run.Stop.Cancel(); } catch (ObjectDisposedException) { } }
+            if (running.TryGetValue(unit, out var task))
+                await task.WaitAsync(TimeSpan.FromSeconds(30), ct).ContinueWith(_ => { }, CancellationToken.None);
+        }
+        Forget();
+        stopped.AddRange(justEnded);
+
         await using var db = await factory.CreateDbContextAsync(ct);
-        var rows = db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey && t.Status == "queued" && t.InfoHash == null);
-        rows = season == null ? rows.Where(t => t.Scope == "title") : rows.Where(t => t.Scope == "episode" && t.Season == season);
-        if (season != null && episode != null) rows = rows.Where(t => t.Episode == episode);
+        var scoped = db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && t.WorkKey == workKey);
+        scoped = season == null ? scoped.Where(t => t.Scope == "title") : scoped.Where(t => t.Scope == "episode" && t.Season == season);
+        if (season != null && episode != null) scoped = scoped.Where(t => t.Episode == episode);
+
+        // What the cancelled run started before it noticed: this work's transfers created since that run began.
+        var raced = new List<string>();
+        if (stopped.Count > 0)
+        {
+            var since = stopped.Min(s => s.Started);
+            var workId = await db.Works.Where(w => w.WorkKey == workKey).Select(w => w.Id).FirstOrDefaultAsync(ct);
+            // Only transfers created since: a release the run reused from before stays, files and all.
+            raced = workId == null ? [] : await db.EngineTorrents.Where(t => t.UserId == LocalUser.Id && t.WorkId == workId && t.CreatedAt >= since)
+                .Select(t => t.Hash.ToLower()).ToListAsync(ct);
+            // Another target (another season, or the owner's own pick) that still wants one of them keeps it.
+            var mine = await scoped.Select(t => t.Id).ToListAsync(ct);
+            var keep = await db.AcquisitionTargets.Where(t => t.UserId == LocalUser.Id && t.InfoHash != null && raced.Contains(t.InfoHash.ToLower())
+                    && !mine.Contains(t.Id)).Select(t => t.InfoHash!.ToLower()).ToListAsync(ct);
+            raced = raced.Except(keep, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        var rows = scoped.Where(t => t.Status == "queued" && t.InfoHash == null || t.InfoHash != null && raced.Contains(t.InfoHash.ToLower()));
         var keys = await rows.Select(t => t.TargetKey).ToListAsync(ct);
         var removed = await rows.ExecuteDeleteAsync(ct);
         foreach (var key in keys) why.TryRemove(key, out _);
-        foreach (var unit in plans.Keys.Where(u => u.WorkKey == workKey && u.Season == season && (episode == null || u.Episode == episode)))
-            plans.TryRemove(unit, out _);
+        foreach (var hash in raced)
+        {
+            var result = await engine.RemoveAsync(hash, true, ct);
+            logger.LogInformation("Removed {Hash} that {WorkKey}'s search started as it was removed: {Message}", hash, workKey, result.Message);
+        }
         return removed;
     }
 

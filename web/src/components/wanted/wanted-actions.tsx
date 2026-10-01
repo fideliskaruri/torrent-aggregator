@@ -1,0 +1,190 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router";
+import { RefreshCw, Search, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/tf/confirm-dialog";
+import { useVisiblePoll } from "@/hooks/use-visible-poll";
+import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
+
+/** One target from GET /api/wanted that has no release yet. */
+export interface WantedRow {
+  workKey: string;
+  title?: string | null;
+  year?: number | null;
+  mediaType?: string | null;
+  season?: number | null;
+  episode?: number | null;
+  error?: string | null;
+  why?: string | null;
+  looking: boolean;
+  nextAttemptAt?: string | null;
+  /** "Pick a release yourself" for this film or episode. */
+  pickLink?: string | null;
+  /** "Pick a release yourself" for the episode's whole season. */
+  seasonPickLink?: string | null;
+}
+
+/** What a stop or try touches: a film, a season's wanted episodes, or one episode. */
+export interface WantedTarget {
+  workKey: string;
+  season: number | null;
+  episode: number | null;
+}
+
+function targetQuery(t: WantedTarget): string {
+  const params = new URLSearchParams({ workKey: t.workKey });
+  if (t.season != null) params.set("season", String(t.season));
+  if (t.episode != null) params.set("episode", String(t.episode));
+  return params.toString();
+}
+
+/** The owner's wanted rows, polled while the page is visible. */
+export function useWantedRows(enabled = true) {
+  const [rows, setRows] = useState<WantedRow[]>([]);
+
+  const load = useCallback(async () => {
+    if (!enabled) return;
+    try {
+      const res = await fetch("/api/wanted");
+      if (!res.ok) return;
+      const data = (await res.json()) as { wanted?: WantedRow[] };
+      setRows(data.wanted ?? []);
+    } catch {
+      // Keep the last rows; the next poll tries again.
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useVisiblePoll(load, { intervalMs: 3_000 });
+
+  return { rows, setRows, reload: load };
+}
+
+/** True when a wanted row belongs to the target (a season target covers its episodes). */
+export function wantedRowMatches(row: WantedRow, t: WantedTarget): boolean {
+  return (
+    row.workKey === t.workKey &&
+    (row.season ?? null) === t.season &&
+    (t.episode == null || row.episode === t.episode)
+  );
+}
+
+/**
+ * The way out of "Looking for a release", the same on Downloads and the title
+ * page: pick a release yourself, search again now, or remove it so TorrentFlow
+ * stops looking (also after a restart, and also a search already running).
+ */
+export function WantedActions({
+  target,
+  name,
+  pickLink,
+  looking,
+  onChanged,
+  onRemoved,
+  size = "sm",
+  className,
+}: {
+  target: WantedTarget;
+  /** How the toasts and dialog name it, e.g. "Amélie (2001)" or "Show S01E02". */
+  name: string;
+  pickLink: string | null;
+  /** A search is running right now: Try now has nothing to start. */
+  looking: boolean;
+  onChanged?: () => void | Promise<void>;
+  onRemoved?: () => void;
+  size?: "sm" | "lg";
+  className?: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  const tryNow = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/wanted/try?${targetQuery(target)}`, { method: "POST" });
+      if (!res.ok) throw new Error(String(res.status));
+      toast.success(`Looking for ${name} now.`);
+      await onChanged?.();
+    } catch {
+      toast.error(`Couldn't start a search for ${name}. Check that TorrentFlow is running, then try again.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/wanted?${targetQuery(target)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(String(res.status));
+      onRemoved?.();
+      toast.success(`Removed ${name}. TorrentFlow stopped looking for it.`);
+      setConfirming(false);
+      await onChanged?.();
+    } catch {
+      toast.error(`Couldn't remove ${name}. Check that TorrentFlow is running, then try again.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const tryBlocked = looking || busy;
+
+  return (
+    <div className={cn("flex flex-wrap items-center gap-2", className)} data-wanted-actions>
+      {pickLink ? (
+        <Button asChild variant="secondary" size={size} data-looking-pick>
+          <Link to={pickLink} aria-label={`Pick a release for ${name}`}>
+            <Search className="h-3.5 w-3.5" />
+            Pick a release
+          </Link>
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="secondary"
+        size={size}
+        aria-disabled={tryBlocked}
+        onClick={() => {
+          if (!tryBlocked) void tryNow();
+        }}
+        aria-label={`Try now for ${name}`}
+        data-looking-try
+      >
+        <RefreshCw className="h-3.5 w-3.5" />
+        Try now
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size={size}
+        disabled={busy}
+        onClick={() => setConfirming(true)}
+        aria-label={`Remove ${name}`}
+        data-looking-remove
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        Remove
+      </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(false);
+        }}
+        contentData={{ "data-looking-remove-dialog": true }}
+        confirmData={{ "data-looking-remove-confirm": true }}
+        title={`Remove ${name}?`}
+        description="TorrentFlow stops looking for a release, also after a restart. A release it was just starting is removed too. Downloads that started earlier stay. You can download it again from its title page."
+        variant="destructive"
+        busy={confirming && busy}
+        icon={<Trash2 className="h-3.5 w-3.5" />}
+        confirmLabel="Remove"
+        onConfirm={() => void remove()}
+      />
+    </div>
+  );
+}
