@@ -57,7 +57,7 @@ public interface IWantedObserver
 /// </summary>
 public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory, GrabService grabs, IEnumerable<IWantedObserver> observers,
     TimeProvider time, ILogger<WantedQueue> logger, IOptions<AutomationOptions> options, IAirDateLookup airDates, ITorrentEngine engine,
-    WorkNamesRefresh? names = null) : BackgroundService
+    WorkNamesRefresh? names = null, IWorkLinker? linker = null) : BackgroundService
 {
     /// <summary>
     /// A run waits on searches and on the engine admitting each find (a magnet is admitted before its file list
@@ -365,6 +365,15 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
             // A work whose names never came from its provider gets them now (at most once a day), before this grab searches.
             try { await names.RefreshAsync(unit.WorkKey, null, fetch: true, ct); }
             catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogInformation(error, "Could not refresh the names of {WorkKey}", unit.WorkKey); }
+        }
+        if (linker != null && rows.Count > 0)
+        {
+            // A work never linked to its other records (AniList, TMDB) is linked now, for about 2 s at most: its linked
+            // names join the search. Slow or failed linking never holds up or fails the grab; the backfill finishes it.
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(TimeSpan.FromSeconds(2));
+            try { await linker.LinkAsync(unit.WorkKey, budget.Token); }
+            catch (Exception error) when (!ct.IsCancellationRequested) { logger.LogInformation("Linking {WorkKey} before its grab stopped: {Error}", unit.WorkKey, error.Message); }
         }
         var work = await db.Works.AsNoTracking().FirstOrDefaultAsync(w => w.WorkKey == unit.WorkKey, ct);
         plans.TryGetValue(unit, out var plan);

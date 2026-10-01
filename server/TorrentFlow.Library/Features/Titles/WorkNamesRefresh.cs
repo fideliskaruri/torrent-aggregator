@@ -65,16 +65,22 @@ public sealed class WorkNamesRefresh(IDbContextFactory<TorrentFlowDbContext> fac
             }
             if (own == null || own.Source != work.Provider || own.ExternalId != work.ProviderId) return;
         }
-        var names = WorkNames.Of(own).Merge(work.ReadNames());
-        var ids = (own.Ids ?? new()).Merge(work.ReadIds());
-        var namesJson = names.ToJson();
-        var idsJson = ids.ToJson() ?? "{}";
+        var priorNames = work.NamesJson;
+        var priorIds = work.IdsJson;
+        work.NamesJson = WorkNames.Of(own).Merge(work.ReadNames()).ToJson();
+        // The ids the provider reports about itself are verified crosswalk rows; the ids and linked names are rebuilt
+        // from the rows by their one writer, so an unlinked id never comes back through a refresh.
+        var links = await WorkLinks.LoadAsync(db, work, ct);
+        WorkLinks.Record(db, work, links, WorkLinks.Claims(own.Ids, own.MediaType == "movie" ? "movie" : "tv", WorkLinks.FromProvider),
+            null, time.GetUtcNow().UtcDateTime);
+        WorkLinks.Apply(work, links);
+        var names = work.ReadNames();
+        var namesJson = work.NamesJson;
+        var idsJson = work.IdsJson;
         var format = WorkFormats.Of(own) ?? work.Format;
         var language = WorkFormats.LanguageOf(own) ?? work.OriginalLanguage;
-        var changed = namesJson != work.NamesJson || idsJson != work.IdsJson || format != work.Format || language != work.OriginalLanguage;
+        var changed = namesJson != priorNames || idsJson != priorIds || format != work.Format || language != work.OriginalLanguage;
         if (!changed && work.NamesRefreshedAt != null) return;
-        work.NamesJson = namesJson;
-        work.IdsJson = idsJson;
         work.Format = format;
         work.OriginalLanguage = language;
         work.NamesRefreshedAt = time.GetUtcNow().UtcDateTime;

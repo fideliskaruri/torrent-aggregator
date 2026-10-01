@@ -34,6 +34,9 @@ public partial class Work
     /// <summary>When names, ids, format and language were last taken from the work's own provider; null when never.</summary>
     public DateTime? NamesRefreshedAt { get; set; }
 
+    /// <summary>The anime-lists map version this work was last linked against ("none" without a map); null when never linked.</summary>
+    public string? LinksVersion { get; set; }
+
     public string? Provider { get; set; }
 
     public string? ProviderId { get; set; }
@@ -53,4 +56,6 @@ public partial class Work
     public virtual ICollection<EngineTorrent> EngineTorrents { get; set; } = new List<EngineTorrent>();
 
     public virtual ICollection<WatchListItem> WatchListItems { get; set; } = new List<WatchListItem>();
+
+    public virtual ICollection<WorkLink> Links { get; set; } = new List<WorkLink>();
 }
