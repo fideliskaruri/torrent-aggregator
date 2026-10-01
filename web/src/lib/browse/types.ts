@@ -5,6 +5,16 @@
  * needs must be here; the UI must never call the torrent engine or re-parse
  * release names to render a rail.
  */
+import type { RequestProvider } from "@/lib/requests";
+
+/**
+ * A title at a metadata provider, when the catalog knows it. Rail cards and the
+ * title payload both carry it, so the title page can request the work.
+ */
+export interface CatalogIdentity {
+  provider?: RequestProvider | null;
+  providerId?: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Availability
@@ -70,7 +80,7 @@ export interface ProgressEntry {
 // ---------------------------------------------------------------------------
 
 /** A single card in a rail. Carries everything the UI needs to render. */
-export interface RailItem {
+export interface RailItem extends CatalogIdentity {
   /** Stable identifier (PlaybackProgress id, EngineTorrent id, WatchListItem id, etc.). */
   id: string;
   /** Canonical logical parent. Null only for legacy/unresolved rows. */
@@ -78,6 +88,8 @@ export interface RailItem {
   /** Canonical title route key; never re-derived from a torrent when present. */
   workKey?: string | null;
   title: string;
+  /** Release year (films) or first-air year (series), when known. */
+  year?: number | null;
   /** E.g. "S02E07" or "Season 3 Pack". */
   subtitle: string | null;
   posterUrl: string | null;
