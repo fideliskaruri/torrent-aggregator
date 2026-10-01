@@ -16,7 +16,8 @@ public sealed record AniListFranchiseEntry(AniListWork Work, int? Offset)
 }
 
 /// <summary>An AniList entry's TV/ONA continuity in airing order: the first season, its sequels, and which one was asked for.</summary>
-public sealed record AniListFranchise(IReadOnlyList<AniListFranchiseEntry> Entries, int RequestedIndex)
+/// <param name="Partial">AniList failed mid-walk, so later (or earlier) entries may be missing; never cache it for long.</param>
+public sealed record AniListFranchise(IReadOnlyList<AniListFranchiseEntry> Entries, int RequestedIndex, bool Partial = false)
 {
     public AniListFranchiseEntry Requested => Entries[RequestedIndex];
     public AniListFranchiseEntry Root => Entries[0];
@@ -62,7 +63,8 @@ public sealed partial class AniListClient
             var walk = await WalkAsync(numeric, sequels: false).ConfigureAwait(false);
             // A movie/OVA boundary or timeout invalidates absolute offsets, not the sequel identity already read.
             var result = walk.Current is { } current ? MapEpisodeChain([current, .. walk.Prequels], walk.Complete) : null;
-            _mappings.Set(id, result, result?.AbsoluteOffset != null ? TimeSpan.FromHours(12) : TimeSpan.FromMinutes(5));
+            _mappings.Set(id, result, walk.Interrupted ? TimeSpan.FromMinutes(1)
+                : result?.AbsoluteOffset != null ? TimeSpan.FromHours(12) : TimeSpan.FromMinutes(5));
             return result;
         }, ct).ConfigureAwait(false);
     }
@@ -86,19 +88,25 @@ public sealed partial class AniListClient
                     entries.Add(new(work, offset));
                     offset = offset is { } o && work.Status == "FINISHED" && work.EpisodeCount is { } count ? o + count : null;
                 }
-                result = new(entries, walk.Prequels.Count);
+                result = new(entries, walk.Prequels.Count, walk.Interrupted);
             }
+            // AniList refused the entry itself: no answer, rather than "this title has no franchise".
+            if (result is null && walk.Interrupted) throw new HttpRequestException("AniList did not answer the franchise walk.");
             var settled = result?.Entries.All(e => e.Work.Status == "FINISHED") == true;
-            _franchises.Set(id, result, settled ? TimeSpan.FromHours(12) : result is null ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(30));
+            _franchises.Set(id, result, walk.Interrupted ? TimeSpan.FromMinutes(1) : settled ? TimeSpan.FromHours(12)
+                : result is null ? TimeSpan.FromMinutes(5) : TimeSpan.FromMinutes(30));
             return result;
         }, ct).ConfigureAwait(false);
     }
 
-    private sealed record ChainWalk(JsonElement? Current, List<JsonElement> Prequels, bool Complete, List<JsonElement> Sequels);
+    /// <param name="Interrupted">AniList failed or timed out mid-walk (a rate limit, say): the chain may be cut short.</param>
+    private sealed record ChainWalk(JsonElement? Current, List<JsonElement> Prequels, bool Complete, List<JsonElement> Sequels,
+        bool Interrupted = false);
 
     /// <summary>
-    /// One walk along single TV/ONA PREQUEL (and optionally SEQUEL) edges. Movies, specials, branching continuities and
-    /// missing totals are not safe offsets, so the walk stops there; <c>Complete</c> says it reached the first season.
+    /// One walk along single TV/ONA PREQUEL (and optionally SEQUEL) edges. Movies and specials beside the chain are no
+    /// seasons and are passed over; two TV/ONA neighbours are a branch and stop the walk, as do missing totals for
+    /// offsets; <c>Complete</c> says it reached the first season (no TV/ONA prequel left).
     /// </summary>
     private async Task<ChainWalk> WalkAsync(int id, bool sequels)
     {
@@ -114,7 +122,10 @@ public sealed partial class AniListClient
             var seen = new HashSet<int> { id };
             while (prequels.Count < 16)
             {
-                if (Edges(node, "PREQUEL") is not { } edges) break;
+                if (Edges(node, "PREQUEL") is not { } all) break;
+                // An OVA or film told before the first TV season (Attack on Titan's, Jujutsu Kaisen 0) is no season, so only
+                // TV/ONA prequels count: none is the first season, two are a branch.
+                var edges = all.Where(e => ChainTarget(e) != null).ToArray();
                 if (edges.Length == 0)
                 {
                     complete = true;
@@ -137,7 +148,10 @@ public sealed partial class AniListClient
                 node = sequel;
             }
         }
-        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException) { }
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            return new(current, prequels, complete, later, Interrupted: true);
+        }
         return new(current, prequels, complete, later);
     }
 
@@ -155,6 +169,9 @@ public sealed partial class AniListClient
         if (!_chainNodes.TryGet(key, out var media))
         {
             using var response = await PostAsync(ChainQuery, new JsonObject { ["id"] = id }, ct).ConfigureAwait(false);
+            // A refusal (a rate limit) is no end of the chain; the walk is cut short and remembered only briefly.
+            if (!response.IsSuccessStatusCode && (int)response.StatusCode is 429 or >= 500)
+                throw new HttpRequestException($"AniList answered {(int)response.StatusCode}", null, response.StatusCode);
             if (!response.IsSuccessStatusCode) return null;
             using var doc = await TorrentFlow.Core.Http.BoundedHttpContent.ReadJsonAsync(response.Content, ct).ConfigureAwait(false);
             if (!doc.RootElement.TryGetProperty("data", out var data) || !data.TryGetProperty("Media", out var found) ||
