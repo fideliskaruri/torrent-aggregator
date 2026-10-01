@@ -18,8 +18,10 @@ of the video file holds the track list (language, default flag), and a small bui
     Japanese, Audio 02 English, and SRT subtitles in many languages, Chinese among them.
   - S01E19 to E28: `[Judas] Sousou no Frieren (...) - S01Exx [1080p][HEVC x265 10bit][Multi-Subs] (Weekly)`
     (E19 nyaa.si/view/1768170). Japanese audio; subtitles Eng/Fre/Ger/Ita/Spa/Por/Rus/Ara.
-- The owner has since deleted these. `/api/client/torrents` is empty, every Frieren target reads "The requested file
-  is no longer available", and no .torrent or file is left, so their real track headers can't be read.
+- None of these finished on 3930. There is no Frieren completion notification, the engine table and
+  `/api/client/torrents` are empty, and `D:\Torrents` has no Frieren file or .torrent. With the engine row gone,
+  `TitleService.Reconcile` (TitleService.cs:76-81) marks every Frieren target "The requested file is no longer
+  available". So their real track headers can't be read.
 - Neither the instance's database (copied, read-only) nor `/api/activity` has any Mushoku Tensei grab. The owner
   saw that one somewhere else: an older or other instance, or a file in `D:\Torrents` left by one.
 
@@ -68,11 +70,12 @@ Trap seen in real names: `Multi-Subs`, `MultiSub` and `Multiple Subtitle` are su
 
 ### 1.5 Frieren "Chinese audio": what we can and can't say
 
-By name and uploader description, both Frieren releases the owner got have Japanese audio. The files are gone, so
+By name and uploader description, both Frieren releases 3930 sent have Japanese audio. Neither finished (1.1), so
 the headers can't be checked. Three explanations remain, and the plan covers all of them:
 
 1. The owner saw a different download (another instance). Frieren results include Chinese-platform releases with
-   high seeder counts, and nothing in the code would refuse them.
+   high seeder counts, and nothing in the code would refuse them. Section 1.7 shows which single episodes other
+   instances got in other languages, and why.
 2. A Chinese subtitle track was the default in the `[HR]` files (they carry Chinese subtitles), so the player showed
    Chinese text. Layer 2 records the default audio and subtitle tracks, so the next case leaves evidence.
 3. The uploader's description is wrong. Layer 2 reads the real tracks, so the description stops mattering.
@@ -104,6 +107,109 @@ This adds three traps for the marker table (3.1):
   backup, not a clash.
 - `nlsubs` is Dutch subtitles, not Dutch audio. Same rule: a backup, not a clash.
 
+### 1.7 Which episodes diverged, and why (owner detail, 1 Oct 15:00 local)
+
+Owner: only some episodes came in another language, not whole seasons, and Frieren E28 is one of them.
+
+**3930: nothing diverged in language.** All 28 Frieren S1 episodes were sent once each, on demand from nyaa, between
+18:54:30 and 18:56:38 UTC on 30 Sep, before A2. None finished (1.1). There is no Mushoku Tensei anywhere on 3930: no
+title, target, grab, history row or cached search.
+
+| Episodes | Release (nyaa) | Audio, by name and uploader |
+|---|---|---|
+| E01 to E18 | `Sousou.no.Frieren.S01Exx.Hulu.1080p.AV1.OPUS.SHQ.Dual.Multi[HR]` | Japanese + English |
+| E19 to E28 | `[Judas] Sousou no Frieren (...) - S01Exx [1080p][HEVC x265 10bit][Multi-Subs] (Weekly)` | Japanese |
+
+E28 (`ffc9f924...`) matches E19 to E27. The group still changes at E19, for a reason that applies to every show:
+
+- HR named E19 `...SHQ.2A.Multi[HR]` (288.4 MiB) instead of `Dual.Multi`. `AnimeAudio.Preference` knows only the
+  words "sub" and "dual", so HR's E19 drops to rank 1, and the smallest rank-0 release, Judas `Multi-Subs`, wins.
+- HR has no E20 to E28 on nyaa (checked live), so Judas stays the smallest seeded rank-0 1080p release. For E28 today
+  the order is Judas 352.2 MiB, DKB 584.8 MiB, VARYG and NanDesuKa 1.4 GiB, LostYears 2.9 GiB, ZeroBuild 3.0 GiB.
+
+Each episode is its own pick. The group changes whenever names, sizes or seeders change, and nothing checks that the
+new group uses the same language. On 3930 both groups happen to be Japanese.
+
+**Where single episodes did come in another language (QA instance database copies):**
+
+- dupgrab, 28 Sep 00:07 to 00:19 UTC, a build from before a863a9b. Frieren S1 was mostly `Kitsune DUAL` from
+  torrentscsv, with LostYears for E22 and E27. The odd ones out:
+  - E11 and E28: `[Yameii] ... [English Dub]`
+  - E12: `... [Hindi Japanese English French German Po...]` (multi-audio, default unknown)
+  - E18: `Tsundere-Raws VOSTFR`
+  - E20: ToonsHub `[Multi-Audio] MSubs`
+
+  That build ordered by seeded, then resolution equal to the floor, then `Score ?? Seeders` descending, with no
+  language check. Whichever group had the most seeders for that one episode won.
+- anime-live, 28 Sep 09:18 to 10:16 UTC, a build between a863a9b and 8777f46:
+  - Frieren E05: `Tsundere-Raws MULTi (CUSTOM) (VOSTFR, VF, ...)`, French default audio (the shape proven in 1.2)
+  - Frieren E28: `... S01E28 VOSTFR ... -Tsundere-Raws (CR).mkv`, French subtitles only
+  - Mushoku S03E14: Tsundere `SUBFRENCH`; S03E01: Yameii English Dub
+
+**Mechanism 1: the curly apostrophe (Frieren, proven).**
+
+- The catalog's English title is `Frieren: Beyond Journey’s End`, with U+2019. `EpisodeLadder` builds the
+  preferred-quality, exact and mapped-absolute rungs from it unchanged (`cursor.Query(primaryTitle)`), and the
+  adapters send it as is (`TorrentAdapters.EncodeUriComponent`).
+- nyaa matches U+2019 literally. I checked all 28 episodes live (`evidence\nyaa-curly-rung-s1.txt`):
+  - For 26 episodes the curly query returns nothing.
+  - For E05 and E06 it returns exactly one release,
+    `Frieren - Beyond Journey’s End S01E0x MULTi 1080p ... -Tsundere-Raws (CUSTOM) (VOSTFR, VF, ...)`.
+  - Tsundere-Raws copies the Crunchyroll title, curly apostrophe included. English-subtitle groups write `'` or drop
+    it: the same E28 query with `'` returns 8 releases (ToonsHub, ZeroBuild, LostYears, Yameii, Judas, ...).
+- anime-live's rung diagnostics show the effect. Its only rung was the curly exact title:
+  - E05: nyaa 1 (that Tsundere MULTi) and torrentscsv 3; the Tsundere release was sent.
+  - E28: nyaa 0, apibay 1, torrentscsv 6; torrentscsv's `Tsundere-Raws VOSTFR` was sent.
+  - Other episodes got other groups. That is "only specific episodes".
+- On main, the mapped romaji rung (`Sousou no Frieren S01E28`) runs first, so the curly rungs run only when that rung
+  is missing or nothing in it sends. It is missing for 5 minutes after a failed AniList mapping lookup, because a null
+  mapping is cached (AniListEpisodeMapping.cs:65). Then E05 and E06 fall into the same trap.
+- Mushoku's English title has no apostrophe. Its French picks (1.3) come from mechanism 2 and the missing language
+  check.
+
+**Mechanism 2: falling down the list (every title, code).**
+
+- The ladder sends the first candidate of the first rung that has any. After a failed send it tries the next
+  candidate, then the next rung, with no cap (GrabService.cs:185-232; a hash is never resent). On 3930, Scorpion
+  S01E01 walked 67 sends this way (1.6). So when one episode's usual group can't hand over its file list in time,
+  that episode goes to the next release in line, in whatever language.
+- E28 today, in order:
+  1. The first rung's rank-0 releases (Judas, DKB, VARYG, NanDesuKa, LostYears, ZeroBuild).
+  2. Its rank-1 releases: EMBER, `Tsundere-Raws VOSTFR` (26 seeders) and NanDesuKa.
+  3. The curly rungs: torrentscsv's Tsundere VOSTFR, KAWAII, MeGusta.
+  4. `Sousou no Frieren - 28` and `葬送のフリーレン - 28`. These return mostly Chinese fansub releases
+     (`❀拨雪寻春❀ 简繁日内封`, `DBD-Raws 简繁日双语`, `喵萌奶茶屋 繁日/简日双语`): Japanese audio with Chinese
+     subtitles, some burned in, which reads as "Chinese" on screen.
+  5. The all-category rungs.
+- Background hunts drop the seeder minimum on every rung (GrabService.cs:174-175, called from AutomationService.cs:190),
+  so near-dead releases on the lower rungs count too.
+
+**Mechanism 3: A2 and E28/E29 (code and live results).**
+
+- A2 (764562e, 1 Oct 01:31 UTC) came after every recorded pick (3930 on 30 Sep 18:54, the QA runs on 28 Sep), so it
+  explains none of them.
+- It doesn't move E28: season 1 has offset 0, and the first rung is still `Sousou no Frieren S01E28`.
+- From E29 (TMDB S2E01) the rungs are `Sousou no Frieren S02E01`, `... 2nd Season - 01`, `- 29`,
+  `葬送のフリーレン 第2期 - 29` and `S01E29`, then all categories. Live (`evidence\nyaa-e29-rungs.txt`):
+  - `Sousou no Frieren S02E01` (27 results): EMBER Dual Audio (366.0 MiB) wins today on the word "Dual". The next by
+    size are French audio: `[T3KASHi] ... MULTi ... (VF, VOSTFR)` 386.6 MiB and `...MULTi...-KAF` 471.6 MiB, with
+    Tsundere MULTi (VF) at 1.4 GiB. One failed send stands between the first season 2 episode and French audio.
+  - `Sousou no Frieren - 29` (24): Chinese fansubs dominate, for example `喵萌奶茶屋 [29][1080p][繁日雙語]` 765.9 MiB
+    (burned-in Chinese), its `简日双语` twin, `喵萌奶茶屋&LoliHouse - 29 [简繁日内封字幕]` and
+    `悠哈璃羽字幕社 [CHT][繁體內嵌]`, plus a Greek one, `[Greek-Nakama] S2 - 01`. `第2期 - 29` returns only
+    `❀拨雪寻春❀` Chinese-subtitle releases.
+  - Chinese groups number season 2 from 29, as A2's absolute rungs do, so they are the main source once the S02E01
+    rung is used up.
+
+**One signal that would have caught all of it on nyaa.** In these lists, every wrong-language nyaa release
+(Tsundere-Raws, T3KASHi, KAF, the Chinese and Greek fansubs) is in nyaa's "Non-English-translated" category (1_3).
+Every English-subtitle one is in "English-translated" (1_2). That category is stored on every result
+(`TorrentAdapters.cs:129`) and never read.
+
+**The owner's E28.** It wasn't 3930's: there, E28 is Japanese by name and never finished. Two QA instances did get a
+wrong-language E28 (dupgrab: English dub; anime-live: French subtitles). The other possibility is the owner's main
+install, which I must not touch. See open question 9.
+
 ## 2. Root cause in code
 
 1. **No language gate on automatic picks.**
@@ -129,6 +235,19 @@ This adds three traps for the marker table (3.1):
    - `MediaProbe` (table and entity) exists but nothing uses it.
 5. **The one dub setting is hidden.** `AutomationOptions.PreferAnimeDub` is an appsettings key, not a setting the
    owner can see.
+6. **Each episode is picked alone (1.7).**
+   - No pick looks at the group its sibling episodes got. Each ladder orders by the keyword rank, then size, then
+     seeders, so a name change (`[HR]` "Dual" to "2A") or a size change switches groups.
+   - The English-title rungs keep the catalog's curly apostrophe. nyaa then returns only releases that copy it, which
+     for Frieren means Tsundere-Raws (French) for E05 and E06 and nothing for the other episodes.
+   - A failed send moves to the next candidate, then the next rung, with no cap and no language check. The absolute
+     and native-title rungs (`- 28`, `葬送のフリーレン - 28`, and under A2 `- 29` and `第2期 - 29`) return mostly
+     Chinese fansub releases. The season 2 `S02E01` rung has French `MULTi` releases right behind the dual-audio ones.
+   - nyaa's category ("Non-English-translated", "Raw") is stored on every result (`TorrentAdapters.cs:129`) but never
+     read.
+7. **Nothing records which rung won.** `GrabJob.Query` holds the episode's display query (GrabService.cs:408), and
+   the rung appears only in a Debug log line (GrabService.cs:209-215). So after the fact nobody can tell how an odd
+   episode was found.
 
 ## 3. Design
 
@@ -170,7 +289,7 @@ complaint was about a third language (a French dub of a Japanese show). Open que
 | Marker | Means | Notes and traps |
 |---|---|---|
 | `JPN`, `JAP`, `Japanese`, `日语`, `日配` | Japanese audio | ToonsHub writes `JPN` before the audio codec |
-| `Dual Audio`, `Dual-Audio`, `DUAL`, `Dual.Multi` | original + English audio | `[HR] ... Dual.Multi` is dual audio + multi subs |
+| `Dual Audio`, `Dual-Audio`, `DUAL`, `Dual.Multi`, `2A`, `(Japanese, English Dubs)` | original + English audio | `[HR] ... Dual.Multi` is dual audio + multi subs; `[HR]` writes `2A` from E19 on (1.7) |
 | `dub`, `dubbed`, `English Dub`, `EngDub`, `英配` | English audio (anime) | unchanged meaning, now a backup instead of refused |
 | `Multi-Subs`, `MultiSub`, `Multiple Subtitle`, `Multi Sub` | subtitles incl. English (assumed) | never "MULTi audio" |
 | `[ENG]`, `ENG`, `English`, `英語`, `英语` with no dub/audio word | English subtitles (anime), English audio (other) | Erai-raws lists sub codes in brackets after `Multiple Subtitle`; `天蠍 Scorpion ... 英語繁中` is English audio (1.6) |
@@ -181,7 +300,7 @@ complaint was about a third language (a French dub of a Japanese show). Open que
 | groups `Tsundere-Raws`, `KAF` | French release groups: `MULTi` = French default audio, else French subs | proven by the headers in 1.2 |
 | `国语`, `國語`, `普通话`, `中配`, `国配`, `台配`, `Mandarin` | Chinese (Mandarin) audio | |
 | `粤语`, `粵語`, `Cantonese` | Chinese (Cantonese) audio | |
-| `CHS`, `CHT`, `GB`, `BIG5`, `简体`, `繁體`, `简中`, `繁中`, `中字`, `简日`, `繁日`, `中文字幕`, `内嵌`, `内封` | Chinese subtitles (`内嵌` = burned in) | `GB` only as a bracketed token, never inside a size such as `1.4GB`; with English audio they make the release a backup, not a clash |
+| `CHS`, `CHT`, `GB`, `BIG5`, `简体`, `繁體`, `简中`, `繁中`, `中字`, `简日`, `繁日`, `中文字幕`, `内嵌`, `內嵌`, `内封`, `字幕组`, `字幕組`, `字幕社` | Chinese subtitles (`内嵌`/`內嵌` = burned in) | `GB` only as a bracketed token, never inside a size such as `1.4GB`; `繁日雙語`/`简日双语` are bilingual subtitles, not dual audio (1.7); with English audio they make the release a backup, not a clash |
 | `[Baha]`, `Bahamut`, `[ANi]` | Japanese audio, burned-in Chinese subtitles | anime: clash "Chinese subtitles only" |
 | `iTALiAN`, `ITA` (not after `SUB`) | Italian audio | `SUB ITA` = Italian subtitles |
 | `GERMAN`, `German DL`, `GER` (not in a sub list) | German audio (`DL` = German + original) | `GerSub` = subtitles |
@@ -323,7 +442,10 @@ Labels: French, Chinese, Italian, German, Spanish, Russian, Hindi, Japanese, Eng
 |---|---|
 | `TorrentFlow.Core/ReleaseLanguage.cs` | new: the one rule (markers, want, judge, labels) |
 | `TorrentFlow.Library/Features/Grabs/AnimeAudio.cs` | deleted |
-| `TorrentFlow.Library/Features/Grabs/GrabService.cs` | `Eligible` (fit filter and order), the reasons loop (~205), `Send` (pass `Language`, map `audio_language`), `Prepare` (read the setting) |
+| `TorrentFlow.Library/Features/Grabs/GrabService.cs` | `Eligible` (fit filter and order), the reasons loop (~205), `Send` (pass `Language`, map `audio_language`, store the rung and verdict on the `GrabJob`), `Prepare` (read the setting) |
+| `.../Grabs/EpisodeLadder.cs` | plain apostrophes in rung queries (3.7) |
+| `TorrentFlow.Core/Text/Apostrophes.cs` | new: the one apostrophe helper; `TorrentFlow.Metadata/Title/AnimeFranchiseService.cs:145` uses it too |
+| `TorrentFlow.Data/Entities/GrabJob.cs` | `Rung`, `Language` (same migration as `AudioLanguage`) |
 | `.../Grabs/GrabService.Pack.cs`, `FilmSelection.cs`, `ReleaseSwapService.cs` (~95), `ReleasePicker.cs` | the same fit; films count language in `Summarize`/`Explain` |
 | `.../Grabs/GrabFailure.cs` | `ReasonLabel` via `ReleaseLanguage.Label`, `WrongLanguage` replaces `DubOnly`, `FromCandidates` |
 | `TorrentFlow.Search/ReleaseQuality.cs`, `ReleaseRanking.cs` | `LanguagePreference` derived from `ReleaseLanguage` (search page order only) |
@@ -336,6 +458,23 @@ Labels: French, Chinese, Italian, German, Spanish, Russian, Hindi, Japanese, Eng
 | `TorrentFlow.Library/Features/Automation/AutomationOptions.cs` | `PreferAnimeDub` removed |
 | `web/src/app/settings/page.tsx` | the Audio language fieldset |
 | `docs/one-pipeline.md`, `docs/todo-list.md` (row 35), `docs/api-open-file.md` ("Checking downloads") | describe the language check |
+
+### 3.7 Per-episode drift (1.7)
+
+The language rule (3.1 to 3.3) removes the harm. A refused release is never sent, so falling down the list can't land
+on another language. These changes remove the causes and keep the evidence:
+
+- **Plain apostrophes in queries.** `EpisodeLadder` turns `’` and `‘` into `'` in every title it queries with,
+  through one new helper, `TorrentFlow.Core/Text/Apostrophes.cs`. `AnimeFranchiseService` (line 145), which does the
+  same replacement inline today, uses it too. The English-title rungs then find what nyaa lists under
+  `Journey's End`, instead of only Tsundere-Raws.
+- **Read nyaa's category.** `ReleaseLanguage.Detect` already takes `sourceCategory` (3.1). For anime,
+  "Non-English-translated" and "Raw" are a clash unless the name shows English subtitles. So the wrong-language nyaa
+  releases in 1.7 are refused even when their names alone are unclear.
+- **Record the winning rung.** `GrabJob` gains `Rung` (kind and query, for example
+  `mapped-season: Sousou no Frieren S01E28`) and `Language` (the verdict and its basis: name, files or header). Both
+  go in the `AddAudioLanguage` migration, and `/api/activity` returns them. There is no new screen.
+- **Not in this bug:** keeping a season with one group (open question 10).
 
 ## 4. Proof (no unit tests)
 
@@ -372,6 +511,11 @@ Fixtures (outside the repo, in `D:\code\memtest\audiolang\fixtures`):
 | P9 | Films and packs | film feed with `FRENCH`/`iTALiAN` names; pack feed with a `.fr.srt`-only file list | refused at the name or file layer; detail counts them |
 | P10 | Owner screens | Playwright at 390/768/1280 of Wanted and Activity after P4/P5 | the "9 French audio" style text shows and reads plainly |
 | P11 | No regressions | hand-pick the Tsundere-shape release; search page lists all rows | the hand pick downloads (the owner's choice); search still shows French rows |
+| P12 | One season, one language | `GET /api/title/{workKey}/releases` (sends nothing) for Frieren S1 E04 to E07, E18, E19 and E28; once normally, once with the AniList metadata source switched off on my instance so the romaji rung is missing | in both runs each episode's first row has Japanese audio with English subtitles; `[HR] 2A` counts as dual audio; Tsundere-Raws rows say "French audio" or "French subtitles only" and are never first |
+| P13 | Plain apostrophes | Debug log of the rung list, and the recorded `Rung`, for Frieren S1E05 and E28 | queries read `Journey's End`; the E28 English-title rung gets the English-subtitle releases the straight-apostrophe search returns (8 today) |
+| P14 | Falling down the list | fake feed for 4 episodes of one show; for one episode the Japanese release's seeder is offline (no file list), and that episode also has a Tsundere-shape `MULTi` and a neutral Japanese release | the ladder moves past the failed send to the neutral Japanese release; the Tsundere one is never sent ("French audio" in the detail); all 4 episodes end Japanese |
+| P15 | Season 2 under A2 | picker list for Frieren S2E01 on real results; a fake feed with only a French `S02E01 MULTi` and a Chinese `- 29 [繁日雙語]` release | real list: a dual-audio or English-subtitle release first, T3KASHi/KAF/Tsundere rows say "French audio", 喵萌奶茶屋/悠哈璃羽 rows say "Chinese subtitles only". Fake feed: nothing sent; the wanted detail says "We only found season 2, episode 1 in other languages." |
+| P16 | Evidence kept | `/api/activity` after P4, P5 and P14 | each grab shows its rung and language verdict |
 
 ## 5. Open questions for the critic
 
@@ -392,3 +536,11 @@ Fixtures (outside the repo, in `D:\code\memtest\audiolang\fixtures`):
 7. **Safety net on finished files.** Leave it out (recommended for now), or add it to `CompletedMediaValidator`?
 8. **Default subtitle language.** Record it only (recommended), or also refuse when a non-English subtitle track is
    the default? That second rule might explain the Frieren report (open with the owner).
+9. **Which install had the owner's E28?** 3930's E28 is Japanese by name and never finished. If it was the main
+   install (port 3000), may someone read its Frieren history (GET only) to confirm the release? Was it the voices or
+   the subtitles (1.5)?
+10. **One group per season.** Should a pick prefer the group the season's other episodes already have, after the
+    language fit? Recommended: not in this bug. The language rule removes the harm, and sticking to one group would
+    override the quality order.
+11. **Apostrophe fix in this bug?** Recommended: yes. It's small, and it is one of the root causes for Frieren E05
+    and E06.
