@@ -9,7 +9,7 @@
  */
 import { artworkQueryForRelease } from "@/lib/metadata/release-art";
 import { parseEpisode } from "@/lib/torrents/episodes";
-import { parseResolution, parseSource, type ReleaseSource } from "@/lib/torrents/quality";
+import { parseSource, qualityChipLabel, type ReleaseSource } from "@/lib/torrents/quality";
 import {
   isDownloaded,
   isDownloading,
@@ -205,11 +205,6 @@ export function waitReasonLabel(state: string, waitReason?: string | null): stri
 const CONTAINER_EXT = /\.(mkv|mp4|avi|m4v|mov|ts|webm|wmv|flv|mpg|mpeg)$/i;
 const BRACKET_GROUP = /^\s*(?:\[[^\]]{2,40}\]\s*)+/;
 
-function resolutionChip(raw: string): string | null {
-  const resolution = parseResolution(raw);
-  return resolution ? `${resolution}p` : null;
-}
-
 const SOURCE_CHIPS: Record<ReleaseSource, string | null> = {
   BLURAY: "Blu-ray",
   WEBDL: "WEB-DL",
@@ -251,7 +246,7 @@ export function releaseDisplayFacts(
   return {
     title,
     episodeLabel: parseEpisode(torrent.name).label,
-    qualityChip: resolutionChip(torrent.name),
+    qualityChip: qualityChipLabel(torrent.name),
   };
 }
 

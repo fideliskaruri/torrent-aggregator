@@ -16,8 +16,7 @@
  * already fixed once.
  */
 import { Link } from "react-router";
-import { PosterImage } from "@/components/browse/poster-image";
-import { posterTint } from "@/components/browse/poster";
+import { MediaPoster, MediaPosterCaption, MediaPosterSkeleton } from "@/components/browse/media-poster-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { TitleSimilar } from "./types";
 
@@ -55,16 +54,7 @@ export function MoreLikeThis({
         >
           {Array.from({ length: 8 }, (_, i) => (
             <li key={i}>
-              <Skeleton className="aspect-[2/3] w-full rounded-lg" />
-              {/* The caption's two title lines and its facts line, at their text size. */}
-              <div className="mt-1.5 h-[2lh] text-[12px] leading-snug">
-                <div className="flex h-lh items-center">
-                  <Skeleton className="h-3 w-4/5 rounded" />
-                </div>
-              </div>
-              <div className="mt-0.5 flex h-lh items-center text-[12px] leading-snug">
-                <Skeleton className="h-2.5 w-1/2 rounded" />
-              </div>
+              <MediaPosterSkeleton variant="rail" />
             </li>
           ))}
         </ul>
@@ -86,37 +76,21 @@ export function MoreLikeThis({
               data-similar-card
               className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
-              <div
-                className="relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-border transition-colors group-hover:border-input"
-                style={{ background: posterTint(item.title) }}
-              >
-                <PosterImage
-                  src={item.posterUrl}
-                  title={item.title}
-                  sizes="(min-width: 1024px) 12vw, (min-width: 640px) 22vw, 30vw"
-                />
-              </div>
-              <p
-                className="mt-1.5 line-clamp-2 min-h-[2lh] text-[12px] leading-snug text-muted-foreground transition-colors group-hover:text-foreground"
+              <MediaPoster
+                variant="rail"
+                src={item.posterUrl}
                 title={item.title}
-              >
-                {item.title}
-              </p>
-              {/* Adjacent inline facts inside a flex row: the whitespace
-                  between them is not rendered, because flex generates no
-                  anonymous boxes for whitespace-only text. The separator is a
-                  real element with real text so it survives — and so a screen
-                  reader hears something between "2024" and "8.1". */}
-              {/* Always drawn, empty or not, so every card is the skeleton's height. */}
-              <span className="mt-0.5 flex h-lh items-center text-[12px] leading-snug tabular-nums text-subtle-foreground">
-                {item.year != null ? <span>{item.year}</span> : null}
-                {item.year != null && item.rating != null ? (
-                  <span className="mx-1">·</span>
-                ) : null}
-                {item.rating != null ? (
-                  <span>{item.rating.toFixed(1)}</span>
-                ) : null}
-              </span>
+                sizes="(min-width: 1024px) 12vw, (min-width: 640px) 22vw, 30vw"
+                className="transition-colors group-hover:border-input"
+              />
+              <MediaPosterCaption
+                title={item.title}
+                subtitle={
+                  [item.year, item.rating != null ? item.rating.toFixed(1) : null]
+                    .filter((part) => part != null)
+                    .join(" · ") || null
+                }
+              />
             </Link>
           </li>
         ))}

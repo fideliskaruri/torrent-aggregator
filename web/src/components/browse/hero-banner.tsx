@@ -15,10 +15,10 @@ import { PosterImage } from "./poster-image";
 import { posterTint } from "./poster";
 import { titleHrefForItem } from "@/components/title/work-key";
 import { useCapabilities } from "@/lib/capabilities";
-import { Badge } from "@/components/ui/badge";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
 import { browseReleaseGate } from "@/lib/browse/release-status";
+import { ReleaseGateChip } from "./release-gate-chip";
 
 export interface HeroBannerProps {
   pick: HeroPick;
@@ -128,11 +128,7 @@ export function HeroBanner({ pick, status = "idle", onAction }: HeroBannerProps)
               on disk; the viewer only needs to know what the button does.
               Gated titles still say when they land. */}
           <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[12px] text-muted-foreground">
-            {releaseGate.gated ? (
-              <Badge className="bg-card px-2 py-1 text-[11px] leading-none">
-                {label}
-              </Badge>
-            ) : null}
+            <ReleaseGateChip gate={releaseGate} />
             {factsText ? <span className="tabular-nums">{factsText}</span> : null}
           </div>
 

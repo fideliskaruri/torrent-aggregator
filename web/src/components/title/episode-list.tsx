@@ -30,6 +30,8 @@ import {
 import type { ReactNode } from "react";
 import { PosterImage } from "@/components/browse/poster-image";
 import { Badge } from "@/components/ui/badge";
+import { AvailabilityChip } from "@/components/browse/availability-chip";
+import { MediaPoster } from "@/components/browse/media-poster-card";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -638,17 +640,21 @@ function EpisodeCardImpl({
   const desktopFacts = [airDate, runtime].filter(Boolean).join(" · ");
 
   const still = (
-    <span
+    <MediaPoster
+      variant="episode"
+      src={meta?.stillUrl}
+      title={episodeName}
       data-episode-still
-      className="relative block h-24 w-16 shrink-0 overflow-hidden bg-muted sm:aspect-video sm:h-auto sm:w-full"
+      image={
+        meta?.stillUrl ? (
+          <EpisodeStillImage src={meta.stillUrl} title={episodeName} />
+        ) : (
+          <span aria-hidden className="absolute inset-0 flex items-center justify-center text-input">
+            <Tv className="size-6 sm:size-8" />
+          </span>
+        )
+      }
     >
-      {meta?.stillUrl ? (
-        <EpisodeStillImage src={meta.stillUrl} title={episodeName} />
-      ) : (
-        <span aria-hidden className="absolute inset-0 flex items-center justify-center text-input">
-          <Tv className="size-6 sm:size-8" />
-        </span>
-      )}
       <Badge
         data-episode-badge
         className="absolute left-2 top-2 border-transparent bg-background/80 font-semibold tabular-nums text-foreground backdrop-blur-sm"
@@ -664,12 +670,12 @@ function EpisodeCardImpl({
           indicatorClassName="bg-brand-foreground"
         />
       ) : null}
-    </span>
+    </MediaPoster>
   );
 
   const available = episode.available ?? (episode.availability === "ready" || episode.availability === "warm");
   // Requesters get the plain state of the owner's download, never its place in line.
-  const requesterLabel = available ? "Available" : transferStateLabel(episode.state);
+  const requesterLabel = available ? "Ready" : transferStateLabel(episode.state);
   const mobileMeta = [
     airDate,
     canDownload ? downloadDisplayLabel : requesterLabel,
@@ -852,10 +858,15 @@ function EpisodeCardImpl({
               />
             </Button>
           </span>
+          ) : available ? (
+            <AvailabilityChip
+              state="ready"
+              data-episode-available
+              className="absolute bottom-2 right-2 z-10 hidden sm:bottom-auto sm:top-2 sm:inline-flex"
+            />
           ) : requesterLabel ? (
             <Badge
-              data-episode-available={available || undefined}
-              data-episode-state={available ? undefined : episode.state ?? undefined}
+              data-episode-state={episode.state ?? undefined}
               className="absolute bottom-2 right-2 z-10 hidden bg-card/82 backdrop-blur-sm sm:bottom-auto sm:top-2 sm:inline-flex"
             >
               {requesterLabel}

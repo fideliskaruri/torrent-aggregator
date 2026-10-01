@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 import type { TitleResult } from "./group-titles";
 import { cn } from "@/lib/utils";
-import { PosterImage } from "@/components/browse/poster-image";
+import { MediaPoster, MediaPosterSkeleton } from "@/components/browse/media-poster-card";
+import { ReleaseGateChip } from "@/components/browse/release-gate-chip";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -53,18 +54,7 @@ export function TitleResultCard({
 
   const body = (
     <div className="flex gap-3 sm:gap-4">
-      <div
-        className={cn(
-          "relative aspect-[2/3] shrink-0 self-start overflow-hidden rounded-md bg-muted",
-          featured ? "w-20 sm:w-24" : "w-14 sm:w-16",
-        )}
-      >
-        <PosterImage
-          src={title.posterUrl}
-          title={title.name}
-          sizes={featured ? "96px" : "64px"}
-        />
-      </div>
+      <MediaPoster variant="search" featured={featured} src={title.posterUrl} title={title.name} />
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="min-w-0 space-y-1">
@@ -98,11 +88,8 @@ export function TitleResultCard({
             {typeLabel ? (
               <Badge variant="outline" className="text-[12px] text-muted-foreground">{typeLabel}</Badge>
             ) : null}
-            {title.status.comingLabel ? (
-              <span className="text-[12px] font-medium text-subtle-foreground">
-                {title.status.comingLabel}
-              </span>
-            ) : null}
+            <ReleaseGateChip gate={{ gated: title.status.unreleased, label: title.status.comingLabel }} />
+
             {request?.label ? (
               <Badge
                 variant={request.tone}
@@ -209,12 +196,7 @@ export function TitleResultCardSkeleton({
       data-title-card-skeleton
     >
       <div className="flex gap-3 sm:gap-4">
-        <Skeleton
-          className={cn(
-            "aspect-[2/3] shrink-0",
-            featured ? "w-20 sm:w-24" : "w-14 sm:w-16",
-          )}
-        />
+        <MediaPosterSkeleton variant="search" featured={featured} />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <Skeleton className="h-4 w-3/5" />
           <Skeleton className="h-3 w-1/4" />

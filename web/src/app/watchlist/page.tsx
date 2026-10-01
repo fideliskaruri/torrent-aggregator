@@ -41,7 +41,8 @@ import {
 } from "@/components/ui/collapsible";
 import { ConfirmDialog } from "@/components/tf/confirm-dialog";
 import { TfPageHeader } from "@/components/tf/page-header";
-import { PosterImage } from "@/components/browse/poster-image";
+import { MediaPoster, MediaPosterSkeleton } from "@/components/browse/media-poster-card";
+import { useWorkArtwork } from "@/hooks/use-work-artwork";
 import { StorageCapDialog } from "@/components/storage/storage-cap-dialog";
 import { useDownloadSetup } from "@/components/setup/download-setup";
 import { useStorageCapOverride } from "@/components/storage/use-storage-cap-override";
@@ -348,6 +349,16 @@ export default function WatchlistPage() {
     setItems(watchlist?.items ?? []);
   }
 
+  // A row saved without a poster asks the shared artwork lookup by its title,
+  // so it wears the same cover as its home card and title page.
+  const missingArt = useMemo(
+    () =>
+      items
+        .filter((item) => !item.posterUrl)
+        .map((item) => ({ name: item.title, workTitle: item.title, workMediaType: item.mediaType })),
+    [items],
+  );
+  const artwork = useWorkArtwork(missingArt);
   useEffect(() => {
     // sessionStorage is an external store; syncing it on mount belongs in an effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -872,12 +883,14 @@ export default function WatchlistPage() {
                     sets the card's height. Stretching the poster column to the
                     card left either a grey strip, a cropped cover or a blurred
                     fill band, all of which read as broken. */}
-                <div className="relative aspect-[2/3] w-[4.5rem] shrink-0 overflow-hidden rounded-md bg-muted sm:w-[5.5rem]">
-                  <PosterImage
-                    src={item.posterUrl ?? null}
-                    title={item.title}
-                    sizes="(min-width: 640px) 88px, 72px"
-                  />
+                <MediaPoster
+                  variant="library"
+                  src={
+                    item.posterUrl ??
+                    artwork.artFor({ name: item.title, workTitle: item.title, workMediaType: item.mediaType })?.posterUrl
+                  }
+                  title={item.title}
+                >
                   {titleHref ? (
                     <Link
                       to={titleHref}
@@ -886,7 +899,7 @@ export default function WatchlistPage() {
                       className="absolute inset-0 z-[1] rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
                     />
                   ) : null}
-                </div>
+                </MediaPoster>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-2.5">
                   {/* Title + remove */}
@@ -1345,9 +1358,9 @@ function LibrarySkeleton({ visible = true }: { visible?: boolean }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {Array.from({ length: 4 }, (_, i) => (
-          <article key={i} className="surface flex min-w-0 overflow-hidden">
-            <SkeletonBlock className="min-h-[7.25rem] w-[4.75rem] shrink-0 sm:w-[5.5rem]" />
-            <div className="min-w-0 flex-1 space-y-3 p-3.5">
+          <article key={i} className="surface flex min-w-0 flex-row items-start gap-3 overflow-hidden p-3.5">
+            <MediaPosterSkeleton variant="library" />
+            <div className="min-w-0 flex-1 space-y-3">
               <SkeletonBlock className="h-5 w-4/5" />
               <SkeletonBlock className="h-3 w-1/2" />
               <SkeletonBlock className="h-20 w-full" />

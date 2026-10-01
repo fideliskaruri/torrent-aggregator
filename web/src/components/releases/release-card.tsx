@@ -4,7 +4,7 @@
  * "Pick a release yourself" (title, requests, activity) render the same card.
  */
 import type { LiHTMLAttributes, ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
+import { QualityChip } from "@/lib/torrents/quality-chip";
 import { Button } from "@/components/ui/button";
 import { LoadingGlyph } from "@/components/ui/loading";
 import { RULE_SOURCE_OPTIONS } from "@/lib/rules/form";
@@ -63,7 +63,7 @@ export function ReleaseCard({
       {badge}
       <p className="break-words text-sm font-medium text-foreground">{release.title}</p>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground tabular-nums">
-        {release.quality ? <Badge variant="outline">{release.quality}p</Badge> : null}
+        <QualityChip resolution={release.quality} />
         <span>{release.seeders} {release.seeders === 1 ? "seeder" : "seeders"}</span>
         <span aria-hidden>·</span>
         <span>{formatBytes(release.sizeBytes) ?? "Size unknown"}</span>

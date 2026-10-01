@@ -13,16 +13,16 @@ import {
   type CardAction,
 } from "./availability";
 import { AvailabilityChip } from "./availability-chip";
-import { PosterImage } from "./poster-image";
+import { MediaPoster, MediaPosterCaption, MediaPosterSkeleton, RAIL_CARD_WIDTH } from "./media-poster-card";
+import { ReleaseGateChip } from "./release-gate-chip";
 import { titleHrefForItem } from "@/components/title/work-key";
 import { useCapabilities } from "@/lib/capabilities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LoadingGlyph } from "@/components/ui/loading";
-import { Skeleton } from "@/components/ui/skeleton";
 
 /** Poster box width per breakpoint. Also drives the poster `<img>` `sizes`. */
-const CARD_WIDTH = "w-[124px] sm:w-[148px] lg:w-[168px]";
+const CARD_WIDTH = RAIL_CARD_WIDTH;
 const CARD_SIZES = "(min-width: 1024px) 168px, (min-width: 640px) 148px, 124px";
 /** A grid cell stretches to its column, which runs a little wider than a rail card. */
 const GRID_SIZES = "(min-width: 1024px) 200px, (min-width: 640px) 180px, 120px";
@@ -126,45 +126,30 @@ export function TitleCard({
     .join(", ");
 
   const surface = (
-    <div
+    <MediaPoster
+      variant="rail"
+      src={item.posterUrl}
+      title={title}
+      sizes={layout === "grid" ? GRID_SIZES : CARD_SIZES}
+      priority={priority}
+      gated={unreleased}
+      dimmed={blocked && !arriving}
       className={cn(
-        "relative aspect-[2/3] w-full overflow-hidden rounded-lg border border-border bg-muted",
         "transition-[transform,border-color,box-shadow] duration-150 ease-out",
         "group-hover:border-input group-hover:shadow-md",
         "motion-safe:group-hover:-translate-y-1 motion-safe:group-focus-within:-translate-y-1",
-        // Future art is present but inert: greyscale + muted so it never reads
-        // as something you can download yet. Matches the title-page hero gate.
-        unreleased && "grayscale opacity-80",
-        !unreleased && blocked && !arriving && "opacity-75",
       )}
-    >
-      <PosterImage
-        src={item.posterUrl}
-        title={title}
-        sizes={layout === "grid" ? GRID_SIZES : CARD_SIZES}
-        priority={priority}
-      />
-
-      {/* A gated chip replaces the availability chip. Theatrical-window films
-          show "In cinemas" (or "Digital Aug 2026"); future-dated films show
-          "Coming {date}". The label is also used by the action row badge. */}
-      <span className="absolute left-1.5 top-1.5 z-[1]">
-        {unreleased ? (
-          <Badge
-            data-card-coming
-            className="max-w-[calc(100%-0.25rem)] bg-card text-[11px] leading-none"
-          >
-            <span className="truncate">{releaseGate.label ?? "Coming soon"}</span>
-          </Badge>
+      chip={
+        unreleased ? (
+          <ReleaseGateChip gate={releaseGate} data-card-coming />
         ) : action.kind === "get" || arriving ? null : (
           // A card offering "Get S02E01" or "Downloading" already says the
           // episode is not here yet; a second badge saying so would only repeat it.
           <AvailabilityChip state={item.availability} compact />
-        )}
-      </span>
-    </div>
+        )
+      }
+    />
   );
-
   // Solid panel rather than a scrim gradient: the text has to stay legible
   // over artwork we have never seen.
   const quietBadge = (blocked && !arriving) || unreleased;
@@ -245,19 +230,7 @@ export function TitleCard({
   );
 
   const caption = (
-    <div className="mt-2 min-w-0 min-h-[2.75rem]">
-      <p
-        title={item.title}
-        className="line-clamp-2 text-[12px] font-medium leading-snug text-foreground break-words"
-      >
-        {title}
-      </p>
-      {item.subtitle ? (
-        <p className="mt-0.5 truncate text-[12px] text-subtle-foreground">
-          {item.subtitle}
-        </p>
-      ) : null}
-    </div>
+    <MediaPosterCaption title={title} fullTitle={item.title} subtitle={item.subtitle} />
   );
 
   return (
@@ -363,9 +336,7 @@ export function TitleCardSkeleton({ layout = "rail" }: { layout?: "rail" | "grid
       className={cn(layout === "grid" ? "min-w-0" : cn("shrink-0", CARD_WIDTH))}
       aria-hidden
     >
-      <Skeleton className="aspect-[2/3] w-full rounded-lg" />
-      <Skeleton className="mt-2 h-3 w-4/5 rounded" />
-      <Skeleton className="mt-1.5 h-2.5 w-2/5 rounded" />
+      <MediaPosterSkeleton variant="rail" />
     </li>
   );
 }

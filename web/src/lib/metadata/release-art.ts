@@ -218,6 +218,36 @@ function artworkKey(
 }
 
 /**
+ * What a row knows about the work it belongs to.
+ *
+ * A download row carries the release name and, once the server has matched it,
+ * the work's own title, year and type. The work identity is what the title page
+ * shows, so it wins whenever it is present; the release name is only parsed
+ * when nothing better is known.
+ */
+export interface WorkArtworkSource {
+  name: string;
+  category?: string | null;
+  workTitle?: string | null;
+  workYear?: number | null;
+  workMediaType?: string | null;
+  /** The poster the server already resolved; when present no lookup runs. */
+  posterUrl?: string | null;
+}
+
+export function artworkQueryFor(source: WorkArtworkSource): ReleaseArtworkQuery {
+  const title = source.workTitle?.trim();
+  if (!title) return artworkQueryForRelease(source.name, source.category);
+  const year = source.workYear ?? null;
+  return {
+    title,
+    year,
+    mediaType: mediaTypeFrom(source.workMediaType) ?? mediaTypeFrom(source.category),
+    key: artworkKey(title, year),
+  };
+}
+
+/**
  * Collapse a list of release names to the distinct works they describe.
  *
  * Order-preserving on first appearance, so a caller can zip the result back
@@ -230,11 +260,11 @@ function artworkKey(
  * the typed one wins — routing the lookup at TVmaze instead of guessing.
  */
 export function distinctArtworkQueries(
-  releases: readonly { name: string; category?: string | null }[],
+  releases: readonly WorkArtworkSource[],
 ): ReleaseArtworkQuery[] {
   const seen = new Map<string, ReleaseArtworkQuery>();
   for (const release of releases) {
-    const query = artworkQueryForRelease(release.name, release.category);
+    const query = artworkQueryFor(release);
     // A name that parses to nothing — blank, or pure release noise — is not a
     // work, and asking a provider about "" costs a request to learn that.
     if (!query.title) continue;
