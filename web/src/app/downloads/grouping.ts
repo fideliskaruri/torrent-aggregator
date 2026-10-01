@@ -596,23 +596,31 @@ export function groupDownloads<T extends TransferRow>(
 
 /**
  * Distinct single episodes a series group holds, for "12 downloaded · 2
- * downloading" (the title page's wording). Season packs are left out: a pack's contents are not known
- * here, and guessing an episode count for it would be a claim nobody made.
+ * downloading · 3 queued" (the title page's wording). An episode counts once,
+ * by its furthest copy: downloaded, then moving, then waiting its turn. Season
+ * packs are left out: a pack's contents are not known here, and guessing an
+ * episode count for it would be a claim nobody made.
  */
 export function seriesEpisodeTally<T extends TransferRow>(
   group: SeriesGroup<T>,
-): { downloaded: number; downloading: number } {
+): { downloaded: number; downloading: number; queued: number } {
   const done = new Set<string>();
   const active = new Set<string>();
+  const waiting = new Set<string>();
   for (const bucket of group.seasons) {
     for (const entry of bucket.entries) {
       if (entry.isSeasonPack || entry.season == null || entry.episode == null) continue;
       const key = `${entry.season}:${entry.episode}`;
       const t = entry.torrent;
       if (isDownloaded(t.state) || t.progress >= 1) done.add(key);
-      else if (isDownloading(t.state) || isQueued(t.state)) active.add(key);
+      else if (isDownloading(t.state)) active.add(key);
+      else if (isQueued(t.state)) waiting.add(key);
     }
   }
-  for (const key of done) active.delete(key);
-  return { downloaded: done.size, downloading: active.size };
+  for (const key of done) {
+    active.delete(key);
+    waiting.delete(key);
+  }
+  for (const key of active) waiting.delete(key);
+  return { downloaded: done.size, downloading: active.size, queued: waiting.size };
 }

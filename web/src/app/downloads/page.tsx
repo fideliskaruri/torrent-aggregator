@@ -79,6 +79,7 @@ import { useMaxActiveDownloads } from "./use-max-active";
 import {
   groupDownloads,
   seriesEpisodeTally,
+  statusCounts,
   isDownloading,
   isError,
   isPaused,
@@ -86,6 +87,7 @@ import {
   isDownloaded,
   type SeriesGroup,
 } from "./grouping";
+import { needsAttentionLabel } from "./status-rollup";
 import {
   DEFAULT_DOWNLOAD_TAB,
   DOWNLOAD_TABS,
@@ -155,7 +157,7 @@ import {
 } from "@/lib/clients/transfer-ownership";
 import type { TorrentClientType } from "@/lib/clients";
 
-type StatusFilter = "all" | "active" | "downloading" | "ready" | "paused" | "attention";
+type StatusFilter = "all" | "active" | "downloading" | "queued" | "ready" | "paused" | "attention";
 
 const SHARE_TRACKERS = [
   "udp://tracker.opentrackr.org:1337/announce",
@@ -516,6 +518,7 @@ export default function ClientPage() {
         return false;
       }
       if (statusFilter === "downloading") return isDownloading(t.state);
+      if (statusFilter === "queued") return isQueued(t.state);
       if (statusFilter === "ready") return isDownloaded(t.state);
       if (statusFilter === "paused") return isPaused(t.state);
       if (statusFilter === "attention") return isError(t.state);
@@ -681,24 +684,16 @@ export default function ClientPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selected, torrents, filtered]);
 
+  // The same per-state counts every group rollup uses, so the summary line and
+  // the rows can never disagree about what "downloading" or "queued" means.
   const stats = useMemo(() => {
-    let downloading = 0;
-    let ready = 0;
-    let paused = 0;
-    let errored = 0;
     let dlspeed = 0;
     let upspeed = 0;
-    let total = 0;
     for (const t of downloadable) {
-      total += 1;
-      if (isDownloading(t.state)) downloading += 1;
-      else if (isDownloaded(t.state)) ready += 1;
-      else if (isError(t.state)) errored += 1;
-      else if (isPaused(t.state)) paused += 1;
       dlspeed += t.dlspeed || 0;
       upspeed += t.upspeed || 0;
     }
-    return { downloading, ready, paused, errored, dlspeed, upspeed, total };
+    return { ...statusCounts(downloadable), dlspeed, upspeed };
   }, [downloadable]);
 
   // What the bulk bar's Pause and Resume would act on: only the selected rows each one applies to.
@@ -1109,9 +1104,14 @@ export default function ClientPage() {
     { id: "all", label: "All" },
     { id: "active", label: "Active" },
     { id: "downloading", label: "Downloading" },
+    // Only while something waits its turn, the same way Needs attention
+    // appears: an always-empty chip is one more thing to read.
+    ...(stats.queued > 0 || statusFilter === "queued"
+      ? [{ id: "queued" as const, label: "Queued" }]
+      : []),
     { id: "ready", label: "Ready" },
     { id: "paused", label: "Paused" },
-    ...(stats.errored > 0 || statusFilter === "attention"
+    ...(stats.error > 0 || statusFilter === "attention"
       ? [{ id: "attention" as const, label: "Needs attention" }]
       : []),
   ];
@@ -1119,10 +1119,11 @@ export default function ClientPage() {
   const summaryParts: { id: StatusFilter; label: string; hook: string }[] = [
     { id: "all", label: `${stats.total} ${stats.total === 1 ? "download" : "downloads"}`, hook: "total" },
     ...(stats.downloading > 0 ? [{ id: "downloading" as const, label: `${stats.downloading} downloading`, hook: "downloading" }] : []),
-    ...(stats.ready > 0 ? [{ id: "ready" as const, label: `${stats.ready} ready`, hook: "ready" }] : []),
+    ...(stats.queued > 0 ? [{ id: "queued" as const, label: `${stats.queued} queued`, hook: "queued" }] : []),
+    ...(stats.done > 0 ? [{ id: "ready" as const, label: `${stats.done} ready`, hook: "ready" }] : []),
     ...(stats.paused > 0 ? [{ id: "paused" as const, label: `${stats.paused} paused`, hook: "paused" }] : []),
-    ...(stats.errored > 0
-      ? [{ id: "attention" as const, label: `${stats.errored} ${stats.errored === 1 ? "needs" : "need"} attention`, hook: "attention" }]
+    ...(stats.error > 0
+      ? [{ id: "attention" as const, label: needsAttentionLabel(stats.error), hook: "attention" }]
       : []),
   ];
   const liveSpeed = stats.downloading > 0 ? speedLabel(stats.dlspeed) : null;
@@ -1175,7 +1176,9 @@ export default function ClientPage() {
                     aria-pressed={statusFilter === part.id}
                     onClick={() => setStatusFilter(part.id)}
                     data-summary-part={part.hook}
-                    data-stat-value={part.hook === "downloading" ? stats.downloading : undefined}
+                    data-stat-value={
+                      part.hook === "downloading" ? stats.downloading : part.hook === "queued" ? stats.queued : undefined
+                    }
                   >
                     {part.label}
                   </Button>

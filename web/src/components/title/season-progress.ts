@@ -7,6 +7,11 @@
  *  - **downloaded**: distinct episodes with a finished file on disk.
  *  - **downloading**: distinct episodes queued or transferring that are not
  *    downloaded yet. Counted separately, never folded into `downloaded`.
+ *  - **queued** (optional): when the caller can tell them apart, the episodes
+ *    still waiting their turn move out of `downloading` into here, so a line
+ *    reads "1 downloading · 2 queued". Downloads knows each transfer's engine
+ *    state, so its series row splits them; a caller that leaves this out
+ *    keeps queued episodes under `downloading`.
  *  - **aired** (the Y in "X of Y"): episodes that have aired. Unaired episodes
  *    are left out entirely, so a season airing weekly reads complete once you
  *    hold everything released so far. A downloaded episode always counts as
@@ -23,6 +28,8 @@ import type { TitleSeason } from "./types";
 export interface SeasonProgress {
   downloaded: number;
   downloading: number;
+  /** Waiting in the download queue, kept apart from `downloading` when known. */
+  queued?: number;
   aired: number | null;
 }
 
@@ -81,15 +88,23 @@ export function isSeasonComplete(p: SeasonProgress): boolean {
  * The one download line, said the same way everywhere (season header, title
  * hero, Downloads series row): `12 of 38 downloaded · 3 downloading`.
  * Without a known total it drops the "of Y": `5 downloaded · 2 downloading`.
+ * Queued episodes, when counted apart, follow as their own part:
+ * `1 downloading · 2 queued`. The "of Y" rides on the first part said.
  * Null when nothing is downloaded or on its way.
  */
 export function seasonProgressLabel(p: SeasonProgress): string | null {
-  if (p.downloaded === 0 && p.downloading === 0) return null;
   const total = p.aired != null && p.aired > 0 ? p.aired : null;
-  const inFlight = p.downloading > 0 ? `${p.downloading} downloading` : null;
-  if (p.downloaded === 0) return total != null ? `${p.downloading} of ${total} downloading` : inFlight;
-  const done = total != null ? `${p.downloaded} of ${total} downloaded` : `${p.downloaded} downloaded`;
-  return inFlight ? `${done} \u00b7 ${inFlight}` : done;
+  const parts = [
+    { count: p.downloaded, word: "downloaded" },
+    { count: p.downloading, word: "downloading" },
+    { count: p.queued ?? 0, word: "queued" },
+  ].filter((part) => part.count > 0);
+  if (parts.length === 0) return null;
+  return parts
+    .map((part, index) =>
+      index === 0 && total != null ? `${part.count} of ${total} ${part.word}` : `${part.count} ${part.word}`,
+    )
+    .join(" \u00b7 ");
 }
 
 /**
@@ -100,13 +115,15 @@ export function seasonProgressLabel(p: SeasonProgress): string | null {
 export function showProgressFromSeasons(seasons: readonly SeasonProgress[]): SeasonProgress {
   let downloaded = 0;
   let downloading = 0;
+  let queued = 0;
   let aired: number | null = seasons.length > 0 ? 0 : null;
   for (const p of seasons) {
     downloaded += p.downloaded;
     downloading += p.downloading;
+    queued += p.queued ?? 0;
     aired = aired == null || p.aired == null ? null : aired + p.aired;
   }
-  return { downloaded, downloading, aired };
+  return { downloaded, downloading, queued, aired };
 }
 
 export function providerAiredFor(
