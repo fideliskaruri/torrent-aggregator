@@ -198,7 +198,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
                 input = input with { Aliases = (input.Aliases ?? []).Concat(mapping.EntryTitles).Concat(mapping.FranchiseTitles)
                     .Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() };
                 // A later cour's names search its own episodes only; the work keeps the names of its own entry.
-                if (mapping is { TargetSeason: 1, EntryEpisodeOffset: 0 }) saved = input.Aliases;
+                if (mapping is { TargetSeason: 1, EntryEpisodeOffset: 0 } || mapping.ShowTitle != null) saved = input.Aliases;
             }
             if (work != null && saved is { Count: > 0 })
             {
@@ -678,17 +678,19 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
 
     /// <summary>
     /// Where the work lands: its catalog title and the catalog season (the episode's, or the pack's), so every episode
-    /// of a show shares one folder whatever its release is called.
+    /// of a show shares one folder whatever its release is called. An anime sequel entry lands in its show's folder
+    /// (the season shape names it), whichever entry's page started the download.
     /// </summary>
     private static WorkPlacement? Placement(GrabInput input, TorrentResult release, PackSelection? pack)
     {
-        var title = (input.Title ?? "").Trim();
+        var show = input.EpisodeMapping?.ShowTitle;
+        var title = (show ?? input.Title ?? "").Trim();
         if (title.Length == 0) return null;
         var season = (pack == null ? null : TorrentFlow.Core.QueueKeys.Parse(pack.QueueKey)?.Season) ?? input.Cursor?.Season;
         var film = pack == null && input.Cursor == null;
         // Anime is the work's own (Prepare); a release's site category decides only while that is unknown (WorkKinds).
         var anime = input.Anime ?? AnimeIdentity.IsAnimeSiteCategory(release.Category);
-        return new(title, input.Year, anime, film, film ? null : season);
+        return new(title, show != null ? input.EpisodeMapping!.ShowYear : input.Year, anime, film, film ? null : season);
     }
 
     private static async Task LogSkip(TorrentFlowDbContext db, GrabInput input, string query, string message, CancellationToken ct)

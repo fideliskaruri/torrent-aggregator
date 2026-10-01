@@ -13,7 +13,10 @@ public sealed record SeasonShapeEpisode(int Season, int Episode, bool Aired, int
     int? AniListEpisode = null);
 
 /// <param name="Source">Where the episode list came from: tmdb, tvmaze or anilist.</param>
-public sealed record SeasonShape(int Season, IReadOnlyList<SeasonShapeEpisode> Episodes, string Source)
+/// <param name="ShowTitle">For an anime sequel entry numbered as its show: the show's English name, the folder its files land in.</param>
+/// <param name="ShowYear">That show's first year.</param>
+public sealed record SeasonShape(int Season, IReadOnlyList<SeasonShapeEpisode> Episodes, string Source, string? ShowTitle = null,
+    int? ShowYear = null)
 {
     public IReadOnlyList<int> AiredEpisodes => Episodes.Where(e => e.Aired).Select(e => e.Episode).Distinct().Order().ToArray();
 }

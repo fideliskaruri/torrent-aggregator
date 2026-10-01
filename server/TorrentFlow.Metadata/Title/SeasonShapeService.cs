@@ -14,7 +14,8 @@ public sealed class SeasonShapeService(AnimeFranchiseService franchises, TitleEx
         if (await franchises.ResolveAsync(new(q.Title, q.Year, q.MediaType, q.Provider, q.ProviderId), cancellationToken)
                 .ConfigureAwait(false) is { } view)
             return new(q.Season, view.EpisodesOf(q.Season)
-                .Select(e => new SeasonShapeEpisode(e.Season, e.Episode, e.Aired, e.Absolute, e.AniListId, e.AniListEpisode)).ToList(), view.Source);
+                .Select(e => new SeasonShapeEpisode(e.Season, e.Episode, e.Aired, e.Absolute, e.AniListId, e.AniListEpisode)).ToList(), view.Source,
+                view.Show?.Title, view.Show?.Year);
         var payload = await extras.GetAsync(new(q.WorkKey, q.Title, q.Year, q.MediaType, q.Season, q.Provider, q.ProviderId, null,
             SeriesHint: true), cancellationToken).ConfigureAwait(false);
         if (!payload.Resolved || payload.Season != q.Season) return null;

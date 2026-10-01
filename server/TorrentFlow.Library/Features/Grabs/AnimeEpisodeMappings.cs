@@ -19,7 +19,8 @@ public sealed class AnimeEpisodeMappings(ILibraryAnimeLookup anime, ISeasonShape
             await shapes.GetSeasonAsync(new(workKey, title, year, mediaType, provider, providerId, cursor.Season), ct) is { } shape &&
             shape.Episodes.FirstOrDefault(e => e.Episode == cursor.Episode) is { AniListId: { } entry, AniListEpisode: { } local })
             return await anime.GetEpisodeMappingAsync(entry, ct) is { } mapping
-                ? mapping with { TargetSeason = cursor.Season, EntryEpisodeOffset = cursor.Episode - local }
+                ? mapping with { TargetSeason = cursor.Season, EntryEpisodeOffset = cursor.Episode - local, ShowTitle = shape.ShowTitle,
+                    ShowYear = shape.ShowYear }
                 : null;
         return provider == "anilist" && providerId != null && cursor.Season == 1
             ? await anime.GetEpisodeMappingAsync(providerId, ct) : null;

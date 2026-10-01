@@ -20,9 +20,12 @@ public sealed record FranchiseEpisode(int Season, int Episode, int? Absolute, bo
     string? Name = null, string? Overview = null, string? AirDate = null, string? AirStamp = null, int? RuntimeMin = null,
     string? StillUrl = null);
 
-/// <param name="Source">Whose numbering the page uses: tmdb or tvmaze when a show matched, anilist for an entry's own Season 1.</param>
+/// <param name="Source">Whose numbering the page uses: tmdb or tvmaze when a show matched, anilist for the sequel chain alone or an entry's own Season 1.</param>
 /// <param name="Banner">The entry's AniList banner, the art for episodes the show has no still for.</param>
-public sealed record FranchiseView(string Source, IReadOnlyList<FranchiseEpisode> Episodes, string? Banner)
+/// <param name="Show">For a sequel entry numbered as its show: the show (first season) it belongs to; files land in its folder.</param>
+/// <param name="Provisional">AniList cut the franchise walk short (a rate limit): the numbering may change on the next ask.</param>
+public sealed record FranchiseView(string Source, IReadOnlyList<FranchiseEpisode> Episodes, string? Banner, FranchiseShow? Show = null,
+    bool Provisional = false)
 {
     public IReadOnlyList<int> Seasons => Episodes.Select(e => e.Season).Distinct().Order().ToList();
     public IReadOnlyList<FranchiseEpisode> EpisodesOf(int season) => Episodes.Where(e => e.Season == season).ToList();
@@ -34,13 +37,22 @@ public sealed record FranchiseView(string Source, IReadOnlyList<FranchiseEpisode
         day <= DateOnly.FromDateTime(now.UtcDateTime);
 }
 
+/// <summary>The first-season AniList entry a sequel belongs to: its English catalog name (the show folder), year and id.</summary>
+public sealed record FranchiseShow(string Title, int? Year, string AniListId, string? Format);
+
 /// <summary>
-/// The anime season shape: an AniList franchise (first season and its sequel cours) laid over the one TMDB or TVmaze
-/// show it belongs to. The show is pinned by the work's own provider id, or else found by an exact title and premiere
-/// match (one Animation candidate only), so each episode carries the show's season and episode, its absolute number and
-/// its AniList entry numbering. With no confident show the entry keeps its own Season 1 and the banner as art.
+/// The anime season shape, and the one answer to "which show, season and episode is this AniList entry's episode N".
+/// Seasons follow the AniList sequel chain the way release groups number them: an entry marked as a new season
+/// ("Season 2", "2nd Season", "Final Season", a roman numeral) starts the next season of the first entry's show, a split
+/// cour ("Part 2", "Cour 2") continues the season before it, and an unmarked entry follows the show listing (a new
+/// season when the listing starts one there). The chain is laid over the one TMDB or TVmaze show it belongs to (pinned
+/// by the work's own provider id, or an exact title and premiere match), whose numbers, names and stills are used when
+/// its seasons agree with the chain; when the listing lumps a new season into an earlier one, the chain's numbers win and
+/// the listing's names and stills still map by absolute number. A sequel entry's page shows its own episodes numbered as
+/// the show does (Season 2 episode 1), never as a Season 1 of its own. With no confident chain an entry keeps its own
+/// Season 1 and the banner as art.
 /// </summary>
-public sealed class AnimeFranchiseService(AniListClient anilist, TmdbClient tmdb, KeylessClients keyless, TimeProvider time,
+public sealed partial class AnimeFranchiseService(AniListClient anilist, TmdbClient tmdb, KeylessClients keyless, TimeProvider time,
     ILogger<AnimeFranchiseService> logger)
 {
     private const int TimeoutMs = 5_000;
@@ -58,32 +70,123 @@ public sealed class AnimeFranchiseService(AniListClient anilist, TmdbClient tmdb
         return await _flight.RunAsync(key, async () =>
         {
             FranchiseView? view = null;
-            try { view = await BuildAsync(q, CancellationToken.None).ConfigureAwait(false); }
+            var partial = false;
+            try { (view, partial) = await BuildAsync(q, CancellationToken.None).ConfigureAwait(false); }
             catch (Exception e) when (e is HttpRequestException or OperationCanceledException or JsonException)
             {
                 logger.LogDebug(e, "Anime season shape unavailable for {Title}", q.Title);
+                partial = true;
             }
-            _views.Set(key, view, view is { Source: not "anilist" } ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(5));
+            // A walk AniList cut short (a rate limit) would number the seasons wrong for an hour; it is asked again soon.
+            if (partial && view is not null) view = view with { Provisional = true };
+            _views.Set(key, view, partial ? TimeSpan.FromMinutes(1) : view is { Source: not "anilist" } ? TimeSpan.FromHours(1) : TimeSpan.FromMinutes(5));
             return view;
         }, ct).ConfigureAwait(false);
     }
 
-    private async Task<FranchiseView?> BuildAsync(FranchiseQuery q, CancellationToken ct)
+    private async Task<(FranchiseView? View, bool Partial)> BuildAsync(FranchiseQuery q, CancellationToken ct)
     {
         var franchise = q.Provider == "anilist"
             ? await anilist.GetFranchiseAsync(q.ProviderId!, ct).ConfigureAwait(false)
             : await FindFranchiseAsync(q, ct).ConfigureAwait(false);
+        return (await ViewAsync(q, franchise, ct).ConfigureAwait(false), franchise?.Partial == true);
+    }
+
+    private async Task<FranchiseView?> ViewAsync(FranchiseQuery q, AniListFranchise? franchise, CancellationToken ct)
+    {
         if (franchise is null)
             return q.Provider == "anilist" && await anilist.GetWorkByIdAsync(q.ProviderId!, ct).ConfigureAwait(false) is { IsSeries: true } work
                 ? EntryPage(new([new(work, null)], 0), null, work.Metadata.BackdropUrl) : null;
         var show = franchise.Root.Offset is null ? null : await ShowAsync(q, franchise.Root.Work.Metadata, ct).ConfigureAwait(false);
         var banner = franchise.Requested.Work.Metadata.BackdropUrl ?? franchise.Root.Work.Metadata.BackdropUrl;
-        // A sequel's own AniList page keeps its own Season 1; the show only lends it names and stills.
-        if (franchise.RequestedIndex > 0 || show is null) return q.Provider == "anilist" ? EntryPage(franchise, show, banner) : null;
-        return ShowPage(franchise, show, banner);
+        var numbered = franchise.Root.Offset is null ? null : Number(franchise, show, banner);
+        if (franchise.RequestedIndex == 0)
+            return numbered is not null && (show is not null || q.Provider == "anilist") ? new(show?.Source ?? "anilist", numbered, banner)
+                : q.Provider == "anilist" ? EntryPage(franchise, show, banner) : null;
+        if (q.Provider != "anilist") return null;
+        // A sequel's page lists its own episodes numbered as the show does, so one episode has one identity everywhere.
+        var own = numbered?.Where(e => e.AniListId == franchise.Requested.Id).ToList();
+        if (own is not { Count: > 0 } || franchise.Requested.Offset is null) return EntryPage(franchise, show, banner);
+        var root = franchise.Root.Work;
+        var name = WorkNames.Of(root.Metadata).All.FirstOrDefault(n => n.Kind == WorkNameKind.English)?.Text ?? root.Metadata.Title;
+        return new(show?.Source ?? "anilist", own, banner, new(name, root.Metadata.Year, franchise.Root.Id, root.Format));
     }
 
-    private static FranchiseView ShowPage(AniListFranchise franchise, Show show, string? banner)
+    /// <summary>
+    /// Every franchise episode numbered as the show: the listing's own numbers when its seasons agree with the chain,
+    /// else the chain's. Null when there is nothing to number (no show listing and a single entry).
+    /// </summary>
+    private static List<FranchiseEpisode>? Number(AniListFranchise franchise, Show? show, string? banner)
+    {
+        var starts = ChainSeasonStarts(franchise, show);
+        if (show is not null)
+        {
+            var listed = ShowPage(franchise, show, banner);
+            var showStarts = listed.Where(e => e.Episode == 1 && e.Absolute is not null).Select(e => e.Absolute!.Value).ToHashSet();
+            if (starts.IsSubsetOf(showStarts)) return listed;
+            // The listing lumps a new season into an earlier one (TMDB's Frieren S1E29): the chain numbers, the listing
+            // still names; its own seasons after everything AniList has aired keep starting where it starts them.
+            var covered = franchise.AiredThrough;
+            starts.UnionWith(showStarts.Where(s => s > covered + 1));
+            return listed.Select(e => e.Absolute is { } a ? Renumber(e, a, starts) : e).ToList();
+        }
+        if (franchise.Entries.Count(e => e.Offset is not null) < 2) return null;
+        var episodes = new List<FranchiseEpisode>();
+        foreach (var entry in franchise.Entries)
+        {
+            if (entry.Offset is not { } offset) break;
+            var count = Math.Min(entry.Work.EpisodeCount ?? entry.Work.AiredEpisodeCount ?? 0, TitleExtrasService.AnimeEpisodePlaceholderCap);
+            var aired = entry.Work.AiredEpisodeCount ?? 0;
+            for (var i = 1; i <= count; i++)
+                episodes.Add(Renumber(new(1, i, offset + i, i <= aired, entry.Id, i,
+                    StillUrl: entry.Work.Metadata.BackdropUrl ?? banner), offset + i, starts));
+        }
+        return episodes;
+    }
+
+    private static FranchiseEpisode Renumber(FranchiseEpisode e, int absolute, HashSet<int> starts)
+    {
+        var start = starts.Where(s => s <= absolute).DefaultIfEmpty(1).Max();
+        return e with { Season = 1 + starts.Count(s => s > 1 && s <= absolute), Episode = absolute - start + 1 };
+    }
+
+    /// <summary>
+    /// The absolute episodes where the chain starts a new show season: each later entry with a known offset that is a
+    /// new season by its title, or, unmarked, where the show listing starts one (or there is no listing to ask).
+    /// </summary>
+    private static HashSet<int> ChainSeasonStarts(AniListFranchise franchise, Show? show)
+    {
+        var starts = new HashSet<int>();
+        foreach (var entry in franchise.Entries.Skip(1))
+        {
+            if (entry.Offset is not { } offset) break;
+            var newSeason = SeasonMark(entry.Work.Metadata) ?? (show is null || offset >= show.Episodes.Count || show.Episodes[offset].Episode == 1);
+            if (newSeason) starts.Add(offset + 1);
+        }
+        return starts;
+    }
+
+    /// <summary>
+    /// What an entry's titles say: true for a new season ("Season 2", "2nd Season", "Final Season", "II"), false for a
+    /// split cour ("Part 2", "Cour 2", "2nd Part", "Final Season Part 2"), null when they say neither.
+    /// </summary>
+    internal static bool? SeasonMark(TorrentFlow.Core.Contracts.Metadata.MediaMetadata metadata)
+    {
+        var titles = WorkNames.Of(metadata).All.Where(n => n.Kind != WorkNameKind.Native).Select(n => n.Text).Prepend(metadata.Title).ToList();
+        if (titles.Any(t => Cour().IsMatch(t))) return false;
+        if (titles.Any(t => NewSeason().IsMatch(t))) return true;
+        return null;
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\b(?:Part|Cour)\s*(?:[2-9]|\d{2}|II|III|IV)\b|\b(?:2nd|3rd|[4-9]th|second|third)\s+(?:Part|Cour|Half)\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, 1000)]
+    private static partial System.Text.RegularExpressions.Regex Cour();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"\bSeason\s*\d{1,2}\b|\b\d{1,2}(?:st|nd|rd|th)\s+Season\b|\bFinal\s+Season\b|\bS\d{1,2}\b|\s(?:II|III|IV|V|VI)(?=\s*[:\-]|\s*$)",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, 1000)]
+    private static partial System.Text.RegularExpressions.Regex NewSeason();
+
+    private static List<FranchiseEpisode> ShowPage(AniListFranchise franchise, Show show, string? banner)
     {
         var episodes = new List<FranchiseEpisode>(show.Episodes.Count);
         foreach (var (e, absolute) in show.Episodes.Select((e, i) => (e, i + 1)))
@@ -104,7 +207,7 @@ public sealed class AnimeFranchiseService(AniListClient anilist, TmdbClient tmdb
                     StillUrl: banner));
             }
         }
-        return new(show.Source, episodes, banner);
+        return episodes;
     }
 
     private static FranchiseView EntryPage(AniListFranchise franchise, Show? show, string? banner)
