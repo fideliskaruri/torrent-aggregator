@@ -119,8 +119,10 @@ Downloads' file details/delete confirmation, notification save locations and sto
 show translated paths. Settings shows the host location alongside the unchanged container input.
 This is **not filesystem remapping**: folder pickers, saved settings, downloads and deletion APIs
 always use the original container paths. `/api/features` exposes the mappings plus
-`runningInContainer` and `openFolder`. Open-folder controls are disabled in a container; direct
-folder-launch requests return 409 rather than trying to start a server-side desktop file manager.
+`runningInContainer` and `openFolder`. Open-folder and open-file controls are disabled in a container;
+direct folder-launch requests return 409, and `POST /api/downloads/{id}/open` returns 409 with
+`reason: "container"` ([api-open-file.md](api-open-file.md)), rather than trying to start a server-side
+desktop app.
 
 ## Ports and health
 
@@ -154,7 +156,7 @@ to `0.0.0.0` and tunnel port to `3940`; Compose supplies these defaults but an e
 5. Check local Settings → Remote access → Check setup, then sign in through the public hostname.
 
 Pointing cloudflared at `http://torrentflow:3000` gets **421 Misdirected Request**, not an
-authentication bypass. Streaming stays disabled through the tunnel. The `remote` profile is
+authentication bypass. Opening files on the server stays disabled through the tunnel. The `remote` profile is
 opt-in so a local-only server starts without a token; an empty/invalid token cannot establish a tunnel.
 
 Both services join an **internal** `tunnel` network. Separate egress networks let TorrentFlow

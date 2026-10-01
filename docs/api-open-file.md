@@ -43,7 +43,7 @@ Body: `{ "ok": false, "reason": "<code>", "error": "<what happened>", "message":
 | 409 | `container` | TorrentFlow runs in a container (Docker). Also `openFolderDisabled: true`. |
 | 409 | `other-client` | The transfer belongs to qBittorrent or Transmission. |
 | 404 | `not-found` | No built-in download with that id. |
-| 409 | `not-finished` | The download is not finished and checked yet (downloading, queued, paused or failed). |
+| 409 | `not-finished` | The download is not finished and checked yet (downloading, queued, paused or failed). For a failed row, `message` is the row's own error, which already says what to do. |
 | 409 | `no-video` | The download has no video file. |
 | 410 | `files-missing` | The video file is no longer on disk. |
 | 403 | `outside-folders` | The file is not inside the download folders from Settings. |
@@ -78,12 +78,39 @@ soon as its file list arrives, before anything downloads.
 
 | Row `state` | Row `error` | Meaning |
 |---|---|---|
-| `error` | `This download wasn't a real video file, so TorrentFlow is looking for another release.` | Finished, failed the check. The files stay until the owner deletes the row. Wanted episodes and films go back to the wanted queue, which never picks the same release again. |
+| `error` | `This download wasn't a real video file, so TorrentFlow is looking for another release.` | Finished, failed the check. The files stay until the owner deletes the row. Wanted episodes and films go back to the wanted queue, and the same release is refused while this row is in Downloads (deleting the row lifts that). |
 | `error` | `This release has a program file in it, so TorrentFlow didn't download it.` | Refused when its file list arrived (a magnet added by hand). |
 | `error` | `This release has no video file in it, so TorrentFlow didn't download it.` | Same, for archive-only or no-video releases. |
-| `error` | `Couldn't check this download. Close any app using its files, then press Resume to check it again.` | A file could not be read, even after retries. Not accepted as downloaded and not deleted. Resume checks it again. |
+| `error` | `Couldn't check this download. Close any app using its files, then press Retry to check it again.` | A file could not be read, even after retries. Not accepted as downloaded and not deleted. Retry (the row's `resume` action) checks it again. |
 
-An add (`POST /api/torrent/send`, grabs, requests) of a release whose file list is refused fails with the same
-"program file" or "no video file" message, and so does re-adding a release that already failed the check
-(`This release already turned out not to be a real video file, so TorrentFlow won't download it again.`). Automatic
-grabs then try the next release on their own.
+### Refused adds
+
+An add of a release whose file list is refused never creates a row and downloads nothing.
+`POST /api/torrent/send` answers `502` with `code: "SEND_FAILED"`, the user-facing `message`, and `unusable`:
+
+| `unusable` | `message` |
+|---|---|
+| `dangerous` | `This release has a program file in it, so TorrentFlow didn't download it.` |
+| `no_video` | `This release has no video file in it, so TorrentFlow didn't download it.` |
+| `fake` | `This release already turned out not to be a real video file, so TorrentFlow won't download it again.` (its failed row is still in Downloads) |
+
+`unusable` is left out of every other send failure. Grabs (title page, wanted queue, requests) record the same refusal
+as failure code `bad_release` ("The release we picked had a program file or no video in it.") and try the next release
+on their own.
+
+## Removed with streaming
+
+These routes are gone and answer 404: `GET|HEAD /api/stream/{infoHash}[/{file}]`, `POST /api/stream/{infoHash}/select`,
+every `/api/playback/*` route (`plan`, `switch`, `failover`, `candidates`, `status`, `hls`, `vod`),
+`/api/subtitles/{infoHash}`, `/api/prewarm`, `/api/prewarm/swarm-probe`, `GET|POST /api/progress`,
+`POST /api/settings/retention-sweep` and `POST /api/desktop/ffmpeg/download`.
+
+Fields that are gone: `streaming` on `GET /api/features`, `playable` on Downloads rows, `ffmpeg` on `GET /api/desktop`
+and `streamLeases` on `GET /api/diagnostics/health`. `defaultRetentionPolicy` on `GET /api/settings/client` is always
+`"KEPT"`. Sends and grabs still accept `retention: "stream"` from older pages and treat it as keep.
+
+Data: the `RemoveStreaming` migration drops watch progress (`PlaybackProgress`) and swarm measurements
+(`SwarmMeasurement`), and deletes stream and prewarm transfers and stream-only history and grab rows. Before it
+migrates, TorrentFlow copies the database to `<data>/backups/<name>-before-<migration>-<time>.db` (the newest five are
+kept) and logs the row counts before and after. If the copy fails, TorrentFlow stops and leaves the database as it was.
+Files that streams left on disk are not deleted.

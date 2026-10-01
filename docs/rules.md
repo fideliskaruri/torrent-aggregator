@@ -5,6 +5,7 @@ Standing rules from the owner. Every agent reads this before starting work. When
 ## Product and UI
 
 - One UI for everyone. Roles only hide actions and pages; they never get their own shell, search or components. A requester sees "Request" where the owner sees "Download".
+- No in-app playback or streaming. A finished download opens in the owner's own player, or in the file manager with the file selected ([api-open-file.md](api-open-file.md)). TorrentFlow checks downloads itself and never needs ffmpeg or ffprobe.
 - Keep the existing design system (tokens in the web CSS vars, `components/ui`, `components/tf`). Don't invent new looks or recolour controls that were fine.
 - Contrast: text and icons must meet WCAG AA (4.5:1 for text, 3:1 for icons and large text) in every state. Don't put a glyph in the primary colour on a primary fill.
 - Mobile: check at an `innerWidth` of 390 (Windows DPI 1.25 means about a 488px viewport). Touch targets are 44px or more, text is 12px or more, and nothing sits under the bottom nav. Check 1280 too, for desktop regressions.

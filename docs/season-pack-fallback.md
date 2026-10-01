@@ -6,6 +6,11 @@ section below is binding and describes what the code does. Everything after it i
 Code references are to `feat/pack-plan` after the merge with `origin/main` `2597cd8` (season-speed changes to
 `GrabService`, `SeasonFanout`, `WantedQueue`, `IndexerHttp`). They name types and methods, not line numbers.
 
+Streaming has since been removed (BUG-J, `fix/no-stream`; see [api-open-file.md](api-open-file.md)). `TorrentFlow.Media`
+(`StreamService`, `PrewarmController`, `Media/Common/Stall.cs`), `MonoTorrentBackend.OpenStreamAsync`,
+`BrowseService.ResolveNextEpisode`, `RetentionSweeper` and the stream/prewarm transfer kinds no longer exist.
+References to them below, and the playback rows in the plan and test tables, are historical.
+
 ## v1 scope
 
 ### Owner decisions (assumed for v1)

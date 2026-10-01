@@ -7,8 +7,7 @@ owner sessions share the local owner's feed.
 
 Owners receive new-request, download-completed and download-failed notifications.
 Requesters receive approval, decline and fulfillment updates, plus an update if
-an approved request cannot find a download. Streaming/prewarm transfers do not
-generate owner alerts. Notifications start when this version is installed;
+an approved request cannot find a download. Notifications start when this version is installed;
 historical activity remains in the download log.
 
 ## API

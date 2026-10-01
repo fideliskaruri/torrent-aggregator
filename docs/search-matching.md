@@ -1,5 +1,9 @@
 # Search-to-release matching: investigation
 
+Streaming has since been removed (BUG-J, `fix/no-stream`). `server/TorrentFlow.Media` (playback release selection,
+prewarm ranking) no longer exists, so the playback and prewarm rows below are historical; downloads are the only
+consumer of release selection.
+
 ## Fix status (September 28, 2026)
 
 - One-pipeline follow-up: title/season/request/watchlist and episode-rule acquisition now share `GrabService.Grab → Episode`; the separate `Hunt`/`SearchAnimeHunt` implementations are gone. Anime recovery and dubbed-only filtering are common, Nyaa is retained for requests/swaps, and automatic picks require valid metadata before admission with next-candidate fallback. Requests retain partial progress and support owner retry of missing coordinates. Live MHA S5–6 requests admitted **50/50 metadata-confirmed episodes**, including S6E25; 19 dead candidates were skipped. See [one-pipeline.md](one-pipeline.md) for the five-bullet trace, isolation, tests and limitations. Historical route tables below describe the investigation baseline, not the current dispatch.

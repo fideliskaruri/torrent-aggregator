@@ -119,7 +119,7 @@ Access and is not in `OwnerEmails` becomes a requester while `AllowRequesters` i
   `GET /api/title/{workKey}`, `GET /api/title/{workKey}/extras`, `GET /api/browse`,
   `GET /api/recommendations`, `POST /api/artwork`. Plus static assets and the SPA fallback. Everything
   else, and any other method on those paths, gets 403 `{ code: "requester_forbidden" }`: title
-  progress, library, watchlist, indexer search, downloads, streaming, settings, the owner's
+  progress, library, watchlist, indexer search, downloads, opening files, settings, the owner's
   `/api/requests` list, deletion.
 - Catalog answers to a requester go through `RequesterCatalogProjectionMiddleware`: magnets, info
   hashes, releases/torrents, file paths, stream URLs and progress/transfer state are removed, and
@@ -154,15 +154,13 @@ carrying `Cf-Ray`, `Cf-Connecting-Ip`, `Cf-Access-Jwt-Assertion` or `Cdn-Loop: c
 access is off. Fix it by changing the tunnel's service to that URL
 (`http://<TunnelBindAddress>:<TunnelPort>`).
 
-## Streaming is off remotely
+## Opening files is off remotely
 
-`/api/stream`, `/api/playback`, `/api/prewarm` and `/api/subtitles` answer 404 with
-`streamingDisabled: true` on the tunnel listener, and `/api/features` reports `streaming: false` there, so
-the SPA hides playback. Cloudflare's service terms restrict serving video and other large media through
-its proxy (they point to Stream, Images or R2 instead), and its 100 s proxy timeout breaks long-lived
-media responses. Browse, search, downloads, library and settings all work remotely for owners.
-Server-side folder launching is also unavailable through the tunnel: `/api/features` reports
-`openFolder: false`, and `/api/settings/open-folder` returns 409 before launching a file manager.
+TorrentFlow has no streaming (see [rules.md](rules.md)), so no video is served through the tunnel. Launching anything
+on the computer running TorrentFlow is refused through the tunnel too: `/api/features` reports `openFolder: false`,
+`/api/settings/open-folder` returns 409 before launching a file manager, and `POST /api/downloads/{id}/open` returns
+409 `{ ok: false, reason: "remote", openFolderDisabled: true }` before routing (see [api-open-file.md](api-open-file.md)).
+Browse, search, downloads, library and settings all work remotely for owners.
 
 ## Browser details
 
@@ -292,7 +290,7 @@ key source is swapped in Development.
    ```
 
    Open `http://127.0.0.1:3939` in a browser for the requester SPA shell, or `:3938` for the owner shell
-   through the tunnel (streaming stays off on the tunnel path, same as real Cloudflare).
+   through the tunnel (opening files on this computer stays off on the tunnel path, same as real Cloudflare).
 
 ## Tests
 

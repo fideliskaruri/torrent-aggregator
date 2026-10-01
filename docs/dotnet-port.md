@@ -173,7 +173,6 @@ server/
   TorrentFlow.Metadata/       metadata providers, catalog, browse, artwork, suggest, titles search
   TorrentFlow.Engine/         MonoTorrent engine, download queue, client/torrents API, settings
   TorrentFlow.Library/        watchlist, on-demand grabs, rules, automation, history, activity
-  TorrentFlow.Media/          streaming, ffmpeg/HLS, probes, subtitles, playback, prewarm
   tests/TorrentFlow.<X>.Tests xUnit
 web/                          Vite + React SPA (built into web/dist, served by the API host)
 ```
@@ -279,8 +278,7 @@ opening an empty database. Explicit and portable directories are not automatical
 3. If only media files remain, choose and **save** the existing download folder, then click
    **Import existing downloads** in Settings (also offered on an empty Downloads page).
    Recovery is repeatable: existing tracked files are skipped. Video files without metadata become
-   completed, kept, non-seeding rows; they use the usual Library, playback and deletion paths.
-   Playback still requires enabling the existing streaming feature.
+   completed, kept, non-seeding rows; they use the usual Library, open-file and deletion paths.
 4. Matching `.torrent` metadata from `engine/torrents` or `engine/metadata` restores a real torrent
    against existing files for hash checking and seeding. Fast-resume data alone cannot identify
    the original files without torrent metadata. Non-media, links, empty files and `.part` files are
@@ -393,7 +391,7 @@ future sends, not ownership of existing transfers. Every list row carries `owner
 the external connection. Controls verify the recorded owner; file deletion refuses unknown or
 overlapping other owners, and remote deletion is verified before clearing remembered transfer rows.
 Connection tests use the same adapters as sends and controls. The `ITorrentEngine` contract remains
-the built-in engine contract for streaming and queue consumers.
+the built-in engine contract for queue consumers.
 
 `ExternalClientTests` replays the TypeScript adapter fixtures, authentication handshakes, status mappings,
 and download-layout assertions. `ExternalRouteTests` uses the API test factory with fake HTTP handlers
@@ -474,26 +472,20 @@ standard `cat=` roots, falling back to `t=search` when the indexer rejects the t
 `category`; the magnet is `magneturl`, a magnet `link`, or one built from `infohash`, and an http(s) `link`
 or enclosure becomes `TorrentUrl`.
 
-## Streaming (off by default)
+## Streaming (removed)
 
-In-app streaming (players, prewarm, swarm probes, subtitles) is switched off by `TorrentFlow:Engine:Streaming`
-(default `false`; env `TorrentFlow__Engine__Streaming=true` turns it back on). With it off:
-- The engine adds torrents with MonoTorrent's standard piece picker (`AddAsync`) rather than `AddStreamingAsync`.
-  On the same Ubuntu ISO swarm through `/api/torrent/send`, that went from 5.9 MB/s to 14.4 MB/s over 120 s.
-- Stream and prewarm adds are refused, and `retention: "stream"` becomes a normal kept download.
-- `/api/stream`, `/api/playback`, `/api/prewarm` and `/api/subtitles` answer 404 with `streamingDisabled: true`,
-  and the pre-probe scheduler isn't registered.
-- `GET /api/features` returns `{ "streaming": false }`. The SPA's `FeaturesProvider` hides all playback UI
-  and redirects `/watch/*` home.
-
-The streaming code is kept (and still tested with the flag on) so it can be reworked later.
+In-app streaming (players, HLS/VOD, prewarm, swarm probes, subtitles, watch progress) has been removed, along with
+`TorrentFlow.Media` and the ffmpeg/ffprobe tooling. The engine adds every torrent with MonoTorrent's standard piece
+picker (`AddAsync`). A finished download opens in the owner's own player or file manager through
+`POST /api/downloads/{id}/open`. [api-open-file.md](api-open-file.md) lists that contract, the routes and fields that
+went away, and the `RemoveStreaming` migration.
 
 ## Remote access
 
 Opt-in owner access from a phone or away from home through Cloudflare Tunnel + Access: a second listener
 (default `127.0.0.1:3940`) meant only for `cloudflared`, where every request needs a valid Access token for
 an owner email. The local listener stays the trusted owner and refuses Cloudflare-proxied requests (421).
-Streaming is off on the tunnel. See [remote-access.md](remote-access.md) for setup and the security model.
+Opening files on this computer is off on the tunnel. See [remote-access.md](remote-access.md) for setup and the security model.
 Other signed-in emails are requesters: they can only search titles and request them (see
 [requests.md](requests.md)).
 
@@ -531,6 +523,8 @@ on-demand WatchListItem, a paused Big Buck Bunny (CC) EngineTorrent with no magn
 title AcquisitionTarget linked to it. The library, title, progress, stream, subtitles and
 client/torrents reads therefore run against real rows. The .NET stream index resumes a paused
 transfer to serve it, and the magnet-less fixture then errors, so stream index reads run last.
+Streaming has since been removed from the .NET app (see "Streaming (removed)"), so its progress, stream and
+subtitles reads no longer have a .NET counterpart.
 
 Mutation routes are covered only by reviewed rejecting probes: missing/invalid/wrong-type
 bodies, malformed JSON, wrong content type, cross-site origin and invalid hashes. Each is
@@ -594,7 +588,7 @@ retain runtime-specific .NET memory metrics rather than inventing Node event-loo
 
 - Downloads at once: Settings saves `maxActiveDownloads` (1 to 20) on `ClientSettings`; null falls
   back to `TorrentFlow:Engine:MaxActiveDownloads` / `TORRENTFLOW_MAX_ACTIVE_DOWNLOADS` (default 2).
-  Raising it starts queued rows immediately; lowering it immediately returns the running tail to the queue (forced rows and open streams keep their slot; progress stays on disk).
+  Raising it starts queued rows immediately; lowering it immediately returns the running tail to the queue (forced rows keep their slot; progress stays on disk).
 - Resume is an owner override, unlike the Next engine: it starts the transfer now (marked forced,
   like Download now) even when every slot is taken, including a queued row. Nothing is preempted.
 - Download hours (`ClientSettings.downloadWindows`, JSON; Settings → Downloads): weekly rules of
@@ -621,7 +615,7 @@ retain runtime-specific .NET memory metrics rather than inventing Node event-loo
   asks for the folder and space limit in place (`DownloadSetupProvider`, mounted in the root
   layout, reusing Settings' `DownloadLocationFields`), saves them, then sends. Direct keep sends
   call `ensureDownloadSetup()` first; `useStorageCapOverride` answers a server `setup` refusal the
-  same way and retries once. Streams never ask.
+  same way and retries once.
 
 ## Single-exe distribution
 
@@ -640,7 +634,7 @@ folder stays self-contained. Pass `--urls http://127.0.0.1:3000` to override the
 `--no-browser` to suppress the automatic browser launch.
 
 On Windows the published exe has no console window: it runs from a tray icon, can start with
-Windows, checks GitHub for updates and can download ffmpeg on demand. `.\scripts\publish-exe.ps1
+Windows and checks GitHub for updates. `.\scripts\publish-exe.ps1
 -Version 1.2.3 -Installer` also builds the per-user installer. See [windows-install.md](windows-install.md).
 
 ## Folder distribution
@@ -659,7 +653,7 @@ See the root README for data migration and environment configuration.
 
 `TorrentFlow.Library` implements watchlist CRUD/check, on-demand acquisition, deletion plans and
 confirmed deletion, backfill estimates, rules CRUD/run, automation/run and its hosted scheduler,
-history, activity/unread, playback progress, and title detail/acquisition/progress.
+history, activity/unread, and title detail/acquisition/progress.
 Feature slices live in `server\TorrentFlow.Library\Features`; there are no schema migrations.
 
 Acquisition calls `ITorrentEngine.AddAsync` with the canonical work ID, expected bytes and sortable
@@ -670,16 +664,12 @@ Deletion requires confirmation and refuses an episode cut out of a multi-episode
 Title pack coverage requires persisted completion/verification evidence, ignores extras, and
 does not invent episode transfers for a pack.
 
-Optional cross-module integrations are `ILibraryArtworkResolver`, `ILibraryAnimeLookup` and
-`ILibraryPlaybackObserver` in `TorrentFlow.Core\Contracts\Library`. All have safe
-`TryAddSingleton` defaults. Metadata replaces the first two with `services.Replace`.
+Optional cross-module integrations are `ILibraryArtworkResolver` and `ILibraryAnimeLookup` in
+`TorrentFlow.Core\Contracts\Library`. Both have safe `TryAddSingleton` defaults, and Metadata replaces
+them with `services.Replace`.
 `LibraryArtworkResolver` wraps `ArtworkResolver`, and title detail calls it only when there is
 neither a poster nor a backdrop. The call has a 1,200 ms budget and fills both fields, which is
 how Next's remote fallback works. `LibraryAnimeLookup` wraps `AniListClient`.
-
-Media overrides the no-op playback observer with `PrewarmPlaybackObserver` (registered with
-`services.Replace` in `PrewarmFeature`). It forwards each progress ping to
-`PrewarmService.OnPlaybackProgressAsync`, as the TS progress route calls `onPlaybackProgress`.
 
 Episode grabs use a port of the TypeScript on-demand ladder (`Features\Grabs\EpisodeLadder.cs`). Rungs
 come in this order:
@@ -771,19 +761,21 @@ each file at `<save>/<torrent path>` (`BackendAddSpec.FlattenWrapper`, `MonoTorr
 the paths are recorded (`CompletedLayoutManifestStore.Place`) so a restart resumes them. A file stays in
 `<save>/<release name>/` only when its flat path is taken (on disk, or written by another loaded torrent), so
 releases never overwrite each other mid-download. Magnets resumed without a metadata wait keep the release folder
-until completion. After completion, once the torrent is detached and no stream is open (a `TrackedStream` close runs a deferred
-layout), `CompletedLayoutFinalizer`:
+until completion. After completion, once the torrent is detached, `CompletedLayoutFinalizer`:
 
-1. Optionally validates with ffprobe (`TorrentFlow:Media:FfprobePath`, then `FFPROBE_PATH`, then
-   `node_modules/ffprobe-static`, then `PATH`; if none is found, it logs once and skips). When no playable
-   video is found, the row becomes an error and the matching acquisition targets become `failed`.
+1. Checks the files with the built-in `CompletedMediaValidator` (no ffprobe or other process; the rules are in
+   [api-open-file.md](api-open-file.md), "Checking downloads"). A fake release becomes an error row, its matching
+   acquisition targets become `failed`, and another release is picked. A file that still can't be read after two
+   retries leaves an error row that says "Couldn't check this download"; nothing is accepted or deleted, and Retry
+   checks it again. The same program-file and no-video rules (`MediaFileRules`) refuse a release from its file list
+   before anything downloads.
 2. Plans the layout file by file (`ContentLayoutPlanner`). The goal is that every video lands directly in
    the save path (`TV/<Show>/Season 01/Show.S01E03….mkv`).
    - Wrapper folders are dropped and multi-season packs get `Season NN` folders, as in the TypeScript planner.
    - A folder named after the one episode it holds (`Pack/Show.S01E01.x/…`) is hoisted.
    - A subtitle belongs to a video when it is named after the video, sits in `Subs/<video name>/`, or sits in
      a `Subs` folder of a release with a single video. It moves beside that video as
-     `<video>.<name>.srt`, so the player picks it up.
+     `<video>.<name>.srt`, so a desktop player picks it up.
    - An extra (sample, `.nfo`, screenshots, `.txt`) that would collide with a file another release owns, a
      file of a different size, or a directory is moved aside under the release name, for example
      `Sample/<release>/sample.mkv` or `<release>.<name>.nfo`. When even that path is taken, the extra stays
@@ -806,85 +798,11 @@ layout), `CompletedLayoutFinalizer`:
 **Tidy folders.** Downloads that finished before this layout existed, or before a restart, can still be
 nested. The Downloads page button **Tidy folders** calls `POST /api/client/torrents/tidy`
 (`ILayoutTidy`). It re-runs the layout over every parked, verified download, oldest first. It skips
-transfers the client holds or a reader has open, and it does not re-probe media. It returns
-`{ checked, tidied, filesMoved, stillNested, skipped }` and updates the manifests, so streaming and Open
+transfers the client still holds, and it does not re-check media. It returns
+`{ checked, tidied, filesMoved, stillNested, skipped }` and updates the manifests, so Open and Show in
 folder keep working. Finished downloads are detached from MonoTorrent rather than seeded; a later re-add
 uses the recorded paths.
 
 The smart `TV/<Show>/Season NN` / `Movies/<Title>` save path is chosen by the caller when the download is
 sent. The layout only works inside the row's save path. Transfers handled by an external client
 (qBittorrent / Transmission) are not laid out.
-
-## Subtitle endpoint
-
-`TorrentFlow.Media/Features/Subtitles` owns GET/HEAD/DELETE `/api/subtitles/{infoHash}`.
-Track discovery uses cached `MediaProbe` streams and engine file metadata; content is produced only
-when requested. Sidecars preserve the existing UTF-8 `TextDecoder` behavior (including BOM stripping
-and replacement of malformed bytes), rather than guessing a legacy encoding. SRT conversion is
-in-process; ASS/SSA conversion and embedded 10-minute windows use ffmpeg. Windows start on an
-8-minute stride, independently of the playback offset.
-Embedded extraction retains source timestamps (`-copyts`) and uses an absolute window end
-(`-to`). Input seeking alone can return subtitle preroll rather than window-relative cues,
-including with the original TypeScript arguments. The service drops expired cues, clamps cues
-crossing the start, and rebases once before caching. Embedded cache keys are versioned so
-previously cached, incorrectly timed results are not reused; sidecar keys remain unchanged.
-
-Embedded extraction exposes the engine's seekable streams through an ephemeral, token-addressed
-loopback HTTP input; it never stages a whole video or trusts a request Host header. Extractions share
-in-flight work, retain per-consumer cancellation, and run at most two jobs with sixteen queued.
-Derived VTTs use a 512 MiB LRU disk cache under the data directory's `.sessions/subtitles`.
-
-ffmpeg/ffprobe come from the shared `Media/Tools/FfmpegLocator` (see the Media module section); a
-missing binary surfaces as an `IOException` inside the feature.
-Route tests use an in-memory host and fake engine, with no swarms or external requests.
-Optional ffmpeg fixture tests skip explicitly when the executable is unavailable.
-
-## Media module (`server/TorrentFlow.Media`)
-
-Ports `src/app/api/{stream,playback}` and the media, playback and HLS/VOD logic in `src/lib`.
-Subtitles (`Features/Subtitles`) and prewarm (`Features/Prewarm`: `/api/prewarm`, swarm probe,
-`EngineSwarmProbeEngine`, pre-probe scheduler) are separate features registered from the same `MediaModule`.
-Streaming and playback reuse prewarm's `ForegroundTracker` and `SwarmMeasurements` and subtitles'
-`SubtitleRules` (srt→vtt, embedded tracks) rather than keeping copies.
-
-Endpoints: `GET/HEAD /api/stream/{infoHash}` (file index; 425 while metadata loads),
-`GET/HEAD /api/stream/{infoHash}/{**filePath}` (Range serving through `ITorrentEngine.OpenFileStreamAsync`;
-same parser semantics as npm `range-parser`, open-ended ranges capped, `.srt` sidecars converted to
-WebVTT), `POST /api/stream/{infoHash}/select`, `POST /api/playback/{plan,candidates,failover,switch}`,
-`GET /api/playback/status`, `GET/HEAD /api/playback/hls/{sessionId}/{**segment}`,
-`GET/HEAD /api/playback/vod/{vodId}/{**file}`.
-
-Registration: `MediaModule.AddMediaModule` only calls per-feature extension methods: `AddMediaCore`,
-`AddMediaProbing`, `AddMediaStreaming`, `AddMediaPlayback` (`Common/MediaServiceCollectionExtensions.cs`)
-and `AddMediaSessions` (`Hls/MediaSessionHost.cs`). New media features add their own `AddMedia<Feature>()`
-method and one call line there. `AddMediaCore` uses TryAdd throughout and registers the shared services:
-options, `IProcessRunner`, `FfmpegLocator`, `MediaPaths` and `MediaSettings`. The Engine's content layout
-keeps its own `FfprobeLocator` (same order) because Engine cannot reference Media.
-
-ffmpeg/ffprobe resolution is `TorrentFlow.Media.Tools.FfmpegLocator` (`ResolveFfmpeg`/`ResolveFfprobe`,
-or the `TryResolve*` variants; register it with `services.AddFfmpegLocator()`). First hit wins:
-
-1. `TorrentFlow:Media:FfmpegPath` / `TorrentFlow:Media:FfprobePath`
-2. `FFMPEG_PATH` / `FFPROBE_PATH`
-3. The binaries the TypeScript app ships: `node_modules/ffmpeg-static/ffmpeg[.exe]` and
-   `node_modules/ffprobe-static/bin/<platform>/<arch>/ffprobe[.exe]`, searched upward from the content
-   root, the working directory, the app base directory and `TorrentFlow:Media:NodeModulesRoot`
-4. `PATH`
-
-A missing binary throws `FfmpegBinaryMissingException`. Direct playback still works; plans that need a
-session report the error.
-
-Options (`TorrentFlow:Media`): `SessionsDirectory` (default `<DataDirectory>/.sessions`),
-`MaxConcurrentSessions` (4), `SessionIdleTimeoutSeconds` (120) and `SwarmWatchEnabled`.
-`MediaSessionHost` removes stale session directories at startup, reaps idle HLS sessions and kills every
-ffmpeg process on shutdown.
-
-Engine additions for this module:
-
-- `ITorrentEngine.GetDownloadedRangesAsync` (default: empty) and `EngineTorrent.BytesReceived`
-  (`[JsonIgnore]`), used by the probe and swarm measurements.
-- The engine multiplexes MonoTorrent's single `StreamProvider` stream (`SharedTorrentStreams`), so
-  concurrent readers such as the player, ffprobe and ffmpeg can share one file.
-
-Known gaps compared with TS: no hybrid disk+engine serving or completed-media recovery, and a simplified
-`rankResultsForTarget`/work filter.
