@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { toast } from "@/lib/toast";
 import type { BrowsePayload, RailItem } from "@/lib/browse";
@@ -22,7 +22,7 @@ import { Rail, RailGrid } from "./rail";
  * is a single place that knows what is in flight and a single place a
  * duplicate grab could be prevented.
  */
-export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
+export function BrowseBoard({ payload, filters }: { payload: BrowsePayload; filters?: ReactNode }) {
   const [statuses, setStatuses] = useState<Record<string, ActionStatus>>({});
   const { ensureDownloadSetup } = useDownloadSetup();
 
@@ -95,6 +95,7 @@ export function BrowseBoard({ payload }: { payload: BrowsePayload }) {
       ) : null}
 
       <div className="container-app min-w-0 pb-14" data-browse-board>
+        {filters}
         {genrePage
           ? shownRails.map((rail) => (
               <RailGrid

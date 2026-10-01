@@ -28,7 +28,7 @@ import {
 import { TfErrorState } from "@/components/tf/error-state";
 import { BrowseBoard } from "./browse-board";
 import { BrowseEmptyState, type BrowseEmptyView } from "./browse-empty-state";
-import { BrowseNav } from "./browse-nav";
+import { BrowseNav, GenreFilters } from "./browse-nav";
 import { BrowseSkeleton } from "./browse-skeleton";
 import { isFirstRun } from "./first-run";
 import { useApiQuery } from "@/hooks/use-api-query";
@@ -80,7 +80,8 @@ function BrowseFirstRunView({
   const rails = useMemo(() => data?.rails ?? [], [data]);
   const showLoading = useStableLoading(loading && !data && !error);
   const genres = data?.genres ?? knownGenres.get(query.view) ?? [];
-  const nav = <BrowseNav query={query} genres={genres} />;
+  const filters = <GenreFilters query={query} genres={genres} />;
+  const nav = <BrowseNav query={query} />;
 
   const failure = data ? null : (error ?? (dismissedServerError ? null : serverError));
 
@@ -88,6 +89,7 @@ function BrowseFirstRunView({
     return (
       <>
         {nav}
+        <div className="container-app min-w-0">{filters}</div>
         <div className="container-app min-w-0 py-14">
           <TfErrorState
             title="Browse could not load"
@@ -109,6 +111,7 @@ function BrowseFirstRunView({
     return (
       <>
         {nav}
+        <div className="container-app min-w-0">{filters}</div>
         <BrowseSkeleton visible={showLoading} grid={Boolean(query.genre)} />
       </>
     );
@@ -120,7 +123,7 @@ function BrowseFirstRunView({
     return (
       <>
         {nav}
-        <BrowseBoard payload={data} />
+        <BrowseBoard payload={data} filters={filters} />
       </>
     );
   }
@@ -129,6 +132,7 @@ function BrowseFirstRunView({
     <>
       {nav}
       <div className="container-app min-w-0">
+        {filters}
         <BrowseEmptyState onRetry={onReload} view={emptyView(query, genres)} />
       </div>
     </>
