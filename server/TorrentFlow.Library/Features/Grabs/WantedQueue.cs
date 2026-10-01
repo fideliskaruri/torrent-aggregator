@@ -535,7 +535,7 @@ public sealed class WantedQueue(IDbContextFactory<TorrentFlowDbContext> factory,
         var input = new GrabInput(work.CanonicalTitle, work.MediaType, WatchListItemId: watchId, WorkId: work.Id,
             PreferredResolution: plan?.Resolution ?? rows.Select(r => r.PreferredResolution).FirstOrDefault(r => r != null),
             OverrideStorageCap: plan?.OverrideStorageCap ?? false, Aliases: aliases, Year: work.Year, WorkKey: work.WorkKey, Lane: lane,
-            Provider: work.Provider, ProviderId: work.ProviderId, ReuseExisting: true, Urgent: plan?.Single ?? false,
+            Provider: work.Provider, ProviderId: work.ProviderId, Urgent: plan?.Single ?? false,
             Admitted: hash => record.Admitted.TryAdd(hash.ToLowerInvariant(), 0));
         var tracked = rows.ToDictionary(r => r.TargetKey, r => r.Episode);
         var workId = work.Id;

@@ -26,7 +26,7 @@ public sealed record GrabInput(string Title, string MediaType, EpisodeCursor? Cu
     bool OverrideStorageCap = false, IReadOnlyList<string>? Aliases = null,
     bool Background = false, int? Year = null, string? WorkKey = null, string? Lane = null,
     string? Provider = null, string? ProviderId = null, AnimeEpisodeMapping? EpisodeMapping = null,
-    SearchFilters? Constraints = null, string[]? Sources = null, bool ReuseExisting = false, bool Urgent = false, bool? Anime = null,
+    SearchFilters? Constraints = null, string[]? Sources = null, bool Urgent = false, bool? Anime = null,
     LanguageWant? Language = null, IReadOnlySet<string>? Blocked = null, Action<string>? Admitted = null)
 {
     /// <summary>Background hunts are automation; anything the owner pressed is the owner's lane unless named.</summary>
@@ -67,9 +67,10 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
 
     public async Task<GrabResult> Grab(GrabInput input, CancellationToken ct, Func<Task>? beforeSend = null)
     {
-        if (!input.ReuseExisting || input.WorkId == null || input.Cursor == null)
-            return await GrabCore(input, ct, beforeSend);
-        var key = $"{input.WorkId}:{input.Cursor.Value.QueueKey}:{input.PreferredResolution}";
+        if (!Dedupes(input)) return await GrabCore(input, ct, beforeSend);
+        // One episode is grabbed once, whichever path (a request, the hunter, a season, a click) gets there first:
+        // every caller for the same episode joins the attempt in flight, whatever quality it asked for.
+        var key = $"{input.WorkId}:{input.Cursor!.Value.QueueKey}";
         Task<GrabResult> work;
         lock (episodeGate)
         {
@@ -93,7 +94,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         var plain = Apostrophes.Normalize(input.Title);
         var query = input.Cursor?.Query(plain) ?? plain;
         await using var db = await factory.CreateDbContextAsync(ct);
-        if (input.ReuseExisting && input.WorkId != null && input.Cursor is { } requested)
+        if (Dedupes(input) && input.Cursor is { } requested)
         {
             var existing = await db.EngineTorrents.AsNoTracking().FirstOrDefaultAsync(t => t.UserId == LocalUser.Id &&
                 t.WorkId == input.WorkId && t.QueueKey == requested.QueueKey && t.Origin == TorrentOrigin.User &&
@@ -101,7 +102,7 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
             if (existing != null)
                 return new(true, "This episode has already started.") { InfoHash = existing.Hash, Title = existing.Name,
                     Queued = existing.Status == EngineTorrentStatus.Queued, Query = query };
-            if (await PackOwner(db, input.WorkId, requested, ct) is { } pack)
+            if (await PackOwner(db, input.WorkId!, requested, ct) is { } pack)
                 return new(true, "This episode is already downloading as part of a season pack.") { InfoHash = pack.Hash, Title = pack.Name,
                     Queued = pack.Status == EngineTorrentStatus.Queued, Query = query };
         }
@@ -111,6 +112,12 @@ public sealed partial class GrabService(IDbContextFactory<TorrentFlowDbContext> 
         if (input.Cursor is { } cursor) return await Episode(db, settings!, input, cursor, query, floor, beforeSend, ct);
         return await Film(db, settings!, input, floor, beforeSend, ct);
     }
+
+    /// <summary>
+    /// Episode grabs for a known work always reuse what is already on its way. The hunter and the on-demand click used
+    /// to skip this, so they could grab a second release for an episode a request or season run had already started.
+    /// </summary>
+    private static bool Dedupes(GrabInput input) => input.Cursor != null && input.WorkId != null;
 
     /// <summary>The healthy season pack transfer that owns this episode, if any.</summary>
     private static async Task<EngineTorrent?> PackOwner(TorrentFlowDbContext db, string workId, EpisodeCursor cursor, CancellationToken ct)
