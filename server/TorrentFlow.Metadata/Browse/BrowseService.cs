@@ -386,7 +386,38 @@ public sealed partial class BrowseService(
                 Genre = spec.Genre?.Id,
             });
         }
-        return rails;
+        return LeadWithAvailable(rails, view, now);
+    }
+
+    public const string CinemasRailId = "films-cinemas";
+    public const string CinemasRailTitle = "In cinemas";
+
+    /// <summary>
+    /// Home rows lead with what can be fetched now, judged by the gate that draws a card's "In cinemas" and "Coming"
+    /// chips (<see cref="ReleaseGates.Gate"/>). A film in cinemas leaves its row for one In cinemas row at the end of
+    /// All and Films (none on a genre page), and a film not out yet leaves home. A series or anime that has not aired
+    /// yet moves to the end of its row, so it never leads.
+    /// </summary>
+    public static List<Rail> LeadWithAvailable(IReadOnlyList<Rail> rails, HomeView view, DateTimeOffset now)
+    {
+        var output = new List<Rail>(rails.Count + 1);
+        var cinemas = new List<object>();
+        foreach (var rail in rails)
+        {
+            var open = new List<object>();
+            var later = new List<object>();
+            foreach (var card in rail.Items)
+            {
+                var gate = card is CatalogRailItem c ? ReleaseGates.Gate(c.ReleaseDate, c.MediaType, c.InTheatricalWindow, c.NextHomeReleaseAt, now) : null;
+                if (gate is not { Gated: true }) open.Add(card);
+                else if (gate.Reason == "theatrical") cinemas.Add(card);
+                else if (!HomeRelease.IsMovie(((RailItem)card).MediaType)) later.Add(card);
+            }
+            output.Add(rail with { Items = [.. open, .. later] });
+        }
+        if (cinemas.Count > 0 && view.GenreRail is null && view.Type is HomeRails.AllView or HomeRails.Films)
+            output.Add(new Rail(CinemasRailId, CinemasRailTitle, cinemas) { Kind = HomeRails.Films });
+        return output;
     }
 
     private async Task<Rail?> BuildBecauseRailAsync(string userId, DateTime? baseRefreshedAt, CancellationToken ct)

@@ -94,9 +94,11 @@ hardcodes rails or genres; it renders what the payload names.
 9. Top rated films (TMDB key only)
 10. Top rated series (TMDB key only)
 11. Top rated anime
+12. In cinemas (films still in their theatrical window, see "Available now first" below)
 
 **Films** (`/?type=films`): Popular films, New films, Top rated films, then genre rails: Action,
-Comedy, Drama, Thriller, Horror, Science fiction, Crime, Romance, Family, Documentary.
+Comedy, Drama, Thriller, Horror, Science fiction, Crime, Romance, Family, Documentary, then
+In cinemas last.
 
 **Series** (`/?type=series`): Popular series, New series, Top rated series, then: Drama, Comedy,
 Crime, Action and adventure, Sci-fi and fantasy, Mystery, Documentary, Reality.
@@ -117,6 +119,19 @@ Stability rules:
 - No torrent-chart fallback for home rails: a pirate top-100 is not a category.
 - Nothing is shuffled. Order is the provider's order at the daily refresh.
 
+**Available now first** (owner follow-up, 1 Oct). Home is for finding something to get, so rows
+lead with titles that can be fetched now. One rule decides, the card gate that draws the
+"In cinemas" and "Coming" chips (`ReleaseGates.Gate` on the server, `browseReleaseGate` on the
+web), applied in `BrowseService.LeadWithAvailable`:
+- A film in cinemas leaves Popular, New, Top rated, genre and Because rows for one In cinemas row,
+  last on All and Films. Genre pages, Series and Anime have no In cinemas row.
+- A film not out yet leaves home.
+- A series or anime that has not aired yet moves to the end of its row, so Anime this season
+  leads with what has started.
+- The hero is the first title that passes the same gate: Because you're watching first, then the
+  rows in page order, Downloaded last. It is never In cinemas, Coming or Unreleased, and it only
+  changes when the rows do (daily).
+
 ## 4. Type switch and genres
 
 - A type switch (All, Films, Series, Anime) sits at the top of home. Each option is a link
@@ -134,8 +149,13 @@ Each rail lists its feeds in order. TMDB feeds are skipped without a usable key.
 - Films and series: Popular, New and every genre come from Cinemeta. Top rated films and Top
   rated series have no keyless feed, so they are omitted (not shown empty).
 - Anime: all rails come from AniList either way.
-- Cinema chips need TMDB release dates; without a key, films still in cinemas show as normal cards
-  (existing behaviour).
+- In cinemas without TMDB release dates (no key, or TMDB lists none for the film): a film counts
+  as in cinemas for 21 days after its release date (`HomeRelease.UncheckedCinemaDays`). It is a
+  trade-off with no clear winner. Against TMDB's evidence for 121 home films on 1 Oct, 21 days
+  caught 12 of the 24 films still in cinemas and wrongly gated 16; 45 days caught 17 and wrongly
+  gated 34 (`shots\api\keyed2\calibration.txt`). So without a key, long cinema runs (The Odyssey,
+  digital on 15 Nov) still lead rows, and a streaming original released in the last 21 days
+  (Unabomber, Netflix) shows as In cinemas until it is 22 days old. With a key, TMDB decides.
 
 ## 6. Caching and performance budget
 
@@ -251,6 +271,9 @@ Evidence root: `D:\code\memtest\homecats\shots` (`api\keyless`, `api\keyed`, `ke
 | P8 | Copy rules | page text has no em dash; no sideways scroll; targets 44 px at 390 | No problems found | `walk.txt` (PROBLEMS lists only the expected 400 and the aborted request) |
 | P9 | Keyboard | Tab to a type chip, a genre chip and See all | All reached; focus ring visible | `focus-*.png` |
 | P10 | Empty and error | unknown genre (400), empty genre (mocked), API down (aborted) | Named error and empty states with Try again; chips stay | `state-*.png` |
+| P11 | Available now first (follow-up) | `tools\gates.py` applies the card gate to every card of All, 3 types and 2 genre pages; the walk checks the hero and each row's lead card | No film in cinemas or not out yet outside In cinemas; no row led by a gated card; In cinemas last on All and Films only; unaired anime at the end of Anime this season | `api\keyless2\gates.txt`, `api\keyed2\gates.txt`, `keyless2\walk.txt`, `keyed2\walk.txt` |
+| P12 | Hero available now (follow-up) | headless walk, both roles, 3 widths, both runs | Hero never gated: keyless Backrooms, keyed Unabomber (Popular films; out on Netflix per TMDB); Anime hero has aired | `keyless2\owner-all-1280.png`, `keyed2\owner-all-1280.png`, `walk.txt` |
+| P13 | Stable after the follow-up | 4 loads of each view, both runs | Identical in every view, no duplicates | `api\keyless2\summary.txt`, `api\keyed2\summary.txt` |
 
 ## 11. Critic findings and resolutions
 
@@ -270,4 +293,4 @@ One critic pass (gpt-5.6-luna) over this plan and the code paths it touches. Its
 | C10 | The web must not hardcode rail or genre ids. | Chips and See all links come from the payload. Only the four type routes are known to the web (`lib/browse/views.ts`). |
 | C11 | Query plumbing and the empty and error states were underspecified. | `type` and `genre` query params with a plain 400 message. The nav renders in every state. A named empty state per type or genre links to a wider view. |
 | C12 | The genre grid and accessibility. | `TitleCard` gained a grid layout. Navs carry `aria-label` and `aria-current`. Targets are 44 px on phones, and the focus ring is visible (P9). |
-| C13 | The hero would still change hourly. | The hero comes from the first rail, which is now stable for the day. Genre pages have no hero. |
+| C13 | The hero would still change hourly. | The hero comes from the rows, which are now stable for the day. Genre pages have no hero. Since the owner follow-up it is the first title available now (Because first), never one in cinemas or not out yet. |

@@ -9,6 +9,7 @@
  * Pure and DOM-free: `browse-ui.test.ts` drives it as a table.
  */
 import type { Rail, RailItem } from "@/lib/browse";
+import { browseReleaseGate } from "@/lib/browse/release-status";
 
 export interface HeroPick {
   item: RailItem;
@@ -18,7 +19,10 @@ export interface HeroPick {
 }
 
 /** Rails good enough to lead the page, best first. */
-const HERO_RAIL_PRIORITY = ["your-library"];
+const HERO_RAIL_PRIORITY = ["because-you-are-watching"];
+
+/** Already on this machine, so it only leads when nothing else can. */
+const HERO_LAST_RESORT = "your-library";
 
 // "Library" is the list of titles you add and track (the nav's Library, the
 // title page's "Add to library"), so the rail of files on disk never borrows it.
@@ -27,21 +31,27 @@ const EYEBROW_BY_RAIL: Record<string, string> = {
 };
 
 /**
- * The featured item.
+ * The featured item: the first title you can get now, never one in cinemas or
+ * not out yet (the same `browseReleaseGate` that draws the cards' chips).
  *
- * Preference order is "what is already here" → whatever exists. Within a rail
- * the first item wins, because every builder already orders by recency.
- * Returns null only when there is genuinely nothing, which is the new-install
- * case the empty state handles.
+ * Preference order is Because you're watching, then the rails in page order
+ * (popular first), then the Downloaded rail. Rails are stable for the day, so
+ * the hero is too. Returns null only when there is genuinely nothing, which is
+ * the new-install case the empty state handles.
  */
-export function pickHeroItem(rails: readonly Rail[]): HeroPick | null {
-  for (const railId of HERO_RAIL_PRIORITY) {
-    const rail = rails.find((r) => r.id === railId);
-    const item = rail?.items[0];
-    if (rail && item) return { item, railId: rail.id, eyebrow: eyebrowFor(rail) };
-  }
-  for (const rail of rails) {
-    const item = rail.items[0];
+export function pickHeroItem(
+  rails: readonly Rail[],
+  now: Date = new Date(),
+): HeroPick | null {
+  const ordered = [
+    ...HERO_RAIL_PRIORITY.flatMap((id) => rails.filter((r) => r.id === id)),
+    ...rails.filter(
+      (r) => !HERO_RAIL_PRIORITY.includes(r.id) && r.id !== HERO_LAST_RESORT,
+    ),
+    ...rails.filter((r) => r.id === HERO_LAST_RESORT),
+  ];
+  for (const rail of ordered) {
+    const item = rail.items.find((i) => !browseReleaseGate(i, now).gated);
     if (item) return { item, railId: rail.id, eyebrow: eyebrowFor(rail) };
   }
   return null;

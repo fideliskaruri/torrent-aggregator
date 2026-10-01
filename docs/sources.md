@@ -264,3 +264,12 @@ or thin refresh keeps yesterday's rows. Nothing is shuffled. A request waits (up
 12 s) only for its view's rails that have no rows; the rest refresh in the
 background, and the hourly worker refreshes every stale rail. Plan and proof:
 `docs/home-categories-plan.md`.
+
+Rows lead with what can be fetched now (`BrowseService.LeadWithAvailable`), judged by
+the card gate that draws the "In cinemas" and "Coming" chips (`ReleaseGates.Gate`).
+A film in cinemas moves to one In cinemas row, last on All and Films; a film not out
+yet leaves home; an unaired series or anime moves to the end of its row. The hero is
+the first ungated title, Because you're watching first. "In cinemas" follows TMDB
+release dates (`HomeReleaseCache`, cached 6 h, misses 15 min). With no dates (no key,
+or TMDB lists none) a film counts as in cinemas for 21 days after its release date
+(`HomeRelease.UncheckedCinemaDays`).

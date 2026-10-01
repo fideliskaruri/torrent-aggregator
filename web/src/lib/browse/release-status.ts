@@ -73,9 +73,10 @@ export interface TheatricalStatus {
    * True when the film is in its theatrical window: it has had a premiere or
    * theatrical release but no Digital/Physical/TV home release yet.
    *
-   * Only ever true when the TMDB release_dates endpoint actually responded —
-   * if the check was skipped or the endpoint failed, this stays false so the
-   * film remains available. Absence of evidence is not evidence of absence.
+   * The server decides it (`HomeRelease.TheatricalGateFromSignal`) and the same
+   * flag moves a film from home's main rows into its In cinemas row. With TMDB
+   * release dates it follows them. Without them (no key, or TMDB lists none) a
+   * film counts as in cinemas for 21 days after its release date.
    */
   inTheatricalWindow: boolean;
   /**

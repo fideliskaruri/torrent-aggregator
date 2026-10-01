@@ -96,12 +96,21 @@ public static partial class HomeRelease
         return new(true, First(theatricalPast), First(past), First(future));
     }
 
+    /// <summary>
+    /// With no TMDB release dates for a film (no key, or TMDB lists none), it counts as in cinemas for this many days
+    /// after its release date. Against TMDB's evidence for 121 home films on 1 Oct 2026 it caught 12 of the 24 still in
+    /// cinemas and wrongly gated 16; longer windows caught a few more for many more wrong (45 days: 17 and 34).
+    /// </summary>
+    public const int UncheckedCinemaDays = 21;
+
     public static TheatricalGate TheatricalGateFromSignal(string? mediaType, string? releaseDay, HomeReleaseSignal? signal, DateTimeOffset now)
     {
         if (!IsMovie(mediaType)) return TheatricalGate.Open;
         var today = Day(now);
         var primary = IsoDay(releaseDay);
-        if (primary is null || string.CompareOrdinal(primary, today) > 0 || signal?.Checked != true) return TheatricalGate.Open;
+        if (primary is null || string.CompareOrdinal(primary, today) > 0) return TheatricalGate.Open;
+        if (signal?.Checked != true)
+            return string.CompareOrdinal(primary, Day(now.AddDays(-UncheckedCinemaDays))) >= 0 ? new(true, null) : TheatricalGate.Open;
         var theatrical = IsoDay(signal.TheatricalReleasedAt);
         if (theatrical is null || string.CompareOrdinal(theatrical, today) > 0) return TheatricalGate.Open;
         var earliestHome = new[] { signal.ReleasedAt, signal.NextHomeReleaseAt }.Select(IsoDay).OfType<string>()
